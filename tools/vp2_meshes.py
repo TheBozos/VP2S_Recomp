@@ -13,10 +13,10 @@ applied here; the others (skinning 2 / 4, fade 44, UV scroll 48) depend on the f
 
 Output (game data: build tree only, never committed): <out>/<asset part>.msh (the asset file's name without its
 extension), a list of meshes:
-  u32 magic 'VPM1', u32 mesh count, then per mesh:
+  u32 magic 'VPM2', u32 mesh count, then per mesh:
     u32 offset of the mesh in the asset file, u32 vertex count, u32 strip count, u32 flags (header 2.x),
     i32 group mask (header 6.y), i32 routines[4], i32 routine data offsets[4] (rows from the mesh's top),
-    f32 bounding centre[3], u32 has material,
+    f32 bounding centre[3], u32 has material, u32 header rows 8..12[20] (8.y the lighting mode),
     material (16 u32 words when it has one: ALPHA lo/hi, TEX0 lo/hi, strip tag PRIM, cull flag, texture index, then
       the raw rows' x lanes 7..15 for what is not decoded yet),
     u16 strip lengths[strip count] (padded to 4 bytes),
@@ -160,6 +160,8 @@ def convert(data, at, size):
     has_material = 1 if flags & 1 else 0
     out += struct.pack('<IIIIi4i4i3fI', at, count, strips, flags & 0xFFFFFFFF, group, *routines, *bases,
                        vu.f(top + 1, 0), vu.f(top + 1, 1), vu.f(top + 1, 2), has_material)
+    # Header rows 8..12 as written (8.y the lighting mode, 9.w the specular power, 12 the mode-3 weights).
+    out += struct.pack('<20I', *[vu.mem[(top + r) % 1024][c] & 0xFFFFFFFF for r in range(8, 13) for c in range(4)])
     if has_material:
         out += struct.pack('<16I', *[x & 0xFFFFFFFF for x in material(vu)])
     lens = [vu.i(lengths + s, 0) & 0xFFFF for s in range(strips)]
@@ -223,7 +225,7 @@ def main():
                 found = data.find(b'FPS\x00', found + 4)
             if meshes:
                 with open(os.path.join(a.out, os.path.splitext(name)[0] + '.msh'), 'wb') as f:
-                    f.write(struct.pack('<4sI', b'VPM1', len(meshes)) + b''.join(meshes))
+                    f.write(struct.pack('<4sI', b'VPM2', len(meshes)) + b''.join(meshes))
             files += 1
             if a.limit and files >= a.limit:
                 break

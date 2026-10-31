@@ -13,6 +13,7 @@
 
 #include <algorithm>
 #include <array>
+#include <cmath>
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
@@ -33,6 +34,7 @@ namespace
         int32_t bases[4] = {};
         float centre[3] = {};
         bool hasMaterial = false;
+        uint32_t rows8to12[20] = {}; // the unpacked rows 8..12 (the material block's: 8.y lighting mode, 9.w power, 12 weights)
         uint32_t material[16] = {};
         std::vector<uint16_t> strips;
         struct Vertex
@@ -93,7 +95,7 @@ namespace
             size_t at = 0;
             char magic[4] = {};
             uint32_t count = 0;
-            if (take(data, at, magic) && std::memcmp(magic, "VPM1", 4) == 0 && take(data, at, count))
+            if (take(data, at, magic) && std::memcmp(magic, "VPM2", 4) == 0 && take(data, at, count))
             {
                 file = std::make_shared<MeshFile>();
                 for (uint32_t m = 0; m < count; ++m)
@@ -102,7 +104,8 @@ namespace
                     uint32_t offset = 0, vertices = 0, strips = 0, hasMaterial = 0;
                     if (!take(data, at, offset) || !take(data, at, vertices) || !take(data, at, strips) ||
                         !take(data, at, mesh->flags) || !take(data, at, mesh->group) || !take(data, at, mesh->routines) ||
-                        !take(data, at, mesh->bases) || !take(data, at, mesh->centre) || !take(data, at, hasMaterial))
+                        !take(data, at, mesh->bases) || !take(data, at, mesh->centre) || !take(data, at, hasMaterial) ||
+                        !take(data, at, mesh->rows8to12))
                         break;
                     mesh->hasMaterial = hasMaterial != 0;
                     if (mesh->hasMaterial && !take(data, at, mesh->material))
@@ -214,6 +217,35 @@ namespace
             return;
         // The screen matrix: s = M330 * V * O (docs/vp2_models.md), as the renderer takes it (column c at [4c..4c+3]).
         const Mat4 screen = product(rows(rdram, camera + 0x330u), product(rows(rdram, camera + 0x2F0u), rows(rdram, object + 0x90u)));
+        // The object's lights, from its VU block rows as the game writes them each frame (row r at obj + 0x230 + 16 r):
+        // directions 1..4 (world space, taken to object space by O's normalised rotation, as the set-up program does),
+        // colours 5..8, ambient 19, the object colour 13, the flags 14 (.w lighting table A), the colour limit 0.
+        const auto objectRow = [&](uint32_t r) {
+            std::array<float, 4> v{};
+            for (uint32_t c = 0; c < 4u; ++c)
+                v[c] = real(rdram, object + 0x230u + 16u * r + 4u * c);
+            return v;
+        };
+        const Mat4 world = rows(rdram, object + 0x90u);
+        float rn[3][3];
+        for (int i = 0; i < 3; ++i)
+        {
+            const float length = std::sqrt(world[i][0] * world[i][0] + world[i][1] * world[i][1] + world[i][2] * world[i][2]);
+            for (int j = 0; j < 3; ++j)
+                rn[i][j] = length != 0.0f ? world[i][j] / length : 0.0f;
+        }
+        std::array<std::array<float, 3>, 4> lightDirection{};
+        std::array<std::array<float, 4>, 4> lightColour{};
+        for (uint32_t light = 0; light < 4u; ++light)
+        {
+            const auto d = objectRow(1u + light);
+            for (int j = 0; j < 3; ++j)
+                lightDirection[light][j] = rn[0][j] * d[0] + rn[1][j] * d[1] + rn[2][j] * d[2];
+            lightColour[light] = objectRow(5u + light);
+        }
+        const auto ambient = objectRow(19u), objectColour = objectRow(13u), limit = objectRow(0u);
+        const bool tableA = word(rdram, object + 0x230u + 16u * 14u + 12u) != 0u;
+        const bool plainColour = word(rdram, object + 0x230u + 16u * 14u) != 0u; // 14.x: the object colour is 1
         float matrix[16];
         for (int c = 0; c < 4; ++c)
             for (int r = 0; r < 4; ++r)
@@ -232,7 +264,7 @@ namespace
         const uint32_t count = word(rdram, model + 0x34u);
         const bool listed = list != 0u && rdram[(object + 0x7C2u) & 0x1FFFFFFu] != 0u;
         uint32_t cursor = model + 0x60u, block = 0u;
-        uint32_t carriedAlpha = 0x44u, carriedPrim = 0x1Cu, carriedTex0Hi = 0x4u; // a mesh without its own material keeps the previous one's
+        uint32_t carriedAlpha = 0x44u, carriedPrim = 0x1Cu, carriedTex0Hi = 0x4u, carriedMode = 0u; // a mesh without its own material keeps the previous one's
         std::vector<ps2x::native::Vertex> triangles;
         for (uint32_t i = 0; i < count && i < 4096u; ++i)
         {
@@ -309,6 +341,7 @@ namespace
                 carriedAlpha = m.material[0];
                 carriedPrim = m.material[4];
                 carriedTex0Hi = m.material[3];
+                carriedMode = m.material[1]; // row 8.y: the lighting mode
             }
             else if (block >= 0x40u && block - 0x40u != mesh)
             {
@@ -319,6 +352,7 @@ namespace
                     carriedAlpha = other->second->material[0];
                     carriedPrim = other->second->material[4];
                     carriedTex0Hi = other->second->material[3];
+                    carriedMode = other->second->material[1];
                 }
             }
             const uint32_t alpha = carriedAlpha;
@@ -399,7 +433,53 @@ namespace
                 out.z = p[2];
                 out.u = v.uv[0];
                 out.v = v.uv[1];
-                out.rgba = uint32_t{v.rgba[0]} | uint32_t{v.rgba[1]} << 8 | uint32_t{v.rgba[2]} << 16 | uint32_t{v.rgba[3]} << 24;
+                // The vertex colour lit as the mesh program does (lighting modes 0 and 1; the others not yet: as stored).
+                std::array<float, 4> factor{1.0f, 1.0f, 1.0f, 1.0f};
+                if (carriedMode == 0u)
+                {
+                    factor = objectColour;
+                    if (!tableA && !plainColour)
+                        factor[0] = factor[1] = factor[2] = 0.0f;
+                }
+                else if (carriedMode == 1u)
+                {
+                    // The normal, skinned like the position (w = 0).
+                    std::array<float, 3> n{v.normal[0], v.normal[1], v.normal[2]};
+                    if (palette != 0u && rigid)
+                    {
+                        const uint32_t bone = (static_cast<uint32_t>(v.position[3]) - 0x290u) / 4u;
+                        if (bone < bones)
+                            n = boneApply(rdram, palette + 64u * bone, v.normal, 0.0f);
+                    }
+                    else if (palette != 0u && weighted)
+                    {
+                        const Mesh::Bones &b = m.bones[k];
+                        const int32_t ba = (b.a - 0x290) / 4, bb = (b.b - 0x290) / 4;
+                        std::array<float, 3> sum{};
+                        bool any = false;
+                        for (const auto &[bone, weight] : {std::pair{ba, b.wa}, std::pair{bb, b.wb}})
+                            if (weight != 0.0f && bone >= 0 && static_cast<uint32_t>(bone) < bones)
+                            {
+                                const auto q = boneApply(rdram, palette + 64u * static_cast<uint32_t>(bone), v.normal, 0.0f);
+                                for (int c = 0; c < 3; ++c)
+                                    sum[c] += q[c] * weight;
+                                any = true;
+                            }
+                        if (any)
+                            n = sum;
+                    }
+                    float dots[4];
+                    for (int i = 0; i < 4; ++i)
+                        dots[i] = std::max(0.0f, lightDirection[i][0] * n[0] + lightDirection[i][1] * n[1] + lightDirection[i][2] * n[2]);
+                    for (int c = 0; c < 3; ++c)
+                        factor[c] = lightColour[0][c] * dots[0] + lightColour[1][c] * dots[1] + lightColour[2][c] * dots[2] +
+                                    lightColour[3][c] * dots[3] + ambient[c];
+                    factor[3] = objectColour[3];
+                }
+                uint8_t lit[4];
+                for (int c = 0; c < 4; ++c)
+                    lit[c] = static_cast<uint8_t>(std::clamp(static_cast<float>(v.rgba[c]) * factor[c], 0.0f, limit[c] > 0.0f ? std::min(limit[c], 255.0f) : 255.0f));
+                out.rgba = uint32_t{lit[0]} | uint32_t{lit[1]} << 8 | uint32_t{lit[2]} << 16 | uint32_t{lit[3]} << 24;
             }
             triangles.clear();
             size_t first = 0;

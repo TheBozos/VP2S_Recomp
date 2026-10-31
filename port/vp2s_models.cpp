@@ -146,14 +146,14 @@ namespace
     uint32_t word(const uint8_t *rdram, uint32_t address)
     {
         uint32_t value;
-        std::memcpy(&value, rdram + (address & 0x1FFFFFCu), 4);
+        std::memcpy(&value, rdram + (address & 0x1FFFFFFu), 4);
         return value;
     }
 
     float real(const uint8_t *rdram, uint32_t address)
     {
         float value;
-        std::memcpy(&value, rdram + (address & 0x1FFFFFCu), 4);
+        std::memcpy(&value, rdram + (address & 0x1FFFFFFu), 4);
         return value;
     }
 
@@ -196,7 +196,18 @@ namespace
         float sampleX = 0, sampleY = 0, sampleZ = 0;
     } g_counts;
 
-    void drawObject(const uint8_t *rdram, uint32_t object, uint32_t camera)
+    // A word the game keeps in main memory or in the scratchpad (0x70000000: its texture manager lives there).
+    uint32_t guestWord(const uint8_t *rdram, const uint8_t *scratch, uint32_t address)
+    {
+        uint32_t value;
+        if ((address & 0xF0000000u) == 0x70000000u)
+            std::memcpy(&value, scratch + (address & 0x3FFCu) + (address & 3u), 4);
+        else
+            std::memcpy(&value, rdram + (address & 0x1FFFFFFu), 4);
+        return value;
+    }
+
+    void drawObject(const uint8_t *rdram, const uint8_t *scratch, uint32_t object, uint32_t camera)
     {
         const uint32_t model = word(rdram, object + 0x7BCu), list = word(rdram, object + 0x77Cu);
         if (model == 0u || camera == 0u)
@@ -305,10 +316,10 @@ namespace
                 const int32_t slot = static_cast<int32_t>(word(rdram, block + 0x98u));
                 if (slot >= 0 && slot < 256)
                 {
-                    const int16_t e = static_cast<int16_t>(word(rdram, texman + 0x2670u + 2u * static_cast<uint32_t>(slot)) & 0xFFFFu);
+                    const int16_t e = static_cast<int16_t>(guestWord(rdram, scratch, texman + 0x2670u + 2u * static_cast<uint32_t>(slot)) & 0xFFFFu);
                     if (e >= 0)
-                        texture = vp2sGameTexture(word(rdram, texman + 0x1008u + 16u * static_cast<uint32_t>(e)),
-                                                  word(rdram, texman + 0x8u + 16u * static_cast<uint32_t>(e)), word(rdram, block + 0x9Cu));
+                        texture = vp2sGameTexture(guestWord(rdram, scratch, texman + 0x1008u + 16u * static_cast<uint32_t>(e)),
+                                                  guestWord(rdram, scratch, texman + 0x8u + 16u * static_cast<uint32_t>(e)), word(rdram, block + 0x9Cu));
                 }
             }
             material.textured = texture != nullptr;
@@ -390,10 +401,10 @@ namespace
                         g_frameOpen ? 1 : 0);
         }
         g_draw(rdram, ctx, runtime);
-        if (shown && g_frameOpen)
+        if (g_frameOpen) // every object drawn this frame (0x7C3 only asks the game to rebuild its mesh list)
         {
             ++g_counts.objects;
-            drawObject(rdram, object, camera);
+            drawObject(rdram, runtime->memory().getScratchpad(), object, camera);
         }
     }
 

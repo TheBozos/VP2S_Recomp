@@ -47,3 +47,29 @@ block + 0x98 through 0x23CB20. [V]
   game loaded that data gives the file and offset (its own disc reads and decompression, see port/vp2s_textures.cpp);
   the object's world matrix, the camera, the bones, the lights and the texture choice come from the structures above.
 - Still to write natively from VU0 microcode: the culling (0x1F0 / 0x188) and the skinning product (0x898).
+
+## Drawing from the game's data (the runtime spec)
+
+[V] unless marked. The hook is the draw method 0x23A8D0: a0 the object, a2 the camera (the scene pass 0x2211E0 picks
+`view = obj[0x80] ? obj[0x80] : scene[0x4080]`, camera = view[0x94]), a3 the render context. The object draws only when
+`obj[0x7C3] & (1 << obj[0x7C5])`.
+
+- Screen position: `s = M330 * V * O * (x, y, z, 1)` with O = obj+0x90 (4 rows, translation in .w of rows 0..2,
+  applied M * p), V = cam+0x2F0, M330 = cam+0x330 (P transposed); X = s.x / s.w, Y = s.y / s.w (GS 12.4 space, 2048 the
+  centre), Z = s.z / s.w (larger nearer). Clip: `c = M370 * V * O * p`, inside when |c.x|, |c.y|, |c.z| <= c.w. Fog
+  (object row 15.w = obj+0x32C on): clamp(cam[0x798] + cam[0x79C] / s.w, 0, 255).
+- Meshes: every mesh is in the visible list (nothing culled): with obj[0x7C2] != 0 and obj[0x77C] != 0, pointer i of
+  obj[0x77C] + 12 n (n = model[0x34]) -> {mesh, block, depth}, opaque meshes first in file order, then blended ones
+  far to near; else the meshes in file order. A mesh without its own block keeps the previous one's.
+- Group masks (model[0x59] != 0), group g = u16 at mesh+0x36: g & obj[0x7A4] hides the mesh; g & obj[0x7A6] tints it
+  by (obj[0x7E0], obj[0x7E4], obj[0x7E8], obj[0x7EC] * obj[0x7C4] / 128); g & obj[0x7A8] calls vtable +0xF8 for GS state.
+- Material block rows (row r at blk + 0x10 + 16 (r - 7)): ALPHA blk+0x20, strip tag PRIM = (u32 blk+0x74 >> 15) &
+  0x7FF (ABE bit 0x200000 of that word), cull flag blk+0x90, texture slot blk+0x98, CSA blk+0x9C; palette index
+  blk+0x5C (1-based: the model's material table entry). Object fade (obj[0x210] != 0): ALPHA = *(0x314060 + 8 obj[0x210])
+  with ABE set, back faces drawn.
+- Texture by the game's key, not TEX0: G = *(u32 *)0x35DE38, e = *(s16 *)(G + 0x2670 + 2 slot), key = (tag *(u32 *)(G +
+  0x1008 + 16 e), index *(u32 *)(G + 0x8 + 16 e)); written by 0x29D8F0 / 0x23DA80 during 0x23CB20, right before the draw.
+- Object rows (row r at obj + 0x230 + 16 r): 1..4 light directions, 5..8 light colours, 13 object colour (= obj+0x7E0),
+  14 lighting flags, 19 ambient; point and spot lights from the render context (ctx+0x210.., ctx+0x290..).
+- Bones: n = *(u32 *)(S[0x34] + 4), matrix b at S[0x4C] + 0x40 + 64 (n * (u8)S[0x50] + b), row-vector form (p' = x R0 +
+  y R1 + z R2 + R3; normals w = 0), giving object space. Routine 2: b = (position.w - 0x290) / 4; routine 4 entries the same.

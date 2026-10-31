@@ -507,11 +507,20 @@ int main(int argc, char *argv[])
         };
         setDefault("PS2X_VIF1_THREAD", "1");
         setDefault("PS2X_GS_LAG", "1");
-        // No emulated GS by default: VP2's meshes are drawn by the native renderer (VP2S_NATIVE_MESH=1) into the native
-        // GS backend's targets, which also draws the rest of the GS stream on the GPU. VP2S_NATIVE_MESH=0 sends the
-        // meshes as GS packets to the same backend; PS2X_GS_RENDERER=parallel still selects paraLLEl-GS.
-        setDefault("VP2S_NATIVE_MESH", "1");
-        setDefault("PS2X_GS_RENDERER", "native");
+        // No GS anywhere: the GS stream is not drawn, kept or read (PS2X_GS_RENDERER=none, runtime/gs/gs_off.h) and the
+        // picture is the native renderer's alone, built from the game's own data; what is not rebuilt yet is not shown.
+        // VP2S_GS=1 brings back the old GS path (the native GS backend, the meshes converted from their GIF packets)
+        // only to compare against.
+        if (const char *gs = std::getenv("VP2S_GS"); gs && gs[0] == '1')
+        {
+            setDefault("VP2S_NATIVE_MESH", "1");
+            setDefault("PS2X_GS_RENDERER", "native");
+        }
+        else
+        {
+            setDefault("VP2S_NATIVE_MESH", "0");
+            setDefault("PS2X_GS_RENDERER", "none");
+        }
         setDefault("PS2X_IOP_THREAD", "1");
         // The game's IOP modules (its sound driver included) run as recompiled C++ when the build has them
         // (build/iop_native, tools/iop_recomp.py): the IOP thread no longer interprets them. PS2X_IOP_NATIVE=0 does.

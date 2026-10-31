@@ -5,6 +5,8 @@
 #include "runtime/ee_scheduler.h"
 #include "vp2s_vu1_hle.h"
 #include "vp2s_textures.h"
+#include "vp2s_loads.h"
+#include "vp2s_models.h"
 #include "ps2_overlay_modules.h"
 
 #include <algorithm>
@@ -131,6 +133,7 @@ namespace
         std::memset(guest(rdram, 0x001D8E80u), 0, 4);
         if (count == 0)
         {
+            vp2sModelsFrameEnd(); // the native models drawn since the last frame end make one frame
             g_frameSeconds = runtime->framePacer().frameEnd();
             // The game no longer spins its wait, so EE time would fall behind real time and the events it waits on
             // (vblank handlers, timers, the IOP's loads) would stall: charge what the frame did not account.
@@ -358,6 +361,10 @@ namespace
             vp2sInstallGameTextures(runtime);
             std::cout << "[vp2s] VU1 mesh program done natively" << std::endl;
         }
+        // Where the game loads its data from (its disc reads and decompression), and its models drawn natively from
+        // that data (vp2s_loads.cpp, vp2s_models.cpp).
+        vp2sInstallLoads(runtime);
+        vp2sInstallModels(runtime);
 
         // VP2 draws its picture at 640x448 and copies every other line of it into a 640x256 buffer per interlaced
         // field: the window shows the 640x448 picture, without the half-line bob from one field to the next.

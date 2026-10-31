@@ -7,6 +7,7 @@
 // turns it on (not yet the default, see vp2sInstallGameTextures).
 
 #include "vp2s_textures.h"
+#include "vp2s_loads.h"
 
 #include "ps2_overlay_modules.h"
 #include "ps2_runtime.h"
@@ -115,28 +116,11 @@ namespace
         noteCopy(key, info + word(rdram, info + 0xCu));
     }
 
-    // Which copy of a key: many keys are in several of the game's files (one per map, a palette tinted for each),
-    // so the conversion names each copy by where it is on the disc, and the game's own loading says which one it
-    // took. Its disc reads (sceCdRead, main FUN_0012a2e0: a0 sector, a1 sectors, a2 buffer) and its SLZ
-    // decompression (main FUN_001025d0: a0 destination, a1 the chain as read, a3 the part; a part's chunk header
-    // +8 its size, +0xC the offset of the next) say which file part each region of memory holds; a texture's header
-    // address in it then gives (chain, part, offset), and <dir>/variants.txt (tools/vp2_textures.py) the copy's file.
-    struct Read
-    {
-        uint32_t buffer = 0, bytes = 0;
-        uint64_t disc = 0;
-    };
-    struct Region
-    {
-        uint32_t begin = 0, end = 0, part = 0;
-        uint64_t chain = 0;
-    };
-    std::vector<Read> g_reads;
-    std::vector<Region> g_regions;
+    // Which copy of a key: many keys are in several of the game's files (one per map, a palette tinted for each), so
+    // the conversion names each copy by where it is on the disc, and the game's own loading (vp2s_loads.cpp) says which
+    // one it took: a texture's header address gives (asset part, offset), and <dir>/variants.txt the copy's file.
     std::unordered_map<std::string, std::string> g_variants; // "<chain>_<part> <offset>" -> file name
     std::unordered_map<uint64_t, std::string> g_keyFile;      // (tag << 32 | index) -> the copy the game loaded
-    constexpr uint32_t kCdRead = 0x0012A2E0u, kDecompress = 0x001025D0u;
-    PS2Runtime::RecompiledFunction g_cdRead = nullptr, g_decompress = nullptr;
 
     uint32_t word(const uint8_t *rdram, uint32_t address)
     {
@@ -145,67 +129,30 @@ namespace
         return value;
     }
 
-    void cdReadHook(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
-    {
-        const Read read{getRegU32(ctx, 6) & 0x1FFFFFFu, getRegU32(ctx, 5) * 2048u, uint64_t{getRegU32(ctx, 4)} * 2048u};
-        {
-            std::lock_guard<std::mutex> lock(g_mutex);
-            std::erase_if(g_reads, [&](const Read &r) { return r.buffer < read.buffer + read.bytes && read.buffer < r.buffer + r.bytes; });
-            g_reads.push_back(read);
-        }
-        g_cdRead(rdram, ctx, runtime);
-    }
-
-    void decompressHook(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
-    {
-        const uint32_t destination = getRegU32(ctx, 4) & 0x1FFFFFFu, source = getRegU32(ctx, 5) & 0x1FFFFFFu;
-        const uint32_t part = getRegU32(ctx, 7);
-        uint32_t chunk = source;
-        for (uint32_t i = 0; i < part && i < 4096u; ++i)
-            chunk += word(rdram, chunk + 0xCu);
-        const uint32_t size = word(rdram, chunk + 8u);
-        {
-            std::lock_guard<std::mutex> lock(g_mutex);
-            const auto read = std::find_if(g_reads.begin(), g_reads.end(),
-                                           [&](const Read &r) { return source >= r.buffer && source < r.buffer + r.bytes; });
-            std::erase_if(g_regions, [&](const Region &r) { return r.begin < destination + size && destination < r.end; });
-            if (read != g_reads.end() && size != 0u && size < (64u << 20))
-                g_regions.push_back({destination, destination + size, part, read->disc + (source - read->buffer)});
-        }
-        g_decompress(rdram, ctx, runtime);
-    }
-
-    // The copy of the texture whose header is at `header` (with g_mutex held): its file, or empty.
+    // The copy of the texture whose header is at `header`: its file, or empty.
     std::string copyAt(uint32_t header)
     {
-        header &= 0x1FFFFFFu;
-        for (const Region &r : g_regions)
-            if (header >= r.begin && header < r.end)
-            {
-                char name[64];
-                std::snprintf(name, sizeof(name), "%010llx_%03u %x", static_cast<unsigned long long>(r.chain), r.part, header - r.begin);
-                const auto it = g_variants.find(name);
-                return it != g_variants.end() ? it->second : std::string();
-            }
-        return {};
+        std::string part;
+        uint32_t offset = 0;
+        if (!vp2sLoadedFrom(header, part, offset))
+            return {};
+        char name[64];
+        std::snprintf(name, sizeof(name), "%s %x", part.c_str(), offset);
+        const auto it = g_variants.find(name);
+        return it != g_variants.end() ? it->second : std::string();
     }
 
     void noteCopy(const Key &key, uint32_t header)
     {
         std::string file = copyAt(header);
-        // VP2S_GAME_TEXTURES_LOG: the first copies looked for, with what the game's loading said about that memory.
+        // VP2S_GAME_TEXTURES_LOG: the first copies looked for.
         static const bool s_log = std::getenv("VP2S_GAME_TEXTURES_LOG") != nullptr;
         static int s_logged = 0;
         if (s_log && s_logged < 40)
         {
             ++s_logged;
-            const auto region = std::find_if(g_regions.begin(), g_regions.end(),
-                                             [&](const Region &r) { return (header & 0x1FFFFFFu) >= r.begin && (header & 0x1FFFFFFu) < r.end; });
-            std::printf("[vp2s-textures] copy of %08x_%x at header %x: %s (%zu reads, %zu regions; %s)\n", key.tag, key.index, header,
-                        file.empty() ? "none" : file.c_str(), g_reads.size(), g_regions.size(),
-                        region == g_regions.end() ? "in no loaded part"
-                                                  : ("part " + std::to_string(region->chain) + "_" + std::to_string(region->part) + " +" +
-                                                     std::to_string((header & 0x1FFFFFFu) - region->begin)).c_str());
+            std::printf("[vp2s-textures] copy of %08x_%x at header %x: %s\n", key.tag, key.index, header,
+                        file.empty() ? "none" : file.c_str());
         }
         if (!file.empty())
             g_keyFile[(uint64_t{key.tag} << 32) | key.index] = std::move(file);
@@ -397,10 +344,8 @@ namespace
 
 void vp2sInstallGameTextures(PS2Runtime &runtime)
 {
-    // Not yet the default: the field's map textures come by a path neither hook sees, so the field would get the
-    // textures placed there before. VP2S_GAME_TEXTURES=1 turns it on (to test).
-    if (const char *v = std::getenv("VP2S_GAME_TEXTURES"); !v || v[0] != '1')
-        return;
+    // Always on: the native models take their textures here by the game's keys (vp2sGameTexture); the TEX0 provider
+    // only serves the old GS path (VP2S_GS=1, to compare).
     const ps2_overlays::Module *module = ps2_overlays::findModule("mod001");
     if (!module || kTextureCache < module->tableBase || kTextureCache >= module->tableEnd)
         return;
@@ -425,15 +370,46 @@ void vp2sInstallGameTextures(PS2Runtime &runtime)
         }
         std::fclose(f);
     }
-    g_cdRead = runtime.lookupFunction(kCdRead);
-    g_decompress = runtime.lookupFunction(kDecompress);
-    if (g_cdRead && g_decompress && !g_variants.empty())
-    {
-        runtime.replaceFunction(kCdRead, &cdReadHook);
-        runtime.replaceFunction(kDecompress, &decompressHook);
-    }
+    vp2sInstallLoads(runtime);
     ps2x::native::textures().setProvider(&provide, false);
     std::printf("[vp2s] native textures from the game's texture cache and the offline conversion (%s, %zu copies by place)%s%s\n",
                 directory().c_str(), g_variants.size(), g_allocate ? "" : " (no VRAM allocator hook)",
                 g_clutAllocate ? "" : " (no CLUT allocator hook)");
+}
+
+std::shared_ptr<const ps2x::native::TextureCache::Texture> vp2sGameTexture(uint32_t tag, uint32_t index, uint32_t csa)
+{
+    std::lock_guard<std::mutex> lock(g_mutex);
+    const Key key{tag, index};
+    const std::shared_ptr<Converted> converted = load(key);
+    if (!converted || converted->width == 0u || converted->height == 0u)
+        return nullptr;
+    const uint64_t id = std::hash<std::string>()(fileOf(key)) * 0x9E3779B97F4A7C15ull ^ (uint64_t{csa & 0x1Fu} << 8) ^ 0x5A5Au;
+    if (const auto it = g_textures.find(id); it != g_textures.end())
+        return it->second;
+    // The texture is the conversion's size rounded up to powers of two (TW / TH as the game sets them).
+    ps2x::native::TextureCache::Texture texture;
+    texture.width = 1u;
+    while (texture.width < converted->width && texture.width < 1024u)
+        texture.width <<= 1;
+    texture.height = 1u;
+    while (texture.height < converted->height && texture.height < 1024u)
+        texture.height <<= 1;
+    texture.key = id;
+    texture.version = ++g_version;
+    texture.rgba.assign(static_cast<size_t>(texture.width) * texture.height, 0u);
+    for (uint32_t y = 0; y < converted->height && y < texture.height; ++y)
+        for (uint32_t x = 0; x < converted->width && x < texture.width; ++x)
+        {
+            const size_t k = static_cast<size_t>(y) * converted->width + x;
+            uint32_t rgba;
+            if (converted->psm == 0u)
+                std::memcpy(&rgba, converted->texels.data() + k * 4u, 4u);
+            else
+                rgba = converted->palette[(converted->psm == 0x14u ? (csa & 0x1Fu) * 16u + converted->texels[k] : converted->texels[k]) & 0xFFu];
+            texture.rgba[static_cast<size_t>(y) * texture.width + x] = rgba;
+        }
+    auto shared = std::make_shared<const ps2x::native::TextureCache::Texture>(std::move(texture));
+    g_textures[id] = shared;
+    return shared;
 }

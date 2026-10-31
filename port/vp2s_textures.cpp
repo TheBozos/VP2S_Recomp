@@ -409,6 +409,20 @@ std::shared_ptr<const ps2x::native::TextureCache::Texture> vp2sGameTexture(uint3
                 rgba = converted->palette[(converted->psm == 0x14u ? (csa & 0x1Fu) * 16u + converted->texels[k] : converted->texels[k]) & 0xFFu];
             texture.rgba[static_cast<size_t>(y) * texture.width + x] = rgba;
         }
+    // VP2S_GAME_TEXTURES_LOG: each texture made by key once, with its file and mean colour.
+    static const bool s_log = std::getenv("VP2S_GAME_TEXTURES_LOG") != nullptr;
+    if (s_log)
+    {
+        uint64_t sum[4] = {};
+        for (const uint32_t c : texture.rgba)
+            for (int k = 0; k < 4; ++k)
+                sum[k] += (c >> (8 * k)) & 0xFFu;
+        const size_t n = std::max<size_t>(texture.rgba.size(), 1u);
+        std::printf("[vp2s-textures] key %08x_%x csa %u -> %s %ux%u psm %x, mean rgba %llu %llu %llu %llu\n", tag, index, csa & 0x1Fu,
+                    fileOf(key).c_str(), texture.width, texture.height, converted->psm, static_cast<unsigned long long>(sum[0] / n),
+                    static_cast<unsigned long long>(sum[1] / n), static_cast<unsigned long long>(sum[2] / n),
+                    static_cast<unsigned long long>(sum[3] / n));
+    }
     auto shared = std::make_shared<const ps2x::native::TextureCache::Texture>(std::move(texture));
     g_textures[id] = shared;
     return shared;

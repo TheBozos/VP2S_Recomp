@@ -232,6 +232,7 @@ namespace
         const uint32_t count = word(rdram, model + 0x34u);
         const bool listed = list != 0u && rdram[(object + 0x7C2u) & 0x1FFFFFFu] != 0u;
         uint32_t cursor = model + 0x60u, block = 0u;
+        uint32_t carriedAlpha = 0x44u, carriedPrim = 0x1Cu, carriedTex0Hi = 0x4u; // a mesh without its own material keeps the previous one's
         std::vector<ps2x::native::Vertex> triangles;
         for (uint32_t i = 0; i < count && i < 4096u; ++i)
         {
@@ -303,10 +304,41 @@ namespace
             // The material: the mesh's converted one; the texture by the game's key from its texture manager, through
             // the block's texture slot and palette part (row 15, the game's own fields).
             ps2x::native::Material material;
-            const uint32_t alpha = m.hasMaterial ? m.material[0] : 0x44u;
-            const uint32_t prim = m.hasMaterial ? m.material[4] : 0x1Cu;
+            if (m.hasMaterial)
+            {
+                carriedAlpha = m.material[0];
+                carriedPrim = m.material[4];
+                carriedTex0Hi = m.material[3];
+            }
+            else if (block >= 0x40u && block - 0x40u != mesh)
+            {
+                // The block the game picked is another mesh's own (mesh + 0x40): that mesh's converted material.
+                const uint32_t owner = offset + (block - 0x40u) - mesh;
+                if (const auto other = file->find(owner); other != file->end() && other->second->hasMaterial)
+                {
+                    carriedAlpha = other->second->material[0];
+                    carriedPrim = other->second->material[4];
+                    carriedTex0Hi = other->second->material[3];
+                }
+            }
+            const uint32_t alpha = carriedAlpha;
+            const uint32_t prim = carriedPrim;
             material.alphaBlend = (prim >> 6) & 1u;
             material.blend = material.alphaBlend ? ps2x::native::blendFromAlpha(alpha) : ps2x::native::Material::Blend::Opaque;
+            if (material.alphaBlend)
+            {
+                // The named blends cover (Cs - Cd) As + Cd, Cs As + Cd, Cd - Cs As, Cd (1 - As), Cd (1 + As) and D alone;
+                // any other (A - B) C + D as the generic blend.
+                const uint32_t a = alpha & 3u, b = (alpha >> 2) & 3u, c = (alpha >> 4) & 3u, d = (alpha >> 6) & 3u;
+                const bool named = a == b || (c == 0u && d == 1u && ((a == 0u && (b == 1u || b == 2u)) || (a == 2u && (b == 0u || b == 1u)) ||
+                                                                     (a == 1u && b == 2u)));
+                if (!named)
+                {
+                    material.blend = ps2x::native::Material::Blend::Gs;
+                    material.gsAlpha = static_cast<uint8_t>(alpha & 0xFFu);
+                    material.gsFix = 0x80u;
+                }
+            }
             material.alphaTest = true; // VP2's meshes: alpha GREATER 0
             material.alphaRef = 0;
             material.depthWrite = !material.alphaBlend;
@@ -323,6 +355,12 @@ namespace
                 }
             }
             material.textured = texture != nullptr;
+            material.textureAlpha = (carriedTex0Hi >> 2) & 1u; // TEX0 TCC (bit 34) of the material's template
+            material.textureFunction = static_cast<uint8_t>((carriedTex0Hi >> 3) & 3u); // TFX (bits 35..36)
+            // VP2S_MODELS_HIDE_UNTEXTURED_BLEND=1 (diagnosis): leaves out the blended meshes without a texture.
+            static const bool s_hideUntexturedBlend = std::getenv("VP2S_MODELS_HIDE_UNTEXTURED_BLEND") != nullptr;
+            if (s_hideUntexturedBlend && material.alphaBlend && !((prim >> 4) & 1u))
+                continue;
             // The vertices (bones applied), the strips as triangles.
             const bool rigid = std::find(std::begin(m.routines), std::end(m.routines), 2) != std::end(m.routines);
             const bool weighted = !m.bones.empty();
@@ -339,15 +377,21 @@ namespace
                 }
                 else if (palette != 0u && weighted)
                 {
+                    // Two bones with their weights; an unused second bone has weight 0 (and address 0).
                     const Mesh::Bones &b = m.bones[k];
-                    const uint32_t ba = (static_cast<uint32_t>(b.a) - 0x290u) / 4u, bb = (static_cast<uint32_t>(b.b) - 0x290u) / 4u;
-                    if (ba < bones && bb < bones)
-                    {
-                        const auto pa = boneApply(rdram, palette + 64u * ba, v.position, 1.0f);
-                        const auto pb = boneApply(rdram, palette + 64u * bb, v.position, 1.0f);
-                        for (int c = 0; c < 3; ++c)
-                            p[c] = pa[c] * b.wa + pb[c] * b.wb;
-                    }
+                    const int32_t ba = (b.a - 0x290) / 4, bb = (b.b - 0x290) / 4;
+                    std::array<float, 3> sum{};
+                    bool any = false;
+                    for (const auto &[bone, weight] : {std::pair{ba, b.wa}, std::pair{bb, b.wb}})
+                        if (weight != 0.0f && bone >= 0 && static_cast<uint32_t>(bone) < bones)
+                        {
+                            const auto q = boneApply(rdram, palette + 64u * static_cast<uint32_t>(bone), v.position, 1.0f);
+                            for (int c = 0; c < 3; ++c)
+                                sum[c] += q[c] * weight;
+                            any = true;
+                        }
+                    if (any)
+                        p = sum;
                 }
                 ps2x::native::Vertex &out = vertices[k];
                 out.x = p[0];

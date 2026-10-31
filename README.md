@@ -79,13 +79,13 @@ state machine and no copy of GS memory in between.
 |---|:---:|
 | IOP modules (the ten the game loads, its sound driver included) recompiled to C++, none interpreted | ✅ |
 | Sound on the PC's clock (today: emulated SPU2; next: a native mixer on wall time, `PS2X_SPU2_WALLCLOCK`) | ⏳ |
-| No paraLLEl-GS: OpenGL on the GPU (`PS2X_GS_RENDERER=parallel` kept as a fallback) | ✅ |
+| No GS by default (`PS2X_GS_RENDERER=none`): GIF packets are not drawn, kept or read, only the game's SIGNAL / FINISH waits are answered; `VP2S_GS=1` brings the old GS path back, to compare only | ✅ |
 | Frame loop on the PC's clock (`PS2X_FRAME_CAP`, real frame time as the game's step; `VP2S_NATIVE=0`: PAL vblank) | ✅ |
 | VU0 macro mode recompiled with the game code | ✅ |
-| VU1 mesh microprogram (0x0880, almost every model) translated to C++ (left: set-up routine 36, lighting mode 3, the three small microprograms) | 🔧 |
-| Models drawn natively from the translated microprogram's vertices, no GS packets built for them | 🔧 |
-| Menus, text, 2D and effects drawn natively, no GS front end and no copy of GS memory | ⏳ |
-| VIF1 / DMA: the native microprogram fed from main memory | ⏳ |
+| Textures from the game's texture code (its allocators hooked) and an offline conversion of the user's disc, by the game's keys (`VP2S_GAME_TEXTURES=1`) | 🔧 |
+| Models drawn from the game's model records (not from VU1 data or GIF packets): nothing drawn yet, the screen is black | ⏳ |
+| Menus, text, 2D and effects (depth of field, blur) drawn natively from the game's data | ⏳ |
+| No VU1 / VIF1 left: the microprograms no longer run once their draws are native | ⏳ |
 
 ✅ works · 🔧 in progress · ⏳ not reached yet
 

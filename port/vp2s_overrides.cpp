@@ -355,7 +355,7 @@ namespace
         if (const char *hle = std::getenv("VP2S_VU1_HLE"); !hle || hle[0] != '0')
         {
             ps2x::native::setVu1Hle(&vp2sVu1Hle);
-            vp2sInstallGameTextures();
+            vp2sInstallGameTextures(runtime);
             std::cout << "[vp2s] VU1 mesh program done natively" << std::endl;
         }
 

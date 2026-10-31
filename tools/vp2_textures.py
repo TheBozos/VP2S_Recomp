@@ -15,6 +15,7 @@ entries in index order (CSM1 resolved; a 4-bit texture uses entry 16 * CSA + ind
 elsewhere). Alpha: the GS's 0x80 = opaque doubled, clamped to 255.
 """
 import argparse
+import hashlib
 import json
 import os
 import struct
@@ -90,12 +91,11 @@ def convert(data, at):
     w, h, size, _, psm, tw, th, _ = struct.unpack_from('<HHIIHBBI', data, at)
     blocks = transfers(data, at, size * 2 + 0x2000)
     pixel_blocks = [b for b in blocks if b[3] * b[4] * BPP.get(b[1], 32) // 8 == size or (b[3], b[4]) == (w, h)]
-    palette_blocks = [b for b in blocks if b[1] == 0x00 and (b[3], b[4]) in ((16, 16), (16, 2), (8, 2))]
-    if not palette_blocks:
-        # The palette sent on its own (the loader allocates it from the resource's info block, before the header):
-        # the nearest palette transfer before the texture.
-        before = [b for b in transfers(data, max(0, at - 0x2000), 0x2000 - 16) if b[0] < at]
-        palette_blocks = [b for b in before if b[1] == 0x00 and (b[3], b[4]) in ((16, 16), (16, 2), (8, 2))][-1:]
+    # The palette is sent on its own (the CLUT allocator FUN_0023d810 takes the same info block as the texture) and
+    # stored before the header, at header + 0x100 - [header + 8]; the ones after the texture's pixels are the next
+    # textures' palettes.
+    o8, = struct.unpack_from('<I', data, at + 8)
+    palette_blocks = [b for b in transfers(data, at + 0x100 - o8 - 16, 32) if b[0] == at + 0x100 - o8 and b[1] == 0x00 and b[3] <= 16]
     if not pixel_blocks:
         return None, 'no pixel block'
     _, pdpsm, pdbw, pw, ph, pixels = pixel_blocks[0]
@@ -165,10 +165,12 @@ def main():
     index = json.load(open(a.index))
     results = Counter()
     cache = {}
+    # Every copy of a texture also by where it is: variants.txt lines "<chain>_<part> <offset> <file>" (the asset
+    # file's name without extension, the header's offset in it, hexadecimal), each distinct copy written once as
+    # c_<hash>.tex. The game's loading tells the renderer which copy it took (port/vp2s_textures.cpp).
+    variants = open(os.path.join(a.out, 'variants.txt'), 'w')
+    written = set()
     for entry in index:
-        if entry['tag'] is None:
-            results['no key'] += 1
-            continue
         path = os.path.join(a.assets, entry['file'])
         data = cache.get(path) or open(path, 'rb').read()
         cache = {path: data}
@@ -180,10 +182,22 @@ def main():
             results[why.split(' (')[0]] += 1
             continue
         w, h, psm, texels, table = image
+        content = struct.pack('<III', w, h, psm) + texels + table
+        copy = f'c_{hashlib.sha1(content).hexdigest()[:16]}.tex'
+        if copy not in written:
+            with open(os.path.join(a.out, copy), 'wb') as f:
+                f.write(content)
+            written.add(copy)
+        variants.write(f"{os.path.splitext(os.path.basename(entry['file']))[0]} {entry['at']:x} {copy}\n")
+        results['converted'] += 1
+        if entry['tag'] is None:
+            results['no key'] += 1
+            continue
         name = f"{entry['tag']:08x}_{entry['index']:x}.tex"
         with open(os.path.join(a.out, name), 'wb') as f:
-            f.write(struct.pack('<III', w, h, psm) + texels + table)
-        results['converted'] += 1
+            f.write(content)
+    variants.close()
+    results['distinct copies'] = len(written)
     for k, v in results.most_common():
         print(f'{k}: {v}')
 

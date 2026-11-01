@@ -462,6 +462,10 @@ namespace
                     factor = objectColour;
                     if (!tableA && !plainColour)
                         factor[0] = factor[1] = factor[2] = 0.0f;
+                    // VP2S_MODELS_MODE0_GAIN=<f> (diagnosis): mode 0's RGB factor times f.
+                    static const float s_gain = [] { const char *v = std::getenv("VP2S_MODELS_MODE0_GAIN"); return v ? static_cast<float>(std::atof(v)) : 1.0f; }();
+                    for (int c = 0; c < 3; ++c)
+                        factor[c] *= s_gain;
                 }
                 else if (carriedMode == 1u)
                 {
@@ -653,7 +657,24 @@ void vp2sInstallModels(PS2Runtime &)
     // The native models: drawn after the game's own draw method (whose packets go nowhere: no GS), one native frame a
     // game frame (vp2sModelsFrameEnd). VP2S_GS=1 (the old GS path, to compare) leaves them out.
     if (const char *gs = std::getenv("VP2S_GS"); gs && gs[0] == '1')
+    {
+        // VP2S_POST_SKIP=<hex address>[,...] with the GS comparison path (diagnosis): those mod001 methods skipped (the
+        // effect objects' per-frame methods: 0x2D92A0 depth of field, 0x2DBD20, 0x2E0AE0), to see what the original's
+        // picture owes each.
+        if (const char *skip = std::getenv("VP2S_POST_SKIP"))
+            for (const char *p = skip; *p;)
+            {
+                char *end = nullptr;
+                const uint32_t address = static_cast<uint32_t>(std::strtoul(p, &end, 16));
+                if (end == p)
+                    break;
+                ps2_overlays::replaceModuleFunction("mod001", address, [](uint8_t *, R5900Context *ctx, PS2Runtime *) {
+                    ctx->pc = getRegU32(ctx, 31);
+                });
+                p = *end == ',' ? end + 1 : end;
+            }
         return;
+    }
     const ps2_overlays::Module *module = ps2_overlays::findModule("mod001");
     if (!module || kModelDraw < module->tableBase || kModelDraw >= module->tableEnd)
     {
@@ -708,7 +729,7 @@ void vp2sInstallModels(PS2Runtime &)
                 for (uint32_t i = 0; i < 5u; ++i)
                 {
                     const uint32_t block = post + 0xF330u + 0x3Cu * i;
-                    if (!word(rdram, block) || rdram[block + 0x1Fu] != 0u || (rdram[block + 0x20u] & 3u) != 1u)
+                    if (!word(rdram, block) || rdram[block + 0x1Fu] != 0u)
                         continue;
                     ps2x::native::Renderer::PostEffect e;
                     e.width = static_cast<int>(std::clamp(word(rdram, post + 0x131ACu), 16u, 512u));
@@ -721,18 +742,46 @@ void vp2sInstallModels(PS2Runtime &)
                     e.gain = g;
                     e.sigma = 0.555f * std::max(real(block + 0x24u), 0.0f);
                     e.alpha = std::min(128.0f, 2.0f * rdram[block + 0x1Cu]) / 128.0f * (rdram[block + 0x1Eu] / 128.0f);
-                    e.farDepthOnly = true;
-                    if (!any || e.alpha > best.alpha)
+                    // The sky mode (+0x20 & 3 == 1) passes the cleared depth only; the others weigh by the table, whose
+                    // entries up to p0 (+0x04, Z24 >> 16) are set: from that depth on.
+                    const uint32_t p0 = std::min<uint32_t>(word(rdram, block + 4u), 255u);
+                    e.depthFrom = (rdram[block + 0x20u] & 3u) == 1u ? 1.0f : 1.0f - (p0 + 1u) * 65536.0f / 16777216.0f;
+                    if (!any || e.alpha > best.alpha || (e.alpha == best.alpha && e.depthFrom < best.depthFrom))
                         best = e;
                     any = true;
                 }
                 static const bool s_log = std::getenv("VP2S_POST_LOG") != nullptr;
                 static uint32_t s_calls = 0;
+                if (s_log)
+                    ps2x::native::Renderer::instance().wantDepth();
                 if (s_log && ++s_calls % 300u == 1u)
                 {
-                    std::printf("[vp2s-post] call %u: object %x, sky blocks %s, g %.2f, %dx%d sigma %.2f alpha %.2f; batches %zu, "
+                    // The owner's other effect objects (+0x4440..+0x4460) and their vtables' first methods.
+                    for (uint32_t k = 0x4440u; k <= 0x4460u; k += 4u)
+                    {
+                        const uint32_t o = word(rdram, owner + k) & 0x1FFFFFFu;
+                        const uint32_t vt = o >= 0x100000u ? word(rdram, o) & 0x1FFFFFFu : 0u;
+                        std::printf("[vp2s-post] owner+%x = %x vtable %x:", k, o, vt);
+                        for (uint32_t m = 0; vt >= 0x100000u && m < 0x80u; m += 4u)
+                            std::printf(" %x", word(rdram, vt + m));
+                        std::printf("\n");
+                    }
+                    // The last table the game built (+0xEF10, a | v << 8 | v << 16 | a << 24): its non-zero entries.
+                    std::printf("[vp2s-post] table:");
+                    for (uint32_t i = 0; i < 256u; ++i)
+                        if (const uint32_t t = word(rdram, post + 0xEF10u + 4u * i))
+                            std::printf(" %u:%08x", i, t);
+                    std::printf("\n");
+                    // The presented frame's GS Z at a few points (the title's sky: the top; the field: the middle).
+                    for (const float vy : {20.0f, 120.0f, 240.0f, 400.0f})
+                    {
+                        uint32_t z = 0;
+                        const bool got = ps2x::native::Renderer::instance().depthAt(2048.0f, 1824.0f + vy * (448.0f / 480.0f), z);
+                        std::printf("[vp2s-post] depth at 320,%.0f: %s %u\n", vy, got ? "Z" : "none", z);
+                    }
+                    std::printf("[vp2s-post] call %u: object %x, sky blocks %s, g %.2f, %dx%d sigma %.2f alpha %.2f from %.5f; batches %zu, "
                                 "interface from %lld\n", s_calls, post, any ? "yes" : "no", g, best.width, best.height, best.sigma,
-                                best.alpha, ps2x::native::Renderer::instance().batchCount(),
+                                best.alpha, best.depthFrom, ps2x::native::Renderer::instance().batchCount(),
                                 g_interfaceStart == SIZE_MAX ? -1ll : static_cast<long long>(g_interfaceStart));
                     std::fflush(stdout);
                 }

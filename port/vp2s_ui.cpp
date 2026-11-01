@@ -196,7 +196,8 @@ namespace
         q.v1 = half(part + 6u) / 4096.0f;
         const float w = half(part + 8u), h = half(part + 10u);
         const float sx = real(rdram, sprite + 0x2Cu), sy = real(rdram, sprite + 0x30u);
-        // The layer's position (a3) plus the sprite's, less the pivot (+0x1C / +0x20), scaled about +0x24 / +0x28.
+        // The position the caller passes (a2: its layer's or window's) plus the sprite's, less the pivot (+0x1C /
+        // +0x20), scaled about +0x24 / +0x28.
         const float cx = real(rdram, sprite + 0x24u) * (1.0f - sx), cy = real(rdram, sprite + 0x28u) * (1.0f - sy);
         const float px = real(rdram, position) + real(rdram, sprite + 0x14u), py = real(rdram, position + 4u) + real(rdram, sprite + 0x18u);
         q.x0 = px + cx - real(rdram, sprite + 0x1Cu) * sx;
@@ -289,7 +290,7 @@ namespace
     void quadListHook(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
     {
         g_scratch = runtime->memory().getScratchpad();
-        captureQuadList(rdram, getRegU32(ctx, 4) & 0x1FFFFFFu, getRegU32(ctx, 7) & 0x1FFFFFFu);
+        captureQuadList(rdram, getRegU32(ctx, 4) & 0x1FFFFFFu, getRegU32(ctx, 6) & 0x1FFFFFFu);
         static const bool s_log = std::getenv("VP2S_UI_SPRITE_LOG") != nullptr;
         static int s_logged = 0;
         if (s_log && s_logged < 4)
@@ -410,15 +411,19 @@ namespace
     void spriteHook(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
     {
         g_scratch = runtime->memory().getScratchpad();
-        captureSprite(rdram, getRegU32(ctx, 4) & 0x1FFFFFFu, getRegU32(ctx, 7) & 0x1FFFFFFu);
+        captureSprite(rdram, getRegU32(ctx, 4) & 0x1FFFFFFu, getRegU32(ctx, 6) & 0x1FFFFFFu);
         static const bool s_log = std::getenv("VP2S_UI_SPRITE_LOG") != nullptr;
         static int s_logged = 0;
-        if (s_log && s_logged < 6)
+        // The first sprites, and the first ones sampling the texture manager's textures (TBP 0x3000 and up).
+        static int s_managed = 0;
+        const bool managed = ((word(rdram, (getRegU32(ctx, 4) & 0x1FFFFFFu) + 0x58u) >> 16) & 0x3FFFu) >= 0x3000u;
+        if (s_log && (s_logged < 6 || (managed && s_managed < 6)))
         {
             ++s_logged;
+            s_managed += managed ? 1 : 0;
             const uint32_t sprite = getRegU32(ctx, 4) & 0x1FFFFFFu;
-            std::printf("[vp2s-ui] sprite %x a0 %x a2 %x a3 %x t0 %x t1 %x:", sprite, getRegU32(ctx, 4), getRegU32(ctx, 6), getRegU32(ctx, 7),
-                        getRegU32(ctx, 8), getRegU32(ctx, 9));
+            std::printf("[vp2s-ui] sprite %x a0 %x a2 %x a3 %x (%.1f, %.1f) t0 %x t1 %x:", sprite, getRegU32(ctx, 4), getRegU32(ctx, 6),
+                        getRegU32(ctx, 7), real(rdram, getRegU32(ctx, 7)), real(rdram, getRegU32(ctx, 7) + 4u), getRegU32(ctx, 8), getRegU32(ctx, 9));
             for (uint32_t k = 0; k < 0x70u; k += 4u)
                 std::printf(" %08x", word(rdram, sprite + k));
             const uint32_t frame = static_cast<uint32_t>(static_cast<int16_t>(word(rdram, sprite + 0x54u) & 0xFFFFu));

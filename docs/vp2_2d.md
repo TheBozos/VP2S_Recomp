@@ -24,7 +24,7 @@ GIF packet read). Addresses are mod001 unless stated. [V] verified in the MIPS o
   'SHI\0' 0x41 sheet's palette). Quad grown by the border font+0x2C * scale; colour x element+0x90 / 128; alpha =
   layer+0xE0 * element+0x28 / 128; shadow offset G2+0x850 / 0x854 (mode 1). [V]
 - Fixed-font string 0x2E75E0: 16 x 16 cells of 'SHI\0' 0x41, cell of c = ((c - 1) & 15, (c - 1) >> 4), 12-pixel advance.
-- Sprite quad 0x2EB2D0 (f12 layer alpha, a0 sprite = element + 0x50, a2 cursor, a3 layer position, t0 z, t1 colour
+- Sprite quad 0x2EB2D0 (f12 layer alpha, a0 sprite = element + 0x50, a1 cursor, a2 position (float x, y), a3 z, t0 colour
   multiplier); quad list 0x2EAC40 (same arguments). Sprite: +0x00 its sheet's 'FIS' file (until uploaded), +0x04 its
   parts' 'DTT' file, +0x08 parts (16 bytes: u0, v0, u1, v1 in 4.12 of the sheet (s = u / 4096), w, h, +0xC CSA),
   +0x0C quads (24 bytes: part, x0, y0, x1, y1, z; x1 / y1 <= 0: the part's size), +0x14 / +0x18 position, +0x1C /

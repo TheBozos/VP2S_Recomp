@@ -4,6 +4,7 @@
 
 #include "vp2s_ui.h"
 #include "vp2s_loads.h"
+#include "vp2s_models.h"
 #include "vp2s_textures.h"
 
 #include "ps2_overlay_modules.h"
@@ -556,7 +557,7 @@ namespace
         material.blend = ps2x::native::Material::Blend::Alpha;
         material.alphaBlend = true;
         material.depthTest = false;
-        material.depthWrite = false;
+        material.depthWrite = true; // the game's interface writes its Z (near): the post effect leaves it alone
         material.alphaTest = true;
         material.alphaRef = 0;
         material.textured = texture != nullptr;
@@ -583,7 +584,7 @@ namespace
         material.blend = ps2x::native::Material::Blend::Alpha;
         material.alphaBlend = true;
         material.depthTest = false;
-        material.depthWrite = false;
+        material.depthWrite = true; // the game's interface writes its Z (near): the post effect leaves it alone
         material.textured = false;
         const auto vertex = [&](const StripVertex &s) {
             ps2x::native::Vertex out;
@@ -607,7 +608,7 @@ namespace
         material.blend = ps2x::native::Material::Blend::Alpha;
         material.alphaBlend = true;
         material.depthTest = false;
-        material.depthWrite = false;
+        material.depthWrite = true; // the game's interface writes its Z (near): the post effect leaves it alone
         material.alphaTest = true;
         material.alphaRef = 0;
         material.textured = texture != nullptr;
@@ -636,6 +637,7 @@ namespace
     void layerDrawHook(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
     {
         const uint32_t layer = getRegU32(ctx, 4) & 0x1FFFFFFu;
+        vp2sModelsInterfaceStarts();
         { static int s_n = 0; if (s_n < 5) { ++s_n; std::printf("[vp2s-ui] layer draw %x\n", getRegU32(ctx, 4)); std::fflush(stdout); } }
         g_layerDraw(rdram, ctx, runtime);
         { static int s_n = 0; if (s_n < 5) { ++s_n; std::printf("[vp2s-ui] layer drawn\n"); std::fflush(stdout); } }

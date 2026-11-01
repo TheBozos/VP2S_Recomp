@@ -193,6 +193,7 @@ namespace
 
     bool g_frameOpen = false;
     const uint8_t *g_rdram = nullptr; // EE memory, for the frame end's diagnostics
+    size_t g_interfaceStart = SIZE_MAX; // the frame's first interface batch (vp2sModelsInterfaceStarts)
     // VP2S_MODELS_LOG: what became of the meshes since the last line (every 120 frames).
     struct Counts
     {
@@ -377,7 +378,10 @@ namespace
             }
             material.alphaTest = true; // VP2's meshes: alpha GREATER 0
             material.alphaRef = 0;
-            material.depthWrite = !material.alphaBlend;
+            // Blended meshes write their depth too, as the GS does with ZMSK clear (the title's menu text, a model,
+            // stays out of the post effect that way). VP2S_MODELS_BLEND_DEPTH=0: they do not.
+            static const bool s_blendDepth = [] { const char *v = std::getenv("VP2S_MODELS_BLEND_DEPTH"); return !(v && v[0] == '0'); }();
+            material.depthWrite = !material.alphaBlend || s_blendDepth;
             std::shared_ptr<const ps2x::native::TextureCache::Texture> texture;
             if (block != 0u && texman != 0u && ((prim >> 4) & 1u))
             {
@@ -561,10 +565,26 @@ namespace
     }
 }
 
+void vp2sModelsInterfaceStarts()
+{
+    if (g_frameOpen && g_interfaceStart == SIZE_MAX)
+    {
+        g_interfaceStart = ps2x::native::Renderer::instance().batchCount();
+        static const bool s_log = std::getenv("VP2S_POST_LOG") != nullptr;
+        static uint32_t s_logs = 0;
+        if (s_log && ++s_logs % 300u == 1u)
+        {
+            std::printf("[vp2s-post] interface starts at batch %zu\n", g_interfaceStart);
+            std::fflush(stdout);
+        }
+    }
+}
+
 void vp2sModelsFrameEnd()
 {
     if (!g_frameOpen)
         return;
+    g_interfaceStart = SIZE_MAX;
     static const bool s_log = std::getenv("VP2S_MODELS_LOG") != nullptr;
     static uint64_t s_frames = 0;
     if (s_log && ++s_frames % 120u == 0u)
@@ -655,6 +675,69 @@ void vp2sInstallModels(PS2Runtime &)
                 g_rdram = rdram;
                 s_scenePass(rdram, ctx, runtime);
                 vp2sModelsFrameEnd();
+            });
+    }
+    // The post effect (docs/vp2_dof.md): where the game runs its object's per-frame method (0x2D92A0, between the 3D
+    // and the interface), a native pass from its parameter blocks: each enabled block with the sky mode (+0x1F 0,
+    // +0x20 & 3 == 1: drawn where the depth is the cleared one) puts a blurred copy of the frame brightened by g
+    // (+0x131E0, 2 when unset) there, Gaussian sigma 0.555 x +0x24 (128-wide pixels), mixed by min(128, 2c) / 128 x
+    // +0x1E / 128 (the table's weight at the farthest depth is 128 with p0..p4 0). The strongest block is drawn.
+    // VP2S_POST=0: none.
+    constexpr uint32_t kPostEffect = 0x002D92A0u;
+    if (kPostEffect >= module->tableBase && kPostEffect < module->tableEnd &&
+        !(std::getenv("VP2S_POST") && std::getenv("VP2S_POST")[0] == '0'))
+    {
+        static PS2Runtime::RecompiledFunction s_post = module->table[(kPostEffect - module->tableBase) >> 2];
+        if (s_post)
+            ps2_overlays::replaceModuleFunction("mod001", kPostEffect, [](uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime) {
+                s_post(rdram, ctx, runtime);
+                const uint32_t owner = word(rdram, 0x0035DDF8u) & 0x1FFFFFFu;
+                const uint32_t post = owner ? word(rdram, owner + 0x4448u) & 0x1FFFFFFu : 0u; // the object (docs/vp2_dof.md)
+                if (post < 0x100000u)
+                    return;
+                const auto real = [&](uint32_t address) {
+                    float value;
+                    std::memcpy(&value, rdram + (address & 0x1FFFFFFu), 4);
+                    return value;
+                };
+                float g = real(post + 0x131E0u);
+                if (!(g > 0.0f && g < 8.0f))
+                    g = 2.0f;
+                ps2x::native::Renderer::PostEffect best;
+                bool any = false;
+                for (uint32_t i = 0; i < 5u; ++i)
+                {
+                    const uint32_t block = post + 0xF330u + 0x3Cu * i;
+                    if (!word(rdram, block) || rdram[block + 0x1Fu] != 0u || (rdram[block + 0x20u] & 3u) != 1u)
+                        continue;
+                    ps2x::native::Renderer::PostEffect e;
+                    e.width = static_cast<int>(std::clamp(word(rdram, post + 0x131ACu), 16u, 512u));
+                    e.height = static_cast<int>(std::clamp(word(rdram, post + 0x131B0u), 16u, 512u));
+                    if (e.width == 16 || e.height == 16 || e.width > 256 || e.height > 256) // per-frame fields, not kept
+                    {
+                        e.width = 128;
+                        e.height = 89;
+                    }
+                    e.gain = g;
+                    e.sigma = 0.555f * std::max(real(block + 0x24u), 0.0f);
+                    e.alpha = std::min(128.0f, 2.0f * rdram[block + 0x1Cu]) / 128.0f * (rdram[block + 0x1Eu] / 128.0f);
+                    e.farDepthOnly = true;
+                    if (!any || e.alpha > best.alpha)
+                        best = e;
+                    any = true;
+                }
+                static const bool s_log = std::getenv("VP2S_POST_LOG") != nullptr;
+                static uint32_t s_calls = 0;
+                if (s_log && ++s_calls % 300u == 1u)
+                {
+                    std::printf("[vp2s-post] call %u: object %x, sky blocks %s, g %.2f, %dx%d sigma %.2f alpha %.2f; batches %zu, "
+                                "interface from %lld\n", s_calls, post, any ? "yes" : "no", g, best.width, best.height, best.sigma,
+                                best.alpha, ps2x::native::Renderer::instance().batchCount(),
+                                g_interfaceStart == SIZE_MAX ? -1ll : static_cast<long long>(g_interfaceStart));
+                    std::fflush(stdout);
+                }
+                if (any && best.alpha > 0.0f)
+                    ps2x::native::Renderer::instance().postEffect(best, g_interfaceStart);
             });
     }
     ps2x::native::Renderer::instance().setStreamDraws(false);

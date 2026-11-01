@@ -37,8 +37,8 @@ GIF packet read). Addresses are mod001 unless stated. [V] verified in the MIPS o
   +0x1008 + 16e tag / +0x8 + 16e index, TEX0 +0x1010 + 16e (TBP low 14 bits). The native port finds a sprite's sheet
   there by its TBP (the save portraits). [V]
 - Fixed UI slots outside the manager: TBP 0 'SHI\0' 0x41 (CBP 0x3FFC) and 0x400 'SHI\0' 0x3D (CBP 0x3FF8), set by
-  0x2EC190, uploaded by 0x2F32F0(a0 image: +0xC4 data to DBP +0xD0 when +0xE4, +0xD4 data to DBP +0xE0; the data
-  lies in its FIS file, so the port keys each DBP from it); TBP 0x800 / 0x1000 PSMT4HH 512 x 256 sheets of the menus, TEX0 records built by mod003 (0x4643C0 and
+  0x2EC190, set up by 0x2F3630(a0 image, a1 its FIS, a2 PSM, a3 DBP of the pixels, t0 of the palette; uploaded by
+  0x2F32F0), so the port keys each DBP from the FIS; TBP 0x800 / 0x1000 PSMT4HH 512 x 256 sheets of the menus, TEX0 records built by mod003 (0x4643C0 and
   callers of 0x30C5E0: TBP 0x800, CBP from the menu context +0x98, DTTs from its +0x90): their sheet is not keyed yet
   (the field HUD's 0x800 is 'JOHN' 0x276F). 0x2EC130(a0 sprite, a1 DTT, a2 TEX0 record) gives a sprite parts + TEX0. [V]
 - Window background 0x2E9DD0(a0 window): rectangle +0x18 (or +0xB8 when +0xE8) plus its layer's (+0x14) position; one

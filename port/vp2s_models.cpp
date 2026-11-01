@@ -12,6 +12,7 @@
 #include "runtime/native/native_renderer.h"
 
 #include <algorithm>
+#include <chrono>
 #include <array>
 #include <cmath>
 #include <cstdio>
@@ -580,6 +581,18 @@ void vp2sModelsFrameEnd()
     auto &renderer = ps2x::native::Renderer::instance();
     renderer.endFrame();
     renderer.beginFrame(nativeScreen());
+    // Every 5 s: the native frames shown per second (the game's own frames, one per scene pass).
+    static auto s_since = std::chrono::steady_clock::now();
+    static uint32_t s_shown = 0;
+    ++s_shown;
+    const auto now = std::chrono::steady_clock::now();
+    if (const double seconds = std::chrono::duration<double>(now - s_since).count(); seconds >= 5.0)
+    {
+        std::printf("[vp2s] native fps %.1f\n", s_shown / seconds);
+        std::fflush(stdout);
+        s_since = now;
+        s_shown = 0;
+    }
 }
 
 void vp2sInstallModels(PS2Runtime &)

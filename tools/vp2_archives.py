@@ -52,6 +52,21 @@ def read_toc(iso):
     return [(t[i] & 0xFFFFFF, t[0xC00 + i] & 0xFFFFFF) for i in range(0xC00)]
 
 
+def terminated(d, a0, size):
+    """The number of table words up to and with the terminator {end, 0} (end within 2 sectors of size), its other
+    entries' offsets increasing, or None."""
+    a, w = a0, []
+    for i in range(min(512, (len(d) - 8) // 4)):
+        a = (a * 2053 + 0x3619) & M
+        w.append(struct.unpack_from('<I', d, 8 + 4 * i)[0] ^ a)
+        if i & 1 and i >= 3 and w[i] == 0 and abs((w[i - 1] & 0x7FFFFFFF) - size) <= 2 * SECTOR:
+            offsets = [w[j] & 0x7FFFFFFF for j in range(2, i, 2)]
+            if all(b > c for c, b in zip(offsets, offsets[1:])) and offsets and offsets[0] >= 8 + 4 * (i + 1):
+                return i + 1
+            return None
+    return None
+
+
 def entry_table(d, k, size=None):
     a0 = ((k ^ 0x5E) * 29) & M
     x = (a0 * 2053 + 0x3619) & M
@@ -60,12 +75,19 @@ def entry_table(d, k, size=None):
     first = (struct.unpack_from('<I', d, 8)[0] ^ x) & 0x7FFFFFFF
     n = first // 4 - 2
     if not (2 <= n < 4096) or n & 1 or 8 + 4 * n > len(d):
-        return None
+        # Some packs' first word does not decode (the battle's file 1781: 0x73F33D7D where 0x80000038 belongs, the
+        # other entries fine): the table found by its terminator {end of the file, 0} instead.
+        n = terminated(d, a0, size or len(d))
+        if n is None:
+            return None
+        first = 0x80000000 | (8 + 4 * n)  # encrypted: the stream must go through it for the next members to decrypt
     w = list(struct.unpack_from('<%dI' % n, d, 8))
     a = a0
     for i in range(n):
         a = (a * 2053 + 0x3619) & M
         w[i] ^= a
+    if (w[0] & 0x7FFFFFFF) != 8 + 4 * n:
+        w[0] = first
     entries = [(w[2 * i], w[2 * i + 1]) for i in range(n // 2)]
     while len(entries) > 2 and entries[-1] == (0, 0):  # the table padded to its size after the terminator
         entries.pop()
@@ -75,6 +97,22 @@ def entry_table(d, k, size=None):
     if entries[-1][1] != 0 or abs(offsets[-1] - (size or len(d))) > 2 * SECTOR:
         return None
     return entries
+
+
+def nested(member):
+    """A nested pack's (key, entries): an encrypted table (its key found as for a file), or 'p@Ck' with key byte 0 and
+    the table in the clear (+6 the entry count), or None."""
+    inner = next((k for k in range(256) if entry_table(member, k, len(member))), None)
+    if inner is not None:
+        return inner, entry_table(member, inner, len(member))
+    if member[:4] == b'p@Ck' and member[5] == 0:
+        count, = struct.unpack_from('<H', member, 6)
+        if 1 <= count < 4096 and 8 + 8 * (count + 1) <= len(member):
+            entries = [struct.unpack_from('<II', member, 8 + 8 * i) for i in range(count + 1)]
+            offsets = [e[0] & 0x7FFFFFFF for e in entries]
+            if entries[-1][1] == 0 and offsets[-1] <= len(member) and all(b >= a for a, b in zip(offsets, offsets[1:])):
+                return 0, entries
+    return None
 
 
 class Stream:
@@ -162,24 +200,26 @@ def main():
             member = d[start:end]
             pieces = []  # (offset in the file, bytes) to scan for chains
             if offset & 0x80000000:
-                pieces.append((start, stream.decrypt(member)))
-            elif (ident & 0xFF00) == 0x5000:
-                # A plain member of type 0x5000 is a nested pack (mod028 FUN_003B6E30's slots 3..6): its own key, a
-                # fresh stream, its encrypted members holding the chains (the battle characters).
-                inner = next((k for k in range(256) if entry_table(member, k, len(member))), None)
-                sub = entry_table(member, inner, len(member)) if inner is not None else None
-                if sub:
-                    s2 = Stream(inner)
-                    for j, (soffset, _) in enumerate(sub[:-1]):
-                        sstart, send = soffset & 0x7FFFFFFF, sub[j + 1][0] & 0x7FFFFFFF
-                        piece = member[sstart:send]
-                        if soffset & 0x80000000:
-                            piece = s2.decrypt(piece)
-                        pieces.append((start + sstart, piece))
+                member = stream.decrypt(member)
+            sub = nested(member) if (ident & 0xFF00) == 0x5000 else None
+            if sub:
+                # A member of type 0x5000 is a nested pack (mod028 FUN_003B6E30's slots 3..6): its own key, a fresh
+                # stream, its members holding the chains (the battle characters; the battle interface's sheets in
+                # file 1781, whose nested pack is itself an encrypted member with a plain table).
+                inner, sub = sub
+                s2 = Stream(inner)
+                for j, (soffset, _) in enumerate(sub[:-1]):
+                    sstart, send = soffset & 0x7FFFFFFF, sub[j + 1][0] & 0x7FFFFFFF
+                    piece = member[sstart:send]
+                    if soffset & 0x80000000:
+                        piece = s2.decrypt(piece)
+                    pieces.append((start + sstart, piece))
             else:
                 pieces.append((start, member))
             for base, piece in pieces:
+              found = False
               for at, parts in chains(piece):
+                found = True
                 disc = lba * SECTOR + base + at
                 folder = os.path.join(a.out, '%x' % (disc >> 28))
                 os.makedirs(folder, exist_ok=True)
@@ -190,6 +230,17 @@ def main():
                         with open(path, 'wb') as f:
                             f.write(part)
                         written += 1
+              if not found and len(piece) >= 0x40:
+                  # A member stored without compression (the battle interface's textures among them): kept as it is,
+                  # <disc offset of the member:010x>_raw.bin, for the texture and mesh conversions to find.
+                  disc = lba * SECTOR + base
+                  folder = os.path.join(a.out, '%x' % (disc >> 28))
+                  os.makedirs(folder, exist_ok=True)
+                  path = os.path.join(folder, '%010x_raw.bin' % disc)
+                  if not os.path.exists(path):
+                      with open(path, 'wb') as f:
+                          f.write(piece)
+                      written += 1
     print(f'packs: {packs}, parts written: {written}')
     return 0
 

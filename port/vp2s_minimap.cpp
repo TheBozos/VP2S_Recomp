@@ -160,7 +160,8 @@ void vp2sMinimapDraw()
     if (x < 0x100000u || scene < 0x100000u || camera < 0x100000u || map < 0x100000u)
         return;
     const float frameX = static_cast<float>(word(rdram, x + 0x94u)), frameY = static_cast<float>(word(rdram, x + 0x98u));
-    const float shiftX = kOriginX - frameX, shiftY = kOriginY - frameY; // the map's frame pixels to the native screen's
+    // The map's frame (512 x 480 pixels from (frameX, frameY)) stretched onto the native screen (640 x 448 from its origin).
+    constexpr float kScaleX = 640.0f / 512.0f, kScaleY = 448.0f / 480.0f;
     auto &renderer = ps2x::native::Renderer::instance();
     static const float s_identity[16] = {1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1};
     ps2x::native::Material flat;
@@ -171,8 +172,8 @@ void vp2sMinimapDraw()
     flat.textured = false;
     const auto vertex = [&](float vx, float vy, uint32_t colour) {
         ps2x::native::Vertex v{};
-        v.x = kOriginX + vx;
-        v.y = kOriginY + vy;
+        v.x = kOriginX + vx * kScaleX;
+        v.y = kOriginY + vy * kScaleY;
         v.z = 16777215.0f;
         v.rgba = colour;
         return v;
@@ -202,8 +203,8 @@ void vp2sMinimapDraw()
     Mat4 s = product(rows(rdram, camera + 0x330u), product(rows(rdram, camera + 0x2F0u), rows(rdram, scene + 0x90u)));
     for (int c = 0; c < 4; ++c)
     {
-        s[0][c] += shiftX * s[3][c];
-        s[1][c] += shiftY * s[3][c];
+        s[0][c] = kScaleX * s[0][c] + (kOriginX - kScaleX * frameX) * s[3][c];
+        s[1][c] = kScaleY * s[1][c] + (kOriginY - kScaleY * frameY) * s[3][c];
     }
     float matrix[16];
     for (int c = 0; c < 4; ++c)
@@ -214,10 +215,10 @@ void vp2sMinimapDraw()
         texture = vp2sGameTexture(word(rdram, image + 0x14u), word(rdram, image + 0x18u), 0u);
     ps2x::native::Material room = flat;
     room.textured = texture != nullptr;
-    room.scissor[0] = kOriginX + 24.0f;
-    room.scissor[1] = kOriginY + 24.0f;
-    room.scissor[2] = kOriginX + 179.0f;
-    room.scissor[3] = kOriginY + 139.0f;
+    room.scissor[0] = kOriginX + 24.0f * kScaleX;
+    room.scissor[1] = kOriginY + 24.0f * kScaleY;
+    room.scissor[2] = kOriginX + 180.0f * kScaleX - 1.0f;
+    room.scissor[3] = kOriginY + 140.0f * kScaleY - 1.0f;
     const int layer = static_cast<int8_t>(rdram[m + 0x15BEu]);
     const uint32_t records = word(rdram, m + 0x1644u) & 0x1FFFFFFu;
     const uint32_t count = std::min<uint32_t>(word(rdram, map + 4u) & 0xFFFFu, 256u);

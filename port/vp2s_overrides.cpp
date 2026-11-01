@@ -9,6 +9,7 @@
 #include "vp2s_models.h"
 #include "vp2s_ui.h"
 #include "vp2s_minimap.h"
+#include "vp2s_battle_hud.h"
 #include "ps2_overlay_modules.h"
 
 #include <algorithm>
@@ -369,6 +370,7 @@ namespace
         vp2sInstallModels(runtime);
         vp2sInstallUi(runtime);
         vp2sInstallMinimap(runtime);
+        vp2sInstallBattleHud(runtime);
 
         // VP2 draws its picture at 640x448 and copies every other line of it into a 640x256 buffer per interlaced
         // field: the window shows the 640x448 picture, without the half-line bob from one field to the next.

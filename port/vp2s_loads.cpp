@@ -54,6 +54,26 @@ namespace
         return value;
     }
 
+    // VP2S_LOADS_DUMP=<chain disc offset, hex>: that chain as the game is about to decompress it (after the decryptions
+    // done before), 16 MB at most from its start written to vp2s_chain_<offset>.bin, to compare with the disc's bytes.
+    void dumpChain(const uint8_t *rdram, uint32_t source, const Read &read)
+    {
+        static const unsigned long long s_dump = [] { const char *v = std::getenv("VP2S_LOADS_DUMP"); return v ? std::strtoull(v, nullptr, 16) : 0ull; }();
+        if (s_dump == 0ull || read.disc + (source - read.buffer) != s_dump)
+            return;
+        const uint32_t bytes = std::min<uint32_t>(read.buffer + read.bytes - source, 16u << 20);
+        char name[64];
+        std::snprintf(name, sizeof(name), "vp2s_chain_%010llx.bin", s_dump);
+        if (FILE *f = std::fopen(name, "wb"))
+        {
+            std::fwrite(rdram + source, 1, std::min<uint32_t>(bytes, 0x2000000u - source), f);
+            std::fclose(f);
+        }
+        std::printf("[vp2s-loads] dumped chain %010llx (%u bytes; read of %x bytes at disc %010llx into %x)\n", s_dump, bytes, read.bytes,
+                    static_cast<unsigned long long>(read.disc), read.buffer);
+        std::fflush(stdout);
+    }
+
     void decompressHook(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
     {
         const uint32_t source = getRegU32(ctx, 5) & 0x1FFFFFFu, destination = getRegU32(ctx, 6) & 0x1FFFFFFu;
@@ -75,6 +95,8 @@ namespace
                 std::printf("[vp2s-loads] decompress %x part %u -> %x..%x %s %010llx\n", source, part, destination, destination + size,
                             read != g_reads.end() ? "chain" : "from no read",
                             read != g_reads.end() ? static_cast<unsigned long long>(read->disc + (source - read->buffer)) : 0ull);
+            if (read != g_reads.end())
+                dumpChain(rdram, source, *read);
         }
         g_decompress(rdram, ctx, runtime);
     }
@@ -141,6 +163,8 @@ namespace
             if (s_log)
                 std::printf("[vp2s-loads] async decompress %x part %u -> %x..%x %s\n", source, part, destination, destination + size,
                             read != g_reads.end() ? "chain" : "from no read");
+            if (read != g_reads.end())
+                dumpChain(rdram, source, *read);
             if (read != g_reads.end() && size != 0u && size < (64u << 20))
             {
                 std::erase_if(g_regions, [&](const Region &r) { return r.begin < destination + size && destination < r.end; });

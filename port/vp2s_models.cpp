@@ -5,6 +5,7 @@
 
 #include "vp2s_models.h"
 #include "vp2s_minimap.h"
+#include "vp2s_battle_hud.h"
 #include "vp2s_loads.h"
 #include "vp2s_textures.h"
 
@@ -713,6 +714,7 @@ void vp2sModelsFrameEnd()
                     static_cast<unsigned long long>(c.triangles), c.sampleX, c.sampleY, c.sampleZ);
         g_counts = Counts{};
     }
+    vp2sBattleHudDraw(); // the battle HUD's widgets, over everything
     auto &renderer = ps2x::native::Renderer::instance();
     renderer.endFrame();
     renderer.beginFrame(nativeScreen());

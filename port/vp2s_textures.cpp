@@ -377,14 +377,25 @@ void vp2sInstallGameTextures(PS2Runtime &runtime)
                 g_clutAllocate ? "" : " (no CLUT allocator hook)");
 }
 
-std::shared_ptr<const ps2x::native::TextureCache::Texture> vp2sGameTexture(uint32_t tag, uint32_t index, uint32_t csa)
+std::shared_ptr<const ps2x::native::TextureCache::Texture> vp2sGameTexture(uint32_t tag, uint32_t index, uint32_t csa,
+                                                                           uint32_t paletteTag, uint32_t paletteIndex)
 {
     std::lock_guard<std::mutex> lock(g_mutex);
     const Key key{tag, index};
     const std::shared_ptr<Converted> converted = load(key);
     if (!converted || converted->width == 0u || converted->height == 0u)
         return nullptr;
-    const uint64_t id = std::hash<std::string>()(fileOf(key)) * 0x9E3779B97F4A7C15ull ^ (uint64_t{csa & 0x1Fu} << 8) ^ 0x5A5Au;
+    // Another conversion's palette (a sheet whose palette the game sent from another file, as the battle portraits).
+    std::shared_ptr<Converted> paletteFrom = converted;
+    uint64_t id = std::hash<std::string>()(fileOf(key)) * 0x9E3779B97F4A7C15ull ^ (uint64_t{csa & 0x1Fu} << 8) ^ 0x5A5Au;
+    if (paletteTag != 0u && (paletteTag != tag || paletteIndex != index))
+    {
+        const Key paletteKey{paletteTag, paletteIndex};
+        paletteFrom = load(paletteKey);
+        if (!paletteFrom)
+            return nullptr;
+        id ^= std::hash<std::string>()(fileOf(paletteKey)) * 0xC2B2AE3D27D4EB4Full;
+    }
     if (const auto it = g_textures.find(id); it != g_textures.end())
         return it->second;
     // The texture is the conversion's size rounded up to powers of two (TW / TH as the game sets them).
@@ -406,7 +417,7 @@ std::shared_ptr<const ps2x::native::TextureCache::Texture> vp2sGameTexture(uint3
             if (converted->psm == 0u)
                 std::memcpy(&rgba, converted->texels.data() + k * 4u, 4u);
             else
-                rgba = converted->palette[(converted->psm == 0x14u ? (csa & 0x1Fu) * 16u + converted->texels[k] : converted->texels[k]) & 0xFFu];
+                rgba = paletteFrom->palette[(converted->psm == 0x14u ? (csa & 0x1Fu) * 16u + converted->texels[k] : converted->texels[k]) & 0xFFu];
             texture.rgba[static_cast<size_t>(y) * texture.width + x] = rgba;
         }
     // VP2S_GAME_TEXTURES_LOG: each texture made by key once, with its file and mean colour.

@@ -925,8 +925,57 @@ namespace
     }
 }
 
+bool vp2sUiFixedSheet(uint32_t dbp, uint32_t &tag, uint32_t &index)
+{
+    std::lock_guard<std::mutex> lock(g_mutex);
+    const auto found = g_fixedSheets.find(dbp & 0x3FFFu);
+    if (found == g_fixedSheets.end())
+        return false;
+    tag = found->second.first;
+    index = found->second.second;
+    return true;
+}
+
+void vp2sUiNoteFixedSheet(uint32_t dbp, uint32_t tag, uint32_t index)
+{
+    std::lock_guard<std::mutex> lock(g_mutex);
+    g_fixedSheets[dbp & 0x3FFFu] = {tag, index};
+}
+
+namespace
+{
+    // VP2S_MENU_LOG: the data menu's state machine (mod016 0x498DA0(a0 menu): state +0x70; its dialog *(menu + 4),
+    // +0x104 0 once answered, +0x10C the answer, 1 yes) logged at each change of state, for scripted runs to wait on
+    // ("[vp2s-menu] state 19"). 0x19 asks to load the slot chosen (the read only with yes), 0x1A reads, 0x1B applies.
+    constexpr uint32_t kDataMenu = 0x00498DA0u;
+    PS2Runtime::RecompiledFunction g_dataMenu = nullptr;
+
+    void dataMenuHook(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
+    {
+        const uint32_t menu = getRegU32(ctx, 4) & 0x1FFFFFFu;
+        g_dataMenu(rdram, ctx, runtime);
+        static uint32_t s_last = 0xFFFFFFFFu;
+        const uint32_t state = word(rdram, menu + 0x70u), dialog = word(rdram, menu + 4u) & 0x1FFFFFFu;
+        if (state != s_last)
+        {
+            s_last = state;
+            std::printf("[vp2s-menu] state %x (dialog %x answer %d)\n", state, static_cast<int32_t>(word(rdram, dialog + 0x104u)),
+                        static_cast<int32_t>(word(rdram, dialog + 0x10Cu)));
+            std::fflush(stdout);
+        }
+    }
+}
+
 void vp2sInstallUi(PS2Runtime &)
 {
+    if (std::getenv("VP2S_MENU_LOG"))
+        if (const ps2_overlays::Module *data = ps2_overlays::findModule("mod016");
+            data && kDataMenu >= data->tableBase && kDataMenu < data->tableEnd)
+        {
+            g_dataMenu = data->table[(kDataMenu - data->tableBase) >> 2];
+            if (g_dataMenu)
+                ps2_overlays::replaceModuleFunction("mod016", kDataMenu, &dataMenuHook);
+        }
     if (const char *gs = std::getenv("VP2S_GS"); gs && gs[0] == '1')
         return;
     if (const char *ui = std::getenv("VP2S_UI"); ui && ui[0] == '0')

@@ -491,6 +491,20 @@ namespace
             // stays out of the post effect that way). VP2S_MODELS_BLEND_DEPTH=0: they do not.
             static const bool s_blendDepth = [] { const char *v = std::getenv("VP2S_MODELS_BLEND_DEPTH"); return !(v && v[0] == '0'); }();
             material.depthWrite = !material.alphaBlend || s_blendDepth;
+            // VP2S_MODELS_BLEND_LOG: each object with a blended mesh once (its class, fade +0x210, flags +0x7C0..+0x7C7,
+            // the mesh's ALPHA and PRIM), to tell which blended meshes write depth on the GS.
+            {
+                static const bool s_log = std::getenv("VP2S_MODELS_BLEND_LOG") != nullptr;
+                static std::vector<uint32_t> s_seen;
+                if (s_log && material.alphaBlend && std::find(s_seen.begin(), s_seen.end(), object) == s_seen.end() && s_seen.size() < 200u)
+                {
+                    s_seen.push_back(object);
+                    std::printf("[vp2s-models] blended: object %x class %x fade %x flags %08x %08x alpha %x prim %x mode %x\n", object,
+                                word(rdram, object), word(rdram, object + 0x210u), word(rdram, object + 0x7C0u), word(rdram, object + 0x7C4u),
+                                alpha, prim, carriedMode);
+                    std::fflush(stdout);
+                }
+            }
             std::shared_ptr<const ps2x::native::TextureCache::Texture> texture;
             if (block != 0u && texman != 0u && ((prim >> 4) & 1u))
             {

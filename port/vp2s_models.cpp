@@ -192,6 +192,7 @@ namespace
     }
 
     bool g_frameOpen = false;
+    const uint8_t *g_rdram = nullptr; // EE memory, for the frame end's diagnostics
     // VP2S_MODELS_LOG: what became of the meshes since the last line (every 120 frames).
     struct Counts
     {
@@ -581,6 +582,38 @@ void vp2sModelsFrameEnd()
     auto &renderer = ps2x::native::Renderer::instance();
     renderer.endFrame();
     renderer.beginFrame(nativeScreen());
+    // VP2S_POST_LOG (diagnosis): every 2 s, the post-effect object's parameter blocks (docs/vp2_dof.md): flags +0xEF0C,
+    // auto-focus +0x130D0, block +0xF45C and blocks +0xF330 + 0x3C i (enable, p0..p4, level, c, flags, radii, strength).
+    {
+        static const bool s_post = std::getenv("VP2S_POST_LOG") != nullptr;
+        static auto s_last = std::chrono::steady_clock::now();
+        if (s_post && std::chrono::steady_clock::now() - s_last > std::chrono::seconds(2))
+        {
+            s_last = std::chrono::steady_clock::now();
+            const uint8_t *rdram = g_rdram;
+            const uint32_t owner = rdram ? word(rdram, 0x0035DDF8u) : 0u;
+            if (owner)
+            {
+                const uint32_t post = word(rdram, (owner & 0x1FFFFFFu) + 0x4448u) & 0x1FFFFFFu;
+                std::printf("[vp2s-post] object %x flags %08x auto %02x", post, post ? word(rdram, post + 0xEF0Cu) : 0u,
+                            post ? rdram[(post + 0x130D0u) & 0x1FFFFFFu] : 0u);
+                const auto block = [&](uint32_t at) {
+                    std::printf(" | %x:", at - post);
+                    for (uint32_t k = 0; k < 0x3Cu; k += 4u)
+                        std::printf(" %08x", word(rdram, at + k));
+                };
+                if (post)
+                {
+                    block(post + 0xF45Cu);
+                    for (uint32_t i = 0; i < 4u; ++i)
+                        if (word(rdram, post + 0xF330u + 0x3Cu * i))
+                            block(post + 0xF330u + 0x3Cu * i);
+                }
+                std::printf("\n");
+                std::fflush(stdout);
+            }
+        }
+    }
     // Every 5 s: the native frames shown per second (the game's own frames, one per scene pass).
     static auto s_since = std::chrono::steady_clock::now();
     static uint32_t s_shown = 0;
@@ -619,6 +652,7 @@ void vp2sInstallModels(PS2Runtime &)
         static PS2Runtime::RecompiledFunction s_scenePass = module->table[(kScenePass - module->tableBase) >> 2];
         if (s_scenePass)
             ps2_overlays::replaceModuleFunction("mod001", kScenePass, [](uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime) {
+                g_rdram = rdram;
                 s_scenePass(rdram, ctx, runtime);
                 vp2sModelsFrameEnd();
             });

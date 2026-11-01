@@ -52,3 +52,17 @@ it is the game's own data, built by its own code.
 Blur the frame at decreasing sizes (128x88 -> 64x44 -> 32x22, bilinear), brighten the blurred copy by 2c/128, then mix
 it over the frame by the table's weight for each pixel's depth: `(blurred - frame) * w + frame`. Native: depth from the
 native renderer's depth buffer, a blur of the native frame, one full-screen pass.
+
+## What the title and the first field ask for (VP2S_POST_LOG, 2026-11-01)
+
+Object at 0x5F18B0, flags `+0xEF0C` 0x1D, no auto-focus; the same blocks from the title to the field:
+
+| Block | p0..p4 | +0x18 level | +0x1C c | +0x1D..+0x1F | radii | strength |
+|---|---|---|---|---|---|---|
+| +0xF45C | 0 | 0x80 | 0 | 00 80 01 | 0, 0 | 1.0 |
+| +0xF330 | 0 | 0x80 / 0x80 | 0x40 (C = B) | 01 80 00 | 5.5, 0 | 1.0 |
+| +0xF36C | 0 | 0x80 / 0x80 | 0x40 | 01 80 00 (+0x21: 1) | 5.5, 0 | 1.0 |
+| +0xF3A8 | 0 | 0x80 / 0x40 | 0xC8 (C = 3.1 B) | 01 80 00 (+0x21: 2) | 5.5, 2.3 | 1.0 |
+
+With every p 0 the table weights only the farthest depth (Z top byte 0: the sky), so the sky gets the blurred copy
+brightened up to ~3x: the original's bright title sky (drawn at vertex colour 64) and, likely, the field's glow. [I]

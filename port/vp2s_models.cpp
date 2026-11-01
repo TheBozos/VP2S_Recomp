@@ -4,6 +4,7 @@
 // structures. Nothing reads VIF, GIF or VU data while the game runs.
 
 #include "vp2s_models.h"
+#include "vp2s_minimap.h"
 #include "vp2s_loads.h"
 #include "vp2s_textures.h"
 
@@ -290,6 +291,17 @@ namespace
     bool g_frameOpen = false;
     const uint8_t *g_rdram = nullptr; // EE memory, for the frame end's diagnostics
     size_t g_interfaceStart = SIZE_MAX; // the frame's first interface batch (vp2sModelsInterfaceStarts)
+    bool g_sceneOverlaysDrawn = false;  // this frame's scene overlays (the minimap) are in, before its effect passes
+
+    // The scene's own 2D (the minimap) goes after the 3D and before the game's effect passes, as the GS gets them:
+    // drawn at the first effect pass of the frame.
+    void sceneOverlays()
+    {
+        if (g_sceneOverlaysDrawn)
+            return;
+        g_sceneOverlaysDrawn = true;
+        vp2sMinimapDraw();
+    }
     // VP2S_MODELS_LOG: what became of the meshes since the last line (every 120 frames).
     struct Counts
     {
@@ -686,6 +698,7 @@ void vp2sModelsFrameEnd()
     if (!g_frameOpen)
         return;
     g_interfaceStart = SIZE_MAX;
+    g_sceneOverlaysDrawn = false;
     static const bool s_log = std::getenv("VP2S_MODELS_LOG") != nullptr;
     static uint64_t s_frames = 0;
     if (s_log && ++s_frames % 120u == 0u)
@@ -809,6 +822,7 @@ void vp2sInstallModels(PS2Runtime &)
         if (s_post)
             ps2_overlays::replaceModuleFunction("mod001", kPostEffect, [](uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime) {
                 s_post(rdram, ctx, runtime);
+                sceneOverlays();
                 const uint32_t owner = word(rdram, 0x0035DDF8u) & 0x1FFFFFFu;
                 const uint32_t post = owner ? word(rdram, owner + 0x4448u) & 0x1FFFFFFu : 0u; // the object (docs/vp2_dof.md)
                 if (post < 0x100000u)
@@ -913,6 +927,7 @@ void vp2sInstallModels(PS2Runtime &)
             ps2_overlays::replaceModuleFunction("mod001", kBrightness, [](uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime) {
                 const uint32_t object = getRegU32(ctx, 4) & 0x1FFFFFFu;
                 s_brightness(rdram, ctx, runtime);
+                sceneOverlays();
                 if (object < 0x100000u || !rdram[object + 0xA4u])
                     return;
                 ps2x::native::Renderer::PostEffect e;
@@ -950,6 +965,7 @@ void vp2sInstallModels(PS2Runtime &)
             ps2_overlays::replaceModuleFunction("mod001", kScatter, [](uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime) {
                 const uint32_t sc = getRegU32(ctx, 4) & 0x1FFFFFFu;
                 s_scatter(rdram, ctx, runtime);
+                sceneOverlays();
                 if (sc < 0x100000u || !(rdram[sc + 0x18980u] & 1u))
                     return;
                 ps2x::native::Renderer::PostEffect e;

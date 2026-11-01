@@ -70,6 +70,7 @@ add_library(vp2s_frontend OBJECT
     "${CMAKE_CURRENT_SOURCE_DIR}/vp2s_loads.cpp"
     "${CMAKE_CURRENT_SOURCE_DIR}/vp2s_models.cpp"
     "${CMAKE_CURRENT_SOURCE_DIR}/vp2s_ui.cpp"
+    "${CMAKE_CURRENT_SOURCE_DIR}/vp2s_minimap.cpp"
     "${CMAKE_CURRENT_SOURCE_DIR}/vp2s_diag_iop.cpp"
     "${CMAKE_CURRENT_SOURCE_DIR}/vp2s_diag_gs.cpp"
     "${CMAKE_CURRENT_SOURCE_DIR}/vp2s_profile.cpp"

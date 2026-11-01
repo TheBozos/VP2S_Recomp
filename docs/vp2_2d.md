@@ -73,3 +73,14 @@ items when its layer is drawn (0x2EC8F0) and the element is shown, in the layer'
   (h part 22's), cap h GS pixels wide (x 0.75 when bit 4 of *(*(0x48DB4C) + 3)). Drawn each frame from live data.
 - TBP 0x800 is shared: the menus' sheets use CBP 0x3FC8 / 0x3FCC, the field HUD's CBP 0x3FF4.
 - The minimap is another element, not found yet.
+
+## Field minimap (2026-11-01)
+
+The area map object M = *(*(*(0x48DB48) + 8) + 0xC8) (mod003 class 0x165470; per-frame update 0x440FA0, vtable +0x14)
+builds the minimap each frame (0x457BE0) as a small 3D scene through the generic polygon batcher (flush 0x200DE0),
+plus an EE-built background (X = *(M+0x1640), class 0x167180). Its own 2D frame: origin X+0x94 / +0x98 (1792, 1808),
+scissor 24..179 x 24..139 (*(M+0x1650) +0xA4..). The native port draws it from M's data (vp2s_minimap.cpp): the
+background and border, the player's layer of rooms (records *(M+0x1644), 0xF0 bytes, textured with the floor image
+*(M+0x29C)) through the scene object (*(M+0x1630) +0x90) and the map camera (*(M+0x1638)), after the 3D and before
+the effect passes (it is part of the scene: doubled and scattered like it). Not yet: visited rooms only, doors,
+icons, the player's marker (a green spinning kite), the camera footprint, the full map.

@@ -67,6 +67,8 @@ def entry_table(d, k, size=None):
         a = (a * 2053 + 0x3619) & M
         w[i] ^= a
     entries = [(w[2 * i], w[2 * i + 1]) for i in range(n // 2)]
+    while len(entries) > 2 and entries[-1] == (0, 0):  # the table padded to its size after the terminator
+        entries.pop()
     offsets = [e[0] & 0x7FFFFFFF for e in entries]
     if offsets[0] != 8 + 4 * n or offsets[0] < 0x18 or any(b < a for a, b in zip(offsets, offsets[1:])):
         return None

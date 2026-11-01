@@ -427,3 +427,13 @@ std::shared_ptr<const ps2x::native::TextureCache::Texture> vp2sGameTexture(uint3
     g_textures[id] = shared;
     return shared;
 }
+
+bool vp2sGamePalette(uint32_t tag, uint32_t index, uint32_t palette[256])
+{
+    std::lock_guard<std::mutex> lock(g_mutex);
+    const std::shared_ptr<Converted> converted = load(Key{tag, index});
+    if (!converted)
+        return false;
+    std::memcpy(palette, converted->palette.data(), 256u * 4u);
+    return true;
+}

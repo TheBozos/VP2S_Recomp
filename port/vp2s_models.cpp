@@ -582,6 +582,18 @@ void vp2sInstallModels(PS2Runtime &)
     if (!g_draw)
         return;
     ps2_overlays::replaceModuleFunction("mod001", kModelDraw, &modelDrawHook);
+    // The native frame ends with the game's scene pass (mod001 FUN_002211E0, every frame on every screen: the 3D,
+    // then the interface layers): the field's frame wait alone left the title and the menus' frames unended.
+    constexpr uint32_t kScenePass = 0x002211E0u;
+    if (kScenePass >= module->tableBase && kScenePass < module->tableEnd)
+    {
+        static PS2Runtime::RecompiledFunction s_scenePass = module->table[(kScenePass - module->tableBase) >> 2];
+        if (s_scenePass)
+            ps2_overlays::replaceModuleFunction("mod001", kScenePass, [](uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime) {
+                s_scenePass(rdram, ctx, runtime);
+                vp2sModelsFrameEnd();
+            });
+    }
     ps2x::native::Renderer::instance().setStreamDraws(false);
     ps2x::native::Renderer::instance().setEnabled(true);
     ps2x::native::Renderer::instance().beginFrame(nativeScreen());

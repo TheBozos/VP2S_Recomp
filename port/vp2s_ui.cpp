@@ -267,11 +267,30 @@ namespace
     constexpr uint32_t kTextBuild = 0x002EFA30u;
     PS2Runtime::RecompiledFunction g_textBuild = nullptr;
 
+    // The scrolling text class's build (0x2ECED0: message windows, the battle tutorial) draws its icons the same way.
+    constexpr uint32_t kScrollTextBuild = 0x002ECED0u;
+    PS2Runtime::RecompiledFunction g_scrollTextBuild = nullptr;
+
+    void captureIcons(uint8_t *rdram, PS2Runtime *runtime, uint32_t element, bool building);
+
     void textBuildHook(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
     {
         const uint32_t element = getRegU32(ctx, 4) & 0x1FFFFFFu;
         const bool building = !rdram[(element + 0x3Bu) & 0x1FFFFFFu];
         g_textBuild(rdram, ctx, runtime);
+        captureIcons(rdram, runtime, element, building);
+    }
+
+    void scrollTextBuildHook(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
+    {
+        const uint32_t element = getRegU32(ctx, 4) & 0x1FFFFFFu;
+        const bool building = !rdram[(element + 0x3Bu) & 0x1FFFFFFu];
+        g_scrollTextBuild(rdram, ctx, runtime);
+        captureIcons(rdram, runtime, element, building);
+    }
+
+    void captureIcons(uint8_t *rdram, PS2Runtime *runtime, uint32_t element, bool building)
+    {
         const uint32_t icons = word(rdram, element + 0x100u) & 0x1FFFFFFu;
         if (!building || !rdram[(element + 0x3Bu) & 0x1FFFFFFu] || icons < 0x100000u)
             return;
@@ -934,6 +953,7 @@ void vp2sInstallUi(PS2Runtime &)
         take(kSprite, g_sprite, &spriteHook);
         take(kSpriteElementBuild, g_spriteElementBuild, &spriteElementBuildHook);
         take(kTextBuild, g_textBuild, &textBuildHook);
+        take(kScrollTextBuild, g_scrollTextBuild, &scrollTextBuildHook);
     if (hooks & 16u)
     {
         take(kQuadList, g_quadList, &quadListHook);

@@ -25,6 +25,9 @@
 
 namespace
 {
+    // VP2S_UI_TREE_LOG's (layer, class) pairs already printed; cleared at each data menu state (VP2S_MENU_LOG), so
+    // the log after a state shows what that state displays.
+    std::vector<uint64_t> g_treeSeen;
     uint32_t word(const uint8_t *rdram, uint32_t address)
     {
         uint32_t value;
@@ -735,18 +738,28 @@ namespace
     }
 
     // 0x2EC8F0(layer): every layer's draw. Its children with +0x39, +0x3D and +0x3B set (the game's own rule) are drawn.
-    void layerDrawHook(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
+    // A layer's elements drawn natively (its children list from +8, position +0x40 / +0x44, alpha +0xE0).
+    void drawLayer(uint8_t *rdram, uint32_t layer)
     {
-        const uint32_t layer = getRegU32(ctx, 4) & 0x1FFFFFFu;
-        vp2sModelsInterfaceStarts();
-        { static int s_n = 0; if (s_n < 5) { ++s_n; std::printf("[vp2s-ui] layer draw %x\n", getRegU32(ctx, 4)); std::fflush(stdout); } }
-        g_layerDraw(rdram, ctx, runtime);
-        { static int s_n = 0; if (s_n < 5) { ++s_n; std::printf("[vp2s-ui] layer drawn\n"); std::fflush(stdout); } }
         const float layerX = real(rdram, layer + 0x40u), layerY = real(rdram, layer + 0x44u);
         // Alphas and the colour multiplier are floats, 128 = 1.
         const auto byte = [&](uint32_t address) { return static_cast<uint32_t>(std::clamp(real(rdram, address), 0.0f, 255.0f)); };
         const uint32_t layerAlpha = byte(layer + 0xE0u);
         std::lock_guard<std::mutex> lock(g_mutex);
+        {
+            static const bool s_tree = std::getenv("VP2S_UI_TREE_LOG") != nullptr;
+            const uint64_t pair = uint64_t{layer} << 32 | 0xFFFFFFFFu;
+            if (s_tree && std::find(g_treeSeen.begin(), g_treeSeen.end(), pair) == g_treeSeen.end() && g_treeSeen.size() < 400u)
+            {
+                g_treeSeen.push_back(pair);
+                std::printf("[vp2s-ui] layer %x (vtable %x) at %.0f,%.0f alpha %u first child %x:", layer, word(rdram, layer), layerX, layerY,
+                            layerAlpha, word(rdram, layer + 8u));
+                for (uint32_t k = 0; k < 0x100u; k += 4u)
+                    std::printf(" %08x", word(rdram, layer + k));
+                std::printf("\n");
+                std::fflush(stdout);
+            }
+        }
         // The children list (next at +8) may come back round to its start or the layer: each child once.
         std::vector<uint32_t> seen;
         uint32_t element = word(rdram, layer + 8u);
@@ -760,12 +773,11 @@ namespace
             // native port has of it (sprite, quad list, window, glyphs) and whether it is shown.
             {
                 static const bool s_tree = std::getenv("VP2S_UI_TREE_LOG") != nullptr;
-                static std::vector<uint64_t> s_classes; // (layer, class) pairs
                 const uint32_t vtable = word(rdram, element) & 0x1FFFFFFu;
                 const uint64_t pair = uint64_t{layer} << 32 | vtable;
-                if (s_tree && std::find(s_classes.begin(), s_classes.end(), pair) == s_classes.end() && s_classes.size() < 400u)
+                if (s_tree && std::find(g_treeSeen.begin(), g_treeSeen.end(), pair) == g_treeSeen.end() && g_treeSeen.size() < 400u)
                 {
-                    s_classes.push_back(pair);
+                    g_treeSeen.push_back(pair);
                     std::printf("[vp2s-ui] class %x (build %x, draw %x): element %x layer %x shown %d%d%d; sprite %d quads %d window %d glyphs %d; "
                                 "at %.0f,%.0f size %.0f,%.0f\n",
                                 vtable, word(rdram, vtable + 0x20u), word(rdram, vtable + 0x1Cu), element, layer, rdram[element + 0x39u],
@@ -923,6 +935,55 @@ namespace
             }
         }
     }
+
+    // When each layer last went through 0x2EC8F0 (the dialog container below leaves those alone).
+    std::unordered_map<uint32_t, std::chrono::steady_clock::time_point> g_layerDrawnAt;
+
+    void layerDrawHook(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
+    {
+        const uint32_t layer = getRegU32(ctx, 4) & 0x1FFFFFFu;
+        vp2sModelsInterfaceStarts();
+        g_layerDraw(rdram, ctx, runtime);
+        g_layerDrawnAt[layer] = std::chrono::steady_clock::now();
+        drawLayer(rdram, layer);
+    }
+
+    // mod003 0x45E6F0: the draw of the menus' dialog container (vtable 0x167250, no children of its own). Its manager
+    // (container + 0xB0, class 0x167510) lists its windows from +0x4C; a dialog window (class 0x167530: "load this
+    // file?", "checking the card", "loading") has its layer at +0xB0 (vtable 0x1675C8), built as any layer (0x2EC930)
+    // but queued with the container (0x2EF220(a0 + 0xB4, a0 + 0x90)), never through 0x2EC8F0: drawn here.
+    constexpr uint32_t kDialogLayerDraw = 0x0045E6F0u;
+    PS2Runtime::RecompiledFunction g_dialogLayerDraw = nullptr;
+
+    void dialogLayerDrawHook(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
+    {
+        const uint32_t container = getRegU32(ctx, 4) & 0x1FFFFFFu;
+        vp2sModelsInterfaceStarts();
+        g_dialogLayerDraw(rdram, ctx, runtime);
+        const uint32_t manager = word(rdram, container + 0xB0u) & 0x1FFFFFFu;
+        if (manager < 0x100000u)
+            return;
+        for (uint32_t slot = 0x4Cu; slot < 0x80u; slot += 4u)
+        {
+            const uint32_t window = word(rdram, manager + slot) & 0x1FFFFFFu;
+            static const bool s_tree = std::getenv("VP2S_UI_TREE_LOG") != nullptr;
+            const uint64_t pair = uint64_t{window} << 32 | 0xFFFFFFFEu;
+            if (s_tree && window >= 0x100000u && std::find(g_treeSeen.begin(), g_treeSeen.end(), pair) == g_treeSeen.end() && g_treeSeen.size() < 400u)
+            {
+                g_treeSeen.push_back(pair);
+                std::printf("[vp2s-ui] dialog manager %x slot %x: window %x class %x, +0xB0 %x\n", manager, slot, window, word(rdram, window),
+                            word(rdram, window + 0xB0u));
+                std::fflush(stdout);
+            }
+            // Its windows' layers (+0xB0) the 2D manager did not draw itself in the last 0.1 s: the container's.
+            if (window < 0x100000u || word(rdram, window + 0xB0u) < 0x150000u || word(rdram, window + 0xB0u) >= 0x170000u)
+                continue;
+            const auto drawn = g_layerDrawnAt.find(window + 0xB0u);
+            if (drawn != g_layerDrawnAt.end() && std::chrono::steady_clock::now() - drawn->second < std::chrono::milliseconds(100))
+                continue;
+            drawLayer(rdram, window + 0xB0u);
+        }
+    }
 }
 
 bool vp2sUiFixedSheet(uint32_t dbp, uint32_t &tag, uint32_t &index)
@@ -959,8 +1020,13 @@ namespace
         if (state != s_last)
         {
             s_last = state;
-            std::printf("[vp2s-menu] state %x (dialog %x answer %d)\n", state, static_cast<int32_t>(word(rdram, dialog + 0x104u)),
-                        static_cast<int32_t>(word(rdram, dialog + 0x10Cu)));
+            g_treeSeen.clear();
+            std::printf("[vp2s-menu] state %x (dialog %x answer %d) dialog object %x class %x:", state,
+                        static_cast<int32_t>(word(rdram, dialog + 0x104u)), static_cast<int32_t>(word(rdram, dialog + 0x10Cu)), dialog,
+                        word(rdram, dialog));
+            for (uint32_t k = 0; k < 0x180u; k += 4u)
+                std::printf(" %08x", word(rdram, dialog + k));
+            std::printf("\n");
             std::fflush(stdout);
         }
     }
@@ -997,7 +1063,16 @@ void vp2sInstallUi(PS2Runtime &)
     if (hooks & 2u)
         take(kGlyph, g_glyph, &glyphHook);
     if (hooks & 4u)
+    {
         take(kLayerDraw, g_layerDraw, &layerDrawHook);
+        if (const ps2_overlays::Module *menus = ps2_overlays::findModule("mod003");
+            menus && kDialogLayerDraw >= menus->tableBase && kDialogLayerDraw < menus->tableEnd)
+        {
+            g_dialogLayerDraw = menus->table[(kDialogLayerDraw - menus->tableBase) >> 2];
+            if (g_dialogLayerDraw)
+                ps2_overlays::replaceModuleFunction("mod003", kDialogLayerDraw, &dialogLayerDrawHook);
+        }
+    }
     if (hooks & 8u)
         take(kSprite, g_sprite, &spriteHook);
         take(kSpriteElementBuild, g_spriteElementBuild, &spriteElementBuildHook);

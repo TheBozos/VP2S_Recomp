@@ -60,3 +60,15 @@ Byte = ASCII - 0x1F; b0 & 0x80 starts a two-byte code (b0 & 0x7F) | b1 << 7, >= 
 
 Capture each item at build (the game caches the packet and frees the items), keyed by its element; draw an element's
 items when its layer is drawn (0x2EC8F0) and the element is shown, in the layer's order, after the 3D.
+
+## Field HUD (2026-11-01)
+
+- Button icons in text (control 0x4019): sprites of the text element (+0x100 -> +0x24, 0x70 bytes each, +0x28 of
+  them, shown when +0x66), drawn by 0x2EFCD0 from the text build 0x2EFA30 with direct calls; placed from the layer's
+  position plus the element's (+0x18 / +0x1C) less its scroll (+0x78 / +0x7C). The port captures them after 0x2EFA30.
+- Prompt backing bar: class 0x165BB0 (mod003 build 0x448AF0), embedded at owner + 0x230 (the prompt layer): a cap (part
+  22) and a body to the right edge (part 23) of the field HUD sheet (TBP 0x800 PSMT8H, CBP 0x3FF4: 'JOHN' 0x276F),
+  parts at *(*(*(0x48DB48) + 0x5C) + 0x224); left at layer x + e+0x58 + 5, top at layer y + e+0x5C + 2, h + 4 high
+  (h part 22's), cap h GS pixels wide (x 0.75 when bit 4 of *(*(0x48DB4C) + 3)). Drawn each frame from live data.
+- TBP 0x800 is shared: the menus' sheets use CBP 0x3FC8 / 0x3FCC, the field HUD's CBP 0x3FF4.
+- The minimap is another element, not found yet.

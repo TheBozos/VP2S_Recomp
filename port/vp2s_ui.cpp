@@ -160,8 +160,10 @@ namespace
         }
         // The menus' sheets (their upload is not found yet; checked against the original's menus): TBP 0x800 the frame
         // ornaments 'SHI\0' 0x5E and 0x1000 the stone 'SHI\0' 0x3E, while their FIS files are in memory (the field HUD
-        // uses 0x800 for 'JOHN' 0x276F otherwise). Looked up at most every half second.
-        if (tbp == 0x800u || tbp == 0x1000u)
+        // uses 0x800 for 'JOHN' 0x276F otherwise, with its palette at CBP 0x3FF4: the menus' are 0x3FC8 / 0x3FCC).
+        // Looked up at most every half second.
+        const uint32_t cbp = word(rdram, sprite + 0x5Cu) & 0x3FFFu;
+        if ((tbp == 0x800u || tbp == 0x1000u) && cbp != 0x3FF4u)
         {
             static auto s_checked = std::chrono::steady_clock::time_point{};
             static bool s_menu = false;
@@ -192,7 +194,8 @@ namespace
     // 0x2EB2D0(a0 sprite = element + 0x50, ...): one quad. Sprite +0x08 parts (16 bytes: u0, v0, u1, v1 in 4.12 of the
     // sheet, w, h, +0xC CSA), +0x54 frame, +0x14 / +0x18 position, +0x2C / +0x30 scale, +0x40..+0x4C colour and
     // +0x50 alpha (128 = 1), +0x5A TBP, +0x64 CSA (negative: the part's).
-    void captureSprite(const uint8_t *rdram, uint32_t sprite, uint32_t position)
+    // A sprite's quad from (baseX, baseY) (its caller's position) as 0x2EB2D0 lays it out. Called under g_mutex.
+    SpriteQuad spriteQuad(const uint8_t *rdram, uint32_t sprite, float baseX, float baseY)
     {
         const int32_t frame = static_cast<int16_t>(word(rdram, sprite + 0x54u) & 0xFFFFu);
         const uint32_t part = (word(rdram, sprite + 8u) + 16u * static_cast<uint32_t>(std::max(frame, 0))) & 0x1FFFFFFu;
@@ -207,7 +210,7 @@ namespace
         // The position the caller passes (a2: its layer's or window's) plus the sprite's, less the pivot (+0x1C /
         // +0x20), scaled about +0x24 / +0x28.
         const float cx = real(rdram, sprite + 0x24u) * (1.0f - sx), cy = real(rdram, sprite + 0x28u) * (1.0f - sy);
-        const float px = real(rdram, position) + real(rdram, sprite + 0x14u), py = real(rdram, position + 4u) + real(rdram, sprite + 0x18u);
+        const float px = baseX + real(rdram, sprite + 0x14u), py = baseY + real(rdram, sprite + 0x18u);
         q.x0 = px + cx - real(rdram, sprite + 0x1Cu) * sx;
         q.y0 = py + cy - real(rdram, sprite + 0x20u) * sy;
         q.x1 = q.x0 + w * sx;
@@ -220,9 +223,14 @@ namespace
         q.tbp = (word(rdram, sprite + 0x58u) >> 16) & 0x3FFFu;
         const int8_t csa = static_cast<int8_t>(rdram[(sprite + 0x64u) & 0x1FFFFFFu]);
         q.csa = csa >= 0 ? static_cast<uint32_t>(csa) : rdram[(part + 0xCu) & 0x1FFFFFFu];
-        std::lock_guard<std::mutex> lock(g_mutex);
         sheetOf(rdram, sprite, q.tag, q.index);
-        g_sprites[(sprite - 0x50u) & 0x1FFFFFFu] = q;
+        return q;
+    }
+
+    void captureSprite(const uint8_t *rdram, uint32_t sprite, uint32_t position)
+    {
+        std::lock_guard<std::mutex> lock(g_mutex);
+        g_sprites[(sprite - 0x50u) & 0x1FFFFFFu] = spriteQuad(rdram, sprite, real(rdram, position), real(rdram, position + 4u));
     }
 
     // VP2S_UI_SPRITE_LOG: the first calls of the quad-list (0x2EAC40) and window-background (0x2E9DD0) emitters, raw,
@@ -249,6 +257,39 @@ namespace
     }
 
     std::unordered_map<uint32_t, std::vector<SpriteQuad>> g_quadLists; // element (sprite - 0x50) -> its quads
+    std::unordered_map<uint32_t, std::vector<SpriteQuad>> g_icons;     // text element -> its button icons
+
+    // 0x2EFA30(a0 text element): the text class's build (vtable 0x15A3D0). Its button icons (control 0x4019) are
+    // sprites drawn by 0x2EFCD0 with direct calls: element +0x100 -> +0x24 sprites of 0x70 bytes (+0x28 of them), each
+    // shown when +0x66, placed by its item (+0x14 / +0x18 written there), from the layer's position plus the
+    // element's (+0x18 / +0x1C) less its scroll (+0x78 / +0x7C). Captured once the build has run.
+    constexpr uint32_t kTextBuild = 0x002EFA30u;
+    PS2Runtime::RecompiledFunction g_textBuild = nullptr;
+
+    void textBuildHook(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
+    {
+        const uint32_t element = getRegU32(ctx, 4) & 0x1FFFFFFu;
+        const bool building = !rdram[(element + 0x3Bu) & 0x1FFFFFFu];
+        g_textBuild(rdram, ctx, runtime);
+        const uint32_t icons = word(rdram, element + 0x100u) & 0x1FFFFFFu;
+        if (!building || !rdram[(element + 0x3Bu) & 0x1FFFFFFu] || icons < 0x100000u)
+            return;
+        const uint32_t layer = word(rdram, element + 0x14u) & 0x1FFFFFFu;
+        const float x = real(rdram, layer + 0x40u) + real(rdram, element + 0x18u) - real(rdram, element + 0x78u);
+        const float y = real(rdram, layer + 0x44u) + real(rdram, element + 0x1Cu) - real(rdram, element + 0x7Cu);
+        g_scratch = runtime->memory().getScratchpad();
+        std::lock_guard<std::mutex> lock(g_mutex);
+        std::vector<SpriteQuad> &list = g_icons[element];
+        list.clear();
+        const uint32_t sprites = word(rdram, icons + 0x24u) & 0x1FFFFFFu;
+        const uint32_t count = std::min<uint32_t>(word(rdram, icons + 0x28u), 64u);
+        for (uint32_t i = 0; sprites >= 0x100000u && i < count; ++i)
+        {
+            const uint32_t sprite = sprites + 0x70u * i;
+            if (rdram[sprite + 0x66u] && word(rdram, sprite + 4u))
+                list.push_back(spriteQuad(rdram, sprite, x, y));
+        }
+    }
 
     // 0x2EAC40(a0 sprite): a list of quads at +0x0C, +0x58 of them, 24 bytes each: {part, x0, y0, x1, y1, z}
     // (x1 / y1 0: the part's size), placed from the sprite's position; the sprite's colour, alpha and sheet.
@@ -662,15 +703,16 @@ namespace
             if (element == layer || std::find(seen.begin(), seen.end(), element) != seen.end())
                 break;
             seen.push_back(element);
-            // VP2S_UI_TREE_LOG: each element class (vtable) the layers hold, once, with its build method and what the
+            // VP2S_UI_TREE_LOG: each element class (vtable) each layer holds, once, with its build method and what the
             // native port has of it (sprite, quad list, window, glyphs) and whether it is shown.
             {
                 static const bool s_tree = std::getenv("VP2S_UI_TREE_LOG") != nullptr;
-                static std::vector<uint32_t> s_classes;
+                static std::vector<uint64_t> s_classes; // (layer, class) pairs
                 const uint32_t vtable = word(rdram, element) & 0x1FFFFFFu;
-                if (s_tree && std::find(s_classes.begin(), s_classes.end(), vtable) == s_classes.end() && s_classes.size() < 200u)
+                const uint64_t pair = uint64_t{layer} << 32 | vtable;
+                if (s_tree && std::find(s_classes.begin(), s_classes.end(), pair) == s_classes.end() && s_classes.size() < 400u)
                 {
-                    s_classes.push_back(vtable);
+                    s_classes.push_back(pair);
                     std::printf("[vp2s-ui] class %x (build %x, draw %x): element %x layer %x shown %d%d%d; sprite %d quads %d window %d glyphs %d; "
                                 "at %.0f,%.0f size %.0f,%.0f\n",
                                 vtable, word(rdram, vtable + 0x20u), word(rdram, vtable + 0x1Cu), element, layer, rdram[element + 0x39u],
@@ -730,6 +772,45 @@ namespace
                                    std::move(texture));
                     }
             };
+            // The prompt's backing bar (class 0x165BB0, mod003 build 0x448AF0, drawn each frame here from live data): a
+            // rounded cap (part 22) then a body stretched to the screen's right edge (part 23) of the field HUD sheet
+            // (TBP 0x800, CBP 0x3FF4: 'JOHN' 0x276F), parts at *(*(*(0x48DB48) + 0x5C) + 0x224) (u0, v0, u1, v1 in 4.12,
+            // w, h); left edge at the layer's x + +0x58 + 5, top at its y + +0x5C + 2, h + 4 high, the cap h (x 0.75
+            // when bit 4 of *(*(0x48DB4C) + 3)) GS pixels wide.
+            if ((word(rdram, element) & 0x1FFFFFFu) == 0x165BB0u)
+            {
+                const uint32_t holder = word(rdram, (word(rdram, 0x0048DB48u) & 0x1FFFFFFu) + 0x5Cu) & 0x1FFFFFFu;
+                const uint32_t parts = holder >= 0x100000u ? word(rdram, holder + 0x224u) & 0x1FFFFFFu : 0u;
+                if (parts >= 0x100000u)
+                {
+                    const auto half = [&](uint32_t address) { return static_cast<float>(word(rdram, address) & 0xFFFFu); };
+                    const float h = half(parts + 0x16Au);
+                    const bool narrow = (rdram[((word(rdram, 0x0048DB4Cu) & 0x1FFFFFFu) + 3u) & 0x1FFFFFFu] >> 4) & 1u;
+                    const float capWidth = (narrow ? h * 0.75f : h) * (640.0f / 512.0f);
+                    const float x0 = layerX + real(rdram, element + 0x58u) + 5.0f, y0 = layerY + real(rdram, element + 0x5Cu) + 2.0f;
+                    SpriteQuad cap, body;
+                    for (SpriteQuad *q : {&cap, &body})
+                    {
+                        const uint32_t part = parts + (q == &cap ? 0x160u : 0x170u);
+                        q->u0 = half(part) / 4096.0f;
+                        q->v0 = half(part + 2u) / 4096.0f;
+                        q->u1 = half(part + 4u) / 4096.0f;
+                        q->v1 = half(part + 6u) / 4096.0f;
+                        q->y0 = y0;
+                        q->y1 = y0 + h + 4.0f;
+                        q->rgba = 0x80808080u;
+                        q->tbp = 0x800u;
+                        q->tag = 0x4E484F4Au;
+                        q->index = 0x276Fu;
+                    }
+                    cap.x0 = x0 - capWidth;
+                    cap.x1 = x0;
+                    body.x0 = x0;
+                    body.x1 = 640.0f;
+                    drawSprite(cap);
+                    drawSprite(body);
+                }
+            }
             if (const auto window = g_windows.find(element); window != g_windows.end())
                 for (const auto &strip : window->second)
                     drawStrip(strip);
@@ -737,6 +818,9 @@ namespace
                 drawSprite(sprite->second);
             if (const auto list = g_quadLists.find(element); list != g_quadLists.end())
                 for (const SpriteQuad &q : list->second)
+                    drawSprite(q);
+            if (const auto icons = g_icons.find(element); icons != g_icons.end())
+                for (const SpriteQuad &q : icons->second)
                     drawSprite(q);
             const auto found = g_glyphs.find(element);
             if (found == g_glyphs.end())
@@ -807,6 +891,7 @@ void vp2sInstallUi(PS2Runtime &)
     if (hooks & 8u)
         take(kSprite, g_sprite, &spriteHook);
         take(kSpriteElementBuild, g_spriteElementBuild, &spriteElementBuildHook);
+        take(kTextBuild, g_textBuild, &textBuildHook);
     if (hooks & 16u)
     {
         take(kQuadList, g_quadList, &quadListHook);

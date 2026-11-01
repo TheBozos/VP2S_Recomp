@@ -389,6 +389,22 @@ namespace
                 }
             }
             material.textured = texture != nullptr;
+            // VP2S_MODELS_MATLOG: the first meshes' materials as drawn (diagnosis).
+            {
+                static const bool s_log = std::getenv("VP2S_MODELS_MATLOG") != nullptr;
+                static int s_logged = 0;
+                if (s_log && s_logged < 60)
+                {
+                    ++s_logged;
+                    std::printf("[vp2s-models] mat object %x %s+%x alpha %02x prim %03x tex0hi %08x mode %u textured %d colour %.2f %.2f %.2f %.2f "
+                                "table %d plain %d vertex rgba %u %u %u %u\n",
+                                object, part.c_str(), offset, alpha & 0xFFu, prim, carriedTex0Hi, carriedMode, material.textured ? 1 : 0,
+                                objectColour[0], objectColour[1], objectColour[2], objectColour[3], tableA ? 1 : 0, plainColour ? 1 : 0,
+                                m.vertices.empty() ? 0u : m.vertices[0].rgba[0], m.vertices.empty() ? 0u : m.vertices[0].rgba[1],
+                                m.vertices.empty() ? 0u : m.vertices[0].rgba[2], m.vertices.empty() ? 0u : m.vertices[0].rgba[3]);
+                    std::fflush(stdout);
+                }
+            }
             material.textureAlpha = (carriedTex0Hi >> 2) & 1u; // TEX0 TCC (bit 34) of the material's template
             material.textureFunction = static_cast<uint8_t>((carriedTex0Hi >> 3) & 3u); // TFX (bits 35..36)
             // VP2S_MODELS_HIDE_UNTEXTURED_BLEND=1 (diagnosis): leaves out the blended meshes without a texture.

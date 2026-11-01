@@ -13,6 +13,7 @@
 #include <algorithm>
 #include <array>
 #include <memory>
+#include <cmath>
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
@@ -245,5 +246,45 @@ void vp2sMinimapDraw()
         }
         const ps2x::native::Vertex strip[6] = {corner[0], corner[1], corner[2], corner[1], corner[3], corner[2]};
         renderer.draw(room, matrix, strip, 6u, texture);
+    }
+    // The player's marker: a green kite at the player's map point (the scene object's translation is minus it, y from
+    // 10000), spinning with M+0x4D4 (t = (timer & 63) / 64 x 2 pi): c, c + (a cos t, a sin t, 0.65 h),
+    // c - (a cos t, a sin t, -0.65 h), c + (0, 0, h), a 105, h 360; colours 0x346A37 / 0x5DCF6E / 0x6CE196.
+    {
+        const float cx = -real(rdram, scene + 0x9Cu), cy = 10000.0f - real(rdram, scene + 0xACu), cz = -real(rdram, scene + 0xBCu);
+        const float t = static_cast<float>(static_cast<int>(real(rdram, m + 0x4D4u)) & 63) / 64.0f * 6.2831853f;
+        const float a = 105.0f, h = 360.0f;
+        const auto point = [&](float px, float py, float pz, uint32_t colour) {
+            ps2x::native::Vertex v{};
+            v.x = px;
+            v.y = py;
+            v.z = pz;
+            v.rgba = colour;
+            return v;
+        };
+        const uint32_t centre = rgb(0x37, 0x6A, 0x34, fade), side = rgb(0x6E, 0xCF, 0x5D, fade), top = rgb(0x96, 0xE1, 0x6C, fade);
+        const ps2x::native::Vertex c = point(cx, cy, cz, centre);
+        const ps2x::native::Vertex v1 = point(cx + a * std::cos(t), cy + a * std::sin(t), cz + 0.65f * h, side);
+        const ps2x::native::Vertex v2 = point(cx - a * std::cos(t), cy - a * std::sin(t), cz + 0.65f * h, side);
+        const ps2x::native::Vertex v3 = point(cx, cy, cz + h, top);
+        const ps2x::native::Vertex kite[6] = {c, v1, v2, v1, v3, v2};
+        static const bool s_log = std::getenv("VP2S_MINIMAP_LOG") != nullptr;
+        static uint32_t s_draws = 0;
+        if (s_log && ++s_draws % 300u == 1u)
+        {
+            const auto project = [&](float px, float py, float pz) {
+                std::array<float, 4> q{};
+                for (int r = 0; r < 4; ++r)
+                    q[r] = s[r][0] * px + s[r][1] * py + s[r][2] * pz + s[r][3];
+                return q;
+            };
+            const auto p0 = project(cx, cy, cz), p1 = project(cx, cy, cz + h);
+            std::printf("[vp2s-minimap] marker at map (%.0f %.0f %.0f): screen (%.1f %.1f w %.2f), top (%.1f %.1f w %.2f)\n", cx, cy, cz,
+                        p0[0] / p0[3], p0[1] / p0[3], p0[3], p1[0] / p1[3], p1[1] / p1[3], p1[3]);
+            std::fflush(stdout);
+        }
+        ps2x::native::Material marker = room;
+        marker.textured = false;
+        renderer.draw(marker, matrix, kite, 6u);
     }
 }

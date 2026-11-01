@@ -92,3 +92,13 @@ Buffers: the frame F (W x H = +0xA8 x +0xAC, 512 x 480); Z (PSMZ24); work maps o
 So on the title and the field the sky gets a blurred, ~2x brightened copy of the frame (the original's bright title
 sky, drawn at vertex colour 64), and the blocks with +0x20 == 2 (no Z test) a brightness-keyed glow over everything.
 Open: the VU1 blur microcode's handling of alpha, C's producer, the runtime values of +0x131C4..+0x131E0. [I]
+
+## The frame's brightness (the other effect object, 2026-11-01)
+
+The original's picture is twice as bright as the meshes draw it (vertex colour 64 = 1.0, the title sky): the object
+at `*(0x35DDF8) + 0x4444` (vtable 0x159C90, per-frame method 0x2CB3E0, packets by 0x2C9040 / 0x2C8320) scales the
+finished frame, before the interface: in mode 1 (+0xA8) `out = clamp(g x max(0, min(F, L0) - L1))`, L0 +0xAC, L1
++0xB0 (u32 0x00BBGGRR), g the RGB of +0xC0 = 2.0 (set by 0x2C8220 from the camera: 2 x 2^(cam+0x2D4), an exposure).
+Modes 2 / 3 add tone bands (+0xB4 / +0xB8, gains +0xD0 / +0xE0) through work buffers. No blur, no glow. Found by
+skipping each effect object's method on the GS comparison path (VP2S_POST_SKIP): only 0x2CB3E0 changes the title. [V]
+The native port draws it as a levels pass (renderer PostEffect::levels).

@@ -789,6 +789,44 @@ void vp2sInstallModels(PS2Runtime &)
                     ps2x::native::Renderer::instance().postEffect(best, g_interfaceStart);
             });
     }
+    // The frame's brightness (the object at *(0x35DDF8) + 0x4444, per-frame method 0x2CB3E0, packets by 0x2C9040):
+    // in its mode 1 every pixel becomes clamp(g x max(0, min(F, L0) - L1)), L0 +0xAC, L1 +0xB0 (u32 0x00BBGGRR), g the
+    // RGB of +0xC0 (2.0: the game draws at half intensity; the camera's exposure sets it). Modes 2 / 3 add tone bands
+    // (+0xB4 / +0xB8, gains +0xD0 / +0xE0), not drawn yet: mode 1's formula is used. VP2S_BRIGHTNESS=0: none.
+    constexpr uint32_t kBrightness = 0x002CB3E0u;
+    if (kBrightness >= module->tableBase && kBrightness < module->tableEnd &&
+        !(std::getenv("VP2S_BRIGHTNESS") && std::getenv("VP2S_BRIGHTNESS")[0] == '0'))
+    {
+        static PS2Runtime::RecompiledFunction s_brightness = module->table[(kBrightness - module->tableBase) >> 2];
+        if (s_brightness)
+            ps2_overlays::replaceModuleFunction("mod001", kBrightness, [](uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime) {
+                const uint32_t object = getRegU32(ctx, 4) & 0x1FFFFFFu;
+                s_brightness(rdram, ctx, runtime);
+                if (object < 0x100000u || !rdram[object + 0xA4u])
+                    return;
+                ps2x::native::Renderer::PostEffect e;
+                e.levels = true;
+                const uint32_t high = word(rdram, object + 0xACu), low = word(rdram, object + 0xB0u);
+                for (int c = 0; c < 3; ++c)
+                {
+                    float g;
+                    std::memcpy(&g, rdram + object + 0xC0u + 4u * static_cast<uint32_t>(c), 4);
+                    e.levelGain[c] = std::clamp(g, 0.0f, 4.0f);
+                    e.levelHigh[c] = static_cast<float>((high >> (8 * c)) & 0xFFu) / 255.0f;
+                    e.levelLow[c] = static_cast<float>((low >> (8 * c)) & 0xFFu) / 255.0f;
+                }
+                static const bool s_log = std::getenv("VP2S_POST_LOG") != nullptr;
+                static uint32_t s_calls = 0;
+                if (s_log && ++s_calls % 300u == 1u)
+                {
+                    std::printf("[vp2s-post] brightness: mode %u, high %06x low %06x gain %.2f %.2f %.2f; batches %zu\n", rdram[object + 0xA8u],
+                                high & 0xFFFFFFu, low & 0xFFFFFFu, e.levelGain[0], e.levelGain[1], e.levelGain[2],
+                                ps2x::native::Renderer::instance().batchCount());
+                    std::fflush(stdout);
+                }
+                ps2x::native::Renderer::instance().postEffect(e, g_interfaceStart);
+            });
+    }
     ps2x::native::Renderer::instance().setStreamDraws(false);
     ps2x::native::Renderer::instance().setEnabled(true);
     ps2x::native::Renderer::instance().beginFrame(nativeScreen());

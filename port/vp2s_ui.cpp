@@ -43,7 +43,8 @@ namespace
     struct Glyph
     {
         float x0 = 0, y0 = 0, x1 = 0, y1 = 0; // the item's box (the element's space, virtual 640 x 480 units)
-        float scale = 1.0f;
+        float scale = 1.0f, scaleY = 1.0f; // the border's x and y scales (item +0x10 / +0x14)
+        float cellWidth = 0.0f;             // the glyph's own width in texels (item +0x1C, an int)
         uint32_t font = 0;  // the font object (EE)
         uint32_t index = 0; // glyph index in the font
         uint32_t colour = 0, shadowColour = 0, shadowMode = 0;
@@ -528,7 +529,7 @@ namespace
         g_textBegin(rdram, ctx, runtime);
     }
 
-    // 0x2E7DD0(element, item): item +0x00..0x0C box, +0x10 scale, +0x18 font, +0x20 colour, +0x24 shadow mode, +0x28
+    // 0x2E7DD0(element, item): item +0x00..0x0C box, +0x10 / +0x14 x / y scale, +0x18 font, +0x20 colour, +0x24 shadow mode, +0x28
     // shadow colour, +0x2E glyph index.
     void glyphHook(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
     {
@@ -539,6 +540,21 @@ namespace
         g.x1 = real(rdram, item + 8u);
         g.y1 = real(rdram, item + 0xCu);
         g.scale = real(rdram, item + 0x10u);
+        g.scaleY = real(rdram, item + 0x14u);
+        g.cellWidth = static_cast<float>(static_cast<int32_t>(word(rdram, item + 0x1Cu)));
+        {
+            static const bool s_log = std::getenv("VP2S_UI_GLYPH_LOG") != nullptr;
+            static int s_logged = 0;
+            if (s_log && s_logged++ < 12)
+            {
+                const uint32_t font = g.font & 0x1FFFFFFu;
+                std::printf("[vp2s-ui] glyph item %x: box %.1f,%.1f-%.1f,%.1f scale %.2f %.2f +1C %08x (%.2f) index %u; font +10 %x +14 %u +1C %u "
+                            "+20 %u +24 %u +28 %u +2C %u\n", item, g.x0, g.y0, g.x1, g.y1, g.scale, g.scaleY, word(rdram, item + 0x1Cu),
+                            g.cellWidth, g.index, word(rdram, font + 0x10u), word(rdram, font + 0x14u), word(rdram, font + 0x1Cu),
+                            word(rdram, font + 0x20u), word(rdram, font + 0x24u), word(rdram, font + 0x28u), word(rdram, font + 0x2Cu));
+                std::fflush(stdout);
+            }
+        }
         g.font = word(rdram, item + 0x18u);
         g.colour = word(rdram, item + 0x20u);
         g.shadowMode = word(rdram, item + 0x24u);
@@ -587,6 +603,24 @@ namespace
                 const uint32_t nibble = (k & 1u) ? pair >> 4 : pair & 15u;
                 texture.rgba[static_cast<size_t>(y) * texture.width + x] = s_palette[(csa * 16u + nibble) & 0xFFu];
             }
+        // VP2S_UI_GLYPH_DUMP=<dir> (diagnosis): the first glyphs as raw RGBA files, glyph_<index>_<csa>_<w>x<h>.rgba,
+        // with their 4-bit source as glyph_<index>.bits (font +0x20 bytes from base).
+        if (static const char *s_dump = std::getenv("VP2S_UI_GLYPH_DUMP"); s_dump && s_cache.size() < 40u)
+        {
+            char path[512];
+            std::snprintf(path, sizeof(path), "%s/glyph_%u_%u_%ux%u.rgba", s_dump, index, csa, texture.width, texture.height);
+            if (FILE *f = std::fopen(path, "wb"))
+            {
+                std::fwrite(texture.rgba.data(), 4, texture.rgba.size(), f);
+                std::fclose(f);
+            }
+            std::snprintf(path, sizeof(path), "%s/glyph_%u.bits", s_dump, index);
+            if (FILE *f = std::fopen(path, "wb"))
+            {
+                std::fwrite(rdram + (base & 0x1FFFFFFu), 1, bytes, f);
+                std::fclose(f);
+            }
+        }
         auto shared = std::make_shared<const ps2x::native::TextureCache::Texture>(std::move(texture));
         s_cache[key] = shared;
         return shared;
@@ -825,13 +859,16 @@ namespace
             const auto found = g_glyphs.find(element);
             if (found == g_glyphs.end())
                 continue;
-            const float ex = layerX + real(rdram, element + 0x18u), ey = layerY + real(rdram, element + 0x1Cu);
+            // The layer's position plus the element's, less its scroll (+0x78 / +0x7C), as 0x2E7DD0 places it.
+            const float ex = layerX + real(rdram, element + 0x18u) - real(rdram, element + 0x78u);
+            const float ey = layerY + real(rdram, element + 0x1Cu) - real(rdram, element + 0x7Cu);
             const uint32_t alpha = layerAlpha * byte(element + 0x28u) / 128u;
             const uint32_t colourScale = byte(element + 0x90u);
             for (const Glyph &g : found->second)
             {
                 const uint32_t font = g.font & 0x1FFFFFFu;
                 const float border = static_cast<float>(word(rdram, font + 0x2Cu)) * g.scale;
+                const float borderY = static_cast<float>(word(rdram, font + 0x2Cu)) * g.scaleY;
                 const float width = static_cast<float>(word(rdram, font + 0x24u)), height = static_cast<float>(word(rdram, font + 0x28u));
                 for (int pass = 0; pass < 2; ++pass)
                 {
@@ -854,9 +891,14 @@ namespace
                     if (!texture)
                         continue;
                     const float shift = pass == 0 && g.shadowMode == 1u ? 1.0f : 0.0f;
-                    // (the UV extent read before the texture is handed over: arguments are evaluated in no set order)
-                    const float u1 = width / static_cast<float>(texture->width), v1 = height / static_cast<float>(texture->height);
-                    drawQuad(ex + g.x0 - border + shift, ey + g.y0 - border + shift, ex + g.x1 + border + shift, ey + g.y1 + border + shift,
+                    // The glyph's own cell (0x2E7DD0's UVs): its width (item +0x1C) and the font's height (+0x14), each with
+                    // the border (+0x2C) on both sides; the rest of the 32-wide cell is not drawn. (Read before the
+                    // texture is handed over: arguments are evaluated in no set order.)
+                    const float pad = 2.0f * static_cast<float>(word(rdram, font + 0x2Cu));
+                    const float cellW = g.cellWidth > 0.0f ? std::min(static_cast<float>(static_cast<int>(g.cellWidth)) + pad, width) : width;
+                    const float cellH = std::min(static_cast<float>(word(rdram, font + 0x14u)) + pad, height);
+                    const float u1 = cellW / static_cast<float>(texture->width), v1 = (cellH > 0.0f ? cellH : height) / static_cast<float>(texture->height);
+                    drawQuad(ex + g.x0 - border + shift, ey + g.y0 - borderY + shift, ex + g.x1 + border + shift, ey + g.y1 + borderY + shift,
                              u1, v1, scaled(pass == 0 ? g.shadowColour : g.colour, colourScale, alpha), std::move(texture));
                 }
             }

@@ -18,7 +18,8 @@ GIF packet read). Addresses are mod001 unless stated. [V] verified in the MIPS o
 
 ## Items (the build functions, one call per item)
 
-- Glyph 0x2E7DD0(element, item): item (0x30 bytes) +0x00..0x0C box (x0, y0, x1, y1), +0x10 / +0x14 scale, +0x18 font,
+- Glyph 0x2E7DD0(element, item): item (0x30 bytes) +0x00..0x0C box (x0, y0, x1, y1), +0x10 / +0x14 x / y scale, +0x18 font,
+  +0x1C (int) the glyph's width (its UVs: 2 border + that width, 2 border + font +0x14 high; the rest of the cell unused),
   +0x20 colour, +0x24 shadow mode, +0x28 shadow colour, +0x2E glyph index. Pixels: 4 bits a pixel at font+0x10 +
   index * font+0x20, font+0x24 x font+0x28 (32 x 28); palette part (CSA) 1 for the glyph, 1 or 2 for its shadow (the
   'SHI\0' 0x41 sheet's palette). Quad grown by the border font+0x2C * scale; colour x element+0x90 / 128; alpha =

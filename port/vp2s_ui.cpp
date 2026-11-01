@@ -358,9 +358,10 @@ namespace
             std::string recordPart, dttPart;
             uint32_t recordOffset = 0, dttOffset = 0;
             const bool r = vp2sLoadedFrom(record, recordPart, recordOffset), d = vp2sLoadedFrom(dtt, dttPart, dttOffset);
-            std::printf("[vp2s-ui] sprite sheet: sprite %x DTT %x (%s +%x) record %x (%s +%x): %08x %08x\n", getRegU32(ctx, 4), dtt,
-                        d ? dttPart.c_str() : "-", dttOffset, record, r ? recordPart.c_str() : "-", recordOffset, word(rdram, record),
-                        word(rdram, record + 4u));
+            const uint32_t element = (getRegU32(ctx, 4) - 0x50u) & 0x1FFFFFFu, vtable = word(rdram, element) & 0x1FFFFFFu;
+            std::printf("[vp2s-ui] sprite sheet: sprite %x DTT %x (%s +%x) record %x (%s +%x): %08x %08x; element vtable %x build %x draw %x\n",
+                        getRegU32(ctx, 4), dtt, d ? dttPart.c_str() : "-", dttOffset, record, r ? recordPart.c_str() : "-", recordOffset,
+                        word(rdram, record), word(rdram, record + 4u), vtable, word(rdram, vtable + 0x20u), word(rdram, vtable + 0x1Cu));
             // Once: every FIS in memory with its pixel format and size (image header at FIS + 0x10 + [+0x24]: +0x20 PSM in
             // bits 48..53, +0x40 width / height), to find the sheet a fixed TBP holds.
             static bool s_listed = false;
@@ -408,6 +409,33 @@ namespace
     }
 
     // VP2S_UI_SPRITE_LOG: the first sprites as the game hands them to 0x2EB2D0, raw, to read their layout.
+    // 0x2EA9C0(a0 element): the build of the single-sprite element class (vtable 0x15A180: the title bars, the dialog arrows), which
+    // calls 0x2EB2D0 directly with its layer's position (+0x14 -> +0x40); captured here as that call would be.
+    constexpr uint32_t kSpriteElementBuild = 0x002EA9C0u;
+    PS2Runtime::RecompiledFunction g_spriteElementBuild = nullptr;
+
+    void spriteElementBuildHook(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
+    {
+        const uint32_t element = getRegU32(ctx, 4) & 0x1FFFFFFu;
+        if (!rdram[(element + 0x3Bu) & 0x1FFFFFFu] && (word(rdram, element + 0xC4u) || word(rdram, element + 0xB8u)) &&
+            word(rdram, element + 0x54u))
+        {
+            g_scratch = runtime->memory().getScratchpad();
+            captureSprite(rdram, element + 0x50u, (word(rdram, element + 0x14u) + 0x40u) & 0x1FFFFFFu);
+            static const bool s_log = std::getenv("VP2S_UI_SPRITE_LOG") != nullptr;
+            static int s_logged = 0;
+            if (s_log && s_logged++ < 20)
+            {
+                std::lock_guard<std::mutex> lock(g_mutex);
+                const SpriteQuad &q = g_sprites[element];
+                std::printf("[vp2s-ui] sprite element %x built: TBP %x key %08x/%x at %.0f,%.0f-%.0f,%.0f uv %.3f,%.3f-%.3f,%.3f rgba %08x\n", element,
+                            q.tbp, q.tag, q.index, q.x0, q.y0, q.x1, q.y1, q.u0, q.v0, q.u1, q.v1, q.rgba);
+                std::fflush(stdout);
+            }
+        }
+        g_spriteElementBuild(rdram, ctx, runtime);
+    }
+
     void spriteHook(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
     {
         g_scratch = runtime->memory().getScratchpad();
@@ -750,6 +778,7 @@ void vp2sInstallUi(PS2Runtime &)
         take(kLayerDraw, g_layerDraw, &layerDrawHook);
     if (hooks & 8u)
         take(kSprite, g_sprite, &spriteHook);
+        take(kSpriteElementBuild, g_spriteElementBuild, &spriteElementBuildHook);
     if (hooks & 16u)
     {
         take(kQuadList, g_quadList, &quadListHook);

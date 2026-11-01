@@ -408,9 +408,9 @@ namespace
         g_windowBackground(rdram, ctx, runtime);
     }
 
-    // VP2S_UI_SPRITE_LOG: the first sprites as the game hands them to 0x2EB2D0, raw, to read their layout.
-    // 0x2EA9C0(a0 element): the build of the single-sprite element class (vtable 0x15A180: the title bars, the dialog arrows), which
-    // calls 0x2EB2D0 directly with its layer's position (+0x14 -> +0x40); captured here as that call would be.
+    // 0x2EA9C0(a0 element): the build of the single-sprite element class (vtable 0x15A180: the title bars, the dialog
+    // arrows), which calls 0x2EB2D0 directly with its layer's position (+0x14 -> +0x40); captured here as that call
+    // would be.
     constexpr uint32_t kSpriteElementBuild = 0x002EA9C0u;
     PS2Runtime::RecompiledFunction g_spriteElementBuild = nullptr;
 
@@ -436,6 +436,7 @@ namespace
         g_spriteElementBuild(rdram, ctx, runtime);
     }
 
+    // VP2S_UI_SPRITE_LOG: the first sprites as the game hands them to 0x2EB2D0, raw, to read their layout.
     void spriteHook(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
     {
         g_scratch = runtime->memory().getScratchpad();

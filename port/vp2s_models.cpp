@@ -181,6 +181,102 @@ namespace
         return m;
     }
 
+    // A 4x4 inverse (Gauss-Jordan); false when singular.
+    bool inverse(const Mat4 &m, Mat4 &out)
+    {
+        double a[4][8];
+        for (int r = 0; r < 4; ++r)
+            for (int c = 0; c < 8; ++c)
+                a[r][c] = c < 4 ? m[r][c] : (c - 4 == r ? 1.0 : 0.0);
+        for (int c = 0; c < 4; ++c)
+        {
+            int pivot = c;
+            for (int r = c + 1; r < 4; ++r)
+                if (std::fabs(a[r][c]) > std::fabs(a[pivot][c]))
+                    pivot = r;
+            if (std::fabs(a[pivot][c]) < 1e-12)
+                return false;
+            std::swap(a[c], a[pivot]);
+            const double d = a[c][c];
+            for (int k = 0; k < 8; ++k)
+                a[c][k] /= d;
+            for (int r = 0; r < 4; ++r)
+                if (r != c)
+                {
+                    const double f = a[r][c];
+                    for (int k = 0; k < 8; ++k)
+                        a[r][k] -= f * a[c][k];
+                }
+        }
+        for (int r = 0; r < 4; ++r)
+            for (int c = 0; c < 4; ++c)
+                out[r][c] = static_cast<float>(a[r][c + 4]);
+        return true;
+    }
+
+    uint32_t g_camera = 0; // the camera of the last model drawn (the scattering pass's view)
+
+    // The scattering object's in-scatter colour V for the screen's grid points (docs/vp2_dof.md; the microcode's
+    // per-vertex term): dir the world direction through the point, cos = dir . sun (+0x13440), phases
+    // phiR = 3 / 16pi (1 + cos^2), phiM(g) = (1 - g)^2 / 4pi / (1 + g^2 - 2g cos)^1.5; c = Esun (+0x13460) / betaTot
+    // (+0x13470) x (betaR (+0x13480) phiR + betaM (+0x13490) phiM(g1 +0x134A0) [+ beta2 (+0x134B0) phiM(g2 +0x134C0) when
+    // flag bit 6]), times max(0, 1 + k (+0x138E0) e^(h / (h + |dir.y|))) (h +0x138D0) when flag bit 7; V = min(255, 128 c).
+    // The in-scatter the original shows is about 3x what this formula gives (fit of the GS comparison path, field,
+    // scattering on against off: out = 0.55..0.67 F + (86, 24, 23)); its height term is read as e^(-|dir.y| / h) (the
+    // original's green and blue in-scatter is not zero). Calibrated until the microcode is read.
+    constexpr float kInScatterGain = 3.0f;
+
+    bool scatterGrid(const uint8_t *rdram, uint32_t sc, uint32_t camera, int width, int height, std::vector<uint32_t> &grid)
+    {
+        if (camera < 0x100000u)
+            return false;
+        Mat4 inv;
+        if (!inverse(product(rows(rdram, camera + 0x330u), rows(rdram, camera + 0x2F0u)), inv))
+            return false;
+        const auto vec = [&](uint32_t o) { return std::array<float, 3>{real(rdram, sc + o), real(rdram, sc + o + 4u), real(rdram, sc + o + 8u)}; };
+        const auto sun = vec(0x13440u), esun = vec(0x13460u), total = vec(0x13470u), rayleigh = vec(0x13480u), mie = vec(0x13490u),
+                   mie2 = vec(0x134B0u), k = vec(0x138E0u);
+        const float g1 = real(rdram, sc + 0x134A0u), g2 = real(rdram, sc + 0x134C0u), h = real(rdram, sc + 0x138D0u);
+        const uint8_t flags = rdram[(sc + 0x18980u) & 0x1FFFFFFu];
+        const auto unproject = [&](float x, float y, float z) {
+            std::array<float, 4> p{};
+            for (int r = 0; r < 4; ++r)
+                p[r] = inv[r][0] * x + inv[r][1] * y + inv[r][2] * z + inv[r][3];
+            const float w = p[3] != 0.0f ? p[3] : 1.0f;
+            return std::array<float, 3>{p[0] / w, p[1] / w, p[2] / w};
+        };
+        constexpr float kPi = 3.14159265f;
+        const auto phase = [&](float g, float cosine) {
+            return (1.0f - g) * (1.0f - g) / (4.0f * kPi) / std::pow(std::max(1.0f + g * g - 2.0f * g * cosine, 1e-6f), 1.5f);
+        };
+        grid.assign(static_cast<size_t>(width) * static_cast<size_t>(height), 0u);
+        for (int gy = 0; gy < height; ++gy)
+            for (int gx = 0; gx < width; ++gx)
+            {
+                const float x = 1728.0f + 640.0f * static_cast<float>(gx) / static_cast<float>(width - 1);
+                const float y = 1824.0f + 448.0f * static_cast<float>(gy) / static_cast<float>(height - 1);
+                const auto nearPoint = unproject(x, y, 16000000.0f), farPoint = unproject(x, y, 1000.0f);
+                std::array<float, 3> dir{farPoint[0] - nearPoint[0], farPoint[1] - nearPoint[1], farPoint[2] - nearPoint[2]};
+                const float length = std::sqrt(dir[0] * dir[0] + dir[1] * dir[1] + dir[2] * dir[2]);
+                if (length > 0.0f)
+                    for (float &d : dir)
+                        d /= length;
+                // The microcode takes the sun negated (its constants: -(+0x13440)).
+                const float cosine = -(dir[0] * sun[0] + dir[1] * sun[1] + dir[2] * sun[2]);
+                const float phiR = 3.0f / (16.0f * kPi) * (1.0f + cosine * cosine), phiM = phase(g1, cosine), phiM2 = phase(g2, cosine);
+                uint32_t rgba = 0x7Fu << 24;
+                for (int ch = 0; ch < 3; ++ch)
+                {
+                    float c = total[ch] != 0.0f ? esun[ch] / total[ch] * (rayleigh[ch] * phiR + mie[ch] * phiM + ((flags & 0x40u) ? mie2[ch] * phiM2 : 0.0f)) : 0.0f;
+                    if (flags & 0x80u)
+                        c *= std::max(0.0f, 1.0f + k[ch] * std::exp(-std::fabs(dir[1]) / std::max(h, 1e-6f)));
+                    rgba |= static_cast<uint32_t>(std::clamp(128.0f * kInScatterGain * c, 0.0f, 255.0f)) << (8 * ch);
+                }
+                grid[static_cast<size_t>(gy) * static_cast<size_t>(width) + static_cast<size_t>(gx)] = rgba;
+            }
+        return true;
+    }
+
     // A bone matrix (row-vector form: p' = x R0 + y R1 + z R2 + w R3) applied to (x, y, z, w).
     std::array<float, 3> boneApply(const uint8_t *rdram, uint32_t matrix, const float *p, float w)
     {
@@ -542,6 +638,7 @@ namespace
     void modelDrawHook(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
     {
         const uint32_t object = getRegU32(ctx, 4), camera = getRegU32(ctx, 6);
+        g_camera = camera & 0x1FFFFFFu;
         const bool shown = (rdram[(object + 0x7C3u) & 0x1FFFFFFu] >> (rdram[(object + 0x7C5u) & 0x1FFFFFFu] & 7u)) & 1u;
         static bool s_first = true;
         if (s_first)
@@ -766,6 +863,20 @@ void vp2sInstallModels(PS2Runtime &)
                             std::printf(" %x", word(rdram, vt + m));
                         std::printf("\n");
                     }
+                    // The scattering object (owner + 0x4450, docs/vp2_dof.md): enable +0x18980 bit 0, n +0x18951, Esun
+                    // +0x13460, sun +0x13440, its table +0x134C4 (R, G, B in-scatter, A transmittance).
+                    {
+                        const uint32_t sc = word(rdram, owner + 0x4450u) & 0x1FFFFFFu;
+                        if (sc >= 0x100000u)
+                        {
+                            const auto f = [&](uint32_t o) { float v; std::memcpy(&v, rdram + sc + o, 4); return v; };
+                            std::printf("[vp2s-post] scattering %x: flags %02x n %u Esun %.3f %.3f %.3f sun %.2f %.2f %.2f; T[0] %08x T[8] %08x "
+                                        "T[16] %08x T[32] %08x T[64] %08x T[255] %08x\n", sc, rdram[sc + 0x18980u], rdram[sc + 0x18951u],
+                                        f(0x13460u), f(0x13464u), f(0x13468u), f(0x13440u), f(0x13444u), f(0x13448u),
+                                        word(rdram, sc + 0x134C4u), word(rdram, sc + 0x134C4u + 32u), word(rdram, sc + 0x134C4u + 64u),
+                                        word(rdram, sc + 0x134C4u + 128u), word(rdram, sc + 0x134C4u + 256u), word(rdram, sc + 0x134C4u + 1020u));
+                        }
+                    }
                     // The last table the game built (+0xEF10, a | v << 8 | v << 16 | a << 24): its non-zero entries.
                     std::printf("[vp2s-post] table:");
                     for (uint32_t i = 0; i < 256u; ++i)
@@ -822,6 +933,48 @@ void vp2sInstallModels(PS2Runtime &)
                     std::printf("[vp2s-post] brightness: mode %u, high %06x low %06x gain %.2f %.2f %.2f; batches %zu\n", rdram[object + 0xA8u],
                                 high & 0xFFFFFFu, low & 0xFFFFFFu, e.levelGain[0], e.levelGain[1], e.levelGain[2],
                                 ps2x::native::Renderer::instance().batchCount());
+                    std::fflush(stdout);
+                }
+                ps2x::native::Renderer::instance().postEffect(e, g_interfaceStart);
+            });
+    }
+    // The aerial perspective (the object at *(0x35DDF8) + 0x4450, per-frame method 0x2E0AE0: the field's orange haze,
+    // docs/vp2_dof.md): when enabled (+0x18980 bit 0), its finished per-depth table (+0x134C4), index shift 16 - n
+    // (+0x18951) and the in-scatter colour on a grid (scatterGrid) become a native scatter pass. VP2S_SCATTER=0: none.
+    constexpr uint32_t kScatter = 0x002E0AE0u;
+    if (kScatter >= module->tableBase && kScatter < module->tableEnd &&
+        !(std::getenv("VP2S_SCATTER") && std::getenv("VP2S_SCATTER")[0] == '0'))
+    {
+        static PS2Runtime::RecompiledFunction s_scatter = module->table[(kScatter - module->tableBase) >> 2];
+        if (s_scatter)
+            ps2_overlays::replaceModuleFunction("mod001", kScatter, [](uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime) {
+                const uint32_t sc = getRegU32(ctx, 4) & 0x1FFFFFFu;
+                s_scatter(rdram, ctx, runtime);
+                if (sc < 0x100000u || !(rdram[sc + 0x18980u] & 1u))
+                    return;
+                ps2x::native::Renderer::PostEffect e;
+                e.scatter = true;
+                e.scatterShift = 16 - std::min<int>(rdram[sc + 0x18951u], 16);
+                std::memcpy(e.scatterTable, rdram + sc + 0x134C4u, sizeof(e.scatterTable));
+                e.gridWidth = 17;
+                e.gridHeight = 15;
+                if (!scatterGrid(rdram, sc, g_camera, e.gridWidth, e.gridHeight, e.scatterGrid))
+                    return;
+                static const bool s_log = std::getenv("VP2S_POST_LOG") != nullptr;
+                static uint32_t s_calls = 0;
+                if (s_log && ++s_calls % 300u == 1u)
+                {
+                    std::printf("[vp2s-post] scatter: shift %d, V corners %08x %08x %08x %08x centre %08x; batches %zu\n", e.scatterShift,
+                                e.scatterGrid[0], e.scatterGrid[16], e.scatterGrid[14 * 17], e.scatterGrid[14 * 17 + 16], e.scatterGrid[7 * 17 + 8],
+                                ps2x::native::Renderer::instance().batchCount());
+                    // The microcode's constants (*(+0x13AE4) + 0x70, qwords 0..13) as floats.
+                    const uint32_t vu = word(rdram, sc + 0x13AE4u) & 0x1FFFFFFu;
+                    for (uint32_t q = 0; vu >= 0x100000u && q < 14u; ++q)
+                    {
+                        float f[4];
+                        std::memcpy(f, rdram + vu + 0x70u + 16u * q, 16);
+                        std::printf("[vp2s-post] scatter VU %u: %g %g %g %g\n", q, f[0], f[1], f[2], f[3]);
+                    }
                     std::fflush(stdout);
                 }
                 ps2x::native::Renderer::instance().postEffect(e, g_interfaceStart);

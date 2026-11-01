@@ -102,3 +102,15 @@ finished frame, before the interface: in mode 1 (+0xA8) `out = clamp(g x max(0, 
 Modes 2 / 3 add tone bands (+0xB4 / +0xB8, gains +0xD0 / +0xE0) through work buffers. No blur, no glow. Found by
 skipping each effect object's method on the GS comparison path (VP2S_POST_SKIP): only 0x2CB3E0 changes the title. [V]
 The native port draws it as a levels pass (renderer PostEffect::levels).
+
+## The field's orange haze: aerial perspective (the object at owner + 0x4450, 2026-11-01)
+
+Per-frame method 0x2E0AE0 (vtable 0x159FA0), on when +0x18980 bit 0 (per area). A Rayleigh + Mie scattering pass: a
+per-depth table (+0x134C4, built by 0x2DEFA0: R, G, B = 255 (1 - e^-tau), A = 128 e^-tau_avg) indexed by
+min(255, Z24 >> (16 - n)) (n +0x18951), and an in-scatter colour V computed per 32-px grid vertex by the object's VU1
+microcode (constants at *(+0x13AE4) + 0x70: q1 -sun, q2 camera, q3 Esun / betaTot, q4 betaR, q5 betaM, q7 / q8 the
+phase constants, q9 k, q10 h). Per pixel `out = F x A x 127 / 128 / 128 + T.rgb x V / 128`. [V code / microcode
+constants] Skipping it on the GS comparison path removes the field's orange; a fit of the two pictures gives
+`out = 0.55..0.67 F + (86, 24, 23)` (keep factor = the table's A of near depths). The native pass (renderer
+PostEffect::scatter) uses the game's table as it is and V from the formula with a gain of 3 calibrated on that fit;
+the microcode itself is still to read (the formula alone gives a third of the in-scatter). [I]

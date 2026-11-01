@@ -169,8 +169,15 @@ namespace
             {
                 s_checked = now;
                 s_menu = false;
+                const bool was = s_menu;
                 for (uint32_t at = 0x100000u; at < 0x2000000u && !s_menu; at += 0x80u)
                     s_menu = word(rdram, at) == 0x00534946u && word(rdram, at + 0x14u) == 0x00494853u && word(rdram, at + 0x18u) == 0x5Eu;
+                static const bool s_log = std::getenv("VP2S_UI_SPRITE_LOG") != nullptr;
+                if (s_log && was != s_menu)
+                {
+                    std::printf("[vp2s-ui] menu sheets %s (TBP %x asked)\n", s_menu ? "in memory" : "gone", tbp);
+                    std::fflush(stdout);
+                }
             }
             if (s_menu)
             {
@@ -655,6 +662,24 @@ namespace
             if (element == layer || std::find(seen.begin(), seen.end(), element) != seen.end())
                 break;
             seen.push_back(element);
+            // VP2S_UI_TREE_LOG: each element class (vtable) the layers hold, once, with its build method and what the
+            // native port has of it (sprite, quad list, window, glyphs) and whether it is shown.
+            {
+                static const bool s_tree = std::getenv("VP2S_UI_TREE_LOG") != nullptr;
+                static std::vector<uint32_t> s_classes;
+                const uint32_t vtable = word(rdram, element) & 0x1FFFFFFu;
+                if (s_tree && std::find(s_classes.begin(), s_classes.end(), vtable) == s_classes.end() && s_classes.size() < 200u)
+                {
+                    s_classes.push_back(vtable);
+                    std::printf("[vp2s-ui] class %x (build %x, draw %x): element %x layer %x shown %d%d%d; sprite %d quads %d window %d glyphs %d; "
+                                "at %.0f,%.0f size %.0f,%.0f\n",
+                                vtable, word(rdram, vtable + 0x20u), word(rdram, vtable + 0x1Cu), element, layer, rdram[element + 0x39u],
+                                rdram[element + 0x3Du], rdram[element + 0x3Bu], g_sprites.count(element) ? 1 : 0, g_quadLists.count(element) ? 1 : 0,
+                                g_windows.count(element) ? 1 : 0, g_glyphs.count(element) ? 1 : 0, real(rdram, element + 0x18u),
+                                real(rdram, element + 0x1Cu), real(rdram, element + 0x20u), real(rdram, element + 0x24u));
+                    std::fflush(stdout);
+                }
+            }
             {
                 static const bool s_log = std::getenv("VP2S_UI_SPRITE_LOG") != nullptr;
                 static int s_logged = 0;

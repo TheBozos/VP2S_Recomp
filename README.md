@@ -1,5 +1,7 @@
 <div align="center">
 
+<img src="docs/branding/vp2s_banner.png" alt="Valkyrie Profile 2: Silmeria, native PC port by The Bozos" width="100%">
+
 # VP2S_Recomp
 
 **A native Windows port of *Valkyrie Profile 2: Silmeria* (PAL, `SLES-54645`), made by statically recompiling the game's PlayStation 2 code to C++.**<br>
@@ -227,16 +229,22 @@ A controller is used when one is connected; otherwise the keyboard (US key posit
 | Path | Contents |
 |---|---|
 | `tools/` | Pipeline, disc extractor, ELF wrapper, SLZ/SLE library, entry-point finder |
-| `port/` | Native front end: entry point, game-specific overrides, diagnostics, profiler |
+| `port/` | Native front end: entry point, game-specific overrides, diagnostics, profiler; `port/app/` the window's icon and version information |
 | `ghidra_scripts/` | Headless Ghidra scripts (export for PS2Recomp, audits) |
 | `scripts/` | One-off analysis and check scripts |
-| `docs/` | Feasibility audit and recompilation log |
+| `docs/` | Feasibility audit and recompilation log; `docs/branding/` the logo and banner |
 | `external/PS2Recomp` | PS2Recomp fork (submodule) |
 
 Everything derived from the game (`build/`, `extracted/`, `out/`, `work/`, `ghidra/`, disc images) is git-ignored. Never commit or redistribute it.
 
+**Logo.** VP2S's variant of The Bozos' logo: the team clown (console shapes: cross and triangle eyes, a red circle nose,
+square teeth, on the PS2 BIOS blue with boot towers) in a winged Valkyrie helmet. `docs/branding/make_logo.py vp2s`
+draws it (the icon at 1024 and 256 px, the 2000 x 600 banner at the top of this page, and `port/app/vp2s.ico`, the
+game window's and taskbar's icon through `port/app/vp2s.rc`); the generator comes from TMB_Recomp. No game art.
+
 ## Credits
 
+- [The Bozos](https://github.com/TheBozos) (boubou666, Arzaroth): this port, and the team's other PS2 recompilations it shares its fork with.
 - [PS2Recomp](https://github.com/ran-j/PS2Recomp) by ran-j and contributors (GPL), the recompiler and runtime this port is built on.
 - The Drakengard recompilation, developed alongside this port on the same PS2Recomp fork; many runtime fixes (GS, VU1, scheduler) are shared.
 - *Valkyrie Profile 2: Silmeria* © tri-Ace / Square Enix. This is an unofficial fan project, not affiliated with or endorsed by them.

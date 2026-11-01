@@ -121,6 +121,11 @@ if(MSVC)
 endif()
 
 add_executable(vp2s ${VP2S_GENERATED_SOURCES})
+if(WIN32)
+    # The window's and the taskbar's icon (VP2S's variant of The Bozos' logo, docs/branding/make_logo.py vp2s; no game
+    # art) and the version information.
+    target_sources(vp2s PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/app/vp2s.rc)
+endif()
 target_include_directories(vp2s PRIVATE ${VP2S_GENERATED_DIRS})
 target_link_libraries(vp2s PRIVATE vp2s_frontend vp2s_vu1_native ps2_runtime)
 

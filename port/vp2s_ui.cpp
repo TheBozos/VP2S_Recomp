@@ -82,6 +82,43 @@ namespace
     // hooks set g_scratch.
     const uint8_t *g_scratch = nullptr;
 
+    // Sheets the game sends to fixed VRAM outside the manager (the menus' TBP 0x800 / 0x1000): 0x2F32F0(a0 image) uploads
+    // +0xD4 (+0xD8 bytes) to DBP +0xE0 and, when +0xE4, +0xC4 (+0xC8 bytes) to DBP +0xD0. The data lies inside its
+    // 'FIS' file (the nearest one before it, +0x04 its size): DBP -> that file's key.
+    constexpr uint32_t kImageUpload = 0x002F32F0u;
+    PS2Runtime::RecompiledFunction g_imageUpload = nullptr;
+    std::unordered_map<uint32_t, std::pair<uint32_t, uint32_t>> g_fixedSheets; // DBP -> (tag, index)
+
+    void imageUploadHook(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
+    {
+        const uint32_t image = getRegU32(ctx, 4) & 0x1FFFFFFu;
+        const auto note = [&](uint32_t data, uint32_t dbp) {
+            data &= 0x1FFFFFFu;
+            for (uint32_t at = data & ~15u; at + 0x40000u > data && at >= 0x100000u; at -= 16u)
+                if (word(rdram, at) == 0x00534946u)
+                {
+                    const bool inside = data < at + word(rdram, at + 4u) + 16u;
+                    static const bool s_log = std::getenv("VP2S_UI_SPRITE_LOG") != nullptr;
+                    if (s_log)
+                    {
+                        std::printf("[vp2s-ui] image upload: data %x to DBP %x: FIS %x (%08x %x)%s\n", data, dbp, at, word(rdram, at + 0x14u),
+                                    word(rdram, at + 0x18u), inside ? "" : " (data past its end)");
+                        std::fflush(stdout);
+                    }
+                    if (inside)
+                    {
+                        std::lock_guard<std::mutex> lock(g_mutex);
+                        g_fixedSheets[dbp] = {word(rdram, at + 0x14u), word(rdram, at + 0x18u)};
+                    }
+                    return;
+                }
+        };
+        if (rdram[(image + 0xE4u) & 0x1FFFFFFu])
+            note(word(rdram, image + 0xC4u), word(rdram, image + 0xD0u) & 0x3FFFu);
+        note(word(rdram, image + 0xD4u), word(rdram, image + 0xE0u) & 0x3FFFu);
+        g_imageUpload(rdram, ctx, runtime);
+    }
+
     bool sheetOf(const uint8_t *rdram, uint32_t sprite, uint32_t &tag, uint32_t &index)
     {
         const uint32_t texman = word(rdram, 0x0035DE38u);
@@ -116,6 +153,12 @@ namespace
                 index = scratchWord(0x8u + 16u * e);
                 return true;
             }
+        if (const auto fixed = g_fixedSheets.find(tbp); fixed != g_fixedSheets.end())
+        {
+            tag = fixed->second.first;
+            index = fixed->second.second;
+            return true;
+        }
         return false;
     }
 
@@ -659,6 +702,7 @@ void vp2sInstallUi(PS2Runtime &)
     {
         take(kQuadList, g_quadList, &quadListHook);
         take(kWindowBackground, g_windowBackground, &windowBackgroundHook);
+        take(kImageUpload, g_imageUpload, &imageUploadHook);
         if (std::getenv("VP2S_UI_SPRITE_LOG"))
             take(kSpriteSheet, g_spriteSheet, &spriteSheetHook);
     }

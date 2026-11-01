@@ -140,7 +140,7 @@ disc image ──► tools/extract.py ──► main ELF + 25 overlay modules (d
 - PS2Recomp turns every function into C++. Overlay calls are dispatched by slot, so a module's code runs only while it is resident.
 - `port/` links the generated code with the PS2Recomp runtime into `vp2s.exe`, and adds the VP2-specific front end and diagnostics.
 
-The PS2Recomp fork lives in `external/PS2Recomp` (git submodule, [boubou666/PS2Recomp](https://github.com/boubou666/PS2Recomp)). Most runtime fixes made for this port land there, for example scratchpad chain DMA, the VU FMAC addition rounding and VU1 data access from the EE.
+The PS2Recomp fork lives in `external/PS2Recomp` (git submodule, [TheBozos/PS2Recomp](https://github.com/TheBozos/PS2Recomp)). Most runtime fixes made for this port land there, for example scratchpad chain DMA, the VU FMAC addition rounding and VU1 data access from the EE.
 
 ## Requirements
 
@@ -153,7 +153,7 @@ The PS2Recomp fork lives in `external/PS2Recomp` (git submodule, [boubou666/PS2R
 ## Build and run
 
 ```powershell
-git clone --recurse-submodules https://github.com/boubou666/VP2S_Recomp.git
+git clone --recurse-submodules https://github.com/TheBozos/VP2S_Recomp.git
 cd VP2S_Recomp
 python tools/pipeline.py
 ```

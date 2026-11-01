@@ -7,7 +7,8 @@ lengths and the vertices (4 qwords each: normal, UV, colour, position) into VU m
 7..21) when the mesh carries one. Those packets are read here, once, from the user's own disc (tools/extract.py
 --assets); while the game runs nothing reads them: the renderer takes the files this writes (rule decision
 2026-10-31, as for the textures). The set-up routines that only change the format (6, 8: fixed point to float) are
-applied here; the others (skinning 2 / 4, fade 44, UV scroll 48) depend on the frame and are kept with their data.
+applied here; the others (skinning 2 / 4, fade 44, UV scroll 48) depend on the frame and are kept with their data;
+12, 14, 18, 32 and 46 do nothing (their table entries only return).
 
   tools/vp2_meshes.py [--assets build/extract/assets] [--out build/vp2_meshes]
 
@@ -154,7 +155,8 @@ def convert(data, at, size):
                 v = vertices + 4 * k
                 for c in range(3):
                     vu.setf(v, c, vu.i(v, c) / 4096.0)
-        elif r not in (0, 46, 2, 4, 44, 48):
+        # 12, 14, 18, 32 (and 46): their set-up table entries only return (JR) in every build of the microcode.
+        elif r not in (0, 12, 14, 18, 32, 46, 2, 4, 44, 48):
             return None, f'routine {r}'
     out = bytearray()
     has_material = 1 if flags & 1 else 0

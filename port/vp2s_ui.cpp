@@ -101,6 +101,53 @@ namespace
         g_sprites[(sprite - 0x50u) & 0x1FFFFFFu] = q;
     }
 
+    // VP2S_UI_SPRITE_LOG: the first calls of the quad-list (0x2EAC40) and window-background (0x2E9DD0) emitters, raw,
+    // to read their arguments and structures before drawing them.
+    constexpr uint32_t kQuadList = 0x002EAC40u, kWindowBackground = 0x002E9DD0u;
+    PS2Runtime::RecompiledFunction g_quadList = nullptr, g_windowBackground = nullptr;
+
+    void logCall(const char *what, const uint8_t *rdram, R5900Context *ctx)
+    {
+        std::printf("[vp2s-ui] %s a0 %x a1 %x a2 %x a3 %x t0 %x t1 %x f12 %f:", what, getRegU32(ctx, 4), getRegU32(ctx, 5), getRegU32(ctx, 6),
+                    getRegU32(ctx, 7), getRegU32(ctx, 8), getRegU32(ctx, 9), ctx->f[12]);
+        const uint32_t a0 = getRegU32(ctx, 4) & 0x1FFFFFFu;
+        for (uint32_t k = 0; k < 0x70u; k += 4u)
+            std::printf(" %08x", word(rdram, a0 + k));
+        const uint32_t list = word(rdram, a0 + 0xCu) & 0x1FFFFFFu;
+        if (list)
+        {
+            std::printf(" | +0xC list:");
+            for (uint32_t k = 0; k < 72u; k += 4u)
+                std::printf(" %08x", word(rdram, list + k));
+        }
+        std::printf("\n");
+        std::fflush(stdout);
+    }
+
+    void quadListHook(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
+    {
+        static const bool s_log = std::getenv("VP2S_UI_SPRITE_LOG") != nullptr;
+        static int s_logged = 0;
+        if (s_log && s_logged < 4)
+        {
+            ++s_logged;
+            logCall("quad list", rdram, ctx);
+        }
+        g_quadList(rdram, ctx, runtime);
+    }
+
+    void windowBackgroundHook(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
+    {
+        static const bool s_log = std::getenv("VP2S_UI_SPRITE_LOG") != nullptr;
+        static int s_logged = 0;
+        if (s_log && s_logged < 4)
+        {
+            ++s_logged;
+            logCall("window background", rdram, ctx);
+        }
+        g_windowBackground(rdram, ctx, runtime);
+    }
+
     // VP2S_UI_SPRITE_LOG: the first sprites as the game hands them to 0x2EB2D0, raw, to read their layout.
     void spriteHook(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
     {
@@ -403,7 +450,7 @@ void vp2sInstallUi(PS2Runtime &)
             ps2_overlays::replaceModuleFunction("mod001", address, hook);
     };
     // VP2S_UI_HOOKS=<mask> (diagnosis): 1 the text start, 2 the glyphs, 4 the layer draw (all by default).
-    const unsigned hooks = [] { const char *v = std::getenv("VP2S_UI_HOOKS"); return v ? static_cast<unsigned>(std::atoi(v)) : 15u; }();
+    const unsigned hooks = [] { const char *v = std::getenv("VP2S_UI_HOOKS"); return v ? static_cast<unsigned>(std::atoi(v)) : 31u; }();
     if (hooks & 1u)
         take(kTextBegin, g_textBegin, &textBeginHook);
     if (hooks & 2u)
@@ -412,5 +459,10 @@ void vp2sInstallUi(PS2Runtime &)
         take(kLayerDraw, g_layerDraw, &layerDrawHook);
     if (hooks & 8u)
         take(kSprite, g_sprite, &spriteHook);
+    if (hooks & 16u)
+    {
+        take(kQuadList, g_quadList, &quadListHook);
+        take(kWindowBackground, g_windowBackground, &windowBackgroundHook);
+    }
     std::printf("[vp2s] native 2D: text from the game's layouts\n");
 }

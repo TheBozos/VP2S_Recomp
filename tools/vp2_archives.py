@@ -157,13 +157,30 @@ def main():
             continue
         packs += 1
         stream = Stream(key)
-        for i, (offset, _) in enumerate(entries[:-1]):
+        for i, (offset, ident) in enumerate(entries[:-1]):
             start, end = offset & 0x7FFFFFFF, entries[i + 1][0] & 0x7FFFFFFF
             member = d[start:end]
+            pieces = []  # (offset in the file, bytes) to scan for chains
             if offset & 0x80000000:
-                member = stream.decrypt(member)
-            for at, parts in chains(member):
-                disc = lba * SECTOR + start + at
+                pieces.append((start, stream.decrypt(member)))
+            elif (ident & 0xFF00) == 0x5000:
+                # A plain member of type 0x5000 is a nested pack (mod028 FUN_003B6E30's slots 3..6): its own key, a
+                # fresh stream, its encrypted members holding the chains (the battle characters).
+                inner = next((k for k in range(256) if entry_table(member, k, len(member))), None)
+                sub = entry_table(member, inner, len(member)) if inner is not None else None
+                if sub:
+                    s2 = Stream(inner)
+                    for j, (soffset, _) in enumerate(sub[:-1]):
+                        sstart, send = soffset & 0x7FFFFFFF, sub[j + 1][0] & 0x7FFFFFFF
+                        piece = member[sstart:send]
+                        if soffset & 0x80000000:
+                            piece = s2.decrypt(piece)
+                        pieces.append((start + sstart, piece))
+            else:
+                pieces.append((start, member))
+            for base, piece in pieces:
+              for at, parts in chains(piece):
+                disc = lba * SECTOR + base + at
                 folder = os.path.join(a.out, '%x' % (disc >> 28))
                 os.makedirs(folder, exist_ok=True)
                 for n, part in enumerate(parts):

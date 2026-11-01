@@ -47,8 +47,87 @@ namespace
     std::mutex g_mutex;
     std::unordered_map<uint32_t, std::vector<Glyph>> g_glyphs; // element -> its glyphs since its text began
 
-    constexpr uint32_t kTextBegin = 0x002E85C0u, kGlyph = 0x002E7DD0u, kLayerDraw = 0x002EC8F0u;
-    PS2Runtime::RecompiledFunction g_textBegin = nullptr, g_glyph = nullptr, g_layerDraw = nullptr;
+    constexpr uint32_t kTextBegin = 0x002E85C0u, kGlyph = 0x002E7DD0u, kLayerDraw = 0x002EC8F0u, kSprite = 0x002EB2D0u;
+    PS2Runtime::RecompiledFunction g_textBegin = nullptr, g_glyph = nullptr, g_layerDraw = nullptr, g_sprite = nullptr;
+
+    // A sprite's quad as the game laid it out (virtual 640 x 480 units), with its texture by the sheet it samples.
+    struct SpriteQuad
+    {
+        float x0 = 0, y0 = 0, x1 = 0, y1 = 0;
+        float u0 = 0, v0 = 0, u1 = 0, v1 = 0; // texels
+        uint32_t rgba = 0;
+        uint32_t tbp = 0, csa = 0;
+    };
+    std::unordered_map<uint32_t, SpriteQuad> g_sprites; // element (sprite - 0x50) -> its quad
+
+    // The sheets the interface samples, by the TBP the game uploads them to (docs/vp2_2d.md): their keys.
+    bool sheetKey(uint32_t tbp, uint32_t &tag, uint32_t &index)
+    {
+        switch (tbp)
+        {
+        case 0x000u: tag = 0x00494853u; index = 0x41u; return true;  // 'SHI\0' 0x41
+        case 0x400u: tag = 0x00494853u; index = 0x3Du; return true;  // 'SHI\0' 0x3D
+        case 0x800u: tag = 0x4E484F4Au; index = 0x276Fu; return true; // 'JOHN' 0x276F (field HUD)
+        default: return false;
+        }
+    }
+
+    // 0x2EB2D0(a0 sprite = element + 0x50, ...): one quad. Sprite +0x08 parts (16 bytes: u0, v0, u1, v1 in 12.4
+    // texels, w, h, +0xC CSA), +0x54 frame, +0x14 / +0x18 position, +0x2C / +0x30 scale, +0x40..+0x4C colour and
+    // +0x50 alpha (128 = 1), +0x5A TBP, +0x64 CSA (negative: the part's).
+    void captureSprite(const uint8_t *rdram, uint32_t sprite)
+    {
+        const int32_t frame = static_cast<int16_t>(word(rdram, sprite + 0x54u) & 0xFFFFu);
+        const uint32_t part = (word(rdram, sprite + 8u) + 16u * static_cast<uint32_t>(std::max(frame, 0))) & 0x1FFFFFFu;
+        const auto half = [&](uint32_t address) { return static_cast<int16_t>(word(rdram, address) & 0xFFFFu); };
+        SpriteQuad q;
+        q.u0 = half(part) / 16.0f;
+        q.v0 = half(part + 2u) / 16.0f;
+        q.u1 = half(part + 4u) / 16.0f;
+        q.v1 = half(part + 6u) / 16.0f;
+        const float w = half(part + 8u), h = half(part + 10u);
+        const float sx = real(rdram, sprite + 0x2Cu), sy = real(rdram, sprite + 0x30u);
+        // Position less the pivot (+0x1C / +0x20; the title's quill: 32, 32), checked against the original's menu.
+        q.x0 = real(rdram, sprite + 0x14u) - real(rdram, sprite + 0x1Cu) * sx;
+        q.y0 = real(rdram, sprite + 0x18u) - real(rdram, sprite + 0x20u) * sy;
+        q.x1 = q.x0 + w * sx;
+        q.y1 = q.y0 + h * sy;
+        const auto channel = [&](uint32_t offset) { return std::min<uint32_t>(static_cast<uint32_t>(std::max(real(rdram, sprite + offset), 0.0f)), 255u); };
+        q.rgba = channel(0x40u) | channel(0x44u) << 8 | channel(0x48u) << 16 | std::min(channel(0x4Cu), channel(0x50u)) << 24;
+        q.tbp = (word(rdram, sprite + 0x58u) >> 16) & 0x3FFFu;
+        const int8_t csa = static_cast<int8_t>(rdram[(sprite + 0x64u) & 0x1FFFFFFu]);
+        q.csa = csa >= 0 ? static_cast<uint32_t>(csa) : rdram[(part + 0xCu) & 0x1FFFFFFu];
+        std::lock_guard<std::mutex> lock(g_mutex);
+        g_sprites[(sprite - 0x50u) & 0x1FFFFFFu] = q;
+    }
+
+    // VP2S_UI_SPRITE_LOG: the first sprites as the game hands them to 0x2EB2D0, raw, to read their layout.
+    void spriteHook(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
+    {
+        captureSprite(rdram, getRegU32(ctx, 4) & 0x1FFFFFFu);
+        static const bool s_log = std::getenv("VP2S_UI_SPRITE_LOG") != nullptr;
+        static int s_logged = 0;
+        if (s_log && s_logged < 6)
+        {
+            ++s_logged;
+            const uint32_t sprite = getRegU32(ctx, 4) & 0x1FFFFFFu;
+            std::printf("[vp2s-ui] sprite %x a0 %x a2 %x a3 %x t0 %x t1 %x:", sprite, getRegU32(ctx, 4), getRegU32(ctx, 6), getRegU32(ctx, 7),
+                        getRegU32(ctx, 8), getRegU32(ctx, 9));
+            for (uint32_t k = 0; k < 0x70u; k += 4u)
+                std::printf(" %08x", word(rdram, sprite + k));
+            const uint32_t frame = static_cast<uint32_t>(static_cast<int16_t>(word(rdram, sprite + 0x54u) & 0xFFFFu));
+            const uint32_t parts = (word(rdram, sprite + 8u) + 16u * frame) & 0x1FFFFFFu, quads = word(rdram, sprite + 0xCu) & 0x1FFFFFFu;
+            std::printf(" | part0:");
+            for (uint32_t k = 0; k < 16u; k += 4u)
+                std::printf(" %08x", word(rdram, parts + k));
+            std::printf(" | quad0:");
+            for (uint32_t k = 0; k < 24u; k += 4u)
+                std::printf(" %08x", word(rdram, quads + k));
+            std::printf("\n");
+            std::fflush(stdout);
+        }
+        g_sprite(rdram, ctx, runtime);
+    }
 
     void textBeginHook(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
     {
@@ -156,6 +235,34 @@ namespace
         ps2x::native::Renderer::instance().draw(material, s_identity, quad, 6u, std::move(texture));
     }
 
+    // The same with the texture's own rectangle (u0, v0)..(u1, v1).
+    void drawQuadUv(float x0, float y0, float x1, float y1, float u0, float v0, float u1, float v1, uint32_t rgba,
+                    std::shared_ptr<const ps2x::native::TextureCache::Texture> texture)
+    {
+        static const float s_identity[16] = {1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1};
+        ps2x::native::Material material;
+        material.blend = ps2x::native::Material::Blend::Alpha;
+        material.alphaBlend = true;
+        material.depthTest = false;
+        material.depthWrite = false;
+        material.alphaTest = true;
+        material.alphaRef = 0;
+        material.textured = texture != nullptr;
+        const auto vertex = [&](float vx, float vy, float u, float v) {
+            ps2x::native::Vertex out;
+            out.x = 1728.0f + vx;
+            out.y = 1824.0f + vy * (448.0f / 480.0f);
+            out.z = 16777215.0f;
+            out.u = u;
+            out.v = v;
+            out.rgba = rgba;
+            return out;
+        };
+        const ps2x::native::Vertex quad[6] = {vertex(x0, y0, u0, v0), vertex(x1, y0, u1, v0), vertex(x0, y1, u0, v1),
+                                              vertex(x1, y0, u1, v0), vertex(x1, y1, u1, v1), vertex(x0, y1, u0, v1)};
+        ps2x::native::Renderer::instance().draw(material, s_identity, quad, 6u, std::move(texture));
+    }
+
     uint32_t scaled(uint32_t rgba, uint32_t colourScale, uint32_t alpha)
     {
         const auto channel = [&](int c) { return std::min<uint32_t>(((rgba >> (8 * c)) & 0xFFu) * colourScale / 128u, 0xFFu); };
@@ -170,7 +277,9 @@ namespace
         g_layerDraw(rdram, ctx, runtime);
         { static int s_n = 0; if (s_n < 5) { ++s_n; std::printf("[vp2s-ui] layer drawn\n"); std::fflush(stdout); } }
         const float layerX = real(rdram, layer + 0x40u), layerY = real(rdram, layer + 0x44u);
-        const uint32_t layerAlpha = rdram[(layer + 0xE0u) & 0x1FFFFFFu];
+        // Alphas and the colour multiplier are floats, 128 = 1.
+        const auto byte = [&](uint32_t address) { return static_cast<uint32_t>(std::clamp(real(rdram, address), 0.0f, 255.0f)); };
+        const uint32_t layerAlpha = byte(layer + 0xE0u);
         std::lock_guard<std::mutex> lock(g_mutex);
         // The children list (next at +8) may come back round to its start or the layer: each child once.
         std::vector<uint32_t> seen;
@@ -181,6 +290,21 @@ namespace
             if (element == layer || std::find(seen.begin(), seen.end(), element) != seen.end())
                 break;
             seen.push_back(element);
+            {
+                static const bool s_log = std::getenv("VP2S_UI_SPRITE_LOG") != nullptr;
+                static int s_logged = 0;
+                if (s_log && g_sprites.count(element) && s_logged < 10)
+                {
+                    ++s_logged;
+                    const SpriteQuad &q = g_sprites[element];
+                    std::printf("[vp2s-ui] sprite element %x in layer %x: flags 39=%d 3D=%d 3B=%d; quad %.1f,%.1f-%.1f,%.1f uv %.1f,%.1f-%.1f,%.1f rgba %08x; "
+                                "layer alpha byte %u word %08x, element +0x28 byte %u word %08x\n",
+                                element, layer, rdram[element + 0x39u], rdram[element + 0x3Du], rdram[element + 0x3Bu], q.x0, q.y0, q.x1, q.y1, q.u0,
+                                q.v0, q.u1, q.v1, q.rgba, rdram[layer + 0xE0u], word(rdram, layer + 0xE0u), rdram[element + 0x28u],
+                                word(rdram, element + 0x28u));
+                    std::fflush(stdout);
+                }
+            }
             if (!rdram[element + 0x39u] || !rdram[element + 0x3Du] || !rdram[element + 0x3Bu])
                 continue;
             {
@@ -192,12 +316,40 @@ namespace
                     std::fflush(stdout);
                 }
             }
+            // VP2S_UI_SPRITE_LOG: once, after a while, the sprites captured and the children a layer walks.
+            {
+                static const bool s_log = std::getenv("VP2S_UI_SPRITE_LOG") != nullptr;
+                static uint64_t s_seen = 0;
+                if (s_log && ++s_seen == 3000u)
+                {
+                    std::printf("[vp2s-ui] %zu sprites captured:", g_sprites.size());
+                    for (const auto &[e, q] : g_sprites)
+                        std::printf(" %x(tbp %x csa %u at %.0f,%.0f)", e, q.tbp, q.csa, q.x0, q.y0);
+                    std::printf("\n[vp2s-ui] layer %x walks %x flags %d %d %d\n", layer, element, rdram[element + 0x39u], rdram[element + 0x3Du],
+                                rdram[element + 0x3Bu]);
+                    std::fflush(stdout);
+                }
+            }
+            if (const auto sprite = g_sprites.find(element); sprite != g_sprites.end())
+            {
+                const SpriteQuad &q = sprite->second;
+                uint32_t tag = 0, index = 0;
+                if (sheetKey(q.tbp, tag, index))
+                    if (auto texture = vp2sGameTexture(tag, index, q.csa))
+                    {
+                        const float tw = static_cast<float>(texture->width), th = static_cast<float>(texture->height);
+                        const float u0 = q.u0 / tw, v0 = q.v0 / th, u1 = q.u1 / tw, v1 = q.v1 / th;
+                        const uint32_t alpha = ((q.rgba >> 24) * layerAlpha / 128u) * byte(element + 0x28u) / 128u;
+                        drawQuadUv(q.x0, q.y0, q.x1, q.y1, u0, v0, u1, v1, (q.rgba & 0xFFFFFFu) | std::min<uint32_t>(alpha, 255u) << 24,
+                                   std::move(texture));
+                    }
+            }
             const auto found = g_glyphs.find(element);
             if (found == g_glyphs.end())
                 continue;
             const float ex = layerX + real(rdram, element + 0x18u), ey = layerY + real(rdram, element + 0x1Cu);
-            const uint32_t alpha = layerAlpha * rdram[element + 0x28u] / 128u;
-            const uint32_t colourScale = rdram[element + 0x90u];
+            const uint32_t alpha = layerAlpha * byte(element + 0x28u) / 128u;
+            const uint32_t colourScale = byte(element + 0x90u);
             for (const Glyph &g : found->second)
             {
                 const uint32_t font = g.font & 0x1FFFFFFu;
@@ -251,12 +403,14 @@ void vp2sInstallUi(PS2Runtime &)
             ps2_overlays::replaceModuleFunction("mod001", address, hook);
     };
     // VP2S_UI_HOOKS=<mask> (diagnosis): 1 the text start, 2 the glyphs, 4 the layer draw (all by default).
-    const unsigned hooks = [] { const char *v = std::getenv("VP2S_UI_HOOKS"); return v ? static_cast<unsigned>(std::atoi(v)) : 7u; }();
+    const unsigned hooks = [] { const char *v = std::getenv("VP2S_UI_HOOKS"); return v ? static_cast<unsigned>(std::atoi(v)) : 15u; }();
     if (hooks & 1u)
         take(kTextBegin, g_textBegin, &textBeginHook);
     if (hooks & 2u)
         take(kGlyph, g_glyph, &glyphHook);
     if (hooks & 4u)
         take(kLayerDraw, g_layerDraw, &layerDrawHook);
+    if (hooks & 8u)
+        take(kSprite, g_sprite, &spriteHook);
     std::printf("[vp2s] native 2D: text from the game's layouts\n");
 }

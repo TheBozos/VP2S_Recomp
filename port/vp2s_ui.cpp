@@ -12,6 +12,7 @@
 
 #include <algorithm>
 #include <array>
+#include <chrono>
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
@@ -67,6 +68,13 @@ namespace
     // The sheets the interface samples, by the TBP the game uploads them to (docs/vp2_2d.md): their keys.
     bool sheetKey(uint32_t tbp, uint32_t &tag, uint32_t &index)
     {
+        // VP2S_UI_SHEET800=<index> (diagnosis): the 'SHI\0' sheet to sample at TBP 0x800.
+        if (const char *v = std::getenv("VP2S_UI_SHEET800"); v && tbp == 0x800u)
+        {
+            tag = 0x00494853u;
+            index = static_cast<uint32_t>(std::strtoul(v, nullptr, 16));
+            return true;
+        }
         switch (tbp)
         {
         case 0x000u: tag = 0x00494853u; index = 0x41u; return true;  // 'SHI\0' 0x41
@@ -148,6 +156,27 @@ namespace
             tag = fixed->second.first;
             index = fixed->second.second;
             return true;
+        }
+        // The menus' sheets (their upload is not found yet; checked against the original's menus): TBP 0x800 the frame
+        // ornaments 'SHI\0' 0x5E and 0x1000 the stone 'SHI\0' 0x3E, while their FIS files are in memory (the field HUD
+        // uses 0x800 for 'JOHN' 0x276F otherwise). Looked up at most every half second.
+        if (tbp == 0x800u || tbp == 0x1000u)
+        {
+            static auto s_checked = std::chrono::steady_clock::time_point{};
+            static bool s_menu = false;
+            if (const auto now = std::chrono::steady_clock::now(); now - s_checked > std::chrono::milliseconds(500))
+            {
+                s_checked = now;
+                s_menu = false;
+                for (uint32_t at = 0x100000u; at < 0x2000000u && !s_menu; at += 0x80u)
+                    s_menu = word(rdram, at) == 0x00534946u && word(rdram, at + 0x14u) == 0x00494853u && word(rdram, at + 0x18u) == 0x5Eu;
+            }
+            if (s_menu)
+            {
+                tag = 0x00494853u;
+                index = tbp == 0x800u ? 0x5Eu : 0x3Eu;
+                return true;
+            }
         }
         return false;
     }
@@ -331,6 +360,34 @@ namespace
             std::printf("[vp2s-ui] sprite sheet: sprite %x DTT %x (%s +%x) record %x (%s +%x): %08x %08x\n", getRegU32(ctx, 4), dtt,
                         d ? dttPart.c_str() : "-", dttOffset, record, r ? recordPart.c_str() : "-", recordOffset, word(rdram, record),
                         word(rdram, record + 4u));
+            // Once: every FIS in memory with its pixel format and size (image header at FIS + 0x10 + [+0x24]: +0x20 PSM in
+            // bits 48..53, +0x40 width / height), to find the sheet a fixed TBP holds.
+            static bool s_listed = false;
+            if (!s_listed && (word(rdram, record) & 0x3FFFu) == 0x800u)
+            {
+                s_listed = true;
+                for (uint32_t at = 0x100000u; at < 0x2000000u; at += 16u)
+                    if (word(rdram, at) == 0x00534946u)
+                    {
+                        const uint32_t header = at + 0x10u + word(rdram, at + 0x24u);
+                        if (header >= 0x2000000u - 0x48u)
+                            continue;
+                        std::string part;
+                        uint32_t offset = 0;
+                        const bool known = vp2sLoadedFrom(at, part, offset);
+                        std::printf("[vp2s-ui] FIS %x %08x %x: PSM %x, %u x %u, %s +%x; pointed to from", at, word(rdram, at + 0x14u),
+                                    word(rdram, at + 0x18u), (word(rdram, header + 0x24u) >> 16) & 0x3Fu, word(rdram, header + 0x40u) & 0xFFFu,
+                                    word(rdram, header + 0x44u) & 0xFFFu, known ? part.c_str() : "-", offset);
+                        int found = 0;
+                        for (uint32_t p = 0x100000u; p < 0x2000000u && found < 6; p += 4u)
+                            if ((word(rdram, p) & 0x1FFFFFFu) == at && (word(rdram, p) & 0xC0000000u) == 0u)
+                            {
+                                std::printf(" %x", p);
+                                ++found;
+                            }
+                        std::printf("\n");
+                    }
+            }
             std::fflush(stdout);
         }
         g_spriteSheet(rdram, ctx, runtime);

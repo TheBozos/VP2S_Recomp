@@ -4,171 +4,170 @@
 
 # VP2S_Recomp
 
-**A native Windows port of *Valkyrie Profile 2: Silmeria* (PAL, `SLES-54645`), made by statically recompiling the game's PlayStation 2 code to C++.**<br>
-The game's own MIPS R5900 code, rebuilt as a Windows program. Goal: no PS2 emulation at all (see below); parts of the PS2 hardware are still emulated today and are being replaced.
+**A native Windows port of *Valkyrie Profile 2: Silmeria*, made by statically recompiling the game's PlayStation 2 code to C++.**<br>
+The game's own MIPS R5900 code, rebuilt as a Windows program, drawing and playing sound natively: no GS, no VU1 and no SPU2 emulation on the default path.
 
 ![Platform](https://img.shields.io/badge/platform-Windows-1b8cff)
 ![Compiler](https://img.shields.io/badge/compiler-MSVC-1b8cff)
 ![Based on](https://img.shields.io/badge/based%20on-PS2Recomp-17a35b)
+![Disc](https://img.shields.io/badge/disc-SLUS--21452%20(USA)-8a2be2)
+![Renderer](https://img.shields.io/badge/renderer-native%20OpenGL-17a35b)
 ![Status](https://img.shields.io/badge/status-playable%20%28chapter%201%29-e3a21a)
 
 </div>
 
 > [!IMPORTANT]
-> No game files are included: no ELF, overlay modules, IOP modules, decryption key, or code generated from them.
-> You need **your own copy** of the PAL release, PS2 ID **`SLES-54645`**. The port is built against that disc's executable:
+> No game files are included: no ELF, overlay modules, IOP modules, decryption key, textures, meshes, or code
+> generated from them. You need **your own copy** of the game. The port targets the **USA release, `SLUS-21452`**:
 >
-> | File | SHA-1 |
-> |---|---|
-> | `SLES_546.45` | `541fa8d563b2834350fd0a635a4d3631574ad778` |
+> | Release | File | SHA-1 |
+> |---|---|---|
+> | USA (target) | `SLUS_214.52` | `0534bfe1a7e6877b4430f2221ea7ce614fea4afd` |
+> | PAL (former target, being dropped) | `SLES_546.45` | `541fa8d563b2834350fd0a635a4d3631574ad778` |
 >
-> `tools/extract.py` records the hash it finds in `build/extract/manifest.json` (`boot_sha1`).
+> The European build tree still exists (`build/`), but new work is done and checked on the USA disc only.
 
-## Goal: no PS2 emulation at all
+## Screenshots
 
-> [!IMPORTANT]
-> **The end state of this port has zero PS2 emulation, not even small pieces.** Only the game's own code runs: the
-> recompiled EE code, its VU microprograms lifted to C++, its recompiled IOP modules. Everything that code produces
-> goes to native PC paths: a native renderer with its own render targets and textures, a native audio mixer, and time
-> from the host clock (real frame time, no vblank pacing). No VU microcode semantics, no VIF/DMA/GIF packets, no GS
-> front end or GS memory model (VRAM, swizzling, CLUTs, texture buffer), no SPU2 emulation.
->
-> Work that fixes or tunes an emulated component is not done: the component is replaced natively instead, and its
-> visual bugs (for example Alicia's field shadow, drawn through the GS stencil trick) are fixed by that replacement.
->
-> An emulated path is never the default, not even for a while because the native one is broken: the native path
-> stays the default and gets fixed. Emulated code may remain only behind an explicit comparison switch (for example
-> `VP2S_NATIVE_MATERIAL=0`, the GS state's materials, to compare against).
-
-What is still emulated today, and the order it is removed in (branch `vp2s/native` of the PS2Recomp fork):
-
-| # | Emulated today | Native replacement |
-|---|---|---|
-| 1 | VU1: the effect and 2D programs (0x6f8, 0xd88, 0x9b8, 0x9c0, 0x1410, 0x1690, 0x818, most 0x6e0) now run as C++ lifted from the game's microcode (`tools/vu1_native.py`, no VU pipeline), but their packets still go to the GS front end; four 0x6e0 programs are still interpreted (too large for MSVC once lifted, or a D/T bit), and the meshes of one area (image 3963f6db) the native decoder rejects | each drawn natively from the game's data, as these already are (`port/vp2s_vu1_hle.cpp`): the meshes (0x880, 0x770, 0x6e0, every build), the object and light set-up (0x238), the shadow (0x6f0, a native shadow volume) |
-| 2 | GS front end and GPU back end (PS2 VRAM, swizzling, CLUTs, texture buffer, display buffer copies) for the 2D, the effects and the frame targets | the native renderer with its own targets and textures. The native meshes already take their materials and textures from the game's data: each texture is decoded from the uploads the game sends (assets stored in the GS's layout laid out once per decode, no VRAM kept); `PS2X_NATIVE_TEX_COMPARE=<n>` compares against the GS memory decode, as a diagnosis only |
-| 3 | VIF/DMA unpacking | direct reads of the game's packet data |
-| 4 | VU0 macro and micro mode (`vcallms`) | C++ math |
-| 5 | SPU2 | native audio mixer on the host clock |
-| 6 | vblank and interrupt pacing | host-paced frames, real frame time |
-
-## Status
-
-**Work in progress, playable through the start of chapter 1.** The game boots to the title screen with music; **New Game** plays the opening movie and the chapter 1 cutscenes up to the port of Logun, where Alicia explores the town; leaving it leads to the battle tutorial, the first battles, the menus and saving to the memory card (played with a gamepad on 2026-10-28). The field and the town run at the PAL rate (50 VSync/s, 48 to 50 distinct pictures per second).
-
-| Milestone | |
-|---|:---:|
-| Extract, decrypt and decompress the 25 overlay modules from the disc | ✅ |
-| Recompile the main ELF and all 25 modules (7,196 functions, about 9 million lines of C++) | ✅ |
-| Boot: EE kernel, the game's own IOP modules, CD reads from the disc image | ✅ |
-| Overlay decryption key computed by the game on VU0 | ✅ |
-| Memory card detection and controller | ✅ |
-| Logos and title screen | ✅ |
-| Title and in-game music (VU1 synthesis, SPU2 AutoDMA) | ✅ |
-| Opening movie (MPEG-2 decoded with FFmpeg) | ✅ |
-| New Game: chapter title card, first field cutscene with subtitles | ✅ |
-| Field 3D rendering | ✅ |
-| Chapter 1 cutscenes up to Logun; Alicia controllable in the town | ✅ |
-| Field and town at full speed | ✅ |
-| Leaving Logun, battle tutorial, first battles, menus, saving | ✅ |
-| Rest of the game (modules captured as they are met, see below) | 🔧 |
-| Widescreen, higher resolution | ⏳ |
-
-**Native port** (no PS2 hardware emulation left, not even a small part: the shared goal of the fork's ports). Native
-means the game's draws built straight from its own data (vertices, matrices, materials), with no GIF packet, no GS
-state machine and no copy of GS memory in between.
-
-| Layer | |
-|---|:---:|
-| IOP modules (the ten the game loads, its sound driver included) recompiled to C++, none interpreted | ✅ |
-| Sound on the PC's clock (today: emulated SPU2; next: a native mixer on wall time, `PS2X_SPU2_WALLCLOCK`) | ⏳ |
-| No GS by default (`PS2X_GS_RENDERER=none`): GIF packets are not drawn, kept or read, only the game's SIGNAL / FINISH waits are answered; `VP2S_GS=1` brings the old GS path back, to compare only | ✅ |
-| Frame loop on the PC's clock (`PS2X_FRAME_CAP`, real frame time as the game's step; `VP2S_NATIVE=0`: PAL vblank) | ✅ |
-| VU0 macro mode recompiled with the game code | ✅ |
-| Textures from the game's texture code (its allocators hooked) and an offline conversion of the user's disc, by the game's keys (`VP2S_GAME_TEXTURES=1`) | 🔧 |
-| Models drawn from the game's model records (not from VU1 data or GIF packets): nothing drawn yet, the screen is black | ⏳ |
-| Menus, text, 2D and effects (depth of field, blur) drawn natively from the game's data | ⏳ |
-| No VU1 / VIF1 left: the microprograms no longer run once their draws are native | ⏳ |
-
-✅ works · 🔧 in progress · ⏳ not reached yet
-
-### Toward a full recompilation
-
-The goal is a real PC port of the game, not a PS2 emulator around recompiled code: every part of the game is to run as
-native code, with no PS2 hardware simulated (no vblank cap, real frame time, a modern renderer), agreed with the other
-PS2Recomp ports. Where it stands:
-
-| Part | Today | Next |
-|---|---|---|
-| Game code (EE, MIPS R5900) | **Native C++**: the main ELF and every overlay module, including the modules the disc hides behind an extra encryption layer, captured from memory the first time the game loads them and recompiled | Decrypt that layer to extract all of them (about 350) at once |
-| VU0 (macro mode) | **Native**: recompiled with the EE code | |
-| VU1 mesh microprogram (pc 0x0880, almost every model) | **Native C++** (`port/vp2s_vu1_hle.cpp`): same GS output, every drawn vertex checked against the VU1 traces | Its last cases (set-up routine 36, lighting mode 3), the three small microprograms left |
-| GS (graphics) | **Native renderer** (default): the models are drawn directly from the native microprogram's vertices, with no GS packets built for them, into an OpenGL backend that also draws the rest of the GS stream (menus, text, effects) and reads textures from a GPU copy of GS memory. paraLLEl-GS stays as a fallback (`PS2X_GS_RENDERER=parallel`) | The 2D and effect draws as native passes too, higher internal resolution |
-| VIF1 / DMA | Emulated | Feed the native microprogram from main memory |
-| Frame pacing | **Native loop** (default): frames paced by the host at up to 60 fps (`PS2X_FRAME_CAP`, 0 = unlimited) with the real frame time as the game's step, each finished frame shown at once; `VP2S_NATIVE=0` goes back to the PAL vblank pacing (50 fps at most) | Frame rate menu (30, 60, unlimited) |
-| IOP and sound (SPU2) | **Native IOP modules**: the ten modules the game loads (its sound driver included) are dumped once (`PS2X_IOP_DUMP_MODULES`), recompiled to C++ by `tools/iop_recomp.py` (shared with the TMB, JC2 and TTA ports) and run in place of the interpreter; emulated SPU2 | A native mixer on wall time (`PS2X_SPU2_WALLCLOCK`, from the TMB port) |
-
-
-
-Captured from `vp2s.exe` (PAL release, French text).
+Captured from `vp2s.exe` (USA disc), native renderer.
 
 | | |
 |:---:|:---:|
-| ![Title screen](docs/screenshots/title.jpg) | ![Field: the town gate](docs/screenshots/field_arch.jpg) |
-| Title screen | First field scene: the town gate |
-| ![Field: Alicia in the town](docs/screenshots/field_town.jpg) | ![Field: subtitled dialogue](docs/screenshots/field_dialogue.jpg) |
-| Alicia in the town | Subtitled dialogue |
+| ![Title screen](docs/screenshots/title.jpg) | ![Logun](docs/screenshots/logun.jpg) |
+| Title screen (animated sky, matched against PCSX2) | The port town of Logun |
+| ![Camp menu](docs/screenshots/camp_menu.jpg) | ![Settings](docs/screenshots/settings.jpg) |
+| Camp menu | Settings |
+| ![Data menu](docs/screenshots/data_menu.jpg) | |
+| Load game (data menu) | |
 
-[docs/RECOMPILER.md](docs/RECOMPILER.md) records what works, every fix and how it was found, and what remains open. [docs/AUDIT.md](docs/AUDIT.md) is the initial feasibility audit: disc layout, overlay modules, compression and encryption formats, VU microcode.
+## Goal: a PC port, not an emulator
 
-## Goal
+The end state has **zero PS2 hardware emulation**. Only the game's own code runs: the recompiled EE code and its
+recompiled IOP modules. Everything that code produces goes to native PC paths: a renderer with its own targets and
+textures built from the game's data, an audio mixer on the PC's clock, and frames paced by the host with the real frame
+time. No GS (VRAM, swizzling, CLUTs), no VU1 microcode, no VIF/GIF packets, no SPU2.
 
-A fully playable *Valkyrie Profile 2: Silmeria* as a native executable, from the opening movie to the credits. Accuracy first; once it is playable, widescreen and higher internal resolution.
+Emulated code is never the default: where a native path is still wrong, the native path gets fixed. The old GS path
+stays only behind a comparison switch (`VP2S_GS=1`). The reference for how things should look and sound is the real
+game on [PCSX2](https://pcsx2.net/), compared screen by screen (zone averages, and PCSX2 GS dumps to read the exact draw
+order when a screen differs).
+
+## Status
+
+**Playable through the start of chapter 1** (the opening, the town of Logun, the battle tutorial and the first battles,
+menus, saving). The menus and the town are being compared against PCSX2 one screen at a time.
+
+| | |
+|---|:---:|
+| Main ELF and the overlay modules recompiled to C++ (the battle modules from the game's encrypted archives too) | ✅ |
+| The game's ten IOP modules recompiled to C++ (none interpreted) | ✅ |
+| **No GS by default** (`PS2X_GS_RENDERER=none`): GIF packets are neither drawn nor kept | ✅ |
+| **No VU1 and no VIF1 processing**: the game's VIF1 chains end unprocessed, nothing runs on VU1 | ✅ |
+| Models drawn natively from the game's model records (bones, lighting, materials, texture scrolling) | ✅ |
+| Textures from the game's texture keys and an offline conversion of your disc | ✅ |
+| Interface (menus, text, sprites, panels) drawn natively from the game's layout objects | ✅ |
+| Post effects natively from the game's parameters: depth of field, the brightness pass, aerial perspective | ✅ |
+| Movies decoded natively (FFmpeg), their sound streamed straight to the mixer | ✅ |
+| **Native audio**: the game's sound library taken over at its API, mixed on the PC's clock (no SPU2) | ✅ |
+| Frame loop on the PC's clock, real frame time | ✅ |
+| Title screen, load / data menu, settings: matched against PCSX2 | ✅ |
+| Logun: town and camp menu match; the pause screen loses the town (being fixed) | 🔧 |
+| Battle HUD on the USA disc (one battle module, mod027, still to capture) | 🔧 |
+| Rest of the game | ⏳ |
+| Widescreen, higher internal resolution, frame rate options | ⏳ |
+
+✅ works · 🔧 in progress · ⏳ not reached yet
+
+[docs/RECOMPILER.md](docs/RECOMPILER.md) records every fix and how it was found; [docs/vp2_models.md](docs/vp2_models.md)
+and [docs/vp2_dof.md](docs/vp2_dof.md) document the model format and the post effects as the port reads them;
+[docs/AUDIT.md](docs/AUDIT.md) is the initial feasibility audit (disc layout, modules, compression and encryption).
 
 ## How it works
 
 ```
-disc image ──► tools/extract.py ──► main ELF + 25 overlay modules (decrypted, decompressed)
-                                           │
-               Ghidra (headless, EE) + find_entry_points.py ──► function maps
-                                           │
-                                     ps2_recomp ──► C++ (one file per function)
-                                           │
-   PS2Recomp runtime: EE kernel HLE · DMAC · GIF/GS · VIF/VU0/VU1 · IPU ─┼─► vp2s.exe
-   PS2Recomp IOP:     R3000A interpreter running the game's own IRX · SPU2 · SIO2
+your disc ──► tools/extract.py ──► main ELF + overlay modules (decrypted, decompressed) + the game's asset files
+                    │                          │
+                    │   Ghidra (EE) + find_entry_points.py ──► function maps ──► ps2_recomp ──► C++
+                    │                                                                         │
+                    └─► offline conversions (textures, meshes, archives) ──┐                  │
+                                                                           ▼                  ▼
+                         PS2Recomp runtime (EE kernel HLE, DMAC, IOP) + native renderer / mixer ──► vp2s.exe
 ```
 
-- The game loads most of its code at run time as overlay modules, stored encrypted (SLE) and compressed (SLZ) on the disc. `tools/extract.py` unpacks them; `tools/wrap_elf.py` wraps each one in an ELF at its load address.
-- Ghidra (with the Emotion Engine extension) maps the functions; `tools/find_entry_points.py` adds those reached only through pointers or from another module.
-- PS2Recomp turns every function into C++. Overlay calls are dispatched by slot, so a module's code runs only while it is resident.
-- `port/` links the generated code with the PS2Recomp runtime into `vp2s.exe`, and adds the VP2-specific front end and diagnostics.
+- Most of the game's code is loaded at run time as overlay modules, stored encrypted (SLE) and compressed (SLZ).
+  `tools/extract.py` unpacks them; `tools/vp2_archives.py` opens the encrypted `p@Ck` archives, where the battle modules
+  live. Modules met at run time that no archive holds are saved the first time the game loads them
+  (`<build>/captured_modules/`, never committed) and recompiled by the next build.
+- Ghidra (with the Emotion Engine extension) maps the functions; PS2Recomp turns each one into C++. Overlay calls are
+  dispatched by slot, so a module's code runs only while it is resident.
+- `port/` links the generated code with the runtime into `vp2s.exe` and hooks the game where it builds its draws: the
+  model, interface and post-effect objects are read from the game's own memory and drawn natively.
+- The game's textures and meshes are converted once, offline, from your disc (`tools/vp2_textures.py`,
+  `tools/vp2_meshes.py`); the running game is matched to them by the keys it passes its own loaders.
 
-The PS2Recomp fork lives in `external/PS2Recomp` (git submodule, [TheBozos/PS2Recomp](https://github.com/TheBozos/PS2Recomp)). Most runtime fixes made for this port land there, for example scratchpad chain DMA, the VU FMAC addition rounding and VU1 data access from the EE.
+The PS2Recomp fork lives in `external/PS2Recomp` (git submodule, [TheBozos/PS2Recomp](https://github.com/TheBozos/PS2Recomp),
+branch `native/gs-backend`): the native renderer, the native mixer and most runtime fixes land there and are shared
+with the team's other ports.
 
 ## Requirements
 
 - Windows 10 or 11, Python 3.10 or later
 - Visual Studio 2022 Build Tools ("Desktop development with C++": MSVC, CMake, Ninja), found with `vswhere` or `VP2S_VS_DIR`
 - Ghidra (`GHIDRA_INSTALL_DIR`) and the Emotion Engine extension zip for that Ghidra version (`VP2S_GHIDRA_EE_ZIP`)
-- Your own disc image of `SLES-54645` (check the hash above)
-- The 16-byte SLE key, in `VP2S_SLE_KEY` or `build/sle_key.txt` (32 hex digits). It is not distributed. The game computes it at boot and keeps it at `0x1d5930`; see `load_sle_key` in `tools/slz.py`.
+- Your own disc image of `SLUS-21452` (check the hash above)
+- The 16-byte SLE key, in `VP2S_SLE_KEY` or `<build>/sle_key.txt` (32 hex digits). It is not distributed: the game
+  computes it at boot; see `load_sle_key` in `tools/slz.py`.
 
-## Build and run
+## Build
 
 ```powershell
 git clone --recurse-submodules https://github.com/TheBozos/VP2S_Recomp.git
 cd VP2S_Recomp
+$env:VP2S_BUILD = "build_usa"; $env:VP2S_ISO = "Valkyrie Profile 2 - Silmeria (USA).iso"
 python tools/pipeline.py
 ```
 
-The pipeline runs these stages: `extract`, `wrap`, `ghidra`, `tool`, `sdk`, `entries`, `recomp`, `report`, `port`, `test`. Each stage skips work whose outputs are up to date. Options: `--only <stage>`, `--from <stage>`, `--force`, `--inputs main,mod003`. The first full build takes a while: the recompiled code is about 360 MB of C++.
+`VP2S_BUILD` picks the build tree (`build` by default, the European one), `VP2S_ISO` the disc image (else the first
+`.iso` in the project root). The pipeline runs `extract`, `wrap`, `ghidra`, `tool`, `sdk`, `entries`, `recomp`, `vu`,
+`report`, `port`, `test`; each stage skips work whose outputs are up to date (`--only <stage>`, `--from <stage>`,
+`--force`, `--inputs main,mod003`). The first full build takes a while: the recompiled code is several hundred MB of C++.
 
-Run the game:
+Then the offline conversions, once (they read the asset files `extract.py --assets` wrote):
 
 ```powershell
-build\port\vp2s.exe build\extract\iso\SLES_546.45
+python tools/vp2_archives.py "<disc image>" --out build_usa/extract/assets
+python tools/vp2_texture_keys.py --assets build_usa/extract/assets --index build_usa/vp2_texture_index.json
+python tools/vp2_textures.py --assets build_usa/extract/assets --index build_usa/vp2_texture_index.json --out build_usa/vp2_textures
+python tools/vp2_meshes.py --assets build_usa/extract/assets --out build_usa/vp2_meshes
 ```
 
-The disc image is found through `VP2S_ISO`, or by searching upward from the ELF's folder.
+[tools/README.md](tools/README.md) documents every stage and tool.
+
+## Run
+
+```powershell
+build_usa\port\vp2s.exe build_usa\extract\iso\SLUS_214.52
+```
+
+or set `[game] elf` in `vp2s.ini` and start `vp2s.exe` alone. The disc image is found through `VP2S_ISO`, or by
+searching upward from the ELF's folder (an image named `(USA)` first).
+
+### Settings: `vp2s.ini`
+
+Written next to `vp2s.exe`, with comments, the first time it starts. An environment variable with the same meaning wins
+over the file, so test scripts and diagnostics keep working.
+
+| Section | Key | Effect |
+|---|---|---|
+| `[game]` | `elf` | The `SLUS_214.52` to start when none is given on the command line |
+| `[display]` | `window_size` | Window size at start, `WIDTHxHEIGHT` |
+| | `show_fps` | The frame counter at the top right (F3 toggles it) |
+| | `interpolate` | Frames in between the game's own (smoother motion, one frame later) |
+| `[audio]` | `mute` | No sound |
+| `[input]` | `start_analog` | The pad starts in analog mode (the party moves with the left stick in battles) |
+| `[env]` | `NAME = value` | Any other runtime variable (testing, diagnostics) |
+
+### Controls
 
 A controller is used when one is connected; otherwise the keyboard (US key positions):
 
@@ -179,72 +178,66 @@ A controller is used when one is connected; otherwise the keyboard (US key posit
 | L1 / R1 / L2 / R2 | Q / E / Left Shift / Right Shift |
 | Start / Select | Enter / Tab |
 
+In the field, Start pauses and Select opens the camp menu.
+
 | Key | What it does |
 |---|---|
-| F1 | Runtime debugger |
-| F3 | Show or hide the counter at the top right: frames shown per second and EE speed (% of real time) |
+| F3 | Show or hide the counter at the top right: frames shown per second and EE speed |
 | F9 | Screenshot of the game screen (`vp2s_shot_N.png`) |
+| F1 | Runtime debugger (builds with `VP2S_DEBUG_UI`) |
 
 <details>
-<summary><b>Runtime and diagnostic options</b></summary>
+<summary><b>Diagnostic and comparison options</b> (environment variables)</summary>
 
 | Variable | Effect |
 |---|---|
 | `VP2S_ISO=<path>` | Disc image to read |
-| `VP2S_SLE_KEY=<32 hex digits>` | SLE key for the extractor (or `build/sle_key.txt`) |
-| `VP2S_DIAG=1` | Every 5 s: PC, resident modules, guest threads, IOP and GS state, and a screenshot (`vp2s_diag_N.png`) |
+| `VP2S_GS=1` | The old GS path, to compare only |
+| `PS2X_NATIVE_AUDIO=0` | The emulated SPU2 instead of the native mixer, to compare only |
+| `PS2X_AUDIO_MUTE=1` | No sound (test runs) |
+| `VP2S_DIAG=1` | Every 5 s: PC, resident modules, guest threads, IOP state, and a screenshot (`vp2s_diag_N.png`) |
 | `VP2S_PROFILE=<seconds>` | Sampling profiler: where the busiest host threads spend their time |
-| `VP2S_HANG_DUMP=<seconds>` | If the display freezes that long, write every host thread's stack to `vp2s_hang.txt`; also on stack overflow |
-| `VP2S_GS_SYNC=1` | Rasterize on the game thread instead of the GS worker threads |
-| `PS2X_VIF1_THREAD=0`, `PS2X_GS_LAG=0` | Run VIF1 and the VU1 microprograms on the game thread (by default a worker thread with its own clock runs them: about 12% faster on the field) |
-| `PS2X_GS_PIXEL_CYCLES=256`, `PS2X_GS_PRIM_CYCLES=32` | Model the GS drawing time again (VP2S sets both to 0: the GS events reach the game as soon as a frame is submitted, which keeps the GPU renderer from holding the game back; about 25% faster in towns) |
-| `PS2X_VIF1_SLACK=0` | Run the EE in lockstep with the VIF1 worker again (VP2S lets the EE run ahead of it: the two overlap and the town reaches full speed; a smaller value bounds the lead in EE cycles) |
-| `VP2S_VBLANK_HOLD=1` | Hold a vblank (up to 6 ms, `VP2S_VBLANK_HOLD_US`) while VP2 is still drawing its frame |
-| `PS2X_SHOW_FPS=0` | Start with the fps and EE speed counter hidden (F3 toggles it) |
-| `PS2X_IOP_THREAD=0` | Run the IOP on the game thread (by default it has a thread of its own: about 7% faster on the field) |
-| `VP2S_NATIVE_MESH=0` | Send VP2's models to the native renderer as GS packets instead of native draws (comparison) |
-| `PS2X_GS_RENDERER=parallel`, `=cpu` | Use the emulated GS instead of the native renderer: [paraLLEl-GS](https://github.com/Arntzen-Software/parallel-gs) (Vulkan compute) or the CPU rasterizer |
-| `VP2S_WALLCLOCK_CATCHUP=1` | Fast-forward emulated time to wall-clock time (off by default: it starves the music thread) |
-| `VP2S_DUMP=<address>:<size>`, `VP2S_WATCH=<address>,…` | Dump a memory range, or print memory words on every diagnostic pass |
+| `VP2S_HANG_DUMP=<seconds>` | If the display freezes that long, write every host thread's stack to `vp2s_hang.txt` |
 | `PS2X_PAD_SCRIPT=t:BUTTON[/ms],…` | Scripted button presses (seconds from start), for unattended runs |
-| `PS2X_MPEG_SKIP=<n>` | End every movie after n pictures (New Game reaches the first field scene about 160 s sooner). For tests; use 30: ending VP2's New Game movie after its first picture (=1) leaves a black screen in about 1 run in 3. `25:SQUARE,30:START,36:START,42:CROSS` then starts a new game |
-| `PS2X_GS_DUMP=<dir>`, `PS2X_GS_DUMP_AFTER=<s>` | Log the next 4000 GS primitives with their state, textures and VRAM |
-| `PS2X_VU1_RECORD=<file>` | Record VU1 microprogram runs for the `ps2_vu1_replay` tool |
-
-[tools/README.md](tools/README.md) documents every pipeline stage and option.
+| `PS2X_PAD_NO_HOST=1`, `PS2X_WINDOW_NO_FOCUS=1` | Test runs that never read your pad or take the focus |
+| `PS2X_MPEG_SKIP=<n>` | End every movie after n pictures (tests; use 30) |
+| `PS2X_CAPTURE_WINDOW_DIR=<dir>`, `PS2X_CAPTURE_INTERVAL=<n>` | Save the displayed frame every n frames |
+| `VP2S_DRAW_ORDER_LOG=1` | Now and then, every model drawn with its batches, the post passes among them |
+| `VP2S_POST_LOG=1`, `VP2S_UI_TREE_LOG=1`, `VP2S_UI_SPRITE_LOG=1` | The post effects' parameters, the interface's layer tree and its sprites |
+| `VP2S_MODELS_SKIP=<i>,…` | Leave out the frame's i-th model (bisecting a picture) |
 
 </details>
 
 ## Known issues
 
-- **Frame rate:** the first field scene runs at 50 VSync/s, the town of Logun at 49 VSync/s with about 43 distinct pictures per second.
-- **Played so far:** chapter 1 from Logun to the battle tutorial, a first battle and a save (2026-10-28).
-- **Modules found at run time:** about 350 overlay modules (battle, party, enemies) are not in the disc's plain SLZ/SLE
-  chains: their files carry another layer of encryption that the game removes in memory. The port saves each one the
-  first time the game loads it (`build/captured_modules/`, never committed) and `tools/pipeline.py` recompiles it; a
-  run that meets a new one stops on it until the next build.
+- **Pause screen in the field:** the town disappears behind the pause title (the game re-sends the town's prebuilt
+  packets while paused, which the native path does not see yet); its blur and the PAUSE title are missing too.
+- **Town look:** compared with PCSX2, the far distance is not blurred and the picture is a little brighter.
+- **Battle HUD:** one battle module (mod027) is in no archive on the USA disc and has to be captured at the first battle.
+- **European build:** kept for reference; its converted meshes need converting again after the USA-era format change.
 
 ## Repository layout
 
 | Path | Contents |
 |---|---|
-| `tools/` | Pipeline, disc extractor, ELF wrapper, SLZ/SLE library, entry-point finder |
-| `port/` | Native front end: entry point, game-specific overrides, diagnostics, profiler; `port/app/` the window's icon and version information |
-| `ghidra_scripts/` | Headless Ghidra scripts (export for PS2Recomp, audits) |
+| `tools/` | Pipeline, disc extractor, ELF wrapper, SLZ/SLE library, entry-point finder, archive / texture / mesh converters, `region_map.py` (EU to USA addresses) |
+| `port/` | Native front end: entry point, settings, game overrides, native models / interface / textures, diagnostics; `port/app/` the window's icon |
+| `ghidra_scripts/` | Headless Ghidra scripts |
 | `scripts/` | One-off analysis and check scripts |
-| `docs/` | Feasibility audit and recompilation log; `docs/branding/` the logo and banner |
+| `docs/` | Recompilation log, model and post-effect notes, feasibility audit; `docs/branding/` the logo and banner |
 | `external/PS2Recomp` | PS2Recomp fork (submodule) |
 
-Everything derived from the game (`build/`, `extracted/`, `out/`, `work/`, `ghidra/`, disc images) is git-ignored. Never commit or redistribute it.
+Everything derived from the game (`build*/`, `extracted/`, `out/`, `work/`, `ghidra/`, disc images) is git-ignored.
+Never commit or redistribute it.
 
 **Logo.** VP2S's variant of The Bozos' logo: the team clown (console shapes: cross and triangle eyes, a red circle nose,
-square teeth, on the PS2 BIOS blue with boot towers) in a winged Valkyrie helmet. `docs/branding/make_logo.py vp2s`
-draws it (the icon at 1024 and 256 px, the 2000 x 600 banner at the top of this page, and `port/app/vp2s.ico`, the
-game window's and taskbar's icon through `port/app/vp2s.rc`); the generator comes from TMB_Recomp. No game art.
+square teeth, on the PS2 BIOS blue with boot towers) in a winged Valkyrie helmet, drawn by `docs/branding/make_logo.py
+vp2s` (the generator comes from TMB_Recomp). No game art.
 
 ## Credits
 
 - [The Bozos](https://github.com/TheBozos) (boubou666, Arzaroth): this port, and the team's other PS2 recompilations it shares its fork with.
 - [PS2Recomp](https://github.com/ran-j/PS2Recomp) by ran-j and contributors (GPL), the recompiler and runtime this port is built on.
-- The Drakengard recompilation, developed alongside this port on the same PS2Recomp fork; many runtime fixes (GS, VU1, scheduler) are shared.
+- The Drakengard recompilation and the team's other ports (TMB, JC2, TTA), developed alongside this port on the same PS2Recomp fork; many runtime fixes are shared.
+- [PCSX2](https://pcsx2.net/), the reference every screen is compared against.
 - *Valkyrie Profile 2: Silmeria* © tri-Ace / Square Enix. This is an unofficial fan project, not affiliated with or endorsed by them.

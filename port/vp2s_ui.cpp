@@ -677,6 +677,7 @@ namespace
         };
         const ps2x::native::Vertex quad[6] = {vertex(x0, y0, 0, 0), vertex(x1, y0, u1, 0), vertex(x0, y1, 0, v1),
                                               vertex(x1, y0, u1, 0), vertex(x1, y1, u1, v1), vertex(x0, y1, 0, v1)};
+        vp2sModelsInterfaceStarts(); // the interface from its first piece: the post passes go before it
         ps2x::native::Renderer::instance().draw(material, s_identity, quad, 6u, std::move(texture));
     }
 
@@ -700,6 +701,7 @@ namespace
         };
         const ps2x::native::Vertex triangles[6] = {vertex(strip[0]), vertex(strip[1]), vertex(strip[2]),
                                                    vertex(strip[1]), vertex(strip[3]), vertex(strip[2])};
+        vp2sModelsInterfaceStarts(); // the interface from its first piece: the post passes go before it
         ps2x::native::Renderer::instance().draw(material, s_identity, triangles, 6u, nullptr);
     }
 
@@ -728,6 +730,7 @@ namespace
         };
         const ps2x::native::Vertex quad[6] = {vertex(x0, y0, u0, v0), vertex(x1, y0, u1, v0), vertex(x0, y1, u0, v1),
                                               vertex(x1, y0, u1, v0), vertex(x1, y1, u1, v1), vertex(x0, y1, u0, v1)};
+        vp2sModelsInterfaceStarts(); // the interface from its first piece: the post passes go before it
         ps2x::native::Renderer::instance().draw(material, s_identity, quad, 6u, std::move(texture));
     }
 

@@ -662,6 +662,9 @@ namespace
         }
     }
 
+    bool g_orderFrame = false; // VP2S_DRAW_ORDER_LOG's frame
+    size_t g_brightnessAt = SIZE_MAX; // the batch where the frame's brightness object was drawn (this frame)
+
     void modelDrawHook(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
     {
         const uint32_t object = getRegU32(ctx, 4), camera = getRegU32(ctx, 6);
@@ -678,7 +681,19 @@ namespace
         if (g_frameOpen) // every object drawn this frame (0x7C3 only asks the game to rebuild its mesh list)
         {
             ++g_counts.objects;
+            const size_t before = ps2x::native::Renderer::instance().batchCount();
             drawObject(rdram, runtime->memory().getScratchpad(), object, camera);
+            // VP2S_DRAW_ORDER_LOG=1 (diagnosis): one frame in 600, each object drawn with its camera and batches.
+            static const bool s_order = std::getenv("VP2S_DRAW_ORDER_LOG") != nullptr;
+            if (s_order && g_orderFrame)
+                std::printf("[vp2s-order] object %x class %x camera %x batches %zu..%zu translation %.1f %.1f %.1f +60 %08x %08x %08x %08x +7c0 %08x %08x +210 %08x\n",
+                            object & 0x1FFFFFFu, word(rdram, object & 0x1FFFFFFu), camera & 0x1FFFFFFu, before,
+                            ps2x::native::Renderer::instance().batchCount(), real(rdram, (object & 0x1FFFFFFu) + 0x9Cu),
+                            real(rdram, (object & 0x1FFFFFFu) + 0xACu), real(rdram, (object & 0x1FFFFFFu) + 0xBCu),
+                            word(rdram, (object & 0x1FFFFFFu) + 0x60u), word(rdram, (object & 0x1FFFFFFu) + 0x64u),
+                            word(rdram, (object & 0x1FFFFFFu) + 0x68u), word(rdram, (object & 0x1FFFFFFu) + 0x6Cu),
+                            word(rdram, (object & 0x1FFFFFFu) + 0x7C0u), word(rdram, (object & 0x1FFFFFFu) + 0x7C4u),
+                            word(rdram, (object & 0x1FFFFFFu) + 0x210u));
         }
     }
 
@@ -882,6 +897,17 @@ const unsigned char *vp2sEeRam()
     return g_rdram;
 }
 
+namespace
+{
+    // Where a post pass goes: before the interface once it has started this frame, else here (all drawn so far is the
+    // 3D: on the title the passes run before any layer, and at the frame's end they covered its menu too, washing out
+    // the cursor's swoosh and the copyright line).
+    size_t postEffectAt()
+    {
+        return g_interfaceStart != SIZE_MAX ? g_interfaceStart : ps2x::native::Renderer::instance().batchCount();
+    }
+}
+
 void vp2sModelsInterfaceStarts()
 {
     if (g_frameOpen && g_interfaceStart == SIZE_MAX)
@@ -902,6 +928,11 @@ void vp2sModelsFrameEnd()
     if (!g_frameOpen)
         return;
     g_interfaceStart = SIZE_MAX;
+    g_brightnessAt = SIZE_MAX;
+    {
+        static uint64_t s_orderFrames = 0;
+        g_orderFrame = ++s_orderFrames % 600u == 300u;
+    }
     g_sceneOverlaysDrawn = false;
     static const bool s_log = std::getenv("VP2S_MODELS_LOG") != nullptr;
     static uint64_t s_frames = 0;
@@ -969,6 +1000,9 @@ void vp2sModelsFrameEnd()
 
 void vp2sInstallModels(PS2Runtime &)
 {
+    // Untextured draws at the GS's colour (0x80 = 128): the title's white backdrop (object 0x9A5A60, vertex 0x80) was
+    // twice as bright, saturated by the brightness pass, and hid the cursor's swoosh and the copyright line.
+    ps2x::native::Renderer::instance().setGsUntexturedColour(true);
     // The native models: drawn after the game's own draw method (whose packets go nowhere: no GS), one native frame a
     // game frame (vp2sModelsFrameEnd). VP2S_GS=1 (the old GS path, to compare) leaves them out.
     if (const char *gs = std::getenv("VP2S_GS"); gs && gs[0] == '1')
@@ -1130,13 +1164,28 @@ void vp2sInstallModels(PS2Runtime &)
                     std::fflush(stdout);
                 }
                 if (any && best.alpha > 0.0f)
-                    ps2x::native::Renderer::instance().postEffect(best, g_interfaceStart);
+                    ps2x::native::Renderer::instance().postEffect(best, postEffectAt());
             });
     }
     // The frame's brightness (the object at *(0x35DDF8) + 0x4444, per-frame method 0x2CB4A0, packets by 0x2C9100):
     // in its mode 1 every pixel becomes clamp(g x max(0, min(F, L0) - L1)), L0 +0xAC, L1 +0xB0 (u32 0x00BBGGRR), g the
     // RGB of +0xC0 (2.0: the game draws at half intensity; the camera's exposure sets it). Modes 2 / 3 add tone bands
     // (+0xB4 / +0xB8, gains +0xD0 / +0xE0), not drawn yet: mode 1's formula is used. VP2S_BRIGHTNESS=0: none.
+    // Its place in the frame: where the scene's draw loop (0x221040) draws the object (vtable 0x159D10 slot 6,
+    // 0x2CB470), in the scene list's order. Its per-frame method runs after the whole loop, and inserting there put
+    // the title's front objects (the cursor's swoosh, the copyright line) under it, twice as bright as on the console.
+    constexpr uint32_t kBrightnessDraw = 0x002CB470u;
+    if (kBrightnessDraw >= module->tableBase && kBrightnessDraw < module->tableEnd)
+    {
+        static PS2Runtime::RecompiledFunction s_brightnessDraw = module->table[(kBrightnessDraw - module->tableBase) >> 2];
+        if (s_brightnessDraw)
+            ps2_overlays::replaceModuleFunction("mod001", kBrightnessDraw, [](uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime) {
+                g_brightnessAt = ps2x::native::Renderer::instance().batchCount();
+                if (g_orderFrame && std::getenv("VP2S_DRAW_ORDER_LOG"))
+                    std::printf("[vp2s-order] brightness drawn at batch %zu\n", g_brightnessAt);
+                s_brightnessDraw(rdram, ctx, runtime);
+            });
+    }
     constexpr uint32_t kBrightness = 0x002CB4A0u;
     if (kBrightness >= module->tableBase && kBrightness < module->tableEnd &&
         !(std::getenv("VP2S_BRIGHTNESS") && std::getenv("VP2S_BRIGHTNESS")[0] == '0'))
@@ -1169,7 +1218,9 @@ void vp2sInstallModels(PS2Runtime &)
                                 ps2x::native::Renderer::instance().batchCount());
                     std::fflush(stdout);
                 }
-                ps2x::native::Renderer::instance().postEffect(e, g_interfaceStart);
+                if (g_orderFrame && std::getenv("VP2S_DRAW_ORDER_LOG"))
+                    std::printf("[vp2s-order] brightness pass at batch %zu\n", postEffectAt());
+                ps2x::native::Renderer::instance().postEffect(e, g_brightnessAt != SIZE_MAX ? g_brightnessAt : postEffectAt());
             });
     }
     // The aerial perspective (the object at *(0x35DDF8) + 0x4450, per-frame method 0x2E0BA0: the field's orange haze,
@@ -1212,7 +1263,7 @@ void vp2sInstallModels(PS2Runtime &)
                     }
                     std::fflush(stdout);
                 }
-                ps2x::native::Renderer::instance().postEffect(e, g_interfaceStart);
+                ps2x::native::Renderer::instance().postEffect(e, postEffectAt());
             });
     }
     ps2x::native::Renderer::instance().setStreamDraws(false);

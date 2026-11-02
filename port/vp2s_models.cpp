@@ -698,14 +698,15 @@ namespace
     // The GS state: the object's block from + 0x710 (copied from its effect file by 0x22FBE0, sent to VU 736): + 0x740
     // TEX0, + 0x760 ALPHA. The kinds: in the effect file (* (+0x628) + 0xC0, VU 745), five qwords each (corners (x0, y0),
     // (x1, y1), STQ 0, STQ 1, colour). The texture: the game's own at TEX0's TBP (its texture manager), CSA from TEX0.
+    // Only mode 3 (+0xAFF: the code image 0x818 runs from). False: not drawn here (the game's VU1 path draws it).
     // VP2S_PARTICLES=0: not drawn.
-    void drawParticles(const uint8_t *rdram, const uint8_t *scratch, uint32_t object)
+    bool drawParticles(const uint8_t *rdram, const uint8_t *scratch, uint32_t object)
     {
         static const bool s_off = [] { const char *v = std::getenv("VP2S_PARTICLES"); return v && v[0] == '0'; }();
         static const bool s_log = std::getenv("VP2S_MODELS_LOG") != nullptr;
         const uint32_t o = object & 0x1FFFFFFu;
-        if (s_off || g_camera == 0u || o < 0x100000u)
-            return;
+        if (s_off || g_camera == 0u || o < 0x100000u || rdram[o + 0xAFFu] != 3u)
+            return false;
         const uint32_t block = o + 0x710u;
         const uint32_t kinds = (word(rdram, o + 0x628u) & 0x1FFFFFFu) + 0xC0u;
         // The block as 0x818 reads it: a GIF tag of two A+D registers at + 0x10 (TEX0 twice).
@@ -717,7 +718,7 @@ namespace
                 std::printf("[vp2s-models] particles of %x: no constant block (+0x720 = %x %x)\n", o, word(rdram, block + 0x10u), word(rdram, block + 0x14u));
                 std::fflush(stdout);
             }
-            return;
+            return false;
         }
         const uint64_t tex0 = uint64_t{word(rdram, block + 0x30u)} | uint64_t{word(rdram, block + 0x34u)} << 32;
         const uint32_t alpha = word(rdram, block + 0x50u);
@@ -803,7 +804,7 @@ namespace
             std::fflush(stdout);
         }
         if (triangles.empty())
-            return;
+            return true;
         ps2x::native::Material material;
         material.tex0 = tex0;
         material.textured = texture != nullptr;
@@ -814,12 +815,14 @@ namespace
         material.alphaTest = false;
         material.textureAlpha = ((tex0 >> 34) & 1u) != 0u; // TCC
         ps2x::native::Renderer::instance().draw(material, matrix, triangles.data(), static_cast<uint32_t>(triangles.size()), std::move(texture));
+        return true;
     }
 
+    // The draw of a class 0x154100 object: the original (0x201EA0) only queues the VIF1 packet its build made (0x22DD70)
+    // for VU1; the particles drawn here natively, it is not called.
     void modelLikeDrawHook(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
     {
         const uint32_t object = getRegU32(ctx, 4);
-        g_modelLikeDraw(rdram, ctx, runtime);
         static const bool s_off = [] { const char *v = std::getenv("VP2S_MODELS_CLASS154100"); return v && v[0] == '0'; }();
         static const bool s_log = std::getenv("VP2S_MODELS_LOG") != nullptr;
         static int s_logged = 0;
@@ -847,11 +850,12 @@ namespace
             }
             std::fflush(stdout);
         }
-        if (!s_off && g_frameOpen && g_camera != 0u)
+        if (!s_off && g_frameOpen && g_camera != 0u && drawParticles(rdram, runtime->memory().getScratchpad(), object))
         {
             ++g_counts.objects;
-            drawParticles(rdram, runtime->memory().getScratchpad(), object);
+            return;
         }
+        g_modelLikeDraw(rdram, ctx, runtime);
     }
 
     ps2x::native::Screen nativeScreen()

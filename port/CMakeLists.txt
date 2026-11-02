@@ -64,6 +64,7 @@ endif()
 # so toggling them does not rebuild the whole game.
 add_library(vp2s_frontend OBJECT
     "${CMAKE_CURRENT_SOURCE_DIR}/main.cpp"
+    "${CMAKE_CURRENT_SOURCE_DIR}/vp2s_settings.cpp"
     "${CMAKE_CURRENT_SOURCE_DIR}/vp2s_overrides.cpp"
     "${CMAKE_CURRENT_SOURCE_DIR}/vp2s_vu1_hle.cpp"
     "${CMAKE_CURRENT_SOURCE_DIR}/vp2s_textures.cpp"

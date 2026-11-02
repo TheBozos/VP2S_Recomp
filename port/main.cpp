@@ -1,6 +1,7 @@
 // Entry point of the Valkyrie Profile 2: Silmeria native port.
 //
-// Usage: vp2s.exe <path to SLUS_214.52> (the boot ELF extracted by tools/pipeline.py).
+// Usage: vp2s.exe <path to SLUS_214.52> (the boot ELF extracted by tools/pipeline.py), or vp2s.exe alone with
+// [game] elf set in vp2s.ini, the player's settings next to the executable (vp2s_settings.cpp).
 // The disc image is found by the game override (vp2s_overrides.cpp, VP2S_ISO).
 // VP2S_DIAG=1 prints the resident overlay modules, guest threads, IOP/RPC and GS state and saves
 // a screenshot of the game screen every few seconds; F9 saves one at any time. Builds with
@@ -17,6 +18,7 @@
 #include "rlgl.h" // rlReadTexturePixels: screenshots of a frame presented on the GPU
 
 #include "runtime/gs/gs_cpu_backend.h"
+#include "vp2s_settings.h"
 
 #include <algorithm>
 #include <atomic>
@@ -472,14 +474,17 @@ namespace
 
 int main(int argc, char *argv[])
 {
-    if (argc < 2 || argv[1][0] == '\0')
+    // vp2s.ini next to the executable: the player's settings, and the game to start when none is given here.
+    const std::string configuredElf = vp2sLoadSettings();
+    const std::string elfPath = argc >= 2 && argv[1][0] != '\0' ? std::string(argv[1]) : configuredElf;
+    if (elfPath.empty())
     {
-        std::cerr << "usage: vp2s <path to SLUS_214.52>" << std::endl;
+        std::cerr << "usage: vp2s <path to SLUS_214.52> (or [game] elf = ... in vp2s.ini)" << std::endl;
         return 2;
     }
     try
     {
-        const std::filesystem::path elf = argv[1];
+        const std::filesystem::path elf = elfPath;
         // The GS rasterizes on worker threads (VP2's title scene overdraws ~19 screens per
         // frame); nothing here reads VRAM behind the backend's back. VP2S_GS_SYNC=1 draws
         // immediately instead, to compare.

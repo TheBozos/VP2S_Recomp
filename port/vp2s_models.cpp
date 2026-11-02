@@ -663,6 +663,7 @@ namespace
     }
 
     bool g_orderFrame = false; // VP2S_DRAW_ORDER_LOG's frame
+    int g_frameModelIndex = 0; // the models drawn so far this frame
     size_t g_brightnessAt = SIZE_MAX; // the batch where the frame's brightness object was drawn (this frame)
 
     void modelDrawHook(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
@@ -682,7 +683,23 @@ namespace
         {
             ++g_counts.objects;
             const size_t before = ps2x::native::Renderer::instance().batchCount();
-            drawObject(rdram, runtime->memory().getScratchpad(), object, camera);
+            // VP2S_MODELS_SKIP=<i>[,<i>...] (diagnosis): the frame's i-th model drawn (VP2S_DRAW_ORDER_LOG's order) left out.
+            static const std::vector<int> s_skip = [] {
+                std::vector<int> out;
+                if (const char *v = std::getenv("VP2S_MODELS_SKIP"))
+                    for (const char *at = v; *at;)
+                    {
+                        char *end = nullptr;
+                        out.push_back(static_cast<int>(std::strtol(at, &end, 10)));
+                        at = (end && *end == ',') ? end + 1 : (end ? end : at + 1);
+                        if (end && *end == 0)
+                            break;
+                    }
+                return out;
+            }();
+            const int index = g_frameModelIndex++;
+            if (std::find(s_skip.begin(), s_skip.end(), index) == s_skip.end())
+                drawObject(rdram, runtime->memory().getScratchpad(), object, camera);
             // VP2S_DRAW_ORDER_LOG=1 (diagnosis): one frame in 600, each object drawn with its camera and batches.
             static const bool s_order = std::getenv("VP2S_DRAW_ORDER_LOG") != nullptr;
             if (s_order && g_orderFrame)
@@ -929,6 +946,7 @@ void vp2sModelsFrameEnd()
         return;
     g_interfaceStart = SIZE_MAX;
     g_brightnessAt = SIZE_MAX;
+    g_frameModelIndex = 0;
     {
         static uint64_t s_orderFrames = 0;
         g_orderFrame = ++s_orderFrames % 600u == 300u;

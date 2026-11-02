@@ -617,6 +617,7 @@ namespace
         texture.key = key;
         texture.version = 1;
         texture.rgba.assign(static_cast<size_t>(texture.width) * texture.height, 0u);
+        texture.rawAlpha = true; // the conversion's alpha is the GS's own (tools/vp2_textures.py)
         for (uint32_t y = 0; y < height; ++y)
             for (uint32_t x = 0; x < width; ++x)
             {

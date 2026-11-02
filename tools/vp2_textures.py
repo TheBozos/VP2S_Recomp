@@ -12,7 +12,8 @@ RGBA files this writes, by the key the game passes its texture cache (file tag, 
 Output (game data: build tree only, never committed): <out>/<tag>_<index>.tex (hexadecimal) = u32 width, u32 height,
 u32 psm, then width * height texels (one palette index each for T4 / T8, RGBA8 for CT32), then 256 RGBA8 palette
 entries in index order (CSM1 resolved; a 4-bit texture uses entry 16 * CSA + index; zero when the palette is sent
-elsewhere). Alpha: the GS's 0x80 = opaque doubled, clamped to 255.
+elsewhere). Alpha: the GS's own (0x80 = opaque, up to 0xFF): the renderer doubles it after its product with the
+vertex colour (TextureCache::Texture::rawAlpha), as the GS does.
 """
 import argparse
 import hashlib
@@ -82,7 +83,7 @@ def palette_table(data, at):
         x, y = (k & 7) | ((k & 0x10) >> 1), ((k >> 5) << 1) | ((k >> 3) & 1)
         if x < cw and y < ch:
             r, g, b, a = data[colours + 4 * (y * cw + x): colours + 4 * (y * cw + x) + 4]
-            table[4 * k: 4 * k + 4] = bytes((r, g, b, min(255, a * 2)))
+            table[4 * k: 4 * k + 4] = bytes((r, g, b, a))
     return bytes(table)
 
 
@@ -125,7 +126,7 @@ def convert(data, at):
                 texels.append((data[pixels + k // 2] >> (4 * (k & 1))) & 15)
             else:
                 r, g, b, a = data[pixels + 4 * k: pixels + 4 * k + 4]
-                texels += bytes((r, g, b, min(255, a * 2)))
+                texels += bytes((r, g, b, a))
     return (w, h, psm, bytes(texels), table), None
 
 def scan(assets):

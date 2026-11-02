@@ -287,6 +287,7 @@ namespace
         texture.key = id;
         texture.version = ++g_version;
         texture.rgba.assign(static_cast<size_t>(texture.width) * texture.height, 0u);
+        texture.rawAlpha = true; // the conversion's alpha is the GS's own (tools/vp2_textures.py)
         for (uint32_t y = 0; y < texture.height && y < converted->height; ++y)
             for (uint32_t x = 0; x < texture.width && x < converted->width; ++x)
             {
@@ -409,6 +410,7 @@ std::shared_ptr<const ps2x::native::TextureCache::Texture> vp2sGameTexture(uint3
     texture.key = id;
     texture.version = ++g_version;
     texture.rgba.assign(static_cast<size_t>(texture.width) * texture.height, 0u);
+    texture.rawAlpha = true; // the conversion's alpha is the GS's own (tools/vp2_textures.py)
     for (uint32_t y = 0; y < converted->height && y < texture.height; ++y)
         for (uint32_t x = 0; x < converted->width && x < texture.width; ++x)
         {

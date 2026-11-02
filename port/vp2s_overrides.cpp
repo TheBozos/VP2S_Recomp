@@ -11,6 +11,15 @@
 #include "vp2s_minimap.h"
 #include "vp2s_battle_hud.h"
 #include "ps2_overlay_modules.h"
+#include "ps2x/iop/native_mixer.h"
+
+namespace ps2_stubs // the runtime's libmpeg HLE (Kernel/Stubs/MPEG.h)
+{
+    using MpegAudioSink = void (*)(uint32_t mpegAddr, uint32_t channel, const uint8_t *data, size_t bytes, uint32_t picturesServed);
+    using MpegPictureHook = void (*)(uint32_t mpegAddr, uint32_t picture);
+    void setMpegAudioSink(MpegAudioSink sink);
+    void setMpegPictureHook(MpegPictureHook hook);
+}
 
 #include <algorithm>
 #include <chrono>
@@ -310,8 +319,69 @@ namespace
                       << std::endl;
     }
 
+    // VP2's movie audio, native: its PSS carries 48 kHz 16-bit stereo PCM on private stream 1 channel 0, in blocks of
+    // 4096 bytes (1024 left samples, then 1024 right). The game copies it to an EE ring, sends it to its IOP module by
+    // RPC and has it written into the sound data input in 8 KiB pieces; on this runtime the pieces came out of order
+    // (repeated / skipped: the crackle PCSX2 does not have). Here the runtime's demuxer hands the PCM to the native
+    // mixer directly, which plays it from the movie's first picture in place of the game's input (the game's path keeps
+    // running, unheard). VP2S_MOVIE_AUDIO=0: the game's path.
+    struct MovieAudio
+    {
+        std::vector<uint8_t> block; // a 4096-byte block being assembled
+        bool shown = false; // its first picture served (playing)
+    };
+    MovieAudio g_movieAudio;
+
+    void movieAudioSink(uint32_t, uint32_t channel, const uint8_t *data, size_t bytes, uint32_t picturesServed)
+    {
+        if (channel != 0u)
+            return;
+        ps2x::audio::NativeMixer &mixer = ps2x::audio::NativeMixer::instance();
+        // A new playback (no picture yet) while the last one's audio is still queued or playing: start over.
+        if (picturesServed == 0u && g_movieAudio.shown)
+        {
+            mixer.movieStop();
+            g_movieAudio = MovieAudio{};
+        }
+        constexpr size_t kBlock = 4096u, kSamples = kBlock / 4u;
+        for (size_t at = 0; at < bytes;)
+        {
+            const size_t take = std::min(bytes - at, kBlock - g_movieAudio.block.size());
+            g_movieAudio.block.insert(g_movieAudio.block.end(), data + at, data + at + take);
+            at += take;
+            if (g_movieAudio.block.size() < kBlock)
+                break;
+            int16_t stereo[kSamples * 2u];
+            for (size_t k = 0; k < kSamples; ++k)
+            {
+                std::memcpy(&stereo[2u * k], g_movieAudio.block.data() + 2u * k, 2u);
+                std::memcpy(&stereo[2u * k + 1u], g_movieAudio.block.data() + kBlock / 2u + 2u * k, 2u);
+            }
+            mixer.moviePush(stereo, kSamples);
+            g_movieAudio.block.clear();
+        }
+    }
+
+    void moviePictureHook(uint32_t, uint32_t picture)
+    {
+        if (picture == 0u)
+        {
+            ps2x::audio::NativeMixer::instance().movieStart(0);
+            g_movieAudio.shown = true;
+        }
+    }
+
     void applyVp2s(PS2Runtime &runtime)
     {
+        if (const char *v = std::getenv("VP2S_MOVIE_AUDIO"); !(v && v[0] == '0'))
+        {
+            const char *native = std::getenv("PS2X_NATIVE_AUDIO");
+            if (!(native && native[0] == '0'))
+            {
+                ps2_stubs::setMpegAudioSink(&movieAudioSink);
+                ps2_stubs::setMpegPictureHook(&moviePictureHook);
+            }
+        }
         if (const char *hooks = std::getenv("VP2S_HOOK_TRACE"))
         {
             for (const char *cursor = hooks; *cursor;)

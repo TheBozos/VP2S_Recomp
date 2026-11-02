@@ -1,0 +1,15 @@
+{
+  "$schema": "https://recomp.fyi/schema/v1.json",
+  "game": "Valkyrie Profile 2: Silmeria",
+  "system": "PS2",
+  "type": "recomp",
+  "original": { "region": "USA", "serial": "SLUS-21452" },
+  "project": "VP2S_Recomp",
+  "status": "in-progress",
+  "targets": ["Windows"],
+  "toolchain": "Ps2recomp",
+  "approach": "Static recompilation (PS2Recomp fork) with a native OpenGL renderer and audio mixer: no GS, VU1 or SPU2 emulation",
+  "maintainers": [{ "name": "The Bozos", "link": "https://github.com/TheBozos" }],
+  "tags": ["native-renderer", "no-emulation", "opengl", "pcsx2-matched"],
+  "notes": "Playable through the start of chapter 1 (opening, Logun, battle tutorial, first battles, menus, saving). The game's EE code and IOP modules are recompiled; models, interface, post effects, movies and sound are rebuilt natively from the game's own data. Screens are matched against PCSX2 one by one. Bring your own disc (USA, SLUS-21452)."
+}

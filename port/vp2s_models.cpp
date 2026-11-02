@@ -670,6 +670,10 @@ namespace
     {
         const uint32_t object = getRegU32(ctx, 4), camera = getRegU32(ctx, 6);
         g_camera = camera & 0x1FFFFFFu;
+        // The frame starts from the camera's clear colour (+0x5A0, 0x00BBGGRR): the GS clear the scene pass sends
+        // first (the title's teal (50, 100, 84), seen under the sky's lower edge and through the horizon's gradient).
+        if (g_camera >= 0x100000u)
+            ps2x::native::Renderer::instance().setClearColour(rdram[g_camera + 0x5A0u], rdram[g_camera + 0x5A1u], rdram[g_camera + 0x5A2u]);
         const bool shown = (rdram[(object + 0x7C3u) & 0x1FFFFFFu] >> (rdram[(object + 0x7C5u) & 0x1FFFFFFu] & 7u)) & 1u;
         static bool s_first = true;
         if (s_first)
@@ -1093,7 +1097,7 @@ void vp2sInstallModels(PS2Runtime &)
                     return value;
                 };
                 float g = real(post + 0x131E0u);
-                if (!(g > 0.0f && g < 8.0f))
+                if (!(g >= 0.25f && g < 8.0f)) // a per-frame field: between frames a stale word (a denormal seen) is no gain
                     g = 2.0f;
                 ps2x::native::Renderer::PostEffect best;
                 bool any = false;

@@ -818,8 +818,11 @@ namespace
         return true;
     }
 
-    // The draw of a class 0x154100 object: the original (0x201EA0) only queues the VIF1 packet its build made (0x22DD70)
-    // for VU1; the particles drawn here natively, it is not called.
+    // The draw of a class 0x154100 object: the original (0x201EA0) queues the VIF1 packet its build made (0x22DD70) for
+    // VU1 (whose output is lost: the particles are drawn here). It stays queued: the end of each scene object's DMA
+    // (0x21C920) is what lets the scene pass go on (its +0x40DD, waited for at 0x220FB0, cleared by the last object's),
+    // so leaving it out hangs the game when this object is the frame's last. VP2S_PARTICLES_NO_VU1=1 (to study that
+    // protocol): not queued.
     void modelLikeDrawHook(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
     {
         const uint32_t object = getRegU32(ctx, 4);
@@ -850,10 +853,15 @@ namespace
             }
             std::fflush(stdout);
         }
+        static const bool s_noVu1 = [] { const char *v = std::getenv("VP2S_PARTICLES_NO_VU1"); return v && v[0] == '1'; }();
         if (!s_off && g_frameOpen && g_camera != 0u && drawParticles(rdram, runtime->memory().getScratchpad(), object))
         {
             ++g_counts.objects;
-            return;
+            if (s_noVu1)
+            {
+                ctx->pc = getRegU32(ctx, 31);
+                return;
+            }
         }
         g_modelLikeDraw(rdram, ctx, runtime);
     }

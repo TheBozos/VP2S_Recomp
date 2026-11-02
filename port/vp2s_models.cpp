@@ -8,6 +8,7 @@
 #include "vp2s_battle_hud.h"
 #include "vp2s_loads.h"
 #include "vp2s_textures.h"
+#include "vp2s_ui.h"
 
 #include "ps2_overlay_modules.h"
 #include "ps2_runtime.h"
@@ -297,6 +298,7 @@ namespace
     const uint8_t *g_rdram = nullptr; // EE memory, for the frame end's diagnostics
     size_t g_interfaceStart = SIZE_MAX; // the frame's first interface batch (vp2sModelsInterfaceStarts)
     bool g_sceneOverlaysDrawn = false;  // this frame's scene overlays (the minimap) are in, before its effect passes
+    uint32_t g_scene = 0;               // the scene pass's scene (its a0), last seen
 
     // The scene's own 2D (the minimap) goes after the 3D and before the game's effect passes, as the GS gets them:
     // drawn at the first effect pass of the frame.
@@ -1080,6 +1082,7 @@ void vp2sInstallModels(PS2Runtime &)
         if (s_scenePass)
             ps2_overlays::replaceModuleFunction("mod001", kScenePass, [](uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime) {
                 g_rdram = rdram;
+                g_scene = getRegU32(ctx, 4) & 0x1FFFFFFu;
                 s_scenePass(rdram, ctx, runtime);
                 vp2sModelsFrameEnd();
             });
@@ -1099,6 +1102,8 @@ void vp2sInstallModels(PS2Runtime &)
             ps2_overlays::replaceModuleFunction("mod001", kPostEffect, [](uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime) {
                 s_post(rdram, ctx, runtime);
                 sceneOverlays();
+                if (g_scene >= 0x100000u)
+                    vp2sUiFrozenFrame(rdram, g_scene);
                 const uint32_t owner = word(rdram, 0x0035DDF8u) & 0x1FFFFFFu;
                 const uint32_t post = owner ? word(rdram, owner + 0x4448u) & 0x1FFFFFFu : 0u; // the object (docs/vp2_dof.md)
                 if (post < 0x100000u)

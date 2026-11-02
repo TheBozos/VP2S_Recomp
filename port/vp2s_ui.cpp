@@ -744,6 +744,35 @@ namespace
         drawQuadCorners(x0, y0, x1, y1, u0, v0, u1, v1, corners, std::move(texture));
     }
 
+    // The renderer's captured frame over the whole screen, moved by (dx, dy), grey `colour` and `alpha` (0x80 = 1).
+    void drawFrozenFrame(float dx, float dy, uint32_t colour, uint32_t alpha)
+    {
+        static const float s_identity[16] = {1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1};
+        ps2x::native::Material material;
+        material.blend = ps2x::native::Material::Blend::Alpha;
+        material.alphaBlend = true;
+        material.depthTest = false;
+        material.depthWrite = true;
+        material.textured = true;
+        material.tex0 = ps2x::native::Renderer::kCapturedFrame;
+        material.clampU = material.clampV = true;
+        const uint32_t rgba = colour | colour << 8 | colour << 16 | alpha << 24;
+        const auto vertex = [&](float vx, float vy, float u, float v) {
+            ps2x::native::Vertex out;
+            out.x = 1728.0f + vx + dx;
+            out.y = 1824.0f + (vy + dy) * (448.0f / 480.0f);
+            out.z = 16777215.0f;
+            out.u = u;
+            out.v = v;
+            out.rgba = rgba;
+            return out;
+        };
+        const ps2x::native::Vertex quad[6] = {vertex(0, 0, 0, 0), vertex(640, 0, 1, 0), vertex(0, 480, 0, 1),
+                                              vertex(640, 0, 1, 0), vertex(640, 480, 1, 1), vertex(0, 480, 0, 1)};
+        vp2sModelsInterfaceStarts();
+        ps2x::native::Renderer::instance().draw(material, s_identity, quad, 6u);
+    }
+
     uint32_t scaled(uint32_t rgba, uint32_t colourScale, uint32_t alpha)
     {
         const auto channel = [&](int c) { return std::min<uint32_t>(((rgba >> (8 * c)) & 0xFFu) * colourScale / 128u, 0xFFu); };
@@ -1040,6 +1069,35 @@ void vp2sUiNoteFixedSheet(uint32_t dbp, uint32_t tag, uint32_t index)
 {
     std::lock_guard<std::mutex> lock(g_mutex);
     g_fixedSheets[dbp & 0x3FFFu] = {tag, index};
+}
+
+void vp2sUiFrozenFrame(uint8_t *rdram, uint32_t scene)
+{
+    // The scene's master list (+0x7C, count +0xFB80) with an object of class 0x1670D0 in it, not frozen or hidden
+    // (+0x6A & 0x49, the cull's own test at 0x2207EC).
+    const uint32_t list = word(rdram, scene + 0x7Cu) & 0x1FFFFFFu, count = std::min(word(rdram, scene + 0xFB80u), 0x2000u);
+    uint32_t frozen = 0;
+    for (uint32_t i = 0; list >= 0x100000u && i < count && !frozen; ++i)
+    {
+        const uint32_t object = word(rdram, list + 4u * i) & 0x1FFFFFFu;
+        if (object >= 0x100000u && (word(rdram, object) & 0x1FFFFFFu) == 0x1670D0u && !(rdram[object + 0x6Au] & 0x49u))
+            frozen = object;
+    }
+    // Captured as the object appears (the frame on screen is the last one without it), not again while it stays.
+    static uint32_t s_object = 0;
+    const uint32_t before = s_object;
+    s_object = frozen;
+    if (!frozen)
+        return;
+    if (frozen != before)
+    {
+        ps2x::native::Renderer::instance().captureFrame();
+        std::printf("[vp2s-ui] frozen frame %x: the frame on screen captured\n", frozen);
+        std::fflush(stdout);
+    }
+    drawFrozenFrame(0.0f, 0.0f, 0x70u, 0x80u);
+    for (int k = 1; k <= 16; ++k)
+        drawFrozenFrame(-k * 640.0f / 512.0f, -2.0f * k * 480.0f / 448.0f, 0x50u, 0x0Cu);
 }
 
 namespace

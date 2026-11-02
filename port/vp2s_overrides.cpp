@@ -368,6 +368,18 @@ namespace
         // that data (vp2s_loads.cpp, vp2s_models.cpp).
         vp2sInstallLoads(runtime);
         vp2sInstallModels(runtime);
+        // Nothing on screen comes from VU1 any more (models, particles, 2D from the game's data): VIF1 data is not
+        // processed, each transfer ends at once (the game's DMA queue, end interrupts and callbacks keep their order).
+        // VP2S_NATIVE_MESH=1 (the GS comparison path, which reads the meshes' packets) or VP2S_VIF1=1 processes it.
+        {
+            const char *mesh = std::getenv("VP2S_NATIVE_MESH");
+            const char *vif1 = std::getenv("VP2S_VIF1");
+            if (!(mesh && mesh[0] == '1') && !(vif1 && vif1[0] == '1'))
+            {
+                ps2x::native::setVif1Dropped(true);
+                std::cout << "[vp2s] VIF1 data not processed (no VU1 programs run)" << std::endl;
+            }
+        }
         vp2sInstallUi(runtime);
         vp2sInstallMinimap(runtime);
         vp2sInstallBattleHud(runtime);

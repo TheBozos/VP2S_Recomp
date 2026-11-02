@@ -47,7 +47,7 @@ namespace
 
     // mod027 0x36B3A0(a0 image object: its 'FIS' file, a1, a2 PSM, a3 DBP of the pixels or 0, t0 DBP of the palette)
     // uploads the battle's fixed sheets (mod028 0x4F2670's TBP 0x800 among them): the DBP keyed to the FIS's key, as
-    // the 2D layer does for 0x2F3630.
+    // the 2D layer does for 0x2F37B0.
     constexpr uint32_t kFixedUpload = 0x0036B3A0u;
     PS2Runtime::RecompiledFunction g_fixedUpload = nullptr;
     std::map<uint32_t, std::pair<uint32_t, uint32_t>> g_fixedCluts; // CBP -> the FIS key whose palette went there

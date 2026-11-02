@@ -26,7 +26,7 @@
 
 namespace
 {
-    constexpr uint32_t kTextureCache = 0x0029D8F0u; // mod001
+    constexpr uint32_t kTextureCache = 0x0029D9B0u; // mod001
 
     struct Key
     {
@@ -72,7 +72,7 @@ namespace
     // textures, sent again whenever the small VRAM drops them) and the character models (FUN_0022d150). a2 / a3 the
     // key (read before the call: it changes a3), v0 the VRAM address (0 failure, 1 no room: the caller evicts and
     // calls again).
-    constexpr uint32_t kTextureAllocate = 0x0023DA80u;
+    constexpr uint32_t kTextureAllocate = 0x0023DB00u;
     PS2Runtime::RecompiledFunction g_allocate = nullptr;
 
     void textureAllocateHook(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
@@ -90,7 +90,7 @@ namespace
     // The game's CLUT allocator (mod001 FUN_0023d810): a palette goes to VRAM on its own, keyed by the FIS info
     // block in a1 (+4 tag, +8 index), often another texture's than the one drawn with it. v0 the VRAM address (0: it
     // is resident already). TEX0's CBP then names the palette by that key.
-    constexpr uint32_t kClutAllocate = 0x0023D810u;
+    constexpr uint32_t kClutAllocate = 0x0023D890u;
     PS2Runtime::RecompiledFunction g_clutAllocate = nullptr;
     std::unordered_map<uint32_t, Key> g_cluts; // CBP -> the palette the game put there
 

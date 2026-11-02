@@ -56,7 +56,7 @@ namespace
     std::mutex g_mutex;
     std::unordered_map<uint32_t, std::vector<Glyph>> g_glyphs; // element -> its glyphs since its text began
 
-    constexpr uint32_t kTextBegin = 0x002E85C0u, kGlyph = 0x002E7DD0u, kLayerDraw = 0x002EC8F0u, kSprite = 0x002EB2D0u;
+    constexpr uint32_t kTextBegin = 0x002E8680u, kGlyph = 0x002E7E90u, kLayerDraw = 0x002EC9C0u, kSprite = 0x002EB3A0u;
     PS2Runtime::RecompiledFunction g_textBegin = nullptr, g_glyph = nullptr, g_layerDraw = nullptr, g_sprite = nullptr;
 
     // A sprite's quad as the game laid it out (virtual 640 x 480 units), with its texture by the sheet it samples.
@@ -91,14 +91,14 @@ namespace
 
     // The game's texture manager (*0x35DE38, in the scratchpad): a list of resident textures from the byte at +0x2008
     // (next: +0x2008 + e), each with its key (+0x1008 + 16e tag, +0x8 + 16e index) and its TEX0 (+0x1010 + 16e, TBP in
-    // the low 14 bits; 0x29D8F0 returns it). A sprite samples the resident texture at its TBP (+0x5A). The capture
+    // the low 14 bits; 0x29D9B0 returns it). A sprite samples the resident texture at its TBP (+0x5A). The capture
     // hooks set g_scratch.
     const uint8_t *g_scratch = nullptr;
 
     // Sheets the game puts at fixed VRAM outside the manager (the UI's TBP 0 / 0x400, the menus' 0x800 / 0x1000):
-    // 0x2F3630(a0 image object, a1 its 'FIS' file, a2 PSM, a3 DBP of the pixels, t0 DBP of the palette or 0) sets up
-    // the object 0x2F32F0 uploads. DBP -> the FIS file's key (+0x14 tag, +0x18 index).
-    constexpr uint32_t kImageSetup = 0x002F3630u;
+    // 0x2F37B0(a0 image object, a1 its 'FIS' file, a2 PSM, a3 DBP of the pixels, t0 DBP of the palette or 0) sets up
+    // the object 0x2F3470 uploads. DBP -> the FIS file's key (+0x14 tag, +0x18 index).
+    constexpr uint32_t kImageSetup = 0x002F37B0u;
     PS2Runtime::RecompiledFunction g_imageSetup = nullptr;
     std::unordered_map<uint32_t, std::pair<uint32_t, uint32_t>> g_fixedSheets; // DBP -> (tag, index)
 
@@ -195,10 +195,10 @@ namespace
         return false;
     }
 
-    // 0x2EB2D0(a0 sprite = element + 0x50, ...): one quad. Sprite +0x08 parts (16 bytes: u0, v0, u1, v1 in 4.12 of the
+    // 0x2EB3A0(a0 sprite = element + 0x50, ...): one quad. Sprite +0x08 parts (16 bytes: u0, v0, u1, v1 in 4.12 of the
     // sheet, w, h, +0xC CSA), +0x54 frame, +0x14 / +0x18 position, +0x2C / +0x30 scale, +0x40..+0x4C colour and
     // +0x50 alpha (128 = 1), +0x5A TBP, +0x64 CSA (negative: the part's).
-    // A sprite's quad from (baseX, baseY) (its caller's position) as 0x2EB2D0 lays it out. Called under g_mutex.
+    // A sprite's quad from (baseX, baseY) (its caller's position) as 0x2EB3A0 lays it out. Called under g_mutex.
     SpriteQuad spriteQuad(const uint8_t *rdram, uint32_t sprite, float baseX, float baseY)
     {
         const int32_t frame = static_cast<int16_t>(word(rdram, sprite + 0x54u) & 0xFFFFu);
@@ -237,9 +237,9 @@ namespace
         g_sprites[(sprite - 0x50u) & 0x1FFFFFFu] = spriteQuad(rdram, sprite, real(rdram, position), real(rdram, position + 4u));
     }
 
-    // VP2S_UI_SPRITE_LOG: the first calls of the quad-list (0x2EAC40) and window-background (0x2E9DD0) emitters, raw,
+    // VP2S_UI_SPRITE_LOG: the first calls of the quad-list (0x2EAD10) and window-background (0x2E9E90) emitters, raw,
     // to read their arguments and structures before drawing them.
-    constexpr uint32_t kQuadList = 0x002EAC40u, kWindowBackground = 0x002E9DD0u;
+    constexpr uint32_t kQuadList = 0x002EAD10u, kWindowBackground = 0x002E9E90u;
     PS2Runtime::RecompiledFunction g_quadList = nullptr, g_windowBackground = nullptr;
 
     void logCall(const char *what, const uint8_t *rdram, R5900Context *ctx)
@@ -263,15 +263,15 @@ namespace
     std::unordered_map<uint32_t, std::vector<SpriteQuad>> g_quadLists; // element (sprite - 0x50) -> its quads
     std::unordered_map<uint32_t, std::vector<SpriteQuad>> g_icons;     // text element -> its button icons
 
-    // 0x2EFA30(a0 text element): the text class's build (vtable 0x15A3D0). Its button icons (control 0x4019) are
-    // sprites drawn by 0x2EFCD0 with direct calls: element +0x100 -> +0x24 sprites of 0x70 bytes (+0x28 of them), each
+    // 0x2EFBA0(a0 text element): the text class's build (vtable 0x15A450). Its button icons (control 0x4019) are
+    // sprites drawn by 0x2EFE40 with direct calls: element +0x100 -> +0x24 sprites of 0x70 bytes (+0x28 of them), each
     // shown when +0x66, placed by its item (+0x14 / +0x18 written there), from the layer's position plus the
     // element's (+0x18 / +0x1C) less its scroll (+0x78 / +0x7C). Captured once the build has run.
-    constexpr uint32_t kTextBuild = 0x002EFA30u;
+    constexpr uint32_t kTextBuild = 0x002EFBA0u;
     PS2Runtime::RecompiledFunction g_textBuild = nullptr;
 
-    // The scrolling text class's build (0x2ECED0: message windows, the battle tutorial) draws its icons the same way.
-    constexpr uint32_t kScrollTextBuild = 0x002ECED0u;
+    // The scrolling text class's build (0x2ECFA0: message windows, the battle tutorial) draws its icons the same way.
+    constexpr uint32_t kScrollTextBuild = 0x002ECFA0u;
     PS2Runtime::RecompiledFunction g_scrollTextBuild = nullptr;
 
     void captureIcons(uint8_t *rdram, PS2Runtime *runtime, uint32_t element, bool building);
@@ -314,7 +314,7 @@ namespace
         }
     }
 
-    // 0x2EAC40(a0 sprite): a list of quads at +0x0C, +0x58 of them, 24 bytes each: {part, x0, y0, x1, y1, z}
+    // 0x2EAD10(a0 sprite): a list of quads at +0x0C, +0x58 of them, 24 bytes each: {part, x0, y0, x1, y1, z}
     // (x1 / y1 0: the part's size), placed from the sprite's position; the sprite's colour, alpha and sheet.
     void captureQuadList(const uint8_t *rdram, uint32_t sprite, uint32_t position)
     {
@@ -373,7 +373,7 @@ namespace
         g_quadList(rdram, ctx, runtime);
     }
 
-    // A window's background as 0x2E9DD0(a0 window) builds it: triangle strips of four gouraud vertices (virtual units).
+    // A window's background as 0x2E9E90(a0 window) builds it: triangle strips of four gouraud vertices (virtual units).
     struct StripVertex
     {
         float x = 0, y = 0;
@@ -415,9 +415,9 @@ namespace
         g_windows[window] = std::move(strips);
     }
 
-    // VP2S_UI_SPRITE_LOG: 0x2EC130(a0 sprite, a1 DTT, a2 TEX0 record or 0) gives a sprite its parts and sheet; where
+    // VP2S_UI_SPRITE_LOG: 0x2EC200(a0 sprite, a1 DTT, a2 TEX0 record or 0) gives a sprite its parts and sheet; where
     // the record and the DTT were loaded from, to key the sheets outside the texture manager (TBP 0x800, 0x1000).
-    constexpr uint32_t kSpriteSheet = 0x002EC130u;
+    constexpr uint32_t kSpriteSheet = 0x002EC200u;
     PS2Runtime::RecompiledFunction g_spriteSheet = nullptr;
 
     void spriteSheetHook(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
@@ -480,10 +480,10 @@ namespace
         g_windowBackground(rdram, ctx, runtime);
     }
 
-    // 0x2EA9C0(a0 element): the build of the single-sprite element class (vtable 0x15A180: the title bars, the dialog
-    // arrows), which calls 0x2EB2D0 directly with its layer's position (+0x14 -> +0x40); captured here as that call
+    // 0x2EAA90(a0 element): the build of the single-sprite element class (vtable 0x15A200: the title bars, the dialog
+    // arrows), which calls 0x2EB3A0 directly with its layer's position (+0x14 -> +0x40); captured here as that call
     // would be.
-    constexpr uint32_t kSpriteElementBuild = 0x002EA9C0u;
+    constexpr uint32_t kSpriteElementBuild = 0x002EAA90u;
     PS2Runtime::RecompiledFunction g_spriteElementBuild = nullptr;
 
     void spriteElementBuildHook(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
@@ -508,7 +508,7 @@ namespace
         g_spriteElementBuild(rdram, ctx, runtime);
     }
 
-    // VP2S_UI_SPRITE_LOG: the first sprites as the game hands them to 0x2EB2D0, raw, to read their layout.
+    // VP2S_UI_SPRITE_LOG: the first sprites as the game hands them to 0x2EB3A0, raw, to read their layout.
     void spriteHook(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
     {
         g_scratch = runtime->memory().getScratchpad();
@@ -551,7 +551,7 @@ namespace
         g_textBegin(rdram, ctx, runtime);
     }
 
-    // 0x2E7DD0(element, item): item +0x00..0x0C box, +0x10 / +0x14 x / y scale, +0x18 font, +0x20 colour, +0x24 shadow mode, +0x28
+    // 0x2E7E90(element, item): item +0x00..0x0C box, +0x10 / +0x14 x / y scale, +0x18 font, +0x20 colour, +0x24 shadow mode, +0x28
     // shadow colour, +0x2E glyph index.
     void glyphHook(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
     {
@@ -737,7 +737,7 @@ namespace
         return channel(0) | channel(1) << 8 | channel(2) << 16 | std::min<uint32_t>(alpha, 0xFFu) << 24;
     }
 
-    // 0x2EC8F0(layer): every layer's draw. Its children with +0x39, +0x3D and +0x3B set (the game's own rule) are drawn.
+    // 0x2EC9C0(layer): every layer's draw. Its children with +0x39, +0x3D and +0x3B set (the game's own rule) are drawn.
     // A layer's elements drawn natively (its children list from +8, position +0x40 / +0x44, alpha +0xE0).
     void drawLayer(uint8_t *rdram, uint32_t layer)
     {
@@ -837,20 +837,20 @@ namespace
                                    std::move(texture));
                     }
             };
-            // The prompt's backing bar (class 0x165BB0, mod003 build 0x448AF0, drawn each frame here from live data): a
+            // The prompt's backing bar (class 0x165C30, mod003 build 0x4489B0, drawn each frame here from live data): a
             // rounded cap (part 22) then a body stretched to the screen's right edge (part 23) of the field HUD sheet
-            // (TBP 0x800, CBP 0x3FF4: 'JOHN' 0x276F), parts at *(*(*(0x48DB48) + 0x5C) + 0x224) (u0, v0, u1, v1 in 4.12,
+            // (TBP 0x800, CBP 0x3FF4: 'JOHN' 0x276F), parts at *(*(*(0x48E048) + 0x5C) + 0x224) (u0, v0, u1, v1 in 4.12,
             // w, h); left edge at the layer's x + +0x58 + 5, top at its y + +0x5C + 2, h + 4 high, the cap h (x 0.75
-            // when bit 4 of *(*(0x48DB4C) + 3)) GS pixels wide.
-            if ((word(rdram, element) & 0x1FFFFFFu) == 0x165BB0u)
+            // when bit 4 of *(*(0x48E04C) + 3)) GS pixels wide.
+            if ((word(rdram, element) & 0x1FFFFFFu) == 0x165C30u)
             {
-                const uint32_t holder = word(rdram, (word(rdram, 0x0048DB48u) & 0x1FFFFFFu) + 0x5Cu) & 0x1FFFFFFu;
+                const uint32_t holder = word(rdram, (word(rdram, 0x0048E048u) & 0x1FFFFFFu) + 0x5Cu) & 0x1FFFFFFu;
                 const uint32_t parts = holder >= 0x100000u ? word(rdram, holder + 0x224u) & 0x1FFFFFFu : 0u;
                 if (parts >= 0x100000u)
                 {
                     const auto half = [&](uint32_t address) { return static_cast<float>(word(rdram, address) & 0xFFFFu); };
                     const float h = half(parts + 0x16Au);
-                    const bool narrow = (rdram[((word(rdram, 0x0048DB4Cu) & 0x1FFFFFFu) + 3u) & 0x1FFFFFFu] >> 4) & 1u;
+                    const bool narrow = (rdram[((word(rdram, 0x0048E04Cu) & 0x1FFFFFFu) + 3u) & 0x1FFFFFFu] >> 4) & 1u;
                     const float capWidth = (narrow ? h * 0.75f : h) * (640.0f / 512.0f);
                     const float x0 = layerX + real(rdram, element + 0x58u) + 5.0f, y0 = layerY + real(rdram, element + 0x5Cu) + 2.0f;
                     SpriteQuad cap, body;
@@ -890,7 +890,7 @@ namespace
             const auto found = g_glyphs.find(element);
             if (found == g_glyphs.end())
                 continue;
-            // The layer's position plus the element's, less its scroll (+0x78 / +0x7C), as 0x2E7DD0 places it.
+            // The layer's position plus the element's, less its scroll (+0x78 / +0x7C), as 0x2E7E90 places it.
             const float ex = layerX + real(rdram, element + 0x18u) - real(rdram, element + 0x78u);
             const float ey = layerY + real(rdram, element + 0x1Cu) - real(rdram, element + 0x7Cu);
             const uint32_t alpha = layerAlpha * byte(element + 0x28u) / 128u;
@@ -922,7 +922,7 @@ namespace
                     if (!texture)
                         continue;
                     const float shift = pass == 0 && g.shadowMode == 1u ? 1.0f : 0.0f;
-                    // The glyph's own cell (0x2E7DD0's UVs): its width (item +0x1C) and the font's height (+0x14), each with
+                    // The glyph's own cell (0x2E7E90's UVs): its width (item +0x1C) and the font's height (+0x14), each with
                     // the border (+0x2C) on both sides; the rest of the 32-wide cell is not drawn. (Read before the
                     // texture is handed over: arguments are evaluated in no set order.)
                     const float pad = 2.0f * static_cast<float>(word(rdram, font + 0x2Cu));
@@ -936,7 +936,7 @@ namespace
         }
     }
 
-    // When each layer last went through 0x2EC8F0 (the dialog container below leaves those alone).
+    // When each layer last went through 0x2EC9C0 (the dialog container below leaves those alone).
     std::unordered_map<uint32_t, std::chrono::steady_clock::time_point> g_layerDrawnAt;
 
     void layerDrawHook(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
@@ -948,11 +948,11 @@ namespace
         drawLayer(rdram, layer);
     }
 
-    // mod003 0x45E6F0: the draw of the menus' dialog container (vtable 0x167250, no children of its own). Its manager
-    // (container + 0xB0, class 0x167510) lists its windows from +0x4C; a dialog window (class 0x167530: "load this
-    // file?", "checking the card", "loading") has its layer at +0xB0 (vtable 0x1675C8), built as any layer (0x2EC930)
-    // but queued with the container (0x2EF220(a0 + 0xB4, a0 + 0x90)), never through 0x2EC8F0: drawn here.
-    constexpr uint32_t kDialogLayerDraw = 0x0045E6F0u;
+    // mod003 0x45E570: the draw of the menus' dialog container (vtable 0x1672D0, no children of its own). Its manager
+    // (container + 0xB0, class 0x167590) lists its windows from +0x4C; a dialog window (class 0x1675B0: "load this
+    // file?", "checking the card", "loading") has its layer at +0xB0 (vtable 0x167648), built as any layer (0x2ECA00)
+    // but queued with the container (0x2EF390(a0 + 0xB4, a0 + 0x90)), never through 0x2EC9C0: drawn here.
+    constexpr uint32_t kDialogLayerDraw = 0x0045E570u;
     PS2Runtime::RecompiledFunction g_dialogLayerDraw = nullptr;
 
     void dialogLayerDrawHook(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
@@ -1005,10 +1005,10 @@ void vp2sUiNoteFixedSheet(uint32_t dbp, uint32_t tag, uint32_t index)
 
 namespace
 {
-    // VP2S_MENU_LOG: the data menu's state machine (mod016 0x498DA0(a0 menu): state +0x70; its dialog *(menu + 4),
+    // VP2S_MENU_LOG: the data menu's state machine (mod016 0x4992A0(a0 menu): state +0x70; its dialog *(menu + 4),
     // +0x104 0 once answered, +0x10C the answer, 1 yes) logged at each change of state, for scripted runs to wait on
     // ("[vp2s-menu] state 19"). 0x19 asks to load the slot chosen (the read only with yes), 0x1A reads, 0x1B applies.
-    constexpr uint32_t kDataMenu = 0x00498DA0u;
+    constexpr uint32_t kDataMenu = 0x004992A0u;
     PS2Runtime::RecompiledFunction g_dataMenu = nullptr;
 
     void dataMenuHook(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)

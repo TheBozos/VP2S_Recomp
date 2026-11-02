@@ -34,7 +34,7 @@ namespace
     std::vector<Read> g_reads;
     std::vector<Region> g_regions;
     PS2Runtime::RecompiledFunction g_decompress = nullptr;
-    constexpr uint32_t kDecompress = 0x001025D0u;
+    constexpr uint32_t kDecompress = 0x00102650u;
 
     void cdRead(uint32_t lbn, uint32_t sectors, uint32_t buffer)
     {
@@ -106,7 +106,7 @@ namespace
 {
     // The game's memcpy (main FUN_00132C08: a0 destination, a1 source, a2 bytes): a copy of loaded data keeps where
     // it came from (VP2 copies its models out of the buffers it decompresses them into).
-    constexpr uint32_t kMemcpy = 0x00132C08u;
+    constexpr uint32_t kMemcpy = 0x00132C88u;
     PS2Runtime::RecompiledFunction g_memcpy = nullptr;
 
     void memcpyHook(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
@@ -142,7 +142,7 @@ namespace
     // The game's asynchronous decompression (main FUN_001059B0: a0 the context, a1 the job, a2 the chain as read, a3 the
     // destination, t0 the part), worked a slice a frame by FUN_001058C0: the field's characters and scenes. After the
     // call (which may decrypt the chunk's header in place), the job holds the size (+8) and the destination (+0xC).
-    constexpr uint32_t kDecompressAsync = 0x001059B0u;
+    constexpr uint32_t kDecompressAsync = 0x00105A30u;
     PS2Runtime::RecompiledFunction g_decompressAsync = nullptr;
 
     void decompressAsyncHook(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)

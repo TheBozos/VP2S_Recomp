@@ -146,7 +146,7 @@ namespace
 {
     // The model draw method (mod001 FUN_0023a8d0, a0 the object): its visible meshes, entry i of
     // obj[0x77C] + 12 * count + 4 * i -> {mesh, material block, depth}, count = model[0x34], model = obj[0x7BC].
-    constexpr uint32_t kModelDraw = 0x0023A8D0u;
+    constexpr uint32_t kModelDraw = 0x0023A950u;
     PS2Runtime::RecompiledFunction g_draw = nullptr;
 
     uint32_t word(const uint8_t *rdram, uint32_t address)
@@ -682,20 +682,20 @@ namespace
         }
     }
 
-    // The model-like objects of class 0x154100 (Alicia's shot among them) are not drawn through 0x23A8D0: their draw
-    // 0x22F0C0 puts the object's + 0x5B0 in the render list 0x201EA0 (VU1 program 0x818 of mod001's microcode). Their
-    // build (0x22F0F0) fills the same VU1 header as the models': drawn here as one, with the scene's camera.
+    // The model-like objects of class 0x154180 (Alicia's shot among them) are not drawn through 0x23A950: their draw
+    // 0x22F140 puts the object's + 0x5B0 in the render list 0x201F20 (VU1 program 0x818 of mod001's microcode). Their
+    // build (0x22F170) fills the same VU1 header as the models': drawn here as one, with the scene's camera.
     // VP2S_MODELS_CLASS154100=0: not drawn.
-    constexpr uint32_t kModelLikeDraw = 0x0022F0C0u;
+    constexpr uint32_t kModelLikeDraw = 0x0022F140u;
     PS2Runtime::RecompiledFunction g_modelLikeDraw = nullptr;
 
-    // The particles of a class 0x154100 object (its emitter at + 0xA90 writes them each frame, 0x22E5D0): the buffer the
+    // The particles of a class 0x154180 object (its emitter at + 0xA90 writes them each frame, 0x22E650): the buffer the
     // game wrote last (index (+0xAF9 == 0)), its chunks from + 0xAA0 + 4 i (count + 0xAC0 + 4 i), a chunk + 0x10 its
     // particles, + 0x14 its size in qwords, + 0x18 the points a primitive, the particles from + 0x20, three qwords each:
     // position (xyz, 1, the object's space), colour (rgba, 128 = 1), V (an angle, two scales, a kind as an integer).
     // Drawn as VU1 program 0x818 draws them: a quad in view space around the point, its corners (x0, y0) .. (x1, y1) of
     // the kind scaled by V.y / V.z and turned by V.x, UV (s0, t0) .. (s1, t1), its colour C * the kind's (at most 255).
-    // The GS state: the object's block from + 0x710 (copied from its effect file by 0x22FBE0, sent to VU 736): + 0x740
+    // The GS state: the object's block from + 0x710 (copied from its effect file by 0x22FC60, sent to VU 736): + 0x740
     // TEX0, + 0x760 ALPHA. The kinds: in the effect file (* (+0x628) + 0xC0, VU 745), five qwords each (corners (x0, y0),
     // (x1, y1), STQ 0, STQ 1, colour). The texture: the game's own at TEX0's TBP (its texture manager), CSA from TEX0.
     // Only mode 3 (+0xAFF: the code image 0x818 runs from). False: not drawn here (the game's VU1 path draws it).
@@ -818,9 +818,9 @@ namespace
         return true;
     }
 
-    // The draw of a class 0x154100 object: the original (0x201EA0) queues the VIF1 packet its build made (0x22DD70) for
+    // The draw of a class 0x154180 object: the original (0x201F20) queues the VIF1 packet its build made (0x22DDF0) for
     // VU1 (whose output is lost: the particles are drawn here). It stays queued: the end of each scene object's DMA
-    // (0x21C920) is what lets the scene pass go on (its +0x40DD, waited for at 0x220FB0, cleared by the last object's),
+    // (0x21C9A0) is what lets the scene pass go on (its +0x40DD, waited for at 0x221030, cleared by the last object's),
     // so leaving it out hangs the game when this object is the frame's last. VP2S_PARTICLES_NO_VU1=1 (to study that
     // protocol): not queued.
     void modelLikeDrawHook(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
@@ -832,10 +832,10 @@ namespace
         if (s_log && s_logged < 8)
         {
             ++s_logged;
-            // Its mesh (0x22DD70): mode +0xAFF (the microcode image), chunk lists +0xAA0 / +0xAA4, counts +0xAC0 / +0xAC4;
+            // Its mesh (0x22DDF0): mode +0xAFF (the microcode image), chunk lists +0xAA0 / +0xAA4, counts +0xAC0 / +0xAC4;
             // a chunk: VIF data at its + 0x20, +0x14 its size in qwords; where the game loaded it from.
             const uint32_t o = object & 0x1FFFFFFu;
-            std::printf("[vp2s-models] class 0x154100 draw: object %x camera %x frame open %d mode %u lists %x %x counts %d %d\n", object, g_camera,
+            std::printf("[vp2s-models] class 0x154180 draw: object %x camera %x frame open %d mode %u lists %x %x counts %d %d\n", object, g_camera,
                         g_frameOpen ? 1 : 0, rdram[o + 0xAFFu], word(rdram, o + 0xAA0u), word(rdram, o + 0xAA4u),
                         static_cast<int32_t>(word(rdram, o + 0xAC0u)), static_cast<int32_t>(word(rdram, o + 0xAC4u)));
             uint32_t chunk = (word(rdram, o + 0xAA0u) + 0x20u) & 0x1FFFFFFu;
@@ -974,7 +974,7 @@ void vp2sInstallModels(PS2Runtime &)
     if (const char *gs = std::getenv("VP2S_GS"); gs && gs[0] == '1')
     {
         // VP2S_POST_SKIP=<hex address>[,...] with the GS comparison path (diagnosis): those mod001 methods skipped (the
-        // effect objects' per-frame methods: 0x2D92A0 depth of field, 0x2DBD20, 0x2E0AE0), to see what the original's
+        // effect objects' per-frame methods: 0x2D9360 depth of field, 0x2DBDE0, 0x2E0BA0), to see what the original's
         // picture owes each.
         if (const char *skip = std::getenv("VP2S_POST_SKIP"))
             for (const char *p = skip; *p;)
@@ -1005,7 +1005,7 @@ void vp2sInstallModels(PS2Runtime &)
         ps2_overlays::replaceModuleFunction("mod001", kModelLikeDraw, &modelLikeDrawHook);
     // The native frame ends with the game's scene pass (mod001 FUN_002211E0, every frame on every screen: the 3D,
     // then the interface layers): the field's frame wait alone left the title and the menus' frames unended.
-    constexpr uint32_t kScenePass = 0x002211E0u;
+    constexpr uint32_t kScenePass = 0x00221260u;
     if (kScenePass >= module->tableBase && kScenePass < module->tableEnd)
     {
         static PS2Runtime::RecompiledFunction s_scenePass = module->table[(kScenePass - module->tableBase) >> 2];
@@ -1016,13 +1016,13 @@ void vp2sInstallModels(PS2Runtime &)
                 vp2sModelsFrameEnd();
             });
     }
-    // The post effect (docs/vp2_dof.md): where the game runs its object's per-frame method (0x2D92A0, between the 3D
+    // The post effect (docs/vp2_dof.md): where the game runs its object's per-frame method (0x2D9360, between the 3D
     // and the interface), a native pass from its parameter blocks: each enabled block with the sky mode (+0x1F 0,
     // +0x20 & 3 == 1: drawn where the depth is the cleared one) puts a blurred copy of the frame brightened by g
     // (+0x131E0, 2 when unset) there, Gaussian sigma 0.555 x +0x24 (128-wide pixels), mixed by min(128, 2c) / 128 x
     // +0x1E / 128 (the table's weight at the farthest depth is 128 with p0..p4 0). The strongest block is drawn.
     // VP2S_POST=0: none.
-    constexpr uint32_t kPostEffect = 0x002D92A0u;
+    constexpr uint32_t kPostEffect = 0x002D9360u;
     if (kPostEffect >= module->tableBase && kPostEffect < module->tableEnd &&
         !(std::getenv("VP2S_POST") && std::getenv("VP2S_POST")[0] == '0'))
     {
@@ -1122,11 +1122,11 @@ void vp2sInstallModels(PS2Runtime &)
                     ps2x::native::Renderer::instance().postEffect(best, g_interfaceStart);
             });
     }
-    // The frame's brightness (the object at *(0x35DDF8) + 0x4444, per-frame method 0x2CB3E0, packets by 0x2C9040):
+    // The frame's brightness (the object at *(0x35DDF8) + 0x4444, per-frame method 0x2CB4A0, packets by 0x2C9100):
     // in its mode 1 every pixel becomes clamp(g x max(0, min(F, L0) - L1)), L0 +0xAC, L1 +0xB0 (u32 0x00BBGGRR), g the
     // RGB of +0xC0 (2.0: the game draws at half intensity; the camera's exposure sets it). Modes 2 / 3 add tone bands
     // (+0xB4 / +0xB8, gains +0xD0 / +0xE0), not drawn yet: mode 1's formula is used. VP2S_BRIGHTNESS=0: none.
-    constexpr uint32_t kBrightness = 0x002CB3E0u;
+    constexpr uint32_t kBrightness = 0x002CB4A0u;
     if (kBrightness >= module->tableBase && kBrightness < module->tableEnd &&
         !(std::getenv("VP2S_BRIGHTNESS") && std::getenv("VP2S_BRIGHTNESS")[0] == '0'))
     {
@@ -1161,10 +1161,10 @@ void vp2sInstallModels(PS2Runtime &)
                 ps2x::native::Renderer::instance().postEffect(e, g_interfaceStart);
             });
     }
-    // The aerial perspective (the object at *(0x35DDF8) + 0x4450, per-frame method 0x2E0AE0: the field's orange haze,
+    // The aerial perspective (the object at *(0x35DDF8) + 0x4450, per-frame method 0x2E0BA0: the field's orange haze,
     // docs/vp2_dof.md): when enabled (+0x18980 bit 0), its finished per-depth table (+0x134C4), index shift 16 - n
     // (+0x18951) and the in-scatter colour on a grid (scatterGrid) become a native scatter pass. VP2S_SCATTER=0: none.
-    constexpr uint32_t kScatter = 0x002E0AE0u;
+    constexpr uint32_t kScatter = 0x002E0BA0u;
     if (kScatter >= module->tableBase && kScatter < module->tableEnd &&
         !(std::getenv("VP2S_SCATTER") && std::getenv("VP2S_SCATTER")[0] == '0'))
     {

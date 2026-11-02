@@ -1,5 +1,6 @@
 #include "vp2s_vu1_hle.h"
 #include "vp2s_vu1_programs.h"
+#include "vp2s_models.h"
 
 #include <algorithm>
 #include <array>
@@ -1649,16 +1650,113 @@ namespace
                 noteOtherProgram(run.startPc, image);
             return false;
         }
+        // VP2S_VU1_DUMP_PC=<hex start pc>: that program's first three runs, the GIF packets it made (as words), to see what
+        // it draws from its input (the particles of class 0x154180 for 0x818).
+        {
+            static const uint32_t s_dumpPc = [] { const char *v = std::getenv("VP2S_VU1_DUMP_PC"); return v ? static_cast<uint32_t>(std::strtoul(v, nullptr, 16)) : 0u; }();
+            static int s_dumped = 0;
+            if (s_dumpPc != 0u && run.startPc == s_dumpPc && s_dumped < 3)
+            {
+                ++s_dumped;
+                std::fprintf(stderr, "[vp2s-vu1-dump] pc %04x top %x: %zu packets\n", run.startPc, run.top, kicks.size());
+                for (size_t p = 0; p < kicks.size() && p < 4u; ++p)
+                {
+                    std::fprintf(stderr, "  packet %zu (%zu bytes):", p, kicks[p].size());
+                    for (size_t k = 0; k + 4u <= kicks[p].size() && k < 0x180u; k += 4u)
+                    {
+                        uint32_t w;
+                        std::memcpy(&w, kicks[p].data() + k, 4);
+                        std::fprintf(stderr, "%s%08x", k % 16u == 0u ? " |" : " ", w);
+                    }
+                    std::fprintf(stderr, "\n");
+                }
+                // Its constants (0x818: 736.. the passes, GIF tags and TEX0, 0x2e9.. a table of five qwords per kind
+                // of particle) and the EE addresses holding the same 16 bytes (where the game keeps them).
+                const unsigned char *ram = vp2sEeRam();
+                for (uint32_t qw = 736u; qw < 736u + 9u + 5u * 8u && run.data; ++qw)
+                {
+                    const uint8_t *q = run.data + 16u * qw;
+                    uint32_t w[4];
+                    std::memcpy(w, q, 16);
+                    std::fprintf(stderr, "  vu %u: %08x %08x %08x %08x (%g %g %g %g) ee:", qw, w[0], w[1], w[2], w[3],
+                                 reinterpret_cast<const float *>(w)[0], reinterpret_cast<const float *>(w)[1],
+                                 reinterpret_cast<const float *>(w)[2], reinterpret_cast<const float *>(w)[3]);
+                    int found = 0;
+                    for (uint32_t at = 0x100000u; ram && (w[0] | w[1] | w[2] | w[3]) && at + 16u <= 0x2000000u && found < 3; at += 16u)
+                        if (std::memcmp(ram + at, q, 16) == 0)
+                        {
+                            ++found;
+                            std::fprintf(stderr, " %x", at);
+                        }
+                    std::fprintf(stderr, "\n");
+                }
+                std::fflush(stderr);
+            }
+        }
+        bool allNative = true;
         for (const std::vector<uint8_t> &packet : kicks)
             if (!drawPacketNatively(run, packet))
+            {
+                allNative = false;
                 run.kick(run.user, packet.data(), static_cast<uint32_t>(packet.size()));
+            }
+        // VP2S_NATIVE_MESH_LOG's inventory: a translated program run, its packets drawn from their GIF data (image hash
+        // with bit 31 set) or, with no GS, lost (bits 31 and 30 set).
+        if (s_log)
+            noteOtherProgram(run.startPc, (image & 0x3FFFFFFFu) | 0x80000000u | (allNative ? 0u : 0x40000000u));
         countHle(17);
         return true;
     }
 }
 
+namespace
+{
+    // VP2S_VU1_SOURCE_LOG (with PS2X_VIF1_THREAD=0: the launch address is only known on the synchronous VIF1 path):
+    // each (program, code image) once, with the EE address of the VIF data that launched it and the EE words that point
+    // into the 16 KiB before it (the game object holding that packet buffer), each with the 8 words before it (its
+    // vtable among them): to find which game object, and so which EE function, is behind a microprogram.
+    void logLaunchSource(const ps2x::native::Vu1HleRun &run)
+    {
+        static const bool s_on = std::getenv("VP2S_VU1_SOURCE_LOG") != nullptr;
+        const unsigned char *ram = vp2sEeRam();
+        if (!s_on || run.source == 0u || !ram || !run.code)
+            return;
+        static std::mutex s_mutex;
+        static std::unordered_map<uint64_t, bool> s_seen;
+        const uint32_t image = vp2sVu1ImageHash(run.code);
+        std::lock_guard<std::mutex> lock(s_mutex);
+        if (!s_seen.emplace((static_cast<uint64_t>(image) << 32) | run.startPc, true).second || s_seen.size() > 60u)
+            return;
+        const uint32_t source = run.source & 0x1FFFFFFu;
+        std::fprintf(stderr, "[vp2s-vu1-source] pc %04x image %08x source %08x:", run.startPc, image, source);
+        int found = 0;
+        for (uint32_t at = 0x100000u; at + 4u <= 0x2000000u && found < 4; at += 4u)
+        {
+            uint32_t word;
+            std::memcpy(&word, ram + at, 4);
+            word &= 0x1FFFFFFu;
+            if (word + 0x4000u >= source && word <= source && word >= 0x100000u)
+            {
+                ++found;
+                uint32_t pointedClass;
+                std::memcpy(&pointedClass, ram + (word & ~3u), 4);
+                std::fprintf(stderr, " | at %x = %x (its first word %x), before:", at, word, pointedClass);
+                for (uint32_t k = 32u; k > 0u; k -= 4u)
+                {
+                    uint32_t before;
+                    std::memcpy(&before, ram + at - k, 4);
+                    std::fprintf(stderr, " %x", before);
+                }
+            }
+        }
+        std::fprintf(stderr, "\n");
+        std::fflush(stderr);
+    }
+}
+
 bool vp2sVu1Hle(ps2x::native::Vu1HleRun &run)
 {
+    logLaunchSource(run);
     if (run.startPc == 0x0678u && run.code && run.data && run.state && run.kick && runKickSetup(run))
     {
         countHle(15);

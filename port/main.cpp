@@ -1,6 +1,6 @@
 // Entry point of the Valkyrie Profile 2: Silmeria native port.
 //
-// Usage: vp2s.exe <path to SLES_546.45> (the boot ELF extracted by tools/pipeline.py).
+// Usage: vp2s.exe <path to SLUS_214.52> (the boot ELF extracted by tools/pipeline.py).
 // The disc image is found by the game override (vp2s_overrides.cpp, VP2S_ISO).
 // VP2S_DIAG=1 prints the resident overlay modules, guest threads, IOP/RPC and GS state and saves
 // a screenshot of the game screen every few seconds; F9 saves one at any time. Builds with
@@ -39,17 +39,17 @@ namespace
     constexpr int kDiagIntervalFrames = 300; // 5 s at 60 fps
     std::atomic<uint64_t> g_hostFrames{0};   // heartbeat for VP2S_HANG_DUMP
 
-    // Overlay slots of the game (slot table at 0x1c8a30 in the ELF, docs/AUDIT.md).
+    // Overlay slots of the game (slot table at 0x1c8ab0 in the ELF, docs/AUDIT.md).
     struct Slot
     {
         const char *role;
         uint32_t address;
     };
     constexpr Slot kSlots[] = {
-        {"core", 0x001e7d80u},
+        {"core", 0x001e7e00u},
         {"title/field", 0x0035ec80u},
-        {"scene", 0x0048ea00u},
-        {"camp", 0x00495000u},
+        {"scene", 0x0048ef00u},
+        {"camp", 0x00495500u},
     };
 
     struct Diagnostics
@@ -278,9 +278,9 @@ namespace
         std::cout << " screenshot=" << (saveGameFrame(runtime, file) ? file : std::string("-")) << std::endl;
         printScheduler(runtime);
 
-        // CD manager (global 0x1c8c80 + 0x17c0, see FUN_00101050). FUN_0011dfe0 starts a read:
+        // CD manager (global 0x1c8d00 + 0x17c0, see FUN_00101050). FUN_0011dfe0 starts a read:
         // busy+9183=1, pending+5c=1, then signals the CD thread through the semaphore at +0x10.
-        constexpr uint32_t kCdManager = 0x001ca440u;
+        constexpr uint32_t kCdManager = 0x001ca4c0u;
         {
             auto u32 = [&](uint32_t off) { uint32_t v; std::memcpy(&v, rdram + kCdManager + off, 4); return v; };
             auto sema = [&](uint32_t off)
@@ -306,11 +306,11 @@ namespace
                       << "/" << int(rdram[kCdManager + 0x9186]) << std::endl;
         }
 
-        // The game's user-mode timer counters (libkernel, on Timer 2 / INTC 11, handler 0x1420d0):
+        // The game's user-mode timer counters (libkernel, on Timer 2 / INTC 11, handler 0x142150):
         // DelayThread and SetTimerAlarm queue counters on the list at +0x18; the handler fires those whose
         // target (+0x20 + +0x10 - +0x18) the extended count ((overflows << 16 | T2_COUNT) << 4*CLKS) passed.
         {
-            constexpr uint32_t kTimerManager = 0x0014a1b8u;
+            constexpr uint32_t kTimerManager = 0x0014a238u;
             auto rd32 = [&](uint32_t addr) { uint32_t v; std::memcpy(&v, rdram + (addr & 0x1ffffffu), 4); return v; };
             auto rd64 = [&](uint32_t addr) { uint64_t v; std::memcpy(&v, rdram + (addr & 0x1ffffffu), 8); return v; };
             const PS2Memory::EeTimerState t2 = runtime.memory().eeTimerState(2);
@@ -340,7 +340,7 @@ namespace
 
         // File request manager (pointer at global+8): request queue pumped by FUN_00102e40 and
         // FUN_001032a0. Entries are 0x2c bytes; entry 0 heads a list linked through +0x14.
-        constexpr uint32_t kGlobal = 0x001c8c80u;
+        constexpr uint32_t kGlobal = 0x001c8d00u;
         {
             auto rd32 = [&](uint32_t addr) { uint32_t v; std::memcpy(&v, rdram + (addr & 0x1ffffffu), 4); return v; };
             const uint32_t files = rd32(kGlobal + 8);
@@ -373,7 +373,7 @@ namespace
             std::cout << std::endl;
         }
         // Sound RPC worker object (thread FUN_001086a0): request queue and its semaphore.
-        constexpr uint32_t kSound = 0x001d5990u;
+        constexpr uint32_t kSound = 0x001d5a10u;
         {
             auto u32 = [&](uint32_t off) { uint32_t v; std::memcpy(&v, rdram + kSound + off, 4); return v; };
             const int semaId = static_cast<int>(u32(0x340));
@@ -474,7 +474,7 @@ int main(int argc, char *argv[])
 {
     if (argc < 2 || argv[1][0] == '\0')
     {
-        std::cerr << "usage: vp2s <path to SLES_546.45>" << std::endl;
+        std::cerr << "usage: vp2s <path to SLUS_214.52>" << std::endl;
         return 2;
     }
     try

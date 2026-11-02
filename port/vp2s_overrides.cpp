@@ -1,4 +1,4 @@
-// Game-specific runtime setup for Valkyrie Profile 2: Silmeria (SLES-54645).
+// Game-specific runtime setup for Valkyrie Profile 2: Silmeria (SLUS-21452, the American disc).
 
 #include "game_overrides.h"
 #include "ps2_runtime.h"
@@ -25,8 +25,9 @@
 namespace
 {
     // The game reads its hidden archive by raw sector (sceCdRead), so the CD device
-    // needs the disc image itself: VP2S_ISO, else the first .iso found walking up
-    // from the ELF directory (build/extract/iso -> project root).
+    // needs the disc image itself: VP2S_ISO, else an .iso found walking up from the ELF
+    // directory (build_usa/extract/iso -> project root), one named "(USA)" first: the port
+    // follows the American disc.
     std::filesystem::path findDiscImage(const std::filesystem::path &elfDirectory)
     {
         if (const char *configured = std::getenv("VP2S_ISO"); configured && configured[0] != '\0')
@@ -37,12 +38,18 @@ namespace
         for (int depth = 0; depth < 5 && !dir.empty(); ++depth, dir = dir.parent_path())
         {
             std::error_code ec;
+            std::filesystem::path found;
             for (const auto &entry : std::filesystem::directory_iterator(dir, ec))
             {
-                if (entry.is_regular_file() && entry.path().extension() == ".iso")
+                if (entry.is_regular_file() && entry.path().extension() == ".iso" &&
+                    (found.empty() || entry.path().filename().string().find("(USA)") != std::string::npos))
                 {
-                    return entry.path();
+                    found = entry.path();
                 }
+            }
+            if (!found.empty())
+            {
+                return found;
             }
             if (dir == dir.root_path())
             {
@@ -53,7 +60,7 @@ namespace
     }
 
     // The game uses nearly all user RAM: its heap runs from the end of the overlay area
-    // (0x549100) up to the main thread stack (0x1FF0000), where the runtime keeps its HLE
+    // (0x549080) up to the main thread stack (0x1FF0000), where the runtime keeps its HLE
     // pools and invocation stacks by default. Move those into the HLE-unused kernel memory
     // below the ELF and let a rest-of-RAM heap reach the stack, as on the console. The range starts at 64 KiB:
     // past the 256 KiB of HLE pools it holds the 16 KiB invocation stacks the scheduler keeps per thread and nesting
@@ -80,15 +87,15 @@ namespace
 
     // FUN_0011f520(object, count): zero the vblank flag at +0xC, spin until the vblank handler sets it (count 0) or
     // until the counter at +0x10 reaches count, return the field byte at +0x2FA; count -1 only returns the byte.
-    constexpr uint32_t kFrameWait = 0x0011F520u;
-    constexpr uint32_t kFrameWaitCount = 0x0011F538u; // the count > 0 path, left to the recompiled code
+    constexpr uint32_t kFrameWait = 0x0011F5A0u;
+    constexpr uint32_t kFrameWaitCount = 0x0011F5B8u; // the count > 0 path, left to the recompiled code
 
-    // VP2's field loop (mod003 FUN_003d72e0, its object at *0x48DB48) draws one frame per 0x98 vblanks (2: 25 fps in
+    // VP2's field loop (mod003 FUN_003d72e0, its object at *0x48E048) draws one frame per 0x98 vblanks (2: 25 fps in
     // PAL) and scales its logic by the global step it derives each frame from 0xDC (also 2): dt = 0xDC * 1.2 *
     // 0xA0 * 0xA8 frames of 1/60 s, at 0x35DED8 (and /60 in seconds at 0x35DEE8). FUN_0011f510 returns the vblanks
     // elapsed since the last frame (read and cleared once per frame, called only by that loop).
-    constexpr uint32_t kElapsedVBlanks = 0x0011F510u;
-    constexpr uint32_t kFieldLoopObject = 0x0048DB48u;
+    constexpr uint32_t kElapsedVBlanks = 0x0011F590u;
+    constexpr uint32_t kFieldLoopObject = 0x0048E048u;
 
     uint32_t load32(uint8_t *rdram, uint32_t address)
     {
@@ -133,7 +140,7 @@ namespace
             ctx->pc = kFrameWaitCount;
             return;
         }
-        std::memset(guest(rdram, 0x001D8E80u), 0, 4);
+        std::memset(guest(rdram, 0x001D8F00u), 0, 4);
         if (count == 0)
         {
             // (the native frame ends with the game's scene pass: vp2s_models.cpp)
@@ -179,7 +186,7 @@ namespace
     // no module; their files carry another layer of encryption): every module it loads that the port does not know
     // is saved once to build/captured_modules/<load>_<id>.bin, where tools/pipeline.py picks it up. VP2S_MODULE_TRACE=1
     // also prints each chunk's header and first bytes.
-    constexpr uint32_t kModuleLoad = 0x001025D0u;
+    constexpr uint32_t kModuleLoad = 0x00102650u;
     PS2Runtime::RecompiledFunction g_moduleLoad = nullptr;
 
     void captureUnknownModule(uint8_t *rdram, uint32_t slot)
@@ -188,7 +195,7 @@ namespace
         if (slot < 0x00100000u || slot >= 0x01000000u || load32(rdram, slot + 8u) != slot)
             return;
         // Known when a registered module loaded at this very address is resident (a module of another slot may
-        // cover the address too: the camp modules at 0x495000 reach past slot 5 at 0x4aea80).
+        // cover the address too: the camp modules at 0x495500 reach past slot 5 at 0x4aeb80).
         if (const ps2_overlays::Module *known = ps2_overlays::residentModuleFor(rdram, slot + 0x80u);
             known && known->loadAddress == slot)
             return;
@@ -248,7 +255,7 @@ namespace
 
     // FUN_001210a0(module header, ...) clears a module's bss and runs its constructors: every module goes through it
     // whatever loaded it, so an unknown one is captured there too (before its constructors call into it).
-    constexpr uint32_t kModuleInit = 0x001210A0u;
+    constexpr uint32_t kModuleInit = 0x00121120u;
     PS2Runtime::RecompiledFunction g_moduleInit = nullptr;
 
     void captureAtModuleInit(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
@@ -309,7 +316,7 @@ namespace
         {
             for (const char *cursor = hooks; *cursor;)
             {
-                // <address> in the main program, or <module>:<address> in a code module (mod001:0x29d8f0).
+                // <address> in the main program, or <module>:<address> in a code module (mod001:0x29d9b0).
                 std::string module;
                 if (const char *colon = std::strchr(cursor, ':'); colon && (!std::strchr(cursor, ',') || colon < std::strchr(cursor, ',')))
                 {
@@ -346,12 +353,12 @@ namespace
             runtime.replaceFunction(kModuleInit, &captureAtModuleInit);
         runtime.configureReservedMemory(kReservedBase, kReservedTop, kHeapLimit);
 
-        // VP2 waits for its vblank by spinning on a counter in FUN_0011f520 (main thread, 0x11f520-0x11f5b4), never in
+        // VP2 waits for its vblank by spinning on a counter in FUN_0011f520 (main thread, 0x11f5a0-0x11f634), never in
         // the kernel: tell the scheduler, or it takes the picture only every third vblank (16 fps shown in towns
         // where the game draws ~45). VP2S_VBLANK_HOLD=1 also holds a vblank while the frame is still being drawn.
         {
             const char *hold = std::getenv("VP2S_VBLANK_HOLD");
-            runtime.eeScheduler().setGuestFrameWait(1, 0x0011F520u, 0x0011F5B4u, hold && hold[0] == '1');
+            runtime.eeScheduler().setGuestFrameWait(1, 0x0011F5A0u, 0x0011F634u, hold && hold[0] == '1');
             if (const char *limit = std::getenv("VP2S_VBLANK_HOLD_US"))
                 runtime.eeScheduler().setVBlankHoldLimit(std::chrono::microseconds(std::strtoul(limit, nullptr, 10)));
         }
@@ -427,4 +434,4 @@ namespace
     }
 }
 
-PS2_REGISTER_GAME_OVERRIDE("Valkyrie Profile 2: Silmeria (PAL)", "SLES_546.45", 0x00100008u, 0u, &applyVp2s)
+PS2_REGISTER_GAME_OVERRIDE("Valkyrie Profile 2: Silmeria (NTSC-U)", "SLUS_214.52", 0x00100008u, 0u, &applyVp2s)

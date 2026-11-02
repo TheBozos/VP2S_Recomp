@@ -1,8 +1,8 @@
-// VP2's field minimap, drawn natively from the area map object (mod003 class 0x165470) instead of the packets its
+// VP2's field minimap, drawn natively from the area map object (mod003 class 0x1654F0) instead of the packets its
 // polygon batcher sends to VU1 (docs/vp2_2d.md, "Field minimap").
 //
-// The map object M = *(*(*(0x48DB48) + 8) + 0xC8); its per-frame update 0x440FA0 (vtable 0x165470 + 0x14) builds the
-// minimap every frame (0x457BE0) when M+0x1683 bit 1. Hooked here after it runs: the picture is made from M's data.
+// The map object M = *(*(*(0x48E048) + 8) + 0xC8); its per-frame update 0x440E60 (vtable 0x1654F0 + 0x14) builds the
+// minimap every frame (0x457AD0) when M+0x1683 bit 1. Hooked here after it runs: the picture is made from M's data.
 #include "vp2s_minimap.h"
 
 #include "ps2_overlay_modules.h"
@@ -34,7 +34,7 @@ namespace
         return value;
     }
 
-    constexpr uint32_t kMapUpdate = 0x00440FA0u;
+    constexpr uint32_t kMapUpdate = 0x00440E60u;
     PS2Runtime::RecompiledFunction g_mapUpdate = nullptr;
 
     // VP2S_MINIMAP_LOG: now and then, the map object's fields the native minimap reads.

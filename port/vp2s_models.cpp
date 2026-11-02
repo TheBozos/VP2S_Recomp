@@ -1065,6 +1065,17 @@ void vp2sInstallModels(PS2Runtime &)
                     // entries up to p0 (+0x04, Z24 >> 16) are set: from that depth on.
                     const uint32_t p0 = std::min<uint32_t>(word(rdram, block + 4u), 255u);
                     e.depthFrom = (rdram[block + 0x20u] & 3u) == 1u ? 1.0f : 1.0f - (p0 + 1u) * 65536.0f / 16777216.0f;
+                    // The other modes: the table the game built (+0xEF10, a | v << 8 | v << 16 | a << 24, 128 = all
+                    // blurred) weighs each pixel by its depth (Z24 >> 16), as the game's own mix does. A ramp (Logun's
+                    // interior: 4 .. 110 / 128 with the distance) is not a step at p0. VP2S_POST_TABLE=0: the step.
+                    static const bool s_table = [] { const char *v = std::getenv("VP2S_POST_TABLE"); return !(v && v[0] == '0'); }();
+                    if (s_table && (rdram[block + 0x20u] & 3u) != 1u)
+                    {
+                        e.depthWeights = true;
+                        e.weightShift = 16;
+                        for (uint32_t k = 0; k < 256u; ++k)
+                            e.weights[k] = rdram[post + 0xEF10u + 4u * k];
+                    }
                     if (!any || e.alpha > best.alpha || (e.alpha == best.alpha && e.depthFrom < best.depthFrom))
                         best = e;
                     any = true;

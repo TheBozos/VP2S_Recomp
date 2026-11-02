@@ -692,24 +692,41 @@ namespace
     // The particles of a class 0x154100 object (its emitter at + 0xA90 writes them each frame, 0x22E5D0): the buffer the
     // game wrote last (index (+0xAF9 == 0)), its chunks from + 0xAA0 + 4 i (count + 0xAC0 + 4 i), a chunk + 0x10 its
     // particles, + 0x14 its size in qwords, + 0x18 the points a primitive, the particles from + 0x20, three qwords each:
-    // position (xyz, 1), colour (rgb, a; 128 = 1), a vector (xyz). VU1 program 0x818 draws each as a textured quad with
-    // Cs As + Cd. Drawn here as a quad facing the camera, untextured for now (first step: the quad's exact corners and
-    // its texture come from 0x818's own reading). VP2S_PARTICLES=0: not drawn; VP2S_PARTICLE_SIZE=<scale of the vector>.
-    void drawParticles(const uint8_t *rdram, uint32_t object)
+    // position (xyz, 1, the object's space), colour (rgba, 128 = 1), V (an angle, two scales, a kind as an integer).
+    // Drawn as VU1 program 0x818 draws them: a quad in view space around the point, its corners (x0, y0) .. (x1, y1) of
+    // the kind scaled by V.y / V.z and turned by V.x, UV (s0, t0) .. (s1, t1), its colour C * the kind's (at most 255).
+    // The GS state: the object's block from + 0x710 (copied from its effect file by 0x22FBE0, sent to VU 736): + 0x740
+    // TEX0, + 0x760 ALPHA. The kinds: in the effect file (* (+0x628) + 0xC0, VU 745), five qwords each (corners (x0, y0),
+    // (x1, y1), STQ 0, STQ 1, colour). The texture: the game's own at TEX0's TBP (its texture manager), CSA from TEX0.
+    // VP2S_PARTICLES=0: not drawn.
+    void drawParticles(const uint8_t *rdram, const uint8_t *scratch, uint32_t object)
     {
         static const bool s_off = [] { const char *v = std::getenv("VP2S_PARTICLES"); return v && v[0] == '0'; }();
-        static const float s_size = [] { const char *v = std::getenv("VP2S_PARTICLE_SIZE"); return v ? static_cast<float>(std::atof(v)) : 1.0f; }();
         static const bool s_log = std::getenv("VP2S_MODELS_LOG") != nullptr;
         const uint32_t o = object & 0x1FFFFFFu;
         if (s_off || g_camera == 0u || o < 0x100000u)
             return;
+        const uint32_t block = o + 0x710u;
+        const uint32_t kinds = (word(rdram, o + 0x628u) & 0x1FFFFFFu) + 0xC0u;
+        // The block as 0x818 reads it: a GIF tag of two A+D registers at + 0x10 (TEX0 twice).
+        if (block < 0x100000u || word(rdram, block + 0x10u) != 2u || word(rdram, block + 0x14u) != 0x10000000u)
+        {
+            static int s_bad = 0;
+            if (s_log && s_bad++ < 4)
+            {
+                std::printf("[vp2s-models] particles of %x: no constant block (+0x720 = %x %x)\n", o, word(rdram, block + 0x10u), word(rdram, block + 0x14u));
+                std::fflush(stdout);
+            }
+            return;
+        }
+        const uint64_t tex0 = uint64_t{word(rdram, block + 0x30u)} | uint64_t{word(rdram, block + 0x34u)} << 32;
+        const uint32_t alpha = word(rdram, block + 0x50u);
         const uint32_t index = rdram[o + 0xAF9u] != 0u ? 0u : 1u;
         uint32_t chunk = (word(rdram, o + 0xAA0u + 4u * index) + 0x20u) & 0x1FFFFFFu;
         const int32_t chunks = static_cast<int32_t>(word(rdram, o + 0xAC0u + 4u * index));
-        // The camera's axes in world space: the view matrix's first two rows.
-        const Mat4 view = rows(rdram, g_camera + 0x2F0u);
-        const Mat4 local = rows(rdram, o + 0x90u);
-        const Mat4 screen = product(rows(rdram, g_camera + 0x330u), view);
+        // Object to view (0x818's VU 77..80), and view to screen.
+        const Mat4 toView = product(rows(rdram, g_camera + 0x2F0u), rows(rdram, o + 0x90u));
+        const Mat4 screen = rows(rdram, g_camera + 0x330u);
         float matrix[16];
         for (int c = 0; c < 4; ++c)
             for (int r = 0; r < 4; ++r)
@@ -724,27 +741,34 @@ namespace
                 for (int32_t p = 0; p < count && p < 512; ++p)
                 {
                     const uint32_t at = chunk + 0x20u + 48u * static_cast<uint32_t>(p);
-                    float pos[3], col[4], vec[3];
+                    const uint32_t kindIndex = word(rdram, at + 44u);
+                    if (kindIndex > 15u)
+                        continue;
+                    const uint32_t kind = kinds + 0x50u * kindIndex;
+                    float view[3];
                     for (int k = 0; k < 3; ++k)
-                        vec[k] = real(rdram, at + 32u + 4u * k);
-                    // The particles are in the object's space: to the world with its matrix.
-                    for (int k = 0; k < 3; ++k)
-                        pos[k] = local[k][0] * real(rdram, at) + local[k][1] * real(rdram, at + 4u) + local[k][2] * real(rdram, at + 8u) + local[k][3];
-                    for (int k = 0; k < 4; ++k)
-                        col[k] = real(rdram, at + 16u + 4u * k);
-                    const float half = 0.5f * s_size * std::sqrt(vec[0] * vec[0] + vec[1] * vec[1] + vec[2] * vec[2]);
+                        view[k] = toView[k][0] * real(rdram, at) + toView[k][1] * real(rdram, at + 4u) + toView[k][2] * real(rdram, at + 8u) +
+                                  toView[k][3];
+                    const float angle = real(rdram, at + 32u), sx = real(rdram, at + 36u), sy = real(rdram, at + 40u);
+                    const float c = std::cos(angle), s = std::sin(angle);
                     uint8_t c8[4];
-                    for (int k = 0; k < 3; ++k)
-                        c8[k] = static_cast<uint8_t>(std::clamp(col[k], 0.0f, 255.0f));
-                    c8[3] = static_cast<uint8_t>(std::clamp(col[3] / 3.0f, 0.0f, 255.0f));
+                    for (int k = 0; k < 4; ++k)
+                        c8[k] = static_cast<uint8_t>(std::clamp(real(rdram, at + 16u + 4u * k) * real(rdram, kind + 0x40u + 4u * k), 0.0f, 255.0f));
                     const uint32_t rgba = uint32_t{c8[0]} | uint32_t{c8[1]} << 8 | uint32_t{c8[2]} << 16 | uint32_t{c8[3]} << 24;
+                    const float x[2] = {real(rdram, kind), real(rdram, kind + 0x10u)}, y[2] = {real(rdram, kind + 4u), real(rdram, kind + 0x14u)};
+                    const float q[2] = {real(rdram, kind + 0x28u), real(rdram, kind + 0x38u)};
+                    const float u[2] = {real(rdram, kind + 0x20u) / (q[0] != 0.0f ? q[0] : 1.0f), real(rdram, kind + 0x30u) / (q[1] != 0.0f ? q[1] : 1.0f)};
+                    const float v[2] = {real(rdram, kind + 0x24u) / (q[0] != 0.0f ? q[0] : 1.0f), real(rdram, kind + 0x34u) / (q[1] != 0.0f ? q[1] : 1.0f)};
+                    // 0x818's strip: (x0, y0), (x1, y0), (x0, y1), (x1, y1).
                     ps2x::native::Vertex corner[4]{};
                     for (int k = 0; k < 4; ++k)
                     {
-                        const float sx = (k & 1) ? half : -half, sy = (k & 2) ? half : -half;
-                        corner[k].x = pos[0] + sx * view[0][0] + sy * view[1][0];
-                        corner[k].y = pos[1] + sx * view[0][1] + sy * view[1][1];
-                        corner[k].z = pos[2] + sx * view[0][2] + sy * view[1][2];
+                        const float cx = x[k & 1], cy = y[k >> 1];
+                        corner[k].x = view[0] + c * sx * cx + s * sy * cy;
+                        corner[k].y = view[1] - s * sx * cx + c * sy * cy;
+                        corner[k].z = view[2];
+                        corner[k].u = u[k & 1];
+                        corner[k].v = v[k >> 1];
                         corner[k].rgba = rgba;
                     }
                     for (const int k : {0, 1, 2, 1, 3, 2})
@@ -752,24 +776,44 @@ namespace
                 }
             chunk = (chunk + 16u * qwords) & 0x1FFFFFFu;
         }
+        // The texture the game has at TEX0's TBP (its texture manager, *0x35DE38 in the scratchpad: the list from the byte
+        // at + 0x2008, key + 0x1008 / + 0x8 + 16 e, TEX0 + 0x1010 + 16 e).
+        std::shared_ptr<const ps2x::native::TextureCache::Texture> texture;
+        const uint32_t texman = word(rdram, 0x0035DE38u);
+        if (scratch && (texman & 0xF0000000u) == 0x70000000u)
+        {
+            uint32_t e = scratch[(texman + 0x2008u) & 0x3FFFu];
+            for (int guard = 0; e != 0u && guard < 256; ++guard, e = scratch[(texman + 0x2008u + e) & 0x3FFFu])
+                if ((guestWord(rdram, scratch, texman + 0x1010u + 16u * e) & 0x3FFFu) == (tex0 & 0x3FFFu))
+                {
+                    texture = vp2sGameTexture(guestWord(rdram, scratch, texman + 0x1008u + 16u * e), guestWord(rdram, scratch, texman + 0x8u + 16u * e),
+                                              static_cast<uint32_t>(tex0 >> 56) & 0x1Fu);
+                    break;
+                }
+        }
         static int s_logged = 0;
         if (s_log && s_logged < 6)
         {
             ++s_logged;
-            std::printf("[vp2s-models] particles of %x: %zu triangles, object translation %.1f %.1f %.1f, camera row3 %.1f %.1f %.1f\n", o,
-                        triangles.size() / 3u, real(rdram, o + 0x9Cu), real(rdram, o + 0xACu), real(rdram, o + 0xBCu), view[0][3], view[1][3], view[2][3]);
+            std::printf("[vp2s-models] particles of %x: %zu triangles, TEX0 %016llx ALPHA %x, texture %s, kind 0 at %x: %g %g %g %g | %g %g %g %g | %g %g %g\n", o,
+                        triangles.size() / 3u, static_cast<unsigned long long>(tex0), alpha, texture ? "found" : "not found", kinds,
+                        real(rdram, kinds), real(rdram, kinds + 4u), real(rdram, kinds + 0x10u), real(rdram, kinds + 0x14u), real(rdram, kinds + 0x20u),
+                        real(rdram, kinds + 0x24u), real(rdram, kinds + 0x30u), real(rdram, kinds + 0x34u), real(rdram, kinds + 0x40u),
+                        real(rdram, kinds + 0x44u), real(rdram, kinds + 0x4Cu));
             std::fflush(stdout);
         }
         if (triangles.empty())
             return;
         ps2x::native::Material material;
-        material.textured = false;
+        material.tex0 = tex0;
+        material.textured = texture != nullptr;
         material.alphaBlend = true;
-        material.blend = ps2x::native::Material::Blend::Additive;
+        material.blend = ps2x::native::blendFromAlpha(alpha);
         material.depthTest = true;
         material.depthWrite = false;
         material.alphaTest = false;
-        ps2x::native::Renderer::instance().draw(material, matrix, triangles.data(), static_cast<uint32_t>(triangles.size()));
+        material.textureAlpha = ((tex0 >> 34) & 1u) != 0u; // TCC
+        ps2x::native::Renderer::instance().draw(material, matrix, triangles.data(), static_cast<uint32_t>(triangles.size()), std::move(texture));
     }
 
     void modelLikeDrawHook(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
@@ -806,7 +850,7 @@ namespace
         if (!s_off && g_frameOpen && g_camera != 0u)
         {
             ++g_counts.objects;
-            drawParticles(rdram, object);
+            drawParticles(rdram, runtime->memory().getScratchpad(), object);
         }
     }
 

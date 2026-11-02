@@ -12,11 +12,6 @@
 #include "vp2s_battle_hud.h"
 #include "ps2_overlay_modules.h"
 
-namespace ps2_stubs
-{
-    void setMpegMaxPicturesAhead(size_t pictures); // the runtime's libmpeg HLE (Kernel/Stubs/MPEG.h)
-}
-
 #include <algorithm>
 #include <chrono>
 #include <cstdio>
@@ -392,12 +387,6 @@ namespace
                 std::cout << "[vp2s] VIF1 data not processed (no VU1 programs run)" << std::endl;
             }
         }
-        // Movie audio: the runtime demuxes ahead by decoded pictures and hands the audio to VP2's callbacks without
-        // back-pressure (their result is not read), while VP2's audio ring holds about 512 KiB. Too little lead and its
-        // IOP side refills with stale 8 KiB pieces, too much and the ring is overwritten; both crackle (a jump every few
-        // 8 KiB pieces). Measured on the USA opening: 128 pictures 22% of the piece boundaries broken, 256 3.5%,
-        // 320+ 66%. 256 until the runtime honours the callbacks (PS2X_MPEG_AHEAD overrides).
-        ps2_stubs::setMpegMaxPicturesAhead(256u);
         vp2sInstallUi(runtime);
         vp2sInstallMinimap(runtime);
         vp2sInstallBattleHud(runtime);

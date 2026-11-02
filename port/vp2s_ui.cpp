@@ -991,11 +991,13 @@ namespace
         // The interface's space is 640 x 480 (the GS's 448 lines).
         if (rdram[container + 0xC8u] != 0u)
         {
-            const float split = 480.0f * 256.0f / 384.0f;
+            // UV half a texel in from each edge, as the game's (0.5 .. 511.5): the filter does not reach across the
+            // seam between the two pieces (a line at their join otherwise).
+            const float split = 480.0f * 256.0f / 384.0f, u0 = 0.5f / 512.0f, u1 = 1.0f - u0;
             if (auto top = vp2sGameTexture(0x00494853u, 0x49u, 0u))
-                drawQuadUv(0.0f, 0.0f, 640.0f, split, 0.0f, 0.0f, 1.0f, 1.0f, 0x80808080u, std::move(top));
+                drawQuadUv(0.0f, 0.0f, 640.0f, split, u0, 0.5f / 256.0f, u1, 1.0f - 0.5f / 256.0f, 0x80808080u, std::move(top));
             if (auto bottom = vp2sGameTexture(0x00494853u, 0x4Au, 0u))
-                drawQuadUv(0.0f, split, 640.0f, 480.0f, 0.0f, 0.0f, 1.0f, 1.0f, 0x80808080u, std::move(bottom));
+                drawQuadUv(0.0f, split, 640.0f, 480.0f, u0, 0.5f / 128.0f, u1, 1.0f - 0.5f / 128.0f, 0x80808080u, std::move(bottom));
         }
         const uint32_t manager = word(rdram, container + 0xB0u) & 0x1FFFFFFu;
         if (manager < 0x100000u)

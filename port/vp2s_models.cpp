@@ -56,6 +56,7 @@ namespace
             float wb;
         };
         std::vector<Bones> bones; // routine 4
+        int32_t scrollRow = -1;   // routine 48 (texture scrolling): the UV offset is .zw of object row 38 + this
     };
 
     // An asset part's meshes by their offset in it.
@@ -133,6 +134,9 @@ namespace
                             at += vertices * sizeof(Mesh::Bones);
                             break;
                         }
+                    if (std::find(std::begin(mesh->routines), std::end(mesh->routines), 48) != std::end(mesh->routines) &&
+                        !take(data, at, mesh->scrollRow))
+                        break;
                     (*file)[offset] = std::move(mesh);
                 }
             }
@@ -544,6 +548,14 @@ namespace
             const bool rigid = std::find(std::begin(m.routines), std::end(m.routines), 2) != std::end(m.routines);
             const bool weighted = !m.bones.empty();
             std::vector<ps2x::native::Vertex> vertices(m.vertices.size());
+            // Routine 48 scrolls the texture: the UV (1.0 = the texture) plus .zw of the object's row 38 + index, which
+            // the game moves each frame (the title's clouds).
+            std::array<float, 2> scroll{};
+            if (m.scrollRow >= 0 && m.scrollRow < 16)
+            {
+                const auto row = objectRow(38u + static_cast<uint32_t>(m.scrollRow));
+                scroll = {row[2], row[3]};
+            }
             for (size_t k = 0; k < m.vertices.size(); ++k)
             {
                 const Mesh::Vertex &v = m.vertices[k];
@@ -576,8 +588,8 @@ namespace
                 out.x = p[0];
                 out.y = p[1];
                 out.z = p[2];
-                out.u = v.uv[0];
-                out.v = v.uv[1];
+                out.u = v.uv[0] + scroll[0];
+                out.v = v.uv[1] + scroll[1];
                 // The vertex colour lit as the mesh program does (lighting modes 0 and 1; the others not yet: as stored).
                 std::array<float, 4> factor{1.0f, 1.0f, 1.0f, 1.0f};
                 if (carriedMode == 0u)

@@ -23,6 +23,7 @@ extension), a list of meshes:
     u16 strip lengths[strip count] (padded to 4 bytes),
     vertices: f32 position[4] (w: the bone's VU address for routine 2), f32 normal[3], f32 uv[2], u8 rgba[4],
     for routine 4: per vertex i32 bone a, f32 weight a, i32 bone b, f32 weight b.
+    for routine 48 (texture scrolling): i32 the offset's row index (the UV offset is .zw of object row 38 + index).
 """
 import argparse
 import os
@@ -182,6 +183,8 @@ def convert(data, at, size):
         for k in range(count):
             e = base + k
             out += struct.pack('<ifif', vu.i(e, 0), vu.f(e, 1), vu.i(e, 2), vu.f(e, 3))
+    if 48 in routines:
+        out += struct.pack('<i', vu.i(top + bases[routines.index(48)], 0))
     return bytes(out), None
 
 

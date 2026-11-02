@@ -707,8 +707,9 @@ namespace
     }
 
     // The same with the texture's own rectangle (u0, v0)..(u1, v1).
-    void drawQuadUv(float x0, float y0, float x1, float y1, float u0, float v0, float u1, float v1, uint32_t rgba,
-                    std::shared_ptr<const ps2x::native::TextureCache::Texture> texture)
+    // A quad with a colour per corner (top left, top right, bottom left, bottom right: a Gouraud panel).
+    void drawQuadCorners(float x0, float y0, float x1, float y1, float u0, float v0, float u1, float v1, const uint32_t corners[4],
+                         std::shared_ptr<const ps2x::native::TextureCache::Texture> texture)
     {
         static const float s_identity[16] = {1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1};
         ps2x::native::Material material;
@@ -719,7 +720,7 @@ namespace
         material.alphaTest = true;
         material.alphaRef = 0;
         material.textured = texture != nullptr;
-        const auto vertex = [&](float vx, float vy, float u, float v) {
+        const auto vertex = [&](float vx, float vy, float u, float v, uint32_t rgba) {
             ps2x::native::Vertex out;
             out.x = 1728.0f + vx;
             out.y = 1824.0f + vy * (448.0f / 480.0f);
@@ -729,10 +730,18 @@ namespace
             out.rgba = rgba;
             return out;
         };
-        const ps2x::native::Vertex quad[6] = {vertex(x0, y0, u0, v0), vertex(x1, y0, u1, v0), vertex(x0, y1, u0, v1),
-                                              vertex(x1, y0, u1, v0), vertex(x1, y1, u1, v1), vertex(x0, y1, u0, v1)};
+        const ps2x::native::Vertex quad[6] = {vertex(x0, y0, u0, v0, corners[0]), vertex(x1, y0, u1, v0, corners[1]),
+                                              vertex(x0, y1, u0, v1, corners[2]), vertex(x1, y0, u1, v0, corners[1]),
+                                              vertex(x1, y1, u1, v1, corners[3]), vertex(x0, y1, u0, v1, corners[2])};
         vp2sModelsInterfaceStarts(); // the interface from its first piece: the post passes go before it
         ps2x::native::Renderer::instance().draw(material, s_identity, quad, 6u, std::move(texture));
+    }
+
+    void drawQuadUv(float x0, float y0, float x1, float y1, float u0, float v0, float u1, float v1, uint32_t rgba,
+                    std::shared_ptr<const ps2x::native::TextureCache::Texture> texture)
+    {
+        const uint32_t corners[4] = {rgba, rgba, rgba, rgba};
+        drawQuadCorners(x0, y0, x1, y1, u0, v0, u1, v1, corners, std::move(texture));
     }
 
     uint32_t scaled(uint32_t rgba, uint32_t colourScale, uint32_t alpha)
@@ -846,6 +855,19 @@ namespace
             // (TBP 0x800, CBP 0x3FF4: 'JOHN' 0x276F), parts at *(*(*(0x48E048) + 0x5C) + 0x224) (u0, v0, u1, v1 in 4.12,
             // w, h); left edge at the layer's x + +0x58 + 5, top at its y + +0x5C + 2, h + 4 high, the cap h (x 0.75
             // when bit 4 of *(*(0x48E04C) + 3)) GS pixels wide.
+            // The Gouraud panel (class 0x167560, mod003 build 0x460D20: the data menus' footer bar and its line): at the
+            // layer's position + (+0x18, +0x1C), +0x20 x +0x24, corner colours +0x50 / +0x54 / +0x58 / +0x5C (top left,
+            // top right, bottom left, bottom right; 0x80 = 128), alpha the layer's x +0x28 / 128, untextured.
+            if ((word(rdram, element) & 0x1FFFFFFu) == 0x167560u)
+            {
+                const float x0 = layerX + real(rdram, element + 0x18u), y0 = layerY + real(rdram, element + 0x1Cu);
+                const uint32_t alpha = std::min<uint32_t>(layerAlpha * byte(element + 0x28u) / 128u, 255u);
+                uint32_t corners[4];
+                for (uint32_t c = 0; c < 4u; ++c)
+                    corners[c] = (word(rdram, element + 0x50u + 4u * c) & 0xFFFFFFu) | alpha << 24;
+                drawQuadCorners(x0, y0, x0 + real(rdram, element + 0x20u), y0 + real(rdram, element + 0x24u), 0.0f, 0.0f, 0.0f, 0.0f,
+                                corners, nullptr);
+            }
             if ((word(rdram, element) & 0x1FFFFFFu) == 0x165C30u)
             {
                 const uint32_t holder = word(rdram, (word(rdram, 0x0048E048u) & 0x1FFFFFFu) + 0x5Cu) & 0x1FFFFFFu;

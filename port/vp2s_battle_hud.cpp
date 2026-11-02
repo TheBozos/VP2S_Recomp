@@ -37,16 +37,16 @@ namespace
         return value;
     }
 
-    // mod028: 0x42D740(W, d, snap) textured sprite, 0x42EAE0(W, d) quad, 0x42DB70(W, points, n, header) polygon; the
-    // sheet setters 0x3CCE40(W, i) (the widget's own sheet), 0x4F2670 (the shared battle sheet), 0x4F2740 (portraits);
-    // 0x3CCAE0(W) ends a widget's render (flips its packet buffers).
-    constexpr uint32_t kSprite = 0x0042D740u, kQuad = 0x0042EAE0u, kPolygon = 0x0042DB70u, kOwnSheet = 0x003CCE40u,
-                       kSharedSheet = 0x004F2670u, kPortrait = 0x004F2740u, kRenderEnd = 0x003CCAE0u;
+    // mod028: 0x42DB50(W, d, snap) textured sprite, 0x42ED50(W, d) quad, 0x42DF80(W, points, n, header) polygon; the
+    // sheet setters 0x3CD330(W, i) (the widget's own sheet), 0x4F25F0 (the shared battle sheet), 0x4F26C0 (portraits);
+    // 0x3CCFD0(W) ends a widget's render (flips its packet buffers).
+    constexpr uint32_t kSprite = 0x0042DB50u, kQuad = 0x0042ED50u, kPolygon = 0x0042DF80u, kOwnSheet = 0x003CD330u,
+                       kSharedSheet = 0x004F25F0u, kPortrait = 0x004F26C0u, kRenderEnd = 0x003CCFD0u;
     PS2Runtime::RecompiledFunction g_sprite = nullptr, g_quad = nullptr, g_polygon = nullptr, g_ownSheet = nullptr,
                                    g_sharedSheet = nullptr, g_portrait = nullptr, g_renderEnd = nullptr;
 
     // mod027 0x36B3A0(a0 image object: its 'FIS' file, a1, a2 PSM, a3 DBP of the pixels or 0, t0 DBP of the palette)
-    // uploads the battle's fixed sheets (mod028 0x4F2670's TBP 0x800 among them): the DBP keyed to the FIS's key, as
+    // uploads the battle's fixed sheets (mod028 0x4F25F0's TBP 0x800 among them): the DBP keyed to the FIS's key, as
     // the 2D layer does for 0x2F37B0.
     constexpr uint32_t kFixedUpload = 0x0036B3A0u;
     PS2Runtime::RecompiledFunction g_fixedUpload = nullptr;
@@ -208,7 +208,7 @@ namespace
 
     float half(const uint8_t *rdram, uint32_t address) { return static_cast<float>(word(rdram, address) & 0xFFFFu); }
 
-    // 0x42D740(W, d, snap): a textured sprite. d +0x00 / +0x04 x, y, +0x10 / +0x14 scale, +0x18 / +0x1C pivot, +0x20
+    // 0x42DB50(W, d, snap): a textured sprite. d +0x00 / +0x04 x, y, +0x10 / +0x14 scale, +0x18 / +0x1C pivot, +0x20
     // part (u0, v0, u1, v1 in 4.12, +8 w, +10 h), +0x24 RGBA, +0x28 / +0x2C w, h (no part, or flag bit 0), +0x30..+0x3C
     // UVs (flag bit 1), +0x40 flags; x0 = W+0x98 + W+0xA8 (x + px (w - w sx)), y0 = W+0x9C + W+0xAC / 2 (y + py (h -
     // h sy)), width w sx W+0xA8, height h sy W+0xAC / 2.
@@ -254,7 +254,7 @@ namespace
         g_sprite(rdram, ctx, runtime);
     }
 
-    // 0x42EAE0(W, d): a quad (a 4-vertex strip) placed as the sprite, flags +0x6C (bit 3 textured, bit 2 gouraud), size
+    // 0x42ED50(W, d): a quad (a 4-vertex strip) placed as the sprite, flags +0x6C (bit 3 textured, bit 2 gouraud), size
     // from the part (+0x68) when textured without flag bit 0, else +0x60 / +0x64; colours +0x30 (or +0x30..+0x3C).
     // Rotated quads (+0x2C) are not drawn yet.
     void quadHook(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
@@ -293,7 +293,7 @@ namespace
         g_quad(rdram, ctx, runtime);
     }
 
-    // 0x42DB70(W, d, n, packet): an n-point polygon (a strip): points (x, y) from d, its box's corner and size, scale
+    // 0x42DF80(W, d, n, packet): an n-point polygon (a strip): points (x, y) from d, its box's corner and size, scale
     // +0x20 / +0x24, pivot +0x28 / +0x2C, rotation +0x3C (0: none; rotated ones not drawn yet), colours +0x40 (one,
     // or one a vertex with flag bit 2), flags +0x78 (bit 3 textured: 4 points, UVs +0x50..+0x6C with flag bit 1 or no
     // part, else from the part at +0x70).
@@ -350,9 +350,9 @@ namespace
         g_polygon(rdram, ctx, runtime);
     }
 
-    // The sheet setters: the widget's own sheets (0x3CCE40(W, packet, texture, i, csa): the texture manager's entry
+    // The sheet setters: the widget's own sheets (0x3CD330(W, packet, texture, i, csa): the texture manager's entry
     // e = s16 *(G + 0x2670 + 2 *(texture + 4)), G = *0x35DE38, its key +0x1008 / +0x8 + 16 e, as the models'),
-    // the shared battle sheet (0x4F2670: TBP G68+0xFC) and the portraits (0x4F2740: TBP G68+0xFE), G68 =
+    // the shared battle sheet (0x4F25F0: TBP G68+0xFC) and the portraits (0x4F26C0: TBP G68+0xFE), G68 =
     // *(*0x36D780 + 0x68). The last one set is the current widget's sheet.
     void ownSheetHook(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
     {
@@ -415,7 +415,7 @@ namespace
     void sharedSheetHook(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
     {
         count(4, rdram, ctx);
-        // 0x4F2670(packet, csa): TBP G68+0xFC, CBP G68+0x100, PSMT4HH.
+        // 0x4F25F0(packet, csa): TBP G68+0xFC, CBP G68+0x100, PSMT4HH.
         battleSheet(rdram, 0xFCu, 0u, 0x100u, 0u, getRegU32(ctx, 5));
         g_sharedSheet(rdram, ctx, runtime);
     }
@@ -423,7 +423,7 @@ namespace
     void portraitHook(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
     {
         count(5, rdram, ctx);
-        // 0x4F2740(packet, set, face, uvs, alternate): TBP G68+0xFE (+0x100 for set 1), CBP G68+0x102 (+0x10 for set
+        // 0x4F26C0(packet, set, face, uvs, alternate): TBP G68+0xFE (+0x100 for set 1), CBP G68+0x102 (+0x10 for set
         // 1) + 4 * face, or +0x20 + 4 * face with the alternate palette (set 0); PSMT8H, each face a quarter of the
         // sheet's width.
         const uint32_t set = getRegU32(ctx, 5), face = getRegU32(ctx, 6) & 0xFFu, alternate = set == 0u ? getRegU32(ctx, 8) : 0u;
@@ -431,7 +431,7 @@ namespace
         g_portrait(rdram, ctx, runtime);
     }
 
-    // 0x3CCAE0(W): a widget's render ends: what it emitted becomes what it shows.
+    // 0x3CCFD0(W): a widget's render ends: what it emitted becomes what it shows.
     void renderEndHook(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
     {
         count(6, rdram, ctx);

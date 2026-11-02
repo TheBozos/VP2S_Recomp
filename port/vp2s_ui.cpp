@@ -964,6 +964,17 @@ namespace
         const uint32_t container = getRegU32(ctx, 4) & 0x1FFFFFFu;
         vp2sModelsInterfaceStarts();
         g_dialogLayerDraw(rdram, ctx, runtime);
+        // The container's backdrop (its packet at +0xBC, built once by 0x45E5B0, +0xC8 set): the stone over the whole
+        // screen, 512 x 384 texels of the sheet at TBP 0x800 (PSMT4HL): 'SHI\0' 0x49 (rows 0..255) over 0x4A (256..383).
+        // The interface's space is 640 x 480 (the GS's 448 lines).
+        if (rdram[container + 0xC8u] != 0u)
+        {
+            const float split = 480.0f * 256.0f / 384.0f;
+            if (auto top = vp2sGameTexture(0x00494853u, 0x49u, 0u))
+                drawQuadUv(0.0f, 0.0f, 640.0f, split, 0.0f, 0.0f, 1.0f, 1.0f, 0x80808080u, std::move(top));
+            if (auto bottom = vp2sGameTexture(0x00494853u, 0x4Au, 0u))
+                drawQuadUv(0.0f, split, 640.0f, 480.0f, 0.0f, 0.0f, 1.0f, 1.0f, 0x80808080u, std::move(bottom));
+        }
         const uint32_t manager = word(rdram, container + 0xB0u) & 0x1FFFFFFu;
         if (manager < 0x100000u)
             return;

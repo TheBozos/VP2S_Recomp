@@ -36,7 +36,7 @@ MAX_COMP = 16 << 20           # sanity bounds for chunk headers
 MAX_DECOMP = 64 << 20
 MAX_LINK_GAP = 4096           # 'next' may skip at most this much padding after a payload
 MWO3 = 0x336F574D             # 'MWo3' (Metrowerks overlay header)
-SLOT_TABLE_VADDR = 0x1C8A30   # 21 slot addresses in the main ELF
+SLOT_TABLE_VADDR = 0x1C8A30   # 21 slot addresses in the main ELF (European; game_layout finds it)
 SLOT_COUNT = 21
 SHT_SCE_IOPMOD = 0x70000080
 ET_SCE_IOPRELEXEC = 0xFF80
@@ -102,7 +102,12 @@ def game_layout(elf: bytes):
     """Slot table and per-slot segment sizes declared by the main ELF."""
     segs = elf_segments(elf)
     off, vaddr = segs[0][0], segs[0][1]
-    table = list(struct.unpack_from(f"<{SLOT_COUNT}I", elf, SLOT_TABLE_VADDR - vaddr + off))
+    # The table sits at 0x1C8A30 in the European ELF, 0x1C8AB0 in the American one: found as the main ELF's base
+    # followed by its first overlay segment's address.
+    at = elf.find(struct.pack("<2I", 0x100000, segs[1][1]))
+    if at < 0:
+        at = SLOT_TABLE_VADDR - vaddr + off
+    table = list(struct.unpack_from(f"<{SLOT_COUNT}I", elf, at))
     declared = defaultdict(list)
     for _, va, _, memsz in segs[1:]:
         declared[va].append(memsz)

@@ -13,3 +13,5 @@ build/
 # Python
 __pycache__/
 *.pyc
+build_*/
+build_*_pipeline.log

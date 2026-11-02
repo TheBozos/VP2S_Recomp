@@ -39,7 +39,9 @@ import time
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
-BUILD = ROOT / "build"
+# VP2S_BUILD=<dir under the project root>: another build tree (e.g. build_usa for the USA disc), VP2S_ISO=<name or
+# path>: the disc to extract (else the first .iso in the project root).
+BUILD = ROOT / os.environ.get("VP2S_BUILD", "build")
 EXTRACT = BUILD / "extract"
 ELF_DIR = BUILD / "elf"
 CAPTURED = BUILD / "captured_modules"
@@ -139,7 +141,8 @@ def input_names(selection: set[str] | None) -> list[str]:
 # ---------------------------------------------------------------- stages
 
 def stage_extract(args) -> None:
-    isos = sorted(ROOT.glob("*.iso"))
+    chosen = os.environ.get("VP2S_ISO")
+    isos = [ROOT / chosen] if chosen else sorted(ROOT.glob("*.iso"))
     if not isos:
         raise SystemExit("no .iso in the project root")
     inputs = [isos[0], ROOT / "tools" / "extract.py", ROOT / "tools" / "slz.py"]

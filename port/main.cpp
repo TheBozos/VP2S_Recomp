@@ -543,6 +543,10 @@ int main(int argc, char *argv[])
         // field starts over. At 1 IOP cycle per word the clear was always over by then on the native loop, which hung
         // behind a black fade; at 16 it is still running, as on the console.
         setDefault("PS2X_SPU2_DMA_CYCLES_PER_2BYTES", "16");
+        // The sound: libsd (the game's Sound_Device_Library.irx) taken over at its API and mixed natively on the PC's
+        // clock, no SPU2 (fork native_libsd / native_mixer): the music and effects no longer follow the frame rate.
+        // PS2X_NATIVE_AUDIO=0 brings back the emulated SPU2.
+        setDefault("PS2X_NATIVE_AUDIO", "1");
         // VP2's battles move the party with the left stick and the game never switches the pad to analog itself.
         setDefault("PS2X_PAD_START_ANALOG", "1");
         // VP2 blends both read circuits one line apart (the console's flicker filter): keeping that merge in the

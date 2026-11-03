@@ -22,6 +22,7 @@ namespace ps2_stubs // the runtime's libmpeg HLE (Kernel/Stubs/MPEG.h)
 }
 
 #include <algorithm>
+#include <atomic>
 #include <chrono>
 #include <cstdio>
 #include <cstring>
@@ -310,6 +311,43 @@ namespace
         return tadr == 0x0014A300u || tadr == 0x0014C730u || tadr == 0x0014C8E0u;
     }
 
+    // The music stream's PCM goes to the IOP 4 KiB at a time, every packet into the same IOP buffer. The EE sends the
+    // next one when the IOP acknowledges a packet (SIF command 4: FUN_001076F0 kind 4 -> FUN_001077E0(player, 1)) but
+    // also when an IOP status message arrives (FUN_00106D00 -> FUN_001077E0(player, 0)), acknowledged or not. With
+    // the PS2's timings the IOP's sound driver has copied the packet by then; here it may be waiting for its SPU2 ring
+    // to have room, and the next packet overwrote the one it held: the first packet of a ring half lost and the next
+    // one played twice, a click every quarter second. One packet is in flight at a time: the status path does not
+    // send while a packet waits for its acknowledgement.
+    constexpr uint32_t kMusicSends[] = {0x001080A0u, 0x001081C0u}; // SIF command send (interrupt / thread)
+    constexpr uint32_t kMusicCommand = 0x001076F0u;                  // FUN_001076F0(player, kind of IOP command)
+    constexpr uint32_t kMusicNext = 0x001077E0u;                     // FUN_001077E0(player, from the acknowledgement)
+    std::unordered_map<uint32_t, PS2Runtime::RecompiledFunction> g_musicOriginals;
+    std::atomic<bool> g_musicPacketInFlight{false};
+
+    void musicSend(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
+    {
+        if (reg(ctx, 5) == 0u && static_cast<uint32_t>(reg(ctx, 8)) == 0x1040u) // command 0, header + 4 KiB of PCM
+            g_musicPacketInFlight.store(true);
+        g_musicOriginals[ctx->pc](rdram, ctx, runtime);
+    }
+
+    void musicCommand(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
+    {
+        if (reg(ctx, 5) == 4u)
+            g_musicPacketInFlight.store(false);
+        g_musicOriginals[kMusicCommand](rdram, ctx, runtime);
+    }
+
+    void musicNext(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
+    {
+        if (reg(ctx, 5) == 0u && g_musicPacketInFlight.load())
+        {
+            ctx->pc = reg(ctx, 31);
+            return;
+        }
+        g_musicOriginals[kMusicNext](rdram, ctx, runtime);
+    }
+
     // VP2S_HOOK_TRACE=<address>[,<address>...]: prints a0..a3 and ra of the first 40 calls of each function.
     std::unordered_map<uint32_t, std::pair<PS2Runtime::RecompiledFunction, uint32_t>> g_traced;
 
@@ -409,6 +447,14 @@ namespace
                 ps2_stubs::setMpegPictureHook(&moviePictureHook);
             }
         }
+        for (uint32_t address : {kMusicSends[0], kMusicSends[1], kMusicCommand, kMusicNext})
+            if (PS2Runtime::RecompiledFunction original = runtime.lookupFunction(address))
+            {
+                g_musicOriginals[address] = original;
+                runtime.replaceFunction(address, address == kMusicCommand ? &musicCommand
+                                                 : address == kMusicNext  ? &musicNext
+                                                                          : &musicSend);
+            }
         if (const char *hooks = std::getenv("VP2S_HOOK_TRACE"))
         {
             for (const char *cursor = hooks; *cursor;)

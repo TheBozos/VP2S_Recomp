@@ -140,6 +140,24 @@ namespace
         std::memcpy(guest(rdram, address), &value, sizeof(value));
     }
 
+    void endFrame(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime, uint32_t object)
+    {
+        // (the native frame ends with the game's scene pass: vp2s_models.cpp)
+        g_frameSeconds = runtime->framePacer().frameEnd();
+        // The game no longer spins its wait, so EE time would fall behind real time and the events it waits on
+        // (vblank handlers, timers, the IOP's loads) would stall: charge what the frame did not account.
+        EeScheduler &scheduler = runtime->eeScheduler();
+        static uint64_t s_lastFrameCycle = scheduler.currentCycle();
+        const uint64_t accounted = scheduler.currentCycle() - s_lastFrameCycle;
+        const uint64_t realCycles = static_cast<uint64_t>(g_frameSeconds * kEeClockHz);
+        if (realCycles > accounted)
+            scheduler.accountCycles(static_cast<uint32_t>(std::min<uint64_t>(realCycles - accounted, 0xFFFFFFFFu)));
+        s_lastFrameCycle = scheduler.currentCycle();
+        scheduler.presentGuestFrame();
+        setReg(ctx, 2, *guest(rdram, object + 0x2FAu));
+        ctx->pc = reg(ctx, 31);
+    }
+
     void nativeFrameEnd(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
     {
         const uint32_t object = reg(ctx, 4);
@@ -152,18 +170,17 @@ namespace
         std::memset(guest(rdram, 0x001D8F00u), 0, 4);
         if (count == 0)
         {
-            // (the native frame ends with the game's scene pass: vp2s_models.cpp)
-            g_frameSeconds = runtime->framePacer().frameEnd();
-            // The game no longer spins its wait, so EE time would fall behind real time and the events it waits on
-            // (vblank handlers, timers, the IOP's loads) would stall: charge what the frame did not account.
-            EeScheduler &scheduler = runtime->eeScheduler();
-            static uint64_t s_lastFrameCycle = scheduler.currentCycle();
-            const uint64_t accounted = scheduler.currentCycle() - s_lastFrameCycle;
-            const uint64_t realCycles = static_cast<uint64_t>(g_frameSeconds * kEeClockHz);
-            if (realCycles > accounted)
-                scheduler.accountCycles(static_cast<uint32_t>(std::min<uint64_t>(realCycles - accounted, 0xFFFFFFFFu)));
-            s_lastFrameCycle = scheduler.currentCycle();
-            scheduler.presentGuestFrame();
+            // Until the frame is due the thread waits, as on the PS2 for its vblank: the game's other threads (the
+            // disc loader, the decompression worker) run meanwhile. Sleeping in the pacer held the EE instead, and
+            // each hand-over between them waited for a frame end (the black screen before the Chapter 1 title: 5.5 s,
+            // 4.2 s now, 4.5 s in PCSX2). The pacer spins the last 2 ms.
+            const auto due = runtime->framePacer().due();
+            if (due && *due - std::chrono::steady_clock::now() > std::chrono::milliseconds(3))
+                runtime->eeScheduler().waitUntil(*due - std::chrono::milliseconds(2), [rdram, runtime, object](R5900Context &resumed) {
+                    endFrame(rdram, &resumed, runtime, object);
+                });
+            endFrame(rdram, ctx, runtime, object);
+            return;
         }
         setReg(ctx, 2, *guest(rdram, object + 0x2FAu));
         ctx->pc = reg(ctx, 31);

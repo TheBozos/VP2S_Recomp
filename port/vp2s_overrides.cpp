@@ -19,6 +19,7 @@ namespace ps2_stubs // the runtime's libmpeg HLE (Kernel/Stubs/MPEG.h)
     using MpegPictureHook = void (*)(uint32_t mpegAddr, uint32_t picture);
     void setMpegAudioSink(MpegAudioSink sink);
     void setMpegPictureHook(MpegPictureHook hook);
+    bool mpegStreamEnded(uint32_t mpegAddr);
 }
 
 #include <algorithm>
@@ -348,6 +349,30 @@ namespace
         g_musicOriginals[kMusicNext](rdram, ctx, runtime);
     }
 
+    // A movie played to its end: VP2's movie module (mod001) closes it once its sceMpegCbNodata callback has been
+    // called 11 times with no video left in the ring it feeds the IPU from (FUN_002b9330 counts at object -0x19B4).
+    // The runtime decodes the movie from its demux and never drains that ring, so the callback found 0x18E sectors
+    // there, handed them to an IPU nobody reads and reset its count: the screen stayed black. Once the runtime has
+    // shown the last picture, a call counts as one with nothing left.
+    constexpr uint32_t kMovieNodata = 0x002B9330u; // mod001
+    PS2Runtime::RecompiledFunction g_movieNodata = nullptr;
+
+    void movieNodata(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
+    {
+        if (ps2_stubs::mpegStreamEnded(static_cast<uint32_t>(reg(ctx, 4))))
+        {
+            uint8_t *count = rdram + ((static_cast<uint32_t>(reg(ctx, 6)) + 0x160000u - 0x19B4u) & 0x1FFFFFFu);
+            int32_t calls;
+            std::memcpy(&calls, count, 4);
+            ++calls;
+            std::memcpy(count, &calls, 4);
+            setReg(ctx, 2, 1u);
+            ctx->pc = reg(ctx, 31);
+            return;
+        }
+        g_movieNodata(rdram, ctx, runtime);
+    }
+
     // VP2S_HOOK_TRACE=<address>[,<address>...]: prints a0..a3 and ra of the first 40 calls of each function.
     std::unordered_map<uint32_t, std::pair<PS2Runtime::RecompiledFunction, uint32_t>> g_traced;
 
@@ -455,6 +480,10 @@ namespace
                                                  : address == kMusicNext  ? &musicNext
                                                                           : &musicSend);
             }
+        if (const ps2_overlays::Module *movies = ps2_overlays::findModule("mod001");
+            movies && kMovieNodata >= movies->tableBase && kMovieNodata < movies->tableEnd &&
+            (g_movieNodata = movies->table[(kMovieNodata - movies->tableBase) >> 2]))
+            ps2_overlays::replaceModuleFunction("mod001", kMovieNodata, &movieNodata);
         if (const char *hooks = std::getenv("VP2S_HOOK_TRACE"))
         {
             for (const char *cursor = hooks; *cursor;)

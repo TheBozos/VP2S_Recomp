@@ -84,7 +84,7 @@ namespace
         {
         case 0x000u: tag = 0x00494853u; index = 0x41u; return true;  // 'SHI\0' 0x41
         case 0x400u: tag = 0x00494853u; index = 0x3Du; return true;  // 'SHI\0' 0x3D
-        case 0x800u: tag = 0x4E484F4Au; index = 0x276Fu; return true; // 'JOHN' 0x276F (field HUD)
+        case 0x800u: tag = 0x4E484F4Au; index = 0x272Bu; return true; // 'JOHN' 0x272B (field HUD; 0x276F on the European disc)
         default: return false;
         }
     }
@@ -122,6 +122,28 @@ namespace
         g_imageSetup(rdram, ctx, runtime);
     }
 
+    // The resident texture at a TBP in the game's texture manager, if any.
+    bool residentAt(const uint8_t *rdram, uint32_t tbp, uint32_t &tag, uint32_t &index)
+    {
+        const uint32_t texman = word(rdram, 0x0035DE38u);
+        if (!g_scratch || (texman & 0xF0000000u) != 0x70000000u)
+            return false;
+        const auto scratchWord = [&](uint32_t offset) {
+            uint32_t value;
+            std::memcpy(&value, g_scratch + ((texman + offset) & 0x3FFFu), 4);
+            return value;
+        };
+        uint32_t e = g_scratch[(texman + 0x2008u) & 0x3FFFu];
+        for (int guard = 0; e != 0u && guard < 256; ++guard, e = g_scratch[(texman + 0x2008u + e) & 0x3FFFu])
+            if ((scratchWord(0x1010u + 16u * e) & 0x3FFFu) == tbp)
+            {
+                tag = scratchWord(0x1008u + 16u * e);
+                index = scratchWord(0x8u + 16u * e);
+                return true;
+            }
+        return false;
+    }
+
     bool sheetOf(const uint8_t *rdram, uint32_t sprite, uint32_t &tag, uint32_t &index)
     {
         const uint32_t texman = word(rdram, 0x0035DE38u);
@@ -148,14 +170,8 @@ namespace
                 std::fflush(stdout);
             }
         }
-        uint32_t e = g_scratch[(texman + 0x2008u) & 0x3FFFu];
-        for (int guard = 0; e != 0u && guard < 256; ++guard, e = g_scratch[(texman + 0x2008u + e) & 0x3FFFu])
-            if ((scratchWord(0x1010u + 16u * e) & 0x3FFFu) == tbp)
-            {
-                tag = scratchWord(0x1008u + 16u * e);
-                index = scratchWord(0x8u + 16u * e);
-                return true;
-            }
+        if (residentAt(rdram, tbp, tag, index))
+            return true;
         if (const auto fixed = g_fixedSheets.find(tbp); fixed != g_fixedSheets.end())
         {
             tag = fixed->second.first;
@@ -164,7 +180,7 @@ namespace
         }
         // The menus' sheets (their upload is not found yet; checked against the original's menus): TBP 0x800 the frame
         // ornaments 'SHI\0' 0x5E and 0x1000 the stone 'SHI\0' 0x3E, while their FIS files are in memory (the field HUD
-        // uses 0x800 for 'JOHN' 0x276F otherwise, with its palette at CBP 0x3FF4: the menus' are 0x3FC8 / 0x3FCC).
+        // uses 0x800 for 'JOHN' 0x272B otherwise, with its palette at CBP 0x3FF4: the menus' are 0x3FC8 / 0x3FCC).
         // Looked up at most every half second.
         const uint32_t cbp = word(rdram, sprite + 0x5Cu) & 0x3FFFu;
         if ((tbp == 0x800u || tbp == 0x1000u) && cbp != 0x3FF4u)
@@ -881,7 +897,7 @@ namespace
             };
             // The prompt's backing bar (class 0x165C30, mod003 build 0x4489B0, drawn each frame here from live data): a
             // rounded cap (part 22) then a body stretched to the screen's right edge (part 23) of the field HUD sheet
-            // (TBP 0x800, CBP 0x3FF4: 'JOHN' 0x276F), parts at *(*(*(0x48E048) + 0x5C) + 0x224) (u0, v0, u1, v1 in 4.12,
+            // (TBP 0x800, CBP 0x3FF4: 'JOHN' 0x272B), parts at *(*(*(0x48E048) + 0x5C) + 0x224) (u0, v0, u1, v1 in 4.12,
             // w, h); left edge at the layer's x + +0x58 + 5, top at its y + +0x5C + 2, h + 4 high, the cap h (x 0.75
             // when bit 4 of *(*(0x48E04C) + 3)) GS pixels wide.
             // The Gouraud panel (class 0x167560, mod003 build 0x460D20: the data menus' footer bar and its line): at the
@@ -896,6 +912,47 @@ namespace
                     corners[c] = (word(rdram, element + 0x50u + 4u * c) & 0xFFFFFFu) | alpha << 24;
                 drawQuadCorners(x0, y0, x0 + real(rdram, element + 0x20u), y0 + real(rdram, element + 0x24u), 0.0f, 0.0f, 0.0f, 0.0f,
                                 corners, nullptr);
+            }
+            // The field pause's logo (class 0x166EF0, mod003 build 0x451450 -> 0x4514F0): part 3 of the field HUD sheet
+            // (as the prompt bar below), at the layer's position + (73, 79), its w x h GS pixels (the GS frame is
+            // 512 x 512.96 over the 640 x 480 screen), alpha the layer's.
+            if ((word(rdram, element) & 0x1FFFFFFu) == 0x166EF0u)
+            {
+                const uint32_t holder = word(rdram, (word(rdram, 0x0048E048u) & 0x1FFFFFFu) + 0x5Cu) & 0x1FFFFFFu;
+                const uint32_t parts = holder >= 0x100000u ? word(rdram, holder + 0x224u) & 0x1FFFFFFu : 0u;
+                if (parts >= 0x100000u)
+                {
+                    const uint32_t part = parts + 0x30u;
+                    const auto half = [&](uint32_t address) { return static_cast<float>(word(rdram, address) & 0xFFFFu); };
+                    SpriteQuad logo;
+                    logo.u0 = half(part) / 4096.0f;
+                    logo.v0 = half(part + 2u) / 4096.0f;
+                    logo.u1 = half(part + 4u) / 4096.0f;
+                    logo.v1 = half(part + 6u) / 4096.0f;
+                    logo.x0 = layerX + 73.0f;
+                    logo.y0 = layerY + 79.0f;
+                    logo.x1 = logo.x0 + half(part + 8u) * (640.0f / 512.0f);
+                    logo.y1 = logo.y0 + half(part + 0xAu) * (480.0f / 512.96f);
+                    logo.rgba = 0x80808080u;
+                    logo.tbp = 0x800u;
+                    logo.tag = 0x4E484F4Au;
+                    logo.index = 0x272Bu;
+                    drawSprite(logo);
+                }
+            }
+            // The field pause's bottom bar (class 0x1670A0, mod003 build 0x451960 -> 0x451A60), at the layer's position:
+            // black, 512 x 128 GS pixels, then a line 4 high from 0.19 down, (67, 18, 43) to (189, 81, 43) over 160
+            // pixels and back to (67, 18, 43) at 982 (GS pixels; the frame is 512 x 512.96 over the 640 x 480 screen).
+            if ((word(rdram, element) & 0x1FFFFFFu) == 0x1670A0u)
+            {
+                constexpr float sx = 640.0f / 512.0f, sy = 480.0f / 512.96f;
+                const uint32_t black[4] = {0x80000000u, 0x80000000u, 0x80000000u, 0x80000000u};
+                drawQuadCorners(layerX, layerY, layerX + 512.0f * sx, layerY + 128.0f * sy, 0.0f, 0.0f, 0.0f, 0.0f, black, nullptr);
+                const uint32_t dark = 0x802B1243u, light = 0x802B51BDu;
+                const float y0 = layerY + 0.19f * sy, y1 = layerY + 4.19f * sy;
+                const uint32_t rising[4] = {dark, light, dark, light}, falling[4] = {light, dark, light, dark};
+                drawQuadCorners(layerX, y0, layerX + 160.0f * sx, y1, 0.0f, 0.0f, 0.0f, 0.0f, rising, nullptr);
+                drawQuadCorners(layerX + 160.0f * sx, y0, layerX + 982.0f * sx, y1, 0.0f, 0.0f, 0.0f, 0.0f, falling, nullptr);
             }
             if ((word(rdram, element) & 0x1FFFFFFu) == 0x165C30u)
             {
@@ -921,7 +978,7 @@ namespace
                         q->rgba = 0x80808080u;
                         q->tbp = 0x800u;
                         q->tag = 0x4E484F4Au;
-                        q->index = 0x276Fu;
+                        q->index = 0x272Bu;
                     }
                     cap.x0 = x0 - capWidth;
                     cap.x1 = x0;
@@ -1097,7 +1154,7 @@ void vp2sUiFrozenFrame(uint8_t *rdram, uint32_t scene)
     }
     drawFrozenFrame(0.0f, 0.0f, 0x70u, 0x80u);
     for (int k = 1; k <= 16; ++k)
-        drawFrozenFrame(-k * 640.0f / 512.0f, -2.0f * k * 480.0f / 448.0f, 0x50u, 0x0Cu);
+        drawFrozenFrame(-k * 640.0f / 512.0f, -2.0f * k * 480.0f / 512.96f, 0x50u, 0x0Cu);
 }
 
 namespace

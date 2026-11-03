@@ -157,7 +157,7 @@ def convert(data, at, size):
                 for c in range(3):
                     vu.setf(v, c, vu.i(v, c) / 4096.0)
         # 12, 14, 18, 28, 32 (and 46): their set-up table entries only return (JR) in every build of the microcode.
-        elif r not in (0, 12, 14, 18, 28, 32, 46, 2, 4, 44, 48):
+        elif r not in (0, 12, 14, 18, 28, 32, 46, 2, 4, 36, 44, 48):
             return None, f'routine {r}'
     out = bytearray()
     has_material = 1 if flags & 1 else 0

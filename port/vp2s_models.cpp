@@ -471,6 +471,12 @@ namespace
             return v;
         };
         const Mat4 world = rows(rdram, object + 0x90u);
+        // Set-up routine 36's inputs, as program 0x0238 leaves them: V O and the eye in object space (its rigid inverse
+        // applied to the origin).
+        const Mat4 viewObject = product(rows(rdram, camera + 0x2F0u), world);
+        std::array<float, 3> eye{};
+        for (int j = 0; j < 3; ++j)
+            eye[j] = -(viewObject[0][j] * viewObject[0][3] + viewObject[1][j] * viewObject[1][3] + viewObject[2][j] * viewObject[2][3]);
         float rn[3][3];
         for (int i = 0; i < 3; ++i)
         {
@@ -723,6 +729,39 @@ namespace
                 const auto row = objectRow(38u + static_cast<uint32_t>(m.scrollRow));
                 scroll = {row[2], row[3]};
             }
+            const bool reflective = std::find(std::begin(m.routines), std::end(m.routines), 36) != std::end(m.routines);
+            // A vertex's normal, skinned like the position (w = 0).
+            const auto normalAt = [&](size_t k, const Mesh::Vertex &v) {
+                std::array<float, 3> n{v.normal[0], v.normal[1], v.normal[2]};
+                if (sources && sources->normal[k] != UINT32_MAX)
+                    for (uint32_t c = 0; c < 3u; ++c)
+                        n[c] = real(rdram, source + sources->normal[k] + 4u * c);
+                const std::array<float, 3> rest = n;
+                if (palette != 0u && rigid)
+                {
+                    const uint32_t bone = (static_cast<uint32_t>(v.position[3]) - 0x290u) / 4u;
+                    if (bone < bones)
+                        n = boneApply(rdram, palette + 64u * bone, rest.data(), 0.0f);
+                }
+                else if (palette != 0u && weighted)
+                {
+                    const Mesh::Bones &b = m.bones[k];
+                    const int32_t ba = (b.a - 0x290) / 4, bb = (b.b - 0x290) / 4;
+                    std::array<float, 3> sum{};
+                    bool any = false;
+                    for (const auto &[bone, weight] : {std::pair{ba, b.wa}, std::pair{bb, b.wb}})
+                        if (weight != 0.0f && bone >= 0 && static_cast<uint32_t>(bone) < bones)
+                        {
+                            const auto q = boneApply(rdram, palette + 64u * static_cast<uint32_t>(bone), rest.data(), 0.0f);
+                            for (int c = 0; c < 3; ++c)
+                                sum[c] += q[c] * weight;
+                            any = true;
+                        }
+                    if (any)
+                        n = sum;
+                }
+                return n;
+            };
             for (size_t k = 0; k < m.vertices.size(); ++k)
             {
                 const Mesh::Vertex &v = m.vertices[k];
@@ -761,6 +800,24 @@ namespace
                 out.z = p[2];
                 out.u = v.uv[0] + scroll[0];
                 out.v = v.uv[1] + scroll[1];
+                if (reflective)
+                {
+                    // Set-up routine 36 (0x1FE0): a sphere map. R = 2 (n.e) n - e, e the vector to the eye, over |e|; taken
+                    // to view space by mem[89..91] (V O's 3x3) with x and z negated; z + 1 = r; STQ = (x + sqrt 2 sqrt r,
+                    // y + sqrt 2 sqrt r, 2 sqrt 2 sqrt r) replaces the vertex's texture coordinates (r kept above 0.1).
+                    const std::array<float, 3> n = normalAt(k, v);
+                    const std::array<float, 3> e{eye[0] - p[0], eye[1] - p[1], eye[2] - p[2]};
+                    const float length = std::sqrt(e[0] * e[0] + e[1] * e[1] + e[2] * e[2]);
+                    const float d = n[0] * e[0] + n[1] * e[1] + n[2] * e[2];
+                    const std::array<float, 3> r{2.0f * d * n[0] - e[0], 2.0f * d * n[1] - e[1], 2.0f * d * n[2] - e[2]};
+                    const float scale = length != 0.0f ? 1.0f / length : 0.0f;
+                    float view[3];
+                    for (int i = 0; i < 3; ++i)
+                        view[i] = (viewObject[i][0] * r[0] + viewObject[i][1] * r[1] + viewObject[i][2] * r[2]) * scale;
+                    const float q = std::sqrt(std::max(1.0f - view[2], 0.1f)), denominator = 2.82843f * q;
+                    out.u = (-view[0] + 1.41421f * q) / denominator;
+                    out.v = (view[1] + 1.41421f * q) / denominator;
+                }
                 // The vertex colour lit as the mesh program does (lighting modes 0 and 1; the others not yet: as stored).
                 std::array<float, 4> factor{1.0f, 1.0f, 1.0f, 1.0f};
                 if (carriedMode == 0u)
@@ -775,35 +832,7 @@ namespace
                 }
                 else if (carriedMode == 1u)
                 {
-                    // The normal, skinned like the position (w = 0).
-                    std::array<float, 3> n{v.normal[0], v.normal[1], v.normal[2]};
-                    if (sources && sources->normal[k] != UINT32_MAX)
-                        for (uint32_t c = 0; c < 3u; ++c)
-                            n[c] = real(rdram, source + sources->normal[k] + 4u * c);
-                    const std::array<float, 3> rest = n;
-                    if (palette != 0u && rigid)
-                    {
-                        const uint32_t bone = (static_cast<uint32_t>(v.position[3]) - 0x290u) / 4u;
-                        if (bone < bones)
-                            n = boneApply(rdram, palette + 64u * bone, rest.data(), 0.0f);
-                    }
-                    else if (palette != 0u && weighted)
-                    {
-                        const Mesh::Bones &b = m.bones[k];
-                        const int32_t ba = (b.a - 0x290) / 4, bb = (b.b - 0x290) / 4;
-                        std::array<float, 3> sum{};
-                        bool any = false;
-                        for (const auto &[bone, weight] : {std::pair{ba, b.wa}, std::pair{bb, b.wb}})
-                            if (weight != 0.0f && bone >= 0 && static_cast<uint32_t>(bone) < bones)
-                            {
-                                const auto q = boneApply(rdram, palette + 64u * static_cast<uint32_t>(bone), rest.data(), 0.0f);
-                                for (int c = 0; c < 3; ++c)
-                                    sum[c] += q[c] * weight;
-                                any = true;
-                            }
-                        if (any)
-                            n = sum;
-                    }
+                    const std::array<float, 3> n = normalAt(k, v);
                     float dots[4];
                     for (int i = 0; i < 4; ++i)
                         dots[i] = std::max(0.0f, lightDirection[i][0] * n[0] + lightDirection[i][1] * n[1] + lightDirection[i][2] * n[2]);

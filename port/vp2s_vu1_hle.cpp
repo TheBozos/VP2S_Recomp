@@ -1236,6 +1236,7 @@ namespace
             ensureNativeStarted();
             group = ++g_nativeGroup;
             renderer.beginGroup(group);
+            vp2sFitCameraScreen(matrix);
             renderer.draw(material, matrix, volume.data(), static_cast<uint32_t>(volume.size()));
         }
         run.nativeDraw(run.nativeUser, group, 0);
@@ -1588,7 +1589,10 @@ namespace
                 ensureNativeStarted();
                 group = ++g_nativeGroup;
                 renderer.beginGroup(group);
-                renderer.draw(batch.material, s_identity, batch.triangles.data(), static_cast<uint32_t>(batch.triangles.size()));
+                float fit[16];
+                std::memcpy(fit, s_identity, sizeof(fit));
+                vp2sFitCameraScreen(fit);
+                renderer.draw(batch.material, fit, batch.triangles.data(), static_cast<uint32_t>(batch.triangles.size()));
             }
             cache.noteDraw(batch.context); // the texture store sees the picture drawn there (a frame copy sampled later)
             run.nativeDraw(run.nativeUser, group, static_cast<int>(batch.context));
@@ -1853,7 +1857,10 @@ bool vp2sVu1Hle(ps2x::native::Vu1HleRun &run)
             return true; // everything culled: nothing to draw
         group = ++g_nativeGroup;
         renderer.beginGroup(group);
-        renderer.draw(material, mesh.matrix, mesh.triangles.data(), static_cast<uint32_t>(mesh.triangles.size()));
+        float fit[16];
+        std::memcpy(fit, mesh.matrix, sizeof(fit));
+        vp2sFitCameraScreen(fit);
+        renderer.draw(material, fit, mesh.triangles.data(), static_cast<uint32_t>(mesh.triangles.size()));
     }
     run.nativeDraw(run.nativeUser, group, (mesh.prim >> 9) & 1u); // CTXT
     return true;

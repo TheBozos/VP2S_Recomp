@@ -9,3 +9,7 @@ void vp2sModelsFrameEnd();
 void vp2sModelsInterfaceStarts();
 // EE memory as the scene pass last saw it (null before the first frame): for diagnostics elsewhere.
 const unsigned char *vp2sEeRam();
+// The 3D of a camera whose GS frame is not the native screen's 640 x 448 (the events' cameras render 512 x 512 around
+// the same centre, which the PS2 shows over the whole screen): a matrix to GS coordinates (column-major, x y z w) made
+// to fill it, scaled around the camera's centre. The camera is the last one the models were drawn with.
+void vp2sFitCameraScreen(float matrix[16]);

@@ -368,6 +368,7 @@ namespace
         for (int c = 0; c < 4; ++c)
             for (int r = 0; r < 4; ++r)
                 matrix[4 * c + r] = screen[r][c];
+        vp2sFitCameraScreen(matrix);
         // The skeleton's bone palette (the buffer filled last).
         const uint32_t skeleton = word(rdram, object + 0x648u);
         uint32_t palette = 0u, bones = 0u;
@@ -688,6 +689,21 @@ namespace
         // first (the title's teal (50, 100, 84), seen under the sky's lower edge and through the horizon's gradient).
         if (g_camera >= 0x100000u)
             ps2x::native::Renderer::instance().setClearColour(rdram[g_camera + 0x5A0u], rdram[g_camera + 0x5A1u], rdram[g_camera + 0x5A2u]);
+        if (g_camera >= 0x100000u && std::getenv("VP2S_CAMERA_LOG")) // (diagnosis) a camera's screen fields as they change
+        {
+            static uint64_t s_last = 0;
+            const uint64_t now = uint64_t{g_camera} << 32 ^ word(rdram, g_camera + 0x238u) ^ uint64_t{word(rdram, g_camera + 0x260u)} << 8 ^
+                                 word(rdram, g_camera + 0x264u) ^ uint64_t{word(rdram, g_camera + 0x224u)} << 16;
+            if (now != s_last)
+            {
+                s_last = now;
+                std::printf("[vp2s-camera] %x centre %.1f %.1f viewport %.1f %.1f %.1f %.1f fov %.4f aspect %.4f +0x5A0 %08x\n", g_camera,
+                            real(rdram, g_camera + 0x244u), real(rdram, g_camera + 0x248u), real(rdram, g_camera + 0x260u),
+                            real(rdram, g_camera + 0x264u), real(rdram, g_camera + 0x268u), real(rdram, g_camera + 0x26Cu),
+                            real(rdram, g_camera + 0x224u), real(rdram, g_camera + 0x238u), word(rdram, g_camera + 0x5A0u));
+                std::fflush(stdout);
+            }
+        }
         const bool shown = (rdram[(object + 0x7C3u) & 0x1FFFFFFu] >> (rdram[(object + 0x7C5u) & 0x1FFFFFFu] & 7u)) & 1u;
         static bool s_first = true;
         if (s_first)
@@ -864,6 +880,7 @@ namespace
         material.depthWrite = false;
         material.alphaTest = false;
         material.textureAlpha = ((tex0 >> 34) & 1u) != 0u; // TCC
+        vp2sFitCameraScreen(matrix);
         ps2x::native::Renderer::instance().draw(material, matrix, triangles.data(), static_cast<uint32_t>(triangles.size()), std::move(texture));
         return true;
     }
@@ -924,6 +941,25 @@ namespace
         screen.width = 640.0f;
         screen.height = 448.0f;
         return screen;
+    }
+}
+
+void vp2sFitCameraScreen(float matrix[16])
+{
+    if (!g_rdram || g_camera < 0x100000u)
+        return;
+    // The camera's frame: around its centre (+0x244, +0x248), from its viewport's corner (+0x260, +0x264).
+    const float cx = real(g_rdram, g_camera + 0x244u), cy = real(g_rdram, g_camera + 0x248u);
+    const float w = 2.0f * (cx - real(g_rdram, g_camera + 0x260u)), h = 2.0f * (cy - real(g_rdram, g_camera + 0x264u));
+    if (!(w > 16.0f && w < 4096.0f && h > 16.0f && h < 4096.0f))
+        return;
+    const float sx = 640.0f / w, sy = 448.0f / h;
+    if (std::fabs(sx - 1.0f) < 1e-4f && std::fabs(sy - 1.0f) < 1e-4f)
+        return;
+    for (int c = 0; c < 4; ++c)
+    {
+        matrix[4 * c + 0] = sx * matrix[4 * c + 0] + (1.0f - sx) * cx * matrix[4 * c + 3];
+        matrix[4 * c + 1] = sy * matrix[4 * c + 1] + (1.0f - sy) * cy * matrix[4 * c + 3];
     }
 }
 

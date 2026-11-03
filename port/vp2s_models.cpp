@@ -664,10 +664,13 @@ namespace
             }
             material.alphaTest = true; // VP2's meshes: alpha GREATER 0
             material.alphaRef = 0;
-            // Blended meshes write their depth too, as the GS does with ZMSK clear (the title's menu text, a model,
-            // stays out of the post effect that way). VP2S_MODELS_BLEND_DEPTH=0: they do not.
-            static const bool s_blendDepth = [] { const char *v = std::getenv("VP2S_MODELS_BLEND_DEPTH"); return !(v && v[0] == '0'); }();
-            material.depthWrite = !material.alphaBlend || s_blendDepth;
+            // Blended meshes of a skinned object (a character: Alicia's hair) write their depth, as the GS does with
+            // ZMSK clear; the others (the town's glass and glows, the event's light shafts, additive and subtractive
+            // effects) are drawn with ZMSK on the PS2 (its GS dump of the Solde sign shot). Their depth, screen-wide
+            // planes near the camera, put the whole picture in the depth of field's blurred range.
+            // VP2S_MODELS_BLEND_DEPTH=0: none write it, =2: all do.
+            static const int s_blendDepth = [] { const char *v = std::getenv("VP2S_MODELS_BLEND_DEPTH"); return v ? std::atoi(v) : 1; }();
+            material.depthWrite = !material.alphaBlend || s_blendDepth == 2 || (s_blendDepth == 1 && palette != 0u);
             // VP2S_MODELS_BLEND_LOG: each object with a blended mesh once (its class, fade +0x210, flags +0x7C0..+0x7C7,
             // the mesh's ALPHA and PRIM), to tell which blended meshes write depth on the GS.
             {
@@ -1190,6 +1193,19 @@ struct DofPass
 };
 static DofPass g_dofPass;
 
+// The depth of field's blocks as the game drew them this frame (0x2CD020, one call per enabled block, in its order):
+// each block's own weight table (+0xEF10 holds only the last one built) and its passes' indices, so every block is
+// drawn with its table, refreshed at the frame's end (a camera cut finishes them later in the frame).
+struct DofBlock
+{
+    uint32_t block = 0;
+    uint8_t weights[256] = {};
+    size_t pass = SIZE_MAX;
+};
+static std::vector<DofBlock> g_dofBlocks;
+static float g_dofGain = 0.0f;        // the game's g for its blurred copy (+0x131E0) of this frame's passes
+static float g_brightnessGain = 0.0f; // the brightness pass's gain this frame (0: none)
+
 // The scene's screen objects (a fade, the pause's frozen frame: vp2sUiSceneScreens) go between the 3D with its effect
 // passes and the interface: drawn once per frame where the interface starts, else at the frame's end.
 static bool g_screensDrawn = false;
@@ -1229,6 +1245,17 @@ void vp2sModelsFrameEnd()
             for (uint32_t k = 0; k < 256u; ++k)
                 pass->weights[k] = g_rdram[g_dofPass.post + 0xEF10u + 4u * k];
     g_dofPass = {};
+    // The game's g brings its blurred copy (made from the frame before its brightness pass) to the finished frame's
+    // level; the native copy is made after that pass: g over the brightness gain.
+    for (const DofBlock &b : g_dofBlocks)
+        if (auto *pass = b.pass != SIZE_MAX ? ps2x::native::Renderer::instance().adjustPostEffect(b.pass) : nullptr)
+        {
+            std::memcpy(pass->weights, b.weights, sizeof(b.weights));
+            if (g_brightnessGain > 0.0f)
+                pass->gain = g_dofGain / g_brightnessGain;
+        }
+    g_dofBlocks.clear();
+    g_brightnessGain = 0.0f;
     g_interfaceStart = SIZE_MAX;
     g_brightnessAt = SIZE_MAX;
     g_frameModelIndex = 0;
@@ -1354,6 +1381,29 @@ void vp2sInstallModels(PS2Runtime &)
                 vp2sModelsFrameEnd();
             });
     }
+    // A depth of field block drawn (0x2CD020 USA, 0x2CCF60 EU: a0 the post object, a2 the block): its table, as the
+    // game has just built it at +0xEF10 (a | v << 8 | v << 16 | a << 24: v the blurred copy's weight, 128 = all).
+    constexpr uint32_t kDofBlock = 0x002CD020u;
+    if (kDofBlock >= module->tableBase && kDofBlock < module->tableEnd)
+    {
+        static PS2Runtime::RecompiledFunction s_block = module->table[(kDofBlock - module->tableBase) >> 2];
+        if (s_block)
+            ps2_overlays::replaceModuleFunction("mod001", kDofBlock, [](uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime) {
+                const uint32_t post = getRegU32(ctx, 4) & 0x1FFFFFFu, block = getRegU32(ctx, 6) & 0x1FFFFFFu;
+                s_block(rdram, ctx, runtime);
+                if (post < 0x100000u || block < 0x100000u)
+                    return;
+                auto it = std::find_if(g_dofBlocks.begin(), g_dofBlocks.end(), [&](const DofBlock &b) { return b.block == block; });
+                if (it == g_dofBlocks.end())
+                {
+                    g_dofBlocks.push_back({});
+                    it = std::prev(g_dofBlocks.end());
+                    it->block = block;
+                }
+                for (uint32_t k = 0; k < 256u; ++k)
+                    it->weights[k] = rdram[post + 0xEF10u + 4u * k + 1u];
+            });
+    }
     // The post effect (docs/vp2_dof.md): where the game runs its object's per-frame method (0x2D9360, between the 3D
     // and the interface), a native pass from its parameter blocks: each enabled block with the sky mode (+0x1F 0,
     // +0x20 & 3 == 1: drawn where the depth is the cleared one) puts a blurred copy of the frame brightened by g
@@ -1381,6 +1431,42 @@ void vp2sInstallModels(PS2Runtime &)
                 float g = real(post + 0x131E0u);
                 if (!(g >= 0.25f && g < 8.0f)) // a per-frame field: between frames a stale word (a denormal seen) is no gain
                     g = 2.0f;
+                // Every block the game drew this frame, in its order, each with its own table: alpha min(128, 2c) / 128
+                // x +0x1E / 128 (c moved toward 128 by s, +0x34), and with +0x20 & 3 == 1 only where the frame's Z is at
+                // most +0x38 (the game's Z test against its sprite's Z: 0 the cleared background). VP2S_DOF_BLOCKS=0:
+                // the strongest block only, as before.
+                static const bool s_blocks = [] { const char *v = std::getenv("VP2S_DOF_BLOCKS"); return !(v && v[0] == '0'); }();
+                if (s_blocks && !g_dofBlocks.empty())
+                {
+                    g_dofGain = g;
+                    // Passes put at one batch go before the earlier ones there: the last block first keeps the game's order.
+                    for (auto at = g_dofBlocks.rbegin(); at != g_dofBlocks.rend(); ++at)
+                    {
+                        DofBlock &b = *at;
+                        const uint32_t block = b.block;
+                        if (!word(rdram, block) || rdram[block + 0x1Fu] != 0u)
+                            continue;
+                        ps2x::native::Renderer::PostEffect e;
+                        e.width = 128;
+                        e.height = 89;
+                        e.gain = g;
+                        e.sigma = 0.555f * std::max(real(block + 0x24u), 0.0f);
+                        const float s = std::clamp(real(block + 0x34u), 0.0f, 1.0f);
+                        const float c = rdram[block + 0x1Cu] + (128.0f - rdram[block + 0x1Cu]) * s;
+                        e.alpha = std::min(128.0f, 2.0f * c) / 128.0f * (rdram[block + 0x1Eu] / 128.0f);
+                        e.depthWeights = true;
+                        e.weightShift = 16; // the table's index: Z24 >> 16 (+0x131C4, the depth scale, 65536)
+                        std::memcpy(e.weights, b.weights, sizeof(e.weights));
+                        if ((rdram[block + 0x20u] & 3u) == 1u)
+                        {
+                            e.depthLimit = true;
+                            e.depthFrom = 1.0f - static_cast<float>(word(rdram, block + 0x38u) & 0xFFFFFFu) / 16777216.0f;
+                        }
+                        if (e.alpha > 0.0f)
+                            b.pass = ps2x::native::Renderer::instance().postEffect(e, postEffectAt());
+                    }
+                    return;
+                }
                 ps2x::native::Renderer::PostEffect best;
                 bool any = false;
                 for (uint32_t i = 0; i < 5u; ++i)
@@ -1528,6 +1614,7 @@ void vp2sInstallModels(PS2Runtime &)
                 }
                 if (g_orderFrame && std::getenv("VP2S_DRAW_ORDER_LOG"))
                     std::printf("[vp2s-order] brightness pass at batch %zu\n", postEffectAt());
+                g_brightnessGain = (e.levelGain[0] + e.levelGain[1] + e.levelGain[2]) / 3.0f;
                 ps2x::native::Renderer::instance().postEffect(e, g_brightnessAt != SIZE_MAX ? g_brightnessAt : postEffectAt());
             });
     }

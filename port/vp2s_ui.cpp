@@ -614,15 +614,19 @@ namespace
         static std::unordered_map<uint64_t, std::shared_ptr<const ps2x::native::TextureCache::Texture>> s_cache;
         static uint32_t s_palette[256];
         static bool s_havePalette = vp2sGamePalette(0x00494853u, 0x41u, s_palette);
-        const uint64_t key = (uint64_t{font} << 32) ^ (uint64_t{index} << 4) ^ csa;
-        if (const auto it = s_cache.find(key); it != s_cache.end())
-            return it->second;
         if (!s_havePalette)
             return nullptr;
         const uint32_t width = word(rdram, font + 0x24u), height = word(rdram, font + 0x28u);
         const uint32_t bytes = word(rdram, font + 0x20u), base = word(rdram, font + 0x10u) + index * bytes;
-        if (width == 0u || width > 256u || height == 0u || height > 256u)
+        if (width == 0u || width > 256u || height == 0u || height > 256u || bytes > 0x8000u)
             return nullptr;
+        // Keyed by the glyph's own pixels (and size, palette): another font loaded where one was (an event's subtitles
+        // after the credits' font) has other glyphs at the same index, which a key by address showed as wrong letters.
+        uint64_t key = 0xCBF29CE484222325ull ^ (uint64_t{width} << 40 | uint64_t{height} << 24 | csa);
+        for (uint32_t i = 0; i < bytes; ++i)
+            key = (key ^ rdram[(base + i) & 0x1FFFFFFu]) * 0x100000001B3ull;
+        if (const auto it = s_cache.find(key); it != s_cache.end())
+            return it->second;
         ps2x::native::TextureCache::Texture texture;
         texture.width = 1u;
         while (texture.width < width)

@@ -760,6 +760,18 @@ namespace
         drawQuadCorners(x0, y0, x1, y1, u0, v0, u1, v1, corners, std::move(texture));
     }
 
+    void drawFrozenFrame(float dx, float dy, uint32_t colour, uint32_t alpha);
+
+    // The field pause's frozen frame as its packet draws it (vp2sUiFrozenFrame): at 112/128, then 16 copies at 80/128
+    // with alpha 12/128, copy k moved by (-k, -2k) GS pixels. Shown this frame: g_frozenShown.
+    bool g_frozenShown = false;
+    void drawFrozen()
+    {
+        drawFrozenFrame(0.0f, 0.0f, 0x70u, 0x80u);
+        for (int k = 1; k <= 16; ++k)
+            drawFrozenFrame(-k * 640.0f / 512.0f, -2.0f * k * 480.0f / 512.96f, 0x50u, 0x0Cu);
+    }
+
     // The renderer's captured frame over the whole screen, moved by (dx, dy), grey `colour` and `alpha` (0x80 = 1).
     void drawFrozenFrame(float dx, float dy, uint32_t colour, uint32_t alpha)
     {
@@ -804,6 +816,10 @@ namespace
         const auto byte = [&](uint32_t address) { return static_cast<uint32_t>(std::clamp(real(rdram, address), 0.0f, 255.0f)); };
         const uint32_t layerAlpha = byte(layer + 0xE0u);
         std::lock_guard<std::mutex> lock(g_mutex);
+        // The place-name plate's layer (0x165D30 at +0x10) under the pause's frozen frame: the PS2 draws it first and
+        // covers it (only the frame's copy of it shows).
+        if (g_frozenShown && (word(rdram, layer + 0x10u) & 0x1FFFFFFu) == 0x165D30u)
+            return;
         {
             static const bool s_tree = std::getenv("VP2S_UI_TREE_LOG") != nullptr;
             const uint64_t pair = uint64_t{layer} << 32 | 0xFFFFFFFFu;
@@ -938,6 +954,47 @@ namespace
                     logo.tag = 0x4E484F4Au;
                     logo.index = 0x272Bu;
                     drawSprite(logo);
+                }
+            }
+            // The field's place-name plate (class 0x165E00, mod003 build 0x4494F0 -> its layer's 0x449580): from the
+            // field HUD sheet, body part 10 in two halves (the right one mirrored) from the layer's x to x + the label's
+            // width (the text element at layer + 0x108, its +0x20) + layer +0x288, end caps part 9 outside (the right one
+            // mirrored); from y - 6 to y - 6 + the body's h + 5 GS lines (layer +0x28C == 1: the left edge 128 GS pixels
+            // further left). Alpha the layer's.
+            if ((word(rdram, element) & 0x1FFFFFFu) == 0x165E00u)
+            {
+                const uint32_t holder = word(rdram, (word(rdram, 0x0048E048u) & 0x1FFFFFFu) + 0x5Cu) & 0x1FFFFFFu;
+                const uint32_t parts = holder >= 0x100000u ? word(rdram, holder + 0x224u) & 0x1FFFFFFu : 0u;
+                if (parts >= 0x100000u)
+                {
+                    constexpr float sx = 640.0f / 512.0f, sy = 480.0f / 512.96f;
+                    const auto half = [&](uint32_t address) { return static_cast<float>(word(rdram, address) & 0xFFFFu); };
+                    const uint32_t body = parts + 0xA0u, cap = parts + 0x90u;
+                    float left = layerX, right = layerX + real(rdram, layer + 0x108u + 0x20u) + real(rdram, layer + 0x288u);
+                    if (static_cast<int8_t>(rdram[layer + 0x28Cu]) == 1)
+                        left -= 128.0f * sx;
+                    const float top = layerY - 6.0f * sy, bottom = top + (half(body + 0xAu) + 5.0f) * sy;
+                    const float mid = (left + right) * 0.5f, capWidth = half(cap + 8u) * sx;
+                    const auto piece = [&](uint32_t part, float x0, float x1, bool mirrored) {
+                        SpriteQuad q;
+                        q.u0 = half(part + (mirrored ? 4u : 0u)) / 4096.0f;
+                        q.v0 = half(part + 2u) / 4096.0f;
+                        q.u1 = half(part + (mirrored ? 0u : 4u)) / 4096.0f;
+                        q.v1 = half(part + 6u) / 4096.0f;
+                        q.x0 = x0;
+                        q.x1 = x1;
+                        q.y0 = top;
+                        q.y1 = bottom;
+                        q.rgba = 0x80808080u;
+                        q.tbp = 0x800u;
+                        q.tag = 0x4E484F4Au;
+                        q.index = 0x272Bu;
+                        drawSprite(q);
+                    };
+                    piece(body, left, mid, false);
+                    piece(body, mid, right, true);
+                    piece(cap, left - capWidth, left, false);
+                    piece(cap, right, right + capWidth, true);
                 }
             }
             // The field pause's bottom bar (class 0x1670A0, mod003 build 0x451960 -> 0x451A60), at the layer's position:
@@ -1144,6 +1201,7 @@ void vp2sUiFrozenFrame(uint8_t *rdram, uint32_t scene)
     static uint32_t s_object = 0;
     const uint32_t before = s_object;
     s_object = frozen;
+    g_frozenShown = frozen != 0;
     if (!frozen)
         return;
     if (frozen != before)
@@ -1152,9 +1210,7 @@ void vp2sUiFrozenFrame(uint8_t *rdram, uint32_t scene)
         std::printf("[vp2s-ui] frozen frame %x: the frame on screen captured\n", frozen);
         std::fflush(stdout);
     }
-    drawFrozenFrame(0.0f, 0.0f, 0x70u, 0x80u);
-    for (int k = 1; k <= 16; ++k)
-        drawFrozenFrame(-k * 640.0f / 512.0f, -2.0f * k * 480.0f / 512.96f, 0x50u, 0x0Cu);
+    drawFrozen();
 }
 
 namespace

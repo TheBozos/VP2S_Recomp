@@ -943,11 +943,34 @@ namespace
     }
 }
 
+// The depth of field's pass this frame (its index in the renderer's frame, the post object): its weight table
+// (+0xEF10) is read again as the frame ends. On a camera cut the game is still building it when its object's method
+// returns (a pass with everything blurred for one frame); the PS2 sends it to the GS later in the frame, finished.
+struct DofPass
+{
+    size_t index = SIZE_MAX;
+    uint32_t post = 0;
+};
+static DofPass g_dofPass;
+
+// The scene's screen objects (a fade, the pause's frozen frame: vp2sUiSceneScreens) go between the 3D with its effect
+// passes and the interface: drawn once per frame where the interface starts, else at the frame's end.
+static bool g_screensDrawn = false;
+static void sceneScreens()
+{
+    if (g_screensDrawn)
+        return;
+    g_screensDrawn = true;
+    if (g_rdram && g_scene >= 0x100000u)
+        vp2sUiSceneScreens(g_rdram, g_scene);
+}
+
 void vp2sModelsInterfaceStarts()
 {
     if (g_frameOpen && g_interfaceStart == SIZE_MAX)
     {
         g_interfaceStart = ps2x::native::Renderer::instance().batchCount();
+        sceneScreens();
         static const bool s_log = std::getenv("VP2S_POST_LOG") != nullptr;
         static uint32_t s_logs = 0;
         if (s_log && ++s_logs % 300u == 1u)
@@ -962,6 +985,13 @@ void vp2sModelsFrameEnd()
 {
     if (!g_frameOpen)
         return;
+    sceneScreens();
+    g_screensDrawn = false;
+    if (g_dofPass.index != SIZE_MAX && g_rdram)
+        if (auto *pass = ps2x::native::Renderer::instance().adjustPostEffect(g_dofPass.index))
+            for (uint32_t k = 0; k < 256u; ++k)
+                pass->weights[k] = g_rdram[g_dofPass.post + 0xEF10u + 4u * k];
+    g_dofPass = {};
     g_interfaceStart = SIZE_MAX;
     g_brightnessAt = SIZE_MAX;
     g_frameModelIndex = 0;
@@ -1102,8 +1132,6 @@ void vp2sInstallModels(PS2Runtime &)
             ps2_overlays::replaceModuleFunction("mod001", kPostEffect, [](uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime) {
                 s_post(rdram, ctx, runtime);
                 sceneOverlays();
-                if (g_scene >= 0x100000u)
-                    vp2sUiFrozenFrame(rdram, g_scene);
                 const uint32_t owner = word(rdram, 0x0035DDF8u) & 0x1FFFFFFu;
                 const uint32_t post = owner ? word(rdram, owner + 0x4448u) & 0x1FFFFFFu : 0u; // the object (docs/vp2_dof.md)
                 if (post < 0x100000u)
@@ -1203,7 +1231,11 @@ void vp2sInstallModels(PS2Runtime &)
                     std::fflush(stdout);
                 }
                 if (any && best.alpha > 0.0f)
-                    ps2x::native::Renderer::instance().postEffect(best, postEffectAt());
+                {
+                    const size_t index = ps2x::native::Renderer::instance().postEffect(best, postEffectAt());
+                    if (best.depthWeights)
+                        g_dofPass = {index, post};
+                }
             });
     }
     // The frame's brightness (the object at *(0x35DDF8) + 0x4444, per-frame method 0x2CB4A0, packets by 0x2C9100):

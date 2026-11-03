@@ -762,7 +762,7 @@ namespace
 
     void drawFrozenFrame(float dx, float dy, uint32_t colour, uint32_t alpha);
 
-    // The field pause's frozen frame as its packet draws it (vp2sUiFrozenFrame): at 112/128, then 16 copies at 80/128
+    // The field pause's frozen frame as its packet draws it (vp2sUiSceneScreens): at 112/128, then 16 copies at 80/128
     // with alpha 12/128, copy k moved by (-k, -2k) GS pixels. Shown this frame: g_frozenShown.
     bool g_frozenShown = false;
     void drawFrozen()
@@ -1185,32 +1185,48 @@ void vp2sUiNoteFixedSheet(uint32_t dbp, uint32_t tag, uint32_t index)
     g_fixedSheets[dbp & 0x3FFFu] = {tag, index};
 }
 
-void vp2sUiFrozenFrame(uint8_t *rdram, uint32_t scene)
+void vp2sUiSceneScreens(const uint8_t *rdram, uint32_t scene)
 {
-    // The scene's master list (+0x7C, count +0xFB80) with an object of class 0x1670D0 in it, not frozen or hidden
-    // (+0x6A & 0x49, the cull's own test at 0x2207EC).
+    // The scene's master list (+0x7C, count +0xFB80): its screen objects, not frozen or hidden (+0x6A & 0x49, the
+    // cull's own test at 0x2207EC). Class 0x1670D0, the field pause's frozen frame; class 0x161230, a colour over the
+    // whole screen (the events' fades: from +0x98 to +0x9C, RGBA with alpha 0x80 opaque, now +0xA0; +0xA4 the time and
+    // +0xA8 the length in frames).
     const uint32_t list = word(rdram, scene + 0x7Cu) & 0x1FFFFFFu, count = std::min(word(rdram, scene + 0xFB80u), 0x2000u);
     uint32_t frozen = 0;
-    for (uint32_t i = 0; list >= 0x100000u && i < count && !frozen; ++i)
+    std::vector<uint32_t> colours;
+    for (uint32_t i = 0; list >= 0x100000u && i < count; ++i)
     {
         const uint32_t object = word(rdram, list + 4u * i) & 0x1FFFFFFu;
-        if (object >= 0x100000u && (word(rdram, object) & 0x1FFFFFFu) == 0x1670D0u && !(rdram[object + 0x6Au] & 0x49u))
+        if (object < 0x100000u || (rdram[object + 0x6Au] & 0x49u))
+            continue;
+        const uint32_t kind = word(rdram, object) & 0x1FFFFFFu;
+        if (kind == 0x1670D0u && !frozen)
             frozen = object;
+        else if (kind == 0x161230u)
+            colours.push_back(word(rdram, object + 0xA0u));
     }
-    // Captured as the object appears (the frame on screen is the last one without it), not again while it stays.
+    // Captured as the frozen frame's object appears (the frame on screen is the last one without it), not again
+    // while it stays.
     static uint32_t s_object = 0;
     const uint32_t before = s_object;
     s_object = frozen;
     g_frozenShown = frozen != 0;
-    if (!frozen)
-        return;
-    if (frozen != before)
+    if (frozen)
     {
-        ps2x::native::Renderer::instance().captureFrame();
-        std::printf("[vp2s-ui] frozen frame %x: the frame on screen captured\n", frozen);
-        std::fflush(stdout);
+        if (frozen != before)
+        {
+            ps2x::native::Renderer::instance().captureFrame();
+            std::printf("[vp2s-ui] frozen frame %x: the frame on screen captured\n", frozen);
+            std::fflush(stdout);
+        }
+        drawFrozen();
     }
-    drawFrozen();
+    for (const uint32_t colour : colours)
+        if (colour >> 24)
+        {
+            const uint32_t corners[4] = {colour, colour, colour, colour};
+            drawQuadCorners(0.0f, 0.0f, 640.0f, 480.0f, 0.0f, 0.0f, 0.0f, 0.0f, corners, nullptr);
+        }
 }
 
 namespace

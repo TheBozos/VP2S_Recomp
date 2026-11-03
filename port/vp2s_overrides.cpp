@@ -300,6 +300,16 @@ namespace
         g_frameWait(rdram, ctx, runtime);
     }
 
+    // VP2's streamed music (town and event themes) is decoded by a VU1 program at 0x06E0: FUN_001060a0 sends 2 KiB of
+    // the stream (UNPACK into VU1 memory), the decoder's tables and its MSCALs through one of two VIF1 chains, and the
+    // EE copies the PCM out of VU1 memory into the buffers it sends to the IOP. The first decode goes through a chain
+    // that uploads the microcode (MPG) and then runs on into the first of the two. These chains still run with VIF1
+    // dropped (USA addresses).
+    bool keptVif1Chain(uint32_t tadr)
+    {
+        return tadr == 0x0014A300u || tadr == 0x0014C730u || tadr == 0x0014C8E0u;
+    }
+
     // VP2S_HOOK_TRACE=<address>[,<address>...]: prints a0..a3 and ra of the first 40 calls of each function.
     std::unordered_map<uint32_t, std::pair<PS2Runtime::RecompiledFunction, uint32_t>> g_traced;
 
@@ -471,7 +481,8 @@ namespace
             if (!(mesh && mesh[0] == '1') && !(vif1 && vif1[0] == '1'))
             {
                 ps2x::native::setVif1Dropped(true);
-                std::cout << "[vp2s] VIF1 data not processed (no VU1 programs run)" << std::endl;
+                ps2x::native::setVif1ChainKept(&keptVif1Chain);
+                std::cout << "[vp2s] VIF1 data not processed (no VU1 programs run but the music decoder)" << std::endl;
             }
         }
         vp2sInstallUi(runtime);

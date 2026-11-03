@@ -126,6 +126,12 @@ if(WIN32)
     # The window's and the taskbar's icon (VP2S's variant of The Bozos' logo, docs/branding/make_logo.py vp2s; no game
     # art) and the version information.
     target_sources(vp2s PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/app/vp2s.rc)
+    # A windowed program (no console window beside the game); main() stays the entry point. Its output still goes to
+    # the files or pipes a launcher redirects it to.
+    set_target_properties(vp2s PROPERTIES WIN32_EXECUTABLE TRUE)
+    if(MSVC)
+        target_link_options(vp2s PRIVATE /ENTRY:mainCRTStartup)
+    endif()
 endif()
 target_include_directories(vp2s PRIVATE ${VP2S_GENERATED_DIRS})
 target_link_libraries(vp2s PRIVATE vp2s_frontend vp2s_vu1_native ps2_runtime)

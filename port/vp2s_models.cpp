@@ -1296,7 +1296,15 @@ struct DofBlock
     uint32_t block = 0;
     uint8_t weights[256] = {};
     size_t pass = SIZE_MAX;
+    float weightScale = 1.0f; // 2c / 128: each weight times it, at most 128 (the game's alpha step)
 };
+
+// A block's table as its pass weighs pixels: each weight times 2c / 128, at most 128.
+static void scaledWeights(const DofBlock &b, uint8_t out[256])
+{
+    for (int k = 0; k < 256; ++k)
+        out[k] = static_cast<uint8_t>(std::min(128.0f, b.weights[k] * b.weightScale + 0.5f));
+}
 static std::vector<DofBlock> g_dofBlocks;
 static float g_dofGain = 0.0f;        // the game's g for its blurred copy (+0x131E0) of this frame's passes
 static float g_brightnessGain = 0.0f; // the brightness pass's gain this frame (0: none)
@@ -1346,7 +1354,7 @@ void vp2sModelsFrameEnd()
     for (const DofBlock &b : g_dofBlocks)
         if (auto *pass = b.pass != SIZE_MAX ? ps2x::native::Renderer::instance().adjustPostEffect(b.pass) : nullptr)
         {
-            std::memcpy(pass->weights, b.weights, sizeof(b.weights));
+            scaledWeights(b, pass->weights);
             if (g_brightnessGain > 0.0f)
                 pass->gain = g_dofGain / g_brightnessGain;
         }
@@ -1581,16 +1589,22 @@ void vp2sInstallModels(PS2Runtime &)
                         if (!word(rdram, block) || rdram[block + 0x1Fu] != 0u)
                             continue;
                         ps2x::native::Renderer::PostEffect e;
-                        e.width = 128;
-                        e.height = 89;
+                        // The colour blurred at the block's size L18 (s16 +0x18: 128, 91 or 64 wide, by the work maps'
+                        // 128 x 89 ratio), Gaussian sigma 0.555 x +0x24 texels there.
+                        const int l18 = std::clamp<int>(static_cast<int16_t>(word(rdram, block + 0x18u) & 0xFFFFu), 16, 256);
+                        e.width = l18;
+                        e.height = std::max(8, (l18 * 89 + 64) / 128);
                         e.gain = g;
                         e.sigma = 0.555f * std::max(real(block + 0x24u), 0.0f);
                         const float s = std::clamp(real(block + 0x34u), 0.0f, 1.0f);
                         const float c = rdram[block + 0x1Cu] + (128.0f - rdram[block + 0x1Cu]) * s;
-                        e.alpha = std::min(128.0f, 2.0f * c) / 128.0f * (rdram[block + 0x1Eu] / 128.0f);
+                        // Each pixel's alpha: its weight times 2c / 128, at most 128 (c 0xB6 saturates the focus ramps),
+                        // times +0x1E / 128.
+                        b.weightScale = 2.0f * c / 128.0f;
+                        e.alpha = rdram[block + 0x1Eu] / 128.0f;
                         e.depthWeights = true;
                         e.weightShift = 16; // the table's index: Z24 >> 16 (+0x131C4, the depth scale, 65536)
-                        std::memcpy(e.weights, b.weights, sizeof(e.weights));
+                        scaledWeights(b, e.weights);
                         if ((rdram[block + 0x20u] & 3u) == 1u)
                         {
                             e.depthLimit = true;

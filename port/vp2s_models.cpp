@@ -463,6 +463,10 @@ namespace
             return;
         // The screen matrix: s = M330 * V * O (docs/vp2_models.md), as the renderer takes it (column c at [4c..4c+3]).
         const Mat4 screen = product(rows(rdram, camera + 0x330u), product(rows(rdram, camera + 0x2F0u), rows(rdram, object + 0x90u)));
+        // The game's separate guard volume, used by its mesh program before projection.
+        // It rejects a whole triangle if any of its vertices is outside; GPU polygon
+        // clipping would instead draw pieces of camera-crossing meshes.
+        const Mat4 clip = product(rows(rdram, camera + 0x370u), product(rows(rdram, camera + 0x2F0u), rows(rdram, object + 0x90u)));
         // The camera's fog, for the meshes whose PRIM has FGE (the town's distance haze, toward the fog colour): F = a + b / w
         // per vertex (w its clip w), at most 255 (no fog), a and b at + 0x5A8 / + 0x5AC (from its far and near at + 0x5B8 /
         // + 0x5BC and their F at + 0x5C4 / + 0x5C0), the fog colour at + 0x5A0 (also the clear colour). VP2S_FOG=0: no fog.
@@ -530,6 +534,7 @@ namespace
         uint32_t cursor = model + 0x60u, block = 0u;
         uint32_t carriedAlpha = 0x44u, carriedPrim = 0x1Cu, carriedTex0Hi = 0x4u, carriedMode = 0u, carriedCull = 1u; // a mesh without its own material keeps the previous one's
         std::vector<ps2x::native::Vertex> triangles;
+        std::vector<bool> outside;
         for (uint32_t i = 0; i < count && i < 4096u; ++i)
         {
             uint32_t mesh;
@@ -919,7 +924,22 @@ namespace
             // both sides; shadow volumes need all caster faces, regardless of the camera's direction.
             const uint32_t cull = block >= 0x100000u ? word(rdram, block + 0x90u) : carriedCull;
             const bool cullBackFaces = !shadow && cull == 0u && rdram[(object + 0x210u) & 0x1FFFFFFu] == 0u;
+            static const bool s_guardClip = [] { const char *v = std::getenv("VP2S_MODELS_GUARD_CLIP"); return !v || v[0] != '0'; }();
+            const bool guardClip = !shadow && s_guardClip;
             std::vector<std::array<float, 3>> projected;
+            outside.clear();
+            if (guardClip)
+            {
+                outside.reserve(vertices.size());
+                for (const auto &v : vertices)
+                {
+                    float c[4];
+                    for (int r = 0; r < 4; ++r)
+                        c[r] = clip[r][0] * v.x + clip[r][1] * v.y + clip[r][2] * v.z + clip[r][3];
+                    const float w = std::fabs(c[3]);
+                    outside.push_back(std::fabs(c[0]) > w || std::fabs(c[1]) > w || std::fabs(c[2]) > w);
+                }
+            }
             if (cullBackFaces)
             {
                 projected.reserve(vertices.size());
@@ -937,6 +957,8 @@ namespace
                 for (uint32_t k = 2; k < length && first + k < vertices.size(); ++k)
                 {
                     const size_t a = first + k - 2, b = first + k - 1, c = first + k;
+                    if (guardClip && (outside[a] || outside[b] || outside[c]))
+                        continue;
                     if (cullBackFaces && projected[a][2] > 0.0f && projected[b][2] > 0.0f && projected[c][2] > 0.0f)
                     {
                         const auto &p = projected[a], &q = projected[b], &r = projected[c];

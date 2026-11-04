@@ -99,7 +99,7 @@ The model draw honours material row 15.x == 0: reject back-facing triangles afte
 using the signed area in the game's screen coordinates (Y down), with alternating strip winding.
 Positive area and positive zero are rejected, as in the original mesh calculation. Materials 1/2
 retain both sides. Object fade (the byte at `+0x210 != 0`, loaded with LBU by the game) retains both sides, and shadow-volume collection
-keeps every caster face. Triangles crossing the eye plane remain for GPU clipping.
+keeps every caster face. The guard-volume rejection described below runs before back-face culling.
 
 Separating evidence for the hard grey triangles on Alicia's left shoulder in the opening:
 the defect remains with shadow volumes disabled and with mode 3 disabled. Flat mesh colours,
@@ -124,3 +124,39 @@ had shadow volumes disabled. Comparison crop and measurements: `cloak_fixed2/com
 The existing `logun_usa.sh` / `guardrun.sh` route also reached the Waiting Area and inn;
 native captures `build_usa/cloak_cull_route/native_39.png` and `native_48.png` retain their
 scenery and characters. Both runs used no host input/focus and the existing card snapshot/restore.
+
+## Guard-volume rejection: Soul Street green polygons (2026-11-04)
+
+The mesh program rejects an entire triangle when any of its three vertices lies outside
+the camera's separate guard volume. Native model drawing now applies this rule to the
+skinned positions: `C = camera[0x370] * camera[0x2F0] * object[0x90]`; a vertex is outside
+when any `abs(C.xyz) > abs(C.w)`. Boundaries are inclusive. This is deliberately wider
+than viewport clipping. Shadow collection retains every caster face.
+
+PCSX2 slot 1's `vu1MicroMem.bin` provides the reference: `clipw` at 0xC78 / 0xD50,
+`fcand vi03,0x3FFFF` at 0xCA8, then the rejected-vertex/ADC path at 0xD80. The existing
+mesh prototype also implements this three-vertex rejection; native EE model drawing
+previously omitted it and relied on GPU polygon clipping instead.
+
+The user's defect is at Solde's **Soul Street**, beside the staircase. Asset
+`006e2785b8_000.rmac`, model `+0x2F2140`, mesh `+0x2F21A0`, has 16 vertices in five
+strips (six triangles), untextured PRIM 0x2C, stored RGBA (77,114,77,128). In the saved
+native frame it is object `0x13846A0`, mesh `0xFB7C20`, camera `0x1195740`. Its screen
+W spans -97.12..203.97. Every triangle contains an outside vertex: six submitted
+previously, zero after the game's guard test. GPU clipping had displayed large green
+pieces across the left side and foreground.
+
+Verified with an isolated new-game walk left from the Waiting Area. The diagnostic
+switch `VP2S_MODELS_GUARD_CLIP=0` reproduces the defect; the default enables rejection.
+Before: `build_usa/attacks_probe/stairs_before/shots/native_111.png`; after:
+`stairs_after/shots/native_142.png`. A green-colour mask counts 85,862 -> 37 pixels,
+the left 180-pixel zone 50,273 -> 0, and the foreground zone 32,555 -> 7. Camera poses
+differ slightly; these measurements establish removal of the large polygons, not
+pixel parity with a matched PCSX2 screenshot. The saved PCSX2 microcode supplies the
+clipping reference. Evidence and measurements: `build_usa/manual_visual_bug/`.
+
+Repeat the route using `tools/attacks_menu_probe.py --script-file <timed pad script>`;
+append `135:LEFT/12000` after the normal opening-skip presses. The probe uses its own
+card tree and no host input. `PS2X_WINDOW_OFFSCREEN=1` creates its window hidden,
+disables focus-on-show, moves it off-screen, then reveals it without activation.
+This avoids the startup focus incident caught by the probe's foreground guard.

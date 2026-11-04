@@ -15,6 +15,8 @@ root = Path(__file__).resolve().parents[1]
 parser = argparse.ArgumentParser(description=__doc__)
 parser.add_argument('--tag', required=True)
 parser.add_argument('--exe', type=Path, default=root / 'build_usa/port/vp2s.exe')
+parser.add_argument('--script-file', type=Path, help='override the default route with a timed pad script')
+parser.add_argument('--duration', type=float, default=218, help='probe duration in seconds (default: 218)')
 args = parser.parse_args()
 if not args.tag or any(c not in 'abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789_-' for c in args.tag):
     parser.error('tag must contain only letters, numbers, underscore or hyphen')
@@ -48,7 +50,10 @@ script = '25:SQUARE,30:START,36:START,42:CROSS,'
 script += ','.join(f'{t}:START,{t+1}:CROSS' for t in range(80, 108, 4))
 script += ',135:SELECT/50,141:DOWN/50,143:DOWN/50,145:DOWN/50,148:CROSS/50,154:CROSS/50'
 script += ',164:CIRCLE/50,174:CROSS/50,178:CROSS/50,184:CIRCLE/50,194:CIRCLE/50,198:CIRCLE/50,206:RIGHT/500'
+if args.script_file:
+    script = args.script_file.read_text().replace('\n', ',').replace('\r', ',')
 env.update(VP2S_CLEAN='1', PS2X_PAD_NO_HOST='1', PS2X_WINDOW_NO_FOCUS='1',
+           PS2X_WINDOW_OFFSCREEN='1',
            PS2X_AUDIO_MUTE='1', PS2X_MPEG_SKIP='30', PS2X_PAD_SCRIPT=script,
            PS2X_PAD_INPUT=str(out / 'pad.txt'), PS2X_NATIVE_CAPTURE_DIR=str(shots),
            PS2X_NATIVE_CAPTURE_INTERVAL='1')
@@ -69,7 +74,7 @@ try:
     # without activation; this helper verifies both bounds and foreground.
     subprocess.run(['powershell', '-NoProfile', '-ExecutionPolicy', 'Bypass', '-File',
                     str(root / 'tools/place_probe_offscreen.ps1'), '-GamePid', str(pid)], check=True)
-    time.sleep(215)
+    time.sleep(max(0, args.duration - 3))
 finally:
     subprocess.run(['powershell', '-NoProfile', '-Command',
                     f'Stop-Process -Id {pid} -Force -ErrorAction SilentlyContinue'], check=False)

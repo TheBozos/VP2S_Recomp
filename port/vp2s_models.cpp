@@ -1569,6 +1569,17 @@ void vp2sInstallModels(PS2Runtime &)
                     e.glowThreshold = 25.0f / 255.0f;
                     e.glowLevelCount = 3;
                     e.glowLevelWeight = 0.5f * 76.0f / 128.0f;
+                    // Its glare: the frame less (25 + 77) / 255, copied rotated four times (about +-70 degrees), each
+                    // smeared along one axis by two shifted self-additions (x 0.96, x 0.22) and added back at 152 / 128:
+                    // lines at 70 and 110 degrees here, two texels long, 1.5 each (0.3 x 2.2 x 1.19 a copy, four copies on two
+                    // lines, the frame's alpha about 0 as for the glow). VP2S_GLARE=<weight>: its strength.
+                    static const float s_glare = [] { const char *v = std::getenv("VP2S_GLARE"); return v ? static_cast<float>(std::atof(v)) : 1.5f; }();
+                    e.glareAngleCount = 2;
+                    e.glareAngles[0] = 70.0f;
+                    e.glareAngles[1] = 110.0f;
+                    e.glareThreshold = 102.0f / 255.0f;
+                    e.glareLength = 2.0f;
+                    e.glareWeight = s_glare;
                     e.alpha = rdram[at - 0x10F8u] / 128.0f;
                     if (e.alpha > 0.0f)
                         g_glowPass = ps2x::native::Renderer::instance().postEffect(e, postEffectAt());

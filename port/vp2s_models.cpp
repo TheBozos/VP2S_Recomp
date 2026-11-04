@@ -454,8 +454,10 @@ namespace
         return value;
     }
 
-    void drawObject(const uint8_t *rdram, const uint8_t *scratch, uint32_t object, uint32_t camera)
+    // shadow: the object's shadow volume instead of its meshes (FUN_002B6640's pass).
+    void drawObject(const uint8_t *rdram, const uint8_t *scratch, uint32_t object, uint32_t camera, bool shadow = false)
     {
+        std::vector<ps2x::native::Vertex> casters; // shadow: every mesh's triangles, object space
         const uint32_t model = word(rdram, object + 0x7BCu), list = word(rdram, object + 0x77Cu);
         if (model == 0u || camera == 0u)
             return;
@@ -890,12 +892,88 @@ namespace
                 g_counts.sampleY = w != 0.0f ? y / w : 0.0f;
                 g_counts.sampleZ = w != 0.0f ? z / w : 0.0f;
             }
+            if (shadow)
+            {
+                casters.insert(casters.end(), triangles.begin(), triangles.end());
+                continue;
+            }
             g_counts.triangles += triangles.size() / 3u;
             g_counts.textured += material.textured ? 1u : 0u;
             if (!triangles.empty())
                 ps2x::native::Renderer::instance().draw(material, matrix, triangles.data(), static_cast<uint32_t>(triangles.size()),
                                                         std::move(texture));
         }
+        if (!shadow || casters.empty())
+            return;
+        // The shadow (FUN_002B6640, VU1 program 0x06f0): the object's triangles, each extruded along the light into a
+        // closed prism down past its ground plane (y = 0 in object space); the union is the object's shadow volume, which
+        // the renderer counts and darkens the frame in once by the 0x40 alpha of the game's darkening sprites. The light:
+        // its block's row 37 taken to object space as program 0x0238 does (a point light's position by O's rigid inverse
+        // when table A is on and row 40.w is set, else a direction by Rn^T).
+        std::array<float, 4> light = objectRow(37u);
+        const bool point = tableA && word(rdram, object + 0x230u + 16u * 40u + 12u) != 0u;
+        std::array<float, 3> l{};
+        for (int j = 0; j < 3; ++j)
+            l[j] = point ? world[0][j] * (light[0] - world[0][3] * light[3]) + world[1][j] * (light[1] - world[1][3] * light[3]) +
+                               world[2][j] * (light[2] - world[2][3] * light[3])
+                         : rn[0][j] * light[0] + rn[1][j] * light[1] + rn[2][j] * light[2];
+        if (std::fabs(l[1]) < 1e-3f)
+            return; // light along the ground: no extrusion to it
+        using P3 = std::array<float, 3>;
+        const auto sub = [](const P3 &a, const P3 &b) { return P3{a[0] - b[0], a[1] - b[1], a[2] - b[2]}; };
+        const auto cross = [](const P3 &a, const P3 &b) {
+            return P3{a[1] * b[2] - a[2] * b[1], a[2] * b[0] - a[0] * b[2], a[0] * b[1] - a[1] * b[0]};
+        };
+        const auto dot = [](const P3 &a, const P3 &b) { return a[0] * b[0] + a[1] * b[1] + a[2] * b[2]; };
+        // Down the light well past the ground plane: the volume darkens what lies under the object along the light.
+        const float length = std::sqrt(dot(l, l));
+        const float reach = length > 0.0f ? 3000.0f / length : 0.0f;
+        const auto flat = [&](const P3 &p) {
+            const float t = std::min(0.0f, p[1] / l[1]) - reach;
+            return P3{p[0] - l[0] * t, p[1] - l[1] * t, p[2] - l[2] * t};
+        };
+        std::vector<ps2x::native::Vertex> volume;
+        volume.reserve(casters.size() * 8u);
+        const auto emit = [&](const P3 &a, const P3 &b, const P3 &c, const P3 &inside) {
+            const P3 n = cross(sub(b, a), sub(c, a));
+            const P3 centre = {(a[0] + b[0] + c[0]) / 3.0f, (a[1] + b[1] + c[1]) / 3.0f, (a[2] + b[2] + c[2]) / 3.0f};
+            const bool flip = dot(n, sub(centre, inside)) < 0.0f; // each face outward
+            for (const P3 *p : {&a, flip ? &c : &b, flip ? &b : &c})
+            {
+                ps2x::native::Vertex vertex;
+                vertex.x = (*p)[0];
+                vertex.y = (*p)[1];
+                vertex.z = (*p)[2];
+                vertex.rgba = 0x40000000u;
+                volume.push_back(vertex);
+            }
+        };
+        for (size_t t = 0; t + 2u < casters.size(); t += 3u)
+        {
+            const P3 a = {casters[t].x, casters[t].y, casters[t].z}, b = {casters[t + 1].x, casters[t + 1].y, casters[t + 1].z},
+                     c = {casters[t + 2].x, casters[t + 2].y, casters[t + 2].z};
+            const P3 n = cross(sub(b, a), sub(c, a));
+            if (dot(n, n) < 1e-12f)
+                continue;
+            const P3 a2 = flat(a), b2 = flat(b), c2 = flat(c);
+            const P3 inside = {(a[0] + b[0] + c[0] + a2[0] + b2[0] + c2[0]) / 6.0f, (a[1] + b[1] + c[1] + a2[1] + b2[1] + c2[1]) / 6.0f,
+                               (a[2] + b[2] + c[2] + a2[2] + b2[2] + c2[2]) / 6.0f};
+            emit(a, b, c, inside);
+            emit(a2, b2, c2, inside);
+            emit(a, b, b2, inside);
+            emit(a, b2, a2, inside);
+            emit(b, c, c2, inside);
+            emit(b, c2, b2, inside);
+            emit(c, a, a2, inside);
+            emit(c, a2, c2, inside);
+        }
+        if (volume.empty())
+            return;
+        ps2x::native::Material material;
+        material.textured = false;
+        material.blend = ps2x::native::Material::Blend::ShadowVolume;
+        material.depthWrite = false;
+        ps2x::native::Renderer::instance().draw(material, matrix, volume.data(), static_cast<uint32_t>(volume.size()));
     }
 
     bool g_orderFrame = false; // VP2S_DRAW_ORDER_LOG's frame
@@ -1389,6 +1467,18 @@ void vp2sInstallModels(PS2Runtime &)
     g_modelLikeDraw = module->table[(kModelLikeDraw - module->tableBase) >> 2];
     if (g_modelLikeDraw)
         ps2_overlays::replaceModuleFunction("mod001", kModelLikeDraw, &modelLikeDrawHook);
+    // An object's shadow (FUN_002B6640, a0 the object: its packet for VU1 program 0x06f0, dropped with VIF1): drawn
+    // natively as a shadow volume from its meshes, with the camera of the models drawn last. VP2S_SHADOWS=0: none.
+    constexpr uint32_t kShadowDraw = 0x002B6640u;
+    static PS2Runtime::RecompiledFunction s_shadowDraw =
+        kShadowDraw >= module->tableBase && kShadowDraw < module->tableEnd ? module->table[(kShadowDraw - module->tableBase) >> 2] : nullptr;
+    if (s_shadowDraw && !(std::getenv("VP2S_SHADOWS") && std::getenv("VP2S_SHADOWS")[0] == '0'))
+        ps2_overlays::replaceModuleFunction("mod001", kShadowDraw, [](uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime) {
+            const uint32_t object = getRegU32(ctx, 4);
+            s_shadowDraw(rdram, ctx, runtime);
+            if (g_frameOpen && g_camera >= 0x100000u)
+                drawObject(rdram, runtime->memory().getScratchpad(), object, g_camera, true);
+        });
     // The native frame ends with the game's scene pass (mod001 FUN_002211E0, every frame on every screen: the 3D,
     // then the interface layers): the field's frame wait alone left the title and the menus' frames unended.
     constexpr uint32_t kScenePass = 0x00221260u;

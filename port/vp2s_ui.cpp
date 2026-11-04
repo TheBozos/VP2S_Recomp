@@ -907,16 +907,54 @@ namespace
                     std::fflush(stdout);
                 }
             }
-            const auto drawSprite = [&](const SpriteQuad &q) {
+            const auto drawSprite = [&](const SpriteQuad &q, bool elementAlpha = true) {
                 uint32_t tag = q.tag, index = q.index;
                 if (tag != 0u || sheetKey(q.tbp, tag, index))
                     if (auto texture = vp2sGameTexture(tag, index, q.csa))
                     {
-                        const uint32_t alpha = ((q.rgba >> 24) * layerAlpha / 128u) * byte(element + 0x28u) / 128u;
+                        const uint32_t alpha = ((q.rgba >> 24) * layerAlpha / 128u) * (elementAlpha ? byte(element + 0x28u) : 128u) / 128u;
                         drawQuadUv(q.x0, q.y0, q.x1, q.y1, q.u0, q.v0, q.u1, q.v1, (q.rgba & 0xFFFFFFu) | std::min<uint32_t>(alpha, 255u) << 24,
                                    std::move(texture));
                     }
             };
+            // NPC dialogue's custom backing (mod003 0x468620). The game's nine records
+            // select corners from a 4x4 grid and transparent/half-opacity black.
+            if ((word(rdram, element) & 0x1FFFFFFu) == 0x167B50u)
+            {
+                const float x = layerX + real(rdram, element + 0x18u), y = layerY + real(rdram, element + 0x1Cu);
+                const float right = x + real(rdram, element + 0x20u), bottom = y + real(rdram, element + 0x24u);
+                const float xs[4] = {x - 8.0f, x, right, right + 8.0f};
+                const float ys[4] = {y - 8.0f, y, bottom, bottom + 8.0f};
+                const uint32_t a = static_cast<uint32_t>(std::clamp(real(rdram, layer + 0xE0u) * real(rdram, element + 0x28u) / 256.0f, 0.0f, 255.0f));
+                for (uint32_t k = 0; k < 9u; ++k)
+                {
+                    std::array<StripVertex, 4> strip;
+                    for (uint32_t v = 0; v < 4u; ++v)
+                    {
+                        const uint32_t p = 0x0048DD50u + 12u * k + 3u * v;
+                        strip[v] = {xs[rdram[p] & 3u], ys[rdram[p + 1u] & 3u], rdram[p + 2u] ? a << 24 : 0u};
+                    }
+                    drawStrip(strip);
+                }
+            }
+            // The speaker separator (0x4683A0): warm brown, full opacity at the first
+            // quarter of its width, one fifth opacity at the two ends.
+            if ((word(rdram, element) & 0x1FFFFFFu) == 0x167B20u)
+            {
+                const float x = layerX + real(rdram, element + 0x18u), y = layerY + real(rdram, element + 0x1Cu);
+                const float width = real(rdram, element + 0x20u), h = real(rdram, element + 0x24u);
+                const uint32_t a = static_cast<uint32_t>(std::clamp(real(rdram, layer + 0xE0u) * real(rdram, element + 0x28u) / 128.0f, 0.0f, 255.0f));
+                const uint32_t edge = 0x002B51BDu | static_cast<uint32_t>(static_cast<float>(a) * 0.2f) << 24;
+                const uint32_t middle = 0x002B51BDu | a << 24;
+                const uint32_t rising[4] = {edge, middle, edge, middle}, falling[4] = {middle, edge, middle, edge};
+                drawQuadCorners(x, y, x + width * 0.25f, y + h, 0, 0, 0, 0, rising, nullptr);
+                drawQuadCorners(x + width * 0.25f, y, x + width, y + h, 0, 0, 0, 0, falling, nullptr);
+            }
+            // The continuation indicator's build calls the sprite emitter directly
+            // (0x2F1230 -> 0x2EB3A0), bypassing the generic captured sprite element.
+            if ((word(rdram, element) & 0x1FFFFFFu) == 0x15A4E0u && rdram[element + 0xBCu] && !g_sprites.count(element))
+                drawSprite(spriteQuad(rdram, element + 0x50u, layerX + real(rdram, element + 0x18u),
+                                      layerY + real(rdram, element + 0x1Cu)), false);
             // Location announcement, mod003 0x465150 (class 0x167820). Its custom build does
             // not call the generic sprite emitters: read the same layout and resource records here.
             if ((word(rdram, element) & 0x1FFFFFFu) == 0x167820u && !(rdram[layer + 0x2ACu] & 4u))

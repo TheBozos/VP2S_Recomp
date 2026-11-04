@@ -130,3 +130,49 @@ run used an unminimized window placed at (-30000,-30000), with its bounds and un
 window checked by `build/agent_tools/offscreen_test.ps1`; host input/audio stayed disabled and
 the existing start/stop helpers restored the memory cards. No UI changes were inferred from
 the stalled pre-field runs.
+
+## Field NPC dialogue (2026-11-04, USA addresses)
+
+The dialogue layer (owner class `0x15FD30`) has two custom elements whose builds bypass
+the generic window/sprite emitters: backing class `0x167B50` (`mod003 0x468620`) and
+speaker separator class `0x167B20` (`0x4683A0`). Both were absent from the native draw.
+
+The backing reads the element's layer-relative rectangle `+0x18..24`; nine 12-byte
+records at `0x48DD50` select four corners from the rectangle's 4x4 grid, expanded by
+eight virtual units at each edge. Each vertex selects transparent black or black with
+alpha `layer[+0xE0] * element[+0x28] / 256`. The native renderer draws these strips directly.
+The separator uses its own rectangle, RGB `(189,81,43)`, opacity `layerAlpha * elementAlpha / 128`,
+with a peak at one quarter of the width and 0.2 of that opacity at both ends.
+
+The continuation arrow is class `0x15A4E0`, build `mod001 0x2F1230`. That build directly
+calls `0x2EB3A0`, so the generic sprite-element capture did not see it. The native fallback
+reads its live sprite at `element+0x50` when `+0xBC` and the normal element visibility/build
+flags allow it, using the layer position plus element `+0x18/+0x1C`. Sprite alpha already
+contains the element alpha: multiply it by the layer alpha once. Existing captured sprites
+retain their previous alpha path. This preserves the game's waiting/animation state.
+
+Separating evidence: read-only EE RAM snapshots from the user's current PCSX2 and native
+sessions (`build/agent_tools/npc_pcsx2.ee`, `npc_native.ee`) show the same rectangles:
+backing `(20,344,600,92)`, line `(48,374,544,3)`, arrow position `(604,436)` with pivot `(12,12)`
+and part size `(24,24)`. Offline inspection of PCSX2's cached draw data gives line vertices
+`x=47.96875,183.98437,591.95312`, `y=373.94529..376.99217` in the game's virtual UI coordinates,
+within 0.06 units of the native layout. No draw packets are replayed or interpreted at runtime.
+
+Verification: isolated `vp2s_npc.exe` built from the same Ninja graph while the manual game
+remained open, with separate input file and memory-card directories, no host input/focus, and
+muted audio. A 250 ms left-stick movement followed by CROSS from the initial Waiting Area
+reproduces the Girl's pirate dialogue. `build_usa/npc_probe/shots/native_353.png` has the
+backing, separator and arrow; `native_506.png` checks the next page; `native_582.png` checks
+that all three disappear on closing. The original manual game exited independently before
+the final standard USA pipeline build, which passed (21 s).
+
+Local comparison: `build_usa/npc_probe/comparison.png` and `comparison.json`, using the user's
+reference screenshots. Normalized crops contain 512 brown separator pixels / 124 white arrow
+pixels in PCSX2, 0 / 0 before, and 509 / 121 after. These are presence/shape checks;
+the supplied crops have different framing and are not registered full-viewport screenshots.
+The character's world positions also differ by about 86 game units between the two supplied states.
+
+Computer-use capture of the open PCSX2 window failed (unavailable geometry / capture timeout,
+and F8 produced no file), so reference analysis used the supplied images and read-only game RAM.
+Neither running session was reset or advanced by the analysis. The isolated test process stopped
+after its guard timeout; its saves/input paths never pointed at the user's session.

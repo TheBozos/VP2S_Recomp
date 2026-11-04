@@ -73,3 +73,22 @@ block + 0x98 through 0x23CB20. [V]
   14 lighting flags, 19 ambient; point and spot lights from the render context (ctx+0x210.., ctx+0x290..).
 - Bones: n = *(u32 *)(S[0x34] + 4), matrix b at S[0x4C] + 0x40 + 64 (n * (u8)S[0x50] + b), row-vector form (p' = x R0 +
   y R1 + z R2 + R3; normals w = 0), giving object space. Routine 2: b = (position.w - 0x290) / 4; routine 4 entries the same.
+
+## Mode 3 lighting (2026-11-04)
+
+The native model draw now applies standard table-D mode 3 for objects whose fourth light colour is zero
+(including Alicia in the Waiting Area). Previously these materials kept their stored RGB unchanged.
+Material row 12 (`block+0x60..68`) weighs ambient, diffuse and specular; row 9.w (`block+0x3C`) gives
+the number of specular squarings. The normal and position are skinned first; the eye and directional lights
+are transformed into object space. The specular dot is squared without first clamping it at zero, as in
+the game's calculation. The object alpha continues to apply, including zero-alpha weapons outside battle.
+
+PCSX2 slot 2 EE memory: Alicia object `0x996040`, model `0xBD0C10`, meshes 115..117 use mode 3,
+weights `(1, 0.3, 0.553340971)`, power 2. Offline evaluation from this state's bone/light/material data
+produces RGB values spanning approximately 34..109, rather than the stored constant 64.
+The USA build and the guarded Logun-to-inn route passed after the change.
+
+Still unsupported here: table-A mode 3 (point/spot lighting), and mode 3 with a nonzero fourth light
+whose treatment differs between library builds. These retain the existing stored-colour fallback.
+The broader Waiting Area brightness discrepancy remains open; this change implements a missing material
+calculation and does not introduce a global colour or exposure correction.

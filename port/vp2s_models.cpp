@@ -845,8 +845,7 @@ namespace
                     out.u = (-view[0] + 1.41421f * q) / denominator;
                     out.v = (view[1] + 1.41421f * q) / denominator;
                 }
-                // The vertex colour lit as the mesh program does (lighting modes 0 and 1; the others not yet: as stored, with
-                // the object's alpha).
+                // Lighting from the game's object and material fields; normals and positions are already skinned.
                 std::array<float, 4> factor{1.0f, 1.0f, 1.0f, 1.0f};
                 if (carriedMode == 0u)
                 {
@@ -869,7 +868,42 @@ namespace
                                     lightColour[3][c] * dots[3] + ambient[c];
                     factor[3] = objectColour[3];
                 }
-                else // modes 2 and 3: the colour as stored, the alpha still the object's (row 13.w: a weapon put away is
+                else if (carriedMode == 3u && !tableA && block != 0u &&
+                         lightColour[3][0] == 0.0f && lightColour[3][1] == 0.0f && lightColour[3][2] == 0.0f)
+                {
+                    // The standard library's mode 3: ambient, diffuse and specular weights in material row 12,
+                    // and repeated squaring (not an exponent) from row 9.w. Both library variants agree for the
+                    // first three lights. Keep the old fallback for a nonzero fourth light until its variant is known.
+                    const auto n = normalAt(k, v);
+                    const float wa = real(rdram, block + 0x60u), wd = real(rdram, block + 0x64u), ws = real(rdram, block + 0x68u);
+                    const int power = std::clamp(static_cast<int32_t>(word(rdram, block + 0x3Cu)), 0, 16);
+                    const std::array<float, 3> e{eye[0] - p[0], eye[1] - p[1], eye[2] - p[2]};
+                    const float length = std::sqrt(e[0] * e[0] + e[1] * e[1] + e[2] * e[2]);
+                    const float inverse = length != 0.0f ? 1.0f / length : 0.0f;
+                    float diffuse[3], specular[3];
+                    for (int i = 0; i < 3; ++i)
+                    {
+                        diffuse[i] = std::max(0.0f, (lightDirection[i][0] * wd) * n[0] +
+                                                      (lightDirection[i][1] * wd) * n[1] + (lightDirection[i][2] * wd) * n[2]);
+                        float s = (lightDirection[i][0] * ws + (e[0] * ws) * inverse) * n[0] +
+                                  (lightDirection[i][1] * ws + (e[1] * ws) * inverse) * n[1] +
+                                  (lightDirection[i][2] * ws + (e[2] * ws) * inverse) * n[2];
+                        for (int r = 0; r < power; ++r)
+                            s *= s;
+                        specular[i] = s;
+                    }
+                    for (int c = 0; c < 3; ++c)
+                    {
+                        float acc = ambient[c] * wa;
+                        for (int i = 0; i < 3; ++i)
+                            acc += lightColour[i][c] * diffuse[i];
+                        acc += lightColour[0][c] * specular[0];
+                        acc += lightColour[1][c] * specular[1];
+                        factor[c] = acc + lightColour[2][c] * specular[2];
+                    }
+                    factor[3] = objectColour[3];
+                }
+                else // mode 2 and unsupported light tables: stored colour, alpha still the object's (a weapon put away is
                      // drawn at 0, Alicia's sword in town)
                     factor[3] = objectColour[3];
                 uint8_t lit[4];

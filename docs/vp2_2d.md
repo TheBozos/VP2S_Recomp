@@ -176,3 +176,84 @@ Computer-use capture of the open PCSX2 window failed (unavailable geometry / cap
 and F8 produced no file), so reference analysis used the supplied images and read-only game RAM.
 Neither running session was reset or advanced by the analysis. The isolated test process stopped
 after its guard timeout; its saves/input paths never pointed at the user's session.
+
+## Armory shop (2026-11-05, USA)
+
+The Solde Armory exposed several custom builders that bypass the captured generic
+sprite/window calls. The native draw now uses their live layout and FIS/DTT records;
+it never reads or replays their cached draw packets. Original MIPS and offline packet
+inspection were used to check the formulas against PCSX2.
+
+| Element class | Original builder | Native inputs and behavior |
+|---|---|---|
+| `0x15A420` | `0x2EF5B0` | Scissor rectangle `+0x18..24`; `+0x51` adds the layer position, `+0x50` restores the screen. Applies to subsequent siblings, including text, sprites and windows. Restore the previous clip when leaving the layer. |
+| `0x15AC60` | `0x310480` | Item icon consists of **two** sprites at `+0x50` and `+0xB8`, enabled by each sprite's `+0x66`. The old capture keyed the second sprite as another element and lost its glyph. Read both live and apply layer alpha once. |
+| `0x15AC30` | `0x30EE00` | Black row-selection strip, 16 virtual units fading at either end, alpha `layerAlpha * elementAlpha / 512`. |
+| `0x16D040` | mod023 `0x4A4520` | Category icons: DTT `layer+0x464`, resource `+0x468`, slot `+0x470`, count byte `+0x47A`. Parts 9 through 14, with part 16 replacing the last when byte `+0x47B != 1`. Source pixels: start `(layerX+60)*512/640`, `(layerY+4)*512.9599609375/480-2`; 30x30 sprites, 72-pixel X step. |
+| `0x16D010` | mod023 `0x4A4BB0` | Cyan category-selection strip with 16-unit transparent ends. |
+| `0x167CF0` | mod003 `0x469EB0` | Three-piece stone header; DTT `layer+0xF4`, resource `+0x150`, slot `+0x154`, middle width/height `+0x158/+0x15C`. RGB 104. |
+| shop header owner `0x16D210` | mod023 `0x4A3500` | Adds the portrait from part `+0x1660` and selected resource slot `+0x1670`, after delay `+0x1674`. Right/bottom anchors `(layerX+296)*512/640`, `(layerY+126)*512.9599609375/480`; part size scales `.9*.88*narrow`, `1.2*.88`, with `narrow=.75` for bit 4 of `*0x48E04C+3`. Alicia resolves to FIS key `0x30327076/0x8F`. |
+| `0x167DF0` | mod003 `0x46A600` | Buy/Sell button resource and DTT from `*(element+0x54)+0x8C0..8C8`. Parts 3/4 cap a 96-source-pixel middle; part 8 is its base, part 6 fades over it by `element+0x58`. Height 26.716665 source pixels; middle inset 1 pixel vertically. |
+| `0x167EF0` | mod003 `0x46BB60` | Top help backing: part 5 from DTT `layer+0xF4`, resource/slot `+0x388/+0x38C`, RGB 96. Overlay RGB 48 with alpha ramping from zero at the left to layer alpha at the right. |
+| `0x167C00` | mod003 `0x469810` | Black footer plus warm separator, strongest at one quarter of the width. Shop owner `0x16D2E0` adds the two OTH emblems (mod023 `0x4A24C0`): part 15 of `layer+0x5BC`, resource/slot `*0x48EEE0+0x167E4/+0x168B8`, X offsets 208 and 436 source pixels. |
+
+Custom builders use source-frame pixels, unlike the generic text framework's virtual
+coordinates. Convert through `G2+0x840/+0x844` divided by 16, truncating source vertices
+to 1/16 pixel first. The shop source frame is 512x512, with scale `.8,1.0666667`.
+Scissors clamp to `G2+0x838/+0x83C` and preserve inclusive source-pixel bounds when
+converted to the native material's GS-window coordinate convention.
+
+Verification used a private portable PCSX2 reference and isolated native new-game
+runs, with independent memory cards/input files, no native host input or focus,
+off-screen windows and muted audio. The original manual native session remained
+running. The normal USA pipeline build passed; the alternate probe uses the same
+objects and libraries when the manual executable is open.
+
+Local evidence is under `build_usa/armory_bug` and
+`build_usa/attacks_probe/armory_verified/shots`. Captures: All Items `native_231.png`,
+selected Long Sword/Performance `native_248.png`, Resistance `native_274.png`,
+Effect `native_300.png`, Description `native_406.png`, weapons filter `native_511.png`,
+and quantity 1 / subtotal 500 OTH `native_555.png`. The earlier `armory_final`
+run's `native_382.png` checks scrolling to Cloak through Leather Boots. Question-mark
+merchandise names are also present in PCSX2 and are intentional locked items.
+
+`comparison.png` / `comparison.json` normalize UI captures to 640x480 (the user's
+before image has a 14-pixel left border removed). First-item glyph bright pixels:
+before **0**, PCSX2 **50**, fixed **48**. All six category zones have no icon edges
+before and populated edges after. The footer's warm separator peaks at row **446**
+in PCSX2 and **445** native. A blank stone zone averages luminance **10.86** before,
+**81.45** PCSX2, **83.44** fixed. These are presence/geometry checks, not exact pixel
+parity: capture resolutions and texture filtering differ, and the 3D camera positions
+are not registered.
+
+Starting route (Windows, no WSL):
+
+```powershell
+python tools/attacks_menu_probe.py --tag armory_check --exe build_usa/port/vp2s.exe --script-file tools/pad_scripts/armory_usa.txt --duration 600
+```
+
+Inspect captures before interpreting a result: entry timings shift under heavy CPU
+load. At the Armory doorway, a live `UP/1200` enters; inside, `LEFT/800` approaches
+the shopkeeper. Use `CROSS/150` to talk, then again after each transition to open
+Buy, All Items, and the item list. Append LF-terminated commands to that probe's
+`pad.txt`; never use the manual session's input file. Triangle cycles Performance,
+Resistance, Effect and Description. A 900 ms Down hold scrolls the list; Circle
+returns to category selection, Right selects weapons, Cross enters the filtered list.
+Right/Left in the list changes quantity; Circle backs out. First shop exit starts a
+multi-page explanation of locked merchandise; advance it before judging field controls.
+
+Final standard-build replay: `armory_cache_final/native_195.png` reaches All Items
+using the tracked route without intervention; `native_209.png` verifies Performance
+and the help icons. A proposed text-icon cache reset was tested in this replay,
+did not fix the separate badge below, and was reverted from the delivered change.
+
+Open follow-up: a tiny cyan control badge remains near the top right during the
+first-visit post-shop dialogue (`armory_verified/native_602.png` and
+`armory_cache_final/native_229.png`); PCSX2's `20261105002355.png` has no badge.
+It disappears when the dialogue ends (`armory_verified/native_754.png`). Both
+snapshots' field-prompt text elements have zero primitives in their original cached
+draw data. Clearing captured text icons at text-layout start had no effect, so that
+cache-reset hypothesis is rejected. Possible causes are another captured draw type
+retained across element reuse or a draw-rule mismatch. Separating evidence needed:
+log the native element/class and capture type that submits the badge during this
+dialogue, then compare its original draw condition. Do not hide a screen region.

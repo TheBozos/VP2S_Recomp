@@ -69,6 +69,7 @@ namespace
         uint32_t tag = 0, index = 0; // the sheet's key, from the texture manager (0: by TBP, sheetKey)
     };
     std::unordered_map<uint32_t, SpriteQuad> g_sprites; // element (sprite - 0x50) -> its quad
+    std::array<float, 4> g_uiScissor{0.0f, 0.0f, -1.0f, -1.0f};
 
     // The sheets the interface samples, by the TBP the game uploads them to (docs/vp2_2d.md): their keys.
     bool sheetKey(uint32_t tbp, uint32_t &tag, uint32_t &index)
@@ -686,6 +687,7 @@ namespace
         material.alphaTest = true;
         material.alphaRef = 0;
         material.textured = texture != nullptr;
+        std::copy(g_uiScissor.begin(), g_uiScissor.end(), material.scissor);
         const auto vertex = [&](float vx, float vy, float u, float v) {
             ps2x::native::Vertex out;
             out.x = 1728.0f + vx;
@@ -712,6 +714,7 @@ namespace
         material.depthTest = false;
         material.depthWrite = true; // the game's interface writes its Z (near): the post effect leaves it alone
         material.textured = false;
+        std::copy(g_uiScissor.begin(), g_uiScissor.end(), material.scissor);
         const auto vertex = [&](const StripVertex &s) {
             ps2x::native::Vertex out;
             out.x = 1728.0f + s.x;
@@ -741,6 +744,7 @@ namespace
         material.alphaTest = true;
         material.alphaRef = 0;
         material.textured = texture != nullptr;
+        std::copy(g_uiScissor.begin(), g_uiScissor.end(), material.scissor);
         const auto vertex = [&](float vx, float vy, float u, float v, uint32_t rgba) {
             ps2x::native::Vertex out;
             out.x = 1728.0f + vx;
@@ -816,6 +820,13 @@ namespace
     // A layer's elements drawn natively (its children list from +8, position +0x40 / +0x44, alpha +0xE0).
     void drawLayer(uint8_t *rdram, uint32_t layer)
     {
+        // Clip elements affect subsequent siblings until the matching reset.
+        // A layer's state must not escape into the next layer or scene overlays.
+        struct RestoreScissor
+        {
+            std::array<float, 4> previous = g_uiScissor;
+            ~RestoreScissor() { g_uiScissor = previous; }
+        } restoreScissor;
         const float layerX = real(rdram, layer + 0x40u), layerY = real(rdram, layer + 0x44u);
         // Alphas and the colour multiplier are floats, 128 = 1.
         const auto byte = [&](uint32_t address) { return static_cast<uint32_t>(std::clamp(real(rdram, address), 0.0f, 255.0f)); };
@@ -884,6 +895,30 @@ namespace
             }
             if (!rdram[element + 0x39u] || !rdram[element + 0x3Du] || !rdram[element + 0x3Bu])
                 continue;
+            if ((word(rdram, element) & 0x1FFFFFFu) == 0x15A420u)
+            {
+                // 0x2EF5B0: +0x50 restores the screen; +0x51 makes the box layer-relative.
+                if (rdram[element + 0x50u])
+                    g_uiScissor = {0.0f, 0.0f, -1.0f, -1.0f};
+                else
+                {
+                    const uint32_t manager = word(rdram, 0x35E170u) & 0x1FFFFFFu;
+                    const float sx = real(rdram, manager + 0x840u) / 16.0f;
+                    const float sy = real(rdram, manager + 0x844u) / 16.0f;
+                    const float x = real(rdram, element + 0x18u) + (rdram[element + 0x51u] ? layerX : 0.0f);
+                    const float y = real(rdram, element + 0x1Cu) + (rdram[element + 0x51u] ? layerY : 0.0f);
+                    if (sx > 0.0f && sy > 0.0f)
+                    {
+                        const float x0 = std::max(0.0f, std::trunc(x * sx));
+                        const float y0 = std::max(0.0f, std::trunc(y * sy));
+                        const float x1 = std::min(static_cast<float>(word(rdram, manager + 0x838u)), std::trunc((x + real(rdram, element + 0x20u)) * sx));
+                        const float y1 = std::min(static_cast<float>(word(rdram, manager + 0x83Cu)), std::trunc((y + real(rdram, element + 0x24u)) * sy));
+                        g_uiScissor = {1728.0f + x0 / sx, 1824.0f + y0 / sy * (448.0f / 480.0f),
+                                       1728.0f + (x1 + 1.0f) / sx - 1.0f, 1824.0f + (y1 + 1.0f) / sy * (448.0f / 480.0f) - 1.0f};
+                    }
+                }
+                continue;
+            }
             {
                 static int s_traced = 0;
                 if (s_traced < 5)
@@ -917,6 +952,186 @@ namespace
                                    std::move(texture));
                     }
             };
+            // Custom shop builders use source-frame pixels rather than the text
+            // framework's virtual coordinates. Their FIS/DTT records remain live.
+            const uint32_t uiManager = word(rdram, 0x35E170u) & 0x1FFFFFFu;
+            const float sourceX = real(rdram, uiManager + 0x840u) / 16.0f;
+            const float sourceY = real(rdram, uiManager + 0x844u) / 16.0f;
+            const auto sourcePart = [&](uint32_t resource, uint32_t slot, uint32_t part,
+                                        float x0, float y0, float x1, float y1, uint32_t rgba) {
+                if (resource < 0x100000u || part < 0x100000u || slot >= 256u || !(sourceX > 0.0f && sourceY > 0.0f))
+                    return;
+                const uint32_t fis = word(rdram, resource + 0x10B8u + 24u * slot) & 0x1FFFFFFu;
+                if (word(rdram, fis) != 0x00534946u)
+                    return;
+                const auto half = [&](uint32_t p) { return static_cast<float>(word(rdram, p) & 0xFFFFu); };
+                SpriteQuad q;
+                q.tag = word(rdram, fis + 0x14u); q.index = word(rdram, fis + 0x18u);
+                q.csa = rdram[(part + 0xCu) & 0x1FFFFFFu];
+                q.u0 = half(part) / 4096.0f; q.v0 = half(part + 2u) / 4096.0f;
+                q.u1 = half(part + 4u) / 4096.0f; q.v1 = half(part + 6u) / 4096.0f;
+                q.x0 = std::trunc(x0 * 16.0f) / (16.0f * sourceX);
+                q.y0 = std::trunc(y0 * 16.0f) / (16.0f * sourceY);
+                q.x1 = std::trunc(x1 * 16.0f) / (16.0f * sourceX);
+                q.y1 = std::trunc(y1 * 16.0f) / (16.0f * sourceY);
+                q.rgba = rgba;
+                drawSprite(q, false);
+            };
+            if ((word(rdram, element) & 0x1FFFFFFu) == 0x167EF0u && sourceX > 0.0f && sourceY > 0.0f)
+            {
+                // 0x46BB60: textured help strip plus its left-to-right shade.
+                const uint32_t parts = word(rdram, layer + 0xF4u) & 0x1FFFFFFu;
+                const uint32_t resource = word(rdram, layer + 0x388u) & 0x1FFFFFFu;
+                const uint32_t slot = word(rdram, layer + 0x38Cu);
+                const uint32_t dimensions = word(rdram, 0x35DE60u) & 0x1FFFFFFu;
+                const float x = layerX * 512.0f / 640.0f, y = layerY * 512.9599609375f / 480.0f;
+                const float right = static_cast<float>(word(rdram, dimensions + 0x3C6Cu) & 0xFFFFu);
+                if (parts >= 0x100000u)
+                {
+                    const float bottom = y + (word(rdram, parts + 0x5Au) & 0xFFFFu);
+                    sourcePart(resource, slot, parts + 0x50u, x, y, right, bottom, 0x80606060u);
+                    const uint32_t colors[4] = {0x00303030u, 0x00303030u | layerAlpha << 24,
+                                                0x00303030u, 0x00303030u | layerAlpha << 24};
+                    drawQuadCorners(std::trunc(x * 16.0f) / (16.0f * sourceX), std::trunc(y * 16.0f) / (16.0f * sourceY),
+                                    right / sourceX, std::trunc(bottom * 16.0f) / (16.0f * sourceY), 0, 0, 0, 0, colors, nullptr);
+                }
+            }
+            if ((word(rdram, element) & 0x1FFFFFFu) == 0x167DF0u)
+            {
+                // 0x46A600: framed Buy/Sell buttons. Part 8 is the base;
+                // part 6 fades over it by the live selection amount at +0x58.
+                const uint32_t parent = word(rdram, element + 0x54u) & 0x1FFFFFFu;
+                const uint32_t parts = word(rdram, parent + 0x8C0u) & 0x1FFFFFFu;
+                const uint32_t resource = word(rdram, parent + 0x8C4u) & 0x1FFFFFFu;
+                const uint32_t slot = word(rdram, parent + 0x8C8u);
+                const float x = layerX * 512.0f / 640.0f;
+                const float y = (layerY + real(rdram, element + 0x1Cu)) * 512.9599609375f / 480.0f - 2.0f;
+                const float bottom = y + 26.716665267944336f;
+                if (parent >= 0x100000u && parts >= 0x100000u)
+                {
+                    sourcePart(resource, slot, parts + 0x30u, x - (word(rdram, parts + 0x38u) & 0xFFFFu), y, x, bottom, 0x80808080u);
+                    sourcePart(resource, slot, parts + 0x40u, x + 96.0f, y, x + 96.0f + (word(rdram, parts + 0x48u) & 0xFFFFu), bottom, 0x80808080u);
+                    sourcePart(resource, slot, parts + 0x80u, x, y + 1.0f, x + 96.0f, bottom - 1.0f, 0x80808080u);
+                    const uint32_t selection = static_cast<uint32_t>(std::clamp(real(rdram, element + 0x58u) * 128.0f, 0.0f, 128.0f));
+                    if (selection)
+                        sourcePart(resource, slot, parts + 0x60u, x, y + 1.0f, x + 96.0f, bottom - 1.0f, 0x00808080u | selection << 24);
+                }
+            }
+            if ((word(rdram, element) & 0x1FFFFFFu) == 0x15AC30u)
+            {
+                // 0x30EE00: row selection is a black strip with 16-unit fade ends.
+                const float x = layerX + real(rdram, element + 0x18u), y = layerY + real(rdram, element + 0x1Cu);
+                const float w = real(rdram, element + 0x20u), h = real(rdram, element + 0x24u);
+                const uint32_t a = static_cast<uint32_t>(std::clamp(real(rdram, layer + 0xE0u) * real(rdram, element + 0x28u) / 512.0f, 0.0f, 255.0f)) << 24;
+                const uint32_t rising[4] = {0u, a, 0u, a}, middle[4] = {a, a, a, a}, falling[4] = {a, 0u, a, 0u};
+                drawQuadCorners(x, y, x + 16.0f, y + h, 0, 0, 0, 0, rising, nullptr);
+                drawQuadCorners(x + 16.0f, y, x + w - 16.0f, y + h, 0, 0, 0, 0, middle, nullptr);
+                drawQuadCorners(x + w - 16.0f, y, x + w, y + h, 0, 0, 0, 0, falling, nullptr);
+            }
+            if ((word(rdram, element) & 0x1FFFFFFu) == 0x167CF0u)
+            {
+                // 0x469EB0: the three-piece stone header.
+                const uint32_t parts = word(rdram, layer + 0xF4u) & 0x1FFFFFFu;
+                const uint32_t resource = word(rdram, layer + 0x150u) & 0x1FFFFFFu;
+                const uint32_t slot = word(rdram, layer + 0x154u);
+                const float x = layerX * 512.0f / 640.0f, y = layerY * 512.9599609375f / 480.0f - 2.0f;
+                const float w = real(rdram, layer + 0x158u), h = real(rdram, layer + 0x15Cu);
+                if (parts >= 0x100000u)
+                {
+                    sourcePart(resource, slot, parts, x - (word(rdram, parts + 8u) & 0xFFFFu), y, x, y + h, 0x80686868u);
+                    sourcePart(resource, slot, parts + 16u, x, y, x + w, y + h, 0x80686868u);
+                    sourcePart(resource, slot, parts + 32u, x + w, y, x + w + (word(rdram, parts + 40u) & 0xFFFFu), y + h, 0x80686868u);
+                }
+                // Shop header 0x4A3500 adds the selected character's portrait.
+                if (layerKind == 0x16D210u && static_cast<int32_t>(word(rdram, layer + 0x1670u)) >= 0 && real(rdram, layer + 0x1674u) <= 0.0f)
+                {
+                    const uint32_t part = word(rdram, layer + 0x1660u) & 0x1FFFFFFu;
+                    const uint32_t flags = word(rdram, 0x48E04Cu) & 0x1FFFFFFu;
+                    const float narrow = rdram[flags + 3u] & 0x10u ? 0.75f : 1.0f;
+                    const float right = (layerX + 296.0f) * 512.0f / 640.0f;
+                    const float bottom = (layerY + 126.0f) * 512.9599609375f / 480.0f;
+                    const float width = static_cast<float>(word(rdram, part + 8u) & 0xFFFFu) * 0.9f * 0.88f * narrow;
+                    const float height = static_cast<float>(word(rdram, part + 10u) & 0xFFFFu) * 1.2f * 0.88f;
+                    sourcePart(resource, word(rdram, layer + 0x1670u), part, right - width, bottom - height, right, bottom, 0x80808080u);
+                }
+            }
+            if ((word(rdram, element) & 0x1FFFFFFu) == 0x167C00u && sourceX > 0.0f && sourceY > 0.0f)
+            {
+                // 0x469810: footer backing and warm separator.
+                const uint32_t dimensions = word(rdram, 0x35DE60u) & 0x1FFFFFFu;
+                const float width = static_cast<float>(word(rdram, dimensions + 0x3C6Cu) & 0xFFFFu) / sourceX;
+                const float y = std::trunc((layerY * 512.9599609375f / 480.0f - 2.0f) * 16.0f) / (16.0f * sourceY);
+                const uint32_t alpha = std::min<uint32_t>(layerAlpha, 255u) << 24;
+                const uint32_t black[4] = {alpha, alpha, alpha, alpha};
+                drawQuadCorners(0, y, width, y + 48.0f / sourceY, 0, 0, 0, 0, black, nullptr);
+                const uint32_t dark = 0x002B1243u | alpha, light = 0x002B51BDu | alpha;
+                const uint32_t rising[4] = {dark, light, dark, light}, falling[4] = {light, dark, light, dark};
+                drawQuadCorners(0, y - 2.0f / sourceY, width * 0.25f, y, 0, 0, 0, 0, rising, nullptr);
+                drawQuadCorners(width * 0.25f, y - 2.0f / sourceY, width, y, 0, 0, 0, 0, falling, nullptr);
+                if (layerKind == 0x16D2E0u)
+                {
+                    // 0x4A24C0: two denomination emblems from the shop resource.
+                    const uint32_t world = word(rdram, 0x48EEE0u) & 0x1FFFFFFu;
+                    const uint32_t resource = word(rdram, world + 0x167E4u) & 0x1FFFFFFu;
+                    const uint32_t slot = word(rdram, world + 0x168B8u);
+                    const uint32_t part = (word(rdram, layer + 0x5BCu) + 0xF0u) & 0x1FFFFFFu;
+                    const float py = layerY * 512.9599609375f / 480.0f;
+                    for (const float offset : {208.0f, 436.0f})
+                    {
+                        const float px = layerX * 512.0f / 640.0f + offset;
+                        sourcePart(resource, slot, part, px, py, px + (word(rdram, part + 8u) & 0xFFFFu), py + (word(rdram, part + 10u) & 0xFFFFu), 0x80808080u);
+                    }
+                }
+            }
+            // Shop category selection (0x4A4BB0): a cyan strip with transparent ends.
+            if ((word(rdram, element) & 0x1FFFFFFu) == 0x16D010u)
+            {
+                const float x = layerX + real(rdram, element + 0x18u), y = layerY + real(rdram, element + 0x1Cu);
+                const float w = real(rdram, element + 0x20u), h = real(rdram, element + 0x24u);
+                const float edge = std::min(16.0f, w * 0.5f);
+                const uint32_t alpha = static_cast<uint32_t>(std::clamp(real(rdram, layer + 0xE0u) * real(rdram, element + 0x28u) / 256.0f, 0.0f, 255.0f));
+                const uint32_t clear = 0x00C0C080u, fill = clear | alpha << 24;
+                const uint32_t left[4] = {clear, fill, clear, fill}, middle[4] = {fill, fill, fill, fill}, right[4] = {fill, clear, fill, clear};
+                drawQuadCorners(x, y, x + edge, y + h, 0, 0, 0, 0, left, nullptr);
+                drawQuadCorners(x + edge, y, x + w - edge, y + h, 0, 0, 0, 0, middle, nullptr);
+                drawQuadCorners(x + w - edge, y, x + w, y + h, 0, 0, 0, 0, right, nullptr);
+            }
+            // The category strip's custom builder (mod023 0x4A4520) emits its icons
+            // directly. Resolve the live resource's FIS and DTT instead of captured packets.
+            if ((word(rdram, element) & 0x1FFFFFFu) == 0x16D040u)
+            {
+                const uint32_t resource = word(rdram, layer + 0x468u) & 0x1FFFFFFu;
+                const uint32_t slot = word(rdram, layer + 0x470u);
+                const uint32_t parts = word(rdram, layer + 0x464u) & 0x1FFFFFFu;
+                const uint32_t fis = resource >= 0x100000u && slot < 256u ? word(rdram, resource + 0x10B8u + 24u * slot) & 0x1FFFFFFu : 0u;
+                const uint32_t manager = word(rdram, 0x35E170u) & 0x1FFFFFFu;
+                const float sx = real(rdram, manager + 0x840u) / 16.0f, sy = real(rdram, manager + 0x844u) / 16.0f;
+                if (parts >= 0x100000u && word(rdram, fis) == 0x00534946u && sx > 0.0f && sy > 0.0f)
+                {
+                    const uint32_t dimensions = word(rdram, 0x35DE60u) & 0x1FFFFFFu;
+                    const float ox = 2048.0f - static_cast<float>(word(rdram, dimensions + 0x3C6Cu) & 0xFFFFu) * 0.5f;
+                    const float oy = 2048.0f - static_cast<float>((word(rdram, dimensions + 0x3C6Cu) >> 16) & 0xFFFFu) * 0.5f;
+                    float x = ox + 512.0f * (layerX + 60.0f) / 640.0f;
+                    const float y = oy + (layerY + 4.0f) * 512.9599609375f / 480.0f - 2.0f;
+                    const auto half = [&](uint32_t p) { return static_cast<float>(word(rdram, p) & 0xFFFFu); };
+                    const uint32_t count = std::min<uint32_t>(rdram[layer + 0x47Au], 16u);
+                    for (uint32_t i = 0; i < count; ++i, x += 72.0f)
+                    {
+                        const uint32_t part = parts + 16u * (i == 5u && rdram[layer + 0x47Bu] != 1u ? 16u : i + 9u);
+                        SpriteQuad q;
+                        q.tag = word(rdram, fis + 0x14u); q.index = word(rdram, fis + 0x18u);
+                        q.csa = rdram[part + 0xCu];
+                        q.u0 = half(part) / 4096.0f; q.v0 = half(part + 2u) / 4096.0f;
+                        q.u1 = half(part + 4u) / 4096.0f; q.v1 = half(part + 6u) / 4096.0f;
+                        q.x0 = (std::trunc(x * 16.0f) / 16.0f - ox) / sx;
+                        q.x1 = (std::trunc((x + 30.0f) * 16.0f) / 16.0f - ox) / sx;
+                        q.y0 = (std::trunc(y * 16.0f) / 16.0f - oy) / sy;
+                        q.y1 = (std::trunc((y + 30.0f) * 16.0f) / 16.0f - oy) / sy;
+                        q.rgba = 0x80808080u;
+                        drawSprite(q, false);
+                    }
+                }
+            }
             // NPC dialogue's custom backing (mod003 0x468620). The game's nine records
             // select corners from a 4x4 grid and transparent/half-opacity black.
             if ((word(rdram, element) & 0x1FFFFFFu) == 0x167B50u)
@@ -1213,7 +1428,14 @@ namespace
             if (const auto window = g_windows.find(element); window != g_windows.end())
                 for (const auto &strip : window->second)
                     drawStrip(strip);
-            if (const auto sprite = g_sprites.find(element); sprite != g_sprites.end())
+            if ((word(rdram, element) & 0x1FFFFFFu) == 0x15AC60u)
+            {
+                // 0x310480 draws two sprites, 0x68 bytes apart: backing and item glyph.
+                for (const uint32_t offset : {0x50u, 0xB8u})
+                    if (rdram[element + offset + 0x66u])
+                        drawSprite(spriteQuad(rdram, element + offset, layerX, layerY), false);
+            }
+            else if (const auto sprite = g_sprites.find(element); sprite != g_sprites.end())
                 drawSprite(sprite->second);
             if (const auto list = g_quadLists.find(element); list != g_quadLists.end())
                 for (const SpriteQuad &q : list->second)

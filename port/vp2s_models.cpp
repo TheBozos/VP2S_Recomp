@@ -706,11 +706,16 @@ namespace
                 }
             }
             material.textured = texture != nullptr;
-            // VP2S_MODELS_MATLOG: the first meshes' materials as drawn (diagnosis).
+            // VP2S_MODELS_MATLOG: materials as drawn (diagnosis). Optional PART substring filter and LIMIT
+            // keep the title's meshes from consuming a field investigation's log.
             {
                 static const bool s_log = std::getenv("VP2S_MODELS_MATLOG") != nullptr;
+                static const char *s_part = std::getenv("VP2S_MODELS_MATLOG_PART");
+                static const int s_limit = [] { const char *v = std::getenv("VP2S_MODELS_MATLOG_LIMIT"); return v ? std::clamp(std::atoi(v), 1, 10000) : 60; }();
                 static int s_logged = 0;
-                if (s_log && s_logged < 60)
+                static std::unordered_map<std::string, bool> s_seen;
+                if (s_log && s_logged < s_limit && (!s_part || part.find(s_part) != std::string::npos) &&
+                    s_seen.emplace(std::to_string(object) + ":" + part + ":" + std::to_string(offset), true).second)
                 {
                     ++s_logged;
                     std::printf("[vp2s-models] mat object %x %s+%x alpha %02x prim %03x tex0hi %08x mode %u textured %d colour %.2f %.2f %.2f %.2f "

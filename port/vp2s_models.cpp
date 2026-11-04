@@ -1222,6 +1222,7 @@ struct DofBlock
 static std::vector<DofBlock> g_dofBlocks;
 static float g_dofGain = 0.0f;        // the game's g for its blurred copy (+0x131E0) of this frame's passes
 static float g_brightnessGain = 0.0f; // the brightness pass's gain this frame (0: none)
+static size_t g_glowPass = SIZE_MAX;  // this frame's glow pass (its gain set at the frame's end)
 
 // The scene's screen objects (a fade, the pause's frozen frame: vp2sUiSceneScreens) go between the 3D with its effect
 // passes and the interface: drawn once per frame where the interface starts, else at the frame's end.
@@ -1272,6 +1273,10 @@ void vp2sModelsFrameEnd()
                 pass->gain = g_dofGain / g_brightnessGain;
         }
     g_dofBlocks.clear();
+    if (g_glowPass != SIZE_MAX && g_brightnessGain > 0.0f)
+        if (auto *pass = ps2x::native::Renderer::instance().adjustPostEffect(g_glowPass))
+            pass->gain = 1.0f / g_brightnessGain;
+    g_glowPass = SIZE_MAX;
     g_brightnessGain = 0.0f;
     g_interfaceStart = SIZE_MAX;
     g_brightnessAt = SIZE_MAX;
@@ -1448,6 +1453,28 @@ void vp2sInstallModels(PS2Runtime &)
                 float g = real(post + 0x131E0u);
                 if (!(g >= 0.25f && g < 8.0f)) // a per-frame field: between frames a stale word (a denormal seen) is no gain
                     g = 2.0f;
+                // The glow (FUN_002CC570, after the blurred copies): on with +0xDFBC and +0xEF09, or +0x130E0 and +0xEF0A.
+                // The frame before the brightness pass, shrunk to 128 x 88 less 25 / 255, at 64 / 128 (Cs x As + Cs, the
+                // frame's alpha about 0), as three levels (each half the last) blurred, added at 76 / 128 each x +0xEF08 /
+                // 128 (values of the PS2's passes, PCSX2 GS dumps of the town and the harbour). Put first: it goes after the blurred copies put at the same batch. Its
+                // gain (back to the frame before the brightness pass) is set at the frame's end. VP2S_GLOW=0: none.
+                static const bool s_glowOff = [] { const char *v = std::getenv("VP2S_GLOW"); return v && v[0] == '0'; }();
+                const uint32_t at = post + 0x10000u;
+                if (!s_glowOff && ((rdram[at - 0x2044u] && rdram[at - 0x10F7u]) || (rdram[at + 0x30E0u] && rdram[at - 0x10F6u])))
+                {
+                    ps2x::native::Renderer::PostEffect e;
+                    e.glow = true;
+                    e.width = 128;
+                    e.height = 88;
+                    e.gain = 0.5f;
+                    e.sigma = 1.5f;
+                    e.glowThreshold = 25.0f / 255.0f;
+                    e.glowLevelCount = 3;
+                    e.glowLevelWeight = 0.5f * 76.0f / 128.0f;
+                    e.alpha = rdram[at - 0x10F8u] / 128.0f;
+                    if (e.alpha > 0.0f)
+                        g_glowPass = ps2x::native::Renderer::instance().postEffect(e, postEffectAt());
+                }
                 // Every block the game drew this frame, in its order, each with its own table: alpha min(128, 2c) / 128
                 // x +0x1E / 128 (c moved toward 128 by s, +0x34), and with +0x20 & 3 == 1 only where the frame's Z is at
                 // most +0x38 (the game's Z test against its sprite's Z: 0 the cleared background). VP2S_DOF_BLOCKS=0:

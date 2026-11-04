@@ -840,7 +840,8 @@ namespace
                     out.u = (-view[0] + 1.41421f * q) / denominator;
                     out.v = (view[1] + 1.41421f * q) / denominator;
                 }
-                // The vertex colour lit as the mesh program does (lighting modes 0 and 1; the others not yet: as stored).
+                // The vertex colour lit as the mesh program does (lighting modes 0 and 1; the others not yet: as stored, with
+                // the object's alpha).
                 std::array<float, 4> factor{1.0f, 1.0f, 1.0f, 1.0f};
                 if (carriedMode == 0u)
                 {
@@ -863,6 +864,9 @@ namespace
                                     lightColour[3][c] * dots[3] + ambient[c];
                     factor[3] = objectColour[3];
                 }
+                else // modes 2 and 3: the colour as stored, the alpha still the object's (row 13.w: a weapon put away is
+                     // drawn at 0, Alicia's sword in town)
+                    factor[3] = objectColour[3];
                 uint8_t lit[4];
                 for (int c = 0; c < 4; ++c)
                     lit[c] = static_cast<uint8_t>(std::clamp(static_cast<float>(v.rgba[c]) * factor[c], 0.0f, limit[c] > 0.0f ? std::min(limit[c], 255.0f) : 255.0f));

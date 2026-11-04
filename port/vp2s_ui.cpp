@@ -823,7 +823,8 @@ namespace
         std::lock_guard<std::mutex> lock(g_mutex);
         // The place-name plate's layer (0x165D30 at +0x10) under the pause's frozen frame: the PS2 draws it first and
         // covers it (only the frame's copy of it shows).
-        if (g_frozenShown && (word(rdram, layer + 0x10u) & 0x1FFFFFFu) == 0x165D30u)
+        const uint32_t layerKind = word(rdram, layer + 0x10u) & 0x1FFFFFFu;
+        if (g_frozenShown && (layerKind == 0x165D30u || layerKind == 0x167850u))
             return;
         {
             static const bool s_tree = std::getenv("VP2S_UI_TREE_LOG") != nullptr;
@@ -916,6 +917,98 @@ namespace
                                    std::move(texture));
                     }
             };
+            // Location announcement, mod003 0x465150 (class 0x167820). Its custom build does
+            // not call the generic sprite emitters: read the same layout and resource records here.
+            if ((word(rdram, element) & 0x1FFFFFFu) == 0x167820u && !(rdram[layer + 0x2ACu] & 4u))
+            {
+                constexpr float sx = 640.0f / 512.0f, sy = 480.0f / 512.96f;
+                const uint32_t holder = word(rdram, (word(rdram, 0x0048E048u) & 0x1FFFFFFu) + 0x5Cu) & 0x1FFFFFFu;
+                const uint32_t parts = holder >= 0x100000u ? word(rdram, holder + 0x224u) & 0x1FFFFFFu : 0u;
+                if (parts >= 0x100000u)
+                {
+                    const auto half = [&](uint32_t p) { return static_cast<float>(word(rdram, p) & 0xFFFFu); };
+                    const bool reverse = (rdram[layer + 0x2ACu] & 1u) != 0u;
+                    const bool narrow = (rdram[((word(rdram, 0x0048E04Cu) & 0x1FFFFFFu) + 3u) & 0x1FFFFFFu] & 16u) != 0u;
+                    const float x = layerX / sx, y = layerY / sy;
+                    const float width = static_cast<float>(static_cast<int32_t>(word(rdram, layer + 0x27Cu))) / sx;
+                    const float height = std::trunc(real(rdram, layer + 0xF0u + 0xF8u) / sx);
+                    const float tail = half(parts + 0x158u) * 0.85f * (narrow ? 0.75f : 1.0f);
+                    const auto piece = [&](uint32_t p, float x0, float y0, float x1, float y1) {
+                        // Reversed X is intentional: the short variant mirrors its background.
+                        drawQuadUv(x0 * sx, y0 * sy, x1 * sx, y1 * sy, half(p) / 4096.0f, half(p + 2u) / 4096.0f,
+                                   half(p + 4u) / 4096.0f, half(p + 6u) / 4096.0f, 0x00808080u | layerAlpha << 24,
+                                   vp2sGameTexture(0x4E484F4Au, 0x272Bu, 0u));
+                    };
+                    const float right = x + width + 16.0f, top = y - 4.0f;
+                    if (height >= 29.0f && !reverse)
+                    {
+                        const float split = top + half(parts + 0xBAu);
+                        piece(parts + 0xB0u, x, top, right, split);
+                        piece(parts + 0x150u, right, top, right + tail, top + half(parts + 0x15Au));
+                        piece(parts + 0x140u, x - tail, split, right - tail, split + half(parts + 0x14Au));
+                        piece(parts + 0x150u, right - tail, split, right, split + half(parts + 0x15Au));
+                        const float lineX = x + (16.0f + real(rdram, layer + 0x2A4u)) / sx;
+                        const auto line = [&](float y0, uint32_t rgb) {
+                            const uint32_t colour = rgb | layerAlpha << 24;
+                            const uint32_t corners[4] = {colour, colour, colour, colour};
+                            drawQuadCorners(lineX * sx, y0 * sy, (x + width) * sx, (y0 + 2.0f) * sy,
+                                            0, 0, 0, 0, corners, nullptr);
+                        };
+                        line(static_cast<float>(static_cast<int32_t>(y + 32.0f)), 0x010101u);
+                        line(static_cast<float>(static_cast<int32_t>(y + 30.0f)), 0xF8F8F8u);
+                    }
+                    else
+                    {
+                        const float a = reverse ? right : x, b = reverse ? x : right;
+                        piece(parts + 0x140u, a, top, b, top + half(parts + 0x14Au));
+                        piece(parts + 0x150u, b, top, b + (reverse ? -tail : tail), top + half(parts + 0x15Au));
+                    }
+                    const uint32_t resource = word(rdram, layer + 0x26Cu) & 0x1FFFFFFu;
+                    const uint32_t part = word(rdram, layer + 0x268u) & 0x1FFFFFFu;
+                    if (static const char *dump = std::getenv("VP2S_LOCATION_DUMP"); dump && layerX >= 0.0f)
+                    {
+                        static bool saved = false;
+                        if (!saved)
+                        {
+                            saved = true;
+                            if (FILE *f = std::fopen(dump, "wb"))
+                            {
+                                std::fwrite(rdram, 1, 32u << 20, f);
+                                std::fclose(f);
+                            }
+                            std::printf("[location] layer %x element %x parts %x resource %x part %x xy %.2f %.2f width %.2f height %.2f flags %x\n",
+                                        layer, element, parts, resource, part, layerX, layerY, width, height, rdram[layer + 0x2ACu]);
+                        }
+                    }
+                    if (word(rdram, layer + 0x270u) && resource >= 0x100000u && (rdram[resource + 0x12ACu] & 1u) && part >= 0x100000u)
+                    {
+                        const uint32_t record = resource + 0x10A8u + 24u * word(rdram, layer + 0x284u);
+                        const uint32_t tbp = word(rdram, record) & 0x3FFFu;
+                        const uint32_t fis = word(rdram, record + 0x10u) & 0x1FFFFFFu;
+                        uint32_t tag = 0, index = 0;
+                        // This resource uploads directly, outside the general texture cache. The same
+                        // entry that owns its texture template retains the loaded FIS pointer.
+                        const bool keyed = fis >= 0x100000u && word(rdram, fis) == 0x00534946u;
+                        if (keyed)
+                        {
+                            tag = word(rdram, fis + 0x14u);
+                            index = word(rdram, fis + 0x18u);
+                        }
+                        if (keyed || residentAt(rdram, tbp, tag, index) || sheetKey(tbp, tag, index))
+                        {
+                            const float w = half(part + 8u) * (narrow ? 0.75f : 1.0f), h = half(part + 0xAu);
+                            const float x0 = reverse ? x + width - (16.0f + w) : x + 16.0f;
+                            const float x1 = x0 + w * (reverse ? 1.0f : 0.85f);
+                            const float y0 = reverse ? y + static_cast<float>(static_cast<int32_t>(height) / 2) - h * 0.5f :
+                                                      y + static_cast<float>(static_cast<int32_t>(height) / 2) - h * 0.425f - 8.0f;
+                            const uint32_t alpha = static_cast<uint32_t>(std::clamp(real(rdram, layer + 0xE0u) * real(rdram, layer + 0x298u), 0.0f, 255.0f));
+                            drawQuadUv(x0 * sx, y0 * sy, x1 * sx, (y0 + h) * sy,
+                                       half(part) / 4096.0f, half(part + 2u) / 4096.0f, half(part + 4u) / 4096.0f, half(part + 6u) / 4096.0f,
+                                       0x00808080u | alpha << 24, vp2sGameTexture(tag, index, 0u));
+                        }
+                    }
+                }
+            }
             // The prompt's backing bar (class 0x165C30, mod003 build 0x4489B0, drawn each frame here from live data): a
             // rounded cap (part 22) then a body stretched to the screen's right edge (part 23) of the field HUD sheet
             // (TBP 0x800, CBP 0x3FF4: 'JOHN' 0x272B), parts at *(*(*(0x48E048) + 0x5C) + 0x224) (u0, v0, u1, v1 in 4.12,
@@ -1249,7 +1342,7 @@ void vp2sUiSceneScreens(const uint8_t *rdram, uint32_t scene)
     {
         if (frozen != before)
         {
-            ps2x::native::Renderer::instance().captureFrame();
+            ps2x::native::Renderer::instance().capturePreviousFrame();
             std::printf("[vp2s-ui] frozen frame %x: the frame on screen captured\n", frozen);
             std::fflush(stdout);
         }

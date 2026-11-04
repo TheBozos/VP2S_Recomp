@@ -84,3 +84,49 @@ background and border, the player's layer of rooms (records *(M+0x1644), 0xF0 by
 *(M+0x29C)) through the scene object (*(M+0x1630) +0x90) and the map camera (*(M+0x1638)), after the 3D and before
 the effect passes (it is part of the scene: doubled and scattered like it). Not yet: visited rooms only, doors,
 icons, the player's marker (a green spinning kite), the camera footprint, the full map.
+
+## Location announcement (2026-11-04, USA addresses)
+
+The bottom-left "Solde / Port of Logun" announcement is a separate custom element, class `0x167820`,
+build `mod003 0x4650D0`, layout `0x465150`; its layer owner is class `0x167850`.
+It does not call the generic sprite emitters. Class `0x165E00`, already handled by the native UI,
+is the backing of the top-of-screen interaction prompt, not this announcement.
+
+The native draw reads the original layout inputs: layer position `+0x40/+0x44`, alpha `+0xE0`,
+text bounds at `(layer+0xF0)+0xEC`, integer width `+0x27C`, separator inset `+0x2A4`, and flags `+0x2AC`
+(bit 2 suppresses the whole decoration, bit 0 selects the reversed/short layout).
+The normal two-line layout uses parts 11, 20 and 21 from the field HUD's DTT at
+`*(*(*(0x48E048)+0x5C)+0x224)`, sheet `JOHN 0x272B`. Part 11 supplies the upper body;
+part 20 the lower body; part 21 caps both rows. The tail width is `part21.w * 0.85`,
+with the game's additional 0.75 factor in its narrow mode. The separator has a dark offset
+and a light line, drawn from the same layer/text measurements as the original.
+
+The emblem uses the live part at layer `+0x268`, resource `+0x26C`, enable `+0x270`,
+texture-table index `+0x284`, and alpha multiplier `+0x298`. Each 24-byte entry at
+`resource+0x10A8` retains its FIS pointer at `+0x10`; these direct uploads do not appear
+in the general texture cache. Its sheet is resolved from that FIS, rather than a fixed emblem key; Solde's loop-shaped emblem
+is in `JOHN 0x272D`. The original normal-layout horizontal size is 0.85 of its part width.
+The layer remains underneath the pause's frozen scene copy, so it is not redrawn at full brightness.
+The pause now requests `Renderer::capturePreviousFrame()`: copy the completed native target before
+drawing the next frame. `captureFrame()` copies the current frame at its end; using that request
+for pause captured the first paused frame after hiding the location layer, losing the announcement.
+The separate previous-frame API preserves the existing current-frame API for other callers.
+
+Optional `VP2S_LOCATION_DUMP=<file>` writes EE memory once when the layer reaches the screen,
+and logs its layer, element, parts and resource pointers for offline layout verification.
+
+Verification: USA build passed, followed by the guarded Logun-to-inn replay. Normal banner:
+`build_usa/label_pause_verified/native_392.png`; paused banner: `native_396.png`; inn: `native_518.png`.
+The saved PCSX2 reference is `SLUS-21452_20261102201340.png` (paused). At normalized 640x480,
+the strongest separator edge is row 407 in both native captures and PCSX2. The backdrop zone
+`(120,423)-(205,433)` averages luminance 98.53 before and 76.29 after in native gameplay;
+the paused reference is darker overall, so it is used for geometry and pause behavior rather than
+an unpaused brightness target. Local evidence: `build_usa/label_final/comparison.png`,
+`pause_comparison.png`, `comparison.json`. Emblem selection was checked against the live FIS
+pointer at resource entry `+0x10`, which points to `JOHN 0x272D` in the Solde run.
+
+The minimized launcher stalled presentation in two runs before the field. The successful final
+run used an unminimized window placed at (-30000,-30000), with its bounds and unchanged foreground
+window checked by `build/agent_tools/offscreen_test.ps1`; host input/audio stayed disabled and
+the existing start/stop helpers restored the memory cards. No UI changes were inferred from
+the stalled pre-field runs.

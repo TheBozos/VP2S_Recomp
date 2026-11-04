@@ -461,6 +461,12 @@ namespace
             return;
         // The screen matrix: s = M330 * V * O (docs/vp2_models.md), as the renderer takes it (column c at [4c..4c+3]).
         const Mat4 screen = product(rows(rdram, camera + 0x330u), product(rows(rdram, camera + 0x2F0u), rows(rdram, object + 0x90u)));
+        // The camera's fog, for the meshes whose PRIM has FGE (the town's distance haze, toward the fog colour): F = a + b / w
+        // per vertex (w its clip w), at most 255 (no fog), a and b at + 0x5A8 / + 0x5AC (from its far and near at + 0x5B8 /
+        // + 0x5BC and their F at + 0x5C4 / + 0x5C0), the fog colour at + 0x5A0 (also the clear colour). VP2S_FOG=0: no fog.
+        static const bool s_fogOff = [] { const char *v = std::getenv("VP2S_FOG"); return v && v[0] == '0'; }();
+        const float fogA = real(rdram, camera + 0x5A8u), fogB = real(rdram, camera + 0x5ACu);
+        const uint32_t fogColour = word(rdram, camera + 0x5A0u) & 0xFFFFFFu;
         // The object's lights, from its VU block rows as the game writes them each frame (row r at obj + 0x230 + 16 r):
         // directions 1..4 (world space, taken to object space by O's normalised rotation, as the set-up program does),
         // colours 5..8, ambient 19, the object colour 13, the flags 14 (.w lighting table A), the colour limit 0.
@@ -716,6 +722,12 @@ namespace
             }
             material.textureAlpha = (carriedTex0Hi >> 2) & 1u; // TEX0 TCC (bit 34) of the material's template
             material.textureFunction = static_cast<uint8_t>((carriedTex0Hi >> 3) & 3u); // TFX (bits 35..36)
+            // PRIM.FGE from the vertices' GIF tag in the block as it is in EE RAM (row 13 at + 0x70: EOP, PRIM, ST RGBAQ
+            // XYZF2): the game sets it there, the converted material (the file as loaded) has it clear.
+            const bool liveTag = block >= 0x100000u && word(rdram, block + 0x70u) == 0x8000u && word(rdram, block + 0x78u) == 0x412u;
+            const uint32_t drawnPrim = liveTag ? (word(rdram, block + 0x74u) >> 15) & 0x7FFu : prim;
+            material.fog = !s_fogOff && ((drawnPrim >> 5) & 1u) != 0u && fogB != 0.0f;
+            material.fogColour = fogColour;
             // VP2S_MODELS_HIDE_UNTEXTURED_BLEND=1 (diagnosis): leaves out the blended meshes without a texture.
             static const bool s_hideUntexturedBlend = std::getenv("VP2S_MODELS_HIDE_UNTEXTURED_BLEND") != nullptr;
             if (s_hideUntexturedBlend && material.alphaBlend && !((prim >> 4) & 1u))
@@ -801,6 +813,11 @@ namespace
                 out.x = p[0];
                 out.y = p[1];
                 out.z = p[2];
+                if (material.fog)
+                {
+                    const float w = screen[3][0] * p[0] + screen[3][1] * p[1] + screen[3][2] * p[2] + screen[3][3];
+                    out.fog = w > 0.0f ? std::clamp(fogA + fogB / w, 0.0f, 255.0f) / 255.0f : 1.0f;
+                }
                 out.u = v.uv[0] + scroll[0];
                 out.v = v.uv[1] + scroll[1];
                 if (reflective)

@@ -528,7 +528,7 @@ namespace
         const bool working = work >= 0x100000u && work != (model & 0x1FFFFFFu) && word(rdram, work + 0x34u) == count && count != 0u &&
                              word(rdram, work + 0x60u) == word(rdram, model + 0x60u) && word(rdram, work + 0x64u) == word(rdram, model + 0x64u);
         uint32_t cursor = model + 0x60u, block = 0u;
-        uint32_t carriedAlpha = 0x44u, carriedPrim = 0x1Cu, carriedTex0Hi = 0x4u, carriedMode = 0u; // a mesh without its own material keeps the previous one's
+        uint32_t carriedAlpha = 0x44u, carriedPrim = 0x1Cu, carriedTex0Hi = 0x4u, carriedMode = 0u, carriedCull = 1u; // a mesh without its own material keeps the previous one's
         std::vector<ps2x::native::Vertex> triangles;
         for (uint32_t i = 0; i < count && i < 4096u; ++i)
         {
@@ -639,6 +639,7 @@ namespace
                 carriedPrim = m.material[4];
                 carriedTex0Hi = m.material[3];
                 carriedMode = m.material[1]; // row 8.y: the lighting mode
+                carriedCull = m.material[5];
             }
             else if (block >= 0x40u && block - 0x40u != mesh)
             {
@@ -650,6 +651,7 @@ namespace
                     carriedPrim = other->second->material[4];
                     carriedTex0Hi = other->second->material[3];
                     carriedMode = other->second->material[1];
+                    carriedCull = other->second->material[5];
                 }
             }
             const uint32_t alpha = carriedAlpha;
@@ -912,12 +914,36 @@ namespace
                 out.rgba = uint32_t{lit[0]} | uint32_t{lit[1]} << 8 | uint32_t{lit[2]} << 16 | uint32_t{lit[3]} << 24;
             }
             triangles.clear();
+            // Material row 15.x == 0 suppresses back faces. Test the skinned positions in the game's
+            // screen space (Y down), before emitting the canonical strip triangles. Fading objects draw
+            // both sides; shadow volumes need all caster faces, regardless of the camera's direction.
+            const uint32_t cull = block >= 0x100000u ? word(rdram, block + 0x90u) : carriedCull;
+            const bool cullBackFaces = !shadow && cull == 0u && rdram[(object + 0x210u) & 0x1FFFFFFu] == 0u;
+            std::vector<std::array<float, 3>> projected;
+            if (cullBackFaces)
+            {
+                projected.reserve(vertices.size());
+                for (const auto &v : vertices)
+                {
+                    const float w = screen[3][0] * v.x + screen[3][1] * v.y + screen[3][2] * v.z + screen[3][3];
+                    const float q = w > 0.0f ? 1.0f / w : 0.0f;
+                    projected.push_back({(screen[0][0] * v.x + screen[0][1] * v.y + screen[0][2] * v.z + screen[0][3]) * q,
+                                         (screen[1][0] * v.x + screen[1][1] * v.y + screen[1][2] * v.z + screen[1][3]) * q, w});
+                }
+            }
             size_t first = 0;
             for (const uint16_t length : m.strips)
             {
                 for (uint32_t k = 2; k < length && first + k < vertices.size(); ++k)
                 {
                     const size_t a = first + k - 2, b = first + k - 1, c = first + k;
+                    if (cullBackFaces && projected[a][2] > 0.0f && projected[b][2] > 0.0f && projected[c][2] > 0.0f)
+                    {
+                        const auto &p = projected[a], &q = projected[b], &r = projected[c];
+                        const float area = (p[0] - q[0]) * (q[1] - r[1]) - (p[1] - q[1]) * (q[0] - r[0]);
+                        if (!std::signbit(area * ((k & 1u) ? -1.0f : 1.0f)))
+                            continue;
+                    }
                     triangles.push_back(vertices[a]);
                     triangles.push_back(vertices[(k & 1u) ? c : b]);
                     triangles.push_back(vertices[(k & 1u) ? b : c]);

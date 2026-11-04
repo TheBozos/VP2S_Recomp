@@ -92,3 +92,35 @@ Still unsupported here: table-A mode 3 (point/spot lighting), and mode 3 with a 
 whose treatment differs between library builds. These retain the existing stored-colour fallback.
 The broader Waiting Area brightness discrepancy remains open; this change implements a missing material
 calculation and does not introduce a global colour or exposure correction.
+
+## Cloak back faces (2026-11-04)
+
+The model draw honours material row 15.x == 0: reject back-facing triangles after skinning,
+using the signed area in the game's screen coordinates (Y down), with alternating strip winding.
+Positive area and positive zero are rejected, as in the original mesh calculation. Materials 1/2
+retain both sides. Object fade (the byte at `+0x210 != 0`, loaded with LBU by the game) retains both sides, and shadow-volume collection
+keeps every caster face. Triangles crossing the eye plane remain for GPU clipping.
+
+Separating evidence for the hard grey triangles on Alicia's left shoulder in the opening:
+the defect remains with shadow volumes disabled and with mode 3 disabled. Flat mesh colours,
+with post effects disabled, identify the upper patch as event asset `00a9771da0_000+0xD8E40`
+(model `+0xD5E10`, mesh 15), the lower patch as `+0xD84A0` (mesh 12). Both have cull flag 0,
+mode 1, and two-bone skinning. Nearby outer cloth `+0xDB850` also has cull flag 0.
+The native draw previously emitted both sides unconditionally; PCSX2's close-ups have smooth
+outer cloth instead of the dark lining faces.
+
+Local diagnostic evidence (build output, not distributed game data):
+`build_usa/cloak_probe/no_shadow/native_151.png`,
+`build_usa/cloak_probe/mode3_off/native_151.png`,
+`build_usa/cloak_probe/exact_ids2/native_147.png` and `exact_ids2.out`.
+
+Verification: USA port build passed. With default lighting/post effects and shadow volumes enabled,
+`build_usa/cloak_fixed2/native_148.png` removes both patches. The same 6x6 screen regions have
+luminance 65.40 -> 156.67 (upper) and 86.25 -> 160.68 (lower); nearby outer cloth is 174.42 -> 184.77.
+The poses differ slightly (face-region RGB mean absolute difference 9.32), so these numbers verify
+removal of the hard dark faces, not a matched-frame global brightness correction. The before image
+had shadow volumes disabled. Comparison crop and measurements: `cloak_fixed2/comparison.png` and
+`comparison.json`. PCSX2 reference torso capture: `cloak_probe/pcsx2/ref_2.png`.
+The existing `logun_usa.sh` / `guardrun.sh` route also reached the Waiting Area and inn;
+native captures `build_usa/cloak_cull_route/native_39.png` and `native_48.png` retain their
+scenery and characters. Both runs used no host input/focus and the existing card snapshot/restore.

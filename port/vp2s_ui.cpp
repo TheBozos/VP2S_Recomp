@@ -728,12 +728,13 @@ namespace
 
     // The same with the texture's own rectangle (u0, v0)..(u1, v1).
     // A quad with a colour per corner (top left, top right, bottom left, bottom right: a Gouraud panel).
+    // additive: Cs x As + Cd (the GS's ALPHA 0x48) instead of the usual blend.
     void drawQuadCorners(float x0, float y0, float x1, float y1, float u0, float v0, float u1, float v1, const uint32_t corners[4],
-                         std::shared_ptr<const ps2x::native::TextureCache::Texture> texture)
+                         std::shared_ptr<const ps2x::native::TextureCache::Texture> texture, bool additive = false)
     {
         static const float s_identity[16] = {1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1};
         ps2x::native::Material material;
-        material.blend = ps2x::native::Material::Blend::Alpha;
+        material.blend = additive ? ps2x::native::Material::Blend::Additive : ps2x::native::Material::Blend::Alpha;
         material.alphaBlend = true;
         material.depthTest = false;
         material.depthWrite = true; // the game's interface writes its Z (near): the post effect leaves it alone
@@ -932,6 +933,35 @@ namespace
                     corners[c] = (word(rdram, element + 0x50u + 4u * c) & 0xFFFFFFu) | alpha << 24;
                 drawQuadCorners(x0, y0, x0 + real(rdram, element + 0x20u), y0 + real(rdram, element + 0x24u), 0.0f, 0.0f, 0.0f, 0.0f,
                                 corners, nullptr);
+            }
+            // The chapter title's bar (class 0x168940, mod004 build 0x490190 -> 0x48FA00 from the title layer at element
+            // + 0x54): a line under "Chapter n", white 240 added (Cs x As + Cd), its alpha the title layer's +0xE0 x
+            // +0x350 / 128; its last tenth at each end fades to 0.65 of it on its middle row and to nothing on its edges
+            // (PCSX2 GS dump of the Chapter 1 title). Centred on the element, its width x the title's scale +0x38C (it
+            // grows as the title shows), its height three rows.
+            if ((word(rdram, element) & 0x1FFFFFFu) == 0x168940u)
+            {
+                const uint32_t title = word(rdram, element + 0x54u) & 0x1FFFFFFu;
+                if (title >= 0x100000u)
+                {
+                    const float a = std::clamp(real(rdram, title + 0xE0u) * real(rdram, title + 0x350u) / 128.0f, 0.0f, 255.0f);
+                    const uint32_t full = static_cast<uint32_t>(a), end = static_cast<uint32_t>(a * 0.65f);
+                    const float w = real(rdram, element + 0x20u), h = std::max(real(rdram, element + 0x24u), 1.0f);
+                    const float cx = layerX + real(rdram, element + 0x18u) + w * 0.5f, cy = layerY + real(rdram, element + 0x1Cu) + h * 0.5f;
+                    const float half = 0.5f * w * real(rdram, title + 0x38Cu), fade = 2.0f * half * 0.1f;
+                    const float xs[4] = {cx - half, cx - half + fade, cx + half - fade, cx + half};
+                    const float ys[3] = {cy - h * 0.5f, cy, cy + h * 0.5f};
+                    // Alphas by column (end, body, body, end) for the edge rows and the middle row.
+                    const uint32_t edge[4] = {0u, full, full, 0u}, middle[4] = {end, full, full, end};
+                    const auto rgba = [](uint32_t alpha) { return 0x00F0F0F0u | std::min<uint32_t>(alpha, 255u) << 24; };
+                    for (int row = 0; row < 2; ++row)
+                        for (int col = 0; col < 3; ++col)
+                        {
+                            const uint32_t *top = row == 0 ? edge : middle, *bottom = row == 0 ? middle : edge;
+                            const uint32_t corners[4] = {rgba(top[col]), rgba(top[col + 1]), rgba(bottom[col]), rgba(bottom[col + 1])};
+                            drawQuadCorners(xs[col], ys[row], xs[col + 1], ys[row + 1], 0.0f, 0.0f, 0.0f, 0.0f, corners, nullptr, true);
+                        }
+                }
             }
             // The field pause's logo (class 0x166EF0, mod003 build 0x451450 -> 0x4514F0): part 3 of the field HUD sheet
             // (as the prompt bar below), at the layer's position + (73, 79), its w x h GS pixels (the GS frame is

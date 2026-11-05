@@ -6,6 +6,47 @@ those packets, so they are converted offline from the user's disc (rule decision
 loaded by the game's own pointer; everything else is read from the game's EE structures. Addresses are mod001. [V]
 verified in the MIPS or the assets, [I] inferred.
 
+## Editable vertex sources without runtime VIF interpretation (2026-11-05)
+
+The old `vertexSources()` helper reconstructed VIF writes at runtime to find the
+raw float positions/normals in a model's facial-animation work copy. That was a
+runtime hardware interpretation path, despite the surrounding native renderer.
+It is removed. `tools/vp2_meshes.py` now tracks source offsets during offline
+conversion and appends them to each mesh in **VPM3** packs. The renderer reads
+the game's working vertices directly through this metadata. Constants, replicated
+scalars and packed coordinates use an unavailable-offset sentinel; packed format
+routines 6/8 retain their existing converted-vertex handling.
+
+VPM2 packs are rejected with a regeneration message, with no parser fallback:
+
+```powershell
+python tools/vp2_meshes.py --assets build_usa/extract/assets --out build_usa/vp2_meshes
+python -m unittest discover -s tools -p test_vp2_meshes.py
+```
+
+The complete USA conversion was checked offline against both the previous VPM2
+records and the removed C++ helper: **5,139 packs, 1,348,830 meshes, 39,404,365
+vertices and 48,017,159 available raw xyz sources**, with zero geometry/material
+record or source-offset differences. The 717,841 meshes using format routines
+6/8 retain the existing exclusion from live float reads. Five synthetic tests
+cover relative offsets, an edited work copy, mask constants/retention, scalar
+replication and packed coordinates. Local verifier inputs/results are in
+`build_usa/native_mesh_offsets/` (game data, never committed).
+
+The USA build passed, and a private-card/off-screen replay reached the native town
+sequence after skipping the opening movie through its private input file. The
+offset path was used for 90 positions in three meshes of object `0x11A6EC0`
+(work model `0x11A9980`, asset `00a94b8b44_000`). An offline decode of the captured
+working model agrees with all 90 direct reads. Those positions still matched the
+disc at the captured instant, so this is work-copy path coverage, not proof of
+facial-animation parity; the synthetic edited-copy test covers changed values.
+There were no rejected mesh packs, and user-card hashes were unchanged. Captures,
+the EE snapshot and `live_vertices.json` are in the same local evidence directory.
+
+This removes the editable-vertex command interpreter only. It does **not** remove
+the VIF1 music chains, VIF0/VU0 execution core, IOP device environment or other
+hardware transfer dependencies. Those remain separate native-replacement work.
+
 ## Town face comparison (2026-11-05, USA)
 
 The manual pass's close view of Alicia's angular profile was compared with a

@@ -14,7 +14,7 @@ applied here; the others (skinning 2 / 4, fade 44, UV scroll 48) depend on the f
 
 Output (game data: build tree only, never committed): <out>/<asset part>.msh (the asset file's name without its
 extension), a list of meshes:
-  u32 magic 'VPM2', u32 mesh count, then per mesh:
+  u32 magic 'VPM3', u32 mesh count, then per mesh:
     u32 offset of the mesh in the asset file, u32 vertex count, u32 strip count, u32 flags (header 2.x),
     i32 group mask (header 6.y), i32 routines[4], i32 routine data offsets[4] (rows from the mesh's top),
     f32 bounding centre[3], u32 has material, u32 header rows 8..12[20] (8.y the lighting mode),
@@ -24,6 +24,9 @@ extension), a list of meshes:
     vertices: f32 position[4] (w: the bone's VU address for routine 2), f32 normal[3], f32 uv[2], u8 rgba[4],
     for routine 4: per vertex i32 bone a, f32 weight a, i32 bone b, f32 weight b.
     for routine 48 (texture scrolling): i32 the offset's row index (the UV offset is .zw of object row 38 + index).
+    u32 source mesh byte size, then per vertex u32 normal offset, u32 position offset (relative to the source mesh;
+      0xFFFFFFFF when xyz are not three consecutive raw 32-bit words). These locate the game's animated work copy
+      directly; no VIF commands are read at runtime.
 """
 import argparse
 import os
@@ -37,6 +40,7 @@ class Vu:
 
     def __init__(self):
         self.mem = [[0, 0, 0, 0] for _ in range(1024)]
+        self.sources = [[0xFFFFFFFF] * 4 for _ in range(1024)]
         self.cl, self.wl = 1, 1
         self.mask = 0
         self.row = [0, 0, 0, 0]
@@ -73,6 +77,7 @@ def unpack(vu, data, at, end):
             for k in range(n):
                 qw = (addr + (k // vu.wl) * vu.cl + k % vu.wl) % 1024
                 values = []
+                sources = [0xFFFFFFFF] * 4
                 if vl == 3:
                     v, = struct.unpack_from('<H', data, p + 2 * k)
                     values = [(v & 0x1F) << 3, ((v >> 5) & 0x1F) << 3, ((v >> 10) & 0x1F) << 3, ((v >> 15) & 1) << 7]
@@ -84,19 +89,25 @@ def unpack(vu, data, at, end):
                         if size < 32 and not unsigned and raw >> (size - 1):
                             raw -= 1 << size
                         values.append(raw & 0xFFFFFFFF)
+                        if size == 32:
+                            sources[c] = p + (k * comps + c) * 4 - at
                     if comps == 1:  # S: one value to every lane
                         values = values * 4
+                        sources = [sources[0]] * 4
                     elif comps < 4:
                         values += [vu.mem[qw][c] for c in range(comps, 4)]
+                        sources[comps:] = vu.sources[qw][comps:]
                 for c in range(4):
                     if masked:
                         m = (vu.mask >> (2 * c + 8 * min(k % vu.wl, 3))) & 3
                         if m == 1:
                             vu.mem[qw][c] = vu.row[c]
+                            vu.sources[qw][c] = 0xFFFFFFFF
                             continue
                         if m in (2, 3):
                             continue
                     vu.mem[qw][c] = values[c]
+                    vu.sources[qw][c] = sources[c]
             p += (nbytes + 3) // 4 * 4
             continue
         if cmd == 0x01:  # STCYCL
@@ -116,6 +127,12 @@ def unpack(vu, data, at, end):
         else:
             return False
     return True
+
+
+def source_row(vu, row):
+    """Offset of an editable float xyz, excluding packed, replicated and constant lanes."""
+    x, y, z = vu.sources[row % 1024][:3]
+    return x if x != 0xFFFFFFFF and (y, z) == (x + 4, x + 8) else 0xFFFFFFFF
 
 
 def material(vu):
@@ -185,6 +202,10 @@ def convert(data, at, size):
             out += struct.pack('<ifif', vu.i(e, 0), vu.f(e, 1), vu.i(e, 2), vu.f(e, 3))
     if 48 in routines:
         out += struct.pack('<i', vu.i(top + bases[routines.index(48)], 0))
+    out += struct.pack('<I', size)
+    for k in range(count):
+        v = vertices + 4 * k
+        out += struct.pack('<II', source_row(vu, v), source_row(vu, v + 3))
     return bytes(out), None
 
 
@@ -230,7 +251,7 @@ def main():
                 found = data.find(b'FPS\x00', found + 4)
             if meshes:
                 with open(os.path.join(a.out, os.path.splitext(name)[0] + '.msh'), 'wb') as f:
-                    f.write(struct.pack('<4sI', b'VPM2', len(meshes)) + b''.join(meshes))
+                    f.write(struct.pack('<4sI', b'VPM3', len(meshes)) + b''.join(meshes))
             files += 1
             if a.limit and files >= a.limit:
                 break

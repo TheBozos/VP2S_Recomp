@@ -1,7 +1,7 @@
 // VP2's models for the native renderer from the game's own data (docs/vp2_models.md): the meshes' vertices from the
 // offline conversion of the game's files (tools/vp2_meshes.py: <dir>/<asset part>.msh), found by where the game
 // loaded the mesh it draws; the object's matrix, the camera, the visible meshes and their order from the game's EE
-// structures. Nothing reads VIF, GIF or VU data while the game runs.
+// structures. Editable vertex offsets are converted offline too; no VIF commands are interpreted here.
 
 #include "vp2s_models.h"
 #include "vp2s_minimap.h"
@@ -49,6 +49,12 @@ namespace
             uint8_t rgba[4];
         };
         std::vector<Vertex> vertices;
+        struct VertexSource
+        {
+            uint32_t normal;
+            uint32_t position;
+        };
+        std::vector<VertexSource> sources; // offline offsets into the game's animated model copy
         struct Bones
         {
             int32_t a;
@@ -100,7 +106,7 @@ namespace
             size_t at = 0;
             char magic[4] = {};
             uint32_t count = 0;
-            if (take(data, at, magic) && std::memcmp(magic, "VPM2", 4) == 0 && take(data, at, count))
+            if (take(data, at, magic) && std::memcmp(magic, "VPM3", 4) == 0 && take(data, at, count))
             {
                 file = std::make_shared<MeshFile>();
                 for (uint32_t m = 0; m < count; ++m)
@@ -138,9 +144,29 @@ namespace
                     if (std::find(std::begin(mesh->routines), std::end(mesh->routines), 48) != std::end(mesh->routines) &&
                         !take(data, at, mesh->scrollRow))
                         break;
+                    uint32_t sourceSize = 0;
+                    if (!take(data, at, sourceSize) || at + size_t(vertices) * sizeof(Mesh::VertexSource) > data.size())
+                        break;
+                    mesh->sources.resize(vertices);
+                    std::memcpy(mesh->sources.data(), data.data() + at, size_t(vertices) * sizeof(Mesh::VertexSource));
+                    at += size_t(vertices) * sizeof(Mesh::VertexSource);
+                    const auto validSource = [sourceSize](uint32_t offset) {
+                        return offset == UINT32_MAX || (sourceSize >= 12u && offset <= sourceSize - 12u);
+                    };
+                    if (std::any_of(mesh->sources.begin(), mesh->sources.end(), [&](const Mesh::VertexSource &source) {
+                            return !validSource(source.normal) || !validSource(source.position);
+                        }))
+                        break;
                     (*file)[offset] = std::move(mesh);
                 }
+                if (file->size() != count || at != data.size())
+                {
+                    std::fprintf(stderr, "[vp2s] invalid native mesh pack %s; regenerate with tools/vp2_meshes.py\n", part.c_str());
+                    file.reset();
+                }
             }
+            else
+                std::fprintf(stderr, "[vp2s] outdated native mesh pack %s; regenerate with tools/vp2_meshes.py\n", part.c_str());
         }
         g_files[part] = file; // a missing file is remembered too
         return file;
@@ -291,132 +317,6 @@ namespace
         for (uint32_t c = 0; c < 3u; ++c)
             out[c] = p[0] * real(rdram, matrix + 4u * c) + p[1] * real(rdram, matrix + 16u + 4u * c) +
                      p[2] * real(rdram, matrix + 32u + 4u * c) + w * real(rdram, matrix + 48u + 4u * c);
-        return out;
-    }
-
-    // Where each vertex's normal (row v) and position (row v + 3) come from in a mesh packet: byte offsets in the
-    // packet of their raw 32-bit x, y, z (UINT32_MAX when a row is not unpacked as raw words). The game rewrites
-    // these in its own copy of a model for facial animation (Alicia's mouth and eyelids), so the draw reads them there.
-    // The VIF codes are tools/vp2_meshes.py's unpack, run over the packet as it sits in EE memory.
-    struct VertexSources
-    {
-        std::vector<uint32_t> normal, position;
-    };
-
-    VertexSources vertexSources(const uint8_t *rdram, uint32_t mesh, size_t count)
-    {
-        static thread_local std::array<std::array<uint32_t, 4>, 1024> mem;
-        static thread_local std::array<std::array<uint32_t, 4>, 1024> src;
-        for (auto &row : src)
-            row.fill(UINT32_MAX);
-        for (auto &row : mem)
-            row.fill(0u);
-        const uint32_t end = static_cast<uint32_t>(static_cast<int16_t>(word(rdram, mesh + 4u) & 0xFFFFu));
-        uint32_t cl = 1u, wl = 1u, mask = 0u, p = 0u;
-        std::array<uint32_t, 4> rowFill{};
-        VertexSources out;
-        while (p + 4u <= end)
-        {
-            const uint32_t w = word(rdram, mesh + p);
-            const uint32_t cmd = (w >> 24) & 0x7Fu, num = (w >> 16) & 0xFFu, imm = w & 0xFFFFu;
-            p += 4u;
-            if ((cmd & 0x60u) == 0x60u)
-            {
-                const uint32_t vn = (cmd >> 2) & 3u, vl = cmd & 3u, n = num ? num : 256u, comps = vn + 1u;
-                const bool unsignedValues = (imm >> 14) & 1u, masked = (cmd >> 4) & 1u;
-                const uint32_t addr = imm & 0x3FFu;
-                const uint32_t nbytes = vl == 3u ? 2u * n : comps * (32u >> vl) / 8u * n;
-                for (uint32_t k = 0; k < n; ++k)
-                {
-                    const uint32_t qw = (addr + (k / wl) * cl + k % wl) % 1024u;
-                    std::array<uint32_t, 4> values{}, from{UINT32_MAX, UINT32_MAX, UINT32_MAX, UINT32_MAX};
-                    if (vl == 3u)
-                    {
-                        const uint32_t v = word(rdram, mesh + p + 2u * k) & 0xFFFFu;
-                        values = {(v & 0x1Fu) << 3, ((v >> 5) & 0x1Fu) << 3, ((v >> 10) & 0x1Fu) << 3, ((v >> 15) & 1u) << 7};
-                    }
-                    else
-                    {
-                        const uint32_t size = 32u >> vl;
-                        for (uint32_t c = 0; c < comps; ++c)
-                        {
-                            const uint32_t at = p + (k * comps + c) * size / 8u;
-                            uint32_t raw = word(rdram, mesh + at);
-                            if (size < 32u)
-                            {
-                                raw &= (1u << size) - 1u;
-                                if (!unsignedValues && (raw >> (size - 1u)))
-                                    raw |= ~((1u << size) - 1u);
-                            }
-                            else
-                                from[c] = at;
-                            values[c] = raw;
-                        }
-                        if (comps == 1u)
-                        {
-                            values.fill(values[0]);
-                            from.fill(from[0]);
-                        }
-                        else
-                            for (uint32_t c = comps; c < 4u; ++c)
-                                values[c] = mem[qw][c], from[c] = src[qw][c];
-                    }
-                    for (uint32_t c = 0; c < 4u; ++c)
-                    {
-                        if (masked)
-                        {
-                            const uint32_t m = (mask >> (2u * c + 8u * std::min(k % wl, 3u))) & 3u;
-                            if (m == 1u)
-                            {
-                                mem[qw][c] = rowFill[c];
-                                src[qw][c] = UINT32_MAX;
-                                continue;
-                            }
-                            if (m >= 2u)
-                                continue;
-                        }
-                        mem[qw][c] = values[c];
-                        src[qw][c] = from[c];
-                    }
-                }
-                p += (nbytes + 3u) / 4u * 4u;
-                continue;
-            }
-            if (cmd == 0x01u)
-            {
-                cl = imm & 0xFFu;
-                wl = (imm >> 8) & 0xFFu;
-                if (wl == 0u)
-                    wl = 1u;
-            }
-            else if (cmd == 0x20u)
-                mask = word(rdram, mesh + p), p += 4u;
-            else if (cmd == 0x30u)
-            {
-                for (uint32_t c = 0; c < 4u; ++c)
-                    rowFill[c] = word(rdram, mesh + p + 4u * c);
-                p += 16u;
-            }
-            else if (cmd == 0x31u)
-                p += 16u;
-            else if (!(cmd <= 0x07u || cmd == 0x10u || cmd == 0x11u || cmd == 0x13u))
-                return out;
-        }
-        const uint32_t vertices = mem[0][1];
-        if (mem[2][1] != count)
-            return out;
-        // A row is usable when its x, y, z are three consecutive raw words.
-        auto row = [&](uint32_t qw) {
-            const auto &s = src[qw % 1024u];
-            return s[0] != UINT32_MAX && s[1] == s[0] + 4u && s[2] == s[0] + 8u ? s[0] : UINT32_MAX;
-        };
-        out.normal.resize(count);
-        out.position.resize(count);
-        for (size_t k = 0; k < count; ++k)
-        {
-            out.normal[k] = row(vertices + 4u * static_cast<uint32_t>(k));
-            out.position[k] = row(vertices + 4u * static_cast<uint32_t>(k) + 3u);
-        }
         return out;
     }
 
@@ -603,36 +503,21 @@ namespace
             }
             const Mesh &m = *found->second;
             const uint32_t source = working ? work + (mesh - (model & 0x1FFFFFFu)) : 0u;
-            const VertexSources *sources = nullptr;
+            const std::vector<Mesh::VertexSource> *sources = nullptr;
             if (working && (mesh & 0x1FFFFFFu) >= (model & 0x1FFFFFFu) &&
                 std::none_of(std::begin(m.routines), std::end(m.routines), [](int32_t r) { return r == 6 || r == 8; }))
-            {
-                static std::unordered_map<const Mesh *, VertexSources> s_sources;
-                static std::mutex s_sourcesMutex;
-                std::lock_guard<std::mutex> lock(s_sourcesMutex);
-                auto it = s_sources.find(&m);
-                if (it == s_sources.end())
-                    it = s_sources.emplace(&m, vertexSources(rdram, mesh & 0x1FFFFFFu, m.vertices.size())).first;
-                if (it->second.position.size() == m.vertices.size())
-                    sources = &it->second;
-            }
+                sources = &m.sources;
             static const bool s_morphLog = std::getenv("VP2S_MORPH_LOG") != nullptr; // (diagnosis, temporary)
             if (s_morphLog)
             {
-                // A mesh whose packet in EE RAM changes from one frame to the next (the game edits its vertices).
-                static std::unordered_map<uint32_t, uint64_t> s_hash;
-                static std::unordered_map<uint32_t, int> s_changes;
-                const int32_t size = static_cast<int16_t>(word(rdram, mesh + 4u) & 0xFFFFu);
-                uint64_t h = 1469598103934665603ull;
-                for (int32_t k = 0; k < size && k < 8192; k += 4)
-                    h = (h ^ word(rdram, mesh + static_cast<uint32_t>(k))) * 1099511628211ull;
-                auto [it, fresh] = s_hash.try_emplace(mesh, h);
-                if (!fresh && it->second != h)
+                // Diagnose the editable model through its native offsets, without scanning packet bytes.
+                static std::unordered_map<uint32_t, bool> s_seen;
+                if (sources && s_seen.emplace(source, true).second)
                 {
-                    it->second = h;
-                    if (++s_changes[mesh] == 3)
-                        std::printf("[morph] mesh %x object %x %s+%x size %d verts %zu routines %d %d %d %d\n", mesh, object, part.c_str(),
-                                    offset, size, m.vertices.size(), m.routines[0], m.routines[1], m.routines[2], m.routines[3]);
+                    const auto positions = std::count_if(sources->begin(), sources->end(), [](const Mesh::VertexSource &s) { return s.position != UINT32_MAX; });
+                    const auto normals = std::count_if(sources->begin(), sources->end(), [](const Mesh::VertexSource &s) { return s.normal != UINT32_MAX; });
+                    std::printf("[morph] offline offsets object %x work %x %s+%x vertices %zu positions %zu normals %zu\n",
+                                object, source, part.c_str(), offset, m.vertices.size(), size_t(positions), size_t(normals));
                 }
             }
             // The material: the mesh's converted one; the texture by the game's key from its texture manager, through
@@ -765,9 +650,9 @@ namespace
             // A vertex's normal, skinned like the position (w = 0).
             const auto normalAt = [&](size_t k, const Mesh::Vertex &v) {
                 std::array<float, 3> n{v.normal[0], v.normal[1], v.normal[2]};
-                if (sources && sources->normal[k] != UINT32_MAX)
+                if (sources && (*sources)[k].normal != UINT32_MAX)
                     for (uint32_t c = 0; c < 3u; ++c)
-                        n[c] = real(rdram, source + sources->normal[k] + 4u * c);
+                        n[c] = real(rdram, source + (*sources)[k].normal + 4u * c);
                 const std::array<float, 3> rest = n;
                 if (palette != 0u && rigid)
                 {
@@ -798,9 +683,9 @@ namespace
             {
                 const Mesh::Vertex &v = m.vertices[k];
                 std::array<float, 3> p{v.position[0], v.position[1], v.position[2]};
-                if (sources && sources->position[k] != UINT32_MAX)
+                if (sources && (*sources)[k].position != UINT32_MAX)
                     for (uint32_t c = 0; c < 3u; ++c)
-                        p[c] = real(rdram, source + sources->position[k] + 4u * c);
+                        p[c] = real(rdram, source + (*sources)[k].position + 4u * c);
                 const std::array<float, 3> rest = p;
                 if (palette != 0u && rigid)
                 {

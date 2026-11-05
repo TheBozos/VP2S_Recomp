@@ -141,6 +141,10 @@ python tools/vp2_textures.py --assets build_usa/extract/assets --index build_usa
 python tools/vp2_meshes.py --assets build_usa/extract/assets --out build_usa/vp2_meshes
 ```
 
+The current mesh format is VPM3. Regenerate older VPM2 packs with the mesh command
+above: editable vertex offsets are now converted offline, and the runtime no
+longer interprets VIF commands to locate animated vertices.
+
 [tools/README.md](tools/README.md) documents every stage and tool.
 
 ## Run

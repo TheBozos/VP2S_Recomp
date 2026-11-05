@@ -535,6 +535,8 @@ def deps_args() -> str:
 
 def stage_port(args) -> None:
     PORT_BUILD.mkdir(parents=True, exist_ok=True)
+    subprocess.run([sys.executable, str(ROOT / 'tools/vp2_bootstrap.py'), '--elf', str(ELF_DIR / 'main.elf'),
+                    '--recomp', str(RECOMP_DIR), '--out', str(RECOMP_DIR.parent / 'native_bootstrap')], cwd=ROOT, check=True)
     subprocess.run([sys.executable, str(ROOT / 'tools/vp2_music.py'), '--elf', str(ELF_DIR / 'main.elf'),
                     '--out', str(RECOMP_DIR.parent / 'native_music')], cwd=ROOT, check=True)
     if args.force or not (PORT_BUILD / "CMakeCache.txt").exists():

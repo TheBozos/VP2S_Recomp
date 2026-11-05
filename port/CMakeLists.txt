@@ -71,6 +71,7 @@ add_library(vp2s_frontend OBJECT
     "${CMAKE_CURRENT_SOURCE_DIR}/vp2s_loads.cpp"
     "${CMAKE_CURRENT_SOURCE_DIR}/vp2s_models.cpp"
     "${CMAKE_CURRENT_SOURCE_DIR}/vp2s_music.cpp"
+    "${CMAKE_CURRENT_SOURCE_DIR}/vp2s_bootstrap.cpp"
     "${CMAKE_CURRENT_SOURCE_DIR}/vp2s_ui.cpp"
     "${CMAKE_CURRENT_SOURCE_DIR}/vp2s_minimap.cpp"
     "${CMAKE_CURRENT_SOURCE_DIR}/vp2s_battle_hud.cpp"
@@ -159,6 +160,16 @@ target_link_libraries(vp2s_music_check PRIVATE vp2s_music_native ps2_runtime)
 if(MSVC)
     target_compile_options(vp2s_music_check PRIVATE /O2 /arch:AVX2 /fp:precise)
     target_link_options(vp2s_music_check PRIVATE /CGTHREADS:16 /LTCG:INCREMENTAL)
+endif()
+
+# Startup reference code belongs to this offline check target only.
+add_executable(vp2s_bootstrap_check "${VP2S_ROOT}/tools/vp2_bootstrap_check.cpp"
+    "${VP2S_BUILD_ROOT}/native_bootstrap/reference.cpp")
+target_include_directories(vp2s_bootstrap_check PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}")
+target_link_libraries(vp2s_bootstrap_check PRIVATE ps2_runtime)
+if(MSVC)
+    target_compile_options(vp2s_bootstrap_check PRIVATE /O2 /arch:AVX2 /fp:precise)
+    target_link_options(vp2s_bootstrap_check PRIVATE /CGTHREADS:16 /LTCG:INCREMENTAL)
 endif()
 
 # The game's IOP modules recompiled ahead of time (tools/iop_recomp.py on the images PS2X_IOP_DUMP_MODULES writes):

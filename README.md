@@ -150,6 +150,10 @@ convert its tables offline from the USA ELF. Its default decoder reads the game'
 coefficient/history buffers directly; it does not process music VIF1 chains.
 The IOP service and other hardware dependencies remain; see [music](docs/vp2_music.md).
 
+Startup key derivation also uses the game's seed directly, with constants
+converted offline by `tools/vp2_bootstrap.py`; its default path skips the VIF0
+upload and VU0 execution. Other VU0/IOP work remains; see [VU0](docs/vp2_vu0.md).
+
 [tools/README.md](tools/README.md) documents every stage and tool.
 
 ## Run

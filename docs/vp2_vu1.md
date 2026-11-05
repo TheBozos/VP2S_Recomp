@@ -1,5 +1,10 @@
 # VP2's VU1 microcode (native mesh path)
 
+Current default: graphics VIF1 chains are dropped, and streamed music now uses a
+direct coefficient/history decoder with no VIF/VU transport. See
+[native music](vp2_music.md). The recordings and microprogram descriptions below
+remain offline analysis/reference material, not the default rendering/audio path.
+
 Notes for drawing VP2's 3D natively (TMB's mesh API: `setVif1Observer`, `setVu1Gate`, `Renderer`) instead of
 running its VU1 microprograms and translating their GS packets. Read the code with `tools/vu_disasm.py` on images
 dumped by `vp2s_vu1_replay <trace> dumpcode <dir>`.

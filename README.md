@@ -145,6 +145,11 @@ The current mesh format is VPM3. Regenerate older VPM2 packs with the mesh comma
 above: editable vertex offsets are now converted offline, and the runtime no
 longer interprets VIF commands to locate animated vertices.
 
+The port build also runs `tools/vp2_music.py` to compile the streamed-music DSP and
+convert its tables offline from the USA ELF. Its default decoder reads the game's
+coefficient/history buffers directly; it does not process music VIF1 chains.
+The IOP service and other hardware dependencies remain; see [music](docs/vp2_music.md).
+
 [tools/README.md](tools/README.md) documents every stage and tool.
 
 ## Run

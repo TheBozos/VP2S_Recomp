@@ -7,6 +7,7 @@
 #include "vp2s_textures.h"
 #include "vp2s_loads.h"
 #include "vp2s_models.h"
+#include "vp2s_music.h"
 #include "vp2s_ui.h"
 #include "vp2s_minimap.h"
 #include "vp2s_battle_hud.h"
@@ -304,12 +305,13 @@ namespace
 
     // VP2's streamed music (town and event themes) is decoded by a VU1 program at 0x06E0: FUN_001060a0 sends 2 KiB of
     // the stream (UNPACK into VU1 memory), the decoder's tables and its MSCALs through one of two VIF1 chains, and the
-    // EE copies the PCM out of VU1 memory into the buffers it sends to the IOP. The first decode goes through a chain
-    // that uploads the microcode (MPG) and then runs on into the first of the two. These chains still run with VIF1
-    // dropped (USA addresses).
+    // EE copies the PCM out of VU1 memory into the buffers it sends to the IOP. These chains are retained only for
+    // the explicit VP2S_NATIVE_MUSIC=0 comparison. The default decoder uses typed EE coefficient/history buffers
+    // directly and bypasses both these chains and their hardware completion callbacks (vp2s_music.cpp).
     bool keptVif1Chain(uint32_t tadr)
     {
-        return tadr == 0x0014A300u || tadr == 0x0014C730u || tadr == 0x0014C8E0u;
+        return !vp2sNativeMusicEnabled() &&
+               (tadr == 0x0014A300u || tadr == 0x0014C730u || tadr == 0x0014C8E0u);
     }
 
     // The music stream's PCM goes to the IOP 4 KiB at a time, every packet into the same IOP buffer. The EE sends the
@@ -328,7 +330,19 @@ namespace
     void musicSend(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
     {
         if (reg(ctx, 5) == 0u && static_cast<uint32_t>(reg(ctx, 8)) == 0x1040u) // command 0, header + 4 KiB of PCM
+        {
+            static FILE *capture = [] {
+                const char *path = std::getenv("VP2S_MUSIC_PACKET_RECORD");
+                return path ? std::fopen(path, "wb") : nullptr;
+            }();
+            const uint32_t source = static_cast<uint32_t>(reg(ctx, 6)) & 0x1FFFFFFu;
+            if (capture && source <= PS2_RAM_SIZE - 0x1040u)
+            {
+                std::fwrite(rdram + source, 1, 0x1040u, capture);
+                std::fflush(capture);
+            }
             g_musicPacketInFlight.store(true);
+        }
         g_musicOriginals[ctx->pc](rdram, ctx, runtime);
     }
 
@@ -463,6 +477,7 @@ namespace
 
     void applyVp2s(PS2Runtime &runtime)
     {
+        vp2sInstallMusic(runtime);
         if (const char *v = std::getenv("VP2S_MOVIE_AUDIO"); !(v && v[0] == '0'))
         {
             const char *native = std::getenv("PS2X_NATIVE_AUDIO");
@@ -557,7 +572,9 @@ namespace
             {
                 ps2x::native::setVif1Dropped(true);
                 ps2x::native::setVif1ChainKept(&keptVif1Chain);
-                std::cout << "[vp2s] VIF1 data not processed (no VU1 programs run but the music decoder)" << std::endl;
+                std::cout << (vp2sNativeMusicEnabled()
+                    ? "[vp2s] VIF1 data not processed (music decoded directly from EE coefficients)"
+                    : "[vp2s] VIF1 data not processed except comparison music chains") << std::endl;
             }
         }
         vp2sInstallUi(runtime);

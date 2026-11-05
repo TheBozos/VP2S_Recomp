@@ -70,6 +70,7 @@ add_library(vp2s_frontend OBJECT
     "${CMAKE_CURRENT_SOURCE_DIR}/vp2s_textures.cpp"
     "${CMAKE_CURRENT_SOURCE_DIR}/vp2s_loads.cpp"
     "${CMAKE_CURRENT_SOURCE_DIR}/vp2s_models.cpp"
+    "${CMAKE_CURRENT_SOURCE_DIR}/vp2s_music.cpp"
     "${CMAKE_CURRENT_SOURCE_DIR}/vp2s_ui.cpp"
     "${CMAKE_CURRENT_SOURCE_DIR}/vp2s_minimap.cpp"
     "${CMAKE_CURRENT_SOURCE_DIR}/vp2s_battle_hud.cpp"
@@ -133,6 +134,32 @@ if(WIN32)
 endif()
 target_include_directories(vp2s PRIVATE ${VP2S_GENERATED_DIRS})
 target_link_libraries(vp2s PRIVATE vp2s_frontend vp2s_vu1_native ps2_runtime)
+
+# The music algorithms and numeric tables are compiled/converted offline from
+# the user's USA ELF. The linked decoder has no VU execution or VIF input API.
+get_filename_component(VP2S_BUILD_ROOT "${VP2S_RECOMP_DIR}" DIRECTORY)
+set(VP2S_MUSIC_NATIVE_DIR "${VP2S_BUILD_ROOT}/native_music" CACHE PATH "Native music conversion output")
+if(NOT EXISTS "${VP2S_MUSIC_NATIVE_DIR}/codec.cpp")
+    message(FATAL_ERROR "Run tools/vp2_music.py --elf <build>/elf/main.elf --out <build>/native_music first")
+endif()
+add_library(vp2s_music_native OBJECT "${VP2S_MUSIC_NATIVE_DIR}/codec.cpp")
+target_include_directories(vp2s_music_native PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}")
+if(MSVC)
+    target_compile_options(vp2s_music_native PRIVATE /O2 /Ob2 /arch:AVX2 /fp:precise)
+endif()
+target_link_libraries(vp2s PRIVATE vp2s_music_native)
+
+# Reference algorithms belong to this offline check target only.
+add_executable(vp2s_music_check "${VP2S_ROOT}/tools/vp2_music_check.cpp"
+    "${VP2S_MUSIC_NATIVE_DIR}/reference/music_6e0.cpp"
+    "${VP2S_MUSIC_NATIVE_DIR}/reference/music_1410.cpp"
+    "${VP2S_MUSIC_NATIVE_DIR}/reference/music_1690.cpp")
+target_include_directories(vp2s_music_check PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}")
+target_link_libraries(vp2s_music_check PRIVATE vp2s_music_native ps2_runtime)
+if(MSVC)
+    target_compile_options(vp2s_music_check PRIVATE /O2 /arch:AVX2 /fp:precise)
+    target_link_options(vp2s_music_check PRIVATE /CGTHREADS:16 /LTCG:INCREMENTAL)
+endif()
 
 # The game's IOP modules recompiled ahead of time (tools/iop_recomp.py on the images PS2X_IOP_DUMP_MODULES writes):
 # each file registers its module by hash and base and runs in place of the IOP interpreter under PS2X_IOP_NATIVE=1.

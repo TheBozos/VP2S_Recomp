@@ -25,10 +25,58 @@ based on the report. This does not close the existing lighting/brightness work.
 Evidence: `build_usa/face_native.ee`, `face_perf/pcs_field.ee`,
 `face_perf/mesh_reports.json`, `face_perf/face_comparison.png`. The comparison
 enlarges a crop of PCSX2's `20261105203331.png` and the user's supplied native
-capture. Their original capture resolutions and filtering differ.
+capture. Their original capture resolutions and filtering differ. This geometry
+check did **not** verify the reported colour: the follow-up below identified and
+fixed an incorrect shadow applied to her face.
 
 See [native presentation performance](vp2_native_performance.md) for the separate
 GPU texture-cache fix and correction of the FPS overlay's measurement source.
+
+## Character colour and shadow receivers (2026-11-05)
+
+The native shadow volume darkened Alicia's face even though the game excludes
+her surfaces from its shadow-receiver mask. The coarse caster hull then produced
+a flat brown patch across the face, hiding the skin shading. Disabling shadows
+restored the colour and separated this from geometry, texture selection and lighting.
+
+PCSX2's Waiting Area GS dump `20261105204518_(2).gs.zst` provides the rule:
+matched face vertices have alpha **127**, while the shadow pass uses `TEST=0x5C00D`
+(`DATE=1`, `DATM=1`) and darkening alpha **63**. The shadow applies only to receiver
+surfaces whose stored alpha has its high bit set; opaque character surfaces with
+127 are excluded. The native renderer had forced opaque alpha to full scale.
+
+Native model materials now opt into `Material::writeSourceAlpha`: RGB blending
+is unchanged, but their source alpha is retained in the off-screen scene, including
+for opaque draws. The shadow material opts into `shadowReceiverAlpha`. The renderer
+snapshots the scene colour/alpha before the shadow pass and restricts darkening
+to its full-scale receiver alpha (128 maps to 1; 127 remains below it). Sampling
+uses a separate texture to avoid an attachment feedback loop. The volume count and
+depth tests still produce the ground shadow. Both options default off for other
+materials and ports. Darkened receiver alpha is also lowered below the receiver
+threshold, preventing a second caster from darkening the same pixel again.
+No GS state is read or replayed by this path.
+
+Local evidence: `build_usa/attacks_probe/face_shadow_off/shots/native_46.png`,
+`face_receiver_fixed/shots/native_46.png`, and `build_usa/face_perf/` analysis files.
+The fixed run retains normal shadows. In the identified 4x4 face region
+`(193,190)-(197,194)`, luminance is **62.38** before, **107.79** with shadows disabled,
+and **107.45** fixed. The ground strip `(168,348)-(184,352)` remains darker than
+the shadows-disabled run by mean RGB **(18.09,18.03,14.14)**, confirming that shadows
+were not simply removed. Captures have slightly different idle phases; these are
+local defect-removal measurements, not registered whole-frame parity.
+
+The normal USA pipeline build passed. The final replay using the existing Logun
+script's movement sequence reached the inn with normal lighting, floor blends and
+characters (`build_usa/attacks_probe/shadow_receiver_inn/shots/native_45.png` and
+`native_58.png`). It used independent cards, no host input/focus, and muted audio;
+there was no missing guest target. Periodic screenshot capture still introduces
+measurement hitches, so this replay is a visual regression check.
+
+A separate offline check also found that the current mode-1 calculation clamps
+the fourth light where the saved field microcode keeps it signed. Allowing the
+signed term closely reproduces the captured vertex colours, but the relevant
+library variants still need verification before changing that calculation.
+This finding was not mixed into the receiver-mask fix.
 
 ## Objects
 

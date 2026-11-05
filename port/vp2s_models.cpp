@@ -638,6 +638,9 @@ namespace
             // The material: the mesh's converted one; the texture by the game's key from its texture manager, through
             // the block's texture slot and palette part (row 15, the game's own fields).
             ps2x::native::Material material;
+            // The game's scene alpha is also its shadow-receiver flag: characters
+            // use 127, receivers 128. Keep it through opaque and blended RGB draws.
+            material.writeSourceAlpha = true;
             if (m.hasMaterial)
             {
                 carriedAlpha = m.material[0];
@@ -1063,6 +1066,7 @@ namespace
         ps2x::native::Material material;
         material.textured = false;
         material.blend = ps2x::native::Material::Blend::ShadowVolume;
+        material.shadowReceiverAlpha = true;
         material.depthWrite = false;
         ps2x::native::Renderer::instance().draw(material, matrix, volume.data(), static_cast<uint32_t>(volume.size()));
     }

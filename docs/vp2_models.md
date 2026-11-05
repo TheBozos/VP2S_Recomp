@@ -6,6 +6,30 @@ those packets, so they are converted offline from the user's disc (rule decision
 loaded by the game's own pointer; everything else is read from the game's EE structures. Addresses are mod001. [V]
 verified in the MIPS or the assets, [I] inferred.
 
+## Town face comparison (2026-11-05, USA)
+
+The manual pass's close view of Alicia's angular profile was compared with a
+private PCSX2 slot-1 reference in the Waiting Area. Native object `0x9960C0`,
+model `0xBD0C90`, and reference object `0x996040`, model `0xBD0C10`, each have
+146 meshes. Offline conversion of both live snapshots gives maximum absolute
+position and normal differences of **0.0** across all those meshes. The working
+model pointer is zero in both. The world orientations differ by about 0.65 degrees;
+positions and idle animation phases differ, so this is not a registered pixel test.
+
+The field model's texture includes FIS key `0x33317076/0x4C`, a 128x128 atlas
+with the face in its upper-left area. PCSX2 also shows the angular profile at this
+angle; its close-up cinematic face is a separate reference and does not establish
+the town model's expected detail. No face geometry or texture change was made
+based on the report. This does not close the existing lighting/brightness work.
+
+Evidence: `build_usa/face_native.ee`, `face_perf/pcs_field.ee`,
+`face_perf/mesh_reports.json`, `face_perf/face_comparison.png`. The comparison
+enlarges a crop of PCSX2's `20261105203331.png` and the user's supplied native
+capture. Their original capture resolutions and filtering differ.
+
+See [native presentation performance](vp2_native_performance.md) for the separate
+GPU texture-cache fix and correction of the FPS overlay's measurement source.
+
 ## Objects
 
 - Model objects: ctor 0x23F0A0 (base class vtable 0x154650, ~18 subclasses); vtable +0xFC draw 0x23A8D0, +0xF4

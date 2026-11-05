@@ -17,6 +17,7 @@ parser.add_argument('--tag', required=True)
 parser.add_argument('--exe', type=Path, default=root / 'build_usa/port/vp2s.exe')
 parser.add_argument('--script-file', type=Path, help='override the default route with a timed pad script')
 parser.add_argument('--duration', type=float, default=218, help='probe duration in seconds (default: 218)')
+parser.add_argument('--capture-interval', type=float, default=1, help='seconds between native captures (default: 1)')
 args = parser.parse_args()
 if not args.tag or any(c not in 'abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789_-' for c in args.tag):
     parser.error('tag must contain only letters, numbers, underscore or hyphen')
@@ -56,7 +57,7 @@ env.update(VP2S_CLEAN='1', PS2X_PAD_NO_HOST='1', PS2X_WINDOW_NO_FOCUS='1',
            PS2X_WINDOW_OFFSCREEN='1',
            PS2X_AUDIO_MUTE='1', PS2X_MPEG_SKIP='30', PS2X_PAD_SCRIPT=script,
            PS2X_PAD_INPUT=str(out / 'pad.txt'), PS2X_NATIVE_CAPTURE_DIR=str(shots),
-           PS2X_NATIVE_CAPTURE_INTERVAL='1')
+           PS2X_NATIVE_CAPTURE_INTERVAL=str(max(.1, args.capture_interval)))
 launcher_output = out / 'launcher.txt'
 with launcher_output.open('w') as launch_log:
     subprocess.run(['powershell', '-NoProfile', '-ExecutionPolicy', 'Bypass', '-File',

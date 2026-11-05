@@ -18,6 +18,7 @@
 #include "rlgl.h" // rlReadTexturePixels: screenshots of a frame presented on the GPU
 
 #include "runtime/gs/gs_cpu_backend.h"
+#include "runtime/native/native_renderer.h"
 #include "vp2s_settings.h"
 
 #include <algorithm>
@@ -63,6 +64,7 @@ namespace
         // Distinct presented frames (the game's own frame rate: VP2 redraws one display buffer, so no flips).
         uint64_t distinctFrames = 0;
         uint64_t lastFrameHash = 0;
+        uint64_t lastNativeFrame = 0;
         uint32_t lastFrameTexture = 0; // the latched GPU texture (presentation on the GPU)
         std::vector<uint8_t> framePixels;
         std::chrono::steady_clock::time_point start = std::chrono::steady_clock::now();
@@ -174,8 +176,24 @@ namespace
         }
         uint32_t frameWidth = 0;
         uint32_t frameHeight = 0;
-        // Presented on the GPU: a new latched texture is a new frame shown (the back end rotates its textures).
-        if (uint32_t texture = 0; runtime.gsForPresentation().latchedHostPresentationTexture(texture, frameWidth, frameHeight))
+        static const bool nativePicture = [] {
+            const char *gs = std::getenv("VP2S_GS");
+            return !gs || gs[0] != '1';
+        }();
+        if (nativePicture)
+        {
+            // The native renderer selects the picture the player actually sees.
+            // GS readbacks/flips can stay unchanged in the fully native path.
+            const uint64_t frame = ps2x::native::presentedFrameCount();
+            if (frame != diag.lastNativeFrame)
+            {
+                diag.lastNativeFrame = frame;
+                ++diag.distinctFrames;
+                runtime.noteGameFrame();
+            }
+        }
+        // Comparison path: a new latched GS texture is a new frame shown.
+        else if (uint32_t texture = 0; runtime.gsForPresentation().latchedHostPresentationTexture(texture, frameWidth, frameHeight))
         {
             if (texture != diag.lastFrameTexture)
             {

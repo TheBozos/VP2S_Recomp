@@ -9,6 +9,7 @@
 #include "vp2s_models.h"
 #include "vp2s_music.h"
 #include "vp2s_bootstrap.h"
+#include "vp2s_math.h"
 #include "vp2s_ui.h"
 #include "vp2s_minimap.h"
 #include "vp2s_battle_hud.h"
@@ -479,6 +480,7 @@ namespace
     void applyVp2s(PS2Runtime &runtime)
     {
         vp2sInstallBootstrap();
+        vp2sInstallMath(runtime);
         vp2sInstallMusic(runtime);
         if (const char *v = std::getenv("VP2S_MOVIE_AUDIO"); !(v && v[0] == '0'))
         {

@@ -20,6 +20,10 @@ inline __m128 rigidInverseTranslation(const RigidBasis &basis,__m128 translation
     result=normal(_mm_add_ps(result,product(basis[2],music::broadcast<2>(translation))));
     return _mm_blend_ps(result,translation,8);
 }
+inline __m128 rigidInverseColumnTranslation(const RigidBasis &basis,__m128 translation) {
+    const auto result=rigidInverseTranslation(basis,translation);
+    return _mm_xor_ps(result,_mm_castsi128_ps(_mm_setr_epi32(int(0x80000000u),int(0x80000000u),int(0x80000000u),0)));
+}
 // Ordered record composition for the EE projection builders. Keep their host
 // arithmetic and reduction of tiny intermediate results, separately from the
 // common matrix microprogram's truncating-sum policy.
@@ -122,6 +126,7 @@ void vp2sInlineQuaternionCompose(uint8_t*,R5900Context*,uint32_t source,uint32_t
 bool vp2sRigidInverseEnabled();
 bool vp2sRigidInverseReferenceEnabled();
 void vp2sRigidInverseTranslation(uint8_t*,R5900Context*,uint32_t basis,uint32_t translation);
+void vp2sRigidInverseColumnTranslation(uint8_t*,R5900Context*,uint32_t basis,uint32_t translation,uint32_t destination);
 bool vp2sProjectionProductEnabled();
 bool vp2sProjectionProductReferenceEnabled();
 void vp2sProjectionProduct(uint8_t*,R5900Context*,uint32_t local,uint32_t view,uint32_t destination,uint32_t site);

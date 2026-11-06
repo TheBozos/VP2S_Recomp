@@ -13,6 +13,8 @@ void originalPerspective(uint8_t*,R5900Context*,PS2Runtime*);
 void originalOrthographic(uint8_t*,R5900Context*,PS2Runtime*);
 void nativePerspective(uint8_t*,R5900Context*,PS2Runtime*);
 void nativeOrthographic(uint8_t*,R5900Context*,PS2Runtime*);
+void originalColumnRigid(uint8_t*,R5900Context*,PS2Runtime*);
+void nativeColumnRigid(uint8_t*,R5900Context*,PS2Runtime*);
 }
 
 struct R5900Context;
@@ -67,14 +69,15 @@ int main(int argc,char **argv) {
         if(captured) capturedDifferences+=std::memcmp(captured->data(),state.vf[8],64)!=0;
         ++cases;
     };
-    auto testRigid=[&](const vp2s::math::RigidBasis &basis,__m128 translation,uint32_t mode,const __m128 *captured) {
+    auto testRigid=[&](const vp2s::math::RigidBasis &basis,__m128 translation,uint32_t mode,const __m128 *captured,bool column=false) {
         const auto saved=_mm_getcsr();_mm_setcsr((saved&~0xe040u)|mode);
         // The three original EE macro operations, as generated from the USA
         // helper. Only xyz are written back; the fourth payload is untouched.
         auto acc=PS2_VMUL(basis[0],vp2s::music::broadcast<0>(translation));
         acc=PS2_VADD(acc,PS2_VMUL(basis[1],vp2s::music::broadcast<1>(translation)));
-        const auto original=_mm_blend_ps(PS2_VADD(acc,PS2_VMUL(basis[2],vp2s::music::broadcast<2>(translation))),translation,8);
-        const auto result=vp2s::math::rigidInverseTranslation(basis,translation);
+        auto original=_mm_blend_ps(PS2_VADD(acc,PS2_VMUL(basis[2],vp2s::music::broadcast<2>(translation))),translation,8);
+        if(column) original=_mm_blend_ps(PS2_VMUL(original,_mm_set1_ps(-1.f)),translation,8);
+        const auto result=column?vp2s::math::rigidInverseColumnTranslation(basis,translation):vp2s::math::rigidInverseTranslation(basis,translation);
         differences+=std::memcmp(&result,&original,16)!=0;
         if(captured) capturedDifferences+=std::memcmp(captured,&original,16)!=0;
         _mm_setcsr(saved);++cases;
@@ -94,12 +97,14 @@ int main(int argc,char **argv) {
         _mm_setcsr(saved);++cases;
     };
     bool projectionOnly=std::strcmp(argv[1],"--projection-product-synthetic")==0;
-    bool rigidOnly=std::strcmp(argv[1],"--rigid-inverse-synthetic")==0;
+    const bool rigidColumn=std::strcmp(argv[1],"--rigid-column-synthetic")==0;
+    bool rigidOnly=std::strcmp(argv[1],"--rigid-inverse-synthetic")==0 || rigidColumn;
     bool quaternionOnly=std::strcmp(argv[1],"--normalize-synthetic")==0;
     const bool quaternionZeros=std::strcmp(argv[1],"--quat-matrix-zeros")==0;
     const bool quaternionSmall=std::strcmp(argv[1],"--quat-matrix-small")==0;
     bool quaternionMatrix=std::strcmp(argv[1],"--quat-matrix-synthetic")==0 || quaternionZeros || quaternionSmall;
-    if(std::strcmp(argv[1],"--projection-functions")==0) {
+    const bool columnFunctions=std::strcmp(argv[1],"--rigid-column-functions")==0;
+    if(std::strcmp(argv[1],"--projection-functions")==0 || columnFunctions) {
         if(vp2sProjectionProductReferenceEnabled() || vp2sRigidInverseReferenceEnabled()) return 2;
         std::mt19937 random(0x56503253u);
         std::uniform_real_distribution<float> value(-200.f,200.f);
@@ -108,30 +113,34 @@ int main(int argc,char **argv) {
         for(unsigned mode:{0u,0x6000u,0x8040u,0xe040u}) for(unsigned k=0;k<128;++k) {
             const auto q=vp2s::math::normalizeQuaternion(_mm_setr_ps(value(random),value(random),value(random),value(random)));
             auto view=vp2s::math::quaternionMatrix(q);
-            for(unsigned row=0;row<3;++row) view[row]=_mm_blend_ps(view[row],_mm_set1_ps(value(random)),8);
+            if(columnFunctions) view[3]=_mm_setr_ps(value(random),value(random),value(random),1.f);
+            else for(unsigned row=0;row<3;++row) view[row]=_mm_blend_ps(view[row],_mm_set1_ps(value(random)),8);
             for(bool orthographic:{false,true}) for(bool alias:{false,true}) {
+                if(columnFunctions && orthographic)continue;
                 std::fill(originalRam.begin(),originalRam.end(),0xa5);
                 std::memcpy(originalRam.data()+input,view.data(),64);nativeRam=originalRam;
                 R5900Context initial{};
                 for(unsigned reg=1;reg<32;++reg)initial.r[reg]=_mm_set1_epi32(int(0x12120000u+reg));
-                initial.r[4]=_mm_cvtsi32_si128(alias?input:output);
-                initial.r[5]=_mm_cvtsi32_si128(input);
+                initial.r[4]=_mm_cvtsi32_si128(columnFunctions?input:(alias?input:output));
+                initial.r[5]=_mm_cvtsi32_si128(columnFunctions?(alias?input:output):input);
                 initial.r[29]=_mm_cvtsi32_si128(stack);initial.r[31]=_mm_cvtsi32_si128(returnPc);
                 for(unsigned reg=0;reg<32;++reg)initial.f[reg]=float(reg)+0.125f;
                 initial.f[12]=320.f+float(k);initial.f[13]=640.f;initial.f[14]=448.f;
                 initial.f[15]=2048.f+float(k);initial.f[16]=2048.f-float(k);
                 std::memset(initial.vu0_vf,0xc5,sizeof(initial.vu0_vf));
+                initial.vu0_vf[0]=_mm_setr_ps(0.f,0.f,0.f,1.f);
                 initial.vu0_acc=_mm_set1_ps(-123.f);initial.vu0_mac_flags=0x8765;initial.vu0_status=0x1234;
                 R5900Context original=initial,native=initial;
                 const auto saved=_mm_getcsr();_mm_setcsr((saved&~0xe040u)|mode);
-                (orthographic?vp2s::mathfixture::originalOrthographic:vp2s::mathfixture::originalPerspective)(originalRam.data(),&original,nullptr);
+                (columnFunctions?vp2s::mathfixture::originalColumnRigid:orthographic?vp2s::mathfixture::originalOrthographic:vp2s::mathfixture::originalPerspective)(originalRam.data(),&original,nullptr);
                 _mm_setcsr((saved&~0xe040u)|mode);
-                (orthographic?vp2s::mathfixture::nativeOrthographic:vp2s::mathfixture::nativePerspective)(nativeRam.data(),&native,nullptr);
+                (columnFunctions?vp2s::mathfixture::nativeColumnRigid:orthographic?vp2s::mathfixture::nativeOrthographic:vp2s::mathfixture::nativePerspective)(nativeRam.data(),&native,nullptr);
                 _mm_setcsr(saved);
                 differences+=std::memcmp(originalRam.data(),nativeRam.data(),originalRam.size())!=0;
                 differences+=std::memcmp(original.r,native.r,sizeof(original.r))!=0;
                 differences+=std::memcmp(original.f,native.f,sizeof(original.f))!=0;
                 differences+=original.pc!=native.pc || native.pc!=returnPc;
+                differences+=original.branch_pc!=native.branch_pc || native.in_delay_slot;
                 differences+=original.fcr31!=native.fcr31;
                 differences+=std::memcmp(initial.vu0_vf,native.vu0_vf,sizeof(initial.vu0_vf))!=0;
                 differences+=std::memcmp(&initial.vu0_acc,&native.vu0_acc,sizeof(initial.vu0_acc))!=0;
@@ -139,7 +148,7 @@ int main(int argc,char **argv) {
                 ++cases;
             }
         }
-        std::printf("projection game functions: %llu cases, RAM/CPU/VU-preservation differences %llu\n",cases,differences);
+        std::printf("%s game functions: %llu cases, RAM/CPU/VU-preservation differences %llu\n",columnFunctions?"column rigid inverse":"projection",cases,differences);
         return cases && !differences?0:1;
     } else if(projectionOnly) {
         std::mt19937 random(0x56503253u);
@@ -176,13 +185,13 @@ int main(int argc,char **argv) {
                 for(auto &row:basis) row=_mm_setr_ps(sample(),sample(),sample(),sample());
                 for(float &v:t)v=sample();
                 uint32_t payload=random();std::memcpy(&t[3],&payload,4);
-                testRigid(basis,_mm_loadu_ps(t),mode,nullptr);
+                testRigid(basis,_mm_loadu_ps(t),mode,nullptr,rigidColumn);
             }
             for(float scale:{0.f,-0.f,1.f,-1.f,1.e-20f,1.e18f})
                 for(unsigned lane=0;lane<3;++lane) for(bool negative:{false,true}) {
                     vp2s::math::RigidBasis basis={_mm_setr_ps(scale,0,0,0),_mm_setr_ps(0,scale,0,0),_mm_setr_ps(0,0,scale,0)};
                     float t[4]{};t[lane]=negative?-scale:scale;
-                    testRigid(basis,_mm_loadu_ps(t),mode,nullptr);
+                    testRigid(basis,_mm_loadu_ps(t),mode,nullptr,rigidColumn);
                 }
         }
     } else if(quaternionSmall) {
@@ -288,11 +297,11 @@ int main(int argc,char **argv) {
                    std::fread(view.data(),1,64,file)!=64 || std::fread(result.data(),1,64,file)!=64) {std::fclose(file);return 2;}
                 testProjection(local,view,mode,&result);projectionOnly=true;continue;
             }
-            if(tag==0x31524952u) {
+            if(tag==0x31524952u || tag==0x314e4952u) {
                 uint32_t mode;vp2s::math::RigidBasis basis;__m128 translation,result;
                 if(std::fread(&mode,4,1,file)!=1 || (mode&~0xe040u) || std::fread(basis.data(),1,48,file)!=48 ||
                    std::fread(&translation,1,16,file)!=16 || std::fread(&result,1,16,file)!=16) {std::fclose(file);return 2;}
-                testRigid(basis,translation,mode,&result);rigidOnly=true;continue;
+                testRigid(basis,translation,mode,&result,tag==0x314e4952u);rigidOnly=true;continue;
             }
             if(tag==0x31524d51u) {
                 __m128 value;Matrix result;

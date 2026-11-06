@@ -74,6 +74,7 @@ Capture &quaternionCapture() { static Capture value("VP2S_NORMALIZE_RECORD",36u)
 Capture &quaternionMatrixCapture() { static Capture value("VP2S_QUAT_MATRIX_RECORD",84u); return value; }
 Capture &inlineQuaternionCapture() { static Capture value("VP2S_INLINE_QUAT_MATRIX_RECORD",84u); return value; }
 Capture &rigidInverseCapture() { static Capture value("VP2S_RIGID_INVERSE_RECORD",88u); return value; }
+Capture &rigidColumnCapture() { static Capture value("VP2S_RIGID_INVERSE_COLUMN_RECORD",88u); return value; }
 Capture &projectionCapture() { static Capture value("VP2S_PROJECTION_PRODUCT_RECORD",200u); return value; }
 void quaternionMatrix(uint8_t *ram,R5900Context *ctx,PS2Runtime *runtime) {
     const uint32_t destination=getRegU32(ctx,4),stack=getRegU32(ctx,29);
@@ -258,6 +259,31 @@ bool vp2sNormalizeReferenceEnabled() {
     static const bool check=[] {const char *v=std::getenv("VP2S_NORMALIZE_CHECK");return v && v[0]=='1';}();
     return !vp2sNormalizeEnabled() || check;
 }
+void vp2sRigidInverseColumnTranslation(uint8_t *ram,R5900Context *ctx,uint32_t basisAddress,uint32_t translationAddress,uint32_t destination) {
+    vp2s::math::RigidBasis basis;__m128 translation;
+    std::memcpy(basis.data(),recordPointer(ram,basisAddress,48),48);
+    std::memcpy(&translation,recordPointer(ram,translationAddress,16),16);
+    const auto result=vp2s::math::rigidInverseColumnTranslation(basis,translation);
+    const uint32_t rounding=_mm_getcsr()&0xe040u;
+    if(vp2sRigidInverseReferenceEnabled() && std::memcmp(&result,&ctx->vu0_vf[31],16)) {
+        if(const char *path=std::getenv("VP2S_RIGID_INVERSE_COLUMN_FAILURE_RECORD"))
+            if(FILE *file=std::fopen(path,"wb")) {
+                const uint32_t tag=0x314e4952u;
+                std::fwrite(&tag,4,1,file);std::fwrite(&rounding,4,1,file);std::fwrite(basis.data(),48,1,file);
+                std::fwrite(&translation,16,1,file);std::fwrite(&ctx->vu0_vf[31],16,1,file);std::fclose(file);
+            }
+        throw std::runtime_error("native column rigid inverse differs from original game calculation");
+    }
+    std::memcpy(recordPointer(ram,destination,16),&result,16);
+    auto &recorder=rigidColumnCapture();
+    if(recorder.begin(0x314e4952u)) {
+        recorder.append(&rounding,4);recorder.append(basis.data(),48);recorder.append(&translation,16);recorder.append(&result,16);recorder.end();
+    }
+    static uint64_t calls=0;
+    if(++calls==1 || calls%4096==0)
+        std::fprintf(stderr,"[math:native] rigid column inverse %llu calls%s\n",calls,
+                     vp2sRigidInverseReferenceEnabled()?" (original comparison exact)":" (no VU state)");
+}
 void vp2sNormalizeRecord(uint8_t *ram,R5900Context *ctx,uint32_t source,uint32_t destination) {
     const __m128 input=_mm_loadu_ps(reinterpret_cast<const float*>(recordPointer(ram,source,16)));
     const __m128 result=vp2s::math::normalizeQuaternion(input);
@@ -284,6 +310,7 @@ void vp2sInstallMath(PS2Runtime &runtime) {
     g_workingMemory=runtime.memory().getScratchpad();
     (void)inlineQuaternionCapture();
     (void)rigidInverseCapture();
+    (void)rigidColumnCapture();
     (void)projectionCapture();
     (void)quaternionCapture();
     const auto *module=ps2_overlays::findModule("mod001");

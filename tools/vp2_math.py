@@ -47,6 +47,44 @@ def lower_rigid_inverse(directory,data):
     print(f'Native rigid inverse: USA block validated; {changed} EE files lowered')
 
 
+def lower_rigid_column(directory,data):
+    # The return instruction lies between the last arithmetic operation and
+    # its result store. Preserve that JR and rewrite only the delay-slot store.
+    words=[0xd89f0030,0xd8bc0000,0xd8bd0010,0xd8be0020,0x4b0006c7,
+           0x4bdfe1bc,0x4bdfe8bd,0x4bdff7ca,0x4bdbffd8,0x03e00008,0xf8bf0030]
+    if data.count(struct.pack('<11I',*words))!=1:
+        raise ValueError('Unexpected USA column rigid inverse block')
+    changed=0
+    for path in directory.glob('*.cpp'):
+        m=re.search(r'_0x([0-9a-f]+)$',path.stem)
+        if not m or not 0x216cb0<=int(m[1],16)<=0x216d5c:continue
+        text=path.read_text();marker='// VP2S native column rigid inverse v1'
+        if marker in text:continue
+        def patch(m):
+            pc=int(m[1],16)
+            if not 0x216d34<=pc<=0x216d5c:return m[0]
+            index=(pc-0x216d34)//4;assert int(m[2],16)==words[index]
+            if index==9:return m[0]
+            body=m[3]
+            if index<4:pattern=r'ctx->vu0_vf\[\d+\] = [^\n;]+;'
+            elif index<9:pattern=r'\{ __m128.*? \}'
+            else:pattern=r'WRITE128\([^\n]+_mm_castps_si128\(ctx->vu0_vf\[31\]\)\);'
+            found=re.search(pattern,body,re.S);assert found,(path.name,hex(pc))
+            original=found[0]
+            if index==10:
+                replacement=('if (vp2sRigidInverseEnabled()) { vp2sRigidInverseColumnTranslation(rdram, ctx, '
+                             'GPR_U32(ctx, 5), ADD32(GPR_U32(ctx, 4), 48u), ADD32(GPR_U32(ctx, 5), 48u)); } else { '+original+' }')
+            else:replacement='if (vp2sRigidInverseReferenceEnabled()) { '+original+' }'
+            return m[0][:m[0].index(body)]+body[:found.start()]+replacement+body[found.end():]
+        lowered=re.sub(r'// 0x([0-9a-f]+): 0x([0-9a-f]+)[^\n]*\n(.*?)(?=\s*// 0x[0-9a-f]+:|\Z)',patch,text,flags=re.S)
+        if lowered==text:continue
+        include='#include "ps2_recomp_calls.h"';assert lowered.count(include)==1
+        declarations=('\n'+marker+'\nbool vp2sRigidInverseEnabled();\nbool vp2sRigidInverseReferenceEnabled();\n'
+                      'void vp2sRigidInverseColumnTranslation(uint8_t*, R5900Context*, uint32_t, uint32_t, uint32_t);\n')
+        path.write_text(lowered.replace(include,include+declarations));changed+=1
+    print(f'Native column rigid inverse: USA block validated; {changed} EE files lowered')
+
+
 def lower_projection_products(directory,data):
     words=[0xd8a10000,0xd8a20010,0xd8a30020,0xd8a40030,
            0xd8650000,0xd8660010,0xd8670020,0xd8680030]
@@ -95,7 +133,7 @@ def projection_fixtures(directory):
     source='\n#include "ps2_runtime.h"\n#include "ps2_runtime_macros.h"\n#include "vp2s_math.h"\nnamespace vp2s::mathfixture {\n'
     for native in (False,True):
         prefix='native' if native else 'original'
-        for address,name in [('216e40','Rigid'),('2178b0','Perspective'),('2179e0','Orthographic')]:
+        for address,name in [('216e40','Rigid'),('216cb0','ColumnRigid'),('2178b0','Perspective'),('2179e0','Orthographic')]:
             path=directory/f'mod001_FUN_00{address}_0x{address}.cpp'
             text=path.read_text().split('// Function:',1)[1]
             text='// Function:'+text
@@ -104,7 +142,7 @@ def projection_fixtures(directory):
             text=text.replace(old,prefix+name)
             text=text.replace('ps2rCheckpointDue(runtime)','false')
             text=re.sub(r'#if defined\(PS2X_STRICT_RETURN_DIAGNOSTICS\).*?#else(.*?)#endif',r'\1',text,flags=re.S)
-            if address!='216e40':
+            if address in ('2178b0','2179e0'):
                 text,count=re.subn(r'if \(!ps2rDispatchGuestBranch\(runtime, rdram, ctx, 0x216E40u,[^\n]+\)\) \{\s*return;\s*\}',
                                    prefix+'Rigid(rdram, ctx, runtime);',text)
                 assert count==1
@@ -234,6 +272,7 @@ def main():
     path=args.out/'reference.cpp'
     lower_normalization(args.recomp/'mod001')
     lower_rigid_inverse(args.recomp/'mod001',data)
+    lower_rigid_column(args.recomp/'mod001',data)
     lower_projection_products(args.recomp/'mod001',data)
     source+=projection_fixtures(args.recomp/'mod001')
     source=source.encode()

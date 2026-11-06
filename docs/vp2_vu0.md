@@ -421,6 +421,62 @@ build_usa/port/vp2s_math_check.exe --projection-functions
 build_usa/port/vp2s_math_check.exe <projection-product-records.bin>
 ```
 
+## Column-layout rigid-transform inverse, 2026-11-06
+
+The counterpart helper `0x216CB0` now reads ordinary matrix/vector records for
+its translation calculation too. Its scalar code first clears and transposes
+the output basis; the native operation reads that basis and the source's fourth
+vector, computes the ordered translation product, negates xyz and preserves the
+source vector's fourth component bit-for-bit. It reuses the verified native
+rigid-inverse arithmetic and adds only the final xyz sign change.
+
+The exact eleven-word USA tail (`0x216D34` through `0x216D5C`) is validated
+against the ELF. Four vector loads, the constant -1 construction and four
+arithmetic macro operations are now gated to explicit comparison. The `JR` is
+retained, and the native record write replaces only its delay-slot result store.
+The full function and overlapping `0x216D28` continuation are lowered; repeated
+conversion changes neither. Default execution has no VU register, accumulator,
+flag or pipeline dependency. The direct caller at `0x2485F8` consumes the output
+record and performs no later VU operation before returning.
+
+This extends the existing rigid-inverse controls: `VP2S_NATIVE_RIGID_INVERSE=0`
+selects the old block, and `VP2S_RIGID_INVERSE_CHECK=1` compares the entire native
+four-component result against the original. A mismatch fails without fallback.
+`VP2S_RIGID_INVERSE_COLUMN_RECORD=<file>` captures bounded typed records and
+host floating-point controls; `VP2S_RIGID_INVERSE_COLUMN_FAILURE_RECORD=<file>`
+saves the first failing original result before aborting. Column-layout records
+have a separate type tag from the non-negated row-layout calculation.
+
+The arithmetic checker passes **131,216 cases / 524,864 scalar outputs** across
+four host floating-point control modes, general/tiny values, signed zeros and
+arbitrary untouched fourth-component payloads. Independent strict-comparison
+and native-only live captures add 4,096 records each (2,831 and 2,951 distinct
+inputs respectively), all exact. Together this is **139,408 arithmetic/captured
+cases / 557,632 scalar outputs**, zero differences.
+
+The offline full-game-function harness also passes **1,024 cases** using the
+exact production bridge: four control modes, 128 nonzero column-layout camera
+transforms and separate/aliased input/output records. Whole private RAM, general
+and scalar FP registers, FP status, return PC, branch PC and delay-slot completion
+agree with the original function. Native VU vector/accumulator/flag state remains
+untouched. The original aliased-record behavior is preserved, including the
+scalar destination initialization that precedes source reads. The prior 2,048
+projection-function checks still pass after extending the harness.
+
+Both 300-second hidden town/inn runs completed, each passing at least 200,704
+calls of this helper. The strict comparison found no mismatch; the native-only
+run used no VU state for the operation. Music was still playing at 290 seconds
+in both runs, and the user's memory-card hashes were unchanged. At town capture
+40, native versus comparison static-zone RGB mean absolute errors are 0.004
+(central wall), 0.850 (left wall) and 0.485 (ground), on the 0..255 scale. These
+are port regression checks; no new PCSX2 parity claim is made.
+
+```powershell
+build_usa/port/vp2s_math_check.exe --rigid-column-synthetic
+build_usa/port/vp2s_math_check.exe --rigid-column-functions
+build_usa/port/vp2s_math_check.exe <rigid-column-records.bin>
+```
+
 ## Still open
 
 The Csi seed service still runs through the IOP environment. Other main/module

@@ -60,6 +60,7 @@ public:
     bozo::host::FreeHost native;
     vp2s::ControllerBridge controller;
     std::unique_ptr<bozo::native::irx::CompiledLibraries> dbc;
+    vp2s::NativeCommandReplies replies;
     vp2s::TimerClock sdkClock;
     vp2s::TimerClock &timerClock() override { return sdkClock; }
     vp2s::Settings preferences;
@@ -89,7 +90,10 @@ public:
         sif.allocateBuffer=[this](uint32_t bytes){return moduleStorage.allocate(bytes);};
         sif.freeBuffer=[this](uint32_t h){return moduleStorage.release(h);};
         sif.transfer=[this](uint32_t to,const uint8_t *data,uint32_t bytes){copyNativeTransfer(to,{data,bytes});};
-        sif.resetProvider=[this]{moduleStorage.reset();serviceModules->reset();dbc->reset();controller.reset();};
+        sif.resetProvider=[this]{moduleStorage.reset();serviceModules->reset();dbc->reset();controller.reset();replies.reset();};
+        sif.receiveCommand=[this](uint32_t command,std::span<const uint8_t> data,uint32_t to,std::span<const uint8_t> extra){
+            return replies.submit(native.libraries(),command,data,to,extra);
+        };
         native.libraries().audioProvider=[this](uint64_t cycle){return dbc->advanceTo(cycle);};
         sif.moduleLoader=[this](const std::string &path){return loadNativeModule(path,{}).id;};
         if(const char *specified=std::getenv("VP2S_BOZO_SEED")) {

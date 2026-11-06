@@ -13,8 +13,8 @@ result=subprocess.run([sys.argv[1],'--iso',sys.argv[2],'--frames','1'],
                       env={**os.environ,'VP2S_BOZO_TRACE_CALLS':'1','VP2S_BOZO_SEED':'1'})
 output=result.stdout+result.stderr
 print(output,end='')
-if result.returncode!=1:
-    raise SystemExit(f'expected explicit unported boundary, got {result.returncode}')
+if result.returncode!=0:
+    raise SystemExit(f'expected first native game-frame boundary, got {result.returncode}')
 if '[vp2s:bozo] native syscall services ready; retired SDK firmware discovery' not in output:
     raise SystemExit('startup did not reach the native installer')
 if '[vp2s:bozo] retired SDK alarm firmware installer; runtime alarm APIs remain unsupported' not in output:
@@ -39,10 +39,16 @@ for required in ['[vp2s:call] pc=142150 ra=0',
                  'compiled native service owns Csi_.irx id=8',
                  'native pad/card service owns mcman.irx id=9',
                  'native pad/card service owns mcserv.irx id=10',
-                 'unsupported native IRX import sifcmd:12 at 0x559e4']:
+                 'frames=1 ', 'end=frame limit 1 reached']:
     if required not in output:raise SystemExit(f'startup did not reach expected CD worker boundary: {required}')
 if 'syscall 116' in output or 'a call to' in output:
     raise SystemExit('native binding was bypassed or unanswered')
 if 'pc=137220 a0=ffffffff result=-408' in output:
     raise SystemExit('the retired CD private worker unexpectedly ran')
-print('Native sound-buffer upload and EE user-command delivery passed; Csd native reply sender remains unsupported.')
+deeper=subprocess.run([sys.argv[1],'--iso',sys.argv[2],'--frames','600'],
+                      capture_output=True,text=True,timeout=30,
+                      env={**os.environ,'VP2S_BOZO_SEED':'1'})
+print(deeper.stdout+deeper.stderr,end='')
+if deeper.returncode!=1 or 'unported device write 1000e000 at pc=10087c' not in deeper.stdout+deeper.stderr:
+    raise SystemExit('longer native boot did not reach its audited DMA-control setup boundary')
+print('First native game-frame boundary passed; longer run reaches guarded hardware setup. Native rendering remains unqualified.')

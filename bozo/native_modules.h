@@ -8,7 +8,15 @@
 #include <functional>
 #include <string_view>
 #include <stdexcept>
+namespace bozo::libs { class Libraries; }
 namespace vp2s {
+class NativeCommandReplies {
+    uint32_t serial=0;
+public:
+    uint32_t submit(bozo::libs::Libraries &,uint32_t command,std::span<const uint8_t> data,
+                    uint32_t extraDestination,std::span<const uint8_t> extra);
+    void reset(){serial=0;}
+};
 struct ModuleResult { int32_t id=0, startResult=0; };
 // Sparse host-owned allocations used by SDK file/service jobs. No IOP address
 // space, instruction memory, device bank or executable module is modeled.

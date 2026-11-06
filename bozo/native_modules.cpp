@@ -1,6 +1,7 @@
 #include "native_kernel.h"
 #include "native_modules.h"
 #include "bozo/ee/dispatcher.h"
+#include "bozo/libs/libraries.h"
 #include <cstring>
 #include <stdexcept>
 #include <algorithm>
@@ -9,6 +10,37 @@
 #include <cstdio>
 #include <format>
 namespace vp2s {
+uint32_t NativeCommandReplies::submit(bozo::libs::Libraries &libraries,uint32_t command,
+        std::span<const uint8_t> data,uint32_t extraDestination,std::span<const uint8_t> extra) {
+    auto *dispatcher=libraries.dispatcher();
+    if(!dispatcher)throw std::runtime_error("native EE reply requires the attached application");
+    if(data.size()<16 || data.size()>112 || (command&0x80000000u))throw std::runtime_error("invalid native EE user reply");
+    auto &rt=dispatcher->runtime();
+    const auto pointer=[&](uint32_t address,size_t bytes){
+        auto *out=bytes<=UINT32_MAX?rt.memory.hostPointer(address,static_cast<uint32_t>(bytes)):nullptr;
+        if(!out || uint64_t(address)+bytes>0x2000000u)throw std::runtime_error("native EE reply span outside application RAM");
+        return out;
+    };
+    const auto word=[&](uint32_t address){uint32_t value;std::memcpy(&value,pointer(address,4),4);return value;};
+    // These are the game's own SDK software callback records, written by its
+    // retained SetCmdBuffer/AddCmdHandler/RemoveCmdHandler functions.
+    const auto table=word(0x1df82c),count=word(0x1df830);
+    if(!table || command>=count || uint64_t(table)+uint64_t(command)*12+12>0x2000000u)
+        throw std::runtime_error(std::format("native EE user reply has no handler table: command {}, table 0x{:x}, count {}",command,table,count));
+    const uint32_t record=table+command*12,callback=word(record),argument=word(record+4),gp=word(record+8);
+    if(!callback || (!rt.functions.generated(callback) && !rt.functions.override(callback)))
+        throw std::runtime_error(std::format("native EE user reply requires linked handler 0x{:x}",callback));
+    auto *extraOut=extra.empty()?nullptr:pointer(extraDestination,extra.size());
+    if(serial==0x7fffffffu)throw std::runtime_error("native EE reply jobs exhausted");
+    const auto buffer=libraries.gameHeap().allocate(static_cast<uint32_t>(data.size()));
+    if(!buffer)throw std::runtime_error("native EE reply allocation failed");
+    auto *out=pointer(buffer,data.size());std::copy(data.begin(),data.end(),out);
+    if(extraOut)std::copy(extra.begin(),extra.end(),extraOut);
+    bozo::ee::QueuedHandler handler;handler.kind=bozo::ee::kInvokeSifCommand;handler.pc=callback;
+    handler.a[0]=buffer;handler.a[1]=argument;handler.gp=gp;
+    libraries.queueHandler(handler,[buffer](bozo::libs::Libraries &owner,bozo::libs::Guest &){owner.gameHeap().release(buffer);});
+    return ++serial;
+}
 ModuleResult NativeServiceModules::loadBuffer(std::span<const uint8_t> buffer,std::span<const uint8_t> args) {
     for(const char *name:{"sio2man.irx","sio2d.irx","ds2o_d.irx","mcman.irx","mcserv.irx",
                          "Sound_Device_Library.irx","Csi_.irx","Csd_.irx","Csm_.irx","Dbc_Manager.irx"}) {

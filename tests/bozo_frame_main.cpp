@@ -13,11 +13,11 @@ namespace {
 void check(bool ok){if(!ok)throw std::runtime_error("native frame-event comparison failed");}
 struct Call {uint32_t pc;std::array<uint32_t,6> args;bool operator==(const Call &)const=default;};
 struct Host:bozo::ee::Host,bozo::port::Host {
-    bozo::libs::Libraries libs;std::vector<Call> calls;unsigned profile=0;
+    bozo::libs::Libraries libs;std::vector<Call> calls;unsigned profile=0,boundaries=0;bool allowFrames=false;
     bozo::libs::Libraries &libraries()override{return libs;}
     bool nativeGraphics()const override{return true;}
     bool nativeInstruction(uint8_t *r,R5900Context *c,Runtime *t,uint32_t pc)override{return vp2s::nativeFrameInput(r,c,t,pc);}
-    void frameEnd(Runtime *,R5900Context *)override{throw std::runtime_error("unexpected frame publication");}
+    void frameEnd(Runtime *,R5900Context *)override{if(!allowFrames)throw std::runtime_error("unexpected frame publication");++boundaries;}
     bool callLibrary(Runtime *,R5900Context *,uint32_t)override{return false;}
     void libraryCall(bozo::ee::Dispatcher &d,R5900Context *c,uint32_t pc)override{
         Call call{pc,{}};for(unsigned i=0;i<6;++i)call.args[i]=c->r[4+i].uw[0];calls.push_back(call);
@@ -71,7 +71,11 @@ int main(){try{
         check(x.pc==0x170000 && y.pc==x.pc && beforeHost.calls==afterHost.calls);
         check(!std::memcmp(x.r,y.r,sizeof(x.r)));
         check(!std::memcmp(before.runtime().memory.flat(),after.runtime().memory.flat(),bozo::kFlatBytes));
-        check(b[object+0x2fa]==(after.kernel().vblankCount()&1));++cases;
+        check(b[object+0x2fa]==(after.kernel().vblankCount()&1));
+        afterHost.allowFrames=true;const auto saved=y;
+        check(vp2s::nativeFrameInput(b,&y,&after.runtime(),0x11f62c) && afterHost.boundaries==1);
+        check(!std::memcmp(&saved,&y,sizeof(y)));
+        check(!std::memcmp(before.runtime().memory.flat(),after.runtime().memory.flat(),bozo::kFlatBytes));++cases;
     }
     std::printf("%u original/native full-RAM frame-event bookkeeping and ordered leaf-call comparisons passed; no GS read answered\n",cases);return 0;
 }catch(const std::exception &e){std::fprintf(stderr,"%s\n",e.what());return 1;}}

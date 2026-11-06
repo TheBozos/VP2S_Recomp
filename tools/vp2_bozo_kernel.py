@@ -24,6 +24,8 @@ COMMAND_SEND = (0x13a3f0,0x13a524)
 EVENT_RANGES=((0x140b70,0x140c34),(0x148c58,0x148f88),(0x141780,0x141898),(0x141910,0x141958),(0x141980,0x1419cc))
 RETIRED_RANGES = (INSTALLER, QUERY, ALARM_INSTALLER, ALARM_PAYLOAD, TIMER_INITIALIZER, TIMER_HANDLER, TIMER_START, TIMER_QUERY, TIMER_REARM,MODULE_LOADER,MODULE_BUFFER_LOADER,MODULE_BUFFER_FREE,MODULE_TRANSFER,CACHE_SYNC,COMMAND_SEND)+EVENT_RANGES
 GUARDS = {
+    # Retained pure software SetCmdBuffer/Add/Remove records consumed by replies.
+    (0x13a2f8,0x13a3ec): 'f54416cbebce4a5d1d6ab3bf8db46d753465896633417268653373c7bbb51d21',
     COMMAND_SEND: '0a2c363e48d8b736e9b79758082641db6925e79deebb01c3d8d40db3f58d6a28',
     CACHE_SYNC: 'c0f86abc89f08902f14f584e2bb86fffdab9d4db9bf98b74698d5036480df936',
     MODULE_TRANSFER: '1f3df3b2ba20801b1d79474f0a30f158f3bc5b4eb77957a38b0c5893b27e7d6e',
@@ -140,7 +142,12 @@ def native_game_sites(data):
     if hashlib.sha256(data[at:at+hi-lo]).hexdigest()!='2b2969c890711c912a7d36650936ac83400288ab4461fd230ded36c5eb3c7f17':
         raise ValueError('USA boot RNG input signature mismatch')
     frame_adaptations(data)
-    return 'native 0x1003c4\nnative 0x11fb50\n'
+    lo,hi=0x11f5a0,0x11f638
+    s=next(s for s in segments if s[0]==1 and s[2]<=lo<hi<=s[2]+s[4])
+    at=s[1]+lo-s[2]
+    if hashlib.sha256(data[at:at+hi-lo]).hexdigest()!='b51e65c468e6ccfbc18ebe97e73361841f296da61c34ec5d5dafae384360053c':
+        raise ValueError('USA game frame-wait signature mismatch')
+    return 'native 0x1003c4\nnative 0x11fb50\nnative 0x11f62c\n'
 
 
 def frame_adaptations(data):

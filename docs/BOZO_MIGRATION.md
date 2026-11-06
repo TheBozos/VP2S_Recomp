@@ -16,7 +16,16 @@ analog/pressure values, arbitrary buttons/sticks/pressures, and sequence wrap/su
 The fixture supplies no SIO2 transaction and never executes the hardware worker. Capabilities come
 from the private relocated game image. Native DBC two-port descriptor registration also passes
 repeat/reset/two-host checks. These tests qualify record construction and registration, not the
-controller's complete open/configuration/periodic delivery path; production still rejects `ds2o_d`.
+controller's complete open/configuration/periodic delivery path.
+
+The next increment binds `ds2o_d` startup and worker/resume entries to a per-run native input producer.
+It retains compiled DBC descriptor registration and open/submission consumers. Two cooperative tasks
+sample the configured `PadInput`, build the qualified game record and delay via a native service; the
+original SIO2/VBlank worker never executes. With no controller recipient configured yet, DBC retains
+its source behavior and performs no EE delivery. Scripted connected/absent input, record inspection,
+delay/resume and reset pass in isolation. The real boot now reaches `Sound_Device_Library.irx` after
+native DBC/controller initialization, with 16 port suites passing. Later EE recipient configuration,
+rumble/close/reconnect and full route input delivery remain unqualified and reject missing services.
 
 Native Windows PowerShell, existing user-owned USA extraction and function/SDK
 maps in `build_usa`, UCRT64 CMake/Ninja/G++, and native FFmpeg:

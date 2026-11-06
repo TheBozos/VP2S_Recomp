@@ -32,10 +32,11 @@ for required in ['[vp2s:call] pc=142150 ra=0',
                  'native pad/card service owns sio2man.irx id=1',
                  'native pad/card service owns sio2d.irx id=2',
                  'compiled native service owns Dbc_Manager.irx id=3',
-                 'unported native service module: ds2o_d.irx']:
+                 'compiled native service owns ds2o_d.irx id=4',
+                 'unported native service module: Sound_Device_Library.irx']:
     if required not in output:raise SystemExit(f'startup did not reach expected CD worker boundary: {required}')
 if 'syscall 116' in output or 'a call to' in output:
     raise SystemExit('native binding was bypassed or unanswered')
 if 'pc=137220 a0=ffffffff result=-408' in output:
     raise SystemExit('the retired CD private worker unexpectedly ran')
-print('Native bootstrap/timer/CD/DBC initialization reached; ds2o_d controller producer remains unsupported.')
+print('Native bootstrap/timer/CD/DBC/controller initialization reached; native sound library remains unsupported.')

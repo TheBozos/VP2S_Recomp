@@ -15,7 +15,7 @@ ModuleResult NativeServiceModules::loadBuffer(std::span<const uint8_t> buffer,st
         std::vector<uint8_t> original{std::istreambuf_iterator<char>(file),{}};
         if(original.empty() || buffer.size()!=((original.size()+15)&~size_t(15)) ||
            !std::equal(original.begin(),original.end(),buffer.begin()))continue;
-        if(std::string_view(name)=="Dbc_Manager.irx" && startCustom) {
+        if((std::string_view(name)=="Dbc_Manager.irx" || std::string_view(name)=="ds2o_d.irx") && startCustom) {
             if(auto it=services.find(name);it!=services.end())return {it->second,0};
             const auto result=startCustom(name,args);
             if(result!=0)throw std::runtime_error("native custom service initialization failed");
@@ -25,7 +25,7 @@ ModuleResult NativeServiceModules::loadBuffer(std::span<const uint8_t> buffer,st
         }
         // These two libraries only transport controller/card transactions.
         // The native EE services own those transactions. The later custom
-        // Dbc_Manager protocol is a separate provider and still rejects.
+        // Dbc_Manager/controller protocol has its own explicit native provider.
         if(std::string_view(name)!="sio2man.irx" && std::string_view(name)!="sio2d.irx")
             throw std::runtime_error(std::string("unported native service module: ")+name);
         if(!ready || !ready())throw std::runtime_error("native pad/card service is not installed");

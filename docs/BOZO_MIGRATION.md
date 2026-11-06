@@ -16,6 +16,12 @@ for 24 voices on each core and verifies all 64 uploaded bytes in actual mixer st
 reset and independent hosts. This is an API/data qualification, not soundtrack or timing parity.
 Production now starts libsd as service 5 and stops at `Csm_.irx`; no frame is rendered yet.
 
+The following Csm increment admits its full USA fingerprint and strictly compiles 72 routines.
+Its original initialization entry performs native export registration, disables unused native callback
+sources and initializes the game callback record. It passes repeat/reset/two-host checks, without
+executing device code. Production assigns service 6 and reaches the distinct `Csd_.irx` boundary.
+This qualifies Csm initialization only; streaming/voice/timer services are still checked on use.
+
 ### Native controller record boundary (2026-11-06)
 
 Engine PR15 (`1b6f1ed`) supplies per-host native algorithm bindings, with 18 headless engine suites

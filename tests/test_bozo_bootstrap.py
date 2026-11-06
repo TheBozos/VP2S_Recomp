@@ -34,10 +34,11 @@ for required in ['[vp2s:call] pc=142150 ra=0',
                  'compiled native service owns Dbc_Manager.irx id=3',
                  'compiled native service owns ds2o_d.irx id=4',
                  'compiled native service owns Sound_Device_Library.irx id=5',
-                 'unported native service module: Csm_.irx']:
+                 'compiled native service owns Csm_.irx id=6',
+                 'unported native service module: Csd_.irx']:
     if required not in output:raise SystemExit(f'startup did not reach expected CD worker boundary: {required}')
 if 'syscall 116' in output or 'a call to' in output:
     raise SystemExit('native binding was bypassed or unanswered')
 if 'pc=137220 a0=ffffffff result=-408' in output:
     raise SystemExit('the retired CD private worker unexpectedly ran')
-print('Native bootstrap/timer/CD/DBC/controller/libsd initialization reached; Tri-Ace Csm remains unsupported.')
+print('Native bootstrap/timer/CD/DBC/controller/libsd/Csm initialization reached; Tri-Ace Csd remains unsupported.')

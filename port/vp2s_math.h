@@ -4,6 +4,18 @@
 namespace vp2s::math {
 using Matrix = std::array<__m128,4>;
 using RigidBasis = std::array<__m128,3>;
+// Full record transform: all four input weights and output components matter.
+inline __m128 matrixVectorProduct(const Matrix &matrix,__m128 vector) {
+    auto normal=[](__m128 v) {
+        const auto bits=_mm_castps_si128(v);
+        const auto tiny=_mm_cmpeq_epi32(_mm_and_si128(bits,_mm_set1_epi32(0x7f800000)),_mm_setzero_si128());
+        return _mm_castsi128_ps(_mm_andnot_si128(_mm_and_si128(tiny,_mm_set1_epi32(0x7fffffff)),bits));
+    };
+    auto acc=normal(_mm_mul_ps(matrix[0],music::broadcast<0>(vector)));
+    acc=normal(_mm_add_ps(acc,normal(_mm_mul_ps(matrix[1],music::broadcast<1>(vector)))));
+    acc=normal(_mm_add_ps(acc,normal(_mm_mul_ps(matrix[2],music::broadcast<2>(vector)))));
+    return normal(_mm_add_ps(acc,normal(_mm_mul_ps(matrix[3],music::broadcast<3>(vector)))));
+}
 // Object-update linear transform: xyz weights, all four basis components.
 inline __m128 linearVectorProduct(const RigidBasis &basis,__m128 vector) {
     auto normal=[](__m128 v) {
@@ -165,3 +177,6 @@ void vp2sProjectionProduct(uint8_t*,R5900Context*,uint32_t local,uint32_t view,u
 bool vp2sLinearVectorEnabled();
 bool vp2sLinearVectorReferenceEnabled();
 void vp2sLinearVectorProduct(uint8_t*,R5900Context*,uint32_t basis,uint32_t vector,uint32_t destination,uint32_t site);
+bool vp2sMatrixVectorEnabled();
+bool vp2sMatrixVectorReferenceEnabled();
+void vp2sMatrixVectorProduct(uint8_t*,R5900Context*,uint32_t matrix,uint32_t vector,uint32_t destination,uint32_t site);

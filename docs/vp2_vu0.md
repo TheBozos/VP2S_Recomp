@@ -663,6 +663,88 @@ build_usa/port/vp2s_math_check.exe --linear-vector-functions
 build_usa/port/vp2s_math_check.exe <linear-vector-records.bin>
 ```
 
+## Full object matrix/vector products, 2026-11-06
+
+The next native boundary replaces the full four-weight transforms in object
+helpers `0x1FB330`, `0x1FB530` and `0x1FB7C0`. Their result stores are
+`0x1FB418`, `0x1FB610` and `0x1FB8A0`. All three identical ten-word USA blocks
+are validated before lowering. Every input is loaded from the game's ordinary
+EE matrix/vector records before any destination write; no VU register shadow,
+accumulator, flags, memory, packet replay or timing model is used by default.
+
+Unlike the preceding three-weight operation, **vector.w participates**:
+`matrix[0]*x + matrix[1]*y + matrix[2]*z + matrix[3]*w`. All four output
+components are computed. Ordered products/sums retain the caller's host FP
+mode and reduction of tiny intermediate results to signed zero. This is
+separate from the common matrix microprogram's truncating-sum policy. Existing
+integer transposes, dirty flags, callbacks, stores and return code are retained.
+The subsequent three-weight blocks reload their inputs and remain native.
+
+`VP2S_NATIVE_MATRIX_VECTOR=0` explicitly selects original diagnostic execution;
+`VP2S_MATRIX_VECTOR_CHECK=1` strictly compares the original result before native
+storage and aborts on mismatch, without fallback. `VP2S_MATRIX_VECTOR_RECORD`
+captures bounded typed matrix/vector/result records plus host FP controls;
+`VP2S_MATRIX_VECTOR_FAILURE_RECORD` saves the first failed original result.
+
+The original-operation oracle passes **131,264 cases / 525,056 scalar outputs**
+over four host FP control modes. Cases include ordinary/tiny values, signed
+zeros, every contributing axis including w, and nontrivial fourth matrix
+components. **1,536 exact generated-block cases** cover all three sites with
+separate output, overlapping matrix output at offsets zero and 16, and vector
+output aliasing. Whole private RAM, CPU records and terminal PC match; native
+VU vector/accumulator/flags remain unchanged.
+
+The real continuation harness additionally passes **2,560 cases**. For
+`0x1FB330` it enters `0x1FB3E4`, after the existing object helper; for `0x1FB530`
+and `0x1FB7C0` it enters the actual post-callback PCs `0x1FB54C` and `0x1FB7DC`.
+The latter two cover both dirty-flag skip and calculation paths, including their
+integer transpose. The first two include their subsequent native three-weight
+product. Whole private RAM, GPR/FPR/status, return/branch PC and delay slot match,
+with native VU state untouched. Reaching a preceding callback/helper in these
+offline fixtures throws: those callees are not fabricated or claimed tested by
+this harness. The previous 2,048 three-weight block and 1,024 continuation checks
+still pass after extending the fixtures.
+
+Two 64-record live captures each contain 22 distinct inputs and replay exactly
+against the original operations. Combined with the synthetic oracle this gives
+**131,392 arithmetic/captured cases / 525,568 scalar outputs**, zero differences.
+Repeating conversion changes no generated EE file. At Waiting Area capture 40,
+native-versus-strict-comparison RGB mean absolute errors are 0.000 (central
+wall), 0.177 (upper-left wall), 0.100 (ground) and 0.008 (lower-left stone), on
+0..255. These are port regression checks, not new PCSX2 parity evidence or an
+FPS benchmark.
+
+At inn capture 54 the corresponding RGB mean absolute errors are 0.376 (roof),
+0.163 (back wall) and 0.001 (floor), on 0..255, with the same camera view.
+
+Both isolated routes completed 300 seconds and preserved user-card hashes.
+All three sites have live strict-comparison and native-only coverage; no
+transform mismatch occurred. Each logged at least 49,152 calls at `0x1FB418`,
+86,016 at `0x1FB610` and 12,288 at `0x1FB8A0`.
+The native-only route retained playing music input
+at 290 seconds with nonzero PCM peaks. The diagnostic route instead lost music
+around 210 seconds: decoding stopped at 7,680 blocks, with 657 input halves.
+It counts as arithmetic/integration evidence, **not an audio pass**. The retained
+pre-change `inline_quat_final_checked` log has the same 7,680-block stop and
+silent late input (658 halves), while its native counterpart continues to
+11,904 blocks and playing music. Thus the diagnostic failure predates this
+increment; its cause remains unresolved and no audio/hardware workaround was
+introduced. These route checks do not establish whole-game RAM equivalence or
+coverage of every scene/caller.
+
+A further isolated 300-second control used the retained pre-change executable
+from `linear_native_20261106`. It preserved user-card hashes and continued
+decoding/playing music through 290 seconds (973 input halves, nonzero peaks),
+as does the new default build. That control did not reproduce the diagnostic
+audio failure; the earlier matching failure log establishes its prior existence.
+
+```powershell
+build_usa/port/vp2s_math_check.exe --matrix-vector-synthetic
+build_usa/port/vp2s_math_check.exe --matrix-vector-blocks
+build_usa/port/vp2s_math_check.exe --matrix-vector-functions
+build_usa/port/vp2s_math_check.exe <matrix-vector-records.bin>
+```
+
 ## Still open
 
 The Csi seed service still runs through the IOP environment. Other main/module

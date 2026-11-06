@@ -122,6 +122,56 @@ on the 0..255 scale. Comparing the diagnostic replay's differently aligned camer
 initially produced about 8 levels of error; the old-wrapper control separates
 that run-to-run camera alignment difference from the native calculation.
 
+## Quaternion normalization, 2026-11-06
+
+The 16 mod001 call sites for common-math entry `0x670` now normalize ordinary
+four-float quaternion records directly. This covers seven shared routines,
+including the in-place helper `0x2156D0` and the axis-angle conversion helper.
+The converter validates the USA instructions and lowers their input/call/sync/
+output bundles while preserving EE instructions, branch labels and delay slots.
+The default bundles neither load VU registers nor execute a microprogram.
+
+`normalizeQuaternion` retains the original squared-length addition order,
+truncating arithmetic, reciprocal-square-root behavior and signed zero results.
+It needs no uploaded code, VIF chain, VU data memory or register-state input.
+`VP2S_NATIVE_NORMALIZE=0` explicitly selects the original path;
+`VP2S_NORMALIZE_CHECK=1` executes it only for strict live result comparison.
+Neither is an automatic fallback.
+
+One diagnostic run exposed a real input-storage requirement: routine `0x2159C0`
+temporarily puts its EE stack in the game's 16 KiB working area. The failing
+record was `0x70003D60`, not a numerical mismatch. Native record access now
+accepts bounded, aligned spans of that existing storage, as the native model
+path already does. This reads game data directly; it adds no scratch DMA,
+hardware timing or VU transport. Other users of that storage remain separate
+replacement work.
+
+The offline checker validates **65,560 finite synthetic cases / 262,240 scalar
+outputs**, including zero, signed-zero, axis and large/small finite inputs,
+with zero differences against the original algorithm. A 200-second strict
+comparison replay passed at least **638,976 live normalizations**. Its bounded
+64-record capture and an independent native-only 4,096-record capture also
+match exactly: **69,720 captured/synthetic cases / 278,880 scalar outputs**
+in total. Both replays preserved the user's memory-card hashes.
+A further 300-second native-only town/inn replay passed more than one million
+normalizations, with streamed music still playing at 290 seconds and the
+user-card hashes unchanged.
+Walking replays produced differently positioned inn cameras, so they were not
+used to infer a shading change. A separate stationary-town original/native pair
+has static-zone RGB mean absolute errors of 0.006 (central wall), 0.419 (left
+wall) and 0.368 (ground) on the 0..255 scale at capture 42. Whole-frame error
+also includes independently timed NPCs, birds and effects. This is a native
+regression comparison, not a new PCSX2 parity claim.
+
+`VP2S_NORMALIZE_RECORD=<file>` uses bounded host-memory capture and background
+persistence. `VP2S_MATH_CAPTURE_LIMIT=1..4096` controls both math capture limits.
+The optional offline checker accepts these typed records:
+
+```powershell
+build_usa/port/vp2s_math_check.exe --normalize-synthetic
+build_usa/port/vp2s_math_check.exe <quaternion-records.bin>
+```
+
 ## Still open
 
 The Csi seed service still runs through the IOP environment. Other main/module

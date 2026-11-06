@@ -16,6 +16,20 @@ inline Matrix compose(const Matrix &local,const Matrix &parent) {
     }
     return result;
 }
+inline __m128 normalizeQuaternion(__m128 value) {
+    music::CodecRounding rounding;
+    const auto squares=_mm_mul_ps(value,value);
+    float length2=music::codecSum(music::laneValue(squares,0),music::laneValue(squares,1));
+    length2=music::codecSum(length2,music::laneValue(squares,2));
+    length2=music::codecSum(length2,music::laneValue(squares,3));
+    const float length=std::sqrt(length2);
+    const float reciprocal=length!=0.f ? 1.f/length : std::numeric_limits<float>::max();
+    return _mm_mul_ps(value,_mm_set1_ps(reciprocal));
+}
 }
 class PS2Runtime;
+struct R5900Context;
 void vp2sInstallMath(PS2Runtime &runtime);
+bool vp2sNormalizeEnabled();
+bool vp2sNormalizeReferenceEnabled();
+void vp2sNormalizeRecord(uint8_t*,R5900Context*,uint32_t source,uint32_t destination);

@@ -2,6 +2,7 @@
 #include "vp2s_math.h"
 #include "ps2_runtime.h"
 #include "ps2_overlay_modules.h"
+#include "runtime/ps2_memory.h"
 #include <cstdio>
 #include <cstdlib>
 #include <thread>
@@ -11,20 +12,34 @@ namespace {
 using vp2s::math::Matrix;
 constexpr uint32_t kProduct=0x00217550u;
 PS2Runtime::RecompiledFunction g_original=nullptr;
-uint8_t *recordPointer(uint8_t *ram,uint32_t address) {
-    address&=0x1FFFFFFu;
-    if(address<0x100000u || address>0x2000000u-sizeof(Matrix) || (address&15u))
-        throw std::runtime_error("invalid native matrix record");
-    return ram+address;
+uint8_t *g_workingMemory=nullptr;
+uint8_t *recordPointer(uint8_t *ram,uint32_t address,size_t size=sizeof(Matrix)) {
+    // Some game routines temporarily put their EE stack in the 16 KiB working
+    // area, as the existing native model path also observes. Access only the
+    // record's bytes: no DMA operation, transfer packet or VU memory is involved.
+    if(address>=0x70000000u && address<=0x70004000u-size && !(address&15u) && g_workingMemory)
+        return g_workingMemory+(address-0x70000000u);
+    if((address&0xF0000000u)!=0x70000000u) {
+        const uint32_t offset=address&0x1FFFFFFu;
+        if(offset>=0x100000u && offset<=0x2000000u-size && !(offset&15u)) return ram+offset;
+    }
+    char detail[100];
+    std::snprintf(detail,sizeof(detail),"invalid native math record address=%x size=%zu",address,size);
+    throw std::runtime_error(detail);
 }
 struct Capture {
     std::string path;
     std::vector<uint8_t> bytes;
     std::thread writer;
     unsigned saved=0;
-    Capture() {
-        if(const char *p=std::getenv("VP2S_MATRIX_RECORD")) {
-            path=p; bytes.reserve(4096u*(4u+3u*sizeof(Matrix)));
+    unsigned limit=4096;
+    Capture(const char *environment,size_t recordSize) {
+        if(const char *v=std::getenv("VP2S_MATH_CAPTURE_LIMIT")) {
+            limit=unsigned(std::strtoul(v,nullptr,10));
+            if(!limit || limit>4096) throw std::runtime_error("invalid native math capture limit");
+        }
+        if(const char *p=std::getenv(environment)) {
+            path=p; bytes.reserve(limit*recordSize);
         }
     }
     static void save(const std::string &path,const std::vector<uint8_t> &bytes) {
@@ -42,14 +57,17 @@ struct Capture {
         const auto *p=static_cast<const uint8_t*>(data);
         bytes.insert(bytes.end(),p,p+size);
     }
-    void record(const Matrix &a,const Matrix &b,const Matrix &result) {
-        if(path.empty() || saved==4096) return;
-        const uint32_t tag=0x3152344du; // M4R1: two input matrices and a native result
-        append(&tag,4); append(&a,sizeof(a)); append(&b,sizeof(b)); append(&result,sizeof(result));
-        if(++saved==4096) writer=std::thread([p=path,data=std::move(bytes)] {save(p,data);});
+    bool begin(uint32_t tag) {
+        if(path.empty() || saved==limit) return false;
+        append(&tag,4);
+        return true;
+    }
+    void end() {
+        if(++saved==limit) writer=std::thread([p=path,data=std::move(bytes)] {save(p,data);});
     }
 };
-Capture &capture() { static Capture value; return value; }
+Capture &capture() { static Capture value("VP2S_MATRIX_RECORD",4u+3u*sizeof(Matrix)); return value; }
+Capture &quaternionCapture() { static Capture value("VP2S_NORMALIZE_RECORD",36u); return value; }
 void product(uint8_t *ram,R5900Context *ctx,PS2Runtime *runtime) {
     const uint32_t destination=getRegU32(ctx,4), stack=getRegU32(ctx,29);
     Matrix local,parent;
@@ -71,13 +89,49 @@ void product(uint8_t *ram,R5900Context *ctx,PS2Runtime *runtime) {
     ctx->r[3]=_mm_castps_si128(result[3]);
     ctx->r[9]=_mm_insert_epi64(ctx->r[9],0,0);
     ctx->pc=getRegU32(ctx,31);
-    capture().record(local,parent,result);
+    auto &recorder=capture();
+    if(recorder.begin(0x3152344du)) {
+        recorder.append(&local,sizeof(local)); recorder.append(&parent,sizeof(parent)); recorder.append(&result,sizeof(result));
+        recorder.end();
+    }
     static uint64_t calls=0;
     if(++calls==1 || calls%4096==0)
         std::fprintf(stderr,"[math:native] matrix product %llu calls%s\n",calls,check?" (original comparison exact)":" (no VU execution)");
 }
 }
-void vp2sInstallMath(PS2Runtime &) {
+bool vp2sNormalizeEnabled() {
+    static const bool enabled=[] {const char *v=std::getenv("VP2S_NATIVE_NORMALIZE");return !(v && v[0]=='0');}();
+    return enabled;
+}
+bool vp2sNormalizeReferenceEnabled() {
+    static const bool check=[] {const char *v=std::getenv("VP2S_NORMALIZE_CHECK");return v && v[0]=='1';}();
+    return !vp2sNormalizeEnabled() || check;
+}
+void vp2sNormalizeRecord(uint8_t *ram,R5900Context *ctx,uint32_t source,uint32_t destination) {
+    const __m128 input=_mm_loadu_ps(reinterpret_cast<const float*>(recordPointer(ram,source,16)));
+    const __m128 result=vp2s::math::normalizeQuaternion(input);
+    if(vp2sNormalizeReferenceEnabled() && std::memcmp(&result,&ctx->vu0_vf[6],16)) {
+        if(const char *path=std::getenv("VP2S_NORMALIZE_FAILURE_RECORD"))
+            if(FILE *file=std::fopen(path,"wb")) {
+                const uint32_t tag=0x3152344eu;
+                std::fwrite(&tag,4,1,file); std::fwrite(&input,16,1,file);
+                std::fwrite(&ctx->vu0_vf[6],16,1,file); std::fclose(file);
+            }
+        throw std::runtime_error("native quaternion differs from original game calculation");
+    }
+    std::memcpy(recordPointer(ram,destination,16),&result,16);
+    auto &recorder=quaternionCapture();
+    if(recorder.begin(0x3152344eu)) {
+        recorder.append(&input,16); recorder.append(&result,16); recorder.end();
+    }
+    static uint64_t calls=0;
+    if(++calls==1 || calls%4096==0)
+        std::fprintf(stderr,"[math:native] quaternion normalization %llu calls%s\n",calls,
+                     vp2sNormalizeReferenceEnabled()?" (original comparison exact)":" (no VU execution)");
+}
+void vp2sInstallMath(PS2Runtime &runtime) {
+    g_workingMemory=runtime.memory().getScratchpad();
+    (void)quaternionCapture();
     if(const char *v=std::getenv("VP2S_NATIVE_MATRIX");v && v[0]=='0') return;
     const auto *module=ps2_overlays::findModule("mod001");
     if(!module || kProduct<module->tableBase || kProduct>=module->tableEnd ||

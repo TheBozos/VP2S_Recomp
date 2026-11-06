@@ -26,6 +26,29 @@ inline __m128 normalizeQuaternion(__m128 value) {
     const float reciprocal=length!=0.f ? 1.f/length : std::numeric_limits<float>::max();
     return _mm_mul_ps(value,_mm_set1_ps(reciprocal));
 }
+// The game accepts the supplied quaternion as-is; normalization is a separate
+// operation. Preserve its product and subtraction order, including signed zero.
+inline Matrix quaternionMatrix(__m128 value) {
+    music::CodecRounding rounding;
+    const auto squares=_mm_mul_ps(value,value);
+    const auto twice=music::codecSum(value,value);
+    const auto diagonal=music::codecSum(squares,squares);
+    const auto x=_mm_mul_ps(value,music::broadcast<0>(twice));
+    const auto w=_mm_mul_ps(value,music::broadcast<3>(twice));
+    const auto y=_mm_mul_ps(value,music::broadcast<1>(twice));
+    const auto z=_mm_mul_ps(value,music::broadcast<2>(twice));
+    auto lane=[](__m128 v,int n) {return music::laneValue(v,n);};
+    auto sum=[](float a,float b) {return music::codecSum(a,b);};
+    return {
+        _mm_setr_ps(sum(sum(1.f,-lane(diagonal,1)),-lane(diagonal,2)),
+                    sum(lane(x,1),lane(w,2)),sum(lane(x,2),-lane(w,1)),0.f),
+        _mm_setr_ps(sum(lane(y,0),-lane(w,2)),
+                    sum(sum(1.f,-lane(diagonal,0)),-lane(diagonal,2)),sum(lane(y,2),lane(x,3)),0.f),
+        _mm_setr_ps(sum(lane(z,0),lane(w,1)),sum(lane(z,1),-lane(x,3)),
+                    sum(sum(1.f,-lane(diagonal,0)),-lane(diagonal,1)),0.f),
+        _mm_setr_ps(0.f,0.f,0.f,1.f)
+    };
+}
 }
 class PS2Runtime;
 struct R5900Context;

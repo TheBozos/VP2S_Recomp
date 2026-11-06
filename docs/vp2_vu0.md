@@ -172,6 +172,58 @@ build_usa/port/vp2s_math_check.exe --normalize-synthetic
 build_usa/port/vp2s_math_check.exe <quaternion-records.bin>
 ```
 
+## Shared quaternion-to-matrix helper, 2026-11-06
+
+The mod001 helper `0x216730` now converts the quaternion record at `a1` directly
+to the four-column matrix record at `a0`. This replaces its common-math VU0
+entry `0x720`. The game does **not** normalize this input inside the conversion;
+the native calculation preserves that behavior, operation order, truncating
+sums and positive-zero fourth components. Its final column is `(0,0,0,1)`.
+Inputs are read before output writes, including an in-place quaternion/matrix
+record. The helper retains its ordinary EE temporary stack record and `v1`/`t1`
+clobbers, without reading or writing VU registers in the default path.
+
+The direct-caller audit finds 16 distinct mod003 call instructions. Callers
+consume the matrix record; subsequent inverse/matrix operations reload their
+own matrix inputs. The later scalar-length macro sequence uses separately
+loaded registers 24/25. The conversion's temporary vector registers are not a
+return interface. Separate inline `0x720` bundles in mod001 and mod003 remain
+outside this shared-helper replacement and still need native boundaries.
+
+`VP2S_NATIVE_QUAT_MATRIX=0` explicitly selects the old helper.
+`VP2S_QUAT_MATRIX_CHECK=1` compares against it on the same live input and fails
+on any output mismatch; it is never an automatic fallback. The native
+calculation itself needs only a quaternion, without VIF packets, uploaded code,
+VU memory or execution state. The original 26-pair USA algorithm is validated
+offline and emitted only for the optional checker.
+
+```powershell
+build_usa/port/vp2s_math_check.exe --quat-matrix-synthetic
+build_usa/port/vp2s_math_check.exe <quaternion-matrix-records.bin>
+```
+
+Synthetic validation covers **131,096 cases / 2,097,536 scalar outputs**, zero
+differences against the original algorithm. These include 65,536 finite
+general inputs, their 65,536 normalized counterparts, and 24 signed-zero/axis/
+small/large cases. The previous matrix-product and normalization suites also
+pass unchanged. `VP2S_QUAT_MATRIX_RECORD=<file>` captures typed input/result
+records with the existing bounded-memory/background-write mechanism.
+
+Two independent live captures (strict comparison and native-only) each contain
+4,096 conversions with zero reference or captured-output differences. Combined
+with the synthetic suite this is **139,288 cases / 2,228,608 scalar outputs**.
+At stationary town capture 39, native versus strict-comparison RGB mean absolute
+errors are 0.014 (central wall), 0.045 (left wall), and 0.035 (ground), on the
+0..255 scale. A bird crosses the left-wall region at capture 40, so that frame's
+whole-region difference does not measure static geometry. These are regression
+checks against the existing port, not new PCSX2 parity evidence.
+The 200-second strict-comparison town/inn run passed at least 16,384 helper
+calls. The independent 300-second native-only route also completed, with music
+still playing at 290 seconds. Both preserved the user's memory-card hashes.
+A separate 135-second native capture run checked the first live result exactly
+and likewise preserved the card hashes; its one record is additional to the
+139,288-case total above.
+
 ## Still open
 
 The Csi seed service still runs through the IOP environment. Other main/module

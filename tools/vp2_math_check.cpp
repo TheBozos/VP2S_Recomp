@@ -13,6 +13,7 @@ namespace ps2x::vu1lift {
 using Kick=void (*)(void*,const uint8_t*,uint32_t);
 template<bool> uint64_t matrix_reference(uint32_t,VU1State&,uint8_t*,uint32_t,Kick,void*);
 template<bool> uint64_t normalize_reference(uint32_t,VU1State&,uint8_t*,uint32_t,Kick,void*);
+template<bool> uint64_t quaternion_matrix_reference(uint32_t,VU1State&,uint8_t*,uint32_t,Kick,void*);
 }
 int main(int argc,char **argv) {
     if(argc!=2) return 2;
@@ -39,8 +40,32 @@ int main(int argc,char **argv) {
         if(captured) capturedDifferences+=std::memcmp(captured,state.vf[6],16)!=0;
         ++cases;
     };
+    auto testQuaternionMatrix=[&](__m128 value,const Matrix *captured) {
+        VU1State state{}; state.vf[0][3]=1.f;
+        std::memcpy(state.vf[5],&value,16);
+        alignas(16) uint8_t data[4096]{};
+        ps2x::vu1lift::quaternion_matrix_reference<false>(0,state,data,0,nullptr,nullptr);
+        const auto result=vp2s::math::quaternionMatrix(value);
+        differences+=std::memcmp(result.data(),state.vf[8],64)!=0;
+        if(captured) capturedDifferences+=std::memcmp(captured->data(),state.vf[8],64)!=0;
+        ++cases;
+    };
     bool quaternionOnly=std::strcmp(argv[1],"--normalize-synthetic")==0;
-    if(quaternionOnly) {
+    bool quaternionMatrix=std::strcmp(argv[1],"--quat-matrix-synthetic")==0;
+    if(quaternionMatrix) {
+        std::mt19937 random(0x56503253u);
+        std::uniform_real_distribution<float> value(-1000.f,1000.f);
+        for(unsigned k=0;k<65536;++k) {
+            const auto q=_mm_setr_ps(value(random),value(random),value(random),value(random));
+            testQuaternionMatrix(q,nullptr);
+            testQuaternionMatrix(vp2s::math::normalizeQuaternion(q),nullptr);
+        }
+        for(float scale:{0.f,-0.f,1.f,-1.f,1.e-18f,1.e18f})
+            for(int lane=0;lane<4;++lane) {
+                float v[4]{};v[lane]=scale;
+                testQuaternionMatrix(_mm_loadu_ps(v),nullptr);
+            }
+    } else if(quaternionOnly) {
         std::mt19937 random(0x56503253u);
         std::uniform_real_distribution<float> value(-1000.f,1000.f);
         for(unsigned k=0;k<65536;++k)
@@ -67,6 +92,11 @@ int main(int argc,char **argv) {
         for(;;) {
             uint32_t tag=0;
             if(std::fread(&tag,4,1,file)!=1) break;
+            if(tag==0x31524d51u) {
+                __m128 value;Matrix result;
+                if(std::fread(&value,1,16,file)!=16 || std::fread(&result,1,64,file)!=64) {std::fclose(file);return 2;}
+                testQuaternionMatrix(value,&result);quaternionMatrix=true;continue;
+            }
             if(tag==0x3152344eu) {
                 __m128 value,result;
                 if(std::fread(&value,1,16,file)!=16 || std::fread(&result,1,16,file)!=16) {std::fclose(file);return 2;}
@@ -80,6 +110,6 @@ int main(int argc,char **argv) {
         std::fclose(file);
     }
     std::printf("native %s: %llu cases / %llu scalar outputs, reference differences %llu, captured differences %llu\n",
-                quaternionOnly?"quaternions":"matrices",cases,cases*(quaternionOnly?4:16),differences,capturedDifferences);
+                quaternionMatrix?"quaternion matrices":quaternionOnly?"quaternions":"matrices",cases,cases*(quaternionOnly?4:16),differences,capturedDifferences);
     return cases && !differences && !capturedDifferences?0:1;
 }

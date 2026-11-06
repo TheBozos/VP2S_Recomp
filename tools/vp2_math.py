@@ -1,12 +1,13 @@
-"""Validate USA matrix helper and emit its original algorithm for offline checking.
+"""Validate USA game math and emit original algorithms for offline checking.
 
-The native game uses a typed C++ matrix operation, never these reference files.
+The native game uses typed C++ record operations, never these reference files.
 """
 import argparse
 import importlib.util
 import struct
 import sys
 import re
+import hashlib
 from pathlib import Path
 
 
@@ -116,6 +117,12 @@ def main():
         raise ValueError('Unexpected USA quaternion normalization algorithm')
     reference,_=lift.generate(quaternion,dict(hash=lift.code_hash(quaternion),pairs=8,
                             function='normalize_reference',entries=[0],targets=[],unit='VU0'))
+    source+='\n'+reference
+    conversion=data[0x12b4a8+0x720:0x12b4a8+0x7f0]
+    if hashlib.sha256(conversion).hexdigest()!='5082777297b0b5b697227fc4ac15634e039e8a9c264cab5c4d0dc36da6b7096c':
+        raise ValueError('Unexpected USA quaternion-to-matrix algorithm')
+    reference,_=lift.generate(conversion,dict(hash=lift.code_hash(conversion),pairs=26,
+                            function='quaternion_matrix_reference',entries=[0],targets=[],unit='VU0'))
     source+='\n'+reference
     args.out.mkdir(parents=True,exist_ok=True)
     path=args.out/'reference.cpp'

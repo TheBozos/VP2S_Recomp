@@ -11,7 +11,9 @@
 namespace {
 using vp2s::math::Matrix;
 constexpr uint32_t kProduct=0x00217550u;
+constexpr uint32_t kQuaternionMatrix=0x00216730u;
 PS2Runtime::RecompiledFunction g_original=nullptr;
+PS2Runtime::RecompiledFunction g_originalQuaternionMatrix=nullptr;
 uint8_t *g_workingMemory=nullptr;
 uint8_t *recordPointer(uint8_t *ram,uint32_t address,size_t size=sizeof(Matrix)) {
     // Some game routines temporarily put their EE stack in the 16 KiB working
@@ -68,6 +70,32 @@ struct Capture {
 };
 Capture &capture() { static Capture value("VP2S_MATRIX_RECORD",4u+3u*sizeof(Matrix)); return value; }
 Capture &quaternionCapture() { static Capture value("VP2S_NORMALIZE_RECORD",36u); return value; }
+Capture &quaternionMatrixCapture() { static Capture value("VP2S_QUAT_MATRIX_RECORD",84u); return value; }
+void quaternionMatrix(uint8_t *ram,R5900Context *ctx,PS2Runtime *runtime) {
+    const uint32_t destination=getRegU32(ctx,4),stack=getRegU32(ctx,29);
+    const __m128 input=_mm_loadu_ps(reinterpret_cast<const float*>(recordPointer(ram,getRegU32(ctx,5),16)));
+    const auto result=vp2s::math::quaternionMatrix(input);
+    static const bool check=[] {const char *v=std::getenv("VP2S_QUAT_MATRIX_CHECK");return v && v[0]=='1';}();
+    if(check) {
+        g_originalQuaternionMatrix(ram,ctx,runtime);
+        if(ctx->pc!=getRegU32(ctx,31) || std::memcmp(recordPointer(ram,destination),&result,sizeof(result)))
+            throw std::runtime_error("native quaternion matrix differs from original game helper");
+    }
+    // Keep the EE helper's temporary record and GPR clobbers. Its VU registers
+    // are not an input/output API and are untouched by the default native path.
+    std::memcpy(recordPointer(ram,stack-64u),&result,sizeof(result));
+    std::memcpy(recordPointer(ram,destination),&result,sizeof(result));
+    ctx->r[3]=_mm_castps_si128(result[3]);
+    ctx->r[9]=_mm_insert_epi64(ctx->r[9],0,0);
+    ctx->pc=getRegU32(ctx,31);
+    auto &recorder=quaternionMatrixCapture();
+    if(recorder.begin(0x31524d51u)) {
+        recorder.append(&input,16); recorder.append(&result,64); recorder.end();
+    }
+    static uint64_t calls=0;
+    if(++calls==1 || calls%4096==0)
+        std::fprintf(stderr,"[math:native] quaternion matrix %llu calls%s\n",calls,check?" (original comparison exact)":" (no VU execution)");
+}
 void product(uint8_t *ram,R5900Context *ctx,PS2Runtime *runtime) {
     const uint32_t destination=getRegU32(ctx,4), stack=getRegU32(ctx,29);
     Matrix local,parent;
@@ -132,8 +160,16 @@ void vp2sNormalizeRecord(uint8_t *ram,R5900Context *ctx,uint32_t source,uint32_t
 void vp2sInstallMath(PS2Runtime &runtime) {
     g_workingMemory=runtime.memory().getScratchpad();
     (void)quaternionCapture();
-    if(const char *v=std::getenv("VP2S_NATIVE_MATRIX");v && v[0]=='0') return;
     const auto *module=ps2_overlays::findModule("mod001");
+    if(!module) throw std::runtime_error("native math module missing");
+    if(const char *v=std::getenv("VP2S_NATIVE_QUAT_MATRIX");!(v && v[0]=='0')) {
+        if(kQuaternionMatrix<module->tableBase || kQuaternionMatrix>=module->tableEnd ||
+           !(g_originalQuaternionMatrix=module->table[(kQuaternionMatrix-module->tableBase)>>2]))
+            throw std::runtime_error("native quaternion matrix hook missing");
+        (void)quaternionMatrixCapture();
+        ps2_overlays::replaceModuleFunction("mod001",kQuaternionMatrix,&quaternionMatrix);
+    }
+    if(const char *v=std::getenv("VP2S_NATIVE_MATRIX");v && v[0]=='0') return;
     if(!module || kProduct<module->tableBase || kProduct>=module->tableEnd ||
        !(g_original=module->table[(kProduct-module->tableBase)>>2]))
         throw std::runtime_error("native matrix product hook missing");

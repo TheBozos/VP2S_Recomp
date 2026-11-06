@@ -125,6 +125,41 @@ def lower_projection_products(directory,data):
     print(f'Native projection products: two USA blocks validated; {changed} EE files lowered')
 
 
+def lower_offset_dot(directory,data):
+    words=[0xd8900000,0xd8b10000,0xd8d20000,0x4bd284ec,0x4bc007c3,
+           0x4bd19d2a,0x4b14a03d,0x4b14fc0a,0xf8500000]
+    if data.count(struct.pack('<9I',*words))!=1:
+        raise ValueError('Unexpected USA offset dot block')
+    changed=0
+    for path in directory.glob('*.cpp'):
+        m=re.search(r'_0x([0-9a-f]+)$',path.stem)
+        if not m or not 0x214590<=int(m[1],16)<=0x2145b8:continue
+        text=path.read_text();marker='// VP2S native offset dot v1'
+        if marker in text:continue
+        def patch(m):
+            pc=int(m[1],16)
+            if not 0x214598<=pc<=0x2145b8:return m[0]
+            index=(pc-0x214598)//4;assert int(m[2],16)==words[index]
+            body=m[3]
+            if index<3:pattern=r'ctx->vu0_vf\[\d+\] = [^\n;]+;'
+            elif index<8:pattern=r'\{ __m128.*? \}'
+            else:pattern=r'WRITE128\([^\n]+_mm_castps_si128\(ctx->vu0_vf\[16\]\)\);'
+            found=re.search(pattern,body,re.S);assert found,(path.name,hex(pc))
+            original=found[0]
+            if index==8:
+                replacement=('if (vp2sOffsetDotEnabled()) { vp2sOffsetDotRecord(rdram, ctx, GPR_U32(ctx, 4), '
+                             'GPR_U32(ctx, 5), GPR_U32(ctx, 6), GPR_U32(ctx, 2)); } else { '+original+' }')
+            else:replacement='if (vp2sOffsetDotReferenceEnabled()) { '+original+' }'
+            return m[0][:m[0].index(body)]+body[:found.start()]+replacement+body[found.end():]
+        lowered=re.sub(r'// 0x([0-9a-f]+): 0x([0-9a-f]+)[^\n]*\n(.*?)(?=\s*// 0x[0-9a-f]+:|\Z)',patch,text,flags=re.S)
+        if lowered==text:continue
+        include='#include "ps2_recomp_calls.h"';assert lowered.count(include)==1
+        declarations=('\n'+marker+'\nbool vp2sOffsetDotEnabled();\nbool vp2sOffsetDotReferenceEnabled();\n'
+                      'void vp2sOffsetDotRecord(uint8_t*, R5900Context*, uint32_t, uint32_t, uint32_t, uint32_t);\n')
+        path.write_text(lowered.replace(include,include+declarations));changed+=1
+    print(f'Native offset dot: USA block validated; {changed} EE files lowered')
+
+
 def projection_fixtures(directory):
     # Original and rewritten EE game functions belong only to the offline
     # checker. Replace their one direct game call with a normal C++ call and
@@ -133,7 +168,7 @@ def projection_fixtures(directory):
     source='\n#include "ps2_runtime.h"\n#include "ps2_runtime_macros.h"\n#include "vp2s_math.h"\nnamespace vp2s::mathfixture {\n'
     for native in (False,True):
         prefix='native' if native else 'original'
-        for address,name in [('216e40','Rigid'),('216cb0','ColumnRigid'),('2178b0','Perspective'),('2179e0','Orthographic')]:
+        for address,name in [('216e40','Rigid'),('216cb0','ColumnRigid'),('214590','OffsetDot'),('2178b0','Perspective'),('2179e0','Orthographic')]:
             path=directory/f'mod001_FUN_00{address}_0x{address}.cpp'
             text=path.read_text().split('// Function:',1)[1]
             text='// Function:'+text
@@ -147,9 +182,9 @@ def projection_fixtures(directory):
                                    prefix+'Rigid(rdram, ctx, runtime);',text)
                 assert count==1
             if not native:
-                text=re.sub(r'if \(vp2s(?:RigidInverse|ProjectionProduct)Enabled\(\)\) \{ [^\n]+? \} else \{ ([^\n]+?) \}',r'\1',text)
-                text=re.sub(r'if \(vp2s(?:RigidInverse|ProjectionProduct)ReferenceEnabled\(\)\) \{ (.*?) \}',r'\1',text,flags=re.S)
-                assert 'vp2sRigidInverse' not in text and 'vp2sProjectionProduct' not in text
+                text=re.sub(r'if \(vp2s(?:RigidInverse|ProjectionProduct|OffsetDot)Enabled\(\)\) \{ [^\n]+? \} else \{ ([^\n]+?) \}',r'\1',text)
+                text=re.sub(r'if \(vp2s(?:RigidInverse|ProjectionProduct|OffsetDot)ReferenceEnabled\(\)\) \{ (.*?) \}',r'\1',text,flags=re.S)
+                assert not re.search(r'vp2s(?:RigidInverse|ProjectionProduct|OffsetDot)',text)
             assert 'ps2rDispatchGuestBranch' not in text
             source+=text+'\n'
     return source+'}\n'
@@ -273,6 +308,7 @@ def main():
     lower_normalization(args.recomp/'mod001')
     lower_rigid_inverse(args.recomp/'mod001',data)
     lower_rigid_column(args.recomp/'mod001',data)
+    lower_offset_dot(args.recomp/'mod001',data)
     lower_projection_products(args.recomp/'mod001',data)
     source+=projection_fixtures(args.recomp/'mod001')
     source=source.encode()

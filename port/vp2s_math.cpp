@@ -76,6 +76,7 @@ Capture &inlineQuaternionCapture() { static Capture value("VP2S_INLINE_QUAT_MATR
 Capture &rigidInverseCapture() { static Capture value("VP2S_RIGID_INVERSE_RECORD",88u); return value; }
 Capture &rigidColumnCapture() { static Capture value("VP2S_RIGID_INVERSE_COLUMN_RECORD",88u); return value; }
 Capture &projectionCapture() { static Capture value("VP2S_PROJECTION_PRODUCT_RECORD",200u); return value; }
+Capture &offsetDotCapture() { static Capture value("VP2S_OFFSET_DOT_RECORD",72u); return value; }
 void quaternionMatrix(uint8_t *ram,R5900Context *ctx,PS2Runtime *runtime) {
     const uint32_t destination=getRegU32(ctx,4),stack=getRegU32(ctx,29);
     const __m128 input=_mm_loadu_ps(reinterpret_cast<const float*>(recordPointer(ram,getRegU32(ctx,5),16)));
@@ -183,6 +184,41 @@ void vp2sInlineQuaternionCompose(uint8_t *ram,R5900Context *ctx,uint32_t source,
 bool vp2sNormalizeEnabled() {
     static const bool enabled=[] {const char *v=std::getenv("VP2S_NATIVE_NORMALIZE");return !(v && v[0]=='0');}();
     return enabled;
+}
+bool vp2sOffsetDotEnabled() {
+    static const bool enabled=[] {const char *v=std::getenv("VP2S_NATIVE_OFFSET_DOT");return !(v && v[0]=='0');}();
+    return enabled;
+}
+bool vp2sOffsetDotReferenceEnabled() {
+    static const bool check=[] {const char *v=std::getenv("VP2S_OFFSET_DOT_CHECK");return v && v[0]=='1';}();
+    return !vp2sOffsetDotEnabled() || check;
+}
+void vp2sOffsetDotRecord(uint8_t *ram,R5900Context *ctx,uint32_t pointAddress,uint32_t axisAddress,uint32_t originAddress,uint32_t destination) {
+    __m128 point,axis,origin;
+    std::memcpy(&point,recordPointer(ram,pointAddress,16),16);
+    std::memcpy(&axis,recordPointer(ram,axisAddress,16),16);
+    std::memcpy(&origin,recordPointer(ram,originAddress,16),16);
+    const auto result=vp2s::math::offsetDotRecord(point,axis,origin);
+    const uint32_t rounding=_mm_getcsr()&0xe040u;
+    if(vp2sOffsetDotReferenceEnabled() && std::memcmp(&result,&ctx->vu0_vf[16],16)) {
+        if(const char *path=std::getenv("VP2S_OFFSET_DOT_FAILURE_RECORD"))
+            if(FILE *file=std::fopen(path,"wb")) {
+                const uint32_t tag=0x31523344u;
+                std::fwrite(&tag,4,1,file);std::fwrite(&rounding,4,1,file);
+                std::fwrite(&point,16,1,file);std::fwrite(&axis,16,1,file);std::fwrite(&origin,16,1,file);
+                std::fwrite(&ctx->vu0_vf[16],16,1,file);std::fclose(file);
+            }
+        throw std::runtime_error("native offset dot differs from original game calculation");
+    }
+    std::memcpy(recordPointer(ram,destination,16),&result,16);
+    auto &recorder=offsetDotCapture();
+    if(recorder.begin(0x31523344u)) {
+        recorder.append(&rounding,4);recorder.append(&point,16);recorder.append(&axis,16);recorder.append(&origin,16);recorder.append(&result,16);recorder.end();
+    }
+    static uint64_t calls=0;
+    if(++calls==1 || calls%4096==0)
+        std::fprintf(stderr,"[math:native] offset dot %llu calls%s\n",calls,
+                     vp2sOffsetDotReferenceEnabled()?" (original comparison exact)":" (no VU state)");
 }
 bool vp2sProjectionProductEnabled() {
     static const bool enabled=[] {const char *v=std::getenv("VP2S_NATIVE_PROJECTION_PRODUCT");return !(v && v[0]=='0');}();
@@ -312,6 +348,7 @@ void vp2sInstallMath(PS2Runtime &runtime) {
     (void)rigidInverseCapture();
     (void)rigidColumnCapture();
     (void)projectionCapture();
+    (void)offsetDotCapture();
     (void)quaternionCapture();
     const auto *module=ps2_overlays::findModule("mod001");
     if(!module) throw std::runtime_error("native math module missing");

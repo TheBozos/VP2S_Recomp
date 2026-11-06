@@ -4,6 +4,19 @@
 namespace vp2s::math {
 using Matrix = std::array<__m128,4>;
 using RigidBasis = std::array<__m128,3>;
+inline __m128 offsetDotRecord(__m128 point,__m128 axis,__m128 origin) {
+    auto normal=[](__m128 v) {
+        const auto bits=_mm_castps_si128(v);
+        const auto tiny=_mm_cmpeq_epi32(_mm_and_si128(bits,_mm_set1_epi32(0x7f800000)),_mm_setzero_si128());
+        return _mm_castsi128_ps(_mm_andnot_si128(_mm_and_si128(tiny,_mm_set1_epi32(0x7fffffff)),bits));
+    };
+    const auto zero=_mm_setzero_ps();
+    const auto delta=normal(_mm_sub_ps(_mm_blend_ps(point,zero,8),_mm_blend_ps(origin,zero,8)));
+    const auto terms=normal(_mm_mul_ps(delta,_mm_blend_ps(axis,zero,8)));
+    const auto xy=normal(_mm_add_ss(terms,music::broadcast<1>(terms)));
+    const auto result=normal(_mm_add_ss(xy,music::broadcast<2>(terms)));
+    return _mm_move_ss(point,result);
+}
 // Translation product used by the game's rigid inverse. The fourth component
 // belongs to the caller's temporary record and must survive bit-for-bit.
 inline __m128 rigidInverseTranslation(const RigidBasis &basis,__m128 translation) {
@@ -127,6 +140,9 @@ bool vp2sRigidInverseEnabled();
 bool vp2sRigidInverseReferenceEnabled();
 void vp2sRigidInverseTranslation(uint8_t*,R5900Context*,uint32_t basis,uint32_t translation);
 void vp2sRigidInverseColumnTranslation(uint8_t*,R5900Context*,uint32_t basis,uint32_t translation,uint32_t destination);
+bool vp2sOffsetDotEnabled();
+bool vp2sOffsetDotReferenceEnabled();
+void vp2sOffsetDotRecord(uint8_t*,R5900Context*,uint32_t point,uint32_t axis,uint32_t origin,uint32_t destination);
 bool vp2sProjectionProductEnabled();
 bool vp2sProjectionProductReferenceEnabled();
 void vp2sProjectionProduct(uint8_t*,R5900Context*,uint32_t local,uint32_t view,uint32_t destination,uint32_t site);

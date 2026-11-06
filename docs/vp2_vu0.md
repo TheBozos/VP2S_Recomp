@@ -477,6 +477,64 @@ build_usa/port/vp2s_math_check.exe --rigid-column-functions
 build_usa/port/vp2s_math_check.exe <rigid-column-records.bin>
 ```
 
+## Point/plane offset dot product, 2026-11-06
+
+The shared helper `0x214590` now evaluates `(point - origin) dot axis` from its
+three ordinary vector records, without VU state in the default path. The result
+replaces x in the game's temporary point record; its original y/z/w bits are
+preserved. The existing scalar load returns x in `f0`, and the EE stack/register
+setup and return remain unchanged. No axis normalization is added.
+
+The converter validates the exact nine-word USA block (`0x214598` through
+`0x2145B8`) against the ELF before lowering it. All three vector loads, the xyz
+subtract/product, construction of the unit vector, accumulator addition and
+final multiply/add are gated to explicit comparison. Default execution writes
+the native temporary record at the original result-store point, with no VU
+register, accumulator, flag, code image, data memory, packet or timing input.
+All three input records are copied before the result is written, including when
+the point aliases the stack temporary. The lowerer is repeatable without edits
+to already converted sources.
+
+The direct caller at `0x20DBF8` consumes `f0` for a signed plane test, adding its
+plane coefficient before branching. Subsequent VU operations load their own
+records and do not consume this helper's temporary vector results.
+
+`VP2S_NATIVE_OFFSET_DOT=0` explicitly selects the old block.
+`VP2S_OFFSET_DOT_CHECK=1` compares all four temporary components against it and
+fails on any mismatch, without fallback. `VP2S_OFFSET_DOT_RECORD=<file>` captures
+bounded typed input/result records with host floating-point controls;
+`VP2S_OFFSET_DOT_FAILURE_RECORD=<file>` persists a failing original result before
+aborting. The native arithmetic retains the ordered xyz difference, products,
+`x+y` then `+z` sum, caller host controls and reduction of tiny results.
+
+The original-EE-arithmetic comparison passes **131,216 cases / 524,864 scalar
+outputs**, including four host control modes, general finite/tiny components,
+signed-zero/axis cases and opaque unused fourth-component payloads. The offline
+complete original/native function comparison adds **1,024 cases**, covering
+whole private RAM, general/FP registers, FP status, return/branch PC and delay-slot
+completion, with separate or stack-aliased point records. The exact production
+bridge is used; native VU vector/accumulator/flag state remains untouched.
+
+The strict-comparison and independent native-only town/inn runs both reached
+this helper and completed 300 seconds without a mismatch or runtime error.
+Music was still playing at 290 seconds and user-card hashes were unchanged.
+This is sparse live coverage: neither run filled the default 4,096-record
+capture, so no large live-call total is claimed. A separate bounded one-record
+native capture completed 135 seconds with unchanged save hashes; its actual
+live input/result matches the original offline arithmetic exactly. Including
+that sample gives **131,217 arithmetic/captured cases / 524,868 scalar outputs**.
+The extended harness also retains passing results for the preceding 1,024
+column-inverse and 2,048 projection-function checks. No new PCSX2 parity is
+claimed from these regression and arithmetic checks.
+At town capture 40, native versus comparison static-zone RGB mean absolute
+errors are 0.020 (central wall), 0.734 (left wall), and 0.394 (ground), on 0..255.
+
+```powershell
+build_usa/port/vp2s_math_check.exe --offset-dot-synthetic
+build_usa/port/vp2s_math_check.exe --offset-dot-functions
+build_usa/port/vp2s_math_check.exe <offset-dot-records.bin>
+```
+
 ## Still open
 
 The Csi seed service still runs through the IOP environment. Other main/module

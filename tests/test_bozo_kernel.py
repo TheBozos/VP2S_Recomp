@@ -5,7 +5,7 @@ import unittest
 from pathlib import Path
 sys.path.insert(0,str(Path(__file__).resolve().parents[1]/'tools'))
 from vp2_bozo_prepare import elf_parts
-from vp2_bozo_kernel import bindings, game_adaptations, game_entries, GUARDS, RETIRED_RANGES
+from vp2_bozo_kernel import bindings, game_adaptations, game_entries, native_game_sites, GUARDS, RETIRED_RANGES
 
 IMAGE=Path(sys.argv.pop(1))
 
@@ -64,6 +64,13 @@ class KernelGuardTests(unittest.TestCase):
             data=bytearray(self.data)
             data[segment[1]+pc-segment[2]]^=1
             with self.subTest(pc=hex(pc)),self.assertRaises(ValueError): game_entries(data)
+
+    def test_boot_seed_site(self):
+        self.assertEqual(native_game_sites(self.data),'native 0x1003c4\n')
+        segment=next(s for s in self.segments if s[0]==1 and s[2]<=0x1003bc<0x1003dc<=s[2]+s[4])
+        for pc in range(0x1003bc,0x1003dc,4):
+            data=bytearray(self.data);data[segment[1]+pc-segment[2]]^=1
+            with self.subTest(pc=hex(pc)),self.assertRaises(ValueError):native_game_sites(data)
 
 
 if __name__=='__main__': unittest.main()

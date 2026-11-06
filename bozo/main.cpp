@@ -6,6 +6,9 @@
 #include "native_kernel.h"
 #include "native_timer.h"
 #include "native_settings.h"
+#include "native_seed.h"
+#include <random>
+#include <charconv>
 #include <cstdio>
 #include <cstdlib>
 #include <format>
@@ -14,14 +17,23 @@
 #include <stdexcept>
 
 namespace {
-class StrictHost final : public bozo::ee::Host, public vp2s::TimerOwner, public vp2s::SettingsOwner {
+class StrictHost final : public bozo::ee::Host, public vp2s::TimerOwner, public vp2s::SettingsOwner,public vp2s::SeedOwner {
 public:
+    uint32_t seed=0;
+    uint32_t bootSeed() const override { return seed; }
     bozo::host::FreeHost native;
     vp2s::TimerClock sdkClock;
     vp2s::TimerClock &timerClock() override { return sdkClock; }
     vp2s::Settings preferences;
     vp2s::Settings &settings() override { return preferences; }
-    explicit StrictHost(const bozo::host::FreeOptions &options) : native(options) {}
+    explicit StrictHost(const bozo::host::FreeOptions &options) : native(options) {
+        if(const char *specified=std::getenv("VP2S_BOZO_SEED")) {
+            const char *end=specified+std::char_traits<char>::length(specified);
+            auto parsed=std::from_chars(specified,end,seed);
+            if(parsed.ec!=std::errc{} || parsed.ptr!=end || specified==end)
+                throw std::runtime_error("VP2S_BOZO_SEED must be an unsigned decimal 32-bit seed");
+        } else seed=std::random_device{}();
+    }
     void boundaryHash(bozo::ee::Dispatcher &d) {
         if(!std::getenv("VP2S_BOZO_BOUNDARY_HASH")) return;
         uint64_t hash=14695981039346656037ull;
@@ -29,8 +41,9 @@ public:
         for(uint32_t i=0;i<bozo::kFlatBytes;++i) { hash^=ram[i];hash*=1099511628211ull; }
         std::fprintf(stderr,"[vp2s:bozo] boundary RAM hash=%016llx\n",(unsigned long long)hash);
     }
+    unsigned traceLibrary=0;
     void libraryCall(bozo::ee::Dispatcher &d,R5900Context *c,uint32_t target) override {
-        if(std::getenv("VP2S_BOZO_TRACE_CALLS"))
+        if(std::getenv("VP2S_BOZO_TRACE_CALLS") && traceLibrary++<160)
             std::fprintf(stderr,"[vp2s:call] pc=%x ra=%x a0=%x a1=%x\n",target,c->r[31].uw[0],c->r[4].uw[0],c->r[5].uw[0]);
         native.libraryCall(d,c,target);
     }
@@ -65,7 +78,8 @@ public:
     void waitCompleted(bozo::ee::Dispatcher &d,bozo::ee::Thread &t) override { native.waitCompleted(d,t); }
     void handlerCompleted(bozo::ee::Dispatcher &d,bozo::ee::Thread &t,const bozo::ee::Frame &f) override { native.handlerCompleted(d,t,f); }
 };
-bool noNativeInstruction(uint8_t *,R5900Context *,Runtime *,uint32_t pc) {
+bool noNativeInstruction(uint8_t *ram,R5900Context *ctx,Runtime *rt,uint32_t pc) {
+    if(vp2s::nativeBootSeed(ram,ctx,rt,pc))return true;
     throw std::runtime_error(std::format("unported native VP2S algorithm at pc={:x}",pc));
 }
 }

@@ -325,3 +325,28 @@ repeatedly calling WaitSema(-1), after native sceCdInit skipped its private SDK
 semaphore installer. The 120-field no-frame guard remains active. This is a
 native/original SDK ownership mismatch to replace, not a timer wait to bypass.
 There are still zero rendered frames and no playable-route or visual claim.
+
+## CD callback ownership and boot RNG input, 2026-11-06
+
+Engine PR 11 is merged at `63ac504`, Windows/Linux CI green and branches deleted.
+Fifteen headless engine suites pass. Native sceCdInitEeCB configures checked
+callback stack ownership; sceCdCallback owns function/GP and busy replacement
+rules. Native read completion delivers reason 1 exactly once after data and
+the existing read duration are ready. A private generated ISO exercises actual
+dispatcher callback ordering. Dedicated original-worker priority parity and
+other CD command callbacks are outside this increment's qualification.
+
+VP2S no longer creates the broken private callback worker or waits on semaphore
+-1. Its next HBLANK read at `0x1003c4` only supplies boot RNG entropy. That guarded
+inline producer now uses a per-run host seed, while the original game constant
+mix, RNG initializer and checkpoint remain compiled normally. No load address,
+timer value or register bank is served. Default entropy comes from the host;
+`VP2S_BOZO_SEED=<unsigned decimal uint32>` makes diagnostic runs reproducible.
+The seed suite verifies full-context ABI preservation, unsigned bounds and two
+host instances; all eight words of the source mix are mutation-tested.
+
+Eleven port suites pass. Startup now reaches the original CD status SCMD/RPC
+precheck, attempting to bind `0x80000593` without a native CD status service.
+The bounded bootstrap fixture identifies that exact no-frame boundary and
+ensures the former semaphore -1 loop does not return. Zero rendered frames;
+the previous playable route remains unfinished and work continues.

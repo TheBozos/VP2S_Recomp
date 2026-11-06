@@ -1,7 +1,7 @@
-"""Bounded headless integration through native timer callbacks to SDK CD worker.
+"""Bounded headless integration through native timer/CD callback setup.
 
 No window/input options or card directory are passed. The runner uses fresh
-in-memory cards. The known mixed SDK CD worker still fails the no-frame guard;
+in-memory cards. The known original CD status RPC still fails the no-frame guard;
 this test qualifies that boundary only, not a playable route or visual parity.
 """
 import subprocess
@@ -10,7 +10,7 @@ import os
 
 result=subprocess.run([sys.argv[1],'--iso',sys.argv[2],'--frames','1'],
                       capture_output=True,text=True,timeout=30,
-                      env={**os.environ,'VP2S_BOZO_TRACE_CALLS':'1'})
+                      env={**os.environ,'VP2S_BOZO_TRACE_CALLS':'1','VP2S_BOZO_SEED':'1'})
 output=result.stdout+result.stderr
 print(output,end='')
 if result.returncode!=1:
@@ -26,9 +26,13 @@ if '[vp2s:bozo] native SDK timer started' not in output:
 if '[vp2s:bozo] retired SDK event firmware installer' not in output:
     raise SystemExit('startup did not retire the audited event firmware installer')
 for required in ['[vp2s:call] pc=142150 ra=0',
-                 'pc=137220 a0=ffffffff result=-408',
+                 '[vp2s:call] pc=128fb8 ra=11f1e8',
+                 '[vp2s:call] pc=128de0 ra=11f208',
+                 '[vp2s:call] pc=13af48 ra=129aec',
                  'no game frame ended for 120 fields']:
     if required not in output:raise SystemExit(f'startup did not reach expected CD worker boundary: {required}')
 if 'syscall 116' in output or 'a call to' in output:
     raise SystemExit('native binding was bypassed or unanswered')
-print('Native bootstrap/timer callback reached; known original CD worker starvation reproduced.')
+if 'pc=137220 a0=ffffffff result=-408' in output:
+    raise SystemExit('the retired CD private worker unexpectedly ran')
+print('Native bootstrap/timer/CD callback setup reached; original CD status RPC boundary reproduced.')

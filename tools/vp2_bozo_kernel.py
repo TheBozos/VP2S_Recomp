@@ -106,3 +106,15 @@ def game_entries(data):
     if hashlib.sha256(data[at:at+hi-lo]).hexdigest()!='ed0f34ec520d53d9a7802609a5ec468c11e60c96de07a4de4811480b3fd04085':
         raise ValueError('USA worker entry signature mismatch')
     return [dict(Name='worker_entry_0011d4e0',Start=hex(lo),End=hex(hi))]
+
+
+def native_game_sites(data):
+    # This one value only feeds the boot RNG initializer's constant mix. Replace
+    # its entropy producer, retaining the original mix, call and checkpoint.
+    _,segments,_=elf_parts(data)
+    lo,hi=0x1003bc,0x1003dc
+    s=next(s for s in segments if s[0]==1 and s[2]<=lo<hi<=s[2]+s[4])
+    at=s[1]+lo-s[2]
+    if hashlib.sha256(data[at:at+hi-lo]).hexdigest()!='2b2969c890711c912a7d36650936ac83400288ab4461fd230ded36c5eb3c7f17':
+        raise ValueError('USA boot RNG input signature mismatch')
+    return 'native 0x1003c4\n'

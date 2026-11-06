@@ -45,6 +45,13 @@ pattern. Exact private image admission, API readiness, empty arguments and stabl
 checked. Tests use fresh in-memory cards. All ten boot modules initialize; the real boot next rejects
 DBC `intrman:17` before any callback-protected transfer. No callback guard or transfer result is faked.
 
+Engine PR18 implements scoped native callback exclusion (`intrman:17/18`), including nesting, deferred
+native timer/event/task dispatch, retained pending time, invalid release/return rejection and reset.
+There is no processor status/register bank. All 21 engine suites and Windows/Linux CI pass. The real
+game now reaches DBC's `sifman:7` native bulk-copy boundary, with 21 port suites passing. The copy
+must validate every source/destination span, perform the actual data movement and queue a real native
+completion; no dummy transfer ID or callback acknowledgement is admitted.
+
 ### Native controller record boundary (2026-11-06)
 
 Engine PR15 (`1b6f1ed`) supplies per-host native algorithm bindings, with 18 headless engine suites

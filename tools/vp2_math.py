@@ -125,6 +125,44 @@ def lower_projection_products(directory,data):
     print(f'Native projection products: two USA blocks validated; {changed} EE files lowered')
 
 
+def lower_transposed_rigid(directory,data):
+    words=[0xd8810000,0xd8820010,0xd8830020,0xd8c40000,0x4bc409bc,0x4bc410bd,0x4bc4190a,
+           0x78880000,0x78890010,0x788a0020,0x788b0030,0x71286488,0x71286ca8,0x716a7488,0x716a7ca8,
+           0x71cc4389,0x718e4ba9,0x71ed5389,0x71af5ba9,0x7ca80000,0x7ca90010,0x7caa0020,0x7cab0030,
+           0x27a30000,0xf8640000]
+    if data.count(struct.pack('<25I',*words))!=1:
+        raise ValueError('Unexpected USA transposed rigid inverse block')
+    changed=0
+    for path in directory.glob('*.cpp'):
+        m=re.search(r'_0x([0-9a-f]+)$',path.stem)
+        if not m or not 0x216d60<=int(m[1],16)<=0x216e04:continue
+        text=path.read_text();marker='// VP2S native transposed rigid inverse v1'
+        if marker in text:continue
+        def patch(m):
+            pc=int(m[1],16)
+            if not 0x216da4<=pc<=0x216e04:return m[0]
+            index=(pc-0x216da4)//4;assert int(m[2],16)==words[index]
+            if 7<=index<24:return m[0] # retain the integer transpose and pointers
+            body=m[3]
+            if index<4:pattern=r'ctx->vu0_vf\[[1-4]\] = [^\n;]+;'
+            elif index<7:pattern=r'\{ __m128.*? \}'
+            else:pattern=r'WRITE128\([^\n]+_mm_castps_si128\(ctx->vu0_vf\[4\]\)\);'
+            found=re.search(pattern,body,re.S);assert found,(path.name,hex(pc))
+            original=found[0]
+            if index==24:
+                replacement=('if (vp2sRigidInverseEnabled()) { vp2sTransposedRigidInverseTranslation(rdram, ctx, '
+                             'GPR_U32(ctx, 5), GPR_U32(ctx, 3)); } else { '+original+' }')
+            else:replacement='if (vp2sRigidInverseReferenceEnabled()) { '+original+' }'
+            return m[0][:m[0].index(body)]+body[:found.start()]+replacement+body[found.end():]
+        lowered=re.sub(r'// 0x([0-9a-f]+): 0x([0-9a-f]+)[^\n]*\n(.*?)(?=\s*// 0x[0-9a-f]+:|\Z)',patch,text,flags=re.S)
+        if lowered==text:continue
+        include='#include "ps2_recomp_calls.h"';assert lowered.count(include)==1
+        declarations=('\n'+marker+'\nbool vp2sRigidInverseEnabled();\nbool vp2sRigidInverseReferenceEnabled();\n'
+                      'void vp2sTransposedRigidInverseTranslation(uint8_t*, R5900Context*, uint32_t, uint32_t);\n')
+        path.write_text(lowered.replace(include,include+declarations));changed+=1
+    print(f'Native transposed rigid inverse: USA block validated; {changed} EE files lowered')
+
+
 def lower_offset_dot(directory,data):
     words=[0xd8900000,0xd8b10000,0xd8d20000,0x4bd284ec,0x4bc007c3,
            0x4bd19d2a,0x4b14a03d,0x4b14fc0a,0xf8500000]
@@ -168,7 +206,7 @@ def projection_fixtures(directory):
     source='\n#include "ps2_runtime.h"\n#include "ps2_runtime_macros.h"\n#include "vp2s_math.h"\nnamespace vp2s::mathfixture {\n'
     for native in (False,True):
         prefix='native' if native else 'original'
-        for address,name in [('216e40','Rigid'),('216cb0','ColumnRigid'),('214590','OffsetDot'),('2178b0','Perspective'),('2179e0','Orthographic')]:
+        for address,name in [('216e40','Rigid'),('216cb0','ColumnRigid'),('216d60','TransposedRigid'),('214590','OffsetDot'),('2178b0','Perspective'),('2179e0','Orthographic')]:
             path=directory/f'mod001_FUN_00{address}_0x{address}.cpp'
             text=path.read_text().split('// Function:',1)[1]
             text='// Function:'+text
@@ -184,7 +222,7 @@ def projection_fixtures(directory):
             if not native:
                 text=re.sub(r'if \(vp2s(?:RigidInverse|ProjectionProduct|OffsetDot)Enabled\(\)\) \{ [^\n]+? \} else \{ ([^\n]+?) \}',r'\1',text)
                 text=re.sub(r'if \(vp2s(?:RigidInverse|ProjectionProduct|OffsetDot)ReferenceEnabled\(\)\) \{ (.*?) \}',r'\1',text,flags=re.S)
-                assert not re.search(r'vp2s(?:RigidInverse|ProjectionProduct|OffsetDot)',text)
+                assert not re.search(r'vp2s(?:RigidInverse|ProjectionProduct|OffsetDot|TransposedRigid)',text)
             assert 'ps2rDispatchGuestBranch' not in text
             source+=text+'\n'
     return source+'}\n'
@@ -308,6 +346,7 @@ def main():
     lower_normalization(args.recomp/'mod001')
     lower_rigid_inverse(args.recomp/'mod001',data)
     lower_rigid_column(args.recomp/'mod001',data)
+    lower_transposed_rigid(args.recomp/'mod001',data)
     lower_offset_dot(args.recomp/'mod001',data)
     lower_projection_products(args.recomp/'mod001',data)
     source+=projection_fixtures(args.recomp/'mod001')

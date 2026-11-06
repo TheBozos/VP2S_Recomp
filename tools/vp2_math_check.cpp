@@ -17,6 +17,8 @@ void originalColumnRigid(uint8_t*,R5900Context*,PS2Runtime*);
 void nativeColumnRigid(uint8_t*,R5900Context*,PS2Runtime*);
 void originalOffsetDot(uint8_t*,R5900Context*,PS2Runtime*);
 void nativeOffsetDot(uint8_t*,R5900Context*,PS2Runtime*);
+void originalTransposedRigid(uint8_t*,R5900Context*,PS2Runtime*);
+void nativeTransposedRigid(uint8_t*,R5900Context*,PS2Runtime*);
 }
 
 struct R5900Context;
@@ -111,6 +113,19 @@ int main(int argc,char **argv) {
         if(captured)capturedDifferences+=std::memcmp(captured,&original,16)!=0;
         _mm_setcsr(saved);++cases;
     };
+    auto testTransposedRigid=[&](const Matrix &matrix,__m128 translation,uint32_t mode,const __m128 *captured) {
+        const auto saved=_mm_getcsr();_mm_setcsr((saved&~0xe040u)|mode);
+        float values[16],basis[3][4];std::memcpy(values,matrix.data(),64);
+        for(unsigned row=0;row<3;++row)for(unsigned lane=0;lane<4;++lane)basis[row][lane]=values[lane*4+row];
+        auto acc=PS2_VMUL(_mm_loadu_ps(basis[0]),vp2s::music::broadcast<0>(translation));
+        acc=PS2_VADD(acc,PS2_VMUL(_mm_loadu_ps(basis[1]),vp2s::music::broadcast<1>(translation)));
+        const auto original=_mm_blend_ps(PS2_VADD(acc,PS2_VMUL(_mm_loadu_ps(basis[2]),vp2s::music::broadcast<2>(translation))),translation,8);
+        const auto result=vp2s::math::transposedRigidInverseTranslation(matrix,translation);
+        differences+=std::memcmp(&result,&original,16)!=0;
+        if(captured)capturedDifferences+=std::memcmp(captured,&original,16)!=0;
+        _mm_setcsr(saved);++cases;
+    };
+    bool transposedOnly=std::strcmp(argv[1],"--transposed-rigid-synthetic")==0;
     bool offsetOnly=std::strcmp(argv[1],"--offset-dot-synthetic")==0;
     bool projectionOnly=std::strcmp(argv[1],"--projection-product-synthetic")==0;
     const bool rigidColumn=std::strcmp(argv[1],"--rigid-column-synthetic")==0;
@@ -121,7 +136,8 @@ int main(int argc,char **argv) {
     bool quaternionMatrix=std::strcmp(argv[1],"--quat-matrix-synthetic")==0 || quaternionZeros || quaternionSmall;
     const bool columnFunctions=std::strcmp(argv[1],"--rigid-column-functions")==0;
     const bool offsetFunctions=std::strcmp(argv[1],"--offset-dot-functions")==0;
-    if(std::strcmp(argv[1],"--projection-functions")==0 || columnFunctions || offsetFunctions) {
+    const bool transposedFunctions=std::strcmp(argv[1],"--transposed-rigid-functions")==0;
+    if(std::strcmp(argv[1],"--projection-functions")==0 || columnFunctions || offsetFunctions || transposedFunctions) {
         if(vp2sProjectionProductReferenceEnabled() || vp2sRigidInverseReferenceEnabled() || vp2sOffsetDotReferenceEnabled()) return 2;
         std::mt19937 random(0x56503253u);
         std::uniform_real_distribution<float> value(-200.f,200.f);
@@ -132,8 +148,9 @@ int main(int argc,char **argv) {
             auto view=vp2s::math::quaternionMatrix(q);
             if(columnFunctions) view[3]=_mm_setr_ps(value(random),value(random),value(random),1.f);
             else for(unsigned row=0;row<3;++row) view[row]=_mm_blend_ps(view[row],_mm_set1_ps(value(random)),8);
-            for(bool orthographic:{false,true}) for(bool alias:{false,true}) {
-                if((columnFunctions || offsetFunctions) && orthographic)continue;
+            for(bool orthographic:{false,true}) for(unsigned aliasMode=0;aliasMode<(transposedFunctions?4u:2u);++aliasMode) {
+                const bool alias=aliasMode!=0;
+                if((columnFunctions || offsetFunctions || transposedFunctions) && orthographic)continue;
                 std::fill(originalRam.begin(),originalRam.end(),0xa5);
                 std::memcpy(originalRam.data()+input,view.data(),64);nativeRam=originalRam;
                 const uint32_t pointAddress=alias?stack-16:input;
@@ -149,6 +166,10 @@ int main(int argc,char **argv) {
                 for(unsigned reg=1;reg<32;++reg)initial.r[reg]=_mm_set1_epi32(int(0x12120000u+reg));
                 initial.r[4]=_mm_cvtsi32_si128(columnFunctions?input:(alias?input:output));
                 initial.r[5]=_mm_cvtsi32_si128(columnFunctions?(alias?input:output):input);
+                if(transposedFunctions) {
+                    initial.r[4]=_mm_cvtsi32_si128(input);
+                    initial.r[5]=_mm_cvtsi32_si128(aliasMode==1?input:aliasMode==2?input+16:aliasMode==3?input-16:output);
+                }
                 if(offsetFunctions) {
                     initial.r[4]=_mm_cvtsi32_si128(pointAddress);
                     initial.r[5]=_mm_cvtsi32_si128(input+0x100u);initial.r[6]=_mm_cvtsi32_si128(input+0x200u);
@@ -162,9 +183,9 @@ int main(int argc,char **argv) {
                 initial.vu0_acc=_mm_set1_ps(-123.f);initial.vu0_mac_flags=0x8765;initial.vu0_status=0x1234;
                 R5900Context original=initial,native=initial;
                 const auto saved=_mm_getcsr();_mm_setcsr((saved&~0xe040u)|mode);
-                (offsetFunctions?vp2s::mathfixture::originalOffsetDot:columnFunctions?vp2s::mathfixture::originalColumnRigid:orthographic?vp2s::mathfixture::originalOrthographic:vp2s::mathfixture::originalPerspective)(originalRam.data(),&original,nullptr);
+                (transposedFunctions?vp2s::mathfixture::originalTransposedRigid:offsetFunctions?vp2s::mathfixture::originalOffsetDot:columnFunctions?vp2s::mathfixture::originalColumnRigid:orthographic?vp2s::mathfixture::originalOrthographic:vp2s::mathfixture::originalPerspective)(originalRam.data(),&original,nullptr);
                 _mm_setcsr((saved&~0xe040u)|mode);
-                (offsetFunctions?vp2s::mathfixture::nativeOffsetDot:columnFunctions?vp2s::mathfixture::nativeColumnRigid:orthographic?vp2s::mathfixture::nativeOrthographic:vp2s::mathfixture::nativePerspective)(nativeRam.data(),&native,nullptr);
+                (transposedFunctions?vp2s::mathfixture::nativeTransposedRigid:offsetFunctions?vp2s::mathfixture::nativeOffsetDot:columnFunctions?vp2s::mathfixture::nativeColumnRigid:orthographic?vp2s::mathfixture::nativeOrthographic:vp2s::mathfixture::nativePerspective)(nativeRam.data(),&native,nullptr);
                 _mm_setcsr(saved);
                 differences+=std::memcmp(originalRam.data(),nativeRam.data(),originalRam.size())!=0;
                 differences+=std::memcmp(original.r,native.r,sizeof(original.r))!=0;
@@ -178,8 +199,29 @@ int main(int argc,char **argv) {
                 ++cases;
             }
         }
-        std::printf("%s game functions: %llu cases, RAM/CPU/VU-preservation differences %llu\n",offsetFunctions?"offset dot":columnFunctions?"column rigid inverse":"projection",cases,differences);
+        std::printf("%s game functions: %llu cases, RAM/CPU/VU-preservation differences %llu\n",transposedFunctions?"transposed rigid inverse":offsetFunctions?"offset dot":columnFunctions?"column rigid inverse":"projection",cases,differences);
         return cases && !differences?0:1;
+    } else if(transposedOnly) {
+        std::mt19937 random(0x56503253u);
+        std::uniform_real_distribution<float> value(-1000.f,1000.f);
+        for(unsigned mode:{0u,0x6000u,0x8040u,0xe040u}) {
+            for(unsigned k=0;k<32768;++k) {
+                Matrix matrix;float t[4];
+                auto sample=[&] {
+                    return k<16384 ? value(random) : std::bit_cast<float>((random()&0x807fffffu)|((random()%128u)<<23));
+                };
+                for(auto &v:matrix)v=_mm_setr_ps(sample(),sample(),sample(),sample());
+                for(float &v:t)v=sample();
+                uint32_t payload=random();std::memcpy(&t[3],&payload,4);
+                testTransposedRigid(matrix,_mm_loadu_ps(t),mode,nullptr);
+            }
+            for(float scale:{0.f,-0.f,1.f,-1.f,1.e-20f,1.e18f})
+                for(unsigned lane=0;lane<3;++lane) for(bool negative:{false,true}) {
+                    Matrix matrix={_mm_setr_ps(scale,0,0,0),_mm_setr_ps(0,scale,0,0),_mm_setr_ps(0,0,scale,0),_mm_setr_ps(0,0,0,1)};
+                    float t[4]{};t[lane]=negative?-scale:scale;
+                    testTransposedRigid(matrix,_mm_loadu_ps(t),mode,nullptr);
+                }
+        }
     } else if(offsetOnly) {
         std::mt19937 random(0x56503253u);
         std::uniform_real_distribution<float> value(-1000.f,1000.f);
@@ -342,6 +384,12 @@ int main(int argc,char **argv) {
         for(;;) {
             uint32_t tag=0;
             if(std::fread(&tag,4,1,file)!=1) break;
+            if(tag==0x31524954u) {
+                uint32_t mode;Matrix matrix;__m128 translation,result;
+                if(std::fread(&mode,4,1,file)!=1 || (mode&~0xe040u) || std::fread(matrix.data(),1,64,file)!=64 ||
+                   std::fread(&translation,1,16,file)!=16 || std::fread(&result,1,16,file)!=16) {std::fclose(file);return 2;}
+                testTransposedRigid(matrix,translation,mode,&result);transposedOnly=true;continue;
+            }
             if(tag==0x31523344u) {
                 uint32_t mode;__m128 point,axis,origin,result;
                 if(std::fread(&mode,4,1,file)!=1 || (mode&~0xe040u) || std::fread(&point,1,16,file)!=16 ||
@@ -378,7 +426,7 @@ int main(int argc,char **argv) {
         std::fclose(file);
     }
     std::printf("native %s: %llu cases / %llu scalar outputs, reference differences %llu, captured differences %llu\n",
-                offsetOnly?"offset dot records":projectionOnly?"projection products":rigidOnly?"rigid inverse translations":quaternionMatrix?"quaternion matrices":quaternionOnly?"quaternions":"matrices",
-                cases,cases*((quaternionOnly || rigidOnly || offsetOnly)?4:16),differences,capturedDifferences);
+                transposedOnly?"transposed rigid inverses":offsetOnly?"offset dot records":projectionOnly?"projection products":rigidOnly?"rigid inverse translations":quaternionMatrix?"quaternion matrices":quaternionOnly?"quaternions":"matrices",
+                cases,cases*((quaternionOnly || rigidOnly || offsetOnly || transposedOnly)?4:16),differences,capturedDifferences);
     return cases && !differences && !capturedDifferences?0:1;
 }

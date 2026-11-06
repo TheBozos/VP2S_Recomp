@@ -37,6 +37,10 @@ inline __m128 rigidInverseColumnTranslation(const RigidBasis &basis,__m128 trans
     const auto result=rigidInverseTranslation(basis,translation);
     return _mm_xor_ps(result,_mm_castsi128_ps(_mm_setr_epi32(int(0x80000000u),int(0x80000000u),int(0x80000000u),0)));
 }
+inline __m128 transposedRigidInverseTranslation(Matrix transposed,__m128 translation) {
+    _MM_TRANSPOSE4_PS(transposed[0],transposed[1],transposed[2],transposed[3]);
+    return rigidInverseTranslation(RigidBasis{transposed[0],transposed[1],transposed[2]},translation);
+}
 // Ordered record composition for the EE projection builders. Keep their host
 // arithmetic and reduction of tiny intermediate results, separately from the
 // common matrix microprogram's truncating-sum policy.
@@ -140,6 +144,7 @@ bool vp2sRigidInverseEnabled();
 bool vp2sRigidInverseReferenceEnabled();
 void vp2sRigidInverseTranslation(uint8_t*,R5900Context*,uint32_t basis,uint32_t translation);
 void vp2sRigidInverseColumnTranslation(uint8_t*,R5900Context*,uint32_t basis,uint32_t translation,uint32_t destination);
+void vp2sTransposedRigidInverseTranslation(uint8_t*,R5900Context*,uint32_t matrix,uint32_t translation);
 bool vp2sOffsetDotEnabled();
 bool vp2sOffsetDotReferenceEnabled();
 void vp2sOffsetDotRecord(uint8_t*,R5900Context*,uint32_t point,uint32_t axis,uint32_t origin,uint32_t destination);

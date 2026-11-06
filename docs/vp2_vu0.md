@@ -535,6 +535,69 @@ build_usa/port/vp2s_math_check.exe --offset-dot-functions
 build_usa/port/vp2s_math_check.exe <offset-dot-records.bin>
 ```
 
+## Inverse with an intervening integer transpose, 2026-11-06
+
+The helper `0x216D60` is now free of VU state in its default path. Its translation
+calculation originally ran before an integer transpose, but stored its result
+after that transpose had written the output matrix. Reading the original source
+again at the result store would be wrong for partially overlapping records.
+The native boundary therefore reads the newly transposed **output** matrix and
+the existing translation temporary, reconstructs the three original basis rows
+with ordinary SIMD shuffles, and reuses the verified native translation product.
+The temporary's fourth component is preserved; the original scalar negations
+and remaining output stores stay as recompiled EE game code.
+
+The converter validates the full 25-word USA interval `0x216DA4..0x216E04`,
+including the intervening integer loads, rearrangements and stores. It gates
+the four VU loads and three arithmetic macro operations to explicit comparison,
+keeps the integer transpose intact, and replaces the final VU result store
+with a typed record call. No input/result register shadow, suspended native
+execution context, VIF packet, VU memory or timing model is introduced. Repeating
+conversion changes no generated EE source. Six direct callers consume matrix
+records and reload the operands for subsequent VU work.
+
+This uses the existing `VP2S_NATIVE_RIGID_INVERSE=0` comparison-only legacy
+selection and `VP2S_RIGID_INVERSE_CHECK=1` strict original-result check. A mismatch
+fails without fallback. `VP2S_TRANSPOSED_RIGID_RECORD=<file>` captures bounded
+typed matrix/vector/result records and host floating-point controls;
+`VP2S_TRANSPOSED_RIGID_FAILURE_RECORD=<file>` saves the first failed original
+result before aborting.
+
+The independent arithmetic oracle reconstructs basis rows with scalar indexing
+and applies the original EE operations. It passes **131,216 cases / 524,864
+scalar outputs**, including four host control modes, general/tiny values,
+signed-zero/axis cases and opaque fourth-component bits. Two 64-record live
+captures add 49 distinct inputs each and match exactly. Combined this is
+**131,344 arithmetic/captured cases / 525,376 scalar outputs**, zero differences.
+
+The complete original/native game-function harness additionally passes **2,048
+cases**: four host control modes, 128 transforms and four record relationships
+(disjoint, identical, and partial overlaps in both directions). Whole private
+RAM, all general/FP registers, FP status, return/branch PC and delay-slot completion
+match. The native function uses the exact production bridge and leaves its
+initial VU vector/accumulator/flag state untouched. The input/output overlap
+behavior follows the original game code, including its early destination clear.
+
+Both hidden, input-isolated town/inn runs completed 300 seconds and exercised
+at least **581,632 calls each**. The strict comparison found no mismatch; the
+independent native run used no VU state for this helper. Streamed music was still
+playing at 290 seconds, and user-card hashes remained unchanged. The earlier
+1,024 offset-dot, 1,024 column-inverse and 2,048 projection-function regression
+checks still pass after extending the overlap harness.
+
+At town capture 40, native versus comparison RGB mean absolute errors are 0.021
+(central wall), 0.249 (ground), and 0.023 in an unobstructed lower-left stone
+patch `(10,150)..(60,180)`, on 0..255. The usual upper-left wall region is crossed
+by the animated bird at different positions and gives 16.909; it is not a static
+geometry comparison in that frame. These are port regression checks, not new
+PCSX2 parity evidence.
+
+```powershell
+build_usa/port/vp2s_math_check.exe --transposed-rigid-synthetic
+build_usa/port/vp2s_math_check.exe --transposed-rigid-functions
+build_usa/port/vp2s_math_check.exe <transposed-rigid-records.bin>
+```
+
 ## Still open
 
 The Csi seed service still runs through the IOP environment. Other main/module

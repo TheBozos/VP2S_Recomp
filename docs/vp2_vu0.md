@@ -187,8 +187,8 @@ The direct-caller audit finds 16 distinct mod003 call instructions. Callers
 consume the matrix record; subsequent inverse/matrix operations reload their
 own matrix inputs. The later scalar-length macro sequence uses separately
 loaded registers 24/25. The conversion's temporary vector registers are not a
-return interface. Separate inline `0x720` bundles in mod001 and mod003 remain
-outside this shared-helper replacement and still need native boundaries.
+return interface. Separate inline `0x720` bundles were outside this shared-helper
+replacement; the following step covers those and the mod028 bundles.
 
 `VP2S_NATIVE_QUAT_MATRIX=0` explicitly selects the old helper.
 `VP2S_QUAT_MATRIX_CHECK=1` compares against it on the same live input and fails
@@ -224,9 +224,89 @@ A separate 135-second native capture run checked the first live result exactly
 and likewise preserved the card hashes; its one record is additional to the
 139,288-case total above.
 
+## Inline quaternion-to-matrix conversions, 2026-11-06
+
+All **56 remaining inline `0x720` sites** in mod001, mod003 and mod028 now use
+native quaternion/matrix records by default. `tools/vp2_inline_math.py` validates
+their input load, instruction word, intervening EE effects and output stores,
+then lowers the full functions and their overlapping carved entries. The
+generated-source audit finds 105 guarded inline microprogram-call copies; the
+only remaining unguarded generated `0x720` call is the shared helper already
+bypassed by its native hook. Repeating conversion changes no EE sources.
+
+At 53 sites, the calculation writes three rotation columns (four in the two
+mod001 routines). The intervening instructions only establish pointers, sync
+the old calculation, or initialize the translation column; the converter
+symbolically validates that data flow before moving the native record write
+to the calculation point. Translation stores remain ordinary EE effects.
+Native synchronization writes the documented GPR value directly, and constant
+identity-column stores no longer read a VU register.
+
+Three mod028 sites (`0x48426C`, `0x485724`, `0x48C9C4`) keep a rotation across an
+object callback, then compose it with the object's attachment matrix. Replacing
+only their microcall would leave a VU register dependency. Instead, the rotation
+uses the routine's existing final stack matrix buffer (`SP+0x50`, `SP+0xB0`,
+`SP+0x90` respectively); the callback remains in its original position. The
+subsequent four-column multiply/add and record stores are native too. No host
+register shadow, VU context, instruction replay or extra game-stack allocation
+is introduced. The native attachment product preserves the existing EE
+multiply/add arithmetic, separately from the common VU matrix product's
+truncating-sum policy. An offline comparison caught that distinction before
+the replacements were committed.
+
+`VP2S_NATIVE_INLINE_QUAT_MATRIX=0` explicitly selects the old inline sequences;
+`VP2S_INLINE_QUAT_MATRIX_CHECK=1` executes them only for strict result comparison.
+`VP2S_INLINE_QUAT_MATRIX_RECORD=<file>` captures bounded typed input/result
+records. `VP2S_INLINE_QUAT_FAILURE_RECORD=<file>` persists the first failing
+input/original result, then aborts; there is no fallback.
+
+The first strict run exposed a shared numerical edge after 110,592 exact calls:
+site `0x39F324`, quaternion in the game's working stack at `0x70002FA0`. The
+captured original output matches the offline reference, while the initial
+native conversion made two diagonal entries one ULP below 1. Squared tiny
+components became subnormal terms which the original calculation reduces to
+signed zero. The native conversion now applies that reduction to its inputs
+and intermediate terms. This also corrects the shared helper's conversion.
+The minimal regression input `(0,0,1e-20,1)` and the actual captured input both
+match exactly; no addressing or runtime execution-state workaround was needed.
+
+Offline checks now cover:
+
+- 131,096 general/normalized/axis conversion cases;
+- 1,296 signed-zero and fixed-axis component combinations;
+- 65,537 small-component cases spanning finite component exponents 0..127;
+- two independent 4,096-record final live captures and the captured regression;
+- 196,608 rotation-plus-attachment compositions, using the original conversion
+  and EE macro arithmetic as independent references, checking all three stack
+  layouts, buffer guards, and round-to-nearest/toward-zero host modes.
+
+That is **402,730 cases / 6,443,680 scalar outputs**, zero differences.
+
+```powershell
+build_usa/port/vp2s_math_check.exe --quat-matrix-synthetic
+build_usa/port/vp2s_math_check.exe --quat-matrix-zeros
+build_usa/port/vp2s_math_check.exe --quat-matrix-small
+build_usa/port/vp2s_math_check.exe --attachment-synthetic
+```
+
+Live route coverage is five sites: `0x2158C4`, `0x37923C`, `0x380124`, `0x39F324`,
+`0x396A94`. The remaining sites are validated statically and through their shared
+offline calculations; in particular the mod028 callback paths have not been
+exercised by the town/inn route. A battle/effect scene is still needed for that
+live integration coverage. These checks do not establish new PCSX2 parity.
+
+The final strict-comparison and native-only town/inn runs both completed 300
+seconds with user-card hashes unchanged. The strict run passed at least 262,144
+inline conversions; the native-only run passed at least 245,760 and still had
+music playing at 290 seconds. The diagnostic run's old-execution path lost its
+music input later in the run, so it is evidence for math comparison, not an
+audio pass. The independent native runs retain continuous late music playback.
+At final town capture 39, native versus diagnostic static-zone RGB mean absolute
+errors are 0.015 (central wall), 0.053 (left wall), and 0.173 (ground), on 0..255.
+
 ## Still open
 
 The Csi seed service still runs through the IOP environment. Other main/module
 VU0 programs, macro operations, VIF0 setup and unrelated DMA remain separate
-replacement work. This change removes the startup calculation's hardware
-transport and execution dependency; it does not remove the complete VU0 core.
+replacement work. The replacements above remove their documented calculations'
+hardware dependencies; they do not remove the complete VU0 core.

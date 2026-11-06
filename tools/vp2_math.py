@@ -129,6 +129,8 @@ def main():
     source=source.encode()
     if not path.exists() or path.read_bytes()!=source: path.write_bytes(source)
     lower_normalization(args.recomp/'mod001')
+    from vp2_inline_math import lower
+    lower(args.recomp)
     print('Native matrix: validated USA product; original reference emitted offline')
 
 

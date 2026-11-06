@@ -7,6 +7,7 @@
 #include <cstdlib>
 #include <thread>
 #include <vector>
+#include <algorithm>
 
 namespace {
 using vp2s::math::Matrix;
@@ -71,6 +72,7 @@ struct Capture {
 Capture &capture() { static Capture value("VP2S_MATRIX_RECORD",4u+3u*sizeof(Matrix)); return value; }
 Capture &quaternionCapture() { static Capture value("VP2S_NORMALIZE_RECORD",36u); return value; }
 Capture &quaternionMatrixCapture() { static Capture value("VP2S_QUAT_MATRIX_RECORD",84u); return value; }
+Capture &inlineQuaternionCapture() { static Capture value("VP2S_INLINE_QUAT_MATRIX_RECORD",84u); return value; }
 void quaternionMatrix(uint8_t *ram,R5900Context *ctx,PS2Runtime *runtime) {
     const uint32_t destination=getRegU32(ctx,4),stack=getRegU32(ctx,29);
     const __m128 input=_mm_loadu_ps(reinterpret_cast<const float*>(recordPointer(ram,getRegU32(ctx,5),16)));
@@ -127,6 +129,54 @@ void product(uint8_t *ram,R5900Context *ctx,PS2Runtime *runtime) {
         std::fprintf(stderr,"[math:native] matrix product %llu calls%s\n",calls,check?" (original comparison exact)":" (no VU execution)");
 }
 }
+bool vp2sInlineQuaternionEnabled() {
+    static const bool enabled=[] {const char *v=std::getenv("VP2S_NATIVE_INLINE_QUAT_MATRIX");return !(v && v[0]=='0');}();
+    return enabled;
+}
+bool vp2sInlineQuaternionReferenceEnabled() {
+    static const bool check=[] {const char *v=std::getenv("VP2S_INLINE_QUAT_MATRIX_CHECK");return v && v[0]=='1';}();
+    return !vp2sInlineQuaternionEnabled() || check;
+}
+void vp2sInlineQuaternionMatrix(uint8_t *ram,R5900Context *ctx,uint32_t source,uint32_t destination,unsigned columns,uint32_t site) {
+    if(columns!=3 && columns!=4) throw std::runtime_error("invalid native quaternion matrix column count");
+    const __m128 input=_mm_loadu_ps(reinterpret_cast<const float*>(recordPointer(ram,source,16)));
+    const auto result=vp2s::math::quaternionMatrix(input);
+    if(vp2sInlineQuaternionReferenceEnabled() && std::memcmp(result.data(),&ctx->vu0_vf[8],64)) {
+        if(const char *path=std::getenv("VP2S_INLINE_QUAT_FAILURE_RECORD"))
+            if(FILE *file=std::fopen(path,"wb")) {
+                const uint32_t tag=0x31524d51u;
+                std::fwrite(&tag,4,1,file);std::fwrite(&input,16,1,file);
+                std::fwrite(&ctx->vu0_vf[8],64,1,file);std::fclose(file);
+            }
+        char detail[160];
+        std::snprintf(detail,sizeof(detail),"native inline quaternion matrix differs: site=%x source=%x destination=%x",site,source,destination);
+        throw std::runtime_error(detail);
+    }
+    std::memcpy(recordPointer(ram,destination,columns*16),result.data(),columns*16);
+    auto &recorder=inlineQuaternionCapture();
+    if(recorder.begin(0x31524d51u)) {
+        recorder.append(&input,16);recorder.append(result.data(),64);recorder.end();
+    }
+    static std::array<uint32_t,56> observed{};
+    static unsigned distinct=0;
+    if(std::find(observed.begin(),observed.begin()+distinct,site)==observed.begin()+distinct) {
+        if(distinct==observed.size()) throw std::runtime_error("unexpected native inline quaternion site");
+        observed[distinct++]=site;
+        std::fprintf(stderr,"[math:native] inline quaternion site %x, %u columns%s\n",site,columns,
+                     vp2sInlineQuaternionReferenceEnabled()?" (original comparison exact)":" (no VU execution)");
+    }
+    static uint64_t calls=0;
+    if(++calls%4096==0) std::fprintf(stderr,"[math:native] inline quaternion matrices %llu calls, %u sites\n",calls,distinct);
+}
+void vp2sInlineQuaternionCompose(uint8_t *ram,R5900Context *ctx,uint32_t source,uint32_t destination) {
+    Matrix attachment,rotation;
+    std::memcpy(attachment.data(),recordPointer(ram,source),64);
+    std::memcpy(rotation.data(),recordPointer(ram,destination),64);
+    const auto result=vp2s::math::composeAttachment(attachment,rotation);
+    if(vp2sInlineQuaternionReferenceEnabled() && std::memcmp(result.data(),&ctx->vu0_vf[1],64))
+        throw std::runtime_error("native quaternion attachment differs from original game calculation");
+    std::memcpy(recordPointer(ram,destination),result.data(),64);
+}
 bool vp2sNormalizeEnabled() {
     static const bool enabled=[] {const char *v=std::getenv("VP2S_NATIVE_NORMALIZE");return !(v && v[0]=='0');}();
     return enabled;
@@ -159,6 +209,7 @@ void vp2sNormalizeRecord(uint8_t *ram,R5900Context *ctx,uint32_t source,uint32_t
 }
 void vp2sInstallMath(PS2Runtime &runtime) {
     g_workingMemory=runtime.memory().getScratchpad();
+    (void)inlineQuaternionCapture();
     (void)quaternionCapture();
     const auto *module=ps2_overlays::findModule("mod001");
     if(!module) throw std::runtime_error("native math module missing");

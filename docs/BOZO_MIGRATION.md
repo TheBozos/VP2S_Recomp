@@ -7,6 +7,17 @@ target, not a replacement DLL loaded into PS2Recomp.
 
 ## Build and evidence
 
+### Native controller record boundary (2026-11-06)
+
+Engine PR15 (`1b6f1ed`) supplies per-host native algorithm bindings, with 18 headless engine suites
+and green Windows/Linux CI. The port's native controller record builder passes 1,536 comparisons
+against the USA `ds2o_d` scalar record routine: complete 128-byte output, connected/disconnected,
+analog/pressure values, arbitrary buttons/sticks/pressures, and sequence wrap/submission slot.
+The fixture supplies no SIO2 transaction and never executes the hardware worker. Capabilities come
+from the private relocated game image. Native DBC two-port descriptor registration also passes
+repeat/reset/two-host checks. These tests qualify record construction and registration, not the
+controller's complete open/configuration/periodic delivery path; production still rejects `ds2o_d`.
+
 Native Windows PowerShell, existing user-owned USA extraction and function/SDK
 maps in `build_usa`, UCRT64 CMake/Ninja/G++, and native FFmpeg:
 

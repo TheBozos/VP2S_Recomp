@@ -63,6 +63,21 @@ if(MINGW)
 endif()
 add_test(NAME vp2s-bozo-modules COMMAND vp2s-bozo-modules-check)
 if(VP2S_BOZO_CODE)
+  set(CONTROLLER_REF "${CMAKE_CURRENT_BINARY_DIR}/controller-reference")
+  add_custom_command(OUTPUT "${CONTROLLER_REF}/ds2o_d_iop.cpp" "${CONTROLLER_REF}/ds2.bin"
+    COMMAND ${Python3_EXECUTABLE} "${VP2S_ROOT}/tools/vp2_bozo_controller_fixture.py"
+      "${VP2S_BOZO_DATA}/../extract/iop/ds2o_d.irx" "${CONTROLLER_REF}" --build "${VP2S_BOZO_DATA}/.."
+    DEPENDS "${VP2S_ROOT}/tools/vp2_bozo_controller_fixture.py" "${VP2S_BOZO_DATA}/../extract/iop/ds2o_d.irx"
+      "${VP2S_ROOT}/external/BozoEngine/tools/native_irx/relocate.py" "${VP2S_ROOT}/external/BozoEngine/tools/native_irx/recompile.py")
+  add_executable(vp2s-bozo-controller-check "${VP2S_ROOT}/tests/bozo_controller_main.cpp"
+    native_controller.cpp "${CONTROLLER_REF}/ds2o_d_iop.cpp")
+  target_include_directories(vp2s-bozo-controller-check PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}")
+  target_link_libraries(vp2s-bozo-controller-check PRIVATE bozo_libs)
+  if(MINGW)
+    target_link_options(vp2s-bozo-controller-check PRIVATE -static)
+  endif()
+  add_test(NAME vp2s-bozo-controller-records COMMAND vp2s-bozo-controller-check "${CONTROLLER_REF}/ds2.bin")
+  set_tests_properties(vp2s-bozo-controller-records PROPERTIES TIMEOUT 10)
   set(DBC_REF "${CMAKE_CURRENT_BINARY_DIR}/dbc-native-reference")
   add_custom_command(
     OUTPUT "${DBC_REF}/dbc_manager_iop.cpp" "${DBC_REF}/vp2_dbc_image.h"

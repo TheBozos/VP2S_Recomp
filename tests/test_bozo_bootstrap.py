@@ -1,4 +1,4 @@
-"""Bounded headless integration: native SDK timer reaches OSD settings.
+"""Bounded headless integration: native timer/settings reach event SDK installation.
 
 No window/input options or card directory are passed. The runner uses fresh
 in-memory cards. The separate unported start-timer operation must remain a hard
@@ -21,8 +21,8 @@ if '[vp2s:bozo] native timer records initialized; runtime timer callback remains
     raise SystemExit('startup did not reach native timer record initialization')
 if '[vp2s:bozo] native SDK timer started' not in output:
     raise SystemExit('startup did not start the native SDK clock')
-if 'GetOsdConfigParam' not in output or 'not implemented yet' not in output:
-    raise SystemExit('startup did not reach the audited OSD settings boundary')
-if 'syscall 116' in output or 'a call to' in output:
+if 'syscall 116 at 0x140b68' not in output:
+    raise SystemExit('startup did not reach the audited next SDK firmware installer')
+if 'syscall 116 at 0x141550' in output or 'a call to' in output:
     raise SystemExit('native binding was bypassed or unanswered')
-print('Native timer initialized/started; unsupported OSD settings boundary reached.')
+print('Native timer/settings passed; unsupported event SDK firmware installation reached.')

@@ -5,6 +5,7 @@
 #include "vp2_bozo_images.h"
 #include "native_kernel.h"
 #include "native_timer.h"
+#include "native_settings.h"
 #include <cstdio>
 #include <format>
 #include <fstream>
@@ -12,11 +13,13 @@
 #include <stdexcept>
 
 namespace {
-class StrictHost final : public bozo::ee::Host, public vp2s::TimerOwner {
+class StrictHost final : public bozo::ee::Host, public vp2s::TimerOwner, public vp2s::SettingsOwner {
 public:
     bozo::host::FreeHost native;
     vp2s::TimerClock sdkClock;
     vp2s::TimerClock &timerClock() override { return sdkClock; }
+    vp2s::Settings preferences;
+    vp2s::Settings &settings() override { return preferences; }
     explicit StrictHost(const bozo::host::FreeOptions &options) : native(options) {}
     void libraryCall(bozo::ee::Dispatcher &d,R5900Context *c,uint32_t target) override { native.libraryCall(d,c,target); }
     void vu0Microprogram(bozo::ee::Dispatcher &,R5900Context *c,uint32_t address) override {

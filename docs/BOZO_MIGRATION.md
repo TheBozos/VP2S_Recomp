@@ -62,7 +62,8 @@ native kernel. The next increment retires `InitAlarm`'s firmware installer at
 implements timer record initialization at `0x141bb0` for the audited startup
 argument 2. Startup now reaches the separate start-timer routine `0x141df0`
 then starts the native SDK clock and binds normalized time queries. Startup now
-reaches unsupported `GetOsdConfigParam` at `0x137290`. It still produces no frames.
+passes native Get/SetOsdConfigParam and reaches the next SDK firmware installer,
+`0x140b70` (SetSyscall at `0x140b68`). It still produces no frames.
 IRQ/deadline processing and other timer lifecycle operations remain unported.
 See [the bootstrap audit](#sdk-syscall-bootstrap-audit-2026-11-06).
 
@@ -242,3 +243,12 @@ wrap boundary, a duration beyond 32 bits, repeat start, RAM/CPU ABI preservation
 interrupt-status preservation, clock-regression rejection and two-host isolation.
 Startup now passes start-timer and stops at the next native settings service,
 GetOsdConfigParam, before any frame. Work continues toward the user's route goal.
+
+The following settings increment provides per-host native preferences, with
+English/4:3 defaults and ABI version 1 encoded into checked four-byte SDK buffers.
+Get/Set at `0x137290`/`0x137280` round-trip writable preferences, preserve native
+platform version, reject incomplete buffers without partial mutation, and accept
+unaligned memory safely. No firmware memory/config bank is retained. The original
+OSD version probe now succeeds and skips its legacy firmware patch. The settings
+suite checks defaults, sentinels, write/read/probe behavior, bounds and two-host
+isolation. Eight port suites pass to the next event-SDK installer boundary.

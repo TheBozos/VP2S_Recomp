@@ -85,7 +85,7 @@ int main() {
         require(registry.find(0x141a38)==&vp2s::retireAlarmFirmwareInstaller);
         unsigned guarded=0;
         for(const auto &entry:registry.functions()) {
-            if(entry.address==0x141448 || entry.address==0x141a38 || entry.address==0x141bb0 || entry.address==0x141df0 || entry.address==0x1423f8) continue;
+            if(entry.address==0x141448 || entry.address==0x141a38 || entry.address==0x141bb0 || entry.address==0x141df0 || entry.address==0x1423f8 || entry.address==0x137280 || entry.address==0x137290) continue;
             ctx.pc=entry.address;
             rejected([&]{entry.function(nullptr,&ctx,&rt);});
             ++guarded;

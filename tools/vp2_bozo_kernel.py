@@ -208,7 +208,8 @@ def overlay_adaptations(name,data):
     _,segments,_=elf_parts(data)
     for lo,hi,expected in (
         (0x249720,0x24a438,'10c8d5e49e540decaa624ca4ea5f9e5aeee7cc23f9acf910d53cbe623ad1484e'),
-        (0x202150,0x202200,'2056326076193b416411c06ca8c0b005e58038dd2b237625a6242ce3d0b661da')):
+        (0x202150,0x202200,'2056326076193b416411c06ca8c0b005e58038dd2b237625a6242ce3d0b661da'),
+        (0x29e1d0,0x29e22c,'5a8f6625f0c067de0c3cc1c74f1e25deb76a988f034f3a7ee7fc6d82989f5834')):
         s=next(s for s in segments if s[0]==1 and s[2]<=lo<hi<=s[2]+s[4]);at=s[1]+lo-s[2]
         if hashlib.sha256(data[at:at+hi-lo]).hexdigest()!=expected:
             raise ValueError('USA graphics setup body signature mismatch')
@@ -216,4 +217,6 @@ def overlay_adaptations(name,data):
     # bit. Preserve every game allocation, record and callback registration.
     return ('00249830 ac22e000 00000000\n'
             '002021c4 3c011001 0808087a\n'
-            '002021c8 2402fffd 00000000\n')
+            '002021c8 2402fffd 00000000\n'
+            '0029e210 4a00fc3e 00000000\n'
+            '0029e214 4b1f043d 00000000\n')

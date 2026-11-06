@@ -7,6 +7,22 @@ target, not a replacement DLL loaded into PS2Recomp.
 
 ## Build and evidence
 
+### Native procedural stream initialization (2026-11-06)
+
+The random manager's constructor now seeds ordinary per-run procedural-stream data from the game's
+original EE random result. The following unused vector read is retired under its complete constructor
+fingerprint. No VU vector/random register or pipeline is maintained. The stream's 23-bit polynomial
+policy was checked against [PCSX2's reference](https://github.com/PCSX2/pcsx2/blob/master/pcsx2/VUops.cpp);
+the team-authored integer implementation is checked by an independent basis-transition calculation
+over 262,144 steps. Sixty-four seed-hook cases verify complete context preservation, independent
+owners and unchanged guarded-consumer behavior. The 66 `VRNEXT` sites in `0x2439f0/0x2961a0` still
+reject until their actual scalar consumers are qualified; this is initialization coverage only.
+
+The next missing vtable method is admitted as original static code (`0x29e240..0x29e274`) with its
+complete source guard. It only starts the old VIF1 program-install transfer. The real boot now stops
+on its QWC write (`0x10009020`). Native graphics resource preparation and completion must replace
+that producer/consumer pair before continuing. Still no native rendered scene or Logun qualification.
+
 ### Native graphics prelude (2026-11-06)
 
 Overlay startup's DMA-control enable store and the channel-nine object's physical routing RMW are

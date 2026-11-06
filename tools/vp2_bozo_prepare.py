@@ -49,6 +49,8 @@ def overlay_entries(name,data):
                                (0x358a10,0x358a7c,'32428520c5199b05899bf79bd2e0966864f90648beeabb5bfa9548b5417e776e')):
             if hashlib.sha256(span(lo,hi)).hexdigest()!=expected:
                 raise ValueError('USA mod001 static initializer signature mismatch')
+        if hashlib.sha256(span(0x29e240,0x29e280)).hexdigest()!='1803abf64643018a89bfbd0e71271c70e86d09cdec797d8692b1fdd4602d48cf':
+            raise ValueError('USA graphics resource entry signature mismatch')
     # Constructor sections are authoritative static entry metadata, independent
     # of whether the analysis export found every prologue. Never discover code
     # from runtime bytes or skip these application initializers.
@@ -65,6 +67,7 @@ def overlay_entries(name,data):
         if lo&3 or section is None:raise ValueError('constructor target outside explicit code')
         hi=next((pc for pc in targets if pc>lo),section[3]+section[5]);hi=min(hi,section[3]+section[5])
         entries.append(dict(Name=f'module_initializer_{lo:08x}',Start=hex(lo),End=hex(hi)))
+    if name=='mod001':entries.append(dict(Name='resource_upload_0029e240',Start='0x29e240',End='0x29e274'))
     return entries
 
 

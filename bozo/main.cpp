@@ -17,6 +17,7 @@
 #include "native_controller.h"
 #include "native_frame.h"
 #include "native_bootstrap.h"
+#include "native_random.h"
 #include <random>
 #include <algorithm>
 #include <charconv>
@@ -29,8 +30,10 @@
 #include <stdexcept>
 
 namespace {
-class StrictHost final : public bozo::ee::Host, public vp2s::TimerOwner, public vp2s::SettingsOwner,public vp2s::SeedOwner,public vp2s::ModuleOwner,public vp2s::BootstrapOwner {
+class StrictHost final : public bozo::ee::Host, public vp2s::TimerOwner, public vp2s::SettingsOwner,public vp2s::SeedOwner,public vp2s::ModuleOwner,public vp2s::BootstrapOwner,public vp2s::RandomOwner {
 public:
+    vp2s::ProceduralRandom procedural;
+    vp2s::ProceduralRandom &proceduralRandom()override{return procedural;}
     vp2s::bootstrap::Tables startupTables{};
     const vp2s::bootstrap::Tables &bootstrapTables() const override{return startupTables;}
     vp2s::ModuleBuffers moduleStorage;
@@ -159,6 +162,7 @@ public:
 bool noNativeInstruction(uint8_t *ram,R5900Context *ctx,Runtime *rt,uint32_t pc) {
     if(vp2s::nativeBootSeed(ram,ctx,rt,pc))return true;
     if(vp2s::nativeBootstrapKey(ram,ctx,rt,pc))return true;
+    if(vp2s::nativeRandomSeed(ram,ctx,rt,pc))return true;
     if(vp2s::nativeFrameInput(ram,ctx,rt,pc))return true;
     throw std::runtime_error(std::format("unported native VP2S algorithm at pc={:x}",pc));
 }

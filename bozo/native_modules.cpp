@@ -114,20 +114,46 @@ void nativeModuleTransfer(uint8_t *,R5900Context *ctx,Runtime *rt) {
         auto *p=address<=0xffffffffu?rt->memory.hostPointer(static_cast<uint32_t>(address),16):nullptr;
         if(!p)throw std::runtime_error("invalid native module transfer descriptor");
         uint32_t words[4];std::memcpy(words,p,16);
-        if(words[3]!=0)throw std::runtime_error("unported native module transfer attributes");
+        if(words[3]!=0)throw std::runtime_error(std::format("unported native module transfer attributes 0x{:x}: source 0x{:x}, destination 0x{:x}, {} bytes",words[3],words[0],words[1],words[2]));
         auto *source=rt->memory.hostPointer(words[0],words[2]);
         if(!source && words[2])throw std::runtime_error("invalid native module transfer source");
-        buffers.validate(words[1],words[2]);
+        owner.validateNativeTransfer(words[1],words[2]);
         batch.push_back({words[1],words[2]?std::vector<uint8_t>(source,source+words[2]):std::vector<uint8_t>{}});
     }
     const auto token=count?buffers.completeTransfer():0;
-    for(const auto &copy:batch)buffers.copy(copy.dest,copy.data);
+    for(const auto &copy:batch)owner.copyNativeTransfer(copy.dest,copy.data);
     if(count)dynamic_cast<bozo::ee::Dispatcher &>(*rt->services).kernel().irq(true,5);
     ctx->r[2].sd[0]=token;ctx->r[2].ud[1]=0;ctx->pc=ctx->r[31].uw[0];
 }
 void nativeModuleTransferStatus(uint8_t *,R5900Context *ctx,Runtime *rt) {
     ownerFor(rt,ctx); // Native copies finish before their real job handle returns.
     ctx->r[2].sd[0]=-1;ctx->r[2].ud[1]=0;ctx->pc=ctx->r[31].uw[0];
+}
+void sendNativeCommand(uint8_t *,R5900Context *ctx,Runtime *rt) {
+    auto &owner=ownerFor(rt,ctx);
+    if(ctx->pc!=0x13a3f0)throw std::runtime_error("native command sender requires its guarded SDK entry");
+    const auto command=ctx->r[4].uw[0],mode=ctx->r[5].uw[0],packetAt=ctx->r[6].uw[0],bytes=ctx->r[7].uw[0];
+    const auto finish=[&](uint32_t result){ctx->r[2].sd[0]=static_cast<int32_t>(result);ctx->r[2].ud[1]=0;ctx->pc=ctx->r[31].uw[0];};
+    if(bytes<16 || bytes>112){finish(0);return;}
+    if(mode&~5u)throw std::runtime_error("unported native command send mode");
+    const auto input=[&](uint32_t address,uint32_t size){
+        auto *data=rt->memory.hostPointer(address,size);
+        if(!data || uint64_t(address)+size>0x2000000u)throw std::runtime_error("native command source outside EE RAM");
+        return std::vector<uint8_t>(data,data+size);
+    };
+    auto packet=input(packetAt,bytes);
+    const auto signedExtra=ctx->r[10].sw[0];
+    const uint32_t extraBytes=signedExtra>0?uint32_t(signedExtra):0,destination=extraBytes?ctx->r[9].uw[0]:0;
+    if(extraBytes>0xffffffu)throw std::runtime_error("native command extra data exceeds header capacity");
+    std::vector<uint8_t> extra;
+    if(extraBytes){owner.validateNativeTransfer(destination,extraBytes);extra=input(ctx->r[8].uw[0],extraBytes);}
+    const uint32_t header[3]={bytes|(extraBytes<<8),destination,command};
+    std::memcpy(packet.data(),header,sizeof(header));
+    // Submission queues an owned message; no callback runs before the real data writes.
+    const auto job=owner.submitNativeCommand(command,packet);
+    if(extraBytes)owner.copyNativeTransfer(destination,extra);
+    std::memcpy(rt->memory.hostPointer(packetAt,bytes),packet.data(),bytes);
+    finish(job);
 }
 void freeNativeModuleBuffer(uint8_t *,R5900Context *ctx,Runtime *rt) {
     const bool freed=ownerFor(rt,ctx).moduleBuffers().release(ctx->r[4].uw[0]);

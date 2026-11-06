@@ -58,6 +58,19 @@ The actual boot passes these entries and stops on a real 4,096-byte upload to na
 address `0x15b140`. The opaque module-file allocator owns only `0x40000000+` handles, so that transfer
 must use the sound host's checked allocation gateway rather than aliasing an opaque handle into RAM.
 
+The allocation gateway now checks every span against one live native sound allocation, including
+interior alignment; images, stacks, freed blocks, opaque handles, adjacent-block crossings and overflow
+reject. Transfer batches validate/snapshot both destination domains before any copy. Mixed-domain
+atomicity and actual bytes pass; all 28 engine suites pass. The real 4-KiB upload to `0x15b140` succeeds.
+
+Its following `0x44` transport descriptor is not accepted. Instead the complete guarded SDK sender
+`0x13a3f0..0x13a524` is replaced by direct native user-message submission. It retains the game's header
+fields and optional checked extra-data copy, then queues its registered compiled handler. Eight mode/
+extra-data cases check actual bytes, header/option, canaries and returned job IDs; invalid spans preserve
+the packet and submit no job. There are now 1,782 rejecting SDK interior guards. Actual startup receives
+the EE command in Csd and advances to its reverse reply API, `sifcmd:12` (`0x559e4`). That reply still
+rejects: a native library-to-EE queued callback path is required. Zero frames and no Logun qualification.
+
 ### Native libsd provider (2026-11-06)
 
 The USA `Sound_Device_Library` image is admitted through a full SHA-256 guard and uses Bozo's native

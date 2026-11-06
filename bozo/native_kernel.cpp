@@ -52,6 +52,7 @@ void retireAlarmFirmwareInstaller(uint8_t *,R5900Context *ctx,Runtime *rt) {
     ctx->pc=ctx->r[31].uw[0];
 }
 void installNativeKernelBindings(bozo::port::Registry &registry) {
+    for(uint32_t pc=0x13a3f0u;pc<0x13a524u;pc+=4) registry.registerFunction(pc,&rejectFirmwareEntry);
     for(uint32_t pc=0x137a30u;pc<0x137ad4u;pc+=4) registry.registerFunction(pc,&rejectFirmwareEntry);
     for(uint32_t pc=0x141410u;pc<0x141444u;pc+=4)
         registry.registerFunction(pc,&rejectFirmwareEntry);
@@ -96,6 +97,7 @@ void installNativeKernelBindings(bozo::port::Registry &registry) {
     registry.registerFunction(0x137290u,&nativeOsdSettings);
     registry.registerFunction(0x140b70u,&retireEventFirmwareInstaller);
     registry.registerFunction(0x137a30u,&nativeCacheSync);
+    registry.registerFunction(0x13a3f0u,&sendNativeCommand);
 }
 void retireEventFirmwareInstaller(uint8_t *,R5900Context *ctx,Runtime *rt) {
     auto *d=rt ? dynamic_cast<bozo::ee::Dispatcher *>(rt->services) : nullptr;

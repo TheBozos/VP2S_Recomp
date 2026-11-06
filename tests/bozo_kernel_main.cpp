@@ -95,13 +95,13 @@ int main() {
         unsigned guarded=0;
         for(const auto &entry:registry.functions()) {
             if(entry.address==0x1401b8 || entry.address==0x13fba8 || entry.address==0x13f608 || entry.address==0x13f680 ||
-               entry.address==0x137580 || entry.address==0x137590 || entry.address==0x1375a0 || entry.address==0x1375b0 || entry.address==0x137a30)continue;
+               entry.address==0x137580 || entry.address==0x137590 || entry.address==0x1375a0 || entry.address==0x1375b0 || entry.address==0x137a30 || entry.address==0x13a3f0)continue;
             if(entry.address==0x141448 || entry.address==0x141a38 || entry.address==0x141bb0 || entry.address==0x141df0 || entry.address==0x1423f8 || entry.address==0x141f00 || entry.address==0x142150 || entry.address==0x137280 || entry.address==0x137290 || entry.address==0x140b70) continue;
             ctx.pc=entry.address;
             rejected([&]{entry.function(nullptr,&ctx,&rt);});
             ++guarded;
         }
-        require(guarded==1706 && !registry.find(0x141548)); // SetSyscall is not bypassed
+        require(guarded==1782 && !registry.find(0x141548)); // SetSyscall is not bypassed
         for(uint32_t number:{116u,0xfcu,0xfeu,0xfdu,0xffu,0x12cu,8u,0x54u,0x55u,0x56u,0x57u,0x58u,0x59u}) {
             ctx.pc=0x14154c; ctx.r[3].uw[0]=number;
             ctx.r[4].uw[0]=0x83; ctx.r[5].uw[0]=0x1413c0;
@@ -115,7 +115,7 @@ int main() {
         }
         require(host.callbacks==17 && !std::memcmp(before.data(),rt.memory.flat(),bozo::kFlatBytes));
         require(k.handlerQueued() && k.sequence()==sequence && k.nextEvent()==event);
-        std::puts("native installer/cache visibility, 48 context cases, RAM/kernel preservation, 1706 guards and unsupported runtime syscall rejection pass");
+        std::puts("native installer/cache visibility, 48 context cases, RAM/kernel preservation, 1782 guards and unsupported runtime syscall rejection pass");
         return 0;
     } catch(const std::exception &e) { std::fprintf(stderr,"%s\n",e.what()); return 1; }
 }

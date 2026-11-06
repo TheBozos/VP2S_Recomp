@@ -7,6 +7,7 @@
 #include <filesystem>
 #include <functional>
 #include <string_view>
+#include <stdexcept>
 namespace vp2s {
 struct ModuleResult { int32_t id=0, startResult=0; };
 // Sparse host-owned allocations used by SDK file/service jobs. No IOP address
@@ -41,5 +42,14 @@ public:
     virtual ModuleResult loadNativeModule(const std::string &,std::span<const uint8_t>)=0;
     virtual ModuleResult loadNativeModuleBuffer(uint32_t,std::span<const uint8_t>)=0;
     virtual ModuleBuffers &moduleBuffers()=0;
+    virtual void validateNativeTransfer(uint32_t destination,size_t bytes) {
+        moduleBuffers().validate(destination,bytes);
+    }
+    virtual void copyNativeTransfer(uint32_t destination,std::span<const uint8_t> data) {
+        moduleBuffers().copy(destination,data);
+    }
+    virtual uint32_t submitNativeCommand(uint32_t,std::span<const uint8_t>) {
+        throw std::runtime_error("native user command provider is not installed");
+    }
 };
 }

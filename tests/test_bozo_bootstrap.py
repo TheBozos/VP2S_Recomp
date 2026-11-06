@@ -39,10 +39,10 @@ for required in ['[vp2s:call] pc=142150 ra=0',
                  'compiled native service owns Csi_.irx id=8',
                  'native pad/card service owns mcman.irx id=9',
                  'native pad/card service owns mcserv.irx id=10',
-                 'native transfer has no destination buffer: 0x15b140, 4096 bytes']:
+                 'unsupported native IRX import sifcmd:12 at 0x559e4']:
     if required not in output:raise SystemExit(f'startup did not reach expected CD worker boundary: {required}')
 if 'syscall 116' in output or 'a call to' in output:
     raise SystemExit('native binding was bypassed or unanswered')
 if 'pc=137220 a0=ffffffff result=-408' in output:
     raise SystemExit('the retired CD private worker unexpectedly ran')
-print('Native sound setup and static thread adjustors passed; native sound-buffer transfer remains unsupported.')
+print('Native sound-buffer upload and EE user-command delivery passed; Csd native reply sender remains unsupported.')

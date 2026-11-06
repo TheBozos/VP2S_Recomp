@@ -17,6 +17,7 @@
 #include "native_controller.h"
 #include "native_frame.h"
 #include <random>
+#include <algorithm>
 #include <charconv>
 #include <filesystem>
 #include <cstdio>
@@ -32,6 +33,22 @@ public:
     vp2s::ModuleBuffers moduleStorage;
     std::unique_ptr<vp2s::NativeServiceModules> serviceModules;
     vp2s::ModuleBuffers &moduleBuffers() override {return moduleStorage;}
+    void validateNativeTransfer(uint32_t destination,size_t bytes) override {
+        if(destination>=0x40000000)moduleStorage.validate(destination,bytes);
+        else {
+            if(bytes>UINT32_MAX)throw std::runtime_error("native sound buffer transfer is too large");
+            dbc->allocatedBuffer(destination,static_cast<uint32_t>(bytes));
+        }
+    }
+    void copyNativeTransfer(uint32_t destination,std::span<const uint8_t> data) override {
+        validateNativeTransfer(destination,data.size());
+        if(destination>=0x40000000)moduleStorage.copy(destination,data);
+        else {auto to=dbc->allocatedBuffer(destination,static_cast<uint32_t>(data.size()));
+            std::copy(data.begin(),data.end(),to.begin());}
+    }
+    uint32_t submitNativeCommand(uint32_t command,std::span<const uint8_t> data) override {
+        return dbc->submitCommand(command,data);
+    }
     vp2s::ModuleResult loadNativeModule(const std::string &path,std::span<const uint8_t>) override {
         throw std::runtime_error("unported native service module: "+path);
     }
@@ -71,7 +88,7 @@ public:
         auto &sif=native.libraries().sif;
         sif.allocateBuffer=[this](uint32_t bytes){return moduleStorage.allocate(bytes);};
         sif.freeBuffer=[this](uint32_t h){return moduleStorage.release(h);};
-        sif.transfer=[this](uint32_t to,const uint8_t *data,uint32_t bytes){moduleStorage.copy(to,{data,bytes});};
+        sif.transfer=[this](uint32_t to,const uint8_t *data,uint32_t bytes){copyNativeTransfer(to,{data,bytes});};
         sif.resetProvider=[this]{moduleStorage.reset();serviceModules->reset();dbc->reset();controller.reset();};
         native.libraries().audioProvider=[this](uint64_t cycle){return dbc->advanceTo(cycle);};
         sif.moduleLoader=[this](const std::string &path){return loadNativeModule(path,{}).id;};

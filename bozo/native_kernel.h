@@ -15,6 +15,7 @@ void dispatchNativeTimer(uint8_t *,R5900Context *,Runtime *);
 void loadNativeModule(uint8_t *,R5900Context *,Runtime *);
 void nativeModuleTransfer(uint8_t *,R5900Context *,Runtime *);
 void nativeModuleTransferStatus(uint8_t *,R5900Context *,Runtime *);
+void sendNativeCommand(uint8_t *,R5900Context *,Runtime *);
 void freeNativeModuleBuffer(uint8_t *,R5900Context *,Runtime *);
 void nativeOsdSettings(uint8_t *,R5900Context *,Runtime *);
 void retireEventFirmwareInstaller(uint8_t *,R5900Context *,Runtime *);

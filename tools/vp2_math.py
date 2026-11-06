@@ -47,6 +47,76 @@ def lower_rigid_inverse(directory,data):
     print(f'Native rigid inverse: USA block validated; {changed} EE files lowered')
 
 
+def lower_projection_products(directory,data):
+    words=[0xd8a10000,0xd8a20010,0xd8a30020,0xd8a40030,
+           0xd8650000,0xd8660010,0xd8670020,0xd8680030]
+    for column in range(1,5):
+        words.extend([0x4be029bc|(column<<16),0x4be030bd|(column<<16),
+                      0x4be038be|(column<<16),0x4be0400b|(column<<16)|(column<<6)])
+    words.extend([0xfa010000,0xfa020010,0xfa030020,0xfa040030])
+    if data.count(struct.pack('<28I',*words))!=2:
+        raise ValueError('Unexpected USA projection matrix products')
+    changed=0
+    for path in directory.glob('*.cpp'):
+        m=re.search(r'_0x([0-9a-f]+)$',path.stem)
+        if not m or not 0x2178b0<=int(m[1],16)<=0x217adc:continue
+        text=path.read_text();marker='// VP2S native projection products v1'
+        if marker in text:continue
+        def patch(m):
+            pc=int(m[1],16)
+            start=next((p for p in (0x217948,0x217a70) if p<=pc<=p+108),None)
+            if start is None:return m[0]
+            index=(pc-start)//4;assert int(m[2],16)==words[index]
+            body=m[3]
+            if index<8:pattern=r'ctx->vu0_vf\[[1-8]\] = [^\n;]+;'
+            elif index<24:pattern=r'\{ __m128.*? \}'
+            else:pattern=r'WRITE128\([^\n]+_mm_castps_si128\(ctx->vu0_vf\[[1-4]\]\)\);'
+            found=re.search(pattern,body,re.S);assert found,(path.name,hex(pc))
+            original=found[0]
+            if index==24:
+                replacement=('if (vp2sProjectionProductEnabled()) { vp2sProjectionProduct(rdram, ctx, '
+                             f'GPR_U32(ctx, 5), GPR_U32(ctx, 3), GPR_U32(ctx, 16), 0x{pc:x}u); }} else {{ '+original+' }')
+            else:replacement='if (vp2sProjectionProductReferenceEnabled()) { '+original+' }'
+            return m[0][:m[0].index(body)]+body[:found.start()]+replacement+body[found.end():]
+        lowered=re.sub(r'// 0x([0-9a-f]+): 0x([0-9a-f]+)[^\n]*\n(.*?)(?=\s*// 0x[0-9a-f]+:|\Z)',patch,text,flags=re.S)
+        if lowered==text:continue
+        include='#include "ps2_recomp_calls.h"';assert lowered.count(include)==1
+        declarations=('\n'+marker+'\nbool vp2sProjectionProductEnabled();\nbool vp2sProjectionProductReferenceEnabled();\n'
+                      'void vp2sProjectionProduct(uint8_t*, R5900Context*, uint32_t, uint32_t, uint32_t, uint32_t);\n')
+        path.write_text(lowered.replace(include,include+declarations));changed+=1
+    print(f'Native projection products: two USA blocks validated; {changed} EE files lowered')
+
+
+def projection_fixtures(directory):
+    # Original and rewritten EE game functions belong only to the offline
+    # checker. Replace their one direct game call with a normal C++ call and
+    # let bounded loops finish without scheduler checkpoints. No runtime device,
+    # instruction interpreter or hardware timing is used by this harness.
+    source='\n#include "ps2_runtime.h"\n#include "ps2_runtime_macros.h"\n#include "vp2s_math.h"\nnamespace vp2s::mathfixture {\n'
+    for native in (False,True):
+        prefix='native' if native else 'original'
+        for address,name in [('216e40','Rigid'),('2178b0','Perspective'),('2179e0','Orthographic')]:
+            path=directory/f'mod001_FUN_00{address}_0x{address}.cpp'
+            text=path.read_text().split('// Function:',1)[1]
+            text='// Function:'+text
+            old=f'mod001_FUN_00{address}_0x{address}'
+            assert text.count('void '+old+'(')==1
+            text=text.replace(old,prefix+name)
+            text=text.replace('ps2rCheckpointDue(runtime)','false')
+            text=re.sub(r'#if defined\(PS2X_STRICT_RETURN_DIAGNOSTICS\).*?#else(.*?)#endif',r'\1',text,flags=re.S)
+            if address!='216e40':
+                text,count=re.subn(r'if \(!ps2rDispatchGuestBranch\(runtime, rdram, ctx, 0x216E40u,[^\n]+\)\) \{\s*return;\s*\}',
+                                   prefix+'Rigid(rdram, ctx, runtime);',text)
+                assert count==1
+            if not native:
+                text=re.sub(r'if \(vp2s(?:RigidInverse|ProjectionProduct)Enabled\(\)\) \{ [^\n]+? \} else \{ ([^\n]+?) \}',r'\1',text)
+                text=re.sub(r'if \(vp2s(?:RigidInverse|ProjectionProduct)ReferenceEnabled\(\)\) \{ (.*?) \}',r'\1',text,flags=re.S)
+                assert 'vp2sRigidInverse' not in text and 'vp2sProjectionProduct' not in text
+            assert 'ps2rDispatchGuestBranch' not in text
+            source+=text+'\n'
+    return source+'}\n'
+
+
 def lower_normalization(directory):
     instructions={}
     for path in directory.glob('*FUN*.cpp'):
@@ -162,10 +232,12 @@ def main():
     source+='\n'+reference
     args.out.mkdir(parents=True,exist_ok=True)
     path=args.out/'reference.cpp'
-    source=source.encode()
-    if not path.exists() or path.read_bytes()!=source: path.write_bytes(source)
     lower_normalization(args.recomp/'mod001')
     lower_rigid_inverse(args.recomp/'mod001',data)
+    lower_projection_products(args.recomp/'mod001',data)
+    source+=projection_fixtures(args.recomp/'mod001')
+    source=source.encode()
+    if not path.exists() or path.read_bytes()!=source: path.write_bytes(source)
     from vp2_inline_math import lower
     lower(args.recomp)
     print('Native matrix: validated USA product; original reference emitted offline')

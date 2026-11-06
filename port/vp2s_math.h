@@ -20,6 +20,25 @@ inline __m128 rigidInverseTranslation(const RigidBasis &basis,__m128 translation
     result=normal(_mm_add_ps(result,product(basis[2],music::broadcast<2>(translation))));
     return _mm_blend_ps(result,translation,8);
 }
+// Ordered record composition for the EE projection builders. Keep their host
+// arithmetic and reduction of tiny intermediate results, separately from the
+// common matrix microprogram's truncating-sum policy.
+inline Matrix projectionProduct(const Matrix &local,const Matrix &view) {
+    auto normal=[](__m128 v) {
+        const auto bits=_mm_castps_si128(v);
+        const auto tiny=_mm_cmpeq_epi32(_mm_and_si128(bits,_mm_set1_epi32(0x7f800000)),_mm_setzero_si128());
+        return _mm_castsi128_ps(_mm_andnot_si128(_mm_and_si128(tiny,_mm_set1_epi32(0x7fffffff)),bits));
+    };
+    Matrix result;
+    for(unsigned column=0;column<4;++column) {
+        const auto v=local[column];
+        auto acc=normal(_mm_mul_ps(view[0],music::broadcast<0>(v)));
+        acc=normal(_mm_add_ps(acc,normal(_mm_mul_ps(view[1],music::broadcast<1>(v)))));
+        acc=normal(_mm_add_ps(acc,normal(_mm_mul_ps(view[2],music::broadcast<2>(v)))));
+        result[column]=normal(_mm_add_ps(acc,normal(_mm_mul_ps(view[3],music::broadcast<3>(v)))));
+    }
+    return result;
+}
 // Two column-major inputs: the game's a1/a2 convention produces a2 * a1.
 inline Matrix compose(const Matrix &local,const Matrix &parent) {
     music::CodecRounding rounding;
@@ -103,3 +122,6 @@ void vp2sInlineQuaternionCompose(uint8_t*,R5900Context*,uint32_t source,uint32_t
 bool vp2sRigidInverseEnabled();
 bool vp2sRigidInverseReferenceEnabled();
 void vp2sRigidInverseTranslation(uint8_t*,R5900Context*,uint32_t basis,uint32_t translation);
+bool vp2sProjectionProductEnabled();
+bool vp2sProjectionProductReferenceEnabled();
+void vp2sProjectionProduct(uint8_t*,R5900Context*,uint32_t local,uint32_t view,uint32_t destination,uint32_t site);

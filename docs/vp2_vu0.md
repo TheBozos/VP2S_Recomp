@@ -361,6 +361,66 @@ build_usa/port/vp2s_math_check.exe --rigid-inverse-synthetic
 build_usa/port/vp2s_math_check.exe <rigid-inverse-records.bin>
 ```
 
+## Projection-builder matrix products, 2026-11-06
+
+The two projection builders `0x2178B0` and `0x2179E0` now compose their local
+projection and inverse-view matrix records natively. Their scalar projection
+setup and ordinary EE register/stack behavior remain the original recompiled
+game code. Together with the preceding rigid-inverse replacement, both builders
+are free of VU state access in the default path. This does not replace other
+projection/camera helpers elsewhere in the game.
+
+The USA ELF contains two identical 28-instruction product blocks, validated
+before lowering: eight matrix loads, sixteen ordered multiply/add macro
+instructions, and four result stores. `tools/vp2_math.py` replaces both blocks
+with a typed record product at the first result store. All inputs are copied
+before output writes; output may alias an input. No VU register, accumulator,
+flag, microcode, VIF/DMA input or instruction pipeline supplies the native
+calculation. Repeating conversion changes no generated EE source.
+
+The native product follows the EE sequence's host rounding/denormal controls,
+operation order and reduction of tiny intermediate terms. It deliberately
+does not reuse the common microprogram product's different truncating-sum
+policy. `VP2S_NATIVE_PROJECTION_PRODUCT=0` explicitly selects the original macro
+blocks; `VP2S_PROJECTION_PRODUCT_CHECK=1` compares native results with them and
+fails on any mismatch. Neither is an automatic fallback.
+`VP2S_PROJECTION_PRODUCT_RECORD=<file>` captures bounded typed records with host
+floating-point controls; `VP2S_PROJECTION_PRODUCT_FAILURE_RECORD=<file>` saves
+a failed original result before aborting.
+
+Arithmetic validation passes **131,584 cases / 2,105,344 scalar outputs**, zero
+differences against the original EE macro sequence. It covers general finite
+and tiny inputs under four host control modes, plus both builders' distinct
+projection layouts.
+
+The town/inn route did not execute either builder. To qualify the unexercised
+integration, the offline checker additionally runs the **complete original and
+rewritten game functions**, including their rigid-inverse call, against private
+RAM buffers and CPU records. It uses the exact production native bridges from
+`port/vp2s_math.cpp`. The converter emits these original/reference functions
+only into the ignored offline checker source, never into the game. Their one
+direct helper call becomes an ordinary C++ call, and bounded EE loops finish
+without scheduler checkpoints; there is no runtime instance or device/timing
+model in this harness.
+
+All **2,048 full-function cases** pass: both builders, four host control modes,
+128 camera/input records and separate/aliased output. Checks cover the entire
+private RAM buffer (including stack temporaries), all general and scalar FP
+registers, return PC and FP status. Native execution also preserves the initial
+VU vector/accumulator/flag state. The camera-update caller consumes the matrix
+records; its callers have no subsequent VU-result dependency.
+
+Two hidden, input-isolated, private-card 300-second town/inn runs also completed
+with music playing at 290 seconds and user-card hashes unchanged. These are
+general regression checks, **not live coverage of either projection builder**.
+Live scene coverage of these paths and new PCSX2 parity remain unverified.
+
+```powershell
+build_usa/port/vp2s_math_check.exe --projection-product-synthetic
+build_usa/port/vp2s_math_check.exe --projection-functions
+build_usa/port/vp2s_math_check.exe <projection-product-records.bin>
+```
+
 ## Still open
 
 The Csi seed service still runs through the IOP environment. Other main/module

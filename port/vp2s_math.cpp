@@ -74,6 +74,7 @@ Capture &quaternionCapture() { static Capture value("VP2S_NORMALIZE_RECORD",36u)
 Capture &quaternionMatrixCapture() { static Capture value("VP2S_QUAT_MATRIX_RECORD",84u); return value; }
 Capture &inlineQuaternionCapture() { static Capture value("VP2S_INLINE_QUAT_MATRIX_RECORD",84u); return value; }
 Capture &rigidInverseCapture() { static Capture value("VP2S_RIGID_INVERSE_RECORD",88u); return value; }
+Capture &projectionCapture() { static Capture value("VP2S_PROJECTION_PRODUCT_RECORD",200u); return value; }
 void quaternionMatrix(uint8_t *ram,R5900Context *ctx,PS2Runtime *runtime) {
     const uint32_t destination=getRegU32(ctx,4),stack=getRegU32(ctx,29);
     const __m128 input=_mm_loadu_ps(reinterpret_cast<const float*>(recordPointer(ram,getRegU32(ctx,5),16)));
@@ -182,6 +183,43 @@ bool vp2sNormalizeEnabled() {
     static const bool enabled=[] {const char *v=std::getenv("VP2S_NATIVE_NORMALIZE");return !(v && v[0]=='0');}();
     return enabled;
 }
+bool vp2sProjectionProductEnabled() {
+    static const bool enabled=[] {const char *v=std::getenv("VP2S_NATIVE_PROJECTION_PRODUCT");return !(v && v[0]=='0');}();
+    return enabled;
+}
+bool vp2sProjectionProductReferenceEnabled() {
+    static const bool check=[] {const char *v=std::getenv("VP2S_PROJECTION_PRODUCT_CHECK");return v && v[0]=='1';}();
+    return !vp2sProjectionProductEnabled() || check;
+}
+void vp2sProjectionProduct(uint8_t *ram,R5900Context *ctx,uint32_t localAddress,uint32_t viewAddress,uint32_t destination,uint32_t site) {
+    Matrix local,view;
+    std::memcpy(local.data(),recordPointer(ram,localAddress),64);
+    std::memcpy(view.data(),recordPointer(ram,viewAddress),64);
+    const auto result=vp2s::math::projectionProduct(local,view);
+    const uint32_t rounding=_mm_getcsr()&0xe040u;
+    if(vp2sProjectionProductReferenceEnabled() && std::memcmp(result.data(),&ctx->vu0_vf[1],64)) {
+        if(const char *path=std::getenv("VP2S_PROJECTION_PRODUCT_FAILURE_RECORD"))
+            if(FILE *file=std::fopen(path,"wb")) {
+                const uint32_t tag=0x31523450u;
+                std::fwrite(&tag,4,1,file);std::fwrite(&rounding,4,1,file);
+                std::fwrite(local.data(),64,1,file);std::fwrite(view.data(),64,1,file);
+                std::fwrite(&ctx->vu0_vf[1],64,1,file);std::fclose(file);
+            }
+        throw std::runtime_error("native projection product differs from original game calculation");
+    }
+    std::memcpy(recordPointer(ram,destination),result.data(),64);
+    auto &recorder=projectionCapture();
+    if(recorder.begin(0x31523450u)) {
+        recorder.append(&rounding,4);recorder.append(local.data(),64);recorder.append(view.data(),64);
+        recorder.append(result.data(),64);recorder.end();
+    }
+    const unsigned index=site==0x2179a8u?0:site==0x217ad0u?1:2;
+    if(index==2) throw std::runtime_error("unexpected native projection product site");
+    static uint64_t calls[2]{};
+    if(++calls[index]==1 || calls[index]%4096==0)
+        std::fprintf(stderr,"[math:native] projection product %x: %llu calls%s\n",site,calls[index],
+                     vp2sProjectionProductReferenceEnabled()?" (original comparison exact)":" (no VU state)");
+}
 bool vp2sRigidInverseEnabled() {
     static const bool enabled=[] {const char *v=std::getenv("VP2S_NATIVE_RIGID_INVERSE");return !(v && v[0]=='0');}();
     return enabled;
@@ -246,6 +284,7 @@ void vp2sInstallMath(PS2Runtime &runtime) {
     g_workingMemory=runtime.memory().getScratchpad();
     (void)inlineQuaternionCapture();
     (void)rigidInverseCapture();
+    (void)projectionCapture();
     (void)quaternionCapture();
     const auto *module=ps2_overlays::findModule("mod001");
     if(!module) throw std::runtime_error("native math module missing");

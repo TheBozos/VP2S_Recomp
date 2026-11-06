@@ -1,7 +1,7 @@
 """Bounded headless integration through native timer/CD callback setup.
 
 No window/input options or card directory are passed. The runner uses fresh
-in-memory cards. The known original CD status RPC still fails the no-frame guard;
+in-memory cards. The first unsupported native service module remains a hard stop;
 this test qualifies that boundary only, not a playable route or visual parity.
 """
 import subprocess
@@ -28,11 +28,12 @@ if '[vp2s:bozo] retired SDK event firmware installer' not in output:
 for required in ['[vp2s:call] pc=142150 ra=0',
                  '[vp2s:call] pc=128fb8 ra=11f1e8',
                  '[vp2s:call] pc=128de0 ra=11f208',
-                 '[vp2s:call] pc=13af48 ra=129aec',
-                 'no game frame ended for 120 fields']:
+                 '[vp2s:call] pc=12a330 ra=11d718',
+                 'native pad/card service owns sio2man.irx id=1',
+                 'unported native service module: sio2d.irx']:
     if required not in output:raise SystemExit(f'startup did not reach expected CD worker boundary: {required}')
 if 'syscall 116' in output or 'a call to' in output:
     raise SystemExit('native binding was bypassed or unanswered')
 if 'pc=137220 a0=ffffffff result=-408' in output:
     raise SystemExit('the retired CD private worker unexpectedly ran')
-print('Native bootstrap/timer/CD callback setup reached; original CD status RPC boundary reproduced.')
+print('Native bootstrap/timer/CD/module-buffer services reached; unsupported sio2d provider identified.')

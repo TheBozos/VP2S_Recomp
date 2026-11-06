@@ -1,0 +1,31 @@
+#pragma once
+#include <cstdint>
+#include <span>
+#include <string>
+#include <map>
+#include <vector>
+#include <filesystem>
+namespace vp2s {
+struct ModuleResult { int32_t id=0, startResult=0; };
+// Sparse host-owned allocations used by SDK file/service jobs. No IOP address
+// space, instruction memory, device bank or executable module is modeled.
+class ModuleBuffers {
+    std::map<uint32_t,std::vector<uint8_t>> buffers;
+    uint32_t next=0x40000000,transferId=0;
+public:
+    uint32_t allocate(uint32_t bytes);
+    bool release(uint32_t handle);
+    std::span<const uint8_t> view(uint32_t handle) const;
+    void validate(uint32_t destination,size_t bytes) const;
+    void copy(uint32_t destination,std::span<const uint8_t> data);
+    uint32_t completeTransfer();
+    void reset();
+};
+class ModuleOwner {
+public:
+    virtual ~ModuleOwner()=default;
+    virtual ModuleResult loadNativeModule(const std::string &,std::span<const uint8_t>)=0;
+    virtual ModuleResult loadNativeModuleBuffer(uint32_t,std::span<const uint8_t>)=0;
+    virtual ModuleBuffers &moduleBuffers()=0;
+};
+}

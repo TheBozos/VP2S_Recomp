@@ -350,3 +350,36 @@ precheck, attempting to bind `0x80000593` without a native CD status service.
 The bounded bootstrap fixture identifies that exact no-frame boundary and
 ensures the former semaphore -1 loop does not return. Zero rendered frames;
 the previous playable route remains unfinished and work continues.
+
+## Native read state and module buffers, 2026-11-06
+
+Engine PR 13 is merged at `cca5653` with all Windows/Linux checks green, feature
+branches deleted. Sixteen headless engine suites pass, including TMB's merged
+80-byte reference-record reader regression. Native CD status now follows native
+initialization/read/stream/error state and documented SDK enums. GetReadPos
+reports bytes of an active native copy, zero outside its read-command lifetime;
+it never substitutes a sector number or invented partial drive counter.
+
+The next original RPC bind was separated by its saved caller: `0x13fbe0`, the
+buffer-load frontend. That ABI has four arguments and leaves t0 stale; the
+five-argument path loader uses t0 as a mode. Both source spans and the buffer
+free/transfer wrappers are fingerprinted and interior entries guarded. Native
+frontends validate path/argument/result spans and pass the real arguments and
+start result to a per-run service owner. Async path-load modes remain unsupported.
+
+Module allocations are sparse host-owned vectors behind opaque handles outside
+EE RAM. Copies validate every source, destination and descriptor before any
+buffer changes. Completed job handles and native completion notification replace
+the original SIF transport; no `io.stat`, IOP RAM/device bank or CPU interpreter
+is used. The previous generic SifSetDma had no payload destination without a
+provider, and wrote a compatibility status bank; this port's native entry bypasses
+that code. Reset/free/copy ownership and invalid-batch atomicity are tested.
+
+The first copied module matches the complete extracted `sio2man.irx` bytes (only
+its allocation padding lies outside the identity). Its transport dependency is
+owned by native pad/card services; no original module executes. All other module
+identities currently reject explicitly, including the next `sio2d.irx`. This does
+not claim the later custom Dbc_Manager controller protocol or Tri-Ace sound is
+implemented. Native module-argument policy is empty-only until each provider's
+configuration contract is audited. Twelve port suites pass, with 1,666 remaining
+rejecting entry guards. Startup still has zero frames; work toward Logun continues.

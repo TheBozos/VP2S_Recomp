@@ -61,6 +61,10 @@ void installNativeKernelBindings(bozo::port::Registry &registry) {
     for(uint32_t pc=0x141780u;pc<0x141898u;pc+=4) registry.registerFunction(pc,&rejectFirmwareEntry);
     for(uint32_t pc=0x141910u;pc<0x141958u;pc+=4) registry.registerFunction(pc,&rejectFirmwareEntry);
     for(uint32_t pc=0x141980u;pc<0x1419ccu;pc+=4) registry.registerFunction(pc,&rejectFirmwareEntry);
+    for(uint32_t pc=0x1401b8u;pc<0x1403dcu;pc+=4) registry.registerFunction(pc,&rejectFirmwareEntry);
+    for(uint32_t pc=0x13fba8u;pc<0x13fdb0u;pc+=4) registry.registerFunction(pc,&rejectFirmwareEntry);
+    for(uint32_t pc=0x13f608u;pc<0x13f69cu;pc+=4) registry.registerFunction(pc,&rejectFirmwareEntry);
+    for(uint32_t pc=0x137580u;pc<0x1375c0u;pc+=4) registry.registerFunction(pc,&rejectFirmwareEntry);
     registry.registerFunction(0x141448u,&initNativeSyscallServices);
     registry.registerFunction(0x141a38u,&retireAlarmFirmwareInstaller);
     registry.registerFunction(0x141bb0u,&initNativeTimer);
@@ -68,6 +72,14 @@ void installNativeKernelBindings(bozo::port::Registry &registry) {
     registry.registerFunction(0x1423f8u,&queryNativeTimer);
     registry.registerFunction(0x141f00u,&rearmNativeTimer);
     registry.registerFunction(0x142150u,&dispatchNativeTimer);
+    registry.registerFunction(0x1401b8u,&loadNativeModule);
+    registry.registerFunction(0x13fba8u,&loadNativeModule);
+    registry.registerFunction(0x1375a0u,&nativeModuleTransfer);
+    registry.registerFunction(0x1375b0u,&nativeModuleTransfer);
+    registry.registerFunction(0x137580u,&nativeModuleTransferStatus);
+    registry.registerFunction(0x137590u,&nativeModuleTransferStatus);
+    registry.registerFunction(0x13f608u,&freeNativeModuleBuffer);
+    registry.registerFunction(0x13f680u,&freeNativeModuleBuffer);
     registry.registerFunction(0x137280u,&nativeOsdSettings);
     registry.registerFunction(0x137290u,&nativeOsdSettings);
     registry.registerFunction(0x140b70u,&retireEventFirmwareInstaller);

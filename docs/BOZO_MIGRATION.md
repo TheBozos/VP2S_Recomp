@@ -41,6 +41,23 @@ registrations 0..3 (`sifcmd:10`). The next implementation must provide a real bo
 registry and dispatch, not acknowledge registration while dropping its messages. System commands,
 transport protocols and device interrupts are not required for that native user-message service.
 
+The next engine increment implements that bounded user-command registry and real queued native
+dispatch. Owned message bytes, linked callbacks/GP, table records, removal, exact-once dispatch,
+exclusion, invalid IDs/sizes, reset and independent hosts pass in 27 engine suites. Csd's five-entry
+table and four registrations now complete in the actual boot. The next failure is an EE worker's
+indirect target `0x107e10` (`ra=0x11977c`, `a0=0x5605e4`): no generated code or override is present.
+The separating check is whether this is omitted static coverage or a corrupted target. EE message
+senders/extra-buffer transfers are still unqualified and must be connected before actual user commands
+can flow from compiled EE code. No frames or playable route yet.
+
+The indirect target is confirmed as a retail C++ adjustor thunk (vtable `0x151d70`, slot +16), not a
+corrupt pointer. Both omitted thunks `0x107e10/20` subtract four from `this` and tail-call existing
+compiled bodies. Metadata now admits exactly those two eight-byte entries under their complete
+32-byte source fingerprint; every guarded word has mutation coverage. Load bytes remain unchanged.
+The actual boot passes these entries and stops on a real 4,096-byte upload to native sound-data
+address `0x15b140`. The opaque module-file allocator owns only `0x40000000+` handles, so that transfer
+must use the sound host's checked allocation gateway rather than aliasing an opaque handle into RAM.
+
 ### Native libsd provider (2026-11-06)
 
 The USA `Sound_Device_Library` image is admitted through a full SHA-256 guard and uses Bozo's native

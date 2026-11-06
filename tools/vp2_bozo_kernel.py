@@ -115,7 +115,17 @@ def game_entries(data):
     at=segment[1]+lo-segment[2]
     if hashlib.sha256(data[at:at+hi-lo]).hexdigest()!='ed0f34ec520d53d9a7802609a5ec468c11e60c96de07a4de4811480b3fd04085':
         raise ValueError('USA worker entry signature mismatch')
-    return [dict(Name='worker_entry_0011d4e0',Start=hex(lo),End=hex(hi))]
+    entries=[dict(Name='worker_entry_0011d4e0',Start=hex(lo),End=hex(hi))]
+    # The retail thread-object vtable at 0x151d70 points at two omitted C++
+    # adjustor thunks. Each subtracts four from this and tail-calls a known body.
+    lo,hi=0x107e10,0x107e30
+    segment=next(s for s in segments if s[0]==1 and s[2]<=lo<hi<=s[2]+s[4])
+    at=segment[1]+lo-segment[2]
+    if hashlib.sha256(data[at:at+hi-lo]).hexdigest()!='d2658e525d1907be0e883232be1943cca2123ecee4b2a337007990c1ee0a5a17':
+        raise ValueError('USA thread adjustor thunk signature mismatch')
+    entries += [dict(Name=f'thread_adjustor_{pc:08x}',Start=hex(pc),End=hex(pc+8))
+                for pc in (0x107e10,0x107e20)]
+    return entries
 
 
 def native_game_sites(data):

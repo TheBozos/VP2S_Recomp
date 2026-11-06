@@ -58,12 +58,19 @@ class KernelGuardTests(unittest.TestCase):
 
     def test_worker_entry(self):
         self.assertEqual(game_entries(self.data),[
-            dict(Name='worker_entry_0011d4e0',Start='0x11d4e0',End='0x11d7c0')])
+            dict(Name='worker_entry_0011d4e0',Start='0x11d4e0',End='0x11d7c0'),
+            dict(Name='thread_adjustor_00107e10',Start='0x107e10',End='0x107e18'),
+            dict(Name='thread_adjustor_00107e20',Start='0x107e20',End='0x107e28')])
         segment=next(s for s in self.segments if s[0]==1 and s[2]<=0x11d4e0<0x11d7c0<=s[2]+s[4])
         for pc in range(0x11d4e0,0x11d7c0,4):
             data=bytearray(self.data)
             data[segment[1]+pc-segment[2]]^=1
             with self.subTest(pc=hex(pc)),self.assertRaises(ValueError): game_entries(data)
+        lo,hi=0x107e10,0x107e30
+        segment=next(s for s in self.segments if s[0]==1 and s[2]<=lo<hi<=s[2]+s[4])
+        for pc in range(lo,hi,4):
+            data=bytearray(self.data);data[segment[1]+pc-segment[2]]^=1
+            with self.subTest(pc=hex(pc)),self.assertRaises(ValueError):game_entries(data)
 
     def test_boot_seed_site(self):
         self.assertEqual(native_game_sites(self.data),'native 0x1003c4\nnative 0x11fb50\n')

@@ -7,6 +7,7 @@
 #include <fstream>
 #include <iterator>
 #include <cstdio>
+#include <format>
 namespace vp2s {
 ModuleResult NativeServiceModules::loadBuffer(std::span<const uint8_t> buffer,std::span<const uint8_t> args) {
     for(const char *name:{"sio2man.irx","sio2d.irx","ds2o_d.irx","mcman.irx","mcserv.irx",
@@ -54,7 +55,7 @@ std::span<const uint8_t> ModuleBuffers::view(uint32_t h) const {
 }
 void ModuleBuffers::validate(uint32_t dest,size_t size) const {
     auto it=buffers.upper_bound(dest);
-    if(it==buffers.begin())throw std::runtime_error("native transfer has no destination buffer");
+    if(it==buffers.begin())throw std::runtime_error(std::format("native transfer has no destination buffer: 0x{:x}, {} bytes",dest,size));
     --it;const uint64_t offset=uint64_t(dest)-it->first;
     if(offset>it->second.size() || size>it->second.size()-offset)
         throw std::runtime_error("native transfer exceeds destination buffer");

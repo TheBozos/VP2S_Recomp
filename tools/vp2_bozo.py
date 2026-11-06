@@ -12,6 +12,7 @@ import subprocess
 import sys
 from pathlib import Path
 from vp2_bozo_prepare import elf_parts
+from vp2_bozo_kernel import bindings as kernel_bindings
 
 ROOT = Path(__file__).resolve().parent.parent
 
@@ -48,6 +49,9 @@ def generate(args, build, data, engine_build, env):
         # supports macro-mode compatibility code; this port does not accept it
         # as a migration fallback. Later native algorithms replace these sites.
         raw = image.read_bytes()
+        if name == 'main':
+            with ext.open('a') as stream:
+                stream.write(kernel_bindings(raw))
         _, _, sections = elf_parts(raw)
         vu_sites = []
         for section in sections:
@@ -112,6 +116,7 @@ def main():
         raise SystemExit('native CMake is required')
     configure = [cmake, '-S', ROOT/'bozo', '-B', engine_build, '-G', 'Ninja',
                  '-DCMAKE_BUILD_TYPE=Release', f'-DVP2S_BOZO_DATA={data.as_posix()}',
+                 f'-DVP2S_BOZO_TEST_ISO={args.iso.resolve().as_posix() if args.iso.is_file() else ""}',
                  f'-DBOZO_FFMPEG_ROOT={args.ffmpeg}']
     if os.name == 'nt':
         configure += [f'-DCMAKE_CXX_COMPILER={(native_bin/"g++.exe").as_posix()}']
@@ -124,7 +129,7 @@ def main():
     if args.stage == 'generate':
         return
     run(configure+['-DVP2S_BOZO_CODE=ON'], data/'configure-port.log', env)
-    run([cmake, '--build', engine_build, '--target', 'vp2s-bozo-headless', 'vp2s-bozo-metadata-check', '-j', args.jobs],
+    run([cmake, '--build', engine_build, '--target', 'vp2s-bozo-headless', 'vp2s-bozo-metadata-check', 'vp2s-bozo-kernel-check', '-j', args.jobs],
         data/'build-port.log', env)
     run([Path(cmake).with_name('ctest.exe' if os.name == 'nt' else 'ctest'),
          '--test-dir', engine_build, '--output-on-failure'], data/'tests.log', env)

@@ -3,6 +3,7 @@
 #include "bozo/host/free_host.h"
 #include "bozo/port.h"
 #include "vp2_bozo_images.h"
+#include "native_kernel.h"
 #include <cstdio>
 #include <format>
 #include <fstream>
@@ -35,12 +36,7 @@ public:
     void idle(bozo::ee::Dispatcher &d,uint64_t from,uint64_t to) override { native.idle(d,from,to); }
     void resuming(bozo::ee::Dispatcher &d,bozo::ee::Thread &t,bozo::ee::Frame &f,uint32_t depth) override { native.resuming(d,t,f,depth); }
     void kernelCallEnd(bozo::ee::Dispatcher &d,R5900Context *c,uint32_t target,bool stop) override { native.kernelCallEnd(d,c,target,stop); }
-    void kernelCallBegin(bozo::ee::Dispatcher &d,R5900Context *c,uint32_t target,uint32_t kind) override {
-        if(target==116)
-            std::fprintf(stderr,"[vp2s:bozo] SetSyscall kind=%u index=%x target=%x pc=%x ra=%x\n",
-                         kind,c->r[4].uw[0],c->r[5].uw[0],c->pc,c->r[31].uw[0]);
-        native.kernelCallBegin(d,c,target,kind);
-    }
+    void kernelCallBegin(bozo::ee::Dispatcher &d,R5900Context *c,uint32_t target,uint32_t kind) override { native.kernelCallBegin(d,c,target,kind); }
     void waitCompleted(bozo::ee::Dispatcher &d,bozo::ee::Thread &t) override { native.waitCompleted(d,t); }
     void handlerCompleted(bozo::ee::Dispatcher &d,bozo::ee::Thread &t,const bozo::ee::Frame &f) override { native.handlerCompleted(d,t,f); }
 };
@@ -66,8 +62,11 @@ int main(int argc,char **argv) {
         bozo::ee::Dispatcher dispatcher(host);
         dispatcher.setFunctions(vp2_main_function_table,vp2_main_function_count,vp2_main_resume_table,vp2_main_resume_count);
         bozo::port::Registry registry;
+        vp2s::installNativeKernelBindings(registry);
         registry.nativeGraphics(&noNativeInstruction); // guard retired graphics; no compatibility fallback
         std::string error;
+        if(!bozo::port::undeclared(registry,vp2_main_external_table,vp2_main_external_count).empty())
+            throw std::runtime_error("native kernel bindings missing from generated externals");
         if(!host.native.setUp(dispatcher,vp2_main_external_table,vp2_main_external_count,&registry,error))
             throw std::runtime_error(error);
         vp2sBozoRegisterImages(dispatcher.runtime(),VP2S_BOZO_IMAGES);

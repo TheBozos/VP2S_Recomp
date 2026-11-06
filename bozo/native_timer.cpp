@@ -1,5 +1,6 @@
 // SDK timer records/lifecycle from the USA initializer. No device state or polling.
 #include "native_kernel.h"
+#include "native_timer.h"
 #include "bozo/ee/dispatcher.h"
 #include <cstdio>
 #include <cstring>
@@ -31,9 +32,38 @@ void initNativeTimer(uint8_t *,R5900Context *ctx,Runtime *rt) {
     if(id<0) { result(0x80009021); return; }
     put(state+8,static_cast<uint32_t>(id));
     kernel.causeEnable(false,11,true);
+    if(auto *owner=dynamic_cast<TimerOwner *>(&d->host())) {
+        owner->timerClock()=TimerClock{};
+        owner->timerClock().initialized=true;
+    }
     // The callback address is registered to a rejecting native boundary until
     // deadline processing is ported; no original timer IRQ body can execute.
     std::fprintf(stderr,"[vp2s:bozo] native timer records initialized; runtime timer callback remains unsupported\n");
     result(0);
+}
+namespace {
+TimerClock &clockFor(Runtime *rt,R5900Context *ctx,bozo::ee::Dispatcher *&d) {
+    d=rt ? dynamic_cast<bozo::ee::Dispatcher *>(rt->services) : nullptr;
+    auto *owner=d ? dynamic_cast<TimerOwner *>(&d->host()) : nullptr;
+    if(!ctx || !owner || d->kernel().running()<=0 || !owner->timerClock().initialized)
+        throw std::runtime_error("native SDK time requires a booted per-run clock owner");
+    return owner->timerClock();
+}
+}
+void startNativeTimer(uint8_t *,R5900Context *ctx,Runtime *rt) {
+    bozo::ee::Dispatcher *d=nullptr;
+    auto &clock=clockFor(rt,ctx,d);
+    if(clock.running) { ctx->r[2].sd[0]=1; ctx->pc=ctx->r[31].uw[0]; return; }
+    uint32_t active;
+    std::memcpy(&active,rt->memory.ram()+0x14a250,4);
+    if(active) throw std::runtime_error("native SDK timer deadlines are not ported yet");
+    clock.epoch=d->now(ctx); clock.running=true;
+    ctx->r[2].sd[0]=0; ctx->pc=ctx->r[31].uw[0];
+    std::fprintf(stderr,"[vp2s:bozo] native SDK timer started\n");
+}
+void queryNativeTimer(uint8_t *,R5900Context *ctx,Runtime *rt) {
+    bozo::ee::Dispatcher *d=nullptr;
+    const auto &clock=clockFor(rt,ctx,d);
+    ctx->r[2].ud[0]=clock.value(d->now(ctx)); ctx->pc=ctx->r[31].uw[0];
 }
 }

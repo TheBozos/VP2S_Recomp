@@ -51,8 +51,13 @@ void installNativeKernelBindings(bozo::port::Registry &registry) {
         registry.registerFunction(pc,&rejectFirmwareEntry);
     for(uint32_t pc=0x142150u;pc<0x1423f4u;pc+=4)
         registry.registerFunction(pc,&rejectFirmwareEntry);
+    for(uint32_t pc=0x141df0u;pc<0x141e80u;pc+=4) registry.registerFunction(pc,&rejectFirmwareEntry);
+    for(uint32_t pc=0x1423f8u;pc<0x142444u;pc+=4) registry.registerFunction(pc,&rejectFirmwareEntry);
+    for(uint32_t pc=0x141f00u;pc<0x142090u;pc+=4) registry.registerFunction(pc,&rejectFirmwareEntry);
     registry.registerFunction(0x141448u,&initNativeSyscallServices);
     registry.registerFunction(0x141a38u,&retireAlarmFirmwareInstaller);
     registry.registerFunction(0x141bb0u,&initNativeTimer);
+    registry.registerFunction(0x141df0u,&startNativeTimer);
+    registry.registerFunction(0x1423f8u,&queryNativeTimer);
 }
 }

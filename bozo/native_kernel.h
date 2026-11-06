@@ -8,4 +8,6 @@ void initNativeSyscallServices(uint8_t *,R5900Context *,Runtime *);
 // This retires installation only. Runtime alarm/deadline APIs remain unsupported.
 void retireAlarmFirmwareInstaller(uint8_t *,R5900Context *,Runtime *);
 void initNativeTimer(uint8_t *,R5900Context *,Runtime *);
+void startNativeTimer(uint8_t *,R5900Context *,Runtime *);
+void queryNativeTimer(uint8_t *,R5900Context *,Runtime *);
 }

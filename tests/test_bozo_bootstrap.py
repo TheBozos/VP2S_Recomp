@@ -1,4 +1,4 @@
-"""Bounded headless integration: native records reach the start-timer boundary.
+"""Bounded headless integration: native SDK timer reaches OSD settings.
 
 No window/input options or card directory are passed. The runner uses fresh
 in-memory cards. The separate unported start-timer operation must remain a hard
@@ -19,8 +19,10 @@ if '[vp2s:bozo] retired SDK alarm firmware installer; runtime alarm APIs remain 
     raise SystemExit('startup did not retire the alarm firmware installer')
 if '[vp2s:bozo] native timer records initialized; runtime timer callback remains unsupported' not in output:
     raise SystemExit('startup did not reach native timer record initialization')
-if 'unported device read 10001010 at pc=141e04' not in output:
-    raise SystemExit('startup did not stop at the separate audited start-timer boundary')
+if '[vp2s:bozo] native SDK timer started' not in output:
+    raise SystemExit('startup did not start the native SDK clock')
+if 'GetOsdConfigParam' not in output or 'not implemented yet' not in output:
+    raise SystemExit('startup did not reach the audited OSD settings boundary')
 if 'syscall 116' in output or 'a call to' in output:
     raise SystemExit('native binding was bypassed or unanswered')
-print('Firmware installers retired and native timer records initialized; unsupported start-timer operation rejected.')
+print('Native timer initialized/started; unsupported OSD settings boundary reached.')

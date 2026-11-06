@@ -61,9 +61,9 @@ native kernel. The next increment retires `InitAlarm`'s firmware installer at
 `0x141a38`, including its original patch-payload entry points. The next increment
 implements timer record initialization at `0x141bb0` for the audited startup
 argument 2. Startup now reaches the separate start-timer routine `0x141df0`
-and rejects its mode-register read at `0x10001010` (logged resume PC `0x141e04`).
-It still produces no frames. Timer start, elapsed-time queries, IRQ processing
-and runtime alarm/deadline APIs remain unported.
+then starts the native SDK clock and binds normalized time queries. Startup now
+reaches unsupported `GetOsdConfigParam` at `0x137290`. It still produces no frames.
+IRQ/deadline processing and other timer lifecycle operations remain unported.
 See [the bootstrap audit](#sdk-syscall-bootstrap-audit-2026-11-06).
 
 Main contains eight explicit untranslated TLB operations. Mod001 contains 68
@@ -83,10 +83,12 @@ Mapped out-of-code rows are counted in the metadata report, not promoted to code
 
 ## Next increments
 
-1. Audit start-timer `0x141df0`, elapsed-time queries and the guarded IRQ callback
-   `0x142150`. Use a logical native clock/epoch and deadline processing, preserving
-   the initialized timer records. Do not supply timer-register state. Upgrade the
-   newer published engine pin in a separately verified integration increment.
+1. Continue through native OSD/settings and the remaining SDK bootstrap, then
+   bind the existing game-specific native producers and services. Complete timer
+   lifecycle/deadline processing when its actual consumers are reached; the IRQ
+   callback remains guarded. Upgrade the newer published engine pin in a
+   separately verified integration increment. The user expanded the objective:
+   continue until Bozo reaches the prior Logun route, not just one blocker.
 2. Finish overlay SDK/entry coverage and native bindings. Port the existing native
    VU0 algorithms through the Bozo ABI; remaining algorithms stay explicit faults.
 3. Move the game-record model, 2D, fog/lighting and postprocess producers to the
@@ -218,3 +220,25 @@ All six port suites pass, including the updated bounded startup check: both
 firmware installers return, native timer records are initialized, then
 `0x141df0` explicitly fails at its first mode read. There is still no playable
 Bozo frame or newly claimed PCSX2 visual parity. TMB/DC were kept informed on F2F.
+
+## Native start/time domain, 2026-11-06
+
+`0x141df0` starts time, reads normalized system time and rearms pending work.
+Its initial empty-queue path changes no game data. `0x1423f8` normalizes time
+into bus-clock units; startup clock choice 2 has 256-unit API resolution,
+one quantum per 512 EE cycles. The source's normalization shifts by eight;
+the audited timer divisor is 512 EE cycles (read-only reference cross-check).
+
+`TimerClock` is owned by the concrete host for each run. It stores a logical
+epoch/base and lifecycle state; no PS2 mode, counter, overflow register, compare
+register or poll side effects exist. Starting returns 0 once, 1 on repeat without
+resetting the epoch. Queries return elapsed SDK time at the source API resolution.
+Nonempty pending queues remain an explicit unsupported deadline boundary. The
+original rearm body and interior entry paths reject; total rejecting entries
+are now 997. No process-global map or state leak between Runtime objects is used.
+
+Seven suites pass. The added clock suite checks units/resolution, the old 16-bit
+wrap boundary, a duration beyond 32 bits, repeat start, RAM/CPU ABI preservation,
+interrupt-status preservation, clock-regression rejection and two-host isolation.
+Startup now passes start-timer and stops at the next native settings service,
+GetOsdConfigParam, before any frame. Work continues toward the user's route goal.

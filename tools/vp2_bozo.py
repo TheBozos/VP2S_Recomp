@@ -129,7 +129,7 @@ def main():
     if args.stage == 'generate':
         return
     run(configure+['-DVP2S_BOZO_CODE=ON'], data/'configure-port.log', env)
-    run([cmake, '--build', engine_build, '--target', 'vp2s-bozo-headless', 'vp2s-bozo-metadata-check', 'vp2s-bozo-kernel-check', 'vp2s-bozo-timer-check', '-j', args.jobs],
+    run([cmake, '--build', engine_build, '--target', 'vp2s-bozo-headless', 'vp2s-bozo-metadata-check', 'vp2s-bozo-kernel-check', 'vp2s-bozo-timer-check', 'vp2s-bozo-timer-clock-check', '-j', args.jobs],
         data/'build-port.log', env)
     run([Path(cmake).with_name('ctest.exe' if os.name == 'nt' else 'ctest'),
          '--test-dir', engine_build, '--output-on-failure'], data/'tests.log', env)

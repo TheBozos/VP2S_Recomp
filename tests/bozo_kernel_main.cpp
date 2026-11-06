@@ -85,12 +85,12 @@ int main() {
         require(registry.find(0x141a38)==&vp2s::retireAlarmFirmwareInstaller);
         unsigned guarded=0;
         for(const auto &entry:registry.functions()) {
-            if(entry.address==0x141448 || entry.address==0x141a38 || entry.address==0x141bb0) continue;
+            if(entry.address==0x141448 || entry.address==0x141a38 || entry.address==0x141bb0 || entry.address==0x141df0 || entry.address==0x1423f8) continue;
             ctx.pc=entry.address;
             rejected([&]{entry.function(nullptr,&ctx,&rt);});
             ++guarded;
         }
-        require(guarded==844 && !registry.find(0x141548)); // SetSyscall is not bypassed
+        require(guarded==997 && !registry.find(0x141548)); // SetSyscall is not bypassed
         for(uint32_t number:{116u,0xfcu,0xfeu,0xfdu,0xffu,0x12cu,8u}) {
             ctx.pc=0x14154c; ctx.r[3].uw[0]=number;
             ctx.r[4].uw[0]=0x83; ctx.r[5].uw[0]=0x1413c0;
@@ -104,7 +104,7 @@ int main() {
         }
         require(host.callbacks==11 && !std::memcmp(before.data(),rt.memory.flat(),bozo::kFlatBytes));
         require(k.handlerQueued() && k.sequence()==sequence && k.nextEvent()==event);
-        std::puts("native installer readiness, 32 context cases, RAM/kernel preservation, 844 guards and unsupported alarm/syscall rejection pass");
+        std::puts("native installer readiness, 32 context cases, RAM/kernel preservation, 997 guards and unsupported alarm/syscall rejection pass");
         return 0;
     } catch(const std::exception &e) { std::fprintf(stderr,"%s\n",e.what()); return 1; }
 }

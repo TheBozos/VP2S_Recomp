@@ -1,7 +1,8 @@
-"""Bounded headless integration: native discovery retirement reaches InitAlarm.
+"""Bounded headless integration: firmware retirement reaches timer initialization.
 
 No window/input options or card directory are passed. The runner uses fresh
-in-memory cards. The next unported timer boundary must remain a hard failure.
+in-memory cards. The separate unported timer initializer must remain a hard
+failure. Retiring InitAlarm's installer does not qualify runtime alarm APIs.
 """
 import subprocess
 import sys
@@ -14,8 +15,10 @@ if result.returncode!=1:
     raise SystemExit(f'expected explicit unported boundary, got {result.returncode}')
 if '[vp2s:bozo] native syscall services ready; retired SDK firmware discovery' not in output:
     raise SystemExit('startup did not reach the native installer')
-if 'unported device read 10001810 at pc=141a38' not in output:
-    raise SystemExit('startup did not stop at the audited next InitAlarm boundary')
+if '[vp2s:bozo] retired SDK alarm firmware installer; runtime alarm APIs remain unsupported' not in output:
+    raise SystemExit('startup did not retire the alarm firmware installer')
+if 'unported device read 10001010 at pc=141c80' not in output:
+    raise SystemExit('startup did not stop at the separate audited timer initialization boundary')
 if 'syscall 116' in output or 'a call to' in output:
     raise SystemExit('native binding was bypassed or unanswered')
-print('Native installer reached; next unsupported InitAlarm boundary rejected.')
+print('Both firmware installers retired; separate unsupported timer initialization rejected.')

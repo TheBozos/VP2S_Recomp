@@ -5,7 +5,7 @@ import unittest
 from pathlib import Path
 sys.path.insert(0,str(Path(__file__).resolve().parents[1]/'tools'))
 from vp2_bozo_prepare import elf_parts
-from vp2_bozo_kernel import bindings, GUARDS, INSTALLER, QUERY
+from vp2_bozo_kernel import bindings, GUARDS, RETIRED_RANGES
 
 IMAGE=Path(sys.argv.pop(1))
 
@@ -18,11 +18,18 @@ class KernelGuardTests(unittest.TestCase):
 
     def test_valid_binding_ranges(self):
         declarations=bindings(self.data).splitlines()
-        expected=set(range(*INSTALLER,4))|set(range(*QUERY,4))
+        expected={pc for lo,hi in RETIRED_RANGES for pc in range(lo,hi,4)}
         self.assertEqual({int(line.split()[1],0) for line in declarations if line.startswith('stub ')},expected)
         self.assertNotIn('stub 0x141548',declarations)
         self.assertIn('native 0x141448',declarations)
         self.assertIn('native 0x141410',declarations)
+        self.assertIn('native 0x141a38',declarations)
+        self.assertIn('native 0x149a90',declarations)
+        _,_,sections=elf_parts(self.data)
+        for line in declarations:
+            if line.startswith('native '):
+                pc=int(line.split()[1],0)
+                self.assertTrue(any(s[2]&6==6 and s[3]<=pc and pc+4<=s[3]+s[5] for s in sections))
         self.assertNotIn('native 0x14142c',declarations) # jal: engine prohibits inline control hooks
 
     def test_every_guarded_word_rejects_mutation(self):

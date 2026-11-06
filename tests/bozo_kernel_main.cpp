@@ -38,7 +38,15 @@ int main() {
         rejected([&]{vp2s::initNativeSyscallServices(nullptr,&ctx,&rt);});
         bind(d,7);
         rejected([&]{vp2s::initNativeSyscallServices(nullptr,&ctx,&rt);}); // no boot
+        ctx.pc=0x141a38;
+        rejected([&]{vp2s::retireAlarmFirmwareInstaller(nullptr,&ctx,&rt);});
         d.boot(0x100000,0x1fffff0);
+        {
+            Host h; bozo::ee::Dispatcher missing(h);
+            bind(missing,3); missing.boot(0x100000,0x1fffff0);
+            rejected([&]{vp2s::retireAlarmFirmwareInstaller(nullptr,&ctx,&missing.runtime());});
+        }
+        ctx.pc=0x141448;
         for(unsigned mask=0;mask<7;++mask) {
             Host h; bozo::ee::Dispatcher missing(h);
             bind(missing,mask); missing.boot(0x100000,0x1fffff0);
@@ -47,6 +55,11 @@ int main() {
         auto &k=d.kernel();
         const auto first=k.createSema(1,2,0,0);
         require(first>0);
+        bozo::ee::QueuedHandler pending;
+        pending.kind=bozo::ee::kInvokeLibraryCall; pending.pc=0x155000;
+        k.queue(pending);
+        const auto sequence=k.sequence();
+        const auto event=k.nextEvent();
         std::memset(rt.memory.flat(),0xa7,bozo::kFlatBytes);
         std::vector<uint8_t> before(rt.memory.flat(),rt.memory.flat()+bozo::kFlatBytes);
         for(unsigned n=0;n<16;++n) {
@@ -56,26 +69,42 @@ int main() {
             std::memcpy(&expected,&ctx,sizeof(ctx)); expected.pc=ctx.r[31].uw[0];
             vp2s::initNativeSyscallServices(nullptr,&ctx,&rt);
             require(!std::memcmp(&ctx,&expected,sizeof(ctx)));
+            ctx.pc=0x141a38;
+            std::memcpy(&expected,&ctx,sizeof(ctx)); expected.pc=ctx.r[31].uw[0];
+            vp2s::retireAlarmFirmwareInstaller(nullptr,&ctx,&rt);
+            require(!std::memcmp(&ctx,&expected,sizeof(ctx)));
         }
         require(!std::memcmp(before.data(),rt.memory.flat(),bozo::kFlatBytes));
         require(k.running()==1 && k.createSema(0,1,0,0)==first+1);
+        require(k.handlerQueued() && k.sequence()==sequence && k.nextEvent()==event);
         require(k.pollSema(first)>=0 && k.pollSema(first)<0);
         require(host.callbacks==0);
         bozo::port::Registry registry;
         vp2s::installNativeKernelBindings(registry);
         require(registry.find(0x141448)==&vp2s::initNativeSyscallServices);
+        require(registry.find(0x141a38)==&vp2s::retireAlarmFirmwareInstaller);
         unsigned guarded=0;
         for(const auto &entry:registry.functions()) {
-            if(entry.address==0x141448) continue;
+            if(entry.address==0x141448 || entry.address==0x141a38) continue;
             ctx.pc=entry.address;
             rejected([&]{entry.function(nullptr,&ctx,&rt);});
             ++guarded;
         }
-        require(guarded==75 && !registry.find(0x141548)); // SetSyscall is not bypassed
-        ctx.pc=0x14154c; ctx.r[3].uw[0]=116; ctx.r[4].uw[0]=0x83; ctx.r[5].uw[0]=0x1413c0;
-        rejected([&]{d.syscall(nullptr,&ctx,&rt,0);});
-        require(host.callbacks==1 && !std::memcmp(before.data(),rt.memory.flat(),bozo::kFlatBytes));
-        std::puts("native kernel readiness, context/RAM preservation, 75 rejecting entries and SetSyscall rejection pass");
+        require(guarded==591 && !registry.find(0x141548)); // SetSyscall is not bypassed
+        for(uint32_t number:{116u,0xfcu,0xfeu,0xfdu,0xffu,0x12cu,8u}) {
+            ctx.pc=0x14154c; ctx.r[3].uw[0]=number;
+            ctx.r[4].uw[0]=0x83; ctx.r[5].uw[0]=0x1413c0;
+            rejected([&]{d.syscall(nullptr,&ctx,&rt,0);});
+        }
+        // Names/enums are not evidence of working native alarm services.
+        for(auto call:{bozo::ee::KernelCall::SetAlarm,bozo::ee::KernelCall::iSetAlarm,
+                       bozo::ee::KernelCall::ReleaseAlarm,bozo::ee::KernelCall::iReleaseAlarm}) {
+            d.bindKernelCall(0x180000,call);
+            rejected([&]{bozo_call_indirect(rt.memory.flat(),&ctx,&rt,0x180000);});
+        }
+        require(host.callbacks==11 && !std::memcmp(before.data(),rt.memory.flat(),bozo::kFlatBytes));
+        require(k.handlerQueued() && k.sequence()==sequence && k.nextEvent()==event);
+        std::puts("native installer readiness, 32 context cases, RAM/kernel preservation, 591 guards and unsupported alarm/syscall rejection pass");
         return 0;
     } catch(const std::exception &e) { std::fprintf(stderr,"%s\n",e.what()); return 1; }
 }

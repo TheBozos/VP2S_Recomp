@@ -5,4 +5,6 @@ namespace vp2s {
 // discovery; do not accept arbitrary SetSyscall requests or expose kernel RAM.
 void installNativeKernelBindings(bozo::port::Registry &registry);
 void initNativeSyscallServices(uint8_t *,R5900Context *,Runtime *);
+// This retires installation only. Runtime alarm/deadline APIs remain unsupported.
+void retireAlarmFirmwareInstaller(uint8_t *,R5900Context *,Runtime *);
 }

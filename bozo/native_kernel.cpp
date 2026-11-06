@@ -24,11 +24,29 @@ void initNativeSyscallServices(uint8_t *,R5900Context *ctx,Runtime *rt) {
     std::fprintf(stderr,"[vp2s:bozo] native syscall services ready; retired SDK firmware discovery\n");
     ctx->pc=ctx->r[31].uw[0];
 }
+void retireAlarmFirmwareInstaller(uint8_t *,R5900Context *ctx,Runtime *rt) {
+    auto *dispatcher=rt ? dynamic_cast<bozo::ee::Dispatcher *>(rt->services) : nullptr;
+    if(!dispatcher || !ctx || ctx->pc!=0x141a38u ||
+       dispatcher->kernel().running()<=0 || !dispatcher->kernel().field() ||
+       !dispatcher->isKernelCall(0x137460u))
+        throw std::runtime_error("SDK alarm installer retirement requires a booted native kernel/clock and FlushCache binding");
+    // The original only installs a PS2 kernel patch and configures timer 3.
+    // No game-memory output is needed by this startup caller. Do not pretend
+    // that the engine's placeholder alarm enums implement a deadline service:
+    // runtime requests and the original patch payload still reject explicitly.
+    std::fprintf(stderr,"[vp2s:bozo] retired SDK alarm firmware installer; runtime alarm APIs remain unsupported\n");
+    ctx->pc=ctx->r[31].uw[0];
+}
 void installNativeKernelBindings(bozo::port::Registry &registry) {
     for(uint32_t pc=0x141410u;pc<0x141444u;pc+=4)
         registry.registerFunction(pc,&rejectFirmwareEntry);
     for(uint32_t pc=0x141448u;pc<0x141544u;pc+=4)
         registry.registerFunction(pc,&rejectFirmwareEntry);
+    for(uint32_t pc=0x141a38u;pc<0x141b0cu;pc+=4)
+        registry.registerFunction(pc,&rejectFirmwareEntry);
+    for(uint32_t pc=0x149a90u;pc<0x14a1d0u;pc+=4)
+        registry.registerFunction(pc,&rejectFirmwareEntry);
     registry.registerFunction(0x141448u,&initNativeSyscallServices);
+    registry.registerFunction(0x141a38u,&retireAlarmFirmwareInstaller);
 }
 }

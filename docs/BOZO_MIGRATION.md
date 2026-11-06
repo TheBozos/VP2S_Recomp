@@ -16,7 +16,7 @@ python tools/vp2_bozo.py --stage run
 ```
 
 The first command builds main + mod001 and runs the port tests. The second
-currently returns failure at the audited InitAlarm boundary below. Neither opens
+currently returns failure at the audited timer-initialization boundary below. Neither opens
 a window nor reads host input. No card directory is passed: cards remain fresh
 in memory and user saves are not opened. All generated game bytes and logs stay
 in ignored `build_usa/bozo` and `build_usa/bozo_port` directories.
@@ -55,8 +55,11 @@ are byte-identical against the published `149bf90` recompiler.
 The first bring-up stopped at syscall 116 (`RFU116_SetSyscall`, instruction
 `0x141550`, wrapper `0x14154c`, clock 7342664). The 2026-11-06 follow-up retires
 the SDK firmware-discovery installer at `0x141448` using the already-running
-native kernel. Startup now reaches `InitAlarm` and rejects its timer-register
-read at `0x10001810` (entry `0x141a38`). It still produces no frames.
+native kernel. The next increment retires `InitAlarm`'s firmware installer at
+`0x141a38`, including its original patch-payload entry points. Startup now reaches
+the separate SDK timer initializer `0x141bb0` with argument 2 and rejects its
+mode-register read at `0x10001010` (logged resume PC `0x141c80`). It still produces
+no frames. Runtime alarm/deadline APIs are not implemented by this retirement.
 See [the bootstrap audit](#sdk-syscall-bootstrap-audit-2026-11-06).
 
 Main contains eight explicit untranslated TLB operations. Mod001 contains 68
@@ -76,8 +79,10 @@ Mapped out-of-code rows are counted in the metadata report, not promoted to code
 
 ## Next increments
 
-1. Audit InitAlarm's native requirements and replace its SDK timer/firmware
-   initialization using native alarm services; do not supply timer-register state.
+1. Audit `0x141bb0` and its timer consumers. Unlike the retired firmware installers,
+   it initializes game-side timer records/free lists and registers an interrupt
+   handler before touching hardware. Preserve the required record semantics in
+   native code; use logical deadlines rather than supplying timer-register state.
 2. Finish overlay SDK/entry coverage and native bindings. Port the existing native
    VU0 algorithms through the Bozo ABI; remaining algorithms stay explicit faults.
 3. Move the game-record model, 2D, fog/lighting and postprocess producers to the
@@ -119,9 +124,48 @@ shadow, or general SetSyscall acceptance added to the engine.
 
 The port now passes five CTest suites with the private USA ISO available: metadata,
 ELF preparation, native kernel boundary, signatures, and bounded headless startup.
-The native boundary test covers 16 whole-context cases, full flat-memory equality,
-preserved semaphore state, every missing readiness binding, all 75 rejecting
-entries, and continued generic SetSyscall rejection. These are tests of the new
-native ABI, not original firmware-state equivalence. The startup test explicitly
-expects the next InitAlarm failure; it is not a gameplay qualification. It has no
-window, host input, or persistent card directory.
+The syscall increment originally covered 16 whole-context cases, full flat-memory
+equality, preserved semaphore state, every missing readiness binding, 75 rejecting
+entries and continued generic SetSyscall rejection. The alarm-installer increment
+below extends these tests. They establish the native ABI, not original
+firmware-state equivalence; the bounded startup test is not gameplay qualification.
+
+## InitAlarm firmware-installer retirement, 2026-11-06
+
+Reproduced the previous stop with the headless startup fixture before changing
+code. `InitAlarm` (`0x141a38..0x141b0c`) checks timer 3's mode at `0x10001810`.
+If not already installed, it installs a temporary copy service, copies `0x740`
+bytes from `0x149a90` into PS2 kernel address `0x80076000`, copies a 40-byte table
+to `0x82000`, and installs six private syscall handlers. The source mapping is:
+
+| Syscall | Relocated handler | Original payload address |
+|---|---|---|
+| `0xfc`, `0xfe` | `0x80076440` | `0x149ed0` |
+| `0xfd`, `0xff` | `0x800762a0` | `0x149d30` |
+| `0x12c` | `0x80076488` | `0x149f18` |
+| `8` | `0x800766c0` | `0x14a150` |
+
+This is firmware installation, not a game-side alarm queue initializer. Its
+startup caller at `0x141558` ignores its result. The port now requires a booted
+native kernel/clock and native FlushCache binding, then returns to that caller
+without installing PS2 code, configuring a timer, or changing RAM/context/kernel
+state. This retires obsolete firmware work; it does **not** supply an alarm API.
+The engine's SetAlarm/iSetAlarm/ReleaseAlarm/iReleaseAlarm names are placeholders
+whose dispatcher cases remain unsupported. DC and TMB both confirmed on F2F
+that their native frame/vblank callbacks are not a generic SDK alarm scheduler.
+
+Additional SHA-256 guards cover the whole installer, its install/copy helpers,
+the full payload, copied table and install records. Every guarded source word is
+mutation-tested. All entry addresses in the old payload and installer reject,
+except the primary installer admission/return. Native instruction guards cover
+mapped non-control instructions, including resume paths; non-code payload data
+is never declared as executable. General SetSyscall and all six private syscall
+requests remain hard failures, as do the four placeholder alarm kernel calls.
+
+The five port suites pass. They now include 32 whole-context cases, full flat-RAM
+equality, preserved semaphore state, native callback-queue sequence and next-event
+time, missing readiness rejection, and all 591 rejecting entries. The headless
+integration fixture requires both retirement messages and the new explicit
+`0x10001010` failure. No window/input or persistent card directory is used.
+The engine pin remains the previously verified published `e5ddc96`; no shared
+engine runtime change was needed for this increment.

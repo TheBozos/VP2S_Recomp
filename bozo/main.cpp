@@ -49,6 +49,7 @@ public:
     vp2s::Settings &settings() override { return preferences; }
     explicit StrictHost(const bozo::host::FreeOptions &options) : native(options),controller(native.libraries()) {
         dbc=std::make_unique<bozo::native::irx::CompiledLibraries>(native.libraries(),0x80000);
+        dbc->useReadyAudioCompletions();
         addVp2DbcImage(*dbc);
         addVp2ControllerImage(*dbc);controller.bind(*dbc);
         addVp2SoundImage(*dbc);

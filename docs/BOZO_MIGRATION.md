@@ -7,6 +7,22 @@ target, not a replacement DLL loaded into PS2Recomp.
 
 ## Build and evidence
 
+### Ready native audio completions (2026-11-06)
+
+The host now opts into delivery of actual completed libsd jobs at linked native function returns.
+The real startup gets past Csm's busy flag: its compiled completion callback clears the flag after
+the actual 4,096-byte upload. No game flag/status is manufactured, no clock is advanced and the work
+budget is unchanged. The engine suite reproduces starvation under the unchanged default policy and
+checks actual mixer bytes, once-only/reentrant callbacks, exclusion, reset and host isolation.
+The next production boundary is `timrman:20` at `0x45790`. Still zero frames; no playable route yet.
+
+The next timer increment supplies native callback registration/configuration/start/stop contracts.
+All 25 engine suites pass. The actual boot now passes Csm's callback and clock configuration, stopping
+at `vblank:4` (`0x457c4`) before timer start. Timer deadlines, next-period returns, zero cancellation,
+self-stop/free, GP, clock divisors, reset and two hosts are tested independently. Gated modes still
+reject. No device timer state is modeled. The production frame wait needs a native scheduler contract;
+still zero rendered frames.
+
 ### Native libsd provider (2026-11-06)
 
 The USA `Sound_Device_Library` image is admitted through a full SHA-256 guard and uses Bozo's native

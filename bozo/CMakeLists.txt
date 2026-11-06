@@ -109,7 +109,7 @@ if(VP2S_BOZO_CODE)
     DEPENDS "${VP2S_ROOT}/tools/vp2_bozo_sound_fixture.py" "${VP2S_BOZO_DATA}/../extract/iop/Csd_.irx"
       "${VP2S_ROOT}/external/BozoEngine/tools/native_irx/relocate.py" "${VP2S_ROOT}/external/BozoEngine/tools/native_irx/recompile.py")
   set(CSM_REF "${CMAKE_CURRENT_BINARY_DIR}/csm-native-reference")
-  add_custom_command(OUTPUT "${CSM_REF}/csm__iop.cpp" "${CSM_REF}/vp2_csm_image.h"
+  add_custom_command(OUTPUT "${CSM_REF}/csm__iop.cpp" "${CSM_REF}/vp2_csm_image.h" "${CSM_REF}/csm_timer_reference.cpp"
     COMMAND ${Python3_EXECUTABLE} "${VP2S_ROOT}/tools/vp2_bozo_sound_fixture.py"
       "${VP2S_BOZO_DATA}/../extract/iop/Csm_.irx" "${CSM_REF}" --kind csm --build "${VP2S_BOZO_DATA}/.."
     DEPENDS "${VP2S_ROOT}/tools/vp2_bozo_sound_fixture.py" "${VP2S_BOZO_DATA}/../extract/iop/Csm_.irx"
@@ -122,6 +122,14 @@ if(VP2S_BOZO_CODE)
   endif()
   add_test(NAME vp2s-bozo-csm-init COMMAND vp2s-bozo-csm-check)
   set_tests_properties(vp2s-bozo-csm-init PROPERTIES TIMEOUT 10)
+  add_executable(vp2s-bozo-csm-timer-check "${VP2S_ROOT}/tests/bozo_csm_timer_main.cpp"
+    "${CSM_REF}/csm__iop.cpp" "${CSM_REF}/csm_timer_reference.cpp")
+  target_link_libraries(vp2s-bozo-csm-timer-check PRIVATE bozo_libs)
+  if(MINGW)
+    target_link_options(vp2s-bozo-csm-timer-check PRIVATE -static)
+  endif()
+  add_test(NAME vp2s-bozo-csm-timer COMMAND vp2s-bozo-csm-timer-check)
+  set_tests_properties(vp2s-bozo-csm-timer PROPERTIES TIMEOUT 10)
   add_executable(vp2s-bozo-csd-check "${VP2S_ROOT}/tests/bozo_csd_main.cpp" "${CSM_REF}/csm__iop.cpp" "${CSD_REF}/csd__iop.cpp")
   target_include_directories(vp2s-bozo-csd-check PRIVATE "${CSM_REF}" "${CSD_REF}")
   target_link_libraries(vp2s-bozo-csd-check PRIVATE bozo_libs)

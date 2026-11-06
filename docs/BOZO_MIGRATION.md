@@ -23,6 +23,24 @@ self-stop/free, GP, clock divisors, reset and two hosts are tested independently
 reject. No device timer state is modeled. The production frame wait needs a native scheduler contract;
 still zero rendered frames.
 
+The following increment maps Csm's frame listener to actual native game-frame completions. Advancing
+time cannot manufacture these events. Start listeners preserve callback GP/argument, priority/FIFO
+order, zero removal, cancellation and exclusion. The native host publishes them from `onFrame`.
+Csm's one-time physical-display alignment call at `0x449f0` is retired under its complete USA image
+fingerprint and exact call/delay-slot guards. The original timer creation, handler/configuration,
+start, listener registration, errors and all game data remain compiled. Ninety-six original/native
+comparisons cover complete RAM, CPU and ordered SDK calls across success and every setup-error stage,
+excluding only the retired display wait. Actual startup now passes Csm start/listener setup and reaches
+Csd `sifcmd:8` at `0x559d4`. The frame listener has isolated native-event tests but the production renderer
+still produces zero frames. This does not qualify audiovisual timing or the Logun route.
+
+Engine PR21 (`30761f5`), PR22 (`9bc4acf`) and PR23 have green Linux/Windows CI. The final frame-listener
+increment passes all 26 engine and 23 VP2S headless suites. Runs use no window/input and fresh in-memory
+cards. The next Csd request is `sceSifSetCmdBuffer` for five entries at `0x56e78`, followed by user command
+registrations 0..3 (`sifcmd:10`). The next implementation must provide a real bounded native command
+registry and dispatch, not acknowledge registration while dropping its messages. System commands,
+transport protocols and device interrupts are not required for that native user-message service.
+
 ### Native libsd provider (2026-11-06)
 
 The USA `Sound_Device_Library` image is admitted through a full SHA-256 guard and uses Bozo's native

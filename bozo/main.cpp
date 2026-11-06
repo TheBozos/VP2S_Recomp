@@ -50,6 +50,8 @@ public:
     explicit StrictHost(const bozo::host::FreeOptions &options) : native(options),controller(native.libraries()) {
         dbc=std::make_unique<bozo::native::irx::CompiledLibraries>(native.libraries(),0x80000);
         dbc->useReadyAudioCompletions();
+        dbc->useNativeFrameCallbacks();
+        native.onFrame=[this](uint64_t,const R5900Context *){dbc->notifyFrameCompleted();};
         addVp2DbcImage(*dbc);
         addVp2ControllerImage(*dbc);controller.bind(*dbc);
         addVp2SoundImage(*dbc);

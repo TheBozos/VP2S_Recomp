@@ -16,11 +16,30 @@ if hashlib.sha256(a.source.read_bytes()).hexdigest()!=digest:
 root=Path(__file__).resolve().parents[1];a.out.mkdir(parents=True,exist_ok=True)
 sys.path.insert(0,str(root/'external/BozoEngine/tools/native_irx'))
 from relocate import relocate
-from recompile import Module
+from recompile import Module,find_functions,emit_module,emit_function,name_of
 info=relocate(a.source,base,a.out/a.kind)
 m=Module(str(a.out/(a.kind+'.json')));exports,imports=m.tables()
-subprocess.run([sys.executable,'-I',str(root/'external/BozoEngine/tools/native_irx/recompile.py'),
-    str(a.out/(a.kind+'.json')),'--out',str(a.out)],check=True)
+if a.kind=='csm':
+    # Native audio starts on its own scheduler. Only this startup alignment wait
+    # for a physical display edge is retired; frame listeners consume real frames.
+    if m.word(0x449f0)!=0x0c0115f1 or m.word(0x449f4)!=0:
+        raise ValueError('USA Csm display-alignment call mismatch')
+    original=find_functions(m,exports,imports,[])
+    body=emit_function(m,original[0x44978],original,True)
+    reference=['#include "bozo/native/compiled_irx.h"','#include <stdexcept>',
+               'namespace vp2_csm_reference {','using namespace bozo::native::irx;']+body+['}',
+               'void vp2CsmTimerReference(bozo::native::irx::Env &e){',
+               f'vp2_csm_reference::{name_of(m,0x44978)}(e);','}']
+    (a.out/'csm_timer_reference.cpp').write_text('\n'.join(reference)+'\n')
+    original_word=m.word
+    m.word=lambda address:0 if address==0x449f0 else original_word(address)
+    functions=find_functions(m,exports,imports,[])
+    if any(fn.unsafe for fn in functions.values()):raise ValueError('unsafe adapted Csm function')
+    (a.out/'csm__iop.cpp').write_text(emit_module(m,functions,True)+
+        '\nvoid vp2CsmTimerNative(bozo::native::irx::Env &e){'+name_of(m,0x44978)+'(e);}\n')
+else:
+    subprocess.run([sys.executable,'-I',str(root/'external/BozoEngine/tools/native_irx/recompile.py'),
+        str(a.out/(a.kind+'.json')),'--out',str(a.out)],check=True)
 data=(a.out/(a.kind+'.bin')).read_bytes()
 lines=['#pragma once','#include "bozo/native/compiled_libraries.h"',
        f'inline void addVp2{label}Image(bozo::native::irx::CompiledLibraries &host) {{',

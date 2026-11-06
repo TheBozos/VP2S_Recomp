@@ -17,7 +17,7 @@ reset and independent hosts. This is an API/data qualification, not soundtrack o
 Production now starts libsd as service 5 and stops at `Csm_.irx`; no frame is rendered yet.
 
 The following Csm increment admits its full USA fingerprint and strictly compiles 72 routines.
-Its original initialization entry performs native export registration, disables unused native callback
+Its original initialization entry performs native export registration, configures native callback
 sources and initializes the game callback record. It passes repeat/reset/two-host checks, without
 executing device code. Production assigns service 6 and reaches the distinct `Csd_.irx` boundary.
 This qualifies Csm initialization only; streaming/voice/timer services are still checked on use.
@@ -33,6 +33,17 @@ compiled entry now registers service `0x1234` and parks its native RPC task. Reg
 repeat/reset and independent-server ownership pass. Production reaches `mcman.irx` after service 8.
 An explicit request-14 probe still fails on `thbase:42`; RPC worker identity/priority is the next native
 SDK contract, not an invented priority response. Game startup still has zero frames.
+
+Engine PR17 now retains each native RPC server's owner task and implements `thbase:42` using its
+native priority record. Callback stacks remain separate; identity/status/priority refer to the registered
+worker, which remains parked. All 20 engine suites and Windows/Linux CI pass. Csi request 14 passes
+the complete 20-byte status/seed reply against the guarded private image, both hosts and output canaries;
+no private word is printed. Other RPC requests are still unqualified.
+
+The standard mcman/mcserv modules now use the installed native EE memory-card APIs, as in DC's provider
+pattern. Exact private image admission, API readiness, empty arguments and stable/reset service IDs are
+checked. Tests use fresh in-memory cards. All ten boot modules initialize; the real boot next rejects
+DBC `intrman:17` before any callback-protected transfer. No callback guard or transfer result is faked.
 
 ### Native controller record boundary (2026-11-06)
 

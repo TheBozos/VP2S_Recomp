@@ -28,7 +28,8 @@ ModuleResult NativeServiceModules::loadBuffer(std::span<const uint8_t> buffer,st
         // These two libraries only transport controller/card transactions.
         // The native EE services own those transactions. The later custom
         // Dbc_Manager/controller protocol has its own explicit native provider.
-        if(std::string_view(name)!="sio2man.irx" && std::string_view(name)!="sio2d.irx")
+        if(std::string_view(name)!="sio2man.irx" && std::string_view(name)!="sio2d.irx" &&
+           std::string_view(name)!="mcman.irx" && std::string_view(name)!="mcserv.irx")
             throw std::runtime_error(std::string("unported native service module: ")+name);
         if(!ready || !ready())throw std::runtime_error("native pad/card service is not installed");
         if(!args.empty())throw std::runtime_error("unported native system-module arguments");

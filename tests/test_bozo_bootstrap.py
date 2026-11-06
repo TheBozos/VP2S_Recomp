@@ -37,10 +37,12 @@ for required in ['[vp2s:call] pc=142150 ra=0',
                  'compiled native service owns Csm_.irx id=6',
                  'compiled native service owns Csd_.irx id=7',
                  'compiled native service owns Csi_.irx id=8',
-                 'unported native service module: mcman.irx']:
+                 'native pad/card service owns mcman.irx id=9',
+                 'native pad/card service owns mcserv.irx id=10',
+                 'unsupported native IRX import intrman:17 at 0x22148']:
     if required not in output:raise SystemExit(f'startup did not reach expected CD worker boundary: {required}')
 if 'syscall 116' in output or 'a call to' in output:
     raise SystemExit('native binding was bypassed or unanswered')
 if 'pc=137220 a0=ffffffff result=-408' in output:
     raise SystemExit('the retired CD private worker unexpectedly ran')
-print('Native bootstrap/timer/CD/DBC/controller/libsd/Csm/Csd/Csi initialization reached; native mcman ownership remains unsupported.')
+print('All ten native module providers initialized; DBC callback-exclusion service remains unsupported.')

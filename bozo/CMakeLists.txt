@@ -64,7 +64,7 @@ endif()
 add_test(NAME vp2s-bozo-modules COMMAND vp2s-bozo-modules-check)
 if(VP2S_BOZO_CODE)
   set(CSI_REF "${CMAKE_CURRENT_BINARY_DIR}/csi-native-reference")
-  add_custom_command(OUTPUT "${CSI_REF}/csi__iop.cpp" "${CSI_REF}/vp2_csi_image.h"
+  add_custom_command(OUTPUT "${CSI_REF}/csi__iop.cpp" "${CSI_REF}/vp2_csi_image.h" "${CSI_REF}/csi.bin"
     COMMAND ${Python3_EXECUTABLE} "${VP2S_ROOT}/tools/vp2_bozo_sound_fixture.py"
       "${VP2S_BOZO_DATA}/../extract/iop/Csi_.irx" "${CSI_REF}" --kind csi --build "${VP2S_BOZO_DATA}/.."
     DEPENDS "${VP2S_ROOT}/tools/vp2_bozo_sound_fixture.py" "${VP2S_BOZO_DATA}/../extract/iop/Csi_.irx"
@@ -77,6 +77,8 @@ if(VP2S_BOZO_CODE)
   endif()
   add_test(NAME vp2s-bozo-csi-init COMMAND vp2s-bozo-csi-check)
   set_tests_properties(vp2s-bozo-csi-init PROPERTIES TIMEOUT 10)
+  add_test(NAME vp2s-bozo-csi-seed-request COMMAND vp2s-bozo-csi-check --request "${CSI_REF}/csi.bin")
+  set_tests_properties(vp2s-bozo-csi-seed-request PROPERTIES TIMEOUT 10)
   set(CSD_REF "${CMAKE_CURRENT_BINARY_DIR}/csd-native-reference")
   add_custom_command(OUTPUT "${CSD_REF}/csd__iop.cpp" "${CSD_REF}/vp2_csd_image.h"
     COMMAND ${Python3_EXECUTABLE} "${VP2S_ROOT}/tools/vp2_bozo_sound_fixture.py"

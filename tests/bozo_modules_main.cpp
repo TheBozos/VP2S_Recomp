@@ -89,6 +89,12 @@ int main(int argc,char **argv){try{
         check(compiled.loadBuffer(image("Csm_.irx"),{}).id==6 && starts==4);
         check(compiled.loadBuffer(image("Csd_.irx"),{}).id==7 && starts==5);
         check(compiled.loadBuffer(image("Csi_.irx"),{}).id==8 && starts==6);
+        check(compiled.loadBuffer(image("mcman.irx"),{}).id==9 && starts==6);
+        check(compiled.loadBuffer(image("mcserv.irx"),{}).id==10 && starts==6);
+        check(compiled.loadBuffer(image("mcman.irx"),{}).id==9);
+        rejects([&]{unready.loadBuffer(image("mcman.irx"),{});});
+        rejects([&]{unready.loadBuffer(image("mcserv.irx"),{});});
+        rejects([&]{compiled.loadBuffer(image("mcman.irx"),{&option,1});});
         sio[0]^=1;rejects([&]{services.loadBuffer(sio,{});});sio[0]^=1;
         services.reset();check(services.loadBuffer(mux,{}).id==1);
         std::puts("private source identities, provider admission/readiness/arguments, duplicate/reset isolation passed");

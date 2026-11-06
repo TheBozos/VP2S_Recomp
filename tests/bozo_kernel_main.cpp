@@ -73,6 +73,10 @@ int main() {
             std::memcpy(&expected,&ctx,sizeof(ctx)); expected.pc=ctx.r[31].uw[0];
             vp2s::retireAlarmFirmwareInstaller(nullptr,&ctx,&rt);
             require(!std::memcmp(&ctx,&expected,sizeof(ctx)));
+            ctx.pc=0x140b70;
+            std::memcpy(&expected,&ctx,sizeof(ctx));expected.pc=ctx.r[31].uw[0];
+            vp2s::retireEventFirmwareInstaller(nullptr,&ctx,&rt);
+            require(!std::memcmp(&ctx,&expected,sizeof(ctx)));
         }
         require(!std::memcmp(before.data(),rt.memory.flat(),bozo::kFlatBytes));
         require(k.running()==1 && k.createSema(0,1,0,0)==first+1);
@@ -85,13 +89,13 @@ int main() {
         require(registry.find(0x141a38)==&vp2s::retireAlarmFirmwareInstaller);
         unsigned guarded=0;
         for(const auto &entry:registry.functions()) {
-            if(entry.address==0x141448 || entry.address==0x141a38 || entry.address==0x141bb0 || entry.address==0x141df0 || entry.address==0x1423f8 || entry.address==0x137280 || entry.address==0x137290) continue;
+            if(entry.address==0x141448 || entry.address==0x141a38 || entry.address==0x141bb0 || entry.address==0x141df0 || entry.address==0x1423f8 || entry.address==0x137280 || entry.address==0x137290 || entry.address==0x140b70) continue;
             ctx.pc=entry.address;
             rejected([&]{entry.function(nullptr,&ctx,&rt);});
             ++guarded;
         }
-        require(guarded==997 && !registry.find(0x141548)); // SetSyscall is not bypassed
-        for(uint32_t number:{116u,0xfcu,0xfeu,0xfdu,0xffu,0x12cu,8u}) {
+        require(guarded==1356 && !registry.find(0x141548)); // SetSyscall is not bypassed
+        for(uint32_t number:{116u,0xfcu,0xfeu,0xfdu,0xffu,0x12cu,8u,0x54u,0x55u,0x56u,0x57u,0x58u,0x59u}) {
             ctx.pc=0x14154c; ctx.r[3].uw[0]=number;
             ctx.r[4].uw[0]=0x83; ctx.r[5].uw[0]=0x1413c0;
             rejected([&]{d.syscall(nullptr,&ctx,&rt,0);});
@@ -102,9 +106,9 @@ int main() {
             d.bindKernelCall(0x180000,call);
             rejected([&]{bozo_call_indirect(rt.memory.flat(),&ctx,&rt,0x180000);});
         }
-        require(host.callbacks==11 && !std::memcmp(before.data(),rt.memory.flat(),bozo::kFlatBytes));
+        require(host.callbacks==17 && !std::memcmp(before.data(),rt.memory.flat(),bozo::kFlatBytes));
         require(k.handlerQueued() && k.sequence()==sequence && k.nextEvent()==event);
-        std::puts("native installer readiness, 32 context cases, RAM/kernel preservation, 997 guards and unsupported alarm/syscall rejection pass");
+        std::puts("native installer readiness, 48 context cases, RAM/kernel preservation, 1356 guards and unsupported runtime syscall rejection pass");
         return 0;
     } catch(const std::exception &e) { std::fprintf(stderr,"%s\n",e.what()); return 1; }
 }

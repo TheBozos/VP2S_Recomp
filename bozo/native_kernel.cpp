@@ -54,6 +54,11 @@ void installNativeKernelBindings(bozo::port::Registry &registry) {
     for(uint32_t pc=0x141df0u;pc<0x141e80u;pc+=4) registry.registerFunction(pc,&rejectFirmwareEntry);
     for(uint32_t pc=0x1423f8u;pc<0x142444u;pc+=4) registry.registerFunction(pc,&rejectFirmwareEntry);
     for(uint32_t pc=0x141f00u;pc<0x142090u;pc+=4) registry.registerFunction(pc,&rejectFirmwareEntry);
+    for(uint32_t pc=0x140b70u;pc<0x140c34u;pc+=4) registry.registerFunction(pc,&rejectFirmwareEntry);
+    for(uint32_t pc=0x148c58u;pc<0x148f88u;pc+=4) registry.registerFunction(pc,&rejectFirmwareEntry);
+    for(uint32_t pc=0x141780u;pc<0x141898u;pc+=4) registry.registerFunction(pc,&rejectFirmwareEntry);
+    for(uint32_t pc=0x141910u;pc<0x141958u;pc+=4) registry.registerFunction(pc,&rejectFirmwareEntry);
+    for(uint32_t pc=0x141980u;pc<0x1419ccu;pc+=4) registry.registerFunction(pc,&rejectFirmwareEntry);
     registry.registerFunction(0x141448u,&initNativeSyscallServices);
     registry.registerFunction(0x141a38u,&retireAlarmFirmwareInstaller);
     registry.registerFunction(0x141bb0u,&initNativeTimer);
@@ -61,5 +66,16 @@ void installNativeKernelBindings(bozo::port::Registry &registry) {
     registry.registerFunction(0x1423f8u,&queryNativeTimer);
     registry.registerFunction(0x137280u,&nativeOsdSettings);
     registry.registerFunction(0x137290u,&nativeOsdSettings);
+    registry.registerFunction(0x140b70u,&retireEventFirmwareInstaller);
+}
+void retireEventFirmwareInstaller(uint8_t *,R5900Context *ctx,Runtime *rt) {
+    auto *d=rt ? dynamic_cast<bozo::ee::Dispatcher *>(rt->services) : nullptr;
+    if(!d || !ctx || ctx->pc!=0x140b70 || d->kernel().running()<=0)
+        throw std::runtime_error("event SDK firmware retirement requires a booted native kernel");
+    // The installer copies kernel code, replaces private syscall slots and
+    // retains a kernel-object address. Native callers must use kernel services;
+    // the original address-query consumers are rejecting boundaries above.
+    std::fprintf(stderr,"[vp2s:bozo] retired SDK event firmware installer; kernel-address consumers remain unsupported\n");
+    ctx->pc=ctx->r[31].uw[0];
 }
 }

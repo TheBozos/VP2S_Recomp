@@ -21,8 +21,10 @@ if '[vp2s:bozo] native timer records initialized; runtime timer callback remains
     raise SystemExit('startup did not reach native timer record initialization')
 if '[vp2s:bozo] native SDK timer started' not in output:
     raise SystemExit('startup did not start the native SDK clock')
-if 'syscall 116 at 0x140b68' not in output:
-    raise SystemExit('startup did not reach the audited next SDK firmware installer')
-if 'syscall 116 at 0x141550' in output or 'a call to' in output:
+if '[vp2s:bozo] retired SDK event firmware installer' not in output:
+    raise SystemExit('startup did not retire the audited event firmware installer')
+if 'unported device write 10000010 at pc=1002c0' not in output:
+    raise SystemExit('startup did not reach the game-owned timing setup')
+if 'syscall 116' in output or 'a call to' in output:
     raise SystemExit('native binding was bypassed or unanswered')
-print('Native timer/settings passed; unsupported event SDK firmware installation reached.')
+print('Native SDK bootstrap passed; unsupported game-owned timing setup reached.')

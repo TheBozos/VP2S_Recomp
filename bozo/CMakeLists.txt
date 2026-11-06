@@ -63,6 +63,20 @@ if(MINGW)
 endif()
 add_test(NAME vp2s-bozo-modules COMMAND vp2s-bozo-modules-check)
 if(VP2S_BOZO_CODE)
+  set(SOUND_REF "${CMAKE_CURRENT_BINARY_DIR}/sound-native-reference")
+  add_custom_command(OUTPUT "${SOUND_REF}/sound_device_library_iop.cpp" "${SOUND_REF}/vp2_sound_image.h"
+    COMMAND ${Python3_EXECUTABLE} "${VP2S_ROOT}/tools/vp2_bozo_sound_fixture.py"
+      "${VP2S_BOZO_DATA}/../extract/iop/Sound_Device_Library.irx" "${SOUND_REF}" --build "${VP2S_BOZO_DATA}/.."
+    DEPENDS "${VP2S_ROOT}/tools/vp2_bozo_sound_fixture.py" "${VP2S_BOZO_DATA}/../extract/iop/Sound_Device_Library.irx"
+      "${VP2S_ROOT}/external/BozoEngine/tools/native_irx/relocate.py" "${VP2S_ROOT}/external/BozoEngine/tools/native_irx/recompile.py")
+  add_executable(vp2s-bozo-sound-check "${VP2S_ROOT}/tests/bozo_sound_main.cpp" "${SOUND_REF}/sound_device_library_iop.cpp")
+  target_include_directories(vp2s-bozo-sound-check PRIVATE "${SOUND_REF}")
+  target_link_libraries(vp2s-bozo-sound-check PRIVATE bozo_libs)
+  if(MINGW)
+    target_link_options(vp2s-bozo-sound-check PRIVATE -static)
+  endif()
+  add_test(NAME vp2s-bozo-sound-provider COMMAND vp2s-bozo-sound-check)
+  set_tests_properties(vp2s-bozo-sound-provider PROPERTIES TIMEOUT 10)
   set(CONTROLLER_REF "${CMAKE_CURRENT_BINARY_DIR}/controller-reference")
   add_custom_command(OUTPUT "${CONTROLLER_REF}/ds2o_d_iop.cpp" "${CONTROLLER_REF}/ds2.bin" "${CONTROLLER_REF}/vp2_controller_image.h"
     COMMAND ${Python3_EXECUTABLE} "${VP2S_ROOT}/tools/vp2_bozo_controller_fixture.py"
@@ -165,8 +179,8 @@ if(VP2S_BOZO_CODE)
   target_link_libraries(vp2s_bozo_game PUBLIC bozo_runtime_headers)
   target_include_directories(vp2s_bozo_game PUBLIC "${VP2S_BOZO_DATA}/generated")
   target_compile_options(vp2s_bozo_game PRIVATE -O1 -w -ffp-contract=off)
-  add_executable(vp2s-bozo-headless main.cpp "${DBC_REF}/dbc_manager_iop.cpp" "${CONTROLLER_REF}/ds2o_d_iop.cpp")
-  target_include_directories(vp2s-bozo-headless PRIVATE "${DBC_REF}" "${CONTROLLER_REF}")
+  add_executable(vp2s-bozo-headless main.cpp "${DBC_REF}/dbc_manager_iop.cpp" "${CONTROLLER_REF}/ds2o_d_iop.cpp" "${SOUND_REF}/sound_device_library_iop.cpp")
+  target_include_directories(vp2s-bozo-headless PRIVATE "${DBC_REF}" "${CONTROLLER_REF}" "${SOUND_REF}")
   target_link_libraries(vp2s-bozo-headless PRIVATE vp2s_bozo_game vp2s_bozo_kernel bozo_host)
   target_compile_definitions(vp2s-bozo-headless PRIVATE VP2S_BOZO_IMAGES="${VP2S_BOZO_DATA}/images")
   if(MINGW)

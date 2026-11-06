@@ -10,6 +10,7 @@
 #include "native_modules.h"
 #include "vp2_dbc_image.h"
 #include "vp2_controller_image.h"
+#include "vp2_sound_image.h"
 #include "native_controller.h"
 #include <random>
 #include <charconv>
@@ -46,6 +47,7 @@ public:
         dbc=std::make_unique<bozo::native::irx::CompiledLibraries>(native.libraries(),0x40000);
         addVp2DbcImage(*dbc);
         addVp2ControllerImage(*dbc);controller.bind(*dbc);
+        addVp2SoundImage(*dbc);
         const auto root=std::filesystem::path(VP2S_BOZO_IMAGES).parent_path().parent_path()/"extract/iop";
         serviceModules=std::make_unique<vp2s::NativeServiceModules>(root,[this]{
             return native.libraries().find("scePadInit") && native.libraries().find("sceMcInit");},

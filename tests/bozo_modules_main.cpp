@@ -80,11 +80,12 @@ int main(int argc,char **argv){try{
         rejects([&]{services.loadBuffer(custom,{});});
         unsigned starts=0;
         vp2s::NativeServiceModules compiled(root,[]{return true;},[&](std::string_view name,std::span<const uint8_t> args){
-            check((name=="Dbc_Manager.irx" || name=="ds2o_d.irx") && args.empty());++starts;return 0;
+            check((name=="Dbc_Manager.irx" || name=="ds2o_d.irx" || name=="Sound_Device_Library.irx") && args.empty());++starts;return 0;
         });
         check(compiled.loadBuffer(sio,{}).id==1 && compiled.loadBuffer(mux,{}).id==2);
         check(compiled.loadBuffer(custom,{}).id==3 && compiled.loadBuffer(custom,{}).id==3 && starts==1);
         check(compiled.loadBuffer(image("ds2o_d.irx"),{}).id==4 && starts==2);
+        check(compiled.loadBuffer(image("Sound_Device_Library.irx"),{}).id==5 && starts==3);
         sio[0]^=1;rejects([&]{services.loadBuffer(sio,{});});sio[0]^=1;
         services.reset();check(services.loadBuffer(mux,{}).id==1);
         std::puts("private source identities, provider admission/readiness/arguments, duplicate/reset isolation passed");

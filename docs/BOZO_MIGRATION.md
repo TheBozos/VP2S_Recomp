@@ -7,6 +7,15 @@ target, not a replacement DLL loaded into PS2Recomp.
 
 ## Build and evidence
 
+### Native libsd provider (2026-11-06)
+
+The USA `Sound_Device_Library` image is admitted through a full SHA-256 guard and uses Bozo's native
+libsd/mixer provider, following DC's published provider pattern. Game note/pitch arithmetic remains
+strictly compiled; the hardware initializer does not execute. The isolated probe sets/reads parameters
+for 24 voices on each core and verifies all 64 uploaded bytes in actual mixer storage, with repeat,
+reset and independent hosts. This is an API/data qualification, not soundtrack or timing parity.
+Production now starts libsd as service 5 and stops at `Csm_.irx`; no frame is rendered yet.
+
 ### Native controller record boundary (2026-11-06)
 
 Engine PR15 (`1b6f1ed`) supplies per-host native algorithm bindings, with 18 headless engine suites

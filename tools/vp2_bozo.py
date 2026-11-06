@@ -12,7 +12,7 @@ import subprocess
 import sys
 from pathlib import Path
 from vp2_bozo_prepare import elf_parts
-from vp2_bozo_kernel import bindings as kernel_bindings
+from vp2_bozo_kernel import bindings as kernel_bindings, game_adaptations
 
 ROOT = Path(__file__).resolve().parent.parent
 
@@ -49,9 +49,13 @@ def generate(args, build, data, engine_build, env):
         # supports macro-mode compatibility code; this port does not accept it
         # as a migration fallback. Later native algorithms replace these sites.
         raw = image.read_bytes()
+        adaptations=[]
         if name == 'main':
             with ext.open('a') as stream:
                 stream.write(kernel_bindings(raw))
+            patches=data/'images'/f'{name}.patches'
+            patches.write_text(game_adaptations(raw))
+            adaptations=['--patches',patches]
         _, _, sections = elf_parts(raw)
         vu_sites = []
         for section in sections:
@@ -67,7 +71,7 @@ def generate(args, build, data, engine_build, env):
         run([tool, image, '--census'], data/'logs'/f'{name}_census.log', env)
         count = 16 if name in ('main', 'mod001', 'mod003') else 4
         text = run([tool, image, target, '--prefix', prefix, '--symbol-prefix', prefix+'_',
-                    '--files', count, '--externals', ext, '--entries', data/'images'/f'{name}.entries', '--no-comments'],
+                    '--files', count, '--externals', ext, '--entries', data/'images'/f'{name}.entries', '--no-comments']+adaptations,
                    data/'logs'/f'{name}_generate.log', env)
         unknown = re.search(r'untranslated instructions: (\d+)', text)
         if unknown is None:
@@ -129,7 +133,7 @@ def main():
     if args.stage == 'generate':
         return
     run(configure+['-DVP2S_BOZO_CODE=ON'], data/'configure-port.log', env)
-    run([cmake, '--build', engine_build, '--target', 'vp2s-bozo-headless', 'vp2s-bozo-metadata-check', 'vp2s-bozo-kernel-check', 'vp2s-bozo-timer-check', 'vp2s-bozo-timer-clock-check', 'vp2s-bozo-settings-check', '-j', args.jobs],
+    run([cmake, '--build', engine_build, '--target', 'vp2s-bozo-headless', 'vp2s-bozo-metadata-check', 'vp2s-bozo-kernel-check', 'vp2s-bozo-timer-check', 'vp2s-bozo-timer-clock-check', 'vp2s-bozo-settings-check', 'vp2s-bozo-timing-check', '-j', args.jobs],
         data/'build-port.log', env)
     run([Path(cmake).with_name('ctest.exe' if os.name == 'nt' else 'ctest'),
          '--test-dir', engine_build, '--output-on-failure'], data/'tests.log', env)

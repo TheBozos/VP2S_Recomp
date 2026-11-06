@@ -51,6 +51,29 @@ if(MINGW)
 endif()
 add_test(NAME vp2s-bozo-settings COMMAND vp2s-bozo-settings-check)
 if(VP2S_BOZO_CODE)
+  set(TIMING_REF "${CMAKE_CURRENT_BINARY_DIR}/timing-reference")
+  foreach(VARIANT original adapted)
+    set(TIMING_DIR "${TIMING_REF}/${VARIANT}")
+    set(TIMING_PATCH_ARGS)
+    if(VARIANT STREQUAL "adapted")
+      set(TIMING_PATCH_ARGS --patches "${TIMING_DIR}/patches.txt")
+    endif()
+    add_custom_command(
+      OUTPUT "${TIMING_DIR}/timing_${VARIANT}_000.cpp" "${TIMING_DIR}/timing_${VARIANT}_table.cpp" "${TIMING_DIR}/timing_${VARIANT}_functions.h"
+      COMMAND ${Python3_EXECUTABLE} "${VP2S_ROOT}/tools/vp2_bozo_timing_fixture.py" "${VP2S_BOZO_DATA}/images/main.elf" "${TIMING_DIR}" --build "${VP2S_BOZO_DATA}/.."
+      COMMAND $<TARGET_FILE:bozo-recomp> "${TIMING_DIR}/fixture.elf" "${TIMING_DIR}" --prefix timing_${VARIANT}
+        --symbol-prefix timing_${VARIANT}_ --files 1 --externals "${TIMING_DIR}/externals.txt" ${TIMING_PATCH_ARGS} --no-comments
+      DEPENDS bozo-recomp "${VP2S_BOZO_DATA}/images/main.elf" "${VP2S_ROOT}/tools/vp2_bozo_timing_fixture.py"
+        "${VP2S_ROOT}/tools/vp2_bozo_kernel.py" "${VP2S_ROOT}/tools/vp2_bozo_prepare.py")
+    list(APPEND TIMING_SOURCES "${TIMING_DIR}/timing_${VARIANT}_000.cpp" "${TIMING_DIR}/timing_${VARIANT}_table.cpp")
+  endforeach()
+  add_executable(vp2s-bozo-timing-check "${VP2S_ROOT}/tests/bozo_timing_main.cpp" ${TIMING_SOURCES})
+  target_include_directories(vp2s-bozo-timing-check PRIVATE "${TIMING_REF}/original" "${TIMING_REF}/adapted")
+  target_link_libraries(vp2s-bozo-timing-check PRIVATE bozo_runtime_core)
+  if(MINGW)
+    target_link_options(vp2s-bozo-timing-check PRIVATE -static)
+  endif()
+  add_test(NAME vp2s-bozo-timing-prefix COMMAND vp2s-bozo-timing-check)
   set(TIMER_REF "${CMAKE_CURRENT_BINARY_DIR}/timer-reference")
   add_custom_command(
     OUTPUT "${TIMER_REF}/timer_ref_000.cpp" "${TIMER_REF}/timer_ref_table.cpp" "${TIMER_REF}/timer_ref_functions.h"

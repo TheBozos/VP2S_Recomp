@@ -10,6 +10,7 @@ void retireAlarmFirmwareInstaller(uint8_t *,R5900Context *,Runtime *);
 void initNativeTimer(uint8_t *,R5900Context *,Runtime *);
 void startNativeTimer(uint8_t *,R5900Context *,Runtime *);
 void queryNativeTimer(uint8_t *,R5900Context *,Runtime *);
+void rearmNativeTimer(uint8_t *,R5900Context *,Runtime *);
 void nativeOsdSettings(uint8_t *,R5900Context *,Runtime *);
 void retireEventFirmwareInstaller(uint8_t *,R5900Context *,Runtime *);
 }

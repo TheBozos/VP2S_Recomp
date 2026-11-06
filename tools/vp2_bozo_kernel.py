@@ -71,3 +71,36 @@ def bindings(data):
         if code and not control:
             declarations.append(f'native 0x{pc:x}\n')
     return ''.join(declarations)
+
+
+def game_adaptations(data):
+    # Native frame timing owns elapsed frames. Retire the main routine's two
+    # HBLANK-counter stores only; retain its adjacent game magic/data store and
+    # the call/checkpoint/delay-slot structure. Unported readers still fault.
+    _,segments,_=elf_parts(data)
+    lo,hi=0x1002c0,0x100304
+    segment=next(s for s in segments if s[0]==1 and s[2]<=lo<hi<=s[2]+s[4])
+    start=segment[1]+lo-segment[2]
+    expected='4593352447efec5a5e14d31c108e37f12bbd014fe7036549f96113618883b967'
+    if hashlib.sha256(data[start:start+hi-lo]).hexdigest()!=expected:
+        raise ValueError('USA game timing initialization signature mismatch')
+    result=[]
+    for pc,word in [(0x1002f4,0xac220010),(0x100300,0xac200000)]:
+        at=segment[1]+pc-segment[2]
+        if int.from_bytes(data[at:at+4],'little')!=word:
+            raise ValueError(f'game timing store mismatch: {pc:x}')
+        result.append(f'{pc:08x} {word:08x} 00000000\n')
+    return ''.join(result)
+
+
+def game_entries(data):
+    # The thread object's vtable dispatches here from 0x119750. Ghidra exported
+    # only the tail labels 0x11d770..0x11d7c0, omitting the actual entry/prologue.
+    # Its source extent ends at the next independent prologue, 0x11d7c0.
+    _,segments,_=elf_parts(data)
+    lo,hi=0x11d4e0,0x11d7c0
+    segment=next(s for s in segments if s[0]==1 and s[2]<=lo<hi<=s[2]+s[4])
+    at=segment[1]+lo-segment[2]
+    if hashlib.sha256(data[at:at+hi-lo]).hexdigest()!='ed0f34ec520d53d9a7802609a5ec468c11e60c96de07a4de4811480b3fd04085':
+        raise ValueError('USA worker entry signature mismatch')
+    return [dict(Name='worker_entry_0011d4e0',Start=hex(lo),End=hex(hi))]

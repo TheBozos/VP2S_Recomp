@@ -267,3 +267,32 @@ have full fingerprints and mutation coverage. The extended kernel suite checks
 rejection of the private runtime event/flag syscalls. Eight suites pass through
 SDK initialization into the game's own main initialization. No generic event
 service was claimed by retiring its firmware installer.
+
+## Worker startup and native sleep, 2026-11-06
+
+Engine PR 9 is merged at `32b13ce` after Windows/Linux CI: SDK sleep/wakeup and
+cancel operations now use native per-thread credits and ready queues. Thirteen
+headless engine suites pass, including two synthetic threads that block, wake,
+preempt and resume at exact PCs/results. The merged feature branches are deleted.
+
+The game's two HBLANK setup stores (`0x1002f4`, `0x100300`) are retired by guarded
+offline adaptations. The adjacent magic store to `0x1ff0000`, call/checkpoint and
+delay-slot structure remain. Thirty-two original/adapted complete-flat-RAM prefix
+comparisons pass, stopping the original at its first device request and the
+adaptation at the next game call; neither request is answered. Every guarded
+source word is mutation-tested. Original ELF load bytes/identities remain intact.
+Unported time readers still reject; a native frame adapter remains necessary.
+
+The virtual worker dispatch from `0x119750` reaches `0x11d4e0`, whose prologue/body
+were absent from Ghidra's export although its tail labels were present. A fully
+fingerprinted supplemental extent through `0x11d7c0` restores ordinary static
+compilation without a stub. The existing tail entries remain interior labels.
+
+Timer rearm `0x141f00` only reconfigures a compare device for an empty list and
+does nothing during callback dispatch. Those two cases now preserve native game
+records. Three original/native full-RAM prefix comparisons (excluding the
+original 64-byte ABI stack scratch) and six native state/admission cases pass.
+A nonempty list outside dispatch still rejects before mutation. Nine VP2S suites
+pass through native worker startup to that pending-deadline boundary. This is
+still zero rendered frames; reaching the previous playable Logun route remains
+the active task. No hardware counter, alarm callback or visual parity is claimed.

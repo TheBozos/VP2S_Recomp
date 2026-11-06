@@ -7,8 +7,10 @@
 
 namespace vp2s {
 namespace {
-void rejectFirmwareEntry(uint8_t *,R5900Context *ctx,Runtime *) {
-    throw std::runtime_error(std::format("unported SDK kernel/timer entry at {:x}; native replacement required",ctx->pc));
+void rejectFirmwareEntry(uint8_t *,R5900Context *ctx,Runtime *rt) {
+    uint32_t active=0,dispatching=0;
+    if(rt) { std::memcpy(&active,rt->memory.ram()+0x14a250,4);std::memcpy(&dispatching,rt->memory.ram()+0x14a254,4); }
+    throw std::runtime_error(std::format("unported SDK kernel/timer entry at {:x} ra={:x} active={:x} dispatching={:x}; native replacement required",ctx->pc,ctx->r[31].uw[0],active,dispatching));
 }
 }
 void initNativeSyscallServices(uint8_t *,R5900Context *ctx,Runtime *rt) {
@@ -64,6 +66,7 @@ void installNativeKernelBindings(bozo::port::Registry &registry) {
     registry.registerFunction(0x141bb0u,&initNativeTimer);
     registry.registerFunction(0x141df0u,&startNativeTimer);
     registry.registerFunction(0x1423f8u,&queryNativeTimer);
+    registry.registerFunction(0x141f00u,&rearmNativeTimer);
     registry.registerFunction(0x137280u,&nativeOsdSettings);
     registry.registerFunction(0x137290u,&nativeOsdSettings);
     registry.registerFunction(0x140b70u,&retireEventFirmwareInstaller);

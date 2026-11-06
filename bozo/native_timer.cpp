@@ -66,4 +66,17 @@ void queryNativeTimer(uint8_t *,R5900Context *ctx,Runtime *rt) {
     const auto &clock=clockFor(rt,ctx,d);
     ctx->r[2].ud[0]=clock.value(d->now(ctx)); ctx->pc=ctx->r[31].uw[0];
 }
+void rearmNativeTimer(uint8_t *,R5900Context *ctx,Runtime *rt) {
+    bozo::ee::Dispatcher *d=nullptr;
+    clockFor(rt,ctx,d);
+    uint32_t active,dispatching;
+    std::memcpy(&active,rt->memory.ram()+0x14a250,4);
+    std::memcpy(&dispatching,rt->memory.ram()+0x14a254,4);
+    // While a callback is being dispatched the original does nothing. An empty
+    // list only disables its compare interrupt. Native time has no such device.
+    // Do not accept a pending list until its real deadlines/callbacks are ported.
+    if(static_cast<int32_t>(dispatching)<0 && active)
+        throw std::runtime_error("native SDK timer rearm requires pending deadline support");
+    ctx->pc=ctx->r[31].uw[0];
+}
 }

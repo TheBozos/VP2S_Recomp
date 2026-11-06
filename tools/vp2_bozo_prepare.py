@@ -175,6 +175,9 @@ def main():
         data = source.read_bytes()
         with (args.build/'ghidra/export'/f'{name}_functions.csv').open(newline='') as stream:
             rows = list(csv.DictReader(stream))
+        if name == 'main':
+            from vp2_bozo_kernel import game_entries
+            rows += game_entries(data)
         prepared, metadata = prepare(data, rows, sdk_names(args.build/'sdk'/f'{name}.toml'))
         target = args.out/f'{name}.elf'
         if not target.exists() or target.read_bytes() != prepared:

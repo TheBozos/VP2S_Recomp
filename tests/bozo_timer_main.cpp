@@ -1,6 +1,7 @@
 // Differential check against original statically recompiled code, stopped at
 // its FIRST device request. No device value, firmware image or interpreter.
 #include "native_kernel.h"
+#include "native_timer.h"
 #include "bozo/ee/dispatcher.h"
 #include "timer_ref_functions.h"
 #include <cstdio>
@@ -11,8 +12,10 @@
 namespace {
 void check(bool value) { if(!value) throw std::runtime_error("timer record/ABI comparison failed"); }
 struct FirstDevice {};
-class Host final : public bozo::ee::Host {
+class Host final : public bozo::ee::Host,public vp2s::TimerOwner {
 public:
+    vp2s::TimerClock clock;
+    vp2s::TimerClock &timerClock() override { return clock; }
     unsigned reads=0;
     void libraryCall(bozo::ee::Dispatcher &d,R5900Context *ctx,uint32_t target) override {
         check(target==0x132e40);
@@ -95,6 +98,29 @@ int main() {
                 catch(const std::runtime_error &) { rejected=true; }
                 check(rejected && nativeHost.reads==0);
             }
+        }
+        // Original empty rearm has no game-data output before its FIRST device
+        // read; dispatch-in-progress exits before any device access. Stack ABI
+        // scratch is the only excluded region, as in the initializer fixture.
+        for(int32_t dispatching:{-1,0,7}) {
+            Host aHost,bHost; bHost.clock.initialized=true;
+            bozo::ee::Dispatcher a(aHost),b(bHost);
+            a.boot(0x100000,sp);b.boot(0x100000,sp);
+            a.setFunctions(timer_ref_function_table,timer_ref_function_count,timer_ref_resume_table,timer_ref_resume_count);
+            auto &x=a.runtime();auto &y=b.runtime();
+            std::memset(x.memory.flat(),0x76,bozo::kFlatBytes);
+            word(x.memory.ram(),state+24,0);word(x.memory.ram(),state+28,dispatching);
+            std::memcpy(y.memory.flat(),x.memory.flat(),bozo::kFlatBytes);
+            std::vector<uint8_t> stack(x.memory.ram()+sp-0x40,x.memory.ram()+sp);
+            R5900Context original,native; original.pc=0x141f00;
+            original.r[29].uw[0]=sp;original.r[31].uw[0]=0x200000;native=original;
+            bool stopped=false;
+            try { x.functions.generated(0x141f00)(x.memory.flat(),&original,&x); } catch(const FirstDevice &) { stopped=true; }
+            check(stopped==(dispatching<0));
+            vp2s::rearmNativeTimer(nullptr,&native,&y);
+            check(native.pc==0x200000 && bHost.reads==0);
+            std::memcpy(x.memory.ram()+sp-0x40,stack.data(),stack.size());
+            check(!std::memcmp(x.memory.flat(),y.memory.flat(),bozo::kFlatBytes));
         }
         Host h; bozo::ee::Dispatcher d(h); d.boot(0x100000,sp);
         auto &rt=d.runtime(); word(rt.memory.ram(),state+8,0xffffffff);

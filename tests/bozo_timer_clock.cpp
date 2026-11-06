@@ -46,6 +46,20 @@ int main() {
             check(!std::memcmp(&ctx,&expected,sizeof(ctx)));
         }
         check(!std::memcmp(before.data(),rt.memory.flat(),bozo::kFlatBytes) && rt.cop0Status==0x10001);
+        for(int32_t dispatching:{-1,0,7}) {
+            std::memcpy(rt.memory.ram()+0x14a254,&dispatching,4);
+            for(uint32_t active:{0u,0x180000u}) {
+                std::memcpy(rt.memory.ram()+0x14a250,&active,4);
+                std::vector<uint8_t> snapshot(rt.memory.flat(),rt.memory.flat()+bozo::kFlatBytes);
+                ctx.pc=0x141f00;
+                R5900Context expected=ctx;expected.pc=ctx.r[31].uw[0];
+                bool failed=false;
+                try { vp2s::rearmNativeTimer(nullptr,&ctx,&rt); } catch(const std::runtime_error &) { failed=true; }
+                check(failed==(dispatching<0 && active!=0));
+                if(!failed) check(!std::memcmp(&expected,&ctx,sizeof(ctx)));
+                check(!std::memcmp(snapshot.data(),rt.memory.flat(),bozo::kFlatBytes));
+            }
+        }
         bool rejected=false;
         try { vp2s::startNativeTimer(nullptr,&ctx,&second.runtime()); } catch(const std::runtime_error &) { rejected=true; }
         check(rejected && !other.clock.initialized);

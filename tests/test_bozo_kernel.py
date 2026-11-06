@@ -5,7 +5,7 @@ import unittest
 from pathlib import Path
 sys.path.insert(0,str(Path(__file__).resolve().parents[1]/'tools'))
 from vp2_bozo_prepare import elf_parts
-from vp2_bozo_kernel import bindings, GUARDS, RETIRED_RANGES
+from vp2_bozo_kernel import bindings, game_adaptations, game_entries, GUARDS, RETIRED_RANGES
 
 IMAGE=Path(sys.argv.pop(1))
 
@@ -45,6 +45,25 @@ class KernelGuardTests(unittest.TestCase):
         for data in [b'',bytes(80),self.data[:128]]:
             with self.assertRaises((ValueError,struct.error)):
                 bindings(data)
+
+    def test_game_timing_adaptations(self):
+        self.assertEqual(game_adaptations(self.data).splitlines(),[
+            '001002f4 ac220010 00000000','00100300 ac200000 00000000'])
+        segment=next(s for s in self.segments if s[0]==1 and s[2]<=0x1002c0<0x100304<=s[2]+s[4])
+        for pc in range(0x1002c0,0x100304,4):
+            data=bytearray(self.data)
+            data[segment[1]+pc-segment[2]]^=1
+            with self.subTest(pc=hex(pc)),self.assertRaises(ValueError):
+                game_adaptations(data)
+
+    def test_worker_entry(self):
+        self.assertEqual(game_entries(self.data),[
+            dict(Name='worker_entry_0011d4e0',Start='0x11d4e0',End='0x11d7c0')])
+        segment=next(s for s in self.segments if s[0]==1 and s[2]<=0x11d4e0<0x11d7c0<=s[2]+s[4])
+        for pc in range(0x11d4e0,0x11d7c0,4):
+            data=bytearray(self.data)
+            data[segment[1]+pc-segment[2]]^=1
+            with self.subTest(pc=hex(pc)),self.assertRaises(ValueError): game_entries(data)
 
 
 if __name__=='__main__': unittest.main()

@@ -15,6 +15,7 @@ data=args.source.read_bytes()
 bindings(data) # full audited USA source guards, including initializer/helper/IRQ
 rows=[dict(Name=name,Start=hex(lo),End=hex(hi)) for name,lo,hi in [
     ('timer_original',0x141bb0,0x141d04),
+    ('rearm_original',0x141f00,0x142090),
     ('callback_pool_original',0x142e80,0x142ecc),
     ('critical_original',0x1412a0,0x1412f0)]]
 fixture,_=prepare(data,rows,{})

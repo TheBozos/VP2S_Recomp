@@ -1,8 +1,8 @@
-"""Bounded headless integration: native timer/settings reach event SDK installation.
+"""Bounded headless integration through worker startup to pending SDK deadlines.
 
 No window/input options or card directory are passed. The runner uses fresh
-in-memory cards. The separate unported start-timer operation must remain a hard
-failure. Retiring InitAlarm's installer does not qualify runtime alarm APIs.
+in-memory cards. A pending SDK timer list remains a hard failure until its
+deadline/callback path is ported. Installer retirement does not qualify alarms.
 """
 import subprocess
 import sys
@@ -23,8 +23,8 @@ if '[vp2s:bozo] native SDK timer started' not in output:
     raise SystemExit('startup did not start the native SDK clock')
 if '[vp2s:bozo] retired SDK event firmware installer' not in output:
     raise SystemExit('startup did not retire the audited event firmware installer')
-if 'unported device write 10000010 at pc=1002c0' not in output:
-    raise SystemExit('startup did not reach the game-owned timing setup')
+if 'native SDK timer rearm requires pending deadline support' not in output:
+    raise SystemExit('startup did not reach the pending native deadline boundary')
 if 'syscall 116' in output or 'a call to' in output:
     raise SystemExit('native binding was bypassed or unanswered')
-print('Native SDK bootstrap passed; unsupported game-owned timing setup reached.')
+print('Native bootstrap/worker startup passed; unsupported pending deadline boundary reached.')

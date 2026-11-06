@@ -22,6 +22,18 @@ sources and initializes the game callback record. It passes repeat/reset/two-hos
 executing device code. Production assigns service 6 and reaches the distinct `Csd_.irx` boundary.
 This qualifies Csm initialization only; streaming/voice/timer services are still checked on use.
 
+The following Csd increment admits its USA image and 75 strictly compiled routines. Its original
+entry creates a native cooperative task, retains the compiled Csm dependency call and leaves the
+worker sleeping at the game's `SleepThread`. Repeat/reset/two-host and retained-sleep checks pass.
+Production assigns service 7 and reaches `Csi_.irx`. Playback/file/command paths are not yet qualified.
+
+Csi's isolated initializer reproduced missing `sysclib:14` (`memset`), implemented by engine PR16
+with bounded native byte filling and 19 passing headless suites/green Windows/Linux CI. Csi's original
+compiled entry now registers service `0x1234` and parks its native RPC task. Registration, parked worker,
+repeat/reset and independent-server ownership pass. Production reaches `mcman.irx` after service 8.
+An explicit request-14 probe still fails on `thbase:42`; RPC worker identity/priority is the next native
+SDK contract, not an invented priority response. Game startup still has zero frames.
+
 ### Native controller record boundary (2026-11-06)
 
 Engine PR15 (`1b6f1ed`) supplies per-host native algorithm bindings, with 18 headless engine suites

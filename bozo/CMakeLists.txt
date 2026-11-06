@@ -63,6 +63,26 @@ if(MINGW)
 endif()
 add_test(NAME vp2s-bozo-modules COMMAND vp2s-bozo-modules-check)
 if(VP2S_BOZO_CODE)
+  set(CSI_REF "${CMAKE_CURRENT_BINARY_DIR}/csi-native-reference")
+  add_custom_command(OUTPUT "${CSI_REF}/csi__iop.cpp" "${CSI_REF}/vp2_csi_image.h"
+    COMMAND ${Python3_EXECUTABLE} "${VP2S_ROOT}/tools/vp2_bozo_sound_fixture.py"
+      "${VP2S_BOZO_DATA}/../extract/iop/Csi_.irx" "${CSI_REF}" --kind csi --build "${VP2S_BOZO_DATA}/.."
+    DEPENDS "${VP2S_ROOT}/tools/vp2_bozo_sound_fixture.py" "${VP2S_BOZO_DATA}/../extract/iop/Csi_.irx"
+      "${VP2S_ROOT}/external/BozoEngine/tools/native_irx/relocate.py" "${VP2S_ROOT}/external/BozoEngine/tools/native_irx/recompile.py")
+  add_executable(vp2s-bozo-csi-check "${VP2S_ROOT}/tests/bozo_csi_main.cpp" "${CSI_REF}/csi__iop.cpp")
+  target_include_directories(vp2s-bozo-csi-check PRIVATE "${CSI_REF}")
+  target_link_libraries(vp2s-bozo-csi-check PRIVATE bozo_libs)
+  if(MINGW)
+    target_link_options(vp2s-bozo-csi-check PRIVATE -static)
+  endif()
+  add_test(NAME vp2s-bozo-csi-init COMMAND vp2s-bozo-csi-check)
+  set_tests_properties(vp2s-bozo-csi-init PROPERTIES TIMEOUT 10)
+  set(CSD_REF "${CMAKE_CURRENT_BINARY_DIR}/csd-native-reference")
+  add_custom_command(OUTPUT "${CSD_REF}/csd__iop.cpp" "${CSD_REF}/vp2_csd_image.h"
+    COMMAND ${Python3_EXECUTABLE} "${VP2S_ROOT}/tools/vp2_bozo_sound_fixture.py"
+      "${VP2S_BOZO_DATA}/../extract/iop/Csd_.irx" "${CSD_REF}" --kind csd --build "${VP2S_BOZO_DATA}/.."
+    DEPENDS "${VP2S_ROOT}/tools/vp2_bozo_sound_fixture.py" "${VP2S_BOZO_DATA}/../extract/iop/Csd_.irx"
+      "${VP2S_ROOT}/external/BozoEngine/tools/native_irx/relocate.py" "${VP2S_ROOT}/external/BozoEngine/tools/native_irx/recompile.py")
   set(CSM_REF "${CMAKE_CURRENT_BINARY_DIR}/csm-native-reference")
   add_custom_command(OUTPUT "${CSM_REF}/csm__iop.cpp" "${CSM_REF}/vp2_csm_image.h"
     COMMAND ${Python3_EXECUTABLE} "${VP2S_ROOT}/tools/vp2_bozo_sound_fixture.py"
@@ -77,6 +97,14 @@ if(VP2S_BOZO_CODE)
   endif()
   add_test(NAME vp2s-bozo-csm-init COMMAND vp2s-bozo-csm-check)
   set_tests_properties(vp2s-bozo-csm-init PROPERTIES TIMEOUT 10)
+  add_executable(vp2s-bozo-csd-check "${VP2S_ROOT}/tests/bozo_csd_main.cpp" "${CSM_REF}/csm__iop.cpp" "${CSD_REF}/csd__iop.cpp")
+  target_include_directories(vp2s-bozo-csd-check PRIVATE "${CSM_REF}" "${CSD_REF}")
+  target_link_libraries(vp2s-bozo-csd-check PRIVATE bozo_libs)
+  if(MINGW)
+    target_link_options(vp2s-bozo-csd-check PRIVATE -static)
+  endif()
+  add_test(NAME vp2s-bozo-csd-init COMMAND vp2s-bozo-csd-check)
+  set_tests_properties(vp2s-bozo-csd-init PROPERTIES TIMEOUT 10)
   set(SOUND_REF "${CMAKE_CURRENT_BINARY_DIR}/sound-native-reference")
   add_custom_command(OUTPUT "${SOUND_REF}/sound_device_library_iop.cpp" "${SOUND_REF}/vp2_sound_image.h"
     COMMAND ${Python3_EXECUTABLE} "${VP2S_ROOT}/tools/vp2_bozo_sound_fixture.py"
@@ -193,8 +221,8 @@ if(VP2S_BOZO_CODE)
   target_link_libraries(vp2s_bozo_game PUBLIC bozo_runtime_headers)
   target_include_directories(vp2s_bozo_game PUBLIC "${VP2S_BOZO_DATA}/generated")
   target_compile_options(vp2s_bozo_game PRIVATE -O1 -w -ffp-contract=off)
-  add_executable(vp2s-bozo-headless main.cpp "${DBC_REF}/dbc_manager_iop.cpp" "${CONTROLLER_REF}/ds2o_d_iop.cpp" "${SOUND_REF}/sound_device_library_iop.cpp" "${CSM_REF}/csm__iop.cpp")
-  target_include_directories(vp2s-bozo-headless PRIVATE "${DBC_REF}" "${CONTROLLER_REF}" "${SOUND_REF}" "${CSM_REF}")
+  add_executable(vp2s-bozo-headless main.cpp "${DBC_REF}/dbc_manager_iop.cpp" "${CONTROLLER_REF}/ds2o_d_iop.cpp" "${SOUND_REF}/sound_device_library_iop.cpp" "${CSM_REF}/csm__iop.cpp" "${CSD_REF}/csd__iop.cpp" "${CSI_REF}/csi__iop.cpp")
+  target_include_directories(vp2s-bozo-headless PRIVATE "${DBC_REF}" "${CONTROLLER_REF}" "${SOUND_REF}" "${CSM_REF}" "${CSD_REF}" "${CSI_REF}")
   target_link_libraries(vp2s-bozo-headless PRIVATE vp2s_bozo_game vp2s_bozo_kernel bozo_host)
   target_compile_definitions(vp2s-bozo-headless PRIVATE VP2S_BOZO_IMAGES="${VP2S_BOZO_DATA}/images")
   if(MINGW)

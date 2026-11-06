@@ -3,11 +3,13 @@ import argparse,hashlib,json,subprocess,sys
 from pathlib import Path
 p=argparse.ArgumentParser(description=__doc__)
 p.add_argument('source',type=Path);p.add_argument('out',type=Path);p.add_argument('--build',required=True,type=Path)
-p.add_argument('--kind',choices=['libsd','csm'],default='libsd')
+p.add_argument('--kind',choices=['libsd','csm','csd','csi'],default='libsd')
 a=p.parse_args()
 if not a.out.resolve().is_relative_to(a.build.resolve()):raise ValueError('private build directory required')
 identities={'libsd':('d26a8dcd121ff4ded9c819b72864ea7f4e723932cc2eab1b4f0f1c93faad43ef',0x30000,'Sound'),
-            'csm':('09d4daf88a61d2756a8f93cd2e1be4930f55d3ba6d59d92d52aa1a17df4835a7',0x40000,'Csm')}
+            'csm':('09d4daf88a61d2756a8f93cd2e1be4930f55d3ba6d59d92d52aa1a17df4835a7',0x40000,'Csm'),
+            'csd':('3196c1f9ed3597d0cb0d46ce4979ec0ec4630476bcee56f0d74f42a0aa758f00',0x50000,'Csd'),
+            'csi':('da508580b89f62ffee7037b26e21086e1944cf8aa48f21cb80b796580503c2e5',0x68000,'Csi')}
 digest,base,label=identities[a.kind]
 if hashlib.sha256(a.source.read_bytes()).hexdigest()!=digest:
     raise ValueError(f'USA {a.kind} identity mismatch')

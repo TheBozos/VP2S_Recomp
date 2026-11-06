@@ -16,7 +16,8 @@ ModuleResult NativeServiceModules::loadBuffer(std::span<const uint8_t> buffer,st
         if(original.empty() || buffer.size()!=((original.size()+15)&~size_t(15)) ||
            !std::equal(original.begin(),original.end(),buffer.begin()))continue;
         if((std::string_view(name)=="Dbc_Manager.irx" || std::string_view(name)=="ds2o_d.irx" ||
-            std::string_view(name)=="Sound_Device_Library.irx" || std::string_view(name)=="Csm_.irx") && startCustom) {
+            std::string_view(name)=="Sound_Device_Library.irx" || std::string_view(name)=="Csm_.irx" ||
+            std::string_view(name)=="Csd_.irx" || std::string_view(name)=="Csi_.irx") && startCustom) {
             if(auto it=services.find(name);it!=services.end())return {it->second,0};
             const auto result=startCustom(name,args);
             if(result!=0)throw std::runtime_error("native custom service initialization failed");

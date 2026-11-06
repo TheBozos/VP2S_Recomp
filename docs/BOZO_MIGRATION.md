@@ -21,14 +21,16 @@ a window nor reads host input. No card directory is passed: cards remain fresh
 in memory and user saves are not opened. All generated game bytes and logs stay
 in ignored `build_usa/bozo` and `build_usa/bozo_port` directories.
 
-The engine submodule is pinned to published `e5ddc96`, merging the isolated
-offline-entry contribution in [engine PR7](https://github.com/TheBozos/BozoEngine/pull/7)
-on top of compiler PR6 (`9d24c9d`). All Windows/Linux CI checks passed; the
-merged source tree matches tested head `eda6885`. PR7's remote/local feature
-branch was deleted. Published engine `4a8f70a` now includes graphics-services PR5
-and the compiler range-guard follow-up PR8; that newer pin is not yet qualified
-by VP2S. This timer increment retains `e5ddc96`. No `--patches` instruction
-adaptations are used by this bring-up pipeline.
+The engine submodule is now pinned to published `4a8f70a`, including native
+graphics-services PR5 and compiler PR6/7/8. PR7's local/remote feature branch was
+deleted after green CI and merge. VP2S independently builds the new pin and passes
+8 port suites plus all 12 headless/default-tools engine suites. The startup stop
+and complete flat-memory hash match the prior `e5ddc96` pin exactly
+(`97ea3633aa2d1eb6` at the game-owned timing store). This qualifies this bounded
+bootstrap path only; it does not qualify VP2S drawing/audio or the route yet.
+The engine's old GS state/privileged bank/runtime packet readers are removed in
+this published pin. Per-image guarded adaptations are used only when explicitly
+audited below; original ELF/runtime load bytes and overlay identities stay intact.
 TMB and DC supplied concrete migration and overlay-registration guidance on F2F.
 
 `bozo/CMakeLists.txt` links BozoEngine only. `tools/vp2_bozo_prepare.py` appends

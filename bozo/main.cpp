@@ -7,6 +7,7 @@
 #include "native_timer.h"
 #include "native_settings.h"
 #include <cstdio>
+#include <cstdlib>
 #include <format>
 #include <fstream>
 #include <iterator>
@@ -21,14 +22,23 @@ public:
     vp2s::Settings preferences;
     vp2s::Settings &settings() override { return preferences; }
     explicit StrictHost(const bozo::host::FreeOptions &options) : native(options) {}
+    void boundaryHash(bozo::ee::Dispatcher &d) {
+        if(!std::getenv("VP2S_BOZO_BOUNDARY_HASH")) return;
+        uint64_t hash=14695981039346656037ull;
+        const auto *ram=d.runtime().memory.flat();
+        for(uint32_t i=0;i<bozo::kFlatBytes;++i) { hash^=ram[i];hash*=1099511628211ull; }
+        std::fprintf(stderr,"[vp2s:bozo] boundary RAM hash=%016llx\n",(unsigned long long)hash);
+    }
     void libraryCall(bozo::ee::Dispatcher &d,R5900Context *c,uint32_t target) override { native.libraryCall(d,c,target); }
     void vu0Microprogram(bozo::ee::Dispatcher &,R5900Context *c,uint32_t address) override {
         throw std::runtime_error(std::format("unported VP2S VU0 algorithm {:x} at pc={:x}",address,c->pc));
     }
-    void ioRead(bozo::ee::Dispatcher &,R5900Context *c,uint32_t address,uint32_t,uint64_t[2]) override {
+    void ioRead(bozo::ee::Dispatcher &d,R5900Context *c,uint32_t address,uint32_t,uint64_t[2]) override {
+        boundaryHash(d);
         throw std::runtime_error(std::format("unported device read {:x} at pc={:x}",address,c->pc));
     }
-    void ioWrite(bozo::ee::Dispatcher &,R5900Context *c,uint32_t address,uint32_t,const uint64_t[2]) override {
+    void ioWrite(bozo::ee::Dispatcher &d,R5900Context *c,uint32_t address,uint32_t,const uint64_t[2]) override {
+        boundaryHash(d);
         throw std::runtime_error(std::format("unported device write {:x} at pc={:x}",address,c->pc));
     }
     bool cop0Condition(bozo::ee::Dispatcher &,R5900Context *c) override {

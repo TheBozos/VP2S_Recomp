@@ -52,6 +52,14 @@ game now reaches DBC's `sifman:7` native bulk-copy boundary, with 21 port suites
 must validate every source/destination span, perform the actual data movement and queue a real native
 completion; no dummy transfer ID or callback acknowledgement is admitted.
 
+Engine PR19 (`f824703`) now performs checked native library-data-to-EE copies and queues actual
+native completion callbacks. All 22 engine suites and Windows/Linux CI pass. Failed batches preserve
+all EE output and consume no job ID; device/VU destinations, tag attributes and unknown callback entries
+reject. The real boot gets past the DBC copy and reaches a GS CSR read in the old frame-event callback
+`0x11fb40` (caller `0x1200f0`), not a draw submission. Its game counters, input countdowns and message
+calls must be preserved while removing hardware field/flip behavior. Native rendering is still absent;
+zero frames and no Logun-route qualification. C2C/F2F checks remain paused at the user's request.
+
 ### Native controller record boundary (2026-11-06)
 
 Engine PR15 (`1b6f1ed`) supplies per-host native algorithm bindings, with 18 headless engine suites

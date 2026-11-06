@@ -304,6 +304,63 @@ audio pass. The independent native runs retain continuous late music playback.
 At final town capture 39, native versus diagnostic static-zone RGB mean absolute
 errors are 0.015 (central wall), 0.053 (left wall), and 0.173 (ground), on 0..255.
 
+## Rigid-transform inverse translation, 2026-11-06
+
+The shared rigid-transform inverse helper `0x216E40` no longer needs VU0
+registers or macro execution by default. Its only VU block (`0x216EE0` through
+`0x216EFC`) multiplied three matrix rows by the xyz components of a temporary
+translation record. The native operation reads those ordinary game records,
+performs the same ordered three products/two sums, and writes xyz back while
+preserving the temporary's fourth component bit-for-bit. The scalar transpose,
+negation, stack handling and EE control flow remain the original recompiled
+game code. This is the game's rigid-transform inverse, not the separate general
+matrix-inverse helper `0x217310` / microprogram `0x2D0`.
+
+The lowerer validates the exact eight-instruction USA block against the ELF
+and rewrites both the full function and its overlapping `0x216EB8` continuation.
+Repeating the converter changes no generated EE files. All four vector loads,
+three arithmetic macro instructions and the old result store are gated to an
+explicit original-comparison path. The native call takes a three-row matrix
+record and the game's existing temporary vector, never VU memory, instructions,
+register inputs or packet data. It introduces no timing or hardware transport.
+
+The 11 direct caller instructions include camera/projection builders, object
+transforms and model helpers. They consume the returned matrix record; later
+vector operations reload their operands or use different explicitly loaded
+registers. No temporary VU register result is retained as a return interface.
+
+`VP2S_NATIVE_RIGID_INVERSE=0` explicitly selects the original macro block.
+`VP2S_RIGID_INVERSE_CHECK=1` checks each native temporary against the original
+four-component result and fails immediately on a mismatch, without fallback.
+`VP2S_RIGID_INVERSE_RECORD=<file>` captures bounded typed input/result records;
+`VP2S_RIGID_INVERSE_FAILURE_RECORD=<file>` writes a failing record before aborting.
+The records also retain the host rounding/denormal controls for offline replay.
+The native arithmetic follows the caller's host mode, preserving this EE
+sequence's small-result reduction without using the microprogram product's
+different truncating-sum policy.
+
+The offline original-EE-macro comparison passes **131,216 cases / 524,864 scalar
+outputs**. It covers round-to-nearest and toward-zero, each with denormal controls
+on and off, general finite inputs, tiny components, signed-zero/axis cases and
+arbitrary fourth-component payload bits. Two independent 4,096-record live
+captures (three distinct input records each) also match exactly. Together these
+are **139,408 cases / 557,632 scalar outputs**, zero differences. Live captures
+use round-to-nearest with denormal controls off.
+
+Both the strict-comparison and independent native-only town/inn routes completed
+300 seconds with streamed music still playing at 290 seconds and user memory-card
+hashes unchanged. Each passed at least 200,704 calls; the native-only run passed
+208,896. At town capture 40, native versus comparison static-zone RGB mean
+absolute errors are 0.003 (central wall), 0.247 (left wall), and 0.080 (ground)
+on the 0..255 scale. These are native regression checks, not new PCSX2 parity
+evidence. Other inverse/projection helpers and VU0 operations remain separate
+replacement work.
+
+```powershell
+build_usa/port/vp2s_math_check.exe --rigid-inverse-synthetic
+build_usa/port/vp2s_math_check.exe <rigid-inverse-records.bin>
+```
+
 ## Still open
 
 The Csi seed service still runs through the IOP environment. Other main/module

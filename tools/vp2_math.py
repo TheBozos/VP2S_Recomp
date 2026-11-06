@@ -11,6 +11,42 @@ import hashlib
 from pathlib import Path
 
 
+def lower_rigid_inverse(directory,data):
+    words=[0xd8a10000,0xd8a20010,0xd8a30020,0xd8640000,
+           0x4bc409bc,0x4bc410bd,0x4bc4190a,0xf8640000]
+    if data.count(struct.pack('<8I',*words))!=1:
+        raise ValueError('Unexpected USA rigid inverse translation block')
+    changed=0
+    for path in directory.glob('*.cpp'):
+        m=re.search(r'_0x([0-9a-f]+)$',path.stem)
+        if not m or not 0x216e40<=int(m[1],16)<=0x216efc:continue
+        text=path.read_text();marker='// VP2S native rigid inverse translation v1'
+        if marker in text:continue
+        def patch(m):
+            pc=int(m[1],16)
+            if not 0x216ee0<=pc<=0x216efc:return m[0]
+            assert int(m[2],16)==words[(pc-0x216ee0)//4]
+            body=m[3]
+            if pc<0x216ef0:pattern=r'ctx->vu0_vf\[[1-4]\] = [^\n;]+;'
+            elif pc<0x216efc:pattern=r'\{ __m128.*? \}'
+            else:pattern=r'WRITE128\([^\n]+_mm_castps_si128\(ctx->vu0_vf\[4\]\)\);'
+            found=re.search(pattern,body,re.S);assert found,(path.name,hex(pc))
+            original=found[0]
+            if pc==0x216efc:
+                replacement=('if (vp2sRigidInverseEnabled()) { vp2sRigidInverseTranslation(rdram, ctx, '
+                             'GPR_U32(ctx, 5), GPR_U32(ctx, 3)); } else { '+original+' }')
+            else:replacement='if (vp2sRigidInverseReferenceEnabled()) { '+original+' }'
+            return m[0][:m[0].index(body)]+body[:found.start()]+replacement+body[found.end():]
+        lowered=re.sub(r'// 0x([0-9a-f]+): 0x([0-9a-f]+)[^\n]*\n(.*?)(?=\s*// 0x[0-9a-f]+:|\Z)',patch,text,flags=re.S)
+        if lowered==text:continue
+        include='#include "ps2_recomp_calls.h"'
+        assert lowered.count(include)==1
+        declarations=('\n'+marker+'\nbool vp2sRigidInverseEnabled();\nbool vp2sRigidInverseReferenceEnabled();\n'
+                      'void vp2sRigidInverseTranslation(uint8_t*, R5900Context*, uint32_t, uint32_t);\n')
+        path.write_text(lowered.replace(include,include+declarations));changed+=1
+    print(f'Native rigid inverse: USA block validated; {changed} EE files lowered')
+
+
 def lower_normalization(directory):
     instructions={}
     for path in directory.glob('*FUN*.cpp'):
@@ -129,6 +165,7 @@ def main():
     source=source.encode()
     if not path.exists() or path.read_bytes()!=source: path.write_bytes(source)
     lower_normalization(args.recomp/'mod001')
+    lower_rigid_inverse(args.recomp/'mod001',data)
     from vp2_inline_math import lower
     lower(args.recomp)
     print('Native matrix: validated USA product; original reference emitted offline')

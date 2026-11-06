@@ -7,6 +7,16 @@ target, not a replacement DLL loaded into PS2Recomp.
 
 ## Build and evidence
 
+### Native graphics prelude (2026-11-06)
+
+Overlay startup's DMA-control enable store and the channel-nine object's physical routing RMW are
+retired under complete setup/constructor fingerprints. These do not submit application data. All
+allocations, object/vtable fields, native callback registration and initialization remain compiled;
+no control/status value is supplied. Mutation tests cover every word of both bodies. The real boot
+now gets past that setup and reaches `0x29e20c`: initialization of the game's random stream through
+the old VU random instructions. That stream and its consumers need a native algorithm; it remains
+an explicit unsupported boundary. Native rendering and the Logun route are still unqualified.
+
 ### Native startup arithmetic and overlay linking (2026-11-06)
 
 The initial VIF0 upload installs only the already ported startup derivation algorithm. Bozo now reuses

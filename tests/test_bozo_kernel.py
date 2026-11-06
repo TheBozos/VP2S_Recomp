@@ -5,7 +5,7 @@ import unittest
 from pathlib import Path
 sys.path.insert(0,str(Path(__file__).resolve().parents[1]/'tools'))
 from vp2_bozo_prepare import elf_parts,overlay_entries
-from vp2_bozo_kernel import bindings, game_adaptations, frame_adaptations, game_entries, native_game_sites, GUARDS, RETIRED_RANGES,bootstrap_adaptations,bootstrap_tables
+from vp2_bozo_kernel import bindings, game_adaptations, frame_adaptations, game_entries, native_game_sites, GUARDS, RETIRED_RANGES,bootstrap_adaptations,bootstrap_tables,overlay_adaptations
 
 IMAGE=Path(sys.argv.pop(1))
 
@@ -54,6 +54,17 @@ class KernelGuardTests(unittest.TestCase):
                 with self.subTest(pc=hex(pc)),self.assertRaises(ValueError):overlay_entries('mod001',altered)
         second=(IMAGE.parent/'mod002.elf').read_bytes()
         self.assertEqual(len(overlay_entries('mod002',second)),2)
+
+    def test_graphics_enable_retirement(self):
+        data=(IMAGE.parent/'mod001.elf').read_bytes()
+        self.assertEqual(overlay_adaptations('mod001',data).splitlines(),[
+            '00249830 ac22e000 00000000','002021c4 3c011001 0808087a','002021c8 2402fffd 00000000'])
+        _,segments,_=elf_parts(data)
+        for lo,hi in ((0x249720,0x24a438),(0x202150,0x202200)):
+            segment=next(s for s in segments if s[0]==1 and s[2]<=lo<hi<=s[2]+s[4])
+            for pc in range(lo,hi,4):
+                altered=bytearray(data);altered[segment[1]+pc-segment[2]]^=1
+                with self.subTest(pc=hex(pc)),self.assertRaises(ValueError):overlay_adaptations('mod001',altered)
 
     def test_every_guarded_word_rejects_mutation(self):
         for lo,hi in GUARDS:

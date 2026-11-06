@@ -49,6 +49,6 @@ deeper=subprocess.run([sys.argv[1],'--iso',sys.argv[2],'--frames','600'],
                       capture_output=True,text=True,timeout=30,
                       env={**os.environ,'VP2S_BOZO_SEED':'1'})
 print(deeper.stdout+deeper.stderr,end='')
-if deeper.returncode!=1 or 'unported device write 1000e000 at pc=249824' not in deeper.stdout+deeper.stderr:
-    raise SystemExit('longer native boot did not reach its audited overlay graphics setup boundary')
+if deeper.returncode!=1 or 'unported native VP2S algorithm at pc=29e20c' not in deeper.stdout+deeper.stderr:
+    raise SystemExit('longer native boot did not reach its audited random-stream setup boundary')
 print('First native game-frame boundary passed; longer run reaches guarded hardware setup. Native rendering remains unqualified.')

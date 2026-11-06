@@ -1,13 +1,14 @@
 #include "native_kernel.h"
 #include "bozo/ee/dispatcher.h"
 #include <cstdio>
+#include <cstring>
 #include <format>
 #include <stdexcept>
 
 namespace vp2s {
 namespace {
 void rejectFirmwareEntry(uint8_t *,R5900Context *ctx,Runtime *) {
-    throw std::runtime_error(std::format("unported SDK firmware-address query/interior entry at {:x}; native callers required",ctx->pc));
+    throw std::runtime_error(std::format("unported SDK kernel/timer entry at {:x}; native replacement required",ctx->pc));
 }
 }
 void initNativeSyscallServices(uint8_t *,R5900Context *ctx,Runtime *rt) {
@@ -46,7 +47,12 @@ void installNativeKernelBindings(bozo::port::Registry &registry) {
         registry.registerFunction(pc,&rejectFirmwareEntry);
     for(uint32_t pc=0x149a90u;pc<0x14a1d0u;pc+=4)
         registry.registerFunction(pc,&rejectFirmwareEntry);
+    for(uint32_t pc=0x141bb0u;pc<0x141d04u;pc+=4)
+        registry.registerFunction(pc,&rejectFirmwareEntry);
+    for(uint32_t pc=0x142150u;pc<0x1423f4u;pc+=4)
+        registry.registerFunction(pc,&rejectFirmwareEntry);
     registry.registerFunction(0x141448u,&initNativeSyscallServices);
     registry.registerFunction(0x141a38u,&retireAlarmFirmwareInstaller);
+    registry.registerFunction(0x141bb0u,&initNativeTimer);
 }
 }

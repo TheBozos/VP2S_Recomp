@@ -25,8 +25,10 @@ The engine submodule is pinned to published `e5ddc96`, merging the isolated
 offline-entry contribution in [engine PR7](https://github.com/TheBozos/BozoEngine/pull/7)
 on top of compiler PR6 (`9d24c9d`). All Windows/Linux CI checks passed; the
 merged source tree matches tested head `eda6885`. PR7's remote/local feature
-branch was deleted. Graphics-services PR5 remains a separate unqualified candidate
-here. No `--patches` instruction adaptations are used by this bring-up pipeline.
+branch was deleted. Published engine `4a8f70a` now includes graphics-services PR5
+and the compiler range-guard follow-up PR8; that newer pin is not yet qualified
+by VP2S. This timer increment retains `e5ddc96`. No `--patches` instruction
+adaptations are used by this bring-up pipeline.
 TMB and DC supplied concrete migration and overlay-registration guidance on F2F.
 
 `bozo/CMakeLists.txt` links BozoEngine only. `tools/vp2_bozo_prepare.py` appends
@@ -56,10 +58,12 @@ The first bring-up stopped at syscall 116 (`RFU116_SetSyscall`, instruction
 `0x141550`, wrapper `0x14154c`, clock 7342664). The 2026-11-06 follow-up retires
 the SDK firmware-discovery installer at `0x141448` using the already-running
 native kernel. The next increment retires `InitAlarm`'s firmware installer at
-`0x141a38`, including its original patch-payload entry points. Startup now reaches
-the separate SDK timer initializer `0x141bb0` with argument 2 and rejects its
-mode-register read at `0x10001010` (logged resume PC `0x141c80`). It still produces
-no frames. Runtime alarm/deadline APIs are not implemented by this retirement.
+`0x141a38`, including its original patch-payload entry points. The next increment
+implements timer record initialization at `0x141bb0` for the audited startup
+argument 2. Startup now reaches the separate start-timer routine `0x141df0`
+and rejects its mode-register read at `0x10001010` (logged resume PC `0x141e04`).
+It still produces no frames. Timer start, elapsed-time queries, IRQ processing
+and runtime alarm/deadline APIs remain unported.
 See [the bootstrap audit](#sdk-syscall-bootstrap-audit-2026-11-06).
 
 Main contains eight explicit untranslated TLB operations. Mod001 contains 68
@@ -79,10 +83,10 @@ Mapped out-of-code rows are counted in the metadata report, not promoted to code
 
 ## Next increments
 
-1. Audit `0x141bb0` and its timer consumers. Unlike the retired firmware installers,
-   it initializes game-side timer records/free lists and registers an interrupt
-   handler before touching hardware. Preserve the required record semantics in
-   native code; use logical deadlines rather than supplying timer-register state.
+1. Audit start-timer `0x141df0`, elapsed-time queries and the guarded IRQ callback
+   `0x142150`. Use a logical native clock/epoch and deadline processing, preserving
+   the initialized timer records. Do not supply timer-register state. Upgrade the
+   newer published engine pin in a separately verified integration increment.
 2. Finish overlay SDK/entry coverage and native bindings. Port the existing native
    VU0 algorithms through the Bozo ABI; remaining algorithms stay explicit faults.
 3. Move the game-record model, 2D, fog/lighting and postprocess producers to the
@@ -169,3 +173,48 @@ integration fixture requires both retirement messages and the new explicit
 `0x10001010` failure. No window/input or persistent card directory is used.
 The engine pin remains the previously verified published `e5ddc96`; no shared
 engine runtime change was needed for this increment.
+
+## Native timer records and handler lifecycle, 2026-11-06
+
+Reproduced the `0x141c80` timer-mode read before editing. The next initializer
+(`0x141bb0..0x141d04`, startup argument 2) is not disposable firmware work:
+
+| Records | Required behavior |
+|---|---|
+| State at `0x14a238` | If signed handler ID at +8 is nonnegative, return `0x80008001` without changes. Otherwise clear the first 8 bytes and +16, set +20 to the primary pool, and store the allocated handler ID at +8. Preserve other fields. |
+| 128 records at `0x1e4180`, stride 64 | Clear all 8 KiB, link each record to its successor, terminate the last with zero. |
+| 64 callback records at `0x1e6180`, stride 16 | Set head `0x1e6580`, rewrite only each record's first-word link, terminate the last with zero. Preserve all callback payload bytes. |
+| Native handler | Register cause 11, callback `0x142150`, next/argument zero, and the original GP/registration-stack metadata. Enable the logical native kernel cause; no hardware counter/mode/compare access. |
+
+`bozo/native_timer.cpp` implements this data algorithm and lifecycle with native
+kernel operations. Only the audited clock argument 2 is admitted for a fresh
+initialization; unsupported choices reject before writes or handler allocation.
+The already-initialized check precedes clock admission, matching the original.
+Return values use the original low-64-bit signed convention; other native ABI
+registers, caller stack and interrupt status are retained. No simulated timer
+mode, counter or deadline service is created. The callback and initializer's
+interior entries reject until separately ported; total rejecting SDK entries
+now number 844. Full source/helper/state signatures are checked before generation.
+
+The new `vp2s-bozo-timer-records` suite executes an isolated **original statically
+recompiled** initializer, its actual callback-pool helper and critical-section
+helper. Native memset and AddIntcHandler are supplied, but its first device read
+throws immediately: no register value is returned and no device state is modeled.
+Fixture metadata preserves original load bytes, with private generated code in
+its own build directory, separate from normal game code generation.
+
+Across 32 dirty-memory cases (16 fresh negative IDs, 16 existing IDs), original
+and native flat RAM match after excluding only the original prefix's 96-byte ABI
+stack scratch. Native stack/context preservation is checked separately. This
+detects accidental clearing of callback payloads as well as missed record writes.
+Both initial interrupt states and four prior handler-allocation histories are
+covered. Sixteen additional repeat calls leave RAM unchanged and do not duplicate
+the native IRQ handler. Native cause delivery queues the expected callback/GP;
+the callback then rejects before its old device-dependent body can run.
+Unsupported clock admission also leaves RAM and handler allocation untouched.
+This is data/lifecycle evidence, not original hardware timing or CPU-cycle parity.
+
+All six port suites pass, including the updated bounded startup check: both
+firmware installers return, native timer records are initialized, then
+`0x141df0` explicitly fails at its first mode read. There is still no playable
+Bozo frame or newly claimed PCSX2 visual parity. TMB/DC were kept informed on F2F.

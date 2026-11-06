@@ -391,3 +391,27 @@ identity/argument/readiness/duplicate/reset tests use the actual private source
 images. Thirteen port suites pass. Startup reaches the next distinct custom
 `Dbc_Manager` 3.16 module; its custom protocol is still rejected and must be
 implemented separately. No custom controller data or sound result is fabricated.
+
+## Compiled Dbc_Manager initialization, 2026-11-06
+
+BozoEngine PR 14 is merged at `28f9708`, all Windows/Linux CI green, branches
+deleted. The first isolated DBC native entry failed at `thsemap:4`. The engine
+now supplies native FIFO semaphore create/delete/signal/iSignal/wait/poll with
+cooperative task queues. Seventeen headless suites pass, including mixed wait
+reason/credit preservation, delete wakeup, SDK errors, reset and ownership.
+Priority semaphore attributes are deliberately unsupported.
+
+The USA Dbc_Manager 3.16 image has a full SHA-256 admission guard. Offline strict
+translation compiles all 78 functions, with zero rejected functions; generated
+code/data remain in the ignored private build tree. No interpreter, COP0 use or
+device backend is involved in the reached initializer. Its original compiled
+entry initializes records and a real native semaphore through nine compiled
+calls. Repeat/reset/two-host checks pass. Production load now invokes this same
+per-run native initializer, then assigns a distinct service handle after success.
+It does not acknowledge custom controller requests with fabricated data.
+
+Fourteen port suites pass. The game loads sio2man, sio2d and Dbc_Manager, then
+stops explicitly at `ds2o_d.irx`, whose controller-data producer is the next
+native boundary. DBC RPC/transfer paths beyond its initializer are not qualified;
+the later driver and Tri-Ace sound remain unsupported. All screenshots/playable
+Logun-route qualification still await native startup/rendering completion.

@@ -63,6 +63,21 @@ if(MINGW)
 endif()
 add_test(NAME vp2s-bozo-modules COMMAND vp2s-bozo-modules-check)
 if(VP2S_BOZO_CODE)
+  set(DBC_REF "${CMAKE_CURRENT_BINARY_DIR}/dbc-native-reference")
+  add_custom_command(
+    OUTPUT "${DBC_REF}/dbc_manager_iop.cpp" "${DBC_REF}/vp2_dbc_image.h"
+    COMMAND ${Python3_EXECUTABLE} "${VP2S_ROOT}/tools/vp2_bozo_dbc_fixture.py"
+      "${VP2S_BOZO_DATA}/../extract/iop/Dbc_Manager.irx" "${DBC_REF}" --build "${VP2S_BOZO_DATA}/.."
+    DEPENDS "${VP2S_ROOT}/tools/vp2_bozo_dbc_fixture.py" "${VP2S_BOZO_DATA}/../extract/iop/Dbc_Manager.irx"
+      "${VP2S_ROOT}/external/BozoEngine/tools/native_irx/relocate.py" "${VP2S_ROOT}/external/BozoEngine/tools/native_irx/recompile.py")
+  add_executable(vp2s-bozo-dbc-check "${VP2S_ROOT}/tests/bozo_dbc_main.cpp" "${DBC_REF}/dbc_manager_iop.cpp")
+  target_include_directories(vp2s-bozo-dbc-check PRIVATE "${DBC_REF}")
+  target_link_libraries(vp2s-bozo-dbc-check PRIVATE bozo_libs)
+  if(MINGW)
+    target_link_options(vp2s-bozo-dbc-check PRIVATE -static)
+  endif()
+  add_test(NAME vp2s-bozo-dbc-init COMMAND vp2s-bozo-dbc-check)
+  set_tests_properties(vp2s-bozo-dbc-init PROPERTIES TIMEOUT 10)
   add_test(NAME vp2s-bozo-module-identities COMMAND vp2s-bozo-modules-check "${VP2S_BOZO_DATA}/../extract/iop")
   set(RECORD_REF "${CMAKE_CURRENT_BINARY_DIR}/timer-record-reference")
   add_custom_command(
@@ -126,7 +141,8 @@ if(VP2S_BOZO_CODE)
   target_link_libraries(vp2s_bozo_game PUBLIC bozo_runtime_headers)
   target_include_directories(vp2s_bozo_game PUBLIC "${VP2S_BOZO_DATA}/generated")
   target_compile_options(vp2s_bozo_game PRIVATE -O1 -w -ffp-contract=off)
-  add_executable(vp2s-bozo-headless main.cpp)
+  add_executable(vp2s-bozo-headless main.cpp "${DBC_REF}/dbc_manager_iop.cpp")
+  target_include_directories(vp2s-bozo-headless PRIVATE "${DBC_REF}")
   target_link_libraries(vp2s-bozo-headless PRIVATE vp2s_bozo_game vp2s_bozo_kernel bozo_host)
   target_compile_definitions(vp2s-bozo-headless PRIVATE VP2S_BOZO_IMAGES="${VP2S_BOZO_DATA}/images")
   if(MINGW)

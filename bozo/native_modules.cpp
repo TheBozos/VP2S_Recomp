@@ -15,6 +15,14 @@ ModuleResult NativeServiceModules::loadBuffer(std::span<const uint8_t> buffer,st
         std::vector<uint8_t> original{std::istreambuf_iterator<char>(file),{}};
         if(original.empty() || buffer.size()!=((original.size()+15)&~size_t(15)) ||
            !std::equal(original.begin(),original.end(),buffer.begin()))continue;
+        if(std::string_view(name)=="Dbc_Manager.irx" && startCustom) {
+            if(auto it=services.find(name);it!=services.end())return {it->second,0};
+            const auto result=startCustom(name,args);
+            if(result!=0)throw std::runtime_error("native custom service initialization failed");
+            const int32_t id=static_cast<int32_t>(services.size()+1);services.emplace(name,id);
+            std::fprintf(stderr,"[vp2s:module] compiled native service owns %s id=%d\n",name,id);
+            return {id,result};
+        }
         // These two libraries only transport controller/card transactions.
         // The native EE services own those transactions. The later custom
         // Dbc_Manager protocol is a separate provider and still rejects.

@@ -6,6 +6,7 @@
 #include <vector>
 #include <filesystem>
 #include <functional>
+#include <string_view>
 namespace vp2s {
 struct ModuleResult { int32_t id=0, startResult=0; };
 // Sparse host-owned allocations used by SDK file/service jobs. No IOP address
@@ -25,10 +26,12 @@ public:
 class NativeServiceModules {
     std::filesystem::path root;
     std::function<bool()> ready;
+    std::function<int32_t(std::string_view,std::span<const uint8_t>)> startCustom;
     std::map<std::string,int32_t> services;
 public:
-    NativeServiceModules(std::filesystem::path source,std::function<bool()> nativePadCardReady)
-        :root(std::move(source)),ready(std::move(nativePadCardReady)){}
+    NativeServiceModules(std::filesystem::path source,std::function<bool()> nativePadCardReady,
+        std::function<int32_t(std::string_view,std::span<const uint8_t>)> custom={})
+        :root(std::move(source)),ready(std::move(nativePadCardReady)),startCustom(std::move(custom)){}
     ModuleResult loadBuffer(std::span<const uint8_t> image,std::span<const uint8_t> args);
     void reset(){services.clear();}
 };

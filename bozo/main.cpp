@@ -8,6 +8,7 @@
 #include "native_settings.h"
 #include "native_seed.h"
 #include "native_modules.h"
+#include "vp2_dbc_image.h"
 #include <random>
 #include <charconv>
 #include <filesystem>
@@ -33,19 +34,29 @@ public:
     uint32_t seed=0;
     uint32_t bootSeed() const override { return seed; }
     bozo::host::FreeHost native;
+    std::unique_ptr<bozo::native::irx::CompiledLibraries> dbc;
     vp2s::TimerClock sdkClock;
     vp2s::TimerClock &timerClock() override { return sdkClock; }
     vp2s::Settings preferences;
     vp2s::Settings &settings() override { return preferences; }
     explicit StrictHost(const bozo::host::FreeOptions &options) : native(options) {
+        dbc=std::make_unique<bozo::native::irx::CompiledLibraries>(native.libraries(),0x40000);
+        addVp2DbcImage(*dbc);
         const auto root=std::filesystem::path(VP2S_BOZO_IMAGES).parent_path().parent_path()/"extract/iop";
         serviceModules=std::make_unique<vp2s::NativeServiceModules>(root,[this]{
-            return native.libraries().find("scePadInit") && native.libraries().find("sceMcInit");});
+            return native.libraries().find("scePadInit") && native.libraries().find("sceMcInit");},
+            [this](std::string_view name,std::span<const uint8_t> args){
+                if(!args.empty())throw std::runtime_error("unported native DBC startup arguments");
+                if(dbc->startImage(std::string(name)+";1")<=0)throw std::runtime_error("native DBC initialization failed");
+                // This guarded image's entry returns constant 0 after its
+                // successful native semaphore/record initialization (fixture).
+                return 0;
+            });
         auto &sif=native.libraries().sif;
         sif.allocateBuffer=[this](uint32_t bytes){return moduleStorage.allocate(bytes);};
         sif.freeBuffer=[this](uint32_t h){return moduleStorage.release(h);};
         sif.transfer=[this](uint32_t to,const uint8_t *data,uint32_t bytes){moduleStorage.copy(to,{data,bytes});};
-        sif.resetProvider=[this]{moduleStorage.reset();serviceModules->reset();};
+        sif.resetProvider=[this]{moduleStorage.reset();serviceModules->reset();dbc->reset();};
         sif.moduleLoader=[this](const std::string &path){return loadNativeModule(path,{}).id;};
         if(const char *specified=std::getenv("VP2S_BOZO_SEED")) {
             const char *end=specified+std::char_traits<char>::length(specified);

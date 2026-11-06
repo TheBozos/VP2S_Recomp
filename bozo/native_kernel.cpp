@@ -4,8 +4,19 @@
 #include <cstring>
 #include <format>
 #include <stdexcept>
+#include <atomic>
 
 namespace vp2s {
+void nativeCacheSync(uint8_t *,R5900Context *ctx,Runtime *rt){
+    auto *d=rt?dynamic_cast<bozo::ee::Dispatcher *>(rt->services):nullptr;
+    if(!ctx || ctx->pc!=0x137a30 || !d || d->kernel().running()<=0)
+        throw std::runtime_error("native cache visibility requires a running native context");
+    // _sceSDC only scans physical PS2 cache tags and drains cache lines. Game
+    // buffers already live in shared host memory; native job copies use those
+    // bytes directly. Supply host visibility, without tags/cache/CP0 state.
+    std::atomic_thread_fence(std::memory_order_seq_cst);
+    ctx->pc=ctx->r[31].uw[0];
+}
 namespace {
 void rejectFirmwareEntry(uint8_t *,R5900Context *ctx,Runtime *rt) {
     uint32_t active=0,dispatching=0;
@@ -41,6 +52,7 @@ void retireAlarmFirmwareInstaller(uint8_t *,R5900Context *ctx,Runtime *rt) {
     ctx->pc=ctx->r[31].uw[0];
 }
 void installNativeKernelBindings(bozo::port::Registry &registry) {
+    for(uint32_t pc=0x137a30u;pc<0x137ad4u;pc+=4) registry.registerFunction(pc,&rejectFirmwareEntry);
     for(uint32_t pc=0x141410u;pc<0x141444u;pc+=4)
         registry.registerFunction(pc,&rejectFirmwareEntry);
     for(uint32_t pc=0x141448u;pc<0x141544u;pc+=4)
@@ -83,6 +95,7 @@ void installNativeKernelBindings(bozo::port::Registry &registry) {
     registry.registerFunction(0x137280u,&nativeOsdSettings);
     registry.registerFunction(0x137290u,&nativeOsdSettings);
     registry.registerFunction(0x140b70u,&retireEventFirmwareInstaller);
+    registry.registerFunction(0x137a30u,&nativeCacheSync);
 }
 void retireEventFirmwareInstaller(uint8_t *,R5900Context *ctx,Runtime *rt) {
     auto *d=rt ? dynamic_cast<bozo::ee::Dispatcher *>(rt->services) : nullptr;

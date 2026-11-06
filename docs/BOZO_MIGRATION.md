@@ -71,6 +71,15 @@ leaf-call arguments, across both phases, counter wrap, flags, sizes and queue ou
 answered. Leaf internals and display writes are not covered by that test and remain guarded at runtime.
 The live game advances to `_sceSDC` at `0x137a4c`, a PS2 cache-tag scan. Still zero rendered frames.
 
+### Native cache visibility (2026-11-06)
+
+The guarded `_sceSDC` entry now supplies a host memory fence. Its original body only scans PS2 cache
+tags/drains cache lines; native program/job buffers already share real host memory. No TagLo/CP0 value,
+cache-line bank or scan is supplied. All interior entries remain rejecting guards (1,706 total); mutation
+checks cover the original full function. The kernel contract suite verifies context/RAM/kernel/deadline
+preservation across 48 cases. The live boot now reaches Csd's priority semaphore request, which explicitly
+rejects until the native priority-wait contract is implemented. No frames or playable route yet.
+
 ### Native controller record boundary (2026-11-06)
 
 Engine PR15 (`1b6f1ed`) supplies per-host native algorithm bindings, with 18 headless engine suites

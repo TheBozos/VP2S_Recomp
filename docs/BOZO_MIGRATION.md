@@ -80,6 +80,14 @@ checks cover the original full function. The kernel contract suite verifies cont
 preservation across 48 cases. The live boot now reaches Csd's priority semaphore request, which explicitly
 rejects until the native priority-wait contract is implemented. No frames or playable route yet.
 
+Engine PR20 adds priority semaphore grants using current native task priorities, FIFO ties and dynamic
+waiting-task priority changes, with 23 headless suites and green Windows/Linux CI. The real Csi init
+request advances to Csm's poll at `0x43fb0/43fb8`. Its real native voice upload copied 4,096 bytes and
+queued the linked completion `0x44a40`, which clears the game's own busy flag. The root RPC currently
+cannot deliver that completion until it returns, so the poll reaches 1,000,007 work/99,762 native calls.
+The work limit is unchanged. The next fix is actual ready-completion delivery at safe native call
+boundaries, honoring callback exclusion; it must not fabricate the flag, status or a successful reply.
+
 ### Native controller record boundary (2026-11-06)
 
 Engine PR15 (`1b6f1ed`) supplies per-host native algorithm bindings, with 18 headless engine suites

@@ -39,10 +39,10 @@ for required in ['[vp2s:call] pc=142150 ra=0',
                  'compiled native service owns Csi_.irx id=8',
                  'native pad/card service owns mcman.irx id=9',
                  'native pad/card service owns mcserv.irx id=10',
-                 'native library semaphore supports FIFO attributes only; import thsemap:4 at 0x55ad8']:
+                 'native library call 0x68744 stopped at 0x43fb8; work']:
     if required not in output:raise SystemExit(f'startup did not reach expected CD worker boundary: {required}')
 if 'syscall 116' in output or 'a call to' in output:
     raise SystemExit('native binding was bypassed or unanswered')
 if 'pc=137220 a0=ffffffff result=-408' in output:
     raise SystemExit('the retired CD private worker unexpectedly ran')
-print('Native modules/copy/frame-event/cache visibility reached; Csd priority semaphore remains unsupported.')
+print('Native startup/Csd priority semaphores reached; Csm native audio completion polling remains blocked.')

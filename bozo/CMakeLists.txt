@@ -29,7 +29,7 @@ if(MINGW)
 endif()
 add_test(NAME vp2s-bozo-metadata COMMAND vp2s-bozo-metadata-check)
 add_test(NAME vp2s-bozo-prepare COMMAND ${Python3_EXECUTABLE} "${VP2S_ROOT}/tests/test_bozo_prepare.py")
-add_library(vp2s_bozo_kernel STATIC native_kernel.cpp native_timer.cpp native_settings.cpp native_seed.cpp native_modules.cpp native_controller.cpp)
+add_library(vp2s_bozo_kernel STATIC native_kernel.cpp native_timer.cpp native_settings.cpp native_seed.cpp native_modules.cpp native_controller.cpp native_frame.cpp)
 target_link_libraries(vp2s_bozo_kernel PUBLIC bozo_port)
 target_include_directories(vp2s_bozo_kernel PUBLIC "${CMAKE_CURRENT_SOURCE_DIR}")
 add_executable(vp2s-bozo-kernel-check "${VP2S_ROOT}/tests/bozo_kernel_main.cpp")
@@ -63,6 +63,29 @@ if(MINGW)
 endif()
 add_test(NAME vp2s-bozo-modules COMMAND vp2s-bozo-modules-check)
 if(VP2S_BOZO_CODE)
+  set(FRAME_REF "${CMAKE_CURRENT_BINARY_DIR}/frame-reference")
+  foreach(VARIANT original adapted)
+    set(FRAME_DIR "${FRAME_REF}/${VARIANT}")
+    set(FRAME_PATCH_ARGS)
+    if(VARIANT STREQUAL "adapted")
+      set(FRAME_PATCH_ARGS --patches "${FRAME_DIR}/patches.txt")
+    endif()
+    add_custom_command(OUTPUT "${FRAME_DIR}/frame_${VARIANT}_000.cpp" "${FRAME_DIR}/frame_${VARIANT}_table.cpp" "${FRAME_DIR}/frame_${VARIANT}_functions.h"
+      COMMAND ${Python3_EXECUTABLE} "${VP2S_ROOT}/tools/vp2_bozo_frame_fixture.py" "${VP2S_BOZO_DATA}/images/main.elf" "${FRAME_DIR}"
+        --build "${VP2S_BOZO_DATA}/.." --variant ${VARIANT}
+      COMMAND $<TARGET_FILE:bozo-recomp> "${FRAME_DIR}/fixture.elf" "${FRAME_DIR}" --prefix frame_${VARIANT} --symbol-prefix frame_${VARIANT}_
+        --files 1 --externals "${FRAME_DIR}/externals.txt" ${FRAME_PATCH_ARGS} --no-comments
+      DEPENDS bozo-recomp "${VP2S_ROOT}/tools/vp2_bozo_frame_fixture.py" "${VP2S_ROOT}/tools/vp2_bozo_kernel.py" "${VP2S_BOZO_DATA}/images/main.elf")
+    list(APPEND FRAME_SOURCES "${FRAME_DIR}/frame_${VARIANT}_000.cpp" "${FRAME_DIR}/frame_${VARIANT}_table.cpp")
+  endforeach()
+  add_executable(vp2s-bozo-frame-check "${VP2S_ROOT}/tests/bozo_frame_main.cpp" ${FRAME_SOURCES})
+  target_include_directories(vp2s-bozo-frame-check PRIVATE "${FRAME_REF}/original" "${FRAME_REF}/adapted")
+  target_link_libraries(vp2s-bozo-frame-check PRIVATE vp2s_bozo_kernel)
+  if(MINGW)
+    target_link_options(vp2s-bozo-frame-check PRIVATE -static)
+  endif()
+  add_test(NAME vp2s-bozo-frame-event COMMAND vp2s-bozo-frame-check)
+  set_tests_properties(vp2s-bozo-frame-event PROPERTIES TIMEOUT 30)
   set(CSI_REF "${CMAKE_CURRENT_BINARY_DIR}/csi-native-reference")
   add_custom_command(OUTPUT "${CSI_REF}/csi__iop.cpp" "${CSI_REF}/vp2_csi_image.h" "${CSI_REF}/csi.bin"
     COMMAND ${Python3_EXECUTABLE} "${VP2S_ROOT}/tools/vp2_bozo_sound_fixture.py"

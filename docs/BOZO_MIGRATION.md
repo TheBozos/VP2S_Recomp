@@ -60,6 +60,17 @@ reject. The real boot gets past the DBC copy and reaches a GS CSR read in the ol
 calls must be preserved while removing hardware field/flip behavior. Native rendering is still absent;
 zero frames and no Logun-route qualification. C2C/F2F checks remain paused at the user's request.
 
+### Native frame-event input (2026-11-06)
+
+Following TMB/DC's published native adapters, the old frame-event callback now consumes logical parity
+from the native scheduler directly. The GS CSR load is an inline native producer and the paired >>13
+extraction is retired with a full-body USA signature/mutation guard. No CSR value or register bank is
+constructed. The rest of the callback remains compiled game code. A scalar reference begins after the
+retired hardware producer; 256 cases compare complete RAM, registers and ordered display/message/input
+leaf-call arguments, across both phases, counter wrap, flags, sizes and queue outcomes. No GS read is
+answered. Leaf internals and display writes are not covered by that test and remain guarded at runtime.
+The live game advances to `_sceSDC` at `0x137a4c`, a PS2 cache-tag scan. Still zero rendered frames.
+
 ### Native controller record boundary (2026-11-06)
 
 Engine PR15 (`1b6f1ed`) supplies per-host native algorithm bindings, with 18 headless engine suites

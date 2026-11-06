@@ -125,4 +125,17 @@ def native_game_sites(data):
     at=s[1]+lo-s[2]
     if hashlib.sha256(data[at:at+hi-lo]).hexdigest()!='2b2969c890711c912a7d36650936ac83400288ab4461fd230ded36c5eb3c7f17':
         raise ValueError('USA boot RNG input signature mismatch')
-    return 'native 0x1003c4\n'
+    frame_adaptations(data)
+    return 'native 0x1003c4\nnative 0x11fb50\n'
+
+
+def frame_adaptations(data):
+    # Retain the game's complete frame-event body and its logical consumers.
+    # Native parity replaces the producer directly, so its CSR extraction retires.
+    _,segments,_=elf_parts(data)
+    lo,hi=0x11fb40,0x11fc88
+    s=next(s for s in segments if s[0]==1 and s[2]<=lo<hi<=s[2]+s[4])
+    at=s[1]+lo-s[2]
+    if hashlib.sha256(data[at:at+hi-lo]).hexdigest()!='d2442643e1005fea4dd24cbef45b3adeacb0c44a804245cedbc3cd327234a32f':
+        raise ValueError('USA frame-event body signature mismatch')
+    return '0011fb54 0002137a 00000000\n'

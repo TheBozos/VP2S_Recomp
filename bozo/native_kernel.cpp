@@ -67,6 +67,7 @@ void installNativeKernelBindings(bozo::port::Registry &registry) {
     registry.registerFunction(0x141df0u,&startNativeTimer);
     registry.registerFunction(0x1423f8u,&queryNativeTimer);
     registry.registerFunction(0x141f00u,&rearmNativeTimer);
+    registry.registerFunction(0x142150u,&dispatchNativeTimer);
     registry.registerFunction(0x137280u,&nativeOsdSettings);
     registry.registerFunction(0x137290u,&nativeOsdSettings);
     registry.registerFunction(0x140b70u,&retireEventFirmwareInstaller);

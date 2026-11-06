@@ -51,6 +51,22 @@ if(MINGW)
 endif()
 add_test(NAME vp2s-bozo-settings COMMAND vp2s-bozo-settings-check)
 if(VP2S_BOZO_CODE)
+  set(RECORD_REF "${CMAKE_CURRENT_BINARY_DIR}/timer-record-reference")
+  add_custom_command(
+    OUTPUT "${RECORD_REF}/timer_record_000.cpp" "${RECORD_REF}/timer_record_table.cpp" "${RECORD_REF}/timer_record_functions.h"
+    COMMAND ${Python3_EXECUTABLE} "${VP2S_ROOT}/tools/vp2_bozo_timer_record_fixture.py" "${VP2S_BOZO_DATA}/images/main.elf" "${RECORD_REF}" --build "${VP2S_BOZO_DATA}/.."
+    COMMAND $<TARGET_FILE:bozo-recomp> "${RECORD_REF}/fixture.elf" "${RECORD_REF}" --prefix timer_record --symbol-prefix timer_record_
+      --files 1 --externals "${RECORD_REF}/externals.txt" --no-comments
+    DEPENDS bozo-recomp "${VP2S_BOZO_DATA}/images/main.elf" "${VP2S_ROOT}/tools/vp2_bozo_timer_record_fixture.py"
+      "${VP2S_ROOT}/tools/vp2_bozo_kernel.py" "${VP2S_ROOT}/tools/vp2_bozo_prepare.py")
+  add_executable(vp2s-bozo-timer-callback-check "${VP2S_ROOT}/tests/bozo_timer_records.cpp"
+    "${RECORD_REF}/timer_record_000.cpp" "${RECORD_REF}/timer_record_table.cpp")
+  target_include_directories(vp2s-bozo-timer-callback-check PRIVATE "${RECORD_REF}")
+  target_link_libraries(vp2s-bozo-timer-callback-check PRIVATE vp2s_bozo_kernel)
+  if(MINGW)
+    target_link_options(vp2s-bozo-timer-callback-check PRIVATE -static)
+  endif()
+  add_test(NAME vp2s-bozo-timer-callback-records COMMAND vp2s-bozo-timer-callback-check)
   set(TIMING_REF "${CMAKE_CURRENT_BINARY_DIR}/timing-reference")
   foreach(VARIANT original adapted)
     set(TIMING_DIR "${TIMING_REF}/${VARIANT}")

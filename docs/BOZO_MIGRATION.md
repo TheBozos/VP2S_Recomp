@@ -296,3 +296,32 @@ A nonempty list outside dispatch still rejects before mutation. Nine VP2S suites
 pass through native worker startup to that pending-deadline boundary. This is
 still zero rendered frames; reaching the previous playable Logun route remains
 the active task. No hardware counter, alarm callback or visual parity is claimed.
+
+## Native SDK callback deadlines, 2026-11-06
+
+Engine PR 10 is merged at `4f6555d`, with Windows/Linux CI green and feature
+branches deleted. Its native keyed deadlines participate in the scheduler's
+running checkpoints and idle decisions. Fourteen headless engine suites pass.
+Pending replacement/cancellation, ordering, payloads and per-Kernel isolation
+are covered. Cancellation does not retract an already queued callback.
+
+VP2S rearm maps its real record deadline into the per-host SDK time domain and
+schedules the native callback producer at `0x142150`. A per-host sequence rejects
+stale queued invocations. The producer lifts the SDK list/handle/argument and
+callback-return rules: zero disables, -1 frees, positive values repeat with the
+source's minimum increment. Game callbacks execute their compiled code with the
+record's GP and arguments. No timer mode/counter/compare bank or overflow polling
+exists; the original device IRQ body remains guarded at all interior entries.
+
+The scalar source slice `0x142230..0x1422f8` and its original list helpers are
+compiled separately, without the hardware prefix. Across 768 cases, every flat
+RAM byte and all five callback arguments match the native record transition,
+including list tails, multiple return values, free/disable/reinsert and 64-bit
+times. Fingerprints/mutation tests include both list helpers. Ten port suites
+pass, including a real scheduled native timer invocation during startup.
+
+The next reproduced blocker is an original CD callback worker at `0x128f38`
+repeatedly calling WaitSema(-1), after native sceCdInit skipped its private SDK
+semaphore installer. The 120-field no-frame guard remains active. This is a
+native/original SDK ownership mismatch to replace, not a timer wait to bypass.
+There are still zero rendered frames and no playable-route or visual claim.

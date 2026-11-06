@@ -29,7 +29,11 @@ public:
         for(uint32_t i=0;i<bozo::kFlatBytes;++i) { hash^=ram[i];hash*=1099511628211ull; }
         std::fprintf(stderr,"[vp2s:bozo] boundary RAM hash=%016llx\n",(unsigned long long)hash);
     }
-    void libraryCall(bozo::ee::Dispatcher &d,R5900Context *c,uint32_t target) override { native.libraryCall(d,c,target); }
+    void libraryCall(bozo::ee::Dispatcher &d,R5900Context *c,uint32_t target) override {
+        if(std::getenv("VP2S_BOZO_TRACE_CALLS"))
+            std::fprintf(stderr,"[vp2s:call] pc=%x ra=%x a0=%x a1=%x\n",target,c->r[31].uw[0],c->r[4].uw[0],c->r[5].uw[0]);
+        native.libraryCall(d,c,target);
+    }
     void vu0Microprogram(bozo::ee::Dispatcher &,R5900Context *c,uint32_t address) override {
         throw std::runtime_error(std::format("unported VP2S VU0 algorithm {:x} at pc={:x}",address,c->pc));
     }
@@ -51,7 +55,12 @@ public:
     }
     void idle(bozo::ee::Dispatcher &d,uint64_t from,uint64_t to) override { native.idle(d,from,to); }
     void resuming(bozo::ee::Dispatcher &d,bozo::ee::Thread &t,bozo::ee::Frame &f,uint32_t depth) override { native.resuming(d,t,f,depth); }
-    void kernelCallEnd(bozo::ee::Dispatcher &d,R5900Context *c,uint32_t target,bool stop) override { native.kernelCallEnd(d,c,target,stop); }
+    unsigned traceKernel=0;
+    void kernelCallEnd(bozo::ee::Dispatcher &d,R5900Context *c,uint32_t target,bool stop) override {
+        if(std::getenv("VP2S_BOZO_TRACE_CALLS") && traceKernel++<160)
+            std::fprintf(stderr,"[vp2s:kernel] pc=%x a0=%x result=%lld stop=%d\n",target,c->r[4].uw[0],(long long)c->r[2].sd[0],stop);
+        native.kernelCallEnd(d,c,target,stop);
+    }
     void kernelCallBegin(bozo::ee::Dispatcher &d,R5900Context *c,uint32_t target,uint32_t kind) override { native.kernelCallBegin(d,c,target,kind); }
     void waitCompleted(bozo::ee::Dispatcher &d,bozo::ee::Thread &t) override { native.waitCompleted(d,t); }
     void handlerCompleted(bozo::ee::Dispatcher &d,bozo::ee::Thread &t,const bozo::ee::Frame &f) override { native.handlerCompleted(d,t,f); }

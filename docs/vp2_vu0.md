@@ -817,6 +817,70 @@ build_usa/port/vp2s_math_check.exe --point-direction-functions
 build_usa/port/vp2s_math_check.exe <point-direction-records.bin>
 ```
 
+## Collision point transform, 2026-11-06
+
+The inline matrix/vector calculation at `0x1FBDCC..0x1FBDF0` in collision helper
+`0x1FBD60` now uses the existing typed native four-weight transform. It reads
+the matrix through v1, the point through a1 and writes the temporary through v0.
+Earlier collision code can write a projected point through a2 before this block
+reloads its input. The native bridge therefore reads current records at the
+original result-store boundary, rather than retaining a function-entry snapshot.
+It copies every input before writing the result, including when the temporary
+overlaps an input record.
+
+The converter validates the exact ten USA instruction words and lowers only
+this audited block. An identical block at `0x1FBE6C` belongs to a different
+helper and remains separate work. Earlier point/plane/projection VU operations
+in `0x1FBD60` are also retained; the complete helper is **not** VU-free. The
+replacement introduces no VU register/ACC/flag state, packet replay, VU memory
+or timing dependency. Later scalar x/z bounds tests and return behavior remain
+the original game code. Repeating conversion changes no generated EE source.
+
+The existing `VP2S_NATIVE_MATRIX_VECTOR=0` diagnostic selection and
+`VP2S_MATRIX_VECTOR_CHECK=1` strict comparison cover this additional site.
+`VP2S_COLLISION_POINT_RECORD=<file>` provides a separate bounded capture for
+this site so hotter object transforms do not consume its capture allowance.
+The existing `VP2S_MATRIX_VECTOR_FAILURE_RECORD` saves a mismatching original
+matrix/vector/result record; a mismatch aborts without fallback.
+
+The shared arithmetic oracle remains exact on **131,264 cases / 525,056 scalar
+outputs** within the previously documented numerical contract. **2,560 exact
+original/generated block cases** cover separate output, output overlapping the
+matrix at offsets zero and 16, output aliasing the point and point overlapping
+the matrix. Whole private RAM, GPR/FPR/status, terminal PC and native VU-state
+preservation match.
+
+Another **2,560 complete original/native helper cases** compare whole private
+RAM and CPU state across four host FP control modes, including earlier projected
+output aliasing the input point or a matrix row, point/temporary stack aliasing,
+and a point inside the matrix. They exercise **640 accepted / 1,920 rejected**
+collisions and match return/branch PC and delay-slot completion. These complete
+fixtures deliberately retain the earlier VU calculations in both variants;
+VU-state preservation is asserted for the replaced isolated block, not claimed
+for the whole collision helper. No callback or result is fabricated.
+
+Two 64-record live captures each contain 64 distinct inputs and replay exactly
+against the original operations. Together with the shared arithmetic cases this
+gives **131,392 cases / 525,568 scalar outputs**, zero differences within the
+documented numerical contract. At Waiting Area capture 40, native versus strict
+comparison RGB mean absolute errors are 0.010 (central wall), 0.237 (ground) and
+0.048 (unobstructed lower-left stone), on 0..255. The upper-left ROI is crossed
+by the animated bird at different positions and gives 15.076; it is not a static
+geometry comparison in those frames. These are port regression checks, not new
+PCSX2 parity or FPS evidence.
+
+Both hidden, input-isolated town/inn routes completed 300 seconds and logged
+at least **12,288 calls at the new site each**, with strict comparisons exact.
+Music remained playing with nonzero PCM peaks at 290 seconds in both modes,
+and user-card hashes were unchanged. This qualifies the tested route, not
+every collision scene or whole-game state equivalence.
+
+```powershell
+build_usa/port/vp2s_math_check.exe --collision-point-blocks
+build_usa/port/vp2s_math_check.exe --collision-point-functions
+build_usa/port/vp2s_math_check.exe <collision-point-records.bin>
+```
+
 ## Still open
 
 The Csi seed service still runs through the IOP environment. Other main/module

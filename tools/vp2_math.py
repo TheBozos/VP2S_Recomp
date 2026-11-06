@@ -312,6 +312,43 @@ def lower_point_direction(directory,data):
     print(f'Native paired point direction: USA block validated; {changed} EE files lowered')
 
 
+def lower_collision_point(directory,data):
+    words=[0xd8a50000,0xd8610000,0xd8620010,0xd8630020,0xd8640030,
+           0x4be509bc,0x4be510bd,0x4be518be,0x4be5214b,0xf8450000]
+    # A second byte-identical block at 0x1FBE6C belongs to a different helper;
+    # only the audited 0x1FBDCC site is lowered in this increment.
+    if data.count(struct.pack('<10I',*words))!=2:
+        raise ValueError('Unexpected USA collision point transform')
+    changed=0
+    for path in directory.glob('*.cpp'):
+        match=re.search(r'_0x([0-9a-f]+)$',path.stem)
+        if not match or not 0x1fbd60<=int(match[1],16)<=0x1fbdf0:continue
+        text=path.read_text();marker='// VP2S native collision point transform v1'
+        if marker in text:continue
+        def patch(m):
+            pc=int(m[1],16)
+            if not 0x1fbdcc<=pc<=0x1fbdf0:return m[0]
+            index=(pc-0x1fbdcc)//4;assert int(m[2],16)==words[index]
+            body=m[3]
+            pattern=(r'ctx->vu0_vf\[[1-5]\] = [^\n;]+;' if index<5 else
+                     r'\{ __m128.*? \}' if index<9 else
+                     r'WRITE128\([^\n]+_mm_castps_si128\(ctx->vu0_vf\[5\]\)\);')
+            found=re.search(pattern,body,re.S);assert found,(path.name,hex(pc))
+            original=found[0]
+            if index==9:
+                replacement=('if (vp2sMatrixVectorEnabled()) { vp2sMatrixVectorProduct(rdram, ctx, '
+                             'GPR_U32(ctx, 3), GPR_U32(ctx, 5), GPR_U32(ctx, 2), 0x1fbdf0u); } else { '+original+' }')
+            else:replacement='if (vp2sMatrixVectorReferenceEnabled()) { '+original+' }'
+            return m[0][:m[0].index(body)]+body[:found.start()]+replacement+body[found.end():]
+        lowered=re.sub(r'// 0x([0-9a-f]+): 0x([0-9a-f]+)[^\n]*\n(.*?)(?=\s*// 0x[0-9a-f]+:|\Z)',patch,text,flags=re.S)
+        if lowered==text:continue
+        include='#include "ps2_recomp_calls.h"';assert lowered.count(include)==1
+        declarations=('\n'+marker+'\nbool vp2sMatrixVectorEnabled();\nbool vp2sMatrixVectorReferenceEnabled();\n'
+                      'void vp2sMatrixVectorProduct(uint8_t*, R5900Context*, uint32_t, uint32_t, uint32_t, uint32_t);\n')
+        path.write_text(lowered.replace(include,include+declarations));changed+=1
+    print(f'Native collision point transform: USA block validated; {changed} EE files lowered')
+
+
 def projection_fixtures(directory):
     # Original and rewritten EE game functions belong only to the offline
     # checker. Replace their one direct game call with a normal C++ call and
@@ -320,7 +357,7 @@ def projection_fixtures(directory):
     source='\n#include "ps2_runtime.h"\n#include "ps2_runtime_macros.h"\n#include "vp2s_math.h"\nnamespace vp2s::mathfixture {\n'
     for native in (False,True):
         prefix='native' if native else 'original'
-        for address,name in [('216e40','Rigid'),('216cb0','ColumnRigid'),('216d60','TransposedRigid'),('214590','OffsetDot'),('2178b0','Perspective'),('2179e0','Orthographic'),('1fb240','ObjectLinear'),('1fb330','ObjectMatrix0'),('1fb530','ObjectMatrix1'),('1fb7c0','ObjectMatrix2'),('1fb6a0','ObjectPointDirection')]:
+        for address,name in [('216e40','Rigid'),('216cb0','ColumnRigid'),('216d60','TransposedRigid'),('214590','OffsetDot'),('2178b0','Perspective'),('2179e0','Orthographic'),('1fb240','ObjectLinear'),('1fb330','ObjectMatrix0'),('1fb530','ObjectMatrix1'),('1fb7c0','ObjectMatrix2'),('1fb6a0','ObjectPointDirection'),('1fbd60','CollisionPoint')]:
             path=directory/f'mod001_FUN_00{address}_0x{address}.cpp'
             text=path.read_text().split('// Function:',1)[1]
             text='// Function:'+text
@@ -368,6 +405,13 @@ def projection_fixtures(directory):
             body=re.sub(r'if \(vp2sPointDirectionReferenceEnabled\(\)\) \{ (.*?) \}',r'\1',body,flags=re.S)
             assert 'vp2sPointDirection' not in body
         source+=f'void {prefix}PointDirectionBlock(uint8_t *rdram,R5900Context *ctx,PS2Runtime *runtime) {{\n'+body+'\n}\n'
+        text=(directory/'mod001_FUN_001fbd60_0x1fbd60.cpp').read_text()
+        body=text[text.index('    // 0x1fbdcc:'):text.index('    // 0x1fbdf4:')]
+        if not native:
+            body=re.sub(r'if \(vp2sMatrixVectorEnabled\(\)\) \{ [^\n]+? \} else \{ ([^\n]+?) \}',r'\1',body)
+            body=re.sub(r'if \(vp2sMatrixVectorReferenceEnabled\(\)\) \{ (.*?) \}',r'\1',body,flags=re.S)
+            assert 'vp2sMatrixVector' not in body
+        source+=f'void {prefix}CollisionPointBlock(uint8_t *rdram,R5900Context *ctx,PS2Runtime *runtime) {{\n'+body+'\n}\n'
     return source+'}\n'
 
 
@@ -495,6 +539,7 @@ def main():
     lower_linear_vectors(args.recomp/'mod001',data)
     lower_matrix_vectors(args.recomp/'mod001',data)
     lower_point_direction(args.recomp/'mod001',data)
+    lower_collision_point(args.recomp/'mod001',data)
     source+=projection_fixtures(args.recomp/'mod001')
     source=source.encode()
     if not path.exists() or path.read_bytes()!=source: path.write_bytes(source)

@@ -45,6 +45,10 @@ void originalPointDirectionBlock(uint8_t*,R5900Context*,PS2Runtime*);
 void nativePointDirectionBlock(uint8_t*,R5900Context*,PS2Runtime*);
 void originalObjectPointDirection(uint8_t*,R5900Context*,PS2Runtime*);
 void nativeObjectPointDirection(uint8_t*,R5900Context*,PS2Runtime*);
+void originalCollisionPointBlock(uint8_t*,R5900Context*,PS2Runtime*);
+void nativeCollisionPointBlock(uint8_t*,R5900Context*,PS2Runtime*);
+void originalCollisionPoint(uint8_t*,R5900Context*,PS2Runtime*);
+void nativeCollisionPoint(uint8_t*,R5900Context*,PS2Runtime*);
 }
 
 struct R5900Context;
@@ -162,6 +166,67 @@ int main(int argc,char **argv) {
         _mm_setcsr(saved);++cases;
     };
     bool linearOnly=std::strcmp(argv[1],"--linear-vector-synthetic")==0;
+    const bool collisionFunctions=std::strcmp(argv[1],"--collision-point-functions")==0;
+    if(collisionFunctions || std::strcmp(argv[1],"--collision-point-blocks")==0) {
+        if(vp2sMatrixVectorReferenceEnabled())return 2;
+        using namespace vp2s::mathfixture;
+        std::mt19937 random(0x56503253u);
+        std::uniform_real_distribution<float> value(-2.f,2.f);
+        std::vector<uint8_t> originalRam(0x200000),nativeRam;
+        constexpr uint32_t object=0x110000,stack=0x1f0000,returnPc=0x100000;
+        uint64_t accepted=0,rejected=0;
+        for(unsigned mode:{0u,0x6000u,0x8040u,0xe040u})for(unsigned k=0;k<128;++k)for(unsigned alias=0;alias<5;++alias) {
+            std::fill(originalRam.begin(),originalRam.end(),0xa5);
+            Matrix matrix;
+            for(auto &row:matrix)row=_mm_setr_ps(value(random),value(random),value(random),value(random));
+            auto point=_mm_setr_ps(value(random),(k&1)?2.f:-2.f,value(random),1.f);
+            uint32_t matrixAddress=object+0x190,pointAddress=0x120000,destination=0x130000;
+            if(collisionFunctions) {
+                if(alias==1)destination=pointAddress;
+                else if(alias==2)destination=matrixAddress+16;
+                else if(alias==3)pointAddress=destination=stack-32;
+                else if(alias==4)pointAddress=matrixAddress;
+                const auto axis=_mm_setr_ps(0.f,1.f,0.f,0.f),origin=_mm_setr_ps(0.f,0.f,0.f,1.f);
+                std::memcpy(originalRam.data()+object+0x220,&axis,16);
+                std::memcpy(originalRam.data()+object+0x230,&origin,16);
+                const float bounds[2]={(k&2)?100.f:0.2f,(k&2)?100.f:0.2f};
+                std::memcpy(originalRam.data()+object+0x240,bounds,8);
+            } else {
+                if(alias==1)destination=matrixAddress;
+                else if(alias==2)destination=matrixAddress+16;
+                else if(alias==3)destination=pointAddress;
+                else if(alias==4)pointAddress=matrixAddress+16;
+            }
+            std::memcpy(originalRam.data()+matrixAddress,matrix.data(),64);
+            std::memcpy(originalRam.data()+pointAddress,&point,16);nativeRam=originalRam;
+            R5900Context initial{};
+            for(unsigned reg=1;reg<32;++reg)initial.r[reg]=_mm_set1_epi32(int(0x12120000u+reg));
+            initial.r[4]=_mm_cvtsi32_si128(object);initial.r[5]=_mm_cvtsi32_si128(pointAddress);initial.r[6]=_mm_cvtsi32_si128(destination);
+            initial.r[3]=_mm_cvtsi32_si128(matrixAddress);initial.r[2]=_mm_cvtsi32_si128(destination);
+            initial.r[29]=_mm_cvtsi32_si128(stack);initial.r[31]=_mm_cvtsi32_si128(returnPc);initial.f[12]=0.25f;
+            std::memset(initial.vu0_vf,0xc5,sizeof(initial.vu0_vf));initial.vu0_vf[0]=_mm_setr_ps(0.f,0.f,0.f,1.f);
+            initial.vu0_acc=_mm_set1_ps(-123.f);initial.vu0_mac_flags=0x8765;initial.vu0_status=0x1234;
+            auto original=initial,native=initial;
+            const auto saved=_mm_getcsr();_mm_setcsr((saved&~0xe040u)|mode);
+            (collisionFunctions?originalCollisionPoint:originalCollisionPointBlock)(originalRam.data(),&original,nullptr);
+            _mm_setcsr((saved&~0xe040u)|mode);
+            (collisionFunctions?nativeCollisionPoint:nativeCollisionPointBlock)(nativeRam.data(),&native,nullptr);_mm_setcsr(saved);
+            differences+=originalRam!=nativeRam;
+            differences+=std::memcmp(original.r,native.r,sizeof(original.r))!=0;
+            differences+=std::memcmp(original.f,native.f,sizeof(original.f))!=0;
+            differences+=original.pc!=native.pc || native.pc!=(collisionFunctions?returnPc:0x1fbdf0u);
+            differences+=original.branch_pc!=native.branch_pc || native.in_delay_slot || original.fcr31!=native.fcr31;
+            if(!collisionFunctions) {
+                differences+=std::memcmp(initial.vu0_vf,native.vu0_vf,sizeof(initial.vu0_vf))!=0;
+                differences+=std::memcmp(&initial.vu0_acc,&native.vu0_acc,sizeof(initial.vu0_acc))!=0;
+                differences+=initial.vu0_mac_flags!=native.vu0_mac_flags || initial.vu0_status!=native.vu0_status;
+            } else if(getRegU32(&native,2))++accepted;else ++rejected;
+            ++cases;
+        }
+        std::printf("collision point %s: %llu cases, RAM/CPU%s differences %llu; accepted %llu rejected %llu\n",
+                    collisionFunctions?"complete functions":"original/native blocks",cases,collisionFunctions?"":"/VU-preservation",differences,accepted,rejected);
+        return cases && !differences && (!collisionFunctions || (accepted && rejected))?0:1;
+    }
     bool pairOnly=std::strcmp(argv[1],"--point-direction-synthetic")==0;
     auto testPair=[&](const Matrix &matrix,const vp2s::math::PointDirection &vectors,uint32_t mode,const vp2s::math::PointDirection *captured) {
         const auto saved=_mm_getcsr();_mm_setcsr((saved&~0xe040u)|mode);

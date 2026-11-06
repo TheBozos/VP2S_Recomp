@@ -80,6 +80,7 @@ Capture &offsetDotCapture() { static Capture value("VP2S_OFFSET_DOT_RECORD",72u)
 Capture &transposedRigidCapture() { static Capture value("VP2S_TRANSPOSED_RIGID_RECORD",104u); return value; }
 Capture &linearVectorCapture() { static Capture value("VP2S_LINEAR_VECTOR_RECORD",88u); return value; }
 Capture &matrixVectorCapture() { static Capture value("VP2S_MATRIX_VECTOR_RECORD",104u); return value; }
+Capture &collisionPointCapture() { static Capture value("VP2S_COLLISION_POINT_RECORD",104u); return value; }
 Capture &pointDirectionCapture() { static Capture value("VP2S_POINT_DIRECTION_RECORD",136u); return value; }
 void quaternionMatrix(uint8_t *ram,R5900Context *ctx,PS2Runtime *runtime) {
     const uint32_t destination=getRegU32(ctx,4),stack=getRegU32(ctx,29);
@@ -329,13 +330,13 @@ void vp2sMatrixVectorProduct(uint8_t *ram,R5900Context *ctx,uint32_t matrixAddre
         throw std::runtime_error("native matrix vector product differs from original game calculation");
     }
     std::memcpy(recordPointer(ram,destination,16),&result,16);
-    auto &recorder=matrixVectorCapture();
+    auto &recorder=site==0x1fbdf0u?collisionPointCapture():matrixVectorCapture();
     if(recorder.begin(0x3152564du)) {
         recorder.append(&rounding,4);recorder.append(matrix.data(),64);recorder.append(&vector,16);recorder.append(&result,16);recorder.end();
     }
-    const unsigned index=site==0x1fb418u?0:site==0x1fb610u?1:site==0x1fb8a0u?2:3;
-    if(index==3) throw std::runtime_error("unexpected native matrix vector site");
-    static uint64_t calls[3]{};
+    const unsigned index=site==0x1fb418u?0:site==0x1fb610u?1:site==0x1fb8a0u?2:site==0x1fbdf0u?3:4;
+    if(index==4) throw std::runtime_error("unexpected native matrix vector site");
+    static uint64_t calls[4]{};
     if(++calls[index]==1 || calls[index]%4096==0)
         std::fprintf(stderr,"[math:native] matrix vector %x: %llu calls%s\n",site,calls[index],
                      vp2sMatrixVectorReferenceEnabled()?" (original comparison exact)":" (no VU state)");
@@ -487,6 +488,7 @@ void vp2sInstallMath(PS2Runtime &runtime) {
     (void)transposedRigidCapture();
     (void)linearVectorCapture();
     (void)matrixVectorCapture();
+    (void)collisionPointCapture();
     (void)pointDirectionCapture();
     (void)quaternionCapture();
     const auto *module=ps2_overlays::findModule("mod001");

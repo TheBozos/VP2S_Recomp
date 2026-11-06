@@ -41,6 +41,10 @@ void originalObjectMatrix2(uint8_t*,R5900Context*,PS2Runtime*);
 void nativeObjectMatrix0(uint8_t*,R5900Context*,PS2Runtime*);
 void nativeObjectMatrix1(uint8_t*,R5900Context*,PS2Runtime*);
 void nativeObjectMatrix2(uint8_t*,R5900Context*,PS2Runtime*);
+void originalPointDirectionBlock(uint8_t*,R5900Context*,PS2Runtime*);
+void nativePointDirectionBlock(uint8_t*,R5900Context*,PS2Runtime*);
+void originalObjectPointDirection(uint8_t*,R5900Context*,PS2Runtime*);
+void nativeObjectPointDirection(uint8_t*,R5900Context*,PS2Runtime*);
 }
 
 struct R5900Context;
@@ -158,6 +162,88 @@ int main(int argc,char **argv) {
         _mm_setcsr(saved);++cases;
     };
     bool linearOnly=std::strcmp(argv[1],"--linear-vector-synthetic")==0;
+    bool pairOnly=std::strcmp(argv[1],"--point-direction-synthetic")==0;
+    auto testPair=[&](const Matrix &matrix,const vp2s::math::PointDirection &vectors,uint32_t mode,const vp2s::math::PointDirection *captured) {
+        const auto saved=_mm_getcsr();_mm_setcsr((saved&~0xe040u)|mode);
+        vp2s::math::PointDirection original;
+        for(unsigned index=0;index<2;++index) {
+            auto acc=PS2_VMUL(matrix[0],vp2s::music::broadcast<0>(vectors[index]));
+            acc=PS2_VADD(acc,PS2_VMUL(matrix[1],vp2s::music::broadcast<1>(vectors[index])));
+            acc=PS2_VADD(acc,PS2_VMUL(matrix[2],vp2s::music::broadcast<2>(vectors[index])));
+            original[index]=index==0?PS2_VADD(acc,PS2_VMUL(matrix[3],vp2s::music::broadcast<3>(vectors[0]))):acc;
+        }
+        const auto result=vp2s::math::transformPointDirection(matrix,vectors);
+        differences+=std::memcmp(result.data(),original.data(),32)!=0;
+        if(captured)capturedDifferences+=std::memcmp(captured->data(),original.data(),32)!=0;
+        _mm_setcsr(saved);++cases;
+    };
+    const bool pairFunctions=std::strcmp(argv[1],"--point-direction-functions")==0;
+    if(pairFunctions || std::strcmp(argv[1],"--point-direction-blocks")==0) {
+        if(vp2sPointDirectionReferenceEnabled())return 2;
+        using namespace vp2s::mathfixture;
+        std::mt19937 random(0x56503253u);
+        std::uniform_real_distribution<float> value(-1000.f,1000.f);
+        std::vector<uint8_t> originalRam(0x200000),nativeRam;
+        constexpr uint32_t object=0x110000,stack=0x1f0000,returnPc=0x100000;
+        for(unsigned mode:{0u,0x6000u,0x8040u,0xe040u})for(unsigned k=0;k<(pairFunctions?128u:64u);++k)
+            for(unsigned alias=0;alias<(pairFunctions?2u:5u);++alias) {
+                std::fill(originalRam.begin(),originalRam.end(),0xa5);
+                Matrix matrix;vp2s::math::PointDirection vectors;
+                for(auto &row:matrix)row=_mm_setr_ps(value(random),value(random),value(random),value(random));
+                for(auto &v:vectors)v=_mm_setr_ps(value(random),value(random),value(random),value(random));
+                // If direction.w shares storage with a live matrix/point lane,
+                // it is numerical input too. Keep that lane finite/bounded;
+                // exercise arbitrary payload bits only where they are ignored.
+                uint32_t payload=random();
+                if(pairFunctions || alias==0 || alias==4)
+                    std::memcpy(reinterpret_cast<uint8_t*>(&vectors[1])+12,&payload,4);
+                uint32_t matrixAddress=object,pointAddress=object+0x100,directionAddress=object+0x110;
+                if(pairFunctions) {matrixAddress=object+0x90;pointAddress=object+0x230;directionAddress=object+0x240;}
+                else if(alias==1) {pointAddress=object;directionAddress=object+16;}
+                else if(alias==2)directionAddress=pointAddress;
+                else if(alias==3)directionAddress=object+48;
+                else if(alias==4)pointAddress=object+16;
+                std::memcpy(originalRam.data()+matrixAddress,matrix.data(),64);
+                std::memcpy(originalRam.data()+pointAddress,&vectors[0],16);
+                std::memcpy(originalRam.data()+directionAddress,&vectors[1],16);
+                if(pairFunctions) {
+                    originalRam[object+0x20e]=alias?8:16;
+                    uint64_t returned=returnPc;std::memcpy(originalRam.data()+stack+16,&returned,8);
+                }
+                nativeRam=originalRam;R5900Context initial{};
+                for(unsigned reg=1;reg<32;++reg)initial.r[reg]=_mm_set1_epi32(int(0x12120000u+reg));
+                initial.r[4]=_mm_cvtsi32_si128(directionAddress);initial.r[5]=_mm_cvtsi32_si128(pointAddress);initial.r[6]=_mm_cvtsi32_si128(matrixAddress);
+                initial.r[16]=_mm_cvtsi32_si128(object);initial.r[29]=_mm_cvtsi32_si128(stack);
+                initial.r[31]=_mm_cvtsi32_si128(returnPc);initial.pc=pairFunctions?0x1fb6bcu:0x1fb768u;
+                std::memset(initial.vu0_vf,0xc5,sizeof(initial.vu0_vf));initial.vu0_vf[0]=_mm_setr_ps(0.f,0.f,0.f,1.f);
+                initial.vu0_acc=_mm_set1_ps(-123.f);initial.vu0_mac_flags=0x8765;initial.vu0_status=0x1234;
+                auto original=initial,native=initial;
+                const auto saved=_mm_getcsr();_mm_setcsr((saved&~0xe040u)|mode);
+                (pairFunctions?originalObjectPointDirection:originalPointDirectionBlock)(originalRam.data(),&original,nullptr);
+                _mm_setcsr((saved&~0xe040u)|mode);
+                (pairFunctions?nativeObjectPointDirection:nativePointDirectionBlock)(nativeRam.data(),&native,nullptr);_mm_setcsr(saved);
+                if(originalRam!=nativeRam) {
+                    std::printf("pair mismatch mode=%x case=%u alias=%u functions=%u\n",mode,k,alias,unsigned(pairFunctions));
+                    for(uint32_t address:{pointAddress,directionAddress}) {
+                        uint32_t a[4],b[4];std::memcpy(a,originalRam.data()+address,16);std::memcpy(b,nativeRam.data()+address,16);
+                        std::printf("  output %x: original %08x %08x %08x %08x native %08x %08x %08x %08x\n",address,a[0],a[1],a[2],a[3],b[0],b[1],b[2],b[3]);
+                    }
+                    uint32_t directionBits;std::memcpy(&directionBits,reinterpret_cast<const uint8_t*>(&vectors[1])+12,4);
+                    std::printf("  direction input w bits=%08x\n",directionBits);
+                }
+                differences+=originalRam!=nativeRam;
+                differences+=std::memcmp(original.r,native.r,sizeof(original.r))!=0;
+                differences+=std::memcmp(original.f,native.f,sizeof(original.f))!=0;
+                differences+=original.pc!=native.pc || native.pc!=(pairFunctions?returnPc:0x1fb7a0u);
+                differences+=original.branch_pc!=native.branch_pc || native.in_delay_slot || original.fcr31!=native.fcr31;
+                differences+=std::memcmp(initial.vu0_vf,native.vu0_vf,sizeof(initial.vu0_vf))!=0;
+                differences+=std::memcmp(&initial.vu0_acc,&native.vu0_acc,sizeof(initial.vu0_acc))!=0;
+                differences+=initial.vu0_mac_flags!=native.vu0_mac_flags || initial.vu0_status!=native.vu0_status;
+                ++cases;
+            }
+        std::printf("point direction %s: %llu cases, RAM/CPU/VU-preservation differences %llu\n",pairFunctions?"callback continuation":"original/native block",cases,differences);
+        return cases && !differences?0:1;
+    }
     bool matrixVectorOnly=std::strcmp(argv[1],"--matrix-vector-synthetic")==0;
     auto testMatrixVector=[&](const Matrix &matrix,__m128 vector,uint32_t mode,const __m128 *captured) {
         const auto saved=_mm_getcsr();_mm_setcsr((saved&~0xe040u)|mode);
@@ -346,6 +432,24 @@ int main(int argc,char **argv) {
         }
         std::printf("%s game functions: %llu cases, RAM/CPU/VU-preservation differences %llu\n",transposedFunctions?"transposed rigid inverse":offsetFunctions?"offset dot":columnFunctions?"column rigid inverse":"projection",cases,differences);
         return cases && !differences?0:1;
+    } else if(pairOnly) {
+        std::mt19937 random(0x56503253u);
+        std::uniform_real_distribution<float> value(-1000.f,1000.f);
+        for(unsigned mode:{0u,0x6000u,0x8040u,0xe040u}) {
+            for(unsigned k=0;k<32768;++k) {
+                auto sample=[&] {return k<16384?value(random):std::bit_cast<float>((random()&0x807fffffu)|((random()%128u)<<23));};
+                Matrix matrix;vp2s::math::PointDirection vectors;
+                for(auto &row:matrix)row=_mm_setr_ps(sample(),sample(),sample(),sample());
+                for(auto &v:vectors)v=_mm_setr_ps(sample(),sample(),sample(),sample());
+                uint32_t payload=random();std::memcpy(reinterpret_cast<uint8_t*>(&vectors[1])+12,&payload,4);
+                testPair(matrix,vectors,mode,nullptr);
+            }
+            for(float scale:{0.f,-0.f,1.f,-1.f,1.e-20f,1.e18f})for(unsigned lane=0;lane<4;++lane)for(bool negative:{false,true}) {
+                Matrix matrix={_mm_setr_ps(scale,0,0,scale),_mm_setr_ps(0,scale,0,-scale),_mm_setr_ps(0,0,scale,scale),_mm_setr_ps(scale,-scale,scale,-scale)};
+                float v[4]{};v[lane]=negative?-scale:scale;
+                testPair(matrix,{_mm_loadu_ps(v),_mm_loadu_ps(v)},mode,nullptr);
+            }
+        }
     } else if(matrixVectorOnly) {
         std::mt19937 random(0x56503253u);
         std::uniform_real_distribution<float> value(-1000.f,1000.f);
@@ -564,6 +668,12 @@ int main(int argc,char **argv) {
         for(;;) {
             uint32_t tag=0;
             if(std::fread(&tag,4,1,file)!=1) break;
+            if(tag==0x31524450u) {
+                uint32_t mode;Matrix matrix;vp2s::math::PointDirection vectors,result;
+                if(std::fread(&mode,4,1,file)!=1 || (mode&~0xe040u) || std::fread(matrix.data(),1,64,file)!=64 ||
+                   std::fread(vectors.data(),1,32,file)!=32 || std::fread(result.data(),1,32,file)!=32) {std::fclose(file);return 2;}
+                testPair(matrix,vectors,mode,&result);pairOnly=true;continue;
+            }
             if(tag==0x3152564du) {
                 uint32_t mode;Matrix matrix;__m128 vector,result;
                 if(std::fread(&mode,4,1,file)!=1 || (mode&~0xe040u) || std::fread(matrix.data(),1,64,file)!=64 ||
@@ -618,7 +728,7 @@ int main(int argc,char **argv) {
         std::fclose(file);
     }
     std::printf("native %s: %llu cases / %llu scalar outputs, reference differences %llu, captured differences %llu\n",
-                matrixVectorOnly?"matrix vector products":linearOnly?"linear vector products":transposedOnly?"transposed rigid inverses":offsetOnly?"offset dot records":projectionOnly?"projection products":rigidOnly?"rigid inverse translations":quaternionMatrix?"quaternion matrices":quaternionOnly?"quaternions":"matrices",
-                cases,cases*((matrixVectorOnly || linearOnly || quaternionOnly || rigidOnly || offsetOnly || transposedOnly)?4:16),differences,capturedDifferences);
+                pairOnly?"point direction transforms":matrixVectorOnly?"matrix vector products":linearOnly?"linear vector products":transposedOnly?"transposed rigid inverses":offsetOnly?"offset dot records":projectionOnly?"projection products":rigidOnly?"rigid inverse translations":quaternionMatrix?"quaternion matrices":quaternionOnly?"quaternions":"matrices",
+                cases,cases*(pairOnly?8:(matrixVectorOnly || linearOnly || quaternionOnly || rigidOnly || offsetOnly || transposedOnly)?4:16),differences,capturedDifferences);
     return cases && !differences && !capturedDifferences?0:1;
 }

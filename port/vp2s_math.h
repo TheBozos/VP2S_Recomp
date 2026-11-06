@@ -27,6 +27,11 @@ inline __m128 linearVectorProduct(const RigidBasis &basis,__m128 vector) {
     acc=normal(_mm_add_ps(acc,normal(_mm_mul_ps(basis[1],music::broadcast<1>(vector)))));
     return normal(_mm_add_ps(acc,normal(_mm_mul_ps(basis[2],music::broadcast<2>(vector)))));
 }
+using PointDirection = std::array<__m128,2>;
+inline PointDirection transformPointDirection(const Matrix &matrix,const PointDirection &vectors) {
+    return {matrixVectorProduct(matrix,vectors[0]),
+            linearVectorProduct(RigidBasis{matrix[0],matrix[1],matrix[2]},vectors[1])};
+}
 inline __m128 offsetDotRecord(__m128 point,__m128 axis,__m128 origin) {
     auto normal=[](__m128 v) {
         const auto bits=_mm_castps_si128(v);
@@ -180,3 +185,6 @@ void vp2sLinearVectorProduct(uint8_t*,R5900Context*,uint32_t basis,uint32_t vect
 bool vp2sMatrixVectorEnabled();
 bool vp2sMatrixVectorReferenceEnabled();
 void vp2sMatrixVectorProduct(uint8_t*,R5900Context*,uint32_t matrix,uint32_t vector,uint32_t destination,uint32_t site);
+bool vp2sPointDirectionEnabled();
+bool vp2sPointDirectionReferenceEnabled();
+void vp2sTransformPointDirection(uint8_t*,R5900Context*,uint32_t matrix,uint32_t point,uint32_t direction);

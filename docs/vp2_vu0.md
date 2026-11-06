@@ -745,6 +745,78 @@ build_usa/port/vp2s_math_check.exe --matrix-vector-functions
 build_usa/port/vp2s_math_check.exe <matrix-vector-records.bin>
 ```
 
+## Paired point/direction transform, 2026-11-06
+
+Object helper `0x1FB6A0` now transforms its cached point and direction through
+ordinary EE records. The point uses all four matrix weights; the direction
+uses only xyz weights, while both results compute all four components. The
+native calculation reuses the verified `matrixVectorProduct` and
+`linearVectorProduct` algorithms. It snapshots the matrix and both vectors,
+computes both results, then writes point followed by direction in place.
+Computing the second result after writing the first would break aliases.
+
+The converter validates the exact 15-word USA block `0x1FB768..0x1FB7A0`,
+gates its six VU loads/seven arithmetic operations to explicit comparison and
+replaces the first result store with the paired native record call. The second
+legacy store is inactive by default. Callback dispatch, dirty flags, the integer
+transpose, preceding record copies and epilogue remain ordinary recompiled game
+code. There is no default VU register/ACC/flag, packet, memory or timing input
+to the replacement, and no native input/result shadow carried between stores.
+
+`VP2S_NATIVE_POINT_DIRECTION=0` explicitly selects the original diagnostic path;
+`VP2S_POINT_DIRECTION_CHECK=1` compares both original results before native
+storage, aborting without fallback on mismatch. `VP2S_POINT_DIRECTION_RECORD`
+captures bounded typed matrix/two-vector/two-result records plus host FP controls;
+`VP2S_POINT_DIRECTION_FAILURE_RECORD` saves the first failed original result.
+
+The independent original-operation oracle passes **131,264 pairs / 1,050,112
+scalar outputs** over four host FP control modes, ordinary/tiny terms, signed
+zeros and each contributing axis. Direction.w is tested with arbitrary bits
+where ignored. **1,280 exact generated-block cases** cover separate records,
+both vectors overlapping the matrix, point/direction sharing the same record,
+direction overlapping the final matrix row, and point overlapping another
+matrix row. Whole private RAM, CPU records and terminal PC match; native VU
+vectors/ACC/flags remain unchanged.
+
+Fixture qualification matters: arbitrary direction.w payloads were initially
+also written into aliased, active matrix/point components. Their NaN or enormous
+values caused nonfinite/overflow differences in the fourth result component.
+Those cases were outside the bounded numerical-input contract, not evidence of
+store-order failure. Active shared numerical lanes are now finite and bounded;
+opaque payload bits remain tested wherever genuinely ignored. The native game
+algorithm does not reproduce PS2 NaN/overflow semantics. No runtime arithmetic
+or hardware-state workaround was added to make those invalid fixtures pass.
+
+An additional **1,024 real continuation cases** enter `0x1FB6BC` after its
+virtual callback. Both dirty-flag skip and calculation paths cover the actual
+integer transpose, cached-record copies, both transformed outputs, register
+restores, return/branch PC and delay slot. Whole private RAM and CPU state match,
+and native VU state is untouched. Entering the preceding callback in the offline
+fixture throws; that callback is not fabricated or claimed tested here. The
+earlier 1,536 full matrix/vector block and 2,560 continuation checks still pass.
+
+Two 64-record live captures contain 26 distinct inputs in native-only mode and
+24 in strict comparison, and replay exactly against the original operations.
+Together with the synthetic cases this is **131,392 pairs / 1,051,136 scalar
+outputs**, zero differences within the numerical contract above. Repeating the
+converter changes no generated EE file. At Waiting Area capture 40, native
+versus strict-comparison RGB mean absolute errors are 0.017 (central wall),
+0.040 (upper-left wall), 0.114 (ground) and 0.005 (lower-left stone), on 0..255.
+These are port regression checks, not new PCSX2 parity or FPS evidence.
+
+Both hidden, input-isolated town/inn routes completed 300 seconds and logged
+at least **53,248 paired transforms each**. Strict original-result comparison
+found no mismatch. Music input remained playing with nonzero PCM peaks at
+290 seconds in both runs, and user-card hashes were unchanged. This is live
+route coverage, not whole-game RAM equivalence or coverage of every caller.
+
+```powershell
+build_usa/port/vp2s_math_check.exe --point-direction-synthetic
+build_usa/port/vp2s_math_check.exe --point-direction-blocks
+build_usa/port/vp2s_math_check.exe --point-direction-functions
+build_usa/port/vp2s_math_check.exe <point-direction-records.bin>
+```
+
 ## Still open
 
 The Csi seed service still runs through the IOP environment. Other main/module

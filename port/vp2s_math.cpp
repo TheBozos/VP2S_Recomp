@@ -80,6 +80,7 @@ Capture &offsetDotCapture() { static Capture value("VP2S_OFFSET_DOT_RECORD",72u)
 Capture &transposedRigidCapture() { static Capture value("VP2S_TRANSPOSED_RIGID_RECORD",104u); return value; }
 Capture &linearVectorCapture() { static Capture value("VP2S_LINEAR_VECTOR_RECORD",88u); return value; }
 Capture &matrixVectorCapture() { static Capture value("VP2S_MATRIX_VECTOR_RECORD",104u); return value; }
+Capture &pointDirectionCapture() { static Capture value("VP2S_POINT_DIRECTION_RECORD",136u); return value; }
 void quaternionMatrix(uint8_t *ram,R5900Context *ctx,PS2Runtime *runtime) {
     const uint32_t destination=getRegU32(ctx,4),stack=getRegU32(ctx,29);
     const __m128 input=_mm_loadu_ps(reinterpret_cast<const float*>(recordPointer(ram,getRegU32(ctx,5),16)));
@@ -272,6 +273,42 @@ bool vp2sMatrixVectorEnabled() {
     static const bool enabled=[] {const char *v=std::getenv("VP2S_NATIVE_MATRIX_VECTOR");return !(v && v[0]=='0');}();
     return enabled;
 }
+bool vp2sPointDirectionEnabled() {
+    static const bool enabled=[] {const char *v=std::getenv("VP2S_NATIVE_POINT_DIRECTION");return !(v && v[0]=='0');}();
+    return enabled;
+}
+bool vp2sPointDirectionReferenceEnabled() {
+    static const bool check=[] {const char *v=std::getenv("VP2S_POINT_DIRECTION_CHECK");return v && v[0]=='1';}();
+    return !vp2sPointDirectionEnabled() || check;
+}
+void vp2sTransformPointDirection(uint8_t *ram,R5900Context *ctx,uint32_t matrixAddress,uint32_t pointAddress,uint32_t directionAddress) {
+    Matrix matrix;vp2s::math::PointDirection vectors;
+    std::memcpy(matrix.data(),recordPointer(ram,matrixAddress),64);
+    std::memcpy(&vectors[0],recordPointer(ram,pointAddress,16),16);
+    std::memcpy(&vectors[1],recordPointer(ram,directionAddress,16),16);
+    const auto result=vp2s::math::transformPointDirection(matrix,vectors);
+    const uint32_t rounding=_mm_getcsr()&0xe040u;
+    if(vp2sPointDirectionReferenceEnabled() && std::memcmp(result.data(),&ctx->vu0_vf[5],32)) {
+        if(const char *path=std::getenv("VP2S_POINT_DIRECTION_FAILURE_RECORD"))
+            if(FILE *file=std::fopen(path,"wb")) {
+                const uint32_t tag=0x31524450u;
+                std::fwrite(&tag,4,1,file);std::fwrite(&rounding,4,1,file);std::fwrite(matrix.data(),64,1,file);
+                std::fwrite(vectors.data(),32,1,file);std::fwrite(&ctx->vu0_vf[5],32,1,file);std::fclose(file);
+            }
+        throw std::runtime_error("native point direction transform differs from original game calculation");
+    }
+    // Both results must be computed before either in-place vector is changed.
+    std::memcpy(recordPointer(ram,pointAddress,16),&result[0],16);
+    std::memcpy(recordPointer(ram,directionAddress,16),&result[1],16);
+    auto &recorder=pointDirectionCapture();
+    if(recorder.begin(0x31524450u)) {
+        recorder.append(&rounding,4);recorder.append(matrix.data(),64);recorder.append(vectors.data(),32);recorder.append(result.data(),32);recorder.end();
+    }
+    static uint64_t calls=0;
+    if(++calls==1 || calls%4096==0)
+        std::fprintf(stderr,"[math:native] point direction %llu calls%s\n",calls,
+                     vp2sPointDirectionReferenceEnabled()?" (original comparison exact)":" (no VU state)");
+}
 bool vp2sMatrixVectorReferenceEnabled() {
     static const bool check=[] {const char *v=std::getenv("VP2S_MATRIX_VECTOR_CHECK");return v && v[0]=='1';}();
     return !vp2sMatrixVectorEnabled() || check;
@@ -450,6 +487,7 @@ void vp2sInstallMath(PS2Runtime &runtime) {
     (void)transposedRigidCapture();
     (void)linearVectorCapture();
     (void)matrixVectorCapture();
+    (void)pointDirectionCapture();
     (void)quaternionCapture();
     const auto *module=ps2_overlays::findModule("mod001");
     if(!module) throw std::runtime_error("native math module missing");

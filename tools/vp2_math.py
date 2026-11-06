@@ -276,6 +276,42 @@ def lower_matrix_vectors(directory,data):
     print(f'Native object matrix vectors: three USA blocks validated; {changed} EE files lowered')
 
 
+def lower_point_direction(directory,data):
+    words=[0xd8c10000,0xd8c20010,0xd8c30020,0xd8c40030,0xd8a50000,0xd8860000,
+           0x4be509bc,0x4be510bd,0x4be518be,0x4be5214b,0x4be609bc,0x4be610bd,
+           0x4be6198a,0xf8a50000,0xf8860000]
+    if data.count(struct.pack('<15I',*words))!=1:
+        raise ValueError('Unexpected USA paired point direction block')
+    changed=0
+    for path in directory.glob('*.cpp'):
+        match=re.search(r'_0x([0-9a-f]+)$',path.stem)
+        if not match or not 0x1fb6a0<=int(match[1],16)<=0x1fb7a0:continue
+        text=path.read_text();marker='// VP2S native paired point direction v1'
+        if marker in text:continue
+        def patch(m):
+            pc=int(m[1],16)
+            if not 0x1fb768<=pc<=0x1fb7a0:return m[0]
+            index=(pc-0x1fb768)//4;assert int(m[2],16)==words[index]
+            body=m[3]
+            pattern=(r'ctx->vu0_vf\[[1-6]\] = [^\n;]+;' if index<6 else
+                     r'\{ __m128.*? \}' if index<13 else
+                     r'WRITE128\([^\n]+_mm_castps_si128\(ctx->vu0_vf\[[56]\]\)\);')
+            found=re.search(pattern,body,re.S);assert found,(path.name,hex(pc))
+            original=found[0]
+            if index==13:
+                replacement=('if (vp2sPointDirectionEnabled()) { vp2sTransformPointDirection(rdram, ctx, '
+                             'GPR_U32(ctx, 6), GPR_U32(ctx, 5), GPR_U32(ctx, 4)); } else { '+original+' }')
+            else:replacement='if (vp2sPointDirectionReferenceEnabled()) { '+original+' }'
+            return m[0][:m[0].index(body)]+body[:found.start()]+replacement+body[found.end():]
+        lowered=re.sub(r'// 0x([0-9a-f]+): 0x([0-9a-f]+)[^\n]*\n(.*?)(?=\s*// 0x[0-9a-f]+:|\Z)',patch,text,flags=re.S)
+        if lowered==text:continue
+        include='#include "ps2_recomp_calls.h"';assert lowered.count(include)==1
+        declarations=('\n'+marker+'\nbool vp2sPointDirectionEnabled();\nbool vp2sPointDirectionReferenceEnabled();\n'
+                      'void vp2sTransformPointDirection(uint8_t*, R5900Context*, uint32_t, uint32_t, uint32_t);\n')
+        path.write_text(lowered.replace(include,include+declarations));changed+=1
+    print(f'Native paired point direction: USA block validated; {changed} EE files lowered')
+
+
 def projection_fixtures(directory):
     # Original and rewritten EE game functions belong only to the offline
     # checker. Replace their one direct game call with a normal C++ call and
@@ -284,7 +320,7 @@ def projection_fixtures(directory):
     source='\n#include "ps2_runtime.h"\n#include "ps2_runtime_macros.h"\n#include "vp2s_math.h"\nnamespace vp2s::mathfixture {\n'
     for native in (False,True):
         prefix='native' if native else 'original'
-        for address,name in [('216e40','Rigid'),('216cb0','ColumnRigid'),('216d60','TransposedRigid'),('214590','OffsetDot'),('2178b0','Perspective'),('2179e0','Orthographic'),('1fb240','ObjectLinear'),('1fb330','ObjectMatrix0'),('1fb530','ObjectMatrix1'),('1fb7c0','ObjectMatrix2')]:
+        for address,name in [('216e40','Rigid'),('216cb0','ColumnRigid'),('216d60','TransposedRigid'),('214590','OffsetDot'),('2178b0','Perspective'),('2179e0','Orthographic'),('1fb240','ObjectLinear'),('1fb330','ObjectMatrix0'),('1fb530','ObjectMatrix1'),('1fb7c0','ObjectMatrix2'),('1fb6a0','ObjectPointDirection')]:
             path=directory/f'mod001_FUN_00{address}_0x{address}.cpp'
             text=path.read_text().split('// Function:',1)[1]
             text='// Function:'+text
@@ -297,16 +333,16 @@ def projection_fixtures(directory):
                 text,count=re.subn(r'if \(!ps2rDispatchGuestBranch\(runtime, rdram, ctx, 0x216E40u,[^\n]+\)\) \{\s*return;\s*\}',
                                    prefix+'Rigid(rdram, ctx, runtime);',text)
                 assert count==1
-            if address in ('1fb240','1fb330','1fb530','1fb7c0'):
+            if address in ('1fb240','1fb330','1fb530','1fb7c0','1fb6a0'):
                 # Enter at the real continuation after the virtual callback.
                 # A fixture reaching that callback is a test setup error.
                 text,count=re.subn(r'if \(!ps2rDispatchGuestBranch\([^\n]+\)\) \{\s*return;\s*\}',
                                    'throw std::runtime_error("unexpected fixture callback entry");',text)
                 assert count==(2 if address=='1fb330' else 1)
             if not native:
-                text=re.sub(r'if \(vp2s(?:RigidInverse|ProjectionProduct|OffsetDot|LinearVector|MatrixVector)Enabled\(\)\) \{ [^\n]+? \} else \{ ([^\n]+?) \}',r'\1',text)
-                text=re.sub(r'if \(vp2s(?:RigidInverse|ProjectionProduct|OffsetDot|LinearVector|MatrixVector)ReferenceEnabled\(\)\) \{ (.*?) \}',r'\1',text,flags=re.S)
-                assert not re.search(r'vp2s(?:RigidInverse|ProjectionProduct|OffsetDot|TransposedRigid|LinearVector|MatrixVector)',text)
+                text=re.sub(r'if \(vp2s(?:RigidInverse|ProjectionProduct|OffsetDot|LinearVector|MatrixVector|PointDirection)Enabled\(\)\) \{ [^\n]+? \} else \{ ([^\n]+?) \}',r'\1',text)
+                text=re.sub(r'if \(vp2s(?:RigidInverse|ProjectionProduct|OffsetDot|LinearVector|MatrixVector|PointDirection)ReferenceEnabled\(\)\) \{ (.*?) \}',r'\1',text,flags=re.S)
+                assert not re.search(r'vp2s(?:RigidInverse|ProjectionProduct|OffsetDot|TransposedRigid|LinearVector|MatrixVector|PointDirection)',text)
             assert 'ps2rDispatchGuestBranch' not in text
             source+=text+'\n'
         for index,(address,start) in enumerate([('1fb120',0x1fb1e4),('1fb240',0x1fb2fc),('1fb330',0x1fb42c),('1fb530',0x1fb624)]):
@@ -325,6 +361,13 @@ def projection_fixtures(directory):
                 body=re.sub(r'if \(vp2sMatrixVectorReferenceEnabled\(\)\) \{ (.*?) \}',r'\1',body,flags=re.S)
                 assert 'vp2sMatrixVector' not in body
             source+=f'void {prefix}MatrixVector{index}(uint8_t *rdram,R5900Context *ctx,PS2Runtime *runtime) {{\n'+body+'\n}\n'
+        text=(directory/'mod001_FUN_001fb6a0_0x1fb6a0.cpp').read_text()
+        body=text.split('label_1fb768:',1)[1].split('label_1fb7a4:',1)[0]
+        if not native:
+            body=re.sub(r'if \(vp2sPointDirectionEnabled\(\)\) \{ [^\n]+? \} else \{ ([^\n]+?) \}',r'\1',body)
+            body=re.sub(r'if \(vp2sPointDirectionReferenceEnabled\(\)\) \{ (.*?) \}',r'\1',body,flags=re.S)
+            assert 'vp2sPointDirection' not in body
+        source+=f'void {prefix}PointDirectionBlock(uint8_t *rdram,R5900Context *ctx,PS2Runtime *runtime) {{\n'+body+'\n}\n'
     return source+'}\n'
 
 
@@ -451,6 +494,7 @@ def main():
     lower_projection_products(args.recomp/'mod001',data)
     lower_linear_vectors(args.recomp/'mod001',data)
     lower_matrix_vectors(args.recomp/'mod001',data)
+    lower_point_direction(args.recomp/'mod001',data)
     source+=projection_fixtures(args.recomp/'mod001')
     source=source.encode()
     if not path.exists() or path.read_bytes()!=source: path.write_bytes(source)

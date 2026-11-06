@@ -63,6 +63,7 @@ if(MINGW)
 endif()
 add_test(NAME vp2s-bozo-modules COMMAND vp2s-bozo-modules-check)
 if(VP2S_BOZO_CODE)
+  add_test(NAME vp2s-bozo-module-identities COMMAND vp2s-bozo-modules-check "${VP2S_BOZO_DATA}/../extract/iop")
   set(RECORD_REF "${CMAKE_CURRENT_BINARY_DIR}/timer-record-reference")
   add_custom_command(
     OUTPUT "${RECORD_REF}/timer_record_000.cpp" "${RECORD_REF}/timer_record_table.cpp" "${RECORD_REF}/timer_record_functions.h"

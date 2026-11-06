@@ -22,28 +22,13 @@ namespace {
 class StrictHost final : public bozo::ee::Host, public vp2s::TimerOwner, public vp2s::SettingsOwner,public vp2s::SeedOwner,public vp2s::ModuleOwner {
 public:
     vp2s::ModuleBuffers moduleStorage;
-    std::map<std::string,int32_t> serviceModules;
+    std::unique_ptr<vp2s::NativeServiceModules> serviceModules;
     vp2s::ModuleBuffers &moduleBuffers() override {return moduleStorage;}
     vp2s::ModuleResult loadNativeModule(const std::string &path,std::span<const uint8_t>) override {
         throw std::runtime_error("unported native service module: "+path);
     }
     vp2s::ModuleResult loadNativeModuleBuffer(uint32_t handle,std::span<const uint8_t> args) override {
-        const auto buffer=moduleStorage.view(handle);
-        const auto root=std::filesystem::path(VP2S_BOZO_IMAGES).parent_path().parent_path()/"extract/iop";
-        for(const char *name:{"sio2man.irx","sio2d.irx","ds2o_d.irx","mcman.irx","mcserv.irx",
-                              "Sound_Device_Library.irx","Csi_.irx","Csd_.irx","Csm_.irx","Dbc_Manager.irx"}) {
-            std::ifstream file(root/name,std::ios::binary);
-            std::vector<uint8_t> original{std::istreambuf_iterator<char>(file),{}};
-            if(original.empty() || buffer.size()!=((original.size()+15)&~size_t(15)) ||
-               !std::equal(original.begin(),original.end(),buffer.begin()))continue;
-            if(std::string_view(name)!="sio2man.irx")
-                throw std::runtime_error(std::string("unported native service module: ")+name);
-            if(!args.empty())throw std::runtime_error("unported native system-module arguments");
-            auto [it,inserted]=serviceModules.try_emplace(name,static_cast<int32_t>(serviceModules.size()+1));
-            std::fprintf(stderr,"[vp2s:module] native pad/card service owns %s id=%d\n",name,it->second);
-            return {it->second,0};
-        }
-        throw std::runtime_error("unidentified native service module buffer");
+        return serviceModules->loadBuffer(moduleStorage.view(handle),args);
     }
     uint32_t seed=0;
     uint32_t bootSeed() const override { return seed; }
@@ -53,11 +38,14 @@ public:
     vp2s::Settings preferences;
     vp2s::Settings &settings() override { return preferences; }
     explicit StrictHost(const bozo::host::FreeOptions &options) : native(options) {
+        const auto root=std::filesystem::path(VP2S_BOZO_IMAGES).parent_path().parent_path()/"extract/iop";
+        serviceModules=std::make_unique<vp2s::NativeServiceModules>(root,[this]{
+            return native.libraries().find("scePadInit") && native.libraries().find("sceMcInit");});
         auto &sif=native.libraries().sif;
         sif.allocateBuffer=[this](uint32_t bytes){return moduleStorage.allocate(bytes);};
         sif.freeBuffer=[this](uint32_t h){return moduleStorage.release(h);};
         sif.transfer=[this](uint32_t to,const uint8_t *data,uint32_t bytes){moduleStorage.copy(to,{data,bytes});};
-        sif.resetProvider=[this]{moduleStorage.reset();serviceModules.clear();};
+        sif.resetProvider=[this]{moduleStorage.reset();serviceModules->reset();};
         sif.moduleLoader=[this](const std::string &path){return loadNativeModule(path,{}).id;};
         if(const char *specified=std::getenv("VP2S_BOZO_SEED")) {
             const char *end=specified+std::char_traits<char>::length(specified);

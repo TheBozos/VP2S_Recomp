@@ -4,7 +4,30 @@
 #include <cstring>
 #include <stdexcept>
 #include <algorithm>
+#include <fstream>
+#include <iterator>
+#include <cstdio>
 namespace vp2s {
+ModuleResult NativeServiceModules::loadBuffer(std::span<const uint8_t> buffer,std::span<const uint8_t> args) {
+    for(const char *name:{"sio2man.irx","sio2d.irx","ds2o_d.irx","mcman.irx","mcserv.irx",
+                         "Sound_Device_Library.irx","Csi_.irx","Csd_.irx","Csm_.irx","Dbc_Manager.irx"}) {
+        std::ifstream file(root/name,std::ios::binary);
+        std::vector<uint8_t> original{std::istreambuf_iterator<char>(file),{}};
+        if(original.empty() || buffer.size()!=((original.size()+15)&~size_t(15)) ||
+           !std::equal(original.begin(),original.end(),buffer.begin()))continue;
+        // These two libraries only transport controller/card transactions.
+        // The native EE services own those transactions. The later custom
+        // Dbc_Manager protocol is a separate provider and still rejects.
+        if(std::string_view(name)!="sio2man.irx" && std::string_view(name)!="sio2d.irx")
+            throw std::runtime_error(std::string("unported native service module: ")+name);
+        if(!ready || !ready())throw std::runtime_error("native pad/card service is not installed");
+        if(!args.empty())throw std::runtime_error("unported native system-module arguments");
+        auto [it,inserted]=services.try_emplace(name,static_cast<int32_t>(services.size()+1));
+        std::fprintf(stderr,"[vp2s:module] native pad/card service owns %s id=%d\n",name,it->second);
+        return {it->second,0};
+    }
+    throw std::runtime_error("unidentified native service module buffer");
+}
 uint32_t ModuleBuffers::allocate(uint32_t bytes) {
     if(!bytes || bytes>64u*1024*1024 || uint64_t(next)+bytes+16>=0x70000000ull)
         throw std::runtime_error("invalid/exhausted native module buffer allocation");

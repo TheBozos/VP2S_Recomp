@@ -383,3 +383,11 @@ not claim the later custom Dbc_Manager controller protocol or Tri-Ace sound is
 implemented. Native module-argument policy is empty-only until each provider's
 configuration contract is audited. Twelve port suites pass, with 1,666 remaining
 rejecting entry guards. Startup still has zero frames; work toward Logun continues.
+
+The next transport module, `sio2d` 3.03, imports sio2man/secrman and provides the
+controller/card transport export. It now uses the same explicit native service
+ownership, with native pad/card API readiness required before admission. Provider
+identity/argument/readiness/duplicate/reset tests use the actual private source
+images. Thirteen port suites pass. Startup reaches the next distinct custom
+`Dbc_Manager` 3.16 module; its custom protocol is still rejected and must be
+implemented separately. No custom controller data or sound result is fabricated.

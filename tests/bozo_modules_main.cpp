@@ -4,6 +4,8 @@
 #include <cstring>
 #include <cstdio>
 #include <stdexcept>
+#include <fstream>
+#include <iterator>
 namespace {
 void check(bool v){if(!v)throw std::runtime_error("native module ABI/buffer mismatch");}
 template<class F>void rejects(F f){bool bad=false;try{f();}catch(const std::runtime_error &){bad=true;}check(bad);}
@@ -23,7 +25,7 @@ struct Host final:bozo::ee::Host,vp2s::ModuleOwner {
     void fault(bozo::ee::Dispatcher &,R5900Context *,const std::string &s) override {throw std::runtime_error(s);}
 };
 }
-int main(){try{
+int main(int argc,char **argv){try{
     Host h,other;bozo::ee::Dispatcher d(h);d.boot(0x100000,0x1fff000);
     auto &rt=d.runtime();auto *ram=rt.memory.ram();
     auto handle=h.buffers.allocate(32);check(handle>=0x40000000);
@@ -62,5 +64,23 @@ int main(){try{
     vp2s::freeNativeModuleBuffer(nullptr,&c,&rt);check(c.r[2].sd[0]==-1);
     rejects([&]{h.buffers.view(handle);});
     h.buffers.allocate(16);h.buffers.reset();rejects([&]{h.buffers.view(handle);});
+    if(argc==2) {
+        const std::filesystem::path root=argv[1];
+        auto image=[&](const char *name){
+            std::ifstream file(root/name,std::ios::binary);
+            std::vector<uint8_t> bytes{std::istreambuf_iterator<char>(file),{}};
+            check(!bytes.empty());bytes.resize((bytes.size()+15)&~size_t(15));return bytes;
+        };
+        auto sio=image("sio2man.irx"),mux=image("sio2d.irx"),custom=image("Dbc_Manager.irx");
+        vp2s::NativeServiceModules services(root,[]{return true;}),unready(root,[]{return false;});
+        rejects([&]{unready.loadBuffer(sio,{});});
+        const uint8_t option=1;rejects([&]{services.loadBuffer(sio,{&option,1});});
+        check(services.loadBuffer(sio,{}).id==1 && services.loadBuffer(mux,{}).id==2);
+        check(services.loadBuffer(sio,{}).id==1);
+        rejects([&]{services.loadBuffer(custom,{});});
+        sio[0]^=1;rejects([&]{services.loadBuffer(sio,{});});sio[0]^=1;
+        services.reset();check(services.loadBuffer(mux,{}).id==1);
+        std::puts("private source identities, provider admission/readiness/arguments, duplicate/reset isolation passed");
+    }
     std::puts("native module path/buffer ABI, copied bytes, bounds, atomic batches, completion, lifecycle and isolation passed");return 0;
 }catch(const std::exception &e){std::fprintf(stderr,"%s\n",e.what());return 1;}}

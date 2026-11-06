@@ -19,6 +19,16 @@ void originalOffsetDot(uint8_t*,R5900Context*,PS2Runtime*);
 void nativeOffsetDot(uint8_t*,R5900Context*,PS2Runtime*);
 void originalTransposedRigid(uint8_t*,R5900Context*,PS2Runtime*);
 void nativeTransposedRigid(uint8_t*,R5900Context*,PS2Runtime*);
+void originalObjectLinear(uint8_t*,R5900Context*,PS2Runtime*);
+void nativeObjectLinear(uint8_t*,R5900Context*,PS2Runtime*);
+void originalLinear0(uint8_t*,R5900Context*,PS2Runtime*);
+void originalLinear1(uint8_t*,R5900Context*,PS2Runtime*);
+void originalLinear2(uint8_t*,R5900Context*,PS2Runtime*);
+void originalLinear3(uint8_t*,R5900Context*,PS2Runtime*);
+void nativeLinear0(uint8_t*,R5900Context*,PS2Runtime*);
+void nativeLinear1(uint8_t*,R5900Context*,PS2Runtime*);
+void nativeLinear2(uint8_t*,R5900Context*,PS2Runtime*);
+void nativeLinear3(uint8_t*,R5900Context*,PS2Runtime*);
 }
 
 struct R5900Context;
@@ -125,6 +135,101 @@ int main(int argc,char **argv) {
         if(captured)capturedDifferences+=std::memcmp(captured,&original,16)!=0;
         _mm_setcsr(saved);++cases;
     };
+    auto testLinear=[&](const vp2s::math::RigidBasis &basis,__m128 vector,uint32_t mode,const __m128 *captured) {
+        const auto saved=_mm_getcsr();_mm_setcsr((saved&~0xe040u)|mode);
+        auto acc=PS2_VMUL(basis[0],vp2s::music::broadcast<0>(vector));
+        acc=PS2_VADD(acc,PS2_VMUL(basis[1],vp2s::music::broadcast<1>(vector)));
+        const auto original=PS2_VADD(acc,PS2_VMUL(basis[2],vp2s::music::broadcast<2>(vector)));
+        const auto result=vp2s::math::linearVectorProduct(basis,vector);
+        differences+=std::memcmp(&result,&original,16)!=0;
+        if(captured)capturedDifferences+=std::memcmp(captured,&original,16)!=0;
+        _mm_setcsr(saved);++cases;
+    };
+    bool linearOnly=std::strcmp(argv[1],"--linear-vector-synthetic")==0;
+    if(std::strcmp(argv[1],"--linear-vector-blocks")==0) {
+        if(vp2sLinearVectorReferenceEnabled())return 2;
+        using namespace vp2s::mathfixture;
+        const auto originals=std::array{originalLinear0,originalLinear1,originalLinear2,originalLinear3};
+        const auto natives=std::array{nativeLinear0,nativeLinear1,nativeLinear2,nativeLinear3};
+        std::mt19937 random(0x56503253u);
+        std::uniform_real_distribution<float> value(-1000.f,1000.f);
+        std::vector<uint8_t> originalRam(0x130000),nativeRam;
+        for(unsigned mode:{0u,0x6000u,0x8040u,0xe040u})for(unsigned k=0;k<32;++k)
+            for(unsigned site=0;site<4;++site)for(unsigned alias=0;alias<4;++alias) {
+                std::fill(originalRam.begin(),originalRam.end(),0xa5);
+                vp2s::math::RigidBasis basis;
+                for(auto &row:basis)row=_mm_setr_ps(value(random),value(random),value(random),value(random));
+                auto vector=_mm_setr_ps(value(random),value(random),value(random),0.f);
+                uint32_t payload=random();std::memcpy(reinterpret_cast<uint8_t*>(&vector)+12,&payload,4);
+                constexpr uint32_t basisAddress=0x110000,vectorAddress=0x110100;
+                const auto destination=alias==0?0x120000u:alias==1?basisAddress:alias==2?basisAddress+16:vectorAddress;
+                std::memcpy(originalRam.data()+basisAddress,basis.data(),48);
+                std::memcpy(originalRam.data()+vectorAddress,&vector,16);nativeRam=originalRam;
+                R5900Context initial{};
+                initial.r[3]=_mm_cvtsi32_si128(destination);initial.r[4]=_mm_cvtsi32_si128(vectorAddress);initial.r[5]=_mm_cvtsi32_si128(basisAddress);
+                std::memset(initial.vu0_vf,0xc5,sizeof(initial.vu0_vf));
+                initial.vu0_acc=_mm_set1_ps(-123.f);initial.vu0_mac_flags=0x8765;initial.vu0_status=0x1234;
+                auto original=initial,native=initial;
+                const auto saved=_mm_getcsr();_mm_setcsr((saved&~0xe040u)|mode);
+                originals[site](originalRam.data(),&original,nullptr);
+                _mm_setcsr((saved&~0xe040u)|mode);
+                natives[site](nativeRam.data(),&native,nullptr);_mm_setcsr(saved);
+                differences+=originalRam!=nativeRam;
+                differences+=std::memcmp(original.r,native.r,sizeof(original.r))!=0;
+                differences+=std::memcmp(original.f,native.f,sizeof(original.f))!=0;
+                differences+=original.pc!=native.pc || original.branch_pc!=native.branch_pc || original.in_delay_slot!=native.in_delay_slot;
+                differences+=std::memcmp(initial.vu0_vf,native.vu0_vf,sizeof(initial.vu0_vf))!=0;
+                differences+=std::memcmp(&initial.vu0_acc,&native.vu0_acc,sizeof(initial.vu0_acc))!=0;
+                differences+=initial.vu0_mac_flags!=native.vu0_mac_flags || initial.vu0_status!=native.vu0_status;
+                ++cases;
+            }
+        std::printf("four original/native linear blocks: %llu cases, RAM/CPU/VU-preservation differences %llu\n",cases,differences);
+        return cases && !differences?0:1;
+    }
+    if(std::strcmp(argv[1],"--linear-vector-functions")==0) {
+        if(vp2sLinearVectorReferenceEnabled())return 2;
+        std::mt19937 random(0x56503253u);
+        std::uniform_real_distribution<float> value(-1000.f,1000.f);
+        std::vector<uint8_t> originalRam(0x400000),nativeRam;
+        constexpr uint32_t object=0x110000,stack=0x1f0000,returnPc=0x100000;
+        for(unsigned mode:{0u,0x6000u,0x8040u,0xe040u}) for(unsigned k=0;k<128;++k)for(bool skip:{false,true}) {
+            std::fill(originalRam.begin(),originalRam.end(),0xa5);
+            Matrix basis;
+            for(auto &row:basis)row=_mm_setr_ps(value(random),value(random),value(random),value(random));
+            std::memcpy(originalRam.data()+object+0x90,basis.data(),64);
+            auto vector=_mm_setr_ps(value(random),value(random),value(random),0.f);
+            uint32_t payload=random();std::memcpy(reinterpret_cast<uint8_t*>(&vector)+12,&payload,4);
+            std::memcpy(originalRam.data()+0x359120,&vector,16);
+            originalRam[object+0x20e]=skip?8:16;
+            uint64_t returned=returnPc;std::memcpy(originalRam.data()+stack+16,&returned,8);
+            nativeRam=originalRam;
+            R5900Context initial{};
+            for(unsigned reg=1;reg<32;++reg)initial.r[reg]=_mm_set1_epi32(int(0x12120000u+reg));
+            initial.r[16]=_mm_cvtsi32_si128(object);initial.r[29]=_mm_cvtsi32_si128(stack);
+            initial.r[31]=_mm_cvtsi32_si128(0x1fb25c);initial.pc=0x1fb25c;
+            std::memset(initial.vu0_vf,0xc5,sizeof(initial.vu0_vf));
+            initial.vu0_vf[0]=_mm_setr_ps(0.f,0.f,0.f,1.f);
+            initial.vu0_acc=_mm_set1_ps(-123.f);initial.vu0_mac_flags=0x8765;initial.vu0_status=0x1234;
+            auto original=initial,native=initial;
+            const auto saved=_mm_getcsr();_mm_setcsr((saved&~0xe040u)|mode);
+            vp2s::mathfixture::originalObjectLinear(originalRam.data(),&original,nullptr);
+            _mm_setcsr((saved&~0xe040u)|mode);
+            vp2s::mathfixture::nativeObjectLinear(nativeRam.data(),&native,nullptr);
+            _mm_setcsr(saved);
+            differences+=originalRam!=nativeRam;
+            differences+=std::memcmp(original.r,native.r,sizeof(original.r))!=0;
+            differences+=std::memcmp(original.f,native.f,sizeof(original.f))!=0;
+            differences+=original.pc!=native.pc || native.pc!=returnPc;
+            differences+=original.branch_pc!=native.branch_pc || native.in_delay_slot;
+            differences+=original.fcr31!=native.fcr31;
+            differences+=std::memcmp(initial.vu0_vf,native.vu0_vf,sizeof(initial.vu0_vf))!=0;
+            differences+=std::memcmp(&initial.vu0_acc,&native.vu0_acc,sizeof(initial.vu0_acc))!=0;
+            differences+=initial.vu0_mac_flags!=native.vu0_mac_flags || initial.vu0_status!=native.vu0_status;
+            ++cases;
+        }
+        std::printf("object linear callback continuation: %llu cases, RAM/CPU/VU-preservation differences %llu\n",cases,differences);
+        return cases && !differences?0:1;
+    }
     bool transposedOnly=std::strcmp(argv[1],"--transposed-rigid-synthetic")==0;
     bool offsetOnly=std::strcmp(argv[1],"--offset-dot-synthetic")==0;
     bool projectionOnly=std::strcmp(argv[1],"--projection-product-synthetic")==0;
@@ -201,6 +306,24 @@ int main(int argc,char **argv) {
         }
         std::printf("%s game functions: %llu cases, RAM/CPU/VU-preservation differences %llu\n",transposedFunctions?"transposed rigid inverse":offsetFunctions?"offset dot":columnFunctions?"column rigid inverse":"projection",cases,differences);
         return cases && !differences?0:1;
+    } else if(linearOnly) {
+        std::mt19937 random(0x56503253u);
+        std::uniform_real_distribution<float> value(-1000.f,1000.f);
+        for(unsigned mode:{0u,0x6000u,0x8040u,0xe040u}) {
+            for(unsigned k=0;k<32768;++k) {
+                auto sample=[&] {return k<16384?value(random):std::bit_cast<float>((random()&0x807fffffu)|((random()%128u)<<23));};
+                vp2s::math::RigidBasis basis;
+                for(auto &row:basis)row=_mm_setr_ps(sample(),sample(),sample(),sample());
+                auto vector=_mm_setr_ps(sample(),sample(),sample(),0.f);
+                uint32_t payload=random();std::memcpy(reinterpret_cast<uint8_t*>(&vector)+12,&payload,4);
+                testLinear(basis,vector,mode,nullptr);
+            }
+            for(float scale:{0.f,-0.f,1.f,-1.f,1.e-20f,1.e18f})for(unsigned lane=0;lane<3;++lane)for(bool negative:{false,true}) {
+                vp2s::math::RigidBasis basis={_mm_setr_ps(scale,0,0,scale),_mm_setr_ps(0,scale,0,-scale),_mm_setr_ps(0,0,scale,scale)};
+                float vector[4]{};vector[lane]=negative?-scale:scale;
+                testLinear(basis,_mm_loadu_ps(vector),mode,nullptr);
+            }
+        }
     } else if(transposedOnly) {
         std::mt19937 random(0x56503253u);
         std::uniform_real_distribution<float> value(-1000.f,1000.f);
@@ -384,6 +507,12 @@ int main(int argc,char **argv) {
         for(;;) {
             uint32_t tag=0;
             if(std::fread(&tag,4,1,file)!=1) break;
+            if(tag==0x3152564cu) {
+                uint32_t mode;vp2s::math::RigidBasis basis;__m128 vector,result;
+                if(std::fread(&mode,4,1,file)!=1 || (mode&~0xe040u) || std::fread(basis.data(),1,48,file)!=48 ||
+                   std::fread(&vector,1,16,file)!=16 || std::fread(&result,1,16,file)!=16) {std::fclose(file);return 2;}
+                testLinear(basis,vector,mode,&result);linearOnly=true;continue;
+            }
             if(tag==0x31524954u) {
                 uint32_t mode;Matrix matrix;__m128 translation,result;
                 if(std::fread(&mode,4,1,file)!=1 || (mode&~0xe040u) || std::fread(matrix.data(),1,64,file)!=64 ||
@@ -426,7 +555,7 @@ int main(int argc,char **argv) {
         std::fclose(file);
     }
     std::printf("native %s: %llu cases / %llu scalar outputs, reference differences %llu, captured differences %llu\n",
-                transposedOnly?"transposed rigid inverses":offsetOnly?"offset dot records":projectionOnly?"projection products":rigidOnly?"rigid inverse translations":quaternionMatrix?"quaternion matrices":quaternionOnly?"quaternions":"matrices",
-                cases,cases*((quaternionOnly || rigidOnly || offsetOnly || transposedOnly)?4:16),differences,capturedDifferences);
+                linearOnly?"linear vector products":transposedOnly?"transposed rigid inverses":offsetOnly?"offset dot records":projectionOnly?"projection products":rigidOnly?"rigid inverse translations":quaternionMatrix?"quaternion matrices":quaternionOnly?"quaternions":"matrices",
+                cases,cases*((linearOnly || quaternionOnly || rigidOnly || offsetOnly || transposedOnly)?4:16),differences,capturedDifferences);
     return cases && !differences && !capturedDifferences?0:1;
 }

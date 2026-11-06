@@ -4,6 +4,17 @@
 namespace vp2s::math {
 using Matrix = std::array<__m128,4>;
 using RigidBasis = std::array<__m128,3>;
+// Object-update linear transform: xyz weights, all four basis components.
+inline __m128 linearVectorProduct(const RigidBasis &basis,__m128 vector) {
+    auto normal=[](__m128 v) {
+        const auto bits=_mm_castps_si128(v);
+        const auto tiny=_mm_cmpeq_epi32(_mm_and_si128(bits,_mm_set1_epi32(0x7f800000)),_mm_setzero_si128());
+        return _mm_castsi128_ps(_mm_andnot_si128(_mm_and_si128(tiny,_mm_set1_epi32(0x7fffffff)),bits));
+    };
+    auto acc=normal(_mm_mul_ps(basis[0],music::broadcast<0>(vector)));
+    acc=normal(_mm_add_ps(acc,normal(_mm_mul_ps(basis[1],music::broadcast<1>(vector)))));
+    return normal(_mm_add_ps(acc,normal(_mm_mul_ps(basis[2],music::broadcast<2>(vector)))));
+}
 inline __m128 offsetDotRecord(__m128 point,__m128 axis,__m128 origin) {
     auto normal=[](__m128 v) {
         const auto bits=_mm_castps_si128(v);
@@ -151,3 +162,6 @@ void vp2sOffsetDotRecord(uint8_t*,R5900Context*,uint32_t point,uint32_t axis,uin
 bool vp2sProjectionProductEnabled();
 bool vp2sProjectionProductReferenceEnabled();
 void vp2sProjectionProduct(uint8_t*,R5900Context*,uint32_t local,uint32_t view,uint32_t destination,uint32_t site);
+bool vp2sLinearVectorEnabled();
+bool vp2sLinearVectorReferenceEnabled();
+void vp2sLinearVectorProduct(uint8_t*,R5900Context*,uint32_t basis,uint32_t vector,uint32_t destination,uint32_t site);

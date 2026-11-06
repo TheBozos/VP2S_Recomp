@@ -598,6 +598,71 @@ build_usa/port/vp2s_math_check.exe --transposed-rigid-functions
 build_usa/port/vp2s_math_check.exe <transposed-rigid-records.bin>
 ```
 
+## Object-update linear vector products, 2026-11-06
+
+Four terminal blocks in object helpers `0x1FB120`, `0x1FB240`, `0x1FB330`
+and `0x1FB530` now compute a typed three-basis-vector product directly from
+ordinary EE records. The result stores are `0x1FB200`, `0x1FB318`, `0x1FB448`
+and `0x1FB640`. Their identical eight-word USA instruction sequence is validated
+before lowering all four generated functions; repeating conversion changes no
+generated EE source. The default path has no VU register, accumulator, flag,
+microcode, transport or timing dependency for these blocks.
+
+The operation is `basis[0]*vector.x + basis[1]*vector.y + basis[2]*vector.z`,
+with ordered multiply/adds under the caller's host FP mode and signed-zero
+reduction of tiny intermediate results. Input `vector.w` is ignored, including
+arbitrary payload bits. All four basis components participate: output `w` is
+computed, rather than forced to one or preserved as in the rigid-inverse helper.
+The bridge copies every input before writing the destination. The original EE
+control flow, callbacks, integer transposes, copies and epilogues remain intact.
+The earlier four-column products in `0x1FB330` and `0x1FB530` remain separate VU
+replacement work; these functions are not claimed wholly VU-free.
+
+`VP2S_NATIVE_LINEAR_VECTOR=0` explicitly selects the original diagnostic path.
+`VP2S_LINEAR_VECTOR_CHECK=1` runs the original block and strictly checks its
+result; a mismatch aborts without fallback. `VP2S_LINEAR_VECTOR_RECORD=<file>`
+captures bounded typed basis/vector/result records plus host FP controls.
+`VP2S_LINEAR_VECTOR_FAILURE_RECORD=<file>` saves a mismatching original result.
+There is no default read or write of VU state.
+
+The independent original-operation arithmetic oracle passes **131,216 cases /
+524,864 scalar outputs** over four host FP control modes, ordinary and tiny
+terms, signed zeros, arbitrary vector-w payloads and nontrivial result-w values.
+Two 64-record live captures each contain 23 distinct inputs and replay exactly,
+giving **131,344 arithmetic/captured cases / 525,376 outputs** in total.
+All four exact generated blocks additionally pass **2,048 original/native
+cases**, including separate output, output overlapping the basis at offsets
+zero and 16, and output aliasing the vector. Whole private RAM, CPU records and
+the final instruction PC match; native VU vector/accumulator/flags are untouched.
+
+An additional **1,024 real callback-continuation cases** enter `0x1FB240` at
+`0x1FB25C`, after its virtual callback. They check both the dirty-flag skip and
+calculation paths, the actual integer transpose and object output, register
+restores, return PC and delay slot across four host modes. Full private RAM and
+CPU state match, with native VU state unchanged. Entering the callback in this
+offline fixture throws a test error: the callback itself is not fabricated or
+claimed tested by this fixture. The prior 2,048 complete transposed-inverse
+function checks also remain passing.
+
+Both hidden, input-isolated town/inn runs completed 300 seconds, reached all
+four sites and preserved user-card hashes. Strict comparison found no mismatch.
+Each run logged at least 49,152 calls at `0x1FB448` and 86,016 at `0x1FB640`;
+the other two sites were observed but did not reach the 4,096-call logging
+threshold. Music input was still playing with nonzero PCM peaks at 290 seconds.
+This establishes route coverage, not coverage of every scene or every caller.
+
+At Waiting Area capture 40, native-versus-strict-comparison RGB mean absolute
+errors are 0.015 (central wall), 0.082 (upper-left wall), 0.302 (ground) and 0.017
+(unobstructed lower-left stone), on 0..255. These are port regression checks,
+not new PCSX2 parity evidence or a performance benchmark.
+
+```powershell
+build_usa/port/vp2s_math_check.exe --linear-vector-synthetic
+build_usa/port/vp2s_math_check.exe --linear-vector-blocks
+build_usa/port/vp2s_math_check.exe --linear-vector-functions
+build_usa/port/vp2s_math_check.exe <linear-vector-records.bin>
+```
+
 ## Still open
 
 The Csi seed service still runs through the IOP environment. Other main/module

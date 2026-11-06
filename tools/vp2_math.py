@@ -198,6 +198,45 @@ def lower_offset_dot(directory,data):
     print(f'Native offset dot: USA block validated; {changed} EE files lowered')
 
 
+def lower_linear_vectors(directory,data):
+    words=[0xd8840000,0xd8a10000,0xd8a20010,0xd8a30020,
+           0x4be409bc,0x4be410bd,0x4be4190a,0xf8640000]
+    if data.count(struct.pack('<8I',*words))!=4:
+        raise ValueError('Unexpected USA object linear vector blocks')
+    ranges=[(0x1fb120,0x1fb240,0x1fb1e4),(0x1fb240,0x1fb330,0x1fb2fc),
+            (0x1fb330,0x1fb530,0x1fb42c),(0x1fb530,0x1fb660,0x1fb624)]
+    changed=0
+    for path in directory.glob('*.cpp'):
+        match=re.search(r'_0x([0-9a-f]+)$',path.stem)
+        if not match:continue
+        block=next((start for lo,hi,start in ranges if lo<=int(match[1],16)<hi),None)
+        if block is None:continue
+        text=path.read_text();marker='// VP2S native object linear vector v1'
+        if marker in text:continue
+        def patch(m):
+            pc=int(m[1],16)
+            if not block<=pc<=block+28:return m[0]
+            index=(pc-block)//4;assert int(m[2],16)==words[index]
+            body=m[3]
+            pattern=(r'ctx->vu0_vf\[[1-4]\] = [^\n;]+;' if index<4 else
+                     r'\{ __m128.*? \}' if index<7 else
+                     r'WRITE128\([^\n]+_mm_castps_si128\(ctx->vu0_vf\[4\]\)\);')
+            found=re.search(pattern,body,re.S);assert found,(path.name,hex(pc))
+            original=found[0]
+            if index==7:
+                replacement=('if (vp2sLinearVectorEnabled()) { vp2sLinearVectorProduct(rdram, ctx, '
+                             f'GPR_U32(ctx, 5), GPR_U32(ctx, 4), GPR_U32(ctx, 3), 0x{pc:x}u); }} else {{ '+original+' }')
+            else:replacement='if (vp2sLinearVectorReferenceEnabled()) { '+original+' }'
+            return m[0][:m[0].index(body)]+body[:found.start()]+replacement+body[found.end():]
+        lowered=re.sub(r'// 0x([0-9a-f]+): 0x([0-9a-f]+)[^\n]*\n(.*?)(?=\s*// 0x[0-9a-f]+:|\Z)',patch,text,flags=re.S)
+        if lowered==text:continue
+        include='#include "ps2_recomp_calls.h"';assert lowered.count(include)==1
+        declarations=('\n'+marker+'\nbool vp2sLinearVectorEnabled();\nbool vp2sLinearVectorReferenceEnabled();\n'
+                      'void vp2sLinearVectorProduct(uint8_t*, R5900Context*, uint32_t, uint32_t, uint32_t, uint32_t);\n')
+        path.write_text(lowered.replace(include,include+declarations));changed+=1
+    print(f'Native object linear vectors: four USA blocks validated; {changed} EE files lowered')
+
+
 def projection_fixtures(directory):
     # Original and rewritten EE game functions belong only to the offline
     # checker. Replace their one direct game call with a normal C++ call and
@@ -206,7 +245,7 @@ def projection_fixtures(directory):
     source='\n#include "ps2_runtime.h"\n#include "ps2_runtime_macros.h"\n#include "vp2s_math.h"\nnamespace vp2s::mathfixture {\n'
     for native in (False,True):
         prefix='native' if native else 'original'
-        for address,name in [('216e40','Rigid'),('216cb0','ColumnRigid'),('216d60','TransposedRigid'),('214590','OffsetDot'),('2178b0','Perspective'),('2179e0','Orthographic')]:
+        for address,name in [('216e40','Rigid'),('216cb0','ColumnRigid'),('216d60','TransposedRigid'),('214590','OffsetDot'),('2178b0','Perspective'),('2179e0','Orthographic'),('1fb240','ObjectLinear')]:
             path=directory/f'mod001_FUN_00{address}_0x{address}.cpp'
             text=path.read_text().split('// Function:',1)[1]
             text='// Function:'+text
@@ -219,12 +258,26 @@ def projection_fixtures(directory):
                 text,count=re.subn(r'if \(!ps2rDispatchGuestBranch\(runtime, rdram, ctx, 0x216E40u,[^\n]+\)\) \{\s*return;\s*\}',
                                    prefix+'Rigid(rdram, ctx, runtime);',text)
                 assert count==1
+            if address=='1fb240':
+                # Enter at the real continuation after the virtual callback.
+                # A fixture reaching that callback is a test setup error.
+                text,count=re.subn(r'if \(!ps2rDispatchGuestBranch\([^\n]+\)\) \{\s*return;\s*\}',
+                                   'throw std::runtime_error("unexpected fixture callback entry");',text)
+                assert count==1
             if not native:
-                text=re.sub(r'if \(vp2s(?:RigidInverse|ProjectionProduct|OffsetDot)Enabled\(\)\) \{ [^\n]+? \} else \{ ([^\n]+?) \}',r'\1',text)
-                text=re.sub(r'if \(vp2s(?:RigidInverse|ProjectionProduct|OffsetDot)ReferenceEnabled\(\)\) \{ (.*?) \}',r'\1',text,flags=re.S)
-                assert not re.search(r'vp2s(?:RigidInverse|ProjectionProduct|OffsetDot|TransposedRigid)',text)
+                text=re.sub(r'if \(vp2s(?:RigidInverse|ProjectionProduct|OffsetDot|LinearVector)Enabled\(\)\) \{ [^\n]+? \} else \{ ([^\n]+?) \}',r'\1',text)
+                text=re.sub(r'if \(vp2s(?:RigidInverse|ProjectionProduct|OffsetDot|LinearVector)ReferenceEnabled\(\)\) \{ (.*?) \}',r'\1',text,flags=re.S)
+                assert not re.search(r'vp2s(?:RigidInverse|ProjectionProduct|OffsetDot|TransposedRigid|LinearVector)',text)
             assert 'ps2rDispatchGuestBranch' not in text
             source+=text+'\n'
+        for index,(address,start) in enumerate([('1fb120',0x1fb1e4),('1fb240',0x1fb2fc),('1fb330',0x1fb42c),('1fb530',0x1fb624)]):
+            text=(directory/f'mod001_FUN_00{address}_0x{address}.cpp').read_text()
+            body=text.split(f'label_{start:x}:',1)[1].split(f'label_{start+32:x}:',1)[0]
+            if not native:
+                body=re.sub(r'if \(vp2sLinearVectorEnabled\(\)\) \{ [^\n]+? \} else \{ ([^\n]+?) \}',r'\1',body)
+                body=re.sub(r'if \(vp2sLinearVectorReferenceEnabled\(\)\) \{ (.*?) \}',r'\1',body,flags=re.S)
+                assert 'vp2sLinearVector' not in body
+            source+=f'void {prefix}Linear{index}(uint8_t *rdram,R5900Context *ctx,PS2Runtime *runtime) {{\n'+body+'\n}\n'
     return source+'}\n'
 
 
@@ -349,6 +402,7 @@ def main():
     lower_transposed_rigid(args.recomp/'mod001',data)
     lower_offset_dot(args.recomp/'mod001',data)
     lower_projection_products(args.recomp/'mod001',data)
+    lower_linear_vectors(args.recomp/'mod001',data)
     source+=projection_fixtures(args.recomp/'mod001')
     source=source.encode()
     if not path.exists() or path.read_bytes()!=source: path.write_bytes(source)

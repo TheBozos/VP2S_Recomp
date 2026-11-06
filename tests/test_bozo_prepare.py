@@ -6,7 +6,7 @@ import unittest
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]/'tools'))
-from vp2_bozo_prepare import EH, PH, SH, SY, elf_parts, load_identity, prepare, sdk_names
+from vp2_bozo_prepare import EH, PH, SH, SY, elf_parts, load_identity, prepare, sdk_names,static_call_targets,linked_call_entries
 
 BASE = 0x100000
 
@@ -63,6 +63,26 @@ class PrepareTests(unittest.TestCase):
             path = Path(temp)/'sdk.toml'
             path.write_text('stubs = ["native@0x100000"]\nuntracked_stubs = ["guess@0x100004"]\n')
             self.assertEqual(sdk_names(path), {BASE: 'native'})
+
+    def test_cross_image_static_calls_and_bounded_helpers(self):
+        original,rows=fixture();data=bytearray(original)
+        def word(offset,value):struct.pack_into('<I',data,0x100+offset,value)
+        word(0,0x0c000000|((BASE+32)>>2))
+        word(32,0x10800003);word(36,0) # Forward path after the first return.
+        word(40,0x03e00008);word(44,0x24020001)
+        word(48,0x0c000000|((BASE+64)>>2));word(52,0)
+        word(56,0x03e00008);word(60,0)
+        word(64,0x08000000|((BASE+80)>>2));word(68,0)
+        word(80,0x03e00008);word(84,0x24020002)
+        word(96,0x0c000000|((BASE+112)>>2)) # Unadmitted bytes never seed code.
+        self.assertEqual(static_call_targets(data,rows),{BASE+32})
+        entries=linked_call_entries(data,rows,{BASE+4,BASE+32,BASE+96,BASE+512},{BASE+96})
+        spans={(int(r['Start'],0),int(r['End'],0)) for r in entries}
+        self.assertEqual(spans,{(BASE+4,BASE+8),(BASE+32,BASE+64),(BASE+64,BASE+72),(BASE+80,BASE+88)})
+        output,info=prepare(data,rows+entries,{})
+        self.assertEqual(load_identity(data),load_identity(output))
+        self.assertEqual(info['code'],[[BASE,BASE+24],[BASE+32,BASE+72],[BASE+80,BASE+88]])
+        self.assertEqual(linked_call_entries(data,rows+entries,{BASE+32}),[])
 
 
 if __name__ == '__main__':

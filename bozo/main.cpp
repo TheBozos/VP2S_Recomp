@@ -16,6 +16,7 @@
 #include "vp2_csi_image.h"
 #include "native_controller.h"
 #include "native_frame.h"
+#include "native_bootstrap.h"
 #include <random>
 #include <algorithm>
 #include <charconv>
@@ -28,8 +29,10 @@
 #include <stdexcept>
 
 namespace {
-class StrictHost final : public bozo::ee::Host, public vp2s::TimerOwner, public vp2s::SettingsOwner,public vp2s::SeedOwner,public vp2s::ModuleOwner {
+class StrictHost final : public bozo::ee::Host, public vp2s::TimerOwner, public vp2s::SettingsOwner,public vp2s::SeedOwner,public vp2s::ModuleOwner,public vp2s::BootstrapOwner {
 public:
+    vp2s::bootstrap::Tables startupTables{};
+    const vp2s::bootstrap::Tables &bootstrapTables() const override{return startupTables;}
     vp2s::ModuleBuffers moduleStorage;
     std::unique_ptr<vp2s::NativeServiceModules> serviceModules;
     vp2s::ModuleBuffers &moduleBuffers() override {return moduleStorage;}
@@ -66,6 +69,12 @@ public:
     vp2s::Settings preferences;
     vp2s::Settings &settings() override { return preferences; }
     explicit StrictHost(const bozo::host::FreeOptions &options) : native(options),controller(native.libraries()) {
+        std::ifstream startup(std::filesystem::path(VP2S_BOZO_IMAGES)/"bootstrap.bin",std::ios::binary);
+        char magic[4];uint32_t tableBytes=0;
+        if(!startup.read(magic,4) || std::memcmp(magic,"VPBK",4) ||
+           !startup.read(reinterpret_cast<char *>(&tableBytes),4) || tableBytes!=sizeof(startupTables) ||
+           !startup.read(reinterpret_cast<char *>(&startupTables),sizeof(startupTables)))
+            throw std::runtime_error("private native startup tables are missing or invalid");
         dbc=std::make_unique<bozo::native::irx::CompiledLibraries>(native.libraries(),0x80000);
         dbc->useReadyAudioCompletions();
         dbc->useNativeFrameCallbacks();
@@ -149,6 +158,7 @@ public:
 };
 bool noNativeInstruction(uint8_t *ram,R5900Context *ctx,Runtime *rt,uint32_t pc) {
     if(vp2s::nativeBootSeed(ram,ctx,rt,pc))return true;
+    if(vp2s::nativeBootstrapKey(ram,ctx,rt,pc))return true;
     if(vp2s::nativeFrameInput(ram,ctx,rt,pc))return true;
     throw std::runtime_error(std::format("unported native VP2S algorithm at pc={:x}",pc));
 }

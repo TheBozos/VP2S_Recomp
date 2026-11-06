@@ -7,6 +7,28 @@ target, not a replacement DLL loaded into PS2Recomp.
 
 ## Build and evidence
 
+### Native startup arithmetic and overlay linking (2026-11-06)
+
+The initial VIF0 upload installs only the already ported startup derivation algorithm. Bozo now reuses
+the pure native `port/vp2s_bootstrap.h` algorithm, extracting its tables offline from the guarded USA
+image. Static patches retire that upload/poll/ack and replace its EE/VU bridge with a native hook on
+the real Csi response record. No VIF chain or VU execution core runs. The original offline checker
+passes 65,537 seeds with zero differences using the newly generated tables; 64 Bozo ABI cases compare
+the private captured key, register effects, host rounding and independent owners. Private values are
+never printed or committed.
+
+The longer boot reaches overlay initialization after 56 logical boundaries. The offline map omitted
+15 of mod001's 27 original constructor entries. Preparation now consumes explicit `.ctors` metadata,
+validates executable-section targets and compiles those bodies rather than skipping initialization.
+The mod001 code/list fingerprints have mutation coverage. Mod002 is now included. Cross-image static
+J/JAL references also expose 48 main entries missed by isolated analysis, including object constructors
+and accessors. New bodies are bounded by declared code and return/tail transfers after forward paths;
+covered interiors become labels. Synthetic tests cover recursive references, forward return paths,
+interiors, bounds, ignored unadmitted bytes, idempotence and unchanged load segments. No runtime
+instruction discovery is added. The longer native run now passes these gaps and explicitly stops on
+overlay graphics setup's DMA-control write (`0x1000e000`, block `0x249824`). There is still no native
+rendered scene or Logun-route qualification.
+
 ### First game-frame notification (2026-11-06)
 
 The post-sound watchdog was missing the game's frame-end notification: traces show the original

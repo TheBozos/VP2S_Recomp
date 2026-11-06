@@ -12,7 +12,7 @@ import subprocess
 import sys
 from pathlib import Path
 from vp2_bozo_prepare import elf_parts
-from vp2_bozo_kernel import bindings as kernel_bindings, game_adaptations, frame_adaptations, native_game_sites
+from vp2_bozo_kernel import bindings as kernel_bindings, game_adaptations, frame_adaptations, native_game_sites,bootstrap_adaptations
 
 ROOT = Path(__file__).resolve().parent.parent
 
@@ -55,7 +55,7 @@ def generate(args, build, data, engine_build, env):
                 stream.write(kernel_bindings(raw))
                 stream.write(native_game_sites(raw))
             patches=data/'images'/f'{name}.patches'
-            patches.write_text(game_adaptations(raw)+frame_adaptations(raw))
+            patches.write_text(game_adaptations(raw)+frame_adaptations(raw)+bootstrap_adaptations(raw))
             adaptations=['--patches',patches]
         _, _, sections = elf_parts(raw)
         vu_sites = []
@@ -103,7 +103,7 @@ def generate(args, build, data, engine_build, env):
 def main():
     ap = argparse.ArgumentParser(description=__doc__)
     ap.add_argument('--build', type=Path, default=ROOT/'build_usa')
-    ap.add_argument('--inputs', default='main,mod001')
+    ap.add_argument('--inputs', default='main,mod001,mod002')
     ap.add_argument('--stage', choices=['tools', 'generate', 'build', 'run', 'all'], default='build')
     ap.add_argument('--jobs', type=int, default=4)
     ap.add_argument('--ffmpeg', default=os.environ.get('BOZO_FFMPEG_ROOT', 'D:/tmb_kit/kit/ffmpeg'))

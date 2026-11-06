@@ -4,6 +4,7 @@ No instructions or load bytes are changed. These are port-owned native binding
 declarations, deliberately separate from general SetSyscall support.
 """
 import hashlib
+import struct
 from vp2_bozo_prepare import elf_parts
 
 INSTALLER = (0x141448, 0x141544)
@@ -129,6 +130,16 @@ def game_entries(data):
         raise ValueError('USA thread adjustor thunk signature mismatch')
     entries += [dict(Name=f'thread_adjustor_{pc:08x}',Start=hex(pc),End=hex(pc+8))
                 for pc in (0x107e10,0x107e20)]
+    lo,hi=0x1013d0,0x1013f0
+    segment=next(s for s in segments if s[0]==1 and s[2]<=lo<hi<=s[2]+s[4]);at=segment[1]+lo-segment[2]
+    if hashlib.sha256(data[at:at+hi-lo]).hexdigest()!='5cfeaf677d3aec8432a0113e4a053a1254c81a070eede39a5a72abff329e98aa':
+        raise ValueError('USA shared object constructor signature mismatch')
+    entries.append(dict(Name='object_constructor_001013d0',Start=hex(lo),End=hex(0x1013ec)))
+    lo,hi=0x1010a0,0x1010e0
+    segment=next(s for s in segments if s[0]==1 and s[2]<=lo<hi<=s[2]+s[4]);at=segment[1]+lo-segment[2]
+    if hashlib.sha256(data[at:at+hi-lo]).hexdigest()!='03419fe90b5dbac2fef72a059dea794235ed0a708b7ea3147d539588febdec3e':
+        raise ValueError('USA object accessor signatures mismatch')
+    entries += [dict(Name=f'object_accessor_{pc:08x}',Start=hex(pc),End=hex(pc+12)) for pc in (0x1010a0,0x1010b0)]
     return entries
 
 
@@ -160,3 +171,33 @@ def frame_adaptations(data):
     if hashlib.sha256(data[at:at+hi-lo]).hexdigest()!='d2442643e1005fea4dd24cbef45b3adeacb0c44a804245cedbc3cd327234a32f':
         raise ValueError('USA frame-event body signature mismatch')
     return '0011fb54 0002137a 00000000\n'
+
+
+def bootstrap_tables(data):
+    _,segments,_=elf_parts(data)
+    lo,hi=0x145d98,0x145df0
+    s=next(s for s in segments if s[0]==1 and s[2]<=lo<hi<=s[2]+s[4])
+    at=s[1]+lo-s[2];code=data[at:at+hi-lo]
+    if hashlib.sha256(code).hexdigest()!='16c9822fd10f6891df52e2a678e29a20f2905b41def6afba18327c3bfe7bedba':
+        raise ValueError('USA startup arithmetic source mismatch')
+    pairs=list(struct.iter_unpack('<II',code));constants=[lower for lower,_ in pairs[:8]]
+    return b'VPBK'+struct.pack('<I8I',32,*constants[0::2],*constants[1::2])
+
+
+def bootstrap_adaptations(data):
+    _,segments,_=elf_parts(data)
+    for lo,hi,expected in (
+        (0x10087c,0x100908,'86abe7b382ebff204ec2cb2a3a01980129b566976236223b5338b03238727de5'),
+        (0x100908,0x100930,'8b1dc3b6811d697d0d36c0440bbe304445f03b33f639facae842298b4d9806f1')):
+        s=next(s for s in segments if s[0]==1 and s[2]<=lo<hi<=s[2]+s[4]);at=s[1]+lo-s[2]
+        if hashlib.sha256(data[at:at+hi-lo]).hexdigest()!=expected:
+            raise ValueError('USA startup bridge source mismatch')
+    bootstrap_tables(data)
+    result=[]
+    for pc,replacement in ((0x10087c,0x08040235),(0x100880,0),
+                           (0x1008b8,0x08040235),(0x1008bc,0),(0x1008e4,0),
+                           (0x100908,0x0804024c),(0x10090c,0)):
+        s=next(s for s in segments if s[0]==1 and s[2]<=pc<pc+4<=s[2]+s[4]);at=s[1]+pc-s[2]
+        word=int.from_bytes(data[at:at+4],'little')
+        result.append(f'{pc:08x} {word:08x} {replacement:08x}\n')
+    return ''.join(result)

@@ -4,8 +4,8 @@ import struct
 import unittest
 from pathlib import Path
 sys.path.insert(0,str(Path(__file__).resolve().parents[1]/'tools'))
-from vp2_bozo_prepare import elf_parts
-from vp2_bozo_kernel import bindings, game_adaptations, frame_adaptations, game_entries, native_game_sites, GUARDS, RETIRED_RANGES
+from vp2_bozo_prepare import elf_parts,overlay_entries
+from vp2_bozo_kernel import bindings, game_adaptations, frame_adaptations, game_entries, native_game_sites, GUARDS, RETIRED_RANGES,bootstrap_adaptations,bootstrap_tables
 
 IMAGE=Path(sys.argv.pop(1))
 
@@ -31,6 +31,29 @@ class KernelGuardTests(unittest.TestCase):
                 pc=int(line.split()[1],0)
                 self.assertTrue(any(s[2]&6==6 and s[3]<=pc and pc+4<=s[3]+s[5] for s in sections))
         self.assertNotIn('native 0x14142c',declarations) # jal: engine prohibits inline control hooks
+
+    def test_native_bootstrap_guards(self):
+        patches=bootstrap_adaptations(self.data).splitlines()
+        self.assertEqual(len(patches),7)
+        self.assertEqual(bootstrap_tables(self.data)[:8],b'VPBK'+struct.pack('<I',32))
+        for lo,hi in ((0x10087c,0x100930),(0x145d98,0x145df0)):
+            segment=next(s for s in self.segments if s[0]==1 and s[2]<=lo<hi<=s[2]+s[4])
+            for pc in range(lo,hi,4):
+                data=bytearray(self.data);data[segment[1]+pc-segment[2]]^=1
+                with self.subTest(pc=hex(pc)),self.assertRaises(ValueError):bootstrap_adaptations(data)
+
+    def test_overlay_initializer(self):
+        data=(IMAGE.parent/'mod001.elf').read_bytes()
+        entries=overlay_entries('mod001',data);self.assertEqual(len(entries),27)
+        self.assertEqual(entries[0],dict(Name='module_initializer_00358200',Start='0x358200',End='0x358230'))
+        _,segments,_=elf_parts(data)
+        for lo,hi in ((0x358200,0x358a10),(0x358a10,0x358a7c)):
+            segment=next(s for s in segments if s[0]==1 and s[2]<=lo<hi<=s[2]+s[4])
+            for pc in range(lo,hi,4):
+                altered=bytearray(data);altered[segment[1]+pc-segment[2]]^=1
+                with self.subTest(pc=hex(pc)),self.assertRaises(ValueError):overlay_entries('mod001',altered)
+        second=(IMAGE.parent/'mod002.elf').read_bytes()
+        self.assertEqual(len(overlay_entries('mod002',second)),2)
 
     def test_every_guarded_word_rejects_mutation(self):
         for lo,hi in GUARDS:
@@ -60,17 +83,20 @@ class KernelGuardTests(unittest.TestCase):
         self.assertEqual(game_entries(self.data),[
             dict(Name='worker_entry_0011d4e0',Start='0x11d4e0',End='0x11d7c0'),
             dict(Name='thread_adjustor_00107e10',Start='0x107e10',End='0x107e18'),
-            dict(Name='thread_adjustor_00107e20',Start='0x107e20',End='0x107e28')])
+            dict(Name='thread_adjustor_00107e20',Start='0x107e20',End='0x107e28'),
+            dict(Name='object_constructor_001013d0',Start='0x1013d0',End='0x1013ec'),
+            dict(Name='object_accessor_001010a0',Start='0x1010a0',End='0x1010ac'),
+            dict(Name='object_accessor_001010b0',Start='0x1010b0',End='0x1010bc')])
         segment=next(s for s in self.segments if s[0]==1 and s[2]<=0x11d4e0<0x11d7c0<=s[2]+s[4])
         for pc in range(0x11d4e0,0x11d7c0,4):
             data=bytearray(self.data)
             data[segment[1]+pc-segment[2]]^=1
             with self.subTest(pc=hex(pc)),self.assertRaises(ValueError): game_entries(data)
-        lo,hi=0x107e10,0x107e30
-        segment=next(s for s in self.segments if s[0]==1 and s[2]<=lo<hi<=s[2]+s[4])
-        for pc in range(lo,hi,4):
-            data=bytearray(self.data);data[segment[1]+pc-segment[2]]^=1
-            with self.subTest(pc=hex(pc)),self.assertRaises(ValueError):game_entries(data)
+        for lo,hi in ((0x107e10,0x107e30),(0x1013d0,0x1013f0),(0x1010a0,0x1010e0)):
+            segment=next(s for s in self.segments if s[0]==1 and s[2]<=lo<hi<=s[2]+s[4])
+            for pc in range(lo,hi,4):
+                data=bytearray(self.data);data[segment[1]+pc-segment[2]]^=1
+                with self.subTest(pc=hex(pc)),self.assertRaises(ValueError):game_entries(data)
 
     def test_boot_seed_site(self):
         self.assertEqual(native_game_sites(self.data),'native 0x1003c4\nnative 0x11fb50\nnative 0x11f62c\n')

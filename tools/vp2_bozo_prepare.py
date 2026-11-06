@@ -38,6 +38,91 @@ def load_identity(data):
     return [(s[2], s[5], s[6], data[s[1]:s[1] + s[4]]) for s in segments if s[0] == 1]
 
 
+def overlay_entries(name,data):
+    if not re.fullmatch(r'mod\d{3}',name):return []
+    header,segments,sections=elf_parts(data)
+    def span(lo,hi):
+        s=next(s for s in segments if s[0]==1 and s[2]<=lo<hi<=s[2]+s[4]);at=s[1]+lo-s[2]
+        return data[at:at+hi-lo]
+    if name=='mod001':
+        for lo,hi,expected in ((0x358200,0x358a10,'12379d6ed2c2638818509740c6a79294a47daab89c654152a5d9ca80ae864c79'),
+                               (0x358a10,0x358a7c,'32428520c5199b05899bf79bd2e0966864f90648beeabb5bfa9548b5417e776e')):
+            if hashlib.sha256(span(lo,hi)).hexdigest()!=expected:
+                raise ValueError('USA mod001 static initializer signature mismatch')
+    # Constructor sections are authoritative static entry metadata, independent
+    # of whether the analysis export found every prologue. Never discover code
+    # from runtime bytes or skip these application initializers.
+    names_section=sections[header[13]]
+    names=data[names_section[4]:names_section[4]+names_section[5]]
+    targets=[]
+    for section in sections:
+        if names[section[0]:].split(b'\0')[0]!=b'.ctors':continue
+        if section[5]%4 or section[4]+section[5]>len(data):raise ValueError('invalid constructor section')
+        targets += [value[0] for value in struct.iter_unpack('<I',data[section[4]:section[4]+section[5]])]
+    targets=sorted(set(targets));entries=[]
+    for lo in targets:
+        section=next((s for s in sections if s[2]&6==6 and s[3]<=lo<s[3]+s[5]),None)
+        if lo&3 or section is None:raise ValueError('constructor target outside explicit code')
+        hi=next((pc for pc in targets if pc>lo),section[3]+section[5]);hi=min(hi,section[3]+section[5])
+        entries.append(dict(Name=f'module_initializer_{lo:08x}',Start=hex(lo),End=hex(hi)))
+    return entries
+
+
+def static_call_targets(data,rows):
+    _,segments,sections=elf_parts(data)
+    spans=sorted((int(r['Start'],0),int(r['End'],0)) for r in rows
+                 if any(s[2]&6==6 and s[3]<=int(r['Start'],0)<int(r['End'],0)<=s[3]+s[5] for s in sections))
+    merged=[]
+    for lo,hi in spans:
+        if merged and lo<=merged[-1][1]:merged[-1][1]=max(hi,merged[-1][1])
+        else:merged.append([lo,hi])
+    targets=set()
+    for lo,hi in merged:
+        segment=next(s for s in segments if s[0]==1 and s[2]<=lo<hi<=s[2]+s[4])
+        for pc in range(lo,hi,4):
+            word=int.from_bytes(data[segment[1]+pc-segment[2]:segment[1]+pc-segment[2]+4],'little')
+            if word>>26 in (2,3):targets.add(((pc+4)&0xf0000000)|((word&0x3ffffff)<<2))
+    return targets
+
+
+def linked_call_entries(data,rows,targets,known=()):
+    """Admit cross-image static references, bounded by the original code/map.
+
+    This is offline metadata discovery, never a runtime instruction path.
+    Existing covered interiors become labels; omitted leaves stop at return/tail
+    transfer after all forward branches, or at the next declared function.
+    """
+    _,segments,sections=elf_parts(data)
+    declared={int(r['Start'],0) for r in rows}|set(known)
+    ranges=[(int(r['Start'],0),int(r['End'],0)) for r in rows]
+    pending=set(targets)-declared;entries=[]
+    while pending:
+        start=min(pending);pending.remove(start)
+        if start in declared:continue
+        section=next((s for s in sections if s[2]&6==6 and s[3]<=start<s[3]+s[5]),None)
+        if section is None or start&3:continue
+        covered=next((hi for lo,hi in ranges if lo<start<hi),None)
+        if covered is not None:end=min(start+4,covered)
+        else:
+            limit=min([section[3]+section[5]]+[pc for pc in declared|pending if start<pc<section[3]+section[5]])
+            segment=next(s for s in segments if s[0]==1 and s[2]<=start<limit<=s[2]+s[4])
+            end=limit;forward=start
+            for pc in range(start,limit,4):
+                at=segment[1]+pc-segment[2];word=int.from_bytes(data[at:at+4],'little');op=word>>26
+                if op in (1,4,5,6,7,20,21,22,23) or (op in (16,17,18) and (word>>21)&31==8):
+                    offset=word&0xffff;offset=offset-0x10000 if offset&0x8000 else offset
+                    target=pc+4+offset*4
+                    if start<=target<limit:forward=max(forward,target)
+                terminal=(op==0 and word&63==8) or op==2
+                if terminal and forward<=pc+4:
+                    end=min(pc+8,limit);break
+        row=dict(Name=f'linked_entry_{start:08x}',Start=hex(start),End=hex(end))
+        entries.append(row);declared.add(start);ranges.append((start,end))
+        pending |= static_call_targets(data,[row])-declared
+        if len(entries)>4096:raise ValueError('static linked entry discovery exceeded its bound')
+    return entries
+
+
 def prepare(data, rows, sdk):
     h, segments, sections = elf_parts(data)
     code = [(s[3], s[3] + s[5], i) for i, s in enumerate(sections) if s[2] & 6 == 6 and s[5]]
@@ -176,8 +261,21 @@ def main():
         with (args.build/'ghidra/export'/f'{name}_functions.csv').open(newline='') as stream:
             rows = list(csv.DictReader(stream))
         if name == 'main':
-            from vp2_bozo_kernel import game_entries
+            from vp2_bozo_kernel import game_entries,bootstrap_tables
             rows += game_entries(data)
+            write_bootstrap=bootstrap_tables(data)
+            (args.out/'bootstrap.bin').write_bytes(write_bootstrap)
+            references=set()
+            for linked in names:
+                linked_data=(args.build/'elf'/f'{linked}.elf').read_bytes()
+                with (args.build/'ghidra/export'/f'{linked}_functions.csv').open(newline='') as stream:
+                    linked_rows=list(csv.DictReader(stream))
+                linked_rows += overlay_entries(linked,linked_data)
+                references |= static_call_targets(linked_data,linked_rows)
+            additions=linked_call_entries(data,rows,references,sdk_names(args.build/'sdk/main.toml'))
+            rows += additions
+            print(f'main: {len(additions)} statically linked entries exposed across input images')
+        rows += overlay_entries(name,data)
         prepared, metadata = prepare(data, rows, sdk_names(args.build/'sdk'/f'{name}.toml'))
         target = args.out/f'{name}.elf'
         if not target.exists() or target.read_bytes() != prepared:

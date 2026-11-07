@@ -26,6 +26,15 @@ half-texel UV inset. Another 64 whole glyph CPU/RAM cases check the observation
 and numerical results. Placement is captured at build time, matching the game's
 cached geometry rather than re-evaluating live layout values during submission.
 
+The first typed Bozo text layer now submits those immutable glyphs at
+`0x2ec9c0`, then executes real scene completion `0x21c9a0` on `layer+0x20`.
+Only active built text elements without inline images are admitted. Broken child
+ownership/cycles, unknown active classes, missing placements and changed pending
+scene objects reject. Another 64 native-contract producer/completion CPU/RAM
+cases cover visibility, completion flags/notification and lifetime; failed draw
+acceptance leaves CPU/RAM unchanged. Headless startup reaches 600 logical frames,
+but visible rendering and the Logun route still need qualification.
+
 ### Bozo texture alpha (2026-11-07)
 
 Native texture pictures preserve the game's 0x80-scale alpha. The frame shader

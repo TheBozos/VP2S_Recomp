@@ -5,6 +5,7 @@
 #include <stdexcept>
 #include <cstdio>
 #include <cstdlib>
+#include <set>
 namespace vp2s {
 namespace {
 const uint8_t *record(Runtime *rt,uint32_t at,uint32_t size){
@@ -95,14 +96,42 @@ void NativeUiTexts::release(uint32_t element){
 std::shared_ptr<const NativeUiText> NativeUiTexts::text(uint32_t element)const{
     auto it=texts.find(element);return it==texts.end()?nullptr:it->second;
 }
+NativeUiLayer NativeUiTexts::layer(Runtime *rt,uint32_t layer)const{
+    record(rt,layer,0xe4);
+    if(value<uint32_t>(rt,layer)!=0x152060 || value<uint32_t>(rt,layer+0x10)!=0x15ba00 ||
+       value<uint32_t>(rt,layer+0x20)!=0x15ba1c || value<uint32_t>(rt,layer+0xb0)!=0x15ba98 ||
+       value<uint8_t>(rt,layer+0x83)!=1 || value<uint8_t>(rt,layer+0xca)!=2)
+        throw std::runtime_error("unported native UI layer type/build mode");
+    const auto current=value<uint32_t>(rt,0x35ddf8),object=layer+0x20;
+    if(value<uint8_t>(rt,object+0x65)!=1 || value<uint32_t>(rt,current+0x40ac)!=object || value<uint8_t>(rt,current+0x40dd)!=1)
+        throw std::runtime_error("native UI layer escaped its pending scene object");
+    NativeUiLayer result{layer,object};std::set<uint32_t> seen;
+    for(uint32_t element=value<uint32_t>(rt,layer+8);element!=layer;element=value<uint32_t>(rt,element+8)){
+        if(!seen.insert(element).second || seen.size()>4096)throw std::runtime_error("native UI layer has an invalid child cycle");
+        record(rt,element,0x40);
+        if(value<uint32_t>(rt,element+0x14)!=layer)throw std::runtime_error("native UI element has a different layer owner");
+        if(!value<uint8_t>(rt,element+0x39) || !value<uint8_t>(rt,element+0x3d) || !value<uint8_t>(rt,element+0x3b))continue;
+        type(rt,element);auto captured=text(element);
+        if(!captured || captured->inlineImages)throw std::runtime_error("native UI layer has uncaptured text/inline images");
+        for(const auto &glyph:captured->glyphs)if(!glyph.placed)throw std::runtime_error("native UI layer has an unfinished glyph placement");
+        result.texts.push_back(std::move(captured));
+    }
+    return result;
+}
 std::optional<bool> nativeUiTextInstruction(R5900Context *c,Runtime *rt,uint32_t pc){
-    if(pc!=0x2e74f0 && pc!=0x2e7520 && pc!=0x2e7550 && pc!=0x2e757c && pc!=0x2e75a0 && pc!=0x2f0de0 && pc!=0x2e83e4)return std::nullopt;
+    if(pc!=0x2e74f0 && pc!=0x2e7520 && pc!=0x2e7550 && pc!=0x2e757c && pc!=0x2e75a0 && pc!=0x2f0de0 && pc!=0x2e83e4 && pc!=0x2ec9e4)return std::nullopt;
     auto *d=rt?dynamic_cast<bozo::ee::Dispatcher *>(rt->services):nullptr;
     auto *owner=d?dynamic_cast<UiTextOwner *>(&d->host()):nullptr;
     auto *assets=d?dynamic_cast<AssetOwner *>(&d->host()):nullptr;
     if(!c || !owner || !assets)throw std::runtime_error("native UI text requires glyph/provenance owners");
     auto &texts=owner->nativeUiTexts();const auto sp=c->r[29].uw[0];
-    if(pc==0x2e74f0){
+    if(pc==0x2ec9e4){
+        const auto layer=c->r[4].uw[0];
+        if(c->pc!=0x2ec9c0 || c->r[5].uw[0]!=layer+0xb0)throw std::runtime_error("native UI layer requires its complete original producer");
+        const auto submission=texts.layer(rt,layer);owner->drawNativeUiLayer(submission);
+        c->r[4].sd[0]=static_cast<int32_t>(submission.object);
+        return true; // Copied native draws accepted; original compiled completion follows.
+    }else if(pc==0x2e74f0){
         if(c->pc!=pc || sp<0x50 || (sp&15) || !rt->memory.hostPointer(sp-0x50,0x50))throw std::runtime_error("native text emitter requires its complete original entry");
         texts.enter(rt,sp-0x50,c->r[4].uw[0],c->r[5].uw[0],c->r[6].sw[0]);
     }else if(pc==0x2f0de0){

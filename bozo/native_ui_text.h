@@ -19,6 +19,7 @@ struct NativeUiGlyph {
     bool placed=false;
 };
 struct NativeUiText {uint32_t element=0;bool inlineImages=false;std::vector<NativeUiGlyph> glyphs;};
+struct NativeUiLayer {uint32_t layer=0,object=0;std::vector<std::shared_ptr<const NativeUiText>> texts;};
 class NativeUiTexts {
     struct Build {
         NativeUiText text;
@@ -35,6 +36,7 @@ public:
     void place(uint32_t stack,uint32_t element,const NativeUiGlyphPlacement &);
     void release(uint32_t element);
     std::shared_ptr<const NativeUiText> text(uint32_t element)const;
+    NativeUiLayer layer(Runtime *,uint32_t layer)const;
     size_t outstanding()const{return builds.size();}
 };
 std::array<bozo::render::Vertex,6> nativeUiGlyphVertices(const NativeUiGlyph &,bool shadow);
@@ -43,6 +45,7 @@ public:
     virtual ~UiTextOwner()=default;
     virtual NativeUiTexts &nativeUiTexts()=0;
     virtual NativeGlyphs &nativeGlyphs()=0;
+    virtual void drawNativeUiLayer(const NativeUiLayer &){throw std::runtime_error("native UI layer has no draw owner");}
 };
 std::optional<bool> nativeUiTextInstruction(R5900Context *,Runtime *,uint32_t pc);
 }

@@ -46,6 +46,20 @@ public:
     vp2s::NativeUiTexts uiTexts;
     vp2s::NativeUiTexts &nativeUiTexts()override{return uiTexts;}
     vp2s::NativeGlyphs &nativeGlyphs()override{return glyphs;}
+    void drawNativeUiLayer(const vp2s::NativeUiLayer &layer)override{
+        if(!scene.frameTarget())throw std::runtime_error("native UI layer has no active frame");
+        const float identity[16]={1,0,0,0,0,1,0,0,0,0,1,0,0,0,0,1};
+        bozo::render::Material material;material.blend=bozo::render::Material::Blend::Alpha;
+        material.alphaTest=true;material.alphaRef=0;
+        for(const auto &text:layer.texts)for(const auto &glyph:text->glyphs){
+            for(bool shadow:{true,false}){
+                if(shadow && !glyph.shadow)continue;
+                const auto vertices=vp2s::nativeUiGlyphVertices(glyph,shadow);
+                bozo::render::Renderer::instance().draw(material,identity,vertices.data(),vertices.size(),shadow?glyph.shadow:glyph.picture);
+            }
+        }
+        if(std::getenv("VP2S_BOZO_TRACE_QUEUES"))std::fprintf(stderr,"[vp2s:UI] native layer=%x texts=%zu\n",layer.layer,layer.texts.size());
+    }
     vp2s::NativeScreenRects screenRects;
     unsigned screenRectDraws=0;
     vp2s::NativeScreenRects &nativeScreenRects()override{return screenRects;}

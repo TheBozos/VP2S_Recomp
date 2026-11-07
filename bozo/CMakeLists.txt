@@ -184,10 +184,17 @@ if(VP2S_BOZO_CODE)
         --files 1 --externals "${UI_GLYPH_DIR}/externals.txt" --no-comments
       DEPENDS bozo-recomp "${VP2S_ROOT}/tools/vp2_bozo_ui_text_fixture.py" "${VP2S_ROOT}/tools/vp2_bozo_kernel.py" "${VP2S_BOZO_DATA}/images/mod001.elf")
     list(APPEND UI_TEXT_SOURCES "${UI_GLYPH_DIR}/ui_glyph_${VARIANT}_000.cpp" "${UI_GLYPH_DIR}/ui_glyph_${VARIANT}_table.cpp")
+    set(UI_LAYER_DIR "${UI_TEXT_REF}/layer_${VARIANT}")
+    add_custom_command(OUTPUT "${UI_LAYER_DIR}/ui_layer_${VARIANT}_000.cpp" "${UI_LAYER_DIR}/ui_layer_${VARIANT}_table.cpp" "${UI_LAYER_DIR}/ui_layer_${VARIANT}_functions.h"
+      COMMAND ${Python3_EXECUTABLE} "${VP2S_ROOT}/tools/vp2_bozo_ui_text_fixture.py" "${VP2S_BOZO_DATA}/images/mod001.elf" "${UI_LAYER_DIR}" --build "${VP2S_BOZO_DATA}/.." --variant ${VARIANT} --layer
+      COMMAND $<TARGET_FILE:bozo-recomp> "${UI_LAYER_DIR}/fixture.elf" "${UI_LAYER_DIR}" --prefix ui_layer_${VARIANT} --symbol-prefix ui_layer_${VARIANT}_
+        --files 1 --externals "${UI_LAYER_DIR}/externals.txt" --patches "${UI_LAYER_DIR}/patches.txt" --no-comments
+      DEPENDS bozo-recomp "${VP2S_ROOT}/tools/vp2_bozo_ui_text_fixture.py" "${VP2S_ROOT}/tools/vp2_bozo_kernel.py" "${VP2S_BOZO_DATA}/images/mod001.elf")
+    list(APPEND UI_TEXT_SOURCES "${UI_LAYER_DIR}/ui_layer_${VARIANT}_000.cpp" "${UI_LAYER_DIR}/ui_layer_${VARIANT}_table.cpp")
   endforeach()
   add_executable(vp2s-bozo-ui-text-check "${VP2S_ROOT}/tests/bozo_ui_text_main.cpp" ${UI_TEXT_SOURCES})
   add_dependencies(vp2s-bozo-ui-text-check vp2s-bozo-glyph-fixture)
-  target_include_directories(vp2s-bozo-ui-text-check PRIVATE "${UI_TEXT_REF}/original" "${UI_TEXT_REF}/adapted" "${UI_TEXT_REF}/glyph_original" "${UI_TEXT_REF}/glyph_adapted")
+  target_include_directories(vp2s-bozo-ui-text-check PRIVATE "${UI_TEXT_REF}/original" "${UI_TEXT_REF}/adapted" "${UI_TEXT_REF}/glyph_original" "${UI_TEXT_REF}/glyph_adapted" "${UI_TEXT_REF}/layer_original" "${UI_TEXT_REF}/layer_adapted")
   target_link_libraries(vp2s-bozo-ui-text-check PRIVATE vp2s_bozo_kernel bozo_render)
   if(MINGW)
     target_link_options(vp2s-bozo-ui-text-check PRIVATE -static)

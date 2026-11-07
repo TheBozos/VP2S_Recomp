@@ -49,8 +49,10 @@ deeper=subprocess.run([sys.argv[1],'--iso',sys.argv[2],'--frames','600'],
                       capture_output=True,text=True,timeout=30,
                       env={**os.environ,'VP2S_BOZO_SEED':'1','VP2S_BOZO_TRACE_QUEUES':'1'})
 print(deeper.stdout+deeper.stderr,end='')
-if deeper.returncode!=1 or 'native VP2S draw/data owner required at 123220 ra=112fe0' not in deeper.stdout+deeper.stderr:
-    raise SystemExit('longer native boot did not reach the next native math boundary')
-if '[vp2s:screen] native rect' not in deeper.stdout+deeper.stderr or 'UI caller=2ec9e8' not in deeper.stdout+deeper.stderr:
-    raise SystemExit('longer native boot bypassed solid-screen submission or did not reach the next UI layer producer')
-print('First native game-frame boundary passed; textures publish and startup reaches its next guarded producer. Native rendering remains unqualified.')
+longer=deeper.stdout+deeper.stderr
+if deeper.returncode!=0 or 'frames=600 ' not in longer or 'end=frame limit 600 reached' not in longer:
+    raise SystemExit('longer native boot did not complete 600 logical frames')
+for required in ('[vp2s:screen] native rect','captured text=997620 glyphs=171 inline=0','native layer=997530 texts=1'):
+    if required not in longer:raise SystemExit(f'longer native boot bypassed native source publication: {required}')
+if 'native boundary:' in longer:raise SystemExit('longer native boot reached an unexpected rejecting boundary')
+print('600 native logical frames passed with texture publication, scalar glyph capture and native UI submission. Presentation and the Logun route remain unqualified.')

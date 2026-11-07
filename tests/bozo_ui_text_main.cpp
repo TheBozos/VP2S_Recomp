@@ -5,6 +5,8 @@
 #include "ui_text_adapted_functions.h"
 #include "ui_glyph_original_functions.h"
 #include "ui_glyph_adapted_functions.h"
+#include "ui_layer_original_functions.h"
+#include "ui_layer_adapted_functions.h"
 #include <cstring>
 #include <cstdio>
 #include <source_location>
@@ -16,14 +18,19 @@ void check(bool ok,std::source_location loc=std::source_location::current()){
 template<class T>void put(Runtime &rt,uint32_t address,T v){std::memcpy(rt.memory.hostPointer(address,sizeof(T)),&v,sizeof(T));}
 struct Host:bozo::ee::Host,bozo::port::Host,vp2s::UiTextOwner,vp2s::AssetOwner {
     struct Pause{};bool pause=false;std::vector<uint32_t> calls;
+    bool referenceLayer=false,failDraw=false;std::vector<vp2s::NativeUiLayer> submissions;
     vp2s::NativeUiTexts texts;vp2s::NativeGlyphs glyphs;vp2s::NativeAssets assets;
     explicit Host(const char *path):glyphs(path){}
     vp2s::NativeUiTexts &nativeUiTexts()override{return texts;}
     vp2s::NativeGlyphs &nativeGlyphs()override{return glyphs;}
     vp2s::NativeAssets &nativeAssets()override{return assets;}
+    void drawNativeUiLayer(const vp2s::NativeUiLayer &layer)override{
+        if(failDraw)throw std::runtime_error("test draw rejection");submissions.push_back(layer);
+    }
     bozo::libs::Libraries &libraries()override{throw std::runtime_error("libraries");}
     bool nativeGraphics()const override{return true;}
     bool nativeInstruction(uint8_t *,R5900Context *c,Runtime *rt,uint32_t pc)override{
+        if(pc==0x2ec9e4 && referenceLayer){drawNativeUiLayer(texts.layer(rt,c->r[4].uw[0]));return false;}
         auto result=vp2s::nativeUiTextInstruction(c,rt,pc);check(result.has_value());return *result;
     }
     void frameEnd(Runtime *,R5900Context *)override{throw std::runtime_error("frame");}
@@ -106,6 +113,12 @@ int main(int argc,char **argv){try{
     nativeGlyph.setFunctions(ui_glyph_adapted_function_table,ui_glyph_adapted_function_count,ui_glyph_adapted_resume_table,ui_glyph_adapted_resume_count);
     for(auto *d:{&originalGlyph,&nativeGlyph})d->boot(0x2e7e90,0x1fff000);
     originalGlyph.runtime().port=&glyphBefore;nativeGlyph.runtime().port=&glyphAfter;
+    Host layerBefore(geometry.c_str()),layerAfter(geometry.c_str());layerBefore.referenceLayer=true;
+    bozo::ee::Dispatcher originalLayer(layerBefore),nativeLayer(layerAfter);
+    originalLayer.setFunctions(ui_layer_original_function_table,ui_layer_original_function_count,ui_layer_original_resume_table,ui_layer_original_resume_count);
+    nativeLayer.setFunctions(ui_layer_adapted_function_table,ui_layer_adapted_function_count,ui_layer_adapted_resume_table,ui_layer_adapted_resume_count);
+    for(auto *d:{&originalLayer,&nativeLayer})d->boot(0x2ec9c0,0x1fff000);
+    originalLayer.runtime().port=&layerBefore;nativeLayer.runtime().port=&layerAfter;
     for(unsigned seed=0;seed<64;++seed){
         auto &a=originalGlyph.runtime(),&b=nativeGlyph.runtime();std::memset(a.memory.flat(),0,bozo::kFlatBytes);
         constexpr uint32_t layer=0x1b1000,font=0x1b0000,source=0x180000,manager=0x1e0000,glyphStack=0x1fff000;
@@ -139,7 +152,42 @@ int main(int argc,char **argv){try{
         check(vertices[0].x==float(27820+seed*2)/16 && vertices[0].y==float(29348+seed*2)/16 && vertices[4].z==float(0xffff0a));
         check(vertices[0].u==0.5f/8 && vertices[0].v==0.5f/8 && vertices[4].u==4.5f/8 && vertices[4].v==5.5f/8);
         if(g.shadow){const auto shadow=vp2s::nativeUiGlyphVertices(g,true);check(shadow[0].z==float(0xffff09) && shadow[0].rgba==p.shadowColour && shadow[0].x==vertices[0].x+(seed%3==1?1.f:0.f));}
-        std::memset(b.memory.flat()+items,0xee,0x30);check(vp2s::nativeUiGlyphVertices(g,false)[0].x==vertices[0].x);texts.release(object);
+        std::memset(b.memory.flat()+items,0xee,0x30);check(vp2s::nativeUiGlyphVertices(g,false)[0].x==vertices[0].x);
+        constexpr uint32_t current=0x200000,secondary=0x210000,inactive=0x1b2000;
+        put(b,layer,0x152060u);put(b,layer+0x10,0x15ba00u);put(b,layer+0x20,0x15ba1cu);put(b,layer+0xb0,0x15ba98u);
+        put(b,layer+0x83,uint8_t(1));put(b,layer+0x85,uint8_t(1));put(b,layer+0xca,uint8_t(2));put(b,layer+8,object);
+        put(b,object+8,inactive);put(b,inactive+8,layer);put(b,inactive+0x14,layer);put(b,inactive,0x15a690u);
+        put(b,object+0x39,uint8_t(!(seed&4)));put(b,object+0x3b,uint8_t(!(seed&8)));put(b,object+0x3d,uint8_t(!(seed&16)));
+        put(b,0x35ddf8,current);put(b,current+0x40ac,layer+0x20);put(b,current+0x40dd,uint8_t(1));put(b,current+0x4088,seed&1?secondary:0u);
+        auto &lr=originalLayer.runtime(),&ln=nativeLayer.runtime();
+        std::memcpy(lr.memory.flat(),b.memory.flat(),bozo::kFlatBytes);std::memcpy(ln.memory.flat(),b.memory.flat(),bozo::kFlatBytes);
+        layerBefore.texts=texts;layerAfter.texts=texts;layerBefore.submissions.clear();layerAfter.submissions.clear();
+        R5900Context u{},v{};u.r[4].ud[0]=layer;u.r[29].ud[0]=glyphStack;u.r[31].ud[0]=0x170000;v=u;
+        run(originalLayer,u,0x2ec9c0);run(nativeLayer,v,0x2ec9c0);u.cycleLimit=v.cycleLimit;
+        check(!std::memcmp(&u,&v,sizeof(u)) && !std::memcmp(lr.memory.flat(),ln.memory.flat(),bozo::kFlatBytes));
+        const size_t visible=(seed&28)?0:1;
+        check(layerBefore.submissions.size()==1 && layerAfter.submissions.size()==1 && layerAfter.submissions[0].texts.size()==visible);
+        check(*ln.memory.hostPointer(layer+0x84,1)==0 && *ln.memory.hostPointer(layer+0x82,1)==1 && *ln.memory.hostPointer(current+0x40dd,1)==0);
+        if(seed&1)check(*ln.memory.hostPointer(secondary+0x3e6a,1)==1);
+        const auto submitted=layerAfter.submissions[0];
+        texts.release(object);layerAfter.texts.release(object);
+        if(visible)check(submitted.texts.at(0)->glyphs.at(0).placement.colour==0x40101820);
     }
-    std::puts("64 full text-emitter CPU/RAM/callback cases plus64 original scalar glyph CPU/RAM cases: immutable lifetime, fixed-point placement, colour/alpha, shadow depth/offset and half-texel UVs; no native layer draw yet");return 0;
+    auto &layerRam=nativeLayer.runtime();constexpr uint32_t layer=0x1b1000,current=0x200000,inactive=0x1b2000;
+    layerAfter.texts=layerBefore.texts;put(layerRam,current+0x40dd,uint8_t(1));
+    for(auto at:{0x39u,0x3bu,0x3du})put(layerRam,object+at,uint8_t(1));
+    R5900Context rejected{};rejected.pc=0x2ec9c0;rejected.r[4].ud[0]=layer;rejected.r[5].ud[0]=layer+0xb0;
+    const auto unchanged=rejected;std::vector<uint8_t> ramBefore(layerRam.memory.flat(),layerRam.memory.flat()+bozo::kFlatBytes);
+    layerAfter.failDraw=true;
+    rejects([&]{vp2s::nativeUiTextInstruction(&rejected,&layerRam,0x2ec9e4);});
+    check(!std::memcmp(&rejected,&unchanged,sizeof(rejected)) && !std::memcmp(ramBefore.data(),layerRam.memory.flat(),ramBefore.size()));
+    layerAfter.failDraw=false;
+    for(auto at:{0x39u,0x3bu,0x3du})put(layerRam,inactive+at,uint8_t(1));
+    rejects([&]{layerAfter.texts.layer(&layerRam,layer);});
+    put(layerRam,inactive+0x3b,uint8_t(0));put(layerRam,inactive+8,object);
+    rejects([&]{layerAfter.texts.layer(&layerRam,layer);});put(layerRam,inactive+8,layer);
+    put(layerRam,current+0x40ac,layer+0x40);rejects([&]{layerAfter.texts.layer(&layerRam,layer);});put(layerRam,current+0x40ac,layer+0x20);
+    put(layerRam,inactive+0x14,layer+0x10);rejects([&]{layerAfter.texts.layer(&layerRam,layer);});put(layerRam,inactive+0x14,layer);
+    layerAfter.texts.release(object);rejects([&]{layerAfter.texts.layer(&layerRam,layer);});
+    std::puts("64 full text-emitter,64 original scalar glyph and64 native-contract layer/real-completion CPU/RAM cases; immutable lifetime, fixed-point geometry, colour/alpha, shadow, half-texel UV, visibility and scene completion passed");return 0;
 }catch(const std::exception &e){std::fprintf(stderr,"%s\n",e.what());return 1;}}

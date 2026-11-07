@@ -7,6 +7,33 @@ target, not a replacement DLL loaded into PS2Recomp.
 
 ## Build and evidence
 
+### Native text-layer submission (2026-11-07)
+
+The first layer is typed `0x152060`/`0x15ba00`, with scene object `layer+0x20`
+typed `0x15ba1c` and job `0x15ba98`. Actual boot confirms that object is the
+pending pass-1 owner. `0x2ec9c0` now accepts a native draw list copied from
+finished text snapshots, then calls the real compiled `0x21c9a0` software
+completion. It creates no console transfer job. The original busy store and
+completion clear/notification execute unchanged; failure before native acceptance
+leaves the completion uncalled.
+
+Child traversal follows the original visible/enabled/built rule. Unknown active
+classes, inline images, missing/unfinished snapshots, broken parent links/cycles,
+and changed pending ownership reject before drawing. Inactive unknown classes
+remain inactive. Glyphs submit shadow then foreground with original scalar
+positions/colour/depth and immutable offline native pictures. Native draw-list
+ownership retains snapshots through source destruction.
+
+The text fixture now includes 64 native-contract producer/real-completion whole
+CPU/RAM comparisons in addition to 64 emitter and 64 glyph cases. Its reference
+uses a scalar adjusted-object delay slot and the same explicit native acceptance
+contract; it does not execute or qualify a console enqueue. Failure atomicity,
+visibility, secondary notification, held snapshots and rejecting admissions are
+checked separately. All 44 local suites pass after updating the expected source
+patch list/startup assertion. Actual headless boot reaches 600 logical frames
+with native solid-screen and 171-glyph layer submissions. Presentation, input
+route, 3D rendering and Logun are still unqualified.
+
 ### Original scalar glyph placement (2026-11-07)
 
 The native text snapshot now also observes `0x2e83e4` in the fully compiled

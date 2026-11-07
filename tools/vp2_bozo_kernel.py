@@ -110,6 +110,33 @@ def game_adaptations(data):
     return ''.join(result)
 
 
+DISPLAY_STORES=(0x1142c0,0x1142d0,0x1142e0,0x1142ec,0x114328,
+                0x114334,0x1144c0,0x1144d0,0x114520,0x11452c)
+
+
+def display_adaptations(data):
+    _,segments,_=elf_parts(data);lo,hi=0x114240,0x114544
+    s=next(s for s in segments if s[0]==1 and s[2]<=lo<hi<=s[2]+s[4]);at=s[1]+lo-s[2]
+    if hashlib.sha256(data[at:at+hi-lo]).hexdigest()!='3ac33477475d7c3e7057cf03c23bf12a2e7c6450ce1154706b25b20f7e589c51':
+        raise ValueError('USA display selection source mismatch')
+    # Keep all software buffer selection, movie records and helper calls.
+    # Physical DISPFB/DISPLAY writes have no native presentation consumer.
+    return ''.join(f'{pc:08x} {int.from_bytes(data[s[1]+pc-s[2]:s[1]+pc-s[2]+4],"little"):08x} 00000000\n' for pc in DISPLAY_STORES)
+
+
+def startup_clear_adaptations(data):
+    _,segments,_=elf_parts(data);lo,hi=0x100694,0x100744
+    s=next(s for s in segments if s[0]==1 and s[2]<=lo<hi<=s[2]+s[4]);at=s[1]+lo-s[2]
+    if hashlib.sha256(data[at:at+hi-lo]).hexdigest()!='ceee7fc9a1cf2420fc202b6054eea642b60e95a3c423ecfbb0f10bef0d07f75b':
+        raise ValueError('USA startup graphics-memory clear source mismatch')
+    # This boot-only loop zeroes all 4 MiB of physical graphics memory in
+    # sixteen slices. Native rendering has no such memory. Retire only this
+    # upload producer; preserve the zeroed EE buffer, descriptor construction,
+    # all sixteen frame waits, and the buffer's free. Real image uploads reject
+    # until the port has installed an asset owner.
+    return '00100708 0c048afe 00000000\n'
+
+
 def game_entries(data):
     # The thread object's vtable dispatches here from 0x119750. Ghidra exported
     # only the tail labels 0x11d770..0x11d7c0, omitting the actual entry/prologue.

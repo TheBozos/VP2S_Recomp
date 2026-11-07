@@ -5,7 +5,7 @@ import unittest
 from pathlib import Path
 sys.path.insert(0,str(Path(__file__).resolve().parents[1]/'tools'))
 from vp2_bozo_prepare import elf_parts,overlay_entries
-from vp2_bozo_kernel import bindings, game_adaptations, frame_adaptations, game_entries, native_game_sites, GUARDS, RETIRED_RANGES,bootstrap_adaptations,bootstrap_tables,overlay_adaptations,overlay_native_sites
+from vp2_bozo_kernel import bindings, game_adaptations, frame_adaptations, game_entries, native_game_sites, GUARDS, RETIRED_RANGES,bootstrap_adaptations,bootstrap_tables,overlay_adaptations,overlay_native_sites,display_adaptations,DISPLAY_STORES,startup_clear_adaptations
 
 IMAGE=Path(sys.argv.pop(1))
 
@@ -31,6 +31,22 @@ class KernelGuardTests(unittest.TestCase):
                 pc=int(line.split()[1],0)
                 self.assertTrue(any(s[2]&6==6 and s[3]<=pc and pc+4<=s[3]+s[5] for s in sections))
         self.assertNotIn('native 0x14142c',declarations) # jal: engine prohibits inline control hooks
+
+    def test_display_selection_retirement(self):
+        lines=display_adaptations(self.data).splitlines()
+        self.assertEqual([int(line.split()[0],16) for line in lines],list(DISPLAY_STORES))
+        self.assertTrue(all(line.endswith('00000000') for line in lines))
+        lo,hi=0x114240,0x114544;s=next(s for s in self.segments if s[0]==1 and s[2]<=lo<hi<=s[2]+s[4])
+        for pc in range(lo,hi,4):
+            changed=bytearray(self.data);changed[s[1]+pc-s[2]]^=1
+            with self.subTest(pc=hex(pc)),self.assertRaises(ValueError):display_adaptations(changed)
+
+    def test_startup_physical_clear_retirement(self):
+        self.assertEqual(startup_clear_adaptations(self.data),'00100708 0c048afe 00000000\n')
+        lo,hi=0x100694,0x100744;s=next(s for s in self.segments if s[0]==1 and s[2]<=lo<hi<=s[2]+s[4])
+        for pc in range(lo,hi,4):
+            changed=bytearray(self.data);changed[s[1]+pc-s[2]]^=1
+            with self.subTest(pc=hex(pc)),self.assertRaises(ValueError):startup_clear_adaptations(changed)
 
     def test_native_bootstrap_guards(self):
         patches=bootstrap_adaptations(self.data).splitlines()

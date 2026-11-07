@@ -25,6 +25,7 @@
 #include <filesystem>
 #include <cstdio>
 #include <cstdlib>
+#include <cstring>
 #include <format>
 #include <fstream>
 #include <iterator>
@@ -125,6 +126,10 @@ public:
     }
     unsigned traceLibrary=0;
     void libraryCall(bozo::ee::Dispatcher &d,R5900Context *c,uint32_t target) override {
+        // The engine's TMB upload retirement assumes that port already owns
+        // the texture. VP2S has not installed its native asset owner yet.
+        if(target==0x122bf8u)
+            throw std::runtime_error(std::format("native VP2S image owner required at {:x} ra={:x}",target,c->r[31].uw[0]));
         if(std::getenv("VP2S_BOZO_TRACE_CALLS") && traceLibrary++<160)
             std::fprintf(stderr,"[vp2s:call] pc=%x ra=%x a0=%x a1=%x\n",target,c->r[31].uw[0],c->r[4].uw[0],c->r[5].uw[0]);
         native.libraryCall(d,c,target);
@@ -200,6 +205,28 @@ int main(int argc,char **argv) {
             throw std::runtime_error(error);
         vp2sBozoRegisterImages(dispatcher.runtime(),VP2S_BOZO_IMAGES);
         const auto frames=host.native.run();
+        if(std::getenv("VP2S_BOZO_TRACE_QUEUES")) {
+            // Only the audited graphics-work queue header and descriptor metadata.
+            // Do not dump payloads, arbitrary CPU pointers, or bootstrap material.
+            auto &memory=dispatcher.runtime().memory;
+            const auto word=[&](uint32_t address) {
+                uint32_t value=0;
+                const auto *p=memory.hostPointer(address,sizeof(value));
+                if(!p)throw std::runtime_error("queue diagnostic address outside native RAM");
+                std::memcpy(&value,p,sizeof(value));return value;
+            };
+            const uint32_t owner=word(0x35dd78);
+            if(owner>=0x100000 && owner<=0x1ffffe8) {
+                const uint32_t slots=word(owner+4), indices=word(owner+8), flags=word(owner+12);
+                const unsigned capacity=indices&0xffff, active=indices>>16, next=flags&0xffff;
+                std::fprintf(stderr,"[vp2s:queue] owner=%x slots=%x capacity=%u active=%u next=%u flags=%08x tail=%08x\n",
+                             owner,slots,capacity,active,next,flags,word(owner+16));
+                if(capacity<=1024 && active<capacity && next<capacity && slots>=0x100000 && slots<=0x2000000-capacity*16)
+                    for(unsigned i=active,n=0;i!=next && n<16;i=(i+1)%capacity,++n)
+                        std::fprintf(stderr,"[vp2s:queue] slot=%u type=%u source=%x count=%u\n",i,
+                                     word(slots+i*16)&0xffff,word(slots+i*16+4),word(slots+i*16+8));
+            }
+        }
         const auto &stats=host.native.stats();
         std::fprintf(stderr,"[vp2s:bozo] frames=%llu libraries=%llu end=%s\n",
                      (unsigned long long)frames,(unsigned long long)stats.libraryCalls,host.native.endReason().c_str());

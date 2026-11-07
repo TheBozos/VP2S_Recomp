@@ -49,6 +49,6 @@ deeper=subprocess.run([sys.argv[1],'--iso',sys.argv[2],'--frames','600'],
                       capture_output=True,text=True,timeout=30,
                       env={**os.environ,'VP2S_BOZO_SEED':'1'})
 print(deeper.stdout+deeper.stderr,end='')
-if deeper.returncode!=1 or 'unported device write 12000090 at pc=11425c' not in deeper.stdout+deeper.stderr:
-    raise SystemExit('longer native boot did not reach its next guarded physical display setup')
-print('First native game-frame boundary passed; longer run reaches its next guarded game algorithm. Native rendering remains unqualified.')
+if deeper.returncode!=1 or 'native VP2S image owner required at 122bf8 ra=360efc' not in deeper.stdout+deeper.stderr:
+    raise SystemExit('longer native boot did not reject the unowned menu image upload')
+print('First native game-frame boundary passed; longer run rejects an unowned image upload. Native rendering remains unqualified.')

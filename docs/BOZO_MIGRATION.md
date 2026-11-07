@@ -7,6 +7,38 @@ target, not a replacement DLL loaded into PS2Recomp.
 
 ## Build and evidence
 
+### Display selection and unowned image guard (2026-11-07)
+
+The whole display selector `0x114240..0x114544` is fingerprinted. Only its ten
+physical DISPFB/DISPLAY stores retire. All software buffer selection, record
+updates and helper calls remain compiled. The generated original/adapted fixture
+passes 128 full-CPU/full-RAM comparisons, covers all ten stores, and preserves
+32 software/movie callbacks. Its reference only observes the nominated writes;
+it does not execute a GS device or supply register values.
+
+A diagnostic startup then reached a graphics-upload queue barrier at `0x112bc0`:
+capacity 1024, active index 0, producer index 5, active and processing flags set,
+and four subsequent type-1 descriptors. The queue must not be cleared or given
+a synthetic DMA completion. Source inspection exposed an earlier problem:
+Bozo's shared `sceGsExecLoadImage` retirement assumes its port already owns the
+texture, but VP2S's native texture owner has not been installed. VP2S now rejects
+that SDK boundary explicitly, before the engine's no-op. The first caller was
+`0x100710`, inside a sixteen-slice zero-fill of all 4 MiB of physical graphics
+memory. Its fingerprinted upload producer now retires: native rendering has no
+physical graphics memory. The EE buffer zero-fill, descriptor construction,
+sixteen frame waits and buffer free remain. Eight generated comparisons verify
+all architectural CPU fields and all RAM, plus the exact scheduling difference
+of sixteen retired call checkpoints / 128 generated cycles. All 128 descriptor
+builds and waits remain. This retirement is scoped to this boot-only producer;
+later real assets still require direct texture ownership from records/files.
+Startup now rejects the distinct menu image upload returning to `0x360efc`.
+
+`VP2S_BOZO_TRACE_QUEUES=1` prints only audited queue metadata and descriptor
+type/source/count, with checked bounds. It never prints descriptor payloads,
+bootstrap material or arbitrary CPU-referenced memory. The production boot test
+now requires the unowned-image guard. Display selection remains fixture-qualified;
+no rendered scene or playable Logun-route completion is claimed.
+
 ### Menu frame-clock physical stores (2026-11-07)
 
 The menu module repeats the boot code's HBLANK mode setup and resets its counter

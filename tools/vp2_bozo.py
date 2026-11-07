@@ -12,7 +12,7 @@ import subprocess
 import sys
 from pathlib import Path
 from vp2_bozo_prepare import elf_parts
-from vp2_bozo_kernel import bindings as kernel_bindings, game_adaptations, frame_adaptations, native_game_sites,bootstrap_adaptations,overlay_adaptations,overlay_native_sites
+from vp2_bozo_kernel import bindings as kernel_bindings, game_adaptations, frame_adaptations, native_game_sites,bootstrap_adaptations,overlay_adaptations,overlay_native_sites,display_adaptations,startup_clear_adaptations
 
 ROOT = Path(__file__).resolve().parent.parent
 
@@ -55,7 +55,7 @@ def generate(args, build, data, engine_build, env):
                 stream.write(kernel_bindings(raw))
                 stream.write(native_game_sites(raw))
             patches=data/'images'/f'{name}.patches'
-            patches.write_text(game_adaptations(raw)+frame_adaptations(raw)+bootstrap_adaptations(raw))
+            patches.write_text(game_adaptations(raw)+frame_adaptations(raw)+bootstrap_adaptations(raw)+display_adaptations(raw)+startup_clear_adaptations(raw))
             adaptations=['--patches',patches]
         else:
             with ext.open('a') as stream:stream.write(overlay_native_sites(name,raw))

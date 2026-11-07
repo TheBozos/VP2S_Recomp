@@ -8,6 +8,20 @@ target, not a replacement DLL loaded into PS2Recomp.
 
 ## Build and evidence
 
+### Empty child-projection setup (2026-11-08)
+
+Actual common `0x2076a0` was called for class `0x1653d0` with child-list next
+equal to its own head (`object+0x90`). Its scalar loop invokes no child and
+stores no result from the vector matrix setup. Only this guarded empty path
+retires its four vector loads and microcall; no vector environment is recreated.
+Any populated list or other class still rejects. Scalar matrix preparation,
+writer construction and the empty loop remain compiled.
+
+64 cases check complete CPU/RAM preservation at all five sites, and rejection
+of a populated list. Math, signature and actual startup suites pass. Actual New
+Game passes this setup and next rejects its writer flush from `0x2075c8`.
+That state-only writer's lifetime/completion is the next task; Logun is open.
+
 ### Field debug-font state-only publication (2026-11-07)
 
 Mod003 `0x3d93f4` now attaches its debug-font flush to the same typed atlas,

@@ -4,6 +4,7 @@
 #include "native_frustum.h"
 #include "../port/vp2s_math.h"
 #include <cstring>
+#include <format>
 #include <stdexcept>
 namespace vp2s {
 namespace {
@@ -21,6 +22,17 @@ bool nativeMathInstruction(uint8_t *,R5900Context *c,Runtime *rt,uint32_t pc){
     if(nativeTrigInstruction(nullptr,c,rt,pc))return true;
     if(nativeObjectMathInstruction(nullptr,c,rt,pc))return true;
     if(nativeFrustumInstruction(c,rt,pc))return true;
+    if(pc==0x207720 || pc==0x207724 || pc==0x207728 || pc==0x20772c || pc==0x207738){
+        const auto object=c->r[17].uw[0];uint32_t type,child;
+        std::memcpy(&type,record(rt,object,16),4);
+        std::memcpy(&child,record(rt,object+0x90,16)+8,4);
+        if(type!=0x1653d0 || child!=object+0x90)
+            throw std::runtime_error(std::format("unported populated native child projection: object={:x} type={:x} child={:x} head={:x}",object,type,child,object+0x90));
+        // This builder's original loop executes no child and stores no numeric
+        // result from the matrix setup. Retire only that dead empty-list path.
+        // No inherited math state is constructed for later unported consumers.
+        return true;
+    }
     if(!(pc&3) && pc>=0x410df0 && pc<=0x410e44)return true;
     if(pc==0x410e4c){
         // Four row dot products. The original reduction order differs per

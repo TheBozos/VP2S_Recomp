@@ -293,6 +293,21 @@ int main(){try{
     invalidBasis[0]=_mm_castsi128_ps(_mm_setr_epi32(0x7fc00000,0,0,0));bool invalidRejected=false;
     try{vp2s::math::largestAxisScale(invalidBasis);}catch(const std::exception &){invalidRejected=true;}check(invalidRejected);
     unsigned axisCases=0;
+    for(unsigned seed=0;seed<64;++seed){
+        auto &rt=native.runtime();const uint32_t empty=0x180000,type=0x1653d0,head=empty+0x90;
+        std::memset(rt.memory.flat(),seed+1,bozo::kFlatBytes);std::memcpy(rt.memory.ram()+empty,&type,4);std::memcpy(rt.memory.ram()+head+8,&head,4);
+        const auto before=std::vector<uint8_t>(rt.memory.flat(),rt.memory.flat()+bozo::kFlatBytes);
+        R5900Context c{};std::memset(c.vu0_vf,seed,sizeof(c.vu0_vf));c.vu0_status=seed*31;c.r[17].ud[0]=empty;const auto saved=c;
+        for(uint32_t pc:{0x207720u,0x207724u,0x207728u,0x20772cu,0x207738u}){
+            check(vp2s::nativeMathInstruction(rt.memory.flat(),&c,&rt,pc));check(!std::memcmp(&c,&saved,sizeof(c)));
+        }
+        check(!std::memcmp(before.data(),rt.memory.flat(),bozo::kFlatBytes));
+        const uint32_t child=0x190000;std::memcpy(rt.memory.ram()+head+8,&child,4);
+        for(uint32_t pc:{0x207720u,0x207724u,0x207728u,0x20772cu,0x207738u}){
+            bool rejected=false;try{vp2s::nativeMathInstruction(rt.memory.flat(),&c,&rt,pc);}catch(const std::runtime_error &){rejected=true;}
+            check(rejected && !std::memcmp(&c,&saved,sizeof(c)));
+        }
+    }
     for(unsigned rounding:{_MM_ROUND_NEAREST,_MM_ROUND_DOWN,_MM_ROUND_UP,_MM_ROUND_TOWARD_ZERO})for(unsigned seed=0;seed<64;++seed){
         auto &a=old.runtime();auto &b=native.runtime();
         const uint32_t stack=seed&1?0x70003f00:0x1fff000,source=seed%3?0x180000:0x70000100;

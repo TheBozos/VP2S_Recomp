@@ -26,6 +26,40 @@ bool nativeMathInstruction(uint8_t *,R5900Context *c,Runtime *rt,uint32_t pc){
         return true;
     }
     switch(pc){
+    case 0x249618:case 0x249620:case 0x249628:
+    case 0x249664:case 0x249668:
+    case 0x249678:case 0x24967c:case 0x249680:case 0x249684:
+    case 0x249688:case 0x24968c:case 0x249690:case 0x249694:
+    case 0x249698:case 0x24969c:case 0x2496a0:case 0x2496a4:
+    case 0x2496a8:case 0x2496ac:case 0x2496b0:case 0x2496b4:
+    case 0x2496b8:case 0x2496bc:case 0x2496c0:case 0x2496c4:
+    case 0x2496c8:case 0x2496cc:case 0x2496d0:case 0x2496d4:
+    case 0x2496dc:case 0x2496e0:case 0x2496e4:
+        return true;
+    case 0x249658:c->r[9].ud[0]=0;return true;
+    case 0x249660:{
+        const uint32_t object=c->r[16].uw[0];__m128 quaternion,position;
+        std::memcpy(&quaternion,record(rt,object+0x1e0,16),16);
+        std::memcpy(&position,record(rt,object+0x1d0,16),16);
+        auto result=math::quaternionMatrix(quaternion);
+        // This entry preserves the supplied position instead of selecting the
+        // common helper's zero position. It goes in the first three row Ws;
+        // the fourth row is built by the retained scalar CPU instructions.
+        const auto bits=_mm_castps_si128(position);
+        const auto tiny=_mm_cmpeq_epi32(_mm_and_si128(bits,_mm_set1_epi32(0x7f800000)),_mm_setzero_si128());
+        position=_mm_castsi128_ps(_mm_andnot_si128(_mm_and_si128(tiny,_mm_set1_epi32(0x7fffffff)),bits));
+        result[0]=_mm_blend_ps(result[0],music::broadcast<0>(position),8);
+        result[1]=_mm_blend_ps(result[1],music::broadcast<1>(position),8);
+        result[2]=_mm_blend_ps(result[2],music::broadcast<2>(position),8);
+        std::memcpy(record(rt,c->r[2].uw[0],48),result.data(),48);return true;
+    }
+    case 0x2496d8:{
+        math::Matrix rotation,scale,result;
+        std::memcpy(rotation.data(),record(rt,c->r[3].uw[0],64),64);
+        std::memcpy(scale.data(),record(rt,c->r[2].uw[0],64),64);
+        for(unsigned i=0;i<4;++i)result[i]=math::matrixVectorProduct(scale,rotation[i]);
+        std::memcpy(record(rt,c->r[4].uw[0],64),result.data(),64);return true;
+    }
     case 0x217554:case 0x217558:case 0x21755c:case 0x217560:
     case 0x217564:case 0x217568:case 0x21756c:case 0x217570:case 0x21757c:
     case 0x21758c:case 0x217590:case 0x217594:

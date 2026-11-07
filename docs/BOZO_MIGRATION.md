@@ -7,6 +7,24 @@ target, not a replacement DLL loaded into PS2Recomp.
 
 ## Build and evidence
 
+### Native object-constructor transform (2026-11-07)
+
+The reached constructor (`0x2494c0`) uses the separate quaternion entry `0x728`.
+Source inspection shows why it cannot use the common conversion unchanged:
+the supplied position becomes the W components of its first three rows. The
+retained CPU code builds the fourth row and scale record. Native code now writes
+those three rows directly, then computes the original scale/rotation product
+from ordinary records. The entire constructor and admitted source math image
+are fingerprinted; no inherited vector register or arithmetic flag is restored.
+
+All 28 suites pass. Sixty-four additional generated constructor-tail comparisons
+use varied quaternion, signed scale and position records, complete RAM/GPR/FPR
+comparison, working stacks and untouched vector sentinels (256 total math ABI
+cases). Boot gets past this calculation and stops on the camera vtable setter
+`0x1e8080`, absent from the offline function map. Its original body stores the
+three float arguments and homogeneous component in the camera record. This is
+an omitted code entry, not a rendered-scene or graphics-parity result.
+
 ### Native default math selection and record bridges (2026-11-07)
 
 The default VIF0 selection at `0x29e180` installs 453 math instruction pairs and

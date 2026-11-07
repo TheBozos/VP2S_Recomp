@@ -15,7 +15,8 @@ a=p.parse_args()
 if not a.out.resolve().is_relative_to(a.build.resolve()):raise ValueError('private build directory required')
 data=a.source.read_bytes();overlay_adaptations('mod001',data)
 rows=[dict(Name='matrix',Start=hex(0x217598 if a.variant=='original' else 0x217550),End='0x2175c0'),
-      dict(Name='quaternion',Start=hex(0x216758 if a.variant=='original' else 0x216730),End='0x216780')]
+      dict(Name='quaternion',Start=hex(0x216758 if a.variant=='original' else 0x216730),End='0x216780'),
+      dict(Name='object_math',Start=hex(0x2496e8 if a.variant=='original' else 0x2495f4),End='0x249714')]
 fixture,_=prepare(data,rows,{})
 sites=[];_,segments,_=elf_parts(data)
 if a.variant=='adapted':

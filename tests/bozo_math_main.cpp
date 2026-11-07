@@ -55,6 +55,39 @@ int main(){try{
         check(!std::memcmp(x.r,y.r,sizeof(x.r)) && !std::memcmp(x.vu0_vf,y.vu0_vf,sizeof(x.vu0_vf)));
         check(!std::memcmp(a.memory.flat(),b.memory.flat(),bozo::kFlatBytes));++cases;
     }
+    for(unsigned seed=0;seed<64;++seed){
+        auto &a=old.runtime();auto &b=native.runtime();constexpr uint32_t object=0x180000;
+        const uint32_t stack=seed&1?0x70003f00:0x1ffe000;
+        std::memset(a.memory.flat(),seed+1,bozo::kFlatBytes);
+        const auto quaternion=_mm_setr_ps(float(seed%7)/16.f,-float(seed%11)/16.f,float(seed%13)/16.f,0.5f);
+        const auto position=_mm_setr_ps(float(seed)+0.5f,-float(seed)*2.f,3.75f,-123.f);
+        const float scales[3]={float(seed%4)+0.5f,-2.f,1.5f};
+        std::memcpy(a.memory.ram()+object+0x1e0,&quaternion,16);
+        std::memcpy(a.memory.ram()+object+0x1d0,&position,16);
+        std::memcpy(a.memory.ram()+object+0x1f0,scales,12);
+        vp2s::math::Matrix scale{_mm_setr_ps(scales[0],0,0,0),_mm_setr_ps(0,scales[1],0,0),_mm_setr_ps(0,0,scales[2],0),_mm_setr_ps(0,0,0,1)};
+        std::memcpy(a.memory.hostPointer(stack+0x60,64),scale.data(),64);
+        R5900Context x{},y{};
+        for(unsigned i=1;i<32;++i){x.r[i].ud[0]=0x1234567800000000ull+seed*32+i;x.r[i].ud[1]=~x.r[i].ud[0];}
+        x.r[16].ud[0]=object;x.r[29].ud[0]=stack;x.r[31].ud[0]=0x170000;
+        std::memset(x.vu0_vf,0xce,sizeof(x.vu0_vf));x.vu0_acc.u[3]=0xbabeface;
+        std::memcpy(a.memory.hostPointer(stack,16),&x.r[16],16);std::memcpy(a.memory.hostPointer(stack+0x10,8),&x.r[31].ud[0],8);
+        std::memcpy(b.memory.flat(),a.memory.flat(),bozo::kFlatBytes);y=x;
+        auto rotation=vp2s::math::quaternionMatrix(quaternion);
+        rotation[0]=_mm_blend_ps(rotation[0],vp2s::music::broadcast<0>(position),8);
+        rotation[1]=_mm_blend_ps(rotation[1],vp2s::music::broadcast<1>(position),8);
+        rotation[2]=_mm_blend_ps(rotation[2],vp2s::music::broadcast<2>(position),8);
+        std::memcpy(a.memory.hostPointer(stack+0x20,64),rotation.data(),64);
+        vp2s::math::Matrix output;
+        for(unsigned col=0;col<4;++col)output[col]=vp2s::math::matrixVectorProduct(scale,rotation[col]);
+        std::memcpy(a.memory.ram()+object+0x110,output.data(),64);
+        x.r[9].ud[0]=0;x.fu[0]=x.fu[1]=0;
+        a.functions.generated(0x2496e8)(a.memory.flat(),&x,&a);
+        b.functions.generated(0x2495f4)(b.memory.flat(),&y,&b);
+        check(x.pc==0x170000 && y.pc==x.pc && !std::memcmp(x.r,y.r,sizeof(x.r)));
+        check(!std::memcmp(x.fu,y.fu,sizeof(x.fu)) && !std::memcmp(x.vu0_vf,y.vu0_vf,sizeof(x.vu0_vf)));
+        check(!std::memcmp(a.memory.flat(),b.memory.flat(),bozo::kFlatBytes));++cases;
+    }
     auto &r=native.runtime();constexpr uint32_t object=0x180000;auto *p=r.memory.ram()+object;
     std::memset(p,0,0x54);uint32_t type=0x1591d0;std::memcpy(p,&type,4);
     R5900Context c{};c.r[4].uw[0]=object;const auto saved=c;

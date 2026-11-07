@@ -100,13 +100,31 @@ std::shared_ptr<const NativeCamera> NativeScene::camera(uint32_t object)const{
     auto it=cameras.find(object);return it==cameras.end()?nullptr:it->second;
 }
 bool nativeSceneInstruction(uint8_t *,R5900Context *c,Runtime *rt,uint32_t pc){
-    if(pc!=0x208a94)return false;
+    const bool frustumSite=(!(pc&3) && pc>=0x207cc8 && pc<=0x207d64) || pc==0x207d6c;
+    if(pc!=0x208a94 && !frustumSite)return false;
     auto *dispatcher=rt?dynamic_cast<bozo::ee::Dispatcher *>(rt->services):nullptr;
     auto *owner=dispatcher?dynamic_cast<SceneOwner *>(&dispatcher->host()):nullptr;
     if(!owner || !c)throw std::runtime_error("native camera publication requires a scene owner");
+    if(frustumSite){
+        if(c->pc!=0x207cc0)throw std::runtime_error("native frustum publication requires its complete owner");
+        if(pc==0x207cc8){
+            const auto camera=c->r[4].uw[0];
+            if(c->r[5].uw[0]!=camera+0x460 || c->r[3].uw[0]!=camera+0x500)
+                throw std::runtime_error("native frustum source changed during publication");
+            owner->nativeScene().publishFrustum(rt,camera);
+        }
+        return true;
+    }
     const uint32_t camera=c->r[17].uw[0];owner->nativeScene().publishCamera(rt,camera);
     // Retain the original scalar delay-slot load. The camera-only transport
     // enqueue was retired before a job exists; its completion method is empty.
     c->r[5].sd[0]=static_cast<int32_t>(word(rt,camera+0x8e0));return true;
+}
+void NativeScene::publishFrustum(Runtime *rt,uint32_t object){
+    const auto *source=record(rt,object,0x5a0);
+    auto view=std::make_shared<NativeCameraFrustum>();view->object=object;
+    std::memcpy(view->points.data(),source+0x460,160);
+    std::memcpy(view->normals.data(),source+0x500,160);
+    activeFrustum=std::move(view);++frustumPublications;
 }
 }

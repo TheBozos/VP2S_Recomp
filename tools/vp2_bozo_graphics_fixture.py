@@ -14,8 +14,9 @@ data=a.source.read_bytes()
 patches=overlay_adaptations('mod001',data)
 fixture,_=prepare(data,[dict(Name='program_install',Start='0x29e2e0',End='0x29e310'),
                        dict(Name='math_install',Start='0x29e150',End='0x29e180'),
-                       dict(Name='camera_publication',Start='0x208900',End='0x208aac')],{})
+                       dict(Name='camera_publication',Start='0x208900',End='0x208aac'),
+                       dict(Name='frustum_publication',Start='0x207cc0',End='0x207d70')],{})
 a.out.mkdir(parents=True,exist_ok=True)
 (a.out/'fixture.elf').write_bytes(fixture)
-(a.out/'externals.txt').write_text('stub 0x201f20\nstub 0x170100\nstub 0x2138f0\nstub 0x215870\n'+('native 0x29e160\nnative 0x208a94\n' if a.variant=='adapted' else ''))
+(a.out/'externals.txt').write_text('stub 0x201f20\nstub 0x170100\nstub 0x2138f0\nstub 0x215870\n'+('native 0x29e160\nnative 0x208a94\n' if a.variant=='adapted' else '')+''.join(f'native 0x{pc:x}\n' for pc in [*range(0x207cc8,0x207d68,4),0x207d6c]))
 (a.out/'patches.txt').write_text(''.join(line+'\n' for line in patches.splitlines() if line.split()[0] in ('0029e2fc','0029e160','0029e16c','00208a90')))

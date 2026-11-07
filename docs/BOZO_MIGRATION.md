@@ -7,6 +7,23 @@ target, not a replacement DLL loaded into PS2Recomp.
 
 ## Build and evidence
 
+### Native frustum publication (2026-11-07)
+
+The fingerprinted `0x207cc0` routine now publishes an immutable semantic camera
+frustum: ten world points and ten normals copied from the game's camera records
+at `+0x460/+0x500`. Its 41 loads/vector-memory stores retire without any vector
+memory, address map, bank or transfer completion. Scalar pointer calculations
+and the original return remain compiled. Interior entry is rejected. Remaining
+culling algorithms must consume this native publication and still reject until
+ported; no original vector-memory consumer is admitted by the publication.
+
+64 generated whole CPU/RAM publication cases check alternating camera objects,
+unchanged vector sentinels, owner isolation, exact point/normal bytes and retained
+snapshots after source overwrite/republication. Both compiled CPU fixtures retire
+the transport; independent byte checks qualify the new native snapshot, without
+executing a vector-memory reference. The graphics fixture totals 256 cases.
+Boot passes publication and reaches `0x220624`; native drawing/Logun remain open.
+
 ### Native final light-colour product (2026-11-07)
 
 Four vector sites at the end of fingerprinted `0x20f440` now multiply the

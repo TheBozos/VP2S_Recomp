@@ -108,5 +108,22 @@ int main(){try{
             const auto colour=view->clearColour;word(0x1905a0,0);check(view->clearColour==colour);
         }
     }
-    std::puts("64 graphics + 64 math-code + 64 camera producer CPU/RAM comparisons; immutable native camera snapshots; no queue/device completion synthesized");return 0;
+    for(unsigned seed=0;seed<64;++seed){
+        auto &a=old.runtime(),&b=native.runtime();std::memset(a.memory.flat(),seed+1,bozo::kFlatBytes);
+        const uint32_t camera=seed&1?0x180000:0x190000;
+        std::memcpy(b.memory.flat(),a.memory.flat(),bozo::kFlatBytes);
+        R5900Context x{},y{};x.r[4].ud[0]=camera;x.r[31].ud[0]=0x170000;
+        std::memset(x.vu0_vf,0x6a,sizeof(x.vu0_vf));std::memset(x.vi,0x7b,sizeof(x.vi));y=x;
+        auto previous=nativeHost.scene.frustum();const auto count=nativeHost.scene.frustumPublicationCount();
+        a.functions.generated(0x207cc0)(a.memory.flat(),&x,&a);b.functions.generated(0x207cc0)(b.memory.flat(),&y,&b);
+        check(!std::memcmp(&x,&y,sizeof(x)) && !std::memcmp(a.memory.flat(),b.memory.flat(),bozo::kFlatBytes));
+        check(nativeHost.scene.frustumPublicationCount()==count+1);
+        auto view=nativeHost.scene.frustum();check(view && view->object==camera);
+        check(!std::memcmp(view->points.data(),a.memory.flat()+camera+0x460,160) && !std::memcmp(view->normals.data(),a.memory.flat()+camera+0x500,160));
+        if(previous)check(previous!=view && std::bit_cast<uint32_t>(previous->points[0][0])==0x01010101u*seed);
+        std::memset(b.memory.flat()+camera+0x460,0,320);check(std::bit_cast<uint32_t>(view->points[0][0])==0x01010101u*(seed+1));
+    }
+    bool invalid=false;R5900Context bad{};bad.pc=0x207ce0;
+    try{vp2s::nativeSceneInstruction(nullptr,&bad,&native.runtime(),0x207ce0);}catch(const std::runtime_error &){invalid=true;}check(invalid);
+    std::puts("64 graphics + 64 math-code + 64 camera + 64 frustum CPU/RAM cases; immutable snapshots, owner isolation and no transport state");return 0;
 }catch(const std::exception &e){std::fprintf(stderr,"%s\n",e.what());return 1;}}

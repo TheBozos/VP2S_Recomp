@@ -4,6 +4,7 @@
 #include <stdexcept>
 #include <cstdio>
 #include <cstdlib>
+#include <algorithm>
 namespace vp2s {
 namespace {
 uint32_t word(Runtime *rt,uint32_t at){
@@ -44,6 +45,7 @@ void NativeMediaBuffers::release(uint32_t object){
     for(const auto &[at,entry]:pending)if(entry->object==object)throw std::runtime_error("native media buffer released during initialization");
     for(const auto &[at,entry]:creations)if(entry.owner->object==object)throw std::runtime_error("native media buffer released during stream creation");
     for(const auto &[at,entry]:resets)if(entry.owner->object==object)throw std::runtime_error("native media buffer released during decoder reset");
+    for(const auto &[at,entry]:demuxes)if(entry.owner->object==object)throw std::runtime_error("native media buffer released during PSS parsing");
     prepared.erase(object);
 }
 void NativeMediaBuffers::preparePacing(Runtime *rt,uint32_t object,uint64_t fieldCycles){
@@ -92,6 +94,7 @@ std::shared_ptr<NativeMediaBuffer> NativeMediaBuffers::stream(Runtime *rt,uint32
     if(!entry->initialized || !entry->created || entry->inputResetPending || entry->mp!=mp || word(rt,mp+0x40)!=entry->work)
         throw std::runtime_error("native MPEG stream has no live original work record");
     for(const auto &[at,reset]:resets)if(reset.owner==entry)throw std::runtime_error("native MPEG stream is resetting");
+    for(const auto &[at,demux]:demuxes)if(demux.owner==entry)throw std::runtime_error("native MPEG stream has an active PSS parser");
     return entry;
 }
 void NativeMediaBuffers::validateCallback(Runtime *rt,uint32_t mp,uint32_t type,uint32_t data)const{
@@ -123,6 +126,7 @@ void NativeMediaBuffers::captureStreams(Runtime *rt,uint32_t mp){
 void NativeMediaBuffers::beginReset(Runtime *rt,uint32_t stack,uint32_t mp){
     auto entry=stream(rt,mp);
     if(resets.contains(stack))throw std::runtime_error("native MPEG reset stack repeats");
+    for(const auto &[at,demux]:demuxes)if(demux.owner==entry)throw std::runtime_error("native MPEG reset during PSS parsing");
     auto decoder=factory();if(!decoder)throw std::runtime_error("native MPEG reset has no new decoder");
     resets.emplace(stack,Reset{std::move(entry),std::move(decoder)});
 }
@@ -138,18 +142,83 @@ void NativeMediaBuffers::finishReset(Runtime *rt,uint32_t stack){
         if(word(rt,entry->work+offset))throw std::runtime_error("native MPEG reset left an original CPU state record active");
     if(word(rt,entry->mp+8) || word(rt,entry->work+0x98)!=0xffffffff || word(rt,entry->work+0x828)!=1)
         throw std::runtime_error("native MPEG reset did not finish its original software initialization");
-    entry->decoder=std::move(resets.at(stack).decoder);entry->inputResetPending=true;resets.erase(stack);
+    entry->decoder=std::move(resets.at(stack).decoder);entry->video={};entry->inputResetPending=true;resets.erase(stack);
+}
+void NativeMediaBuffers::beginDemux(Runtime *rt,uint32_t stack,uint32_t mp,uint32_t input,uint32_t bytes,uint32_t ring,uint32_t capacity){
+    auto entry=stream(rt,mp);const auto expected=(entry->object+0xce5c0+63)&~63u;
+    if(ring!=expected || capacity!=0x90000 || input<ring || input>=ring+capacity || bytes>capacity || bytes<8 ||
+       uint64_t(ring)+capacity>0x2000000 || demuxes.contains(stack))throw std::runtime_error("native PSS parser has no bounded original movie ring");
+    for(const auto &[at,demux]:demuxes)if(demux.owner==entry)throw std::runtime_error("native PSS parser reentry");
+    const auto pool=word(rt,entry->work+0x60),count=word(rt,entry->work+0x64);
+    if(count!=entry->streams.size() || count>64 || pool<entry->work || uint64_t(pool)+uint64_t(count)*32>uint64_t(entry->work)+entry->workBytes)
+        throw std::runtime_error("native PSS parser lost its registered stream table");
+    for(uint32_t i=0;i<count;++i){const auto at=pool+i*32;const auto &s=entry->streams[i];
+        const auto wide=[&](uint32_t a){return uint64_t(word(rt,a))|(uint64_t(word(rt,a+4))<<32);};
+        if(wide(at)!=s.pattern || wide(at+8)!=s.mask || word(rt,at+0x10)!=s.callback.function || word(rt,at+0x14)!=s.callback.data || word(rt,at+0x18)!=s.callback.gp)
+            throw std::runtime_error("native PSS stream registration changed outside its owner");
+    }
+    demuxes.emplace(stack,Demux{std::move(entry),ring,capacity,input,bytes});
+}
+void NativeMediaBuffers::demuxEntry(uint32_t stack,uint32_t mp,uint32_t input,uint32_t bytes,uint32_t ring,uint32_t capacity)const{
+    const auto &d=demuxes.at(stack);
+    if(mp!=d.owner->mp || input!=d.input || bytes!=d.bytes || ring!=d.ring || capacity!=d.capacity)
+        throw std::runtime_error("native PSS parser entry changed its admitted ring");
+}
+void NativeMediaBuffers::finishDemux(uint32_t stack,uint32_t consumed){
+    if(consumed>demuxes.at(stack).bytes)throw std::runtime_error("native PSS parser consumed beyond its input");
+    demuxes.erase(stack);
+}
+bool NativeMediaBuffers::videoPayload(Runtime *rt,R5900Context *c){
+    const auto stack=c->r[29].uw[0];const auto &d=demuxes.at(stack);const auto desc=c->r[5].uw[0];
+    if(c->pc!=0x2b90a0 || c->r[31].uw[0]!=0x1f4810 || c->r[4].uw[0]!=d.owner->mp ||
+       c->r[6].uw[0]!=d.owner->object || desc!=stack+0x80 || word(rt,desc)!=6)
+        throw std::runtime_error("native movie payload escaped the original PSS callback");
+    bool registered=false;
+    for(const auto &s:d.owner->streams)if(s.callback.function==0x2b90a0 && s.callback.data==d.owner->object && s.callback.gp==c->r[28].uw[0])registered=true;
+    if(!registered)throw std::runtime_error("native movie payload lost its registered GP/data");
+    const auto payload=word(rt,desc+8),bytes=word(rt,desc+12);
+    if(payload<d.ring || payload>=d.ring+d.capacity || !bytes || bytes>d.bytes || bytes>d.capacity)
+        throw std::runtime_error("native movie payload exceeds original PSS ring");
+    std::vector<uint8_t> packet(bytes);const auto first=std::min(bytes,d.ring+d.capacity-payload);
+    std::memcpy(packet.data(),rt->memory.hostPointer(payload,first),first);
+    if(first<bytes)std::memcpy(packet.data()+first,rt->memory.hostPointer(d.ring,bytes-first),bytes-first);
+    const auto timestamp=[&](uint32_t at){return int64_t(uint64_t(word(rt,at))|(uint64_t(word(rt,at+4))<<32));};
+    const auto accepted=d.owner->video.accept(*d.owner->decoder,packet.data(),packet.size(),timestamp(desc+16),timestamp(desc+24));
+    if(std::getenv("VP2S_BOZO_TRACE_QUEUES"))std::fprintf(stderr,"[vp2s:media] native coded payload bytes=%u accepted=%u pictures=%zu submitted=%llu\n",bytes,accepted,d.owner->video.pictures.size(),(unsigned long long)d.owner->video.submittedPictures);
+    return accepted;
+}
+void NativeMediaBuffers::validateAudioPayload(Runtime *rt,R5900Context *c,uint32_t function)const{
+    const auto stack=c->r[29].uw[0];const auto &d=demuxes.at(stack);const auto desc=c->r[5].uw[0],data=c->r[6].uw[0];
+    if(c->pc!=function || c->r[31].uw[0]!=0x1f4810 || c->r[4].uw[0]!=d.owner->mp ||
+       data!=d.owner->object+0x15e680 || desc!=stack+0x80 || word(rt,desc)!=6 || word(rt,data)!=d.owner->object+0xce580)
+        throw std::runtime_error("native movie audio escaped original PSS callback ownership");
+    bool registered=false;
+    for(const auto &s:d.owner->streams)if(s.callback.function==function && s.callback.data==data && s.callback.gp==c->r[28].uw[0])registered=true;
+    const auto payload=word(rt,desc+8),bytes=word(rt,desc+12),buffer=word(rt,data+12),capacity=word(rt,data+24);
+    if(!registered || payload<d.ring || payload>=d.ring+d.capacity || bytes<4 || bytes>d.bytes || bytes>d.capacity ||
+       word(rt,d.owner->object+0x15e608)!=d.capacity || buffer<0x100000 || uint64_t(buffer)+capacity>0x2000000 ||
+       !capacity || word(rt,data+16)>=capacity || word(rt,data+20)>capacity)
+        throw std::runtime_error("native movie audio CPU copy exceeds its allocated rings");
+    if(std::getenv("VP2S_BOZO_TRACE_QUEUES"))std::fprintf(stderr,"[vp2s:media] original audio payload bytes=%u function=%x\n",bytes,function);
 }
 std::shared_ptr<const NativeMediaBuffer> NativeMediaBuffers::buffer(uint32_t object)const{
     const auto it=prepared.find(object);return it==prepared.end()?nullptr:it->second;
 }
 std::optional<bool> nativeMediaBufferInstruction(R5900Context *c,Runtime *rt,uint32_t pc){
-    if(pc!=0x2bbfc0 && pc!=0x2bc1d0 && pc!=0x2bc1e0 && pc!=0x2ba670 && pc!=0x1ef6f8 && pc!=0x1ef914 && pc!=0x1f0438 && pc!=0x1f04a0 && pc!=0x1efa30)return std::nullopt;
+    if(pc!=0x2bbfc0 && pc!=0x2bc1d0 && pc!=0x2bc1e0 && pc!=0x2ba670 && pc!=0x1ef6f8 && pc!=0x1ef914 && pc!=0x1f0438 && pc!=0x1f04a0 && pc!=0x1efa30 && pc!=0x1f4590 && pc!=0x1f4940 && pc!=0x2bdac0 && pc!=0x2bd9b0)return std::nullopt;
     auto *d=rt?dynamic_cast<bozo::ee::Dispatcher *>(rt->services):nullptr;
     auto *owner=d?dynamic_cast<MediaBufferOwner *>(&d->host()):nullptr;
     if(!owner || !c)throw std::runtime_error("native movie input requires a media-buffer owner");
     const auto sp=c->r[29].uw[0];
-    if(pc==0x1f0438){
+    if(pc==0x2bdac0 || pc==0x2bd9b0){
+        owner->nativeMediaBuffers().validateAudioPayload(rt,c,pc);
+    }else if(pc==0x1f4590){
+        if(c->pc!=pc || sp<0x150 || (sp&15))throw std::runtime_error("native PSS parser requires complete original entry");
+        owner->nativeMediaBuffers().demuxEntry(sp-0x150,c->r[4].uw[0],c->r[5].uw[0],c->r[6].uw[0],c->r[7].uw[0],c->r[8].uw[0]);
+    }else if(pc==0x1f4940){
+        owner->nativeMediaBuffers().finishDemux(sp,c->r[2].uw[0]);
+        if(std::getenv("VP2S_BOZO_TRACE_QUEUES"))std::fprintf(stderr,"[vp2s:media] original PSS parser consumed=%u\n",c->r[2].uw[0]);
+    }else if(pc==0x1f0438){
         if(c->pc!=pc || sp<0x20 || (sp&15))throw std::runtime_error("native MPEG reset requires complete original entry");
         owner->nativeMediaBuffers().resetEntry(sp-0x20,c->r[4].uw[0]);
     }else if(pc==0x1efa30){
@@ -185,10 +254,19 @@ std::optional<bool> nativeMediaBufferInstruction(R5900Context *c,Runtime *rt,uin
     return false; // Original CPU initialization/return remains; no transport job exists.
 }
 bool nativeMediaLibrary(R5900Context *c,Runtime *rt,uint32_t target){
-    if(target!=0x1f02a0 && target!=0x1ef6f8 && target!=0x1f0510 && target!=0x1f4990 && target!=0x1f0438)return false;
+    if(target!=0x1f02a0 && target!=0x1ef6f8 && target!=0x1f0510 && target!=0x1f4990 && target!=0x1f0438 && target!=0x1f4590 && target!=0x2b90a0)return false;
     auto *d=rt?dynamic_cast<bozo::ee::Dispatcher *>(rt->services):nullptr;
     auto *owner=d?dynamic_cast<MediaBufferOwner *>(&d->host()):nullptr;
     if(!owner || !c || c->pc!=target)throw std::runtime_error("native MPEG requires its declared API entry");
+    if(target==0x2b90a0){
+        c->r[2].sd[0]=owner->nativeMediaBuffers().videoPayload(rt,c)?1:0;c->pc=c->r[31].uw[0];return true;
+    }
+    if(target==0x1f4590){
+        const auto sp=c->r[29].uw[0];auto original=rt->functions.generated(target);
+        if(c->r[31].uw[0]!=0x2bdf80 || sp<0x150 || (sp&15) || !original)throw std::runtime_error("unported native PSS parser caller");
+        owner->nativeMediaBuffers().beginDemux(rt,sp-0x150,c->r[4].uw[0],c->r[5].uw[0],c->r[6].uw[0],c->r[7].uw[0],c->r[8].uw[0]);
+        original(rt->memory.flat(),c,rt);return true;
+    }
     if(target==0x1ef6f8){
         const auto sp=c->r[29].uw[0];auto original=rt->functions.generated(target);
         if(c->r[31].uw[0]!=0x2ba524 || sp<0x50 || (sp&15) || !original)throw std::runtime_error("unported native MPEG creation caller");

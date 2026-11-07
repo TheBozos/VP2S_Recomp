@@ -65,11 +65,14 @@ with tempfile.TemporaryDirectory(prefix='vp2s-native-input-') as temporary:
                          capture_output=True,text=True,timeout=30,
                          env={**os.environ,'VP2S_BOZO_SEED':'1','VP2S_BOZO_TRACE_QUEUES':'1'})
     output=media.stdout+media.stderr;print(output,end='')
-    if media.returncode!=1 or 'native VP2S MPEG provider required at 1f4590 ra=2bdf80' not in output:
-        raise SystemExit('scripted startup did not reach the native overlay MPEG ownership guard')
+    if media.returncode!=0 or 'frames=300 ' not in output or 'end=frame limit 300 reached' not in output:
+        raise SystemExit('scripted native movie input did not complete 300 logical frames')
     if 'native decoder owns prepared movie input' not in output or 'native MPEG initializer ready' not in output or 'native decoder owns original MPEG software records' not in output or 'unported device' in output:
         raise SystemExit('scripted startup bypassed native buffer ownership or reached SDK hardware code')
     if 'native callback type=4 function=2b9320' not in output:raise SystemExit('scripted startup bypassed native callback registration')
     if 'native stream type=4 channel=1' not in output:raise SystemExit('scripted startup bypassed native stream registration')
     if 'native decoder reset completed' not in output:raise SystemExit('scripted startup bypassed native decoder reset')
-print('Scripted native input passes decoder and paired input reset, then rejects unowned PSS demux before its SDK/ABI body. No movie/Logun claim.')
+    for required in ('original audio payload bytes=', 'pictures=8 submitted=9', 'accepted=0 pictures=8', 'original PSS parser consumed=0'):
+        if required not in output:raise SystemExit(f'scripted startup bypassed actual native decoding/backpressure: {required}')
+    if 'native boundary:' in output:raise SystemExit('native movie input reached an unexpected rejecting boundary')
+print('Scripted native input parses original PSS, retains CPU audio copies and decodes eight real pictures, then pauses at native picture capacity. Presentation/pacing and Logun remain unqualified.')

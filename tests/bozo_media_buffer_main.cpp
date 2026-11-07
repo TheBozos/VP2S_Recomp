@@ -9,6 +9,7 @@
 #include <stdexcept>
 #include <fstream>
 #include <iterator>
+#include <filesystem>
 namespace {
 void check(bool ok,std::source_location at=std::source_location::current()){
     if(!ok)throw std::runtime_error("native media buffer assertion at "+std::to_string(at.line()));
@@ -20,8 +21,36 @@ struct Decoder:bozo::libs::VideoDecoder {
     void flush()override{throw std::runtime_error("unexpected flush");}
     bool next(bozo::libs::YuvPicture &)override{throw std::runtime_error("unexpected picture request");}
 };
+struct FramingDecoder:bozo::libs::VideoDecoder {
+    std::vector<std::vector<uint8_t>> packets;unsigned flushes=0,ready=0;
+    void picture(const uint8_t *data,size_t bytes)override{packets.emplace_back(data,data+bytes);++ready;}
+    void flush()override{++flushes;}
+    bool next(bozo::libs::YuvPicture &out)override{
+        if(!ready)return false;--ready;out={2,2,{1,2,3,4},{5},{6}};return true;
+    }
+};
+void videoFraming(){
+    const std::vector<uint8_t> coded={0,0,1,0xb3,0xaa,0,0,1,0xb8,0xbb,0,0,1,0,0x11,0x22,0,0,1,1,0xaa,0,0,1,0,0x33,0x44,0,0,1,0xb7};
+    for(size_t split=1;split<coded.size();++split){
+        FramingDecoder decoder;vp2s::NativeMovieVideo video;
+        check(video.accept(decoder,coded.data(),split,123,120));
+        check(video.accept(decoder,coded.data()+split,coded.size()-split,-1,-1));
+        check(video.sequenceEnded() && video.pendingBytes()==0 && video.acceptedBytes==coded.size() && video.submittedPictures==2 && decoder.flushes==1);
+        check(decoder.packets.size()==2 && decoder.packets[0]==std::vector<uint8_t>(coded.begin(),coded.begin()+21) && decoder.packets[1]==std::vector<uint8_t>(coded.begin()+21,coded.end()));
+        bozo::libs::YuvPicture out;check(video.takePicture(decoder,out) && out.y==std::vector<uint8_t>({1,2,3,4}));
+        check(video.takePicture(decoder,out) && !video.takePicture(decoder,out));
+    }
+    FramingDecoder decoder;vp2s::NativeMovieVideo video;
+    std::vector<uint8_t> many;for(unsigned i=0;i<20;++i)many.insert(many.end(),{0,0,1,0,uint8_t(i)});
+    check(video.accept(decoder,many.data(),many.size(),10,9) && video.pictures.size()==8);
+    const auto accepted=video.acceptedBytes,pending=video.pendingBytes();
+    check(!video.accept(decoder,many.data(),many.size(),20,19) && video.acceptedBytes==accepted && video.pendingBytes()==pending);
+    bozo::libs::YuvPicture out;for(unsigned i=0;i<19;++i)check(video.takePicture(decoder,out));
+    check(!video.takePicture(decoder,out));
+}
 struct Host:bozo::ee::Host,bozo::port::Host,vp2s::MediaBufferOwner {
-    unsigned created=0,freed=0;bool fail=false,pauseMem=false;uint32_t allocation=0;struct Pause{};
+    unsigned created=0,freed=0;bool fail=false,pauseMem=false,liveVideo=false;uint32_t allocation=0;struct Pause{};
+    struct Packet {uint32_t function,gp,data;std::array<uint8_t,32> descriptor;};std::vector<Packet> packets;
     vp2s::NativeMediaBuffers buffers{[this]()->std::unique_ptr<bozo::libs::VideoDecoder>{if(fail)return {}; ++created;return std::make_unique<Decoder>(freed);}};
     vp2s::NativeMediaBuffers &nativeMediaBuffers()override{return buffers;}
     bozo::libs::Libraries &libraries()override{throw std::runtime_error("libraries");}
@@ -33,10 +62,21 @@ struct Host:bozo::ee::Host,bozo::port::Host,vp2s::MediaBufferOwner {
         if(pc==0x1371e0)c->r[2].sd[0]=3;
         else if(pc==0x100ab0){check(c->r[4].uw[0]==0x8100);c->r[2].ud[0]=allocation;}
         else if(pc==0x2bd380){check(c->r[4].uw[0]==allocation);c->r[2].ud[0]=allocation;}
+        else if(pc==0x132c88){
+            const auto bytes=c->r[6].uw[0];auto *dest=d.runtime().memory.hostPointer(c->r[4].uw[0],bytes);
+            const auto *source=d.runtime().memory.hostPointer(c->r[5].uw[0],bytes);check(dest && source);
+            std::memcpy(dest,source,bytes);c->r[2].ud[0]=c->r[4].uw[0];
+        }
         else if(pc==0x132e40){
             auto *dest=d.runtime().memory.hostPointer(c->r[4].uw[0],c->r[6].uw[0]);check(dest && !c->r[5].uw[0]);
             std::memset(dest,0,c->r[6].uw[0]);c->r[2].ud[0]=c->r[4].uw[0];
         }else if(pc==0x1f4ce0 || pc==0x1f4d38)c->r[2].ud[0]=0;
+        else if(pc==0x2b90a0 || pc==0x2bdac0 || pc==0x2bd9b0){
+            Packet packet{pc,c->r[28].uw[0],c->r[6].uw[0],{}};
+            std::memcpy(packet.descriptor.data(),d.runtime().memory.hostPointer(c->r[5].uw[0],32),32);packets.push_back(packet);
+            if(liveVideo && pc==0x2b90a0){check(vp2s::nativeMediaLibrary(c,&d.runtime(),pc));return;}
+            c->r[2].sd[0]=1; // Test sink accepted the actual descriptor; production handlers remain guarded.
+        }
         else throw std::runtime_error("transport/interrupt tail executed");
         c->pc=c->r[31].uw[0];
         if(pc==0x132e40 && pauseMem){
@@ -63,11 +103,13 @@ void create(bozo::ee::Dispatcher &d,R5900Context &c,bool native){
 }
 }
 int main(int argc,char **argv){try{
+    videoFraming();
     check(argc==2);std::ifstream input(argv[1],std::ios::binary);std::vector<uint8_t> constants{std::istreambuf_iterator<char>(input),{}};check(constants.size()==0xa0);
     Host before,after;bozo::ee::Dispatcher old(before),native(after);
     old.setFunctions(media_buffer_original_function_table,media_buffer_original_function_count,media_buffer_original_resume_table,media_buffer_original_resume_count);
     native.setFunctions(media_buffer_adapted_function_table,media_buffer_adapted_function_count,media_buffer_adapted_resume_table,media_buffer_adapted_resume_count);
-    for(auto *d:{&old,&native}){d->boot(0x2ba600,0x1fff000);for(auto pc:{0x1371e0u,0x100ab0u,0x2bd380u,0x132e40u,0x1f4ce0u,0x1f4d38u})d->bindLibrary(pc);}
+    for(auto *d:{&old,&native}){d->boot(0x2ba600,0x1fff000);for(auto pc:{0x1371e0u,0x100ab0u,0x2bd380u,0x132e40u,0x132c88u,0x1f4ce0u,0x1f4d38u,0x2b90a0u})d->bindLibrary(pc);}
+    after.liveVideo=true;
     old.runtime().port=&before;native.runtime().port=&after;constexpr uint32_t object=0x180000;
     for(unsigned seed=0;seed<64;++seed){
         auto &a=old.runtime(),&b=native.runtime();std::memset(a.memory.flat(),0xa5,bozo::kFlatBytes);
@@ -137,6 +179,48 @@ int main(int argc,char **argv){try{
                 auto invalid=y;invalid.pc=0x1f4990;invalid.r[4].ud[0]=held->mp;invalid.r[5].ud[0]=4;invalid.r[6].ud[0]=2;
                 rejects([&]{vp2s::nativeMediaLibrary(&invalid,&b,0x1f4990);});check(!std::memcmp(a.memory.flat(),b.memory.flat(),bozo::kFlatBytes));
             }
+            const auto ring=(object+0xce5c0+63)&~63u;
+            auto pesPath=std::filesystem::path(argv[1]).parent_path()/"pes.bin";
+            std::ifstream pesInput(pesPath,std::ios::binary);std::vector<uint8_t> pesConstants{std::istreambuf_iterator<char>(pesInput),{}};check(pesConstants.size()==16);
+            for(auto *runtime:{&a,&b})std::memcpy(runtime->memory.flat()+0x356270,pesConstants.data(),16);
+            for(unsigned wrap=0;wrap<4;++wrap){
+                const std::vector<uint8_t> packet={0,0,1,0xe0,0,19,0x80,0,0,1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,0,0,1,0xb9,0,0,0,0};
+                const auto start=wrap?0x90000-wrap*7:0;
+                for(auto *runtime:{&a,&b})for(size_t i=0;i<packet.size();++i)put(*runtime,ring+(start+i)%0x90000,packet[i]);
+                auto x=converted;x.pc=0x1f4590;x.r[4].ud[0]=held->mp;x.r[5].ud[0]=ring+start;x.r[6].ud[0]=packet.size();
+                x.r[7].ud[0]=ring;x.r[8].ud[0]=0x90000;x.r[31].ud[0]=0x2bdf80;auto y=x;
+                before.packets.clear();after.packets.clear();
+                old.runtime().functions.generated(0x1f4590)(a.memory.flat(),&x,&a);check(vp2s::nativeMediaLibrary(&y,&b,0x1f4590));
+                x.cycleLimit=y.cycleLimit;check(!std::memcmp(&x,&y,sizeof(x)) && !std::memcmp(a.memory.flat(),b.memory.flat(),bozo::kFlatBytes));
+                check(!after.buffers.outstanding() && before.packets.size()==1 && after.packets.size()==1);
+                const auto &p=after.packets.front();check(p.function==0x2b90a0 && p.gp==0x351000+seed*64+4 && p.data==object);
+                check(p.descriptor==before.packets.front().descriptor);
+                uint32_t payload=0,length=0;std::memcpy(&payload,p.descriptor.data()+8,4);std::memcpy(&length,p.descriptor.data()+12,4);
+                check(length==16 && payload==ring+(start+9)%0x90000);
+                check(y.r[2].uw[0]==25);
+            }
+            check(held->video.acceptedBytes==64 && held->video.pendingBytes()==64);
+            for(unsigned channel=0;channel<2;++channel)for(unsigned wrap=0;wrap<4;++wrap){
+                std::vector<uint8_t> packet={0,0,1,0xbd,0,23,0x80,0,0,0xff,0x90,0,uint8_t(channel),1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,0,0,1,0xb9,0,0,0,0};
+                const auto start=wrap?0x90000-wrap*7:0;const auto audio=object+0x15e680,cursor=wrap?0x1000-wrap*3:0;
+                for(auto *runtime:{&a,&b}){
+                    for(size_t i=0;i<packet.size();++i)put(*runtime,ring+(start+i)%0x90000,packet[i]);
+                    put(*runtime,audio,object+0xce580);put(*runtime,audio+12,0x600000u);put(*runtime,audio+16,cursor);
+                    put(*runtime,audio+20,0u);put(*runtime,audio+24,0x1000u);put(*runtime,audio+28,0u);
+                    put(*runtime,object+0x15e608,0x90000u);
+                }
+                auto x=converted;x.pc=0x1f4590;x.r[4].ud[0]=held->mp;x.r[5].ud[0]=ring+start;x.r[6].ud[0]=packet.size();
+                x.r[7].ud[0]=ring;x.r[8].ud[0]=0x90000;x.r[31].ud[0]=0x2bdf80;auto y=x;
+                old.runtime().functions.generated(0x1f4590)(a.memory.flat(),&x,&a);check(vp2s::nativeMediaLibrary(&y,&b,0x1f4590));
+                x.cycleLimit=y.cycleLimit;check(!std::memcmp(&x,&y,sizeof(x)) && !std::memcmp(a.memory.flat(),b.memory.flat(),bozo::kFlatBytes));
+                check(y.r[2].uw[0]==29 && !after.buffers.outstanding());
+                for(unsigned i=0;i<16;++i)check(b.memory.flat()[0x600000+(cursor+i)%0x1000]==i+1);
+            }
+            const auto demuxStack=converted.r[29].uw[0]-0x150;
+            after.buffers.beginDemux(&b,demuxStack,held->mp,ring,32,ring,0x90000);
+            rejects([&]{after.buffers.release(object);});rejects([&]{after.buffers.beginReset(&b,demuxStack,held->mp);});
+            rejects([&]{after.buffers.beginDemux(&b,demuxStack+16,held->mp,ring,32,ring,0x90000);});
+            rejects([&]{after.buffers.finishDemux(demuxStack,33);});after.buffers.finishDemux(demuxStack,0);
             auto reset=converted;reset.pc=0x1f0438;reset.r[4].ud[0]=held->mp;reset.r[31].ud[0]=0x2b9ba0;
             const auto originalDecoder=held->decoder.get();const auto freed=after.freed;
             auto rejected=reset;after.fail=true;
@@ -154,6 +238,7 @@ int main(int argc,char **argv){try{
             referenceReset.cycleLimit=reset.cycleLimit;
             check(!std::memcmp(&referenceReset,&reset,sizeof(reset)) && !std::memcmp(a.memory.flat(),b.memory.flat(),bozo::kFlatBytes));
             check(reset.r[2].uw[0]==1 && reset.pc==0x2b9ba0 && held->decoder.get()!=originalDecoder && after.freed==freed+1);
+            check(!held->video.acceptedBytes && !held->video.pendingBytes());
             check(held->inputResetPending && !after.buffers.outstanding() && held->callbacks[4].function==functions[4] && held->streams.size()==6);
             rejects([&]{after.buffers.beginReset(&b,resetStack,held->mp);});
             auto inputReset=converted;inputReset.pc=0x2bbfc0;inputReset.r[4].ud[0]=object;inputReset.r[31].ud[0]=0x2b9bb4;
@@ -174,5 +259,5 @@ int main(int argc,char **argv){try{
         after.buffers.release(object);held.reset();
     }
     check(after.created==after.freed);
-    std::puts("64 input initializers +64 constructors +64 MPEG Create +192 callbacks +96 stream registrations +32 decoder resets +16 paired input resets: whole CPU/RAM, native decoder lifetime/failure, filter/GP replacement; no playback qualification");return 0;
+    std::puts("64 initializers +64 constructors +64 MPEG Create +192 callbacks +96 registrations +32 decoder resets +16 paired resets +64 video/PSS +128 audio/PSS CPU/RAM cases;30 native framing splits, capacity/YUV/flush, decoder lifetime/failure; no presentation qualification");return 0;
 }catch(const std::exception &e){std::fprintf(stderr,"%s\n",e.what());return 1;}}

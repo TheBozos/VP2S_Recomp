@@ -1,6 +1,7 @@
 #pragma once
 #include "bozo/runtime.h"
 #include "bozo/libs/mpeg.h"
+#include "native_movie_video.h"
 #include <functional>
 #include <map>
 #include <optional>
@@ -18,6 +19,7 @@ struct NativeMediaBuffer {
     std::array<Callback,6> callbacks{};
     std::vector<StreamCallback> streams;
     std::unique_ptr<bozo::libs::VideoDecoder> decoder;
+    NativeMovieVideo video;
 };
 class NativeMediaBuffers {
     using Factory=std::function<std::unique_ptr<bozo::libs::VideoDecoder>()>;
@@ -27,6 +29,8 @@ class NativeMediaBuffers {
     std::map<uint32_t,Creation> creations;
     struct Reset {std::shared_ptr<NativeMediaBuffer> owner;std::unique_ptr<bozo::libs::VideoDecoder> decoder;};
     std::map<uint32_t,Reset> resets;
+    struct Demux {std::shared_ptr<NativeMediaBuffer> owner;uint32_t ring,capacity,input,bytes;};
+    std::map<uint32_t,Demux> demuxes;
     std::shared_ptr<NativeMediaBuffer> stream(Runtime *,uint32_t mp)const;
 public:
     explicit NativeMediaBuffers(Factory create=bozo::libs::makeVideoDecoder):factory(std::move(create)){}
@@ -47,8 +51,13 @@ public:
     void resetEntry(uint32_t stack,uint32_t mp)const;
     void resetHelper(uint32_t stack,uint32_t work)const;
     void finishReset(Runtime *,uint32_t stack);
+    void beginDemux(Runtime *,uint32_t stack,uint32_t mp,uint32_t input,uint32_t bytes,uint32_t ring,uint32_t capacity);
+    void demuxEntry(uint32_t stack,uint32_t mp,uint32_t input,uint32_t bytes,uint32_t ring,uint32_t capacity)const;
+    void finishDemux(uint32_t stack,uint32_t consumed);
+    bool videoPayload(Runtime *,R5900Context *);
+    void validateAudioPayload(Runtime *,R5900Context *,uint32_t function)const;
     std::shared_ptr<const NativeMediaBuffer> buffer(uint32_t object)const;
-    size_t outstanding()const{return pending.size()+creations.size()+resets.size();}
+    size_t outstanding()const{return pending.size()+creations.size()+resets.size()+demuxes.size();}
 };
 class MediaBufferOwner {
 public:

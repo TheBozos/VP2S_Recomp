@@ -7,6 +7,36 @@ target, not a replacement DLL loaded into PS2Recomp.
 
 ## Build and evidence
 
+### Original PSS parser and native coded-video input (2026-11-07)
+
+The exact original compiled ring, pack/system-header and PES parsers now run
+under a per-stack native lease. Source signatures cover those helpers, their
+constant lookup and the actual `0x2bdf80` caller. Admission validates the bounded
+original 0x90000-byte ring, input span, work allocation and captured stream table.
+Actual parser consumption controls the original file worker; release, stream
+mutation, reset and reentry during parsing reject. No hardware parser is used.
+
+The video callback `0x2b90a0` is an explicit native API replacement. It copies
+actual PES payload bytes, including ring wrap, and PTS/DTS metadata into native
+storage after validating callback GP/data and the original descriptor. A bounded
+elementary-stream framer groups sequence/GOP headers and whole coded pictures
+for the real native FFmpeg decoder. Native queue capacity supplies actual
+backpressure; rejected payloads are not consumed. The old decoder-input copy,
+tags and DMA submission are bypassed. The original two audio callbacks and their
+`0x2b9f00` ring-copy helper remain compiled CPU software with bounded ownership
+checks; this does not qualify audio playback.
+
+64 parser/video handoff and 128 complete parser/audio CPU/RAM comparisons cover
+both audio channels, input/output wrap, exact payload descriptors and GP/data.
+Thirty elementary-stream split positions verify framing across fragmented start
+codes, exact decoder packets, sequence flush, native YUV output and backpressure.
+The reference parser uses the same explicit native video-sink contract; the old
+physical video callback is not a reference executable. Actual scripted boot now
+finishes 300 logical frames, decodes eight real pictures, and pauses its producer
+at native queue capacity. Those pictures are not yet presented: the original
+consumer still consults retired input-buffer counts. Presentation, movie pacing,
+audio playback and Logun remain open. All 46 local suites pass.
+
 ### Native decoder reset and original input-buffer reset (2026-11-07)
 
 The actual `0x2b9ba0` call to `sceMpegReset` now retains its original compiled

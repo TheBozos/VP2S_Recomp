@@ -136,7 +136,7 @@ NativeUiLayer NativeUiTexts::layer(Runtime *rt,uint32_t layer)const{
         record(rt,element,0x40);
         if(value<uint32_t>(rt,element+0x14)!=layer)throw std::runtime_error("native UI element has a different layer owner");
         if(!value<uint8_t>(rt,element+0x39) || !value<uint8_t>(rt,element+0x3d) || !value<uint8_t>(rt,element+0x3b))continue;
-        if(value<uint32_t>(rt,element)==0x15a1b0){
+        if(value<uint32_t>(rt,element)==0x15a1b0 || value<uint32_t>(rt,element)==0x15ac30){
             auto *d=dynamic_cast<bozo::ee::Dispatcher *>(rt->services);auto *o=d?dynamic_cast<UiWindowOwner *>(&d->host()):nullptr;
             const auto captured=o?o->nativeUiWindows().window(element):nullptr;
             if(!captured)throw std::runtime_error("native window has no finished scalar snapshot");

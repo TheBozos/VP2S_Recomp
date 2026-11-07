@@ -20,6 +20,8 @@ class NativeUiWindows {
     std::map<uint32_t,Background> backgrounds;
     std::map<uint32_t,Quads> quads;
     std::map<uint32_t,std::shared_ptr<const NativeUiWindow>> ready;
+    struct Selection {uint32_t element=0,alpha=0,depth=0;std::array<int32_t,6> coordinates{};uint32_t mask=0;bool coloured=false;};
+    std::map<uint32_t,Selection> selections;
     unsigned captures=0;
 public:
     void begin(Runtime *,uint32_t stack,uint32_t element);
@@ -35,6 +37,10 @@ public:
     void finish(Runtime *,uint32_t stack,uint32_t element);
     std::shared_ptr<const NativeUiWindow> window(uint32_t element)const;
     void release(uint32_t element);
+    void beginSelection(Runtime *,uint32_t stack,uint32_t element);
+    void selectionColour(uint32_t stack,uint32_t alpha,uint32_t depth);
+    void selectionCoordinate(uint32_t stack,unsigned index,int32_t coordinate);
+    void finishSelection(uint32_t stack,uint32_t element);
 };
 class UiWindowOwner {
 public:

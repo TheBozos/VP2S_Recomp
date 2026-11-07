@@ -8,6 +8,23 @@ target, not a replacement DLL loaded into PS2Recomp.
 
 ## Build and evidence
 
+### Native selection-highlight publication (2026-11-07)
+
+Class `0x15ac30`, builder `0x30ee00`, captures its six scalar integer coordinates,
+alpha and depth before packing. Its native snapshot draws three untextured
+gradient strips in original order, retains cached geometry and releases it at
+destruction. No geometry is recovered from packet output. Another 64 complete
+builder CPU/RAM comparisons check coordinates, per-corner alpha, cached rebuild
+and immutable lifetime, with a shared bounded integer-conversion callback.
+Invalid, repeated and incomplete captures reject without changing RAM.
+
+Actual New Game completes 1,380 frames and captures the complete skip dialogue:
+81 batches / 486 vertices at 640x448. Confirming Yes reaches frame 1446, then
+requires compiled mod003 code at `0x48df80`; the initial migration build still
+contains only main/mod001/mod002. This is visible native dialogue, not Logun
+or PCSX2 pixel-parity qualification.
+The window/selection builder, signature and scripted startup checks pass.
+
 ### Native short sine (2026-11-07)
 
 The next story/skip dialogue leaf, `0x2144c0`, now evaluates its degree-nine

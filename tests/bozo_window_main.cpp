@@ -21,7 +21,12 @@ struct Host:bozo::ee::Host,bozo::port::Host,vp2s::UiWindowOwner,vp2s::UiSpriteOw
     bool nativeInstruction(uint8_t *,R5900Context *c,Runtime *rt,uint32_t pc)override{auto handled=vp2s::nativeUiWindowInstruction(c,rt,pc);check(handled.has_value());return *handled;}
     void frameEnd(Runtime *,R5900Context *)override{throw std::runtime_error("frame");}
     bool callLibrary(Runtime *,R5900Context *,uint32_t)override{return false;}
-    void libraryCall(bozo::ee::Dispatcher &,R5900Context *,uint32_t)override{throw std::runtime_error("library");}
+    void libraryCall(bozo::ee::Dispatcher &,R5900Context *c,uint32_t pc)override{
+        check(pc==0x125090 && std::isfinite(c->f[12]) && c->f[12]>=0 && c->f[12]<=65535);
+        // Shared bounded float-to-integer callback; inputs are already scalar
+        // integer coordinates from the original builder's cvt.w.s/cvt.s.w.
+        c->r[2].ud[0]=uint64_t(int64_t(c->f[12]));c->pc=c->r[31].uw[0];
+    }
     void vu0Microprogram(bozo::ee::Dispatcher &,R5900Context *,uint32_t)override{throw std::runtime_error("VU");}
     void ioRead(bozo::ee::Dispatcher &,R5900Context *,uint32_t,uint32_t,uint64_t[2])override{throw std::runtime_error("I/O");}
     void ioWrite(bozo::ee::Dispatcher &,R5900Context *,uint32_t,uint32_t,const uint64_t[2])override{throw std::runtime_error("I/O");}
@@ -33,6 +38,7 @@ int main(int argc,char **argv){try{
     old.setFunctions(window_original_function_table,window_original_function_count,window_original_resume_table,window_original_resume_count);
     native.setFunctions(window_adapted_function_table,window_adapted_function_count,window_adapted_resume_table,window_adapted_resume_count);
     old.boot(0x2e9640,0x1fff000);native.boot(0x2e9640,0x1fff000);
+    old.bindLibrary(0x125090);native.bindLibrary(0x125090);
     old.runtime().port=&before;native.runtime().port=&after;
     vp2s::NativeTextures textures(fixture/"assets",fixture/"assets/manifest.txt");
     std::array<uint8_t,192> topology{};std::ifstream in(fixture/"topology.bin",std::ios::binary);check(bool(in.read(reinterpret_cast<char *>(topology.data()),topology.size())));
@@ -72,5 +78,34 @@ int main(int argc,char **argv){try{
         check(captured->background.size()==(seed&1?9:0));
         if(seed&2)check(captured->border[0].picture->rgba[0]==0x8040203du);
     }
-    std::puts("64 complete scalar window CPU/RAM cases: background/edge/border capture, original rounded geometry/UV/colour, cached rebuild, null FIS atlas lease and snapshot lifetime");return 0;
+    for(unsigned seed=0;seed<64;++seed){
+        auto &a=old.runtime(),&b=native.runtime();std::memset(a.memory.flat(),0,bozo::kFlatBytes);
+        put(a,element,0x15ac30u);put(a,element+0x14,layer);put(a,element+0x28,64.f+seed);put(a,element+0x2c,6u);put(a,element+0x48,0x200000u);
+        put(a,element+0x18,10.25f+float(seed)/16);put(a,element+0x1c,20.5f);put(a,element+0x20,80.f);put(a,element+0x24,16.f);
+        put(a,layer+0x40,10.f);put(a,layer+0x44,20.f);put(a,layer+0xe0,128.f);put(a,layer+0xc4,0xff0000u);
+        put(a,0x35e170,manager);put(a,manager+0x840,16.f);put(a,manager+0x844,16.f);put(a,manager+0x848,27648.f);put(a,manager+0x84c,29184.f);
+        std::memcpy(b.memory.flat(),a.memory.flat(),bozo::kFlatBytes);R5900Context x{},y{};
+        x.r[4].ud[0]=element;x.r[29].ud[0]=stack;x.r[31].ud[0]=0x170000;y=x;
+        old.runtime().functions.generated(0x30ee00)(a.memory.flat(),&x,&a);native.runtime().functions.generated(0x30ee00)(b.memory.flat(),&y,&b);x.cycleLimit=y.cycleLimit;
+        check(x.pc==0x170000 && y.pc==0x170000 && !std::memcmp(&x,&y,sizeof(x)) && !std::memcmp(a.memory.flat(),b.memory.flat(),bozo::kFlatBytes));
+        const auto captured=after.windows.window(element);check(captured && captured->background.size()==3 && captured->border.empty());
+        const auto alpha=uint32_t((64.f+seed)/4)<<24;const int32_t left=27972+seed;
+        for(unsigned i=0;i<3;++i){const auto &s=captured->background[i];check(s.depth==0xff0006);
+            const int32_t xx[4]={left,left+256,left+1024,left+1280};
+            check(s.corners==std::array<std::array<int32_t,2>,4>{{{xx[i],29832},{xx[i+1],29832},{xx[i],30088},{xx[i+1],30088}}});
+            check(s.colours==std::array<uint32_t,4>{i?alpha:0,i==2?0:alpha,i?alpha:0,i==2?0:alpha});
+        }
+        y={};y.r[4].ud[0]=element;y.r[29].ud[0]=stack;y.r[31].ud[0]=0x170000;
+        native.runtime().functions.generated(0x30ee00)(b.memory.flat(),&y,&b);check(after.windows.window(element)==captured);
+        after.windows.release(element);check(captured->background[0].colours[1]==alpha && !after.windows.window(element));
+    }
+    auto &rt=native.runtime();put<uint8_t>(rt,element+0x3b,0);after.windows.beginSelection(&rt,stack-0x90,element);
+    const auto unchanged=std::vector<uint8_t>(rt.memory.flat(),rt.memory.flat()+bozo::kFlatBytes);
+    rejects([&]{after.windows.release(element);});rejects([&]{after.windows.selectionColour(stack-0x90,256,0);});
+    after.windows.selectionColour(stack-0x90,64,0xff0006);rejects([&]{after.windows.selectionColour(stack-0x90,64,0xff0006);});
+    rejects([&]{after.windows.selectionCoordinate(stack-0x90,0,-1);});after.windows.selectionCoordinate(stack-0x90,0,27972);
+    rejects([&]{after.windows.selectionCoordinate(stack-0x90,0,27972);});rejects([&]{after.windows.finishSelection(stack-0x90,element);});
+    for(unsigned i=1;i<6;++i)after.windows.selectionCoordinate(stack-0x90,i,30000+i);
+    after.windows.finishSelection(stack-0x90,element);after.windows.release(element);check(!std::memcmp(unchanged.data(),rt.memory.flat(),unchanged.size()));
+    std::puts("64 complete window +64 selection-builder CPU/RAM cases: original scalar geometry/UV/colour, cached rebuild and immutable lifetime; invalid/incomplete/repeated captures reject without RAM writes");return 0;
 }catch(const std::exception &e){std::fprintf(stderr,"%s\n",e.what());return 1;}}

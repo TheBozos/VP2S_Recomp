@@ -93,7 +93,28 @@ std::shared_ptr<const NativeUiWindow> NativeUiWindows::window(uint32_t element)c
     auto it=ready.find(element);return it==ready.end()?nullptr:it->second;
 }
 void NativeUiWindows::release(uint32_t element){
-    for(const auto &[stack,b]:builds)if(b.window.element==element)throw std::runtime_error("native window destroyed during capture");ready.erase(element);
+    for(const auto &[stack,b]:builds)if(b.window.element==element)throw std::runtime_error("native window destroyed during capture");
+    for(const auto &[stack,b]:selections)if(b.element==element)throw std::runtime_error("native selection destroyed during capture");ready.erase(element);
+}
+void NativeUiWindows::beginSelection(Runtime *rt,uint32_t stack,uint32_t element){
+    if(value<uint32_t>(rt,element)!=0x15ac30 || selections.contains(stack))throw std::runtime_error("native selection has invalid class/stack lifetime");
+    if(value<uint8_t>(rt,element+0x3b))return;
+    ready.erase(element);selections.emplace(stack,Selection{element});
+}
+void NativeUiWindows::selectionColour(uint32_t stack,uint32_t alpha,uint32_t depth){
+    auto &s=selections.at(stack);if(s.coloured || alpha>255 || depth>0xffffff)throw std::runtime_error("native selection colour/depth invalid");
+    s.alpha=alpha;s.depth=depth;s.coloured=true;
+}
+void NativeUiWindows::selectionCoordinate(uint32_t stack,unsigned index,int32_t coordinate){
+    auto &s=selections.at(stack);if(index>5 || (s.mask&(1u<<index)) || coordinate<0 || coordinate>65535)throw std::runtime_error("native selection coordinate invalid/repeated");
+    s.coordinates[index]=coordinate;s.mask|=1u<<index;
+}
+void NativeUiWindows::finishSelection(uint32_t stack,uint32_t element){
+    const auto &s=selections.at(stack);if(s.element!=element || s.mask!=63 || !s.coloured)throw std::runtime_error("native selection returned before scalar capture");
+    auto result=std::make_shared<NativeUiWindow>();result->element=element;
+    const auto &c=s.coordinates;const uint32_t colour=s.alpha<<24,ends[4]={0,colour,colour,0};
+    for(unsigned i=0;i<3;++i)result->background.push_back({{{{c[i],c[4]},{c[i+1],c[4]},{c[i],c[5]},{c[i+1],c[5]}}},{ends[i],ends[i+1],ends[i],ends[i+1]},s.depth});
+    ready[element]=std::move(result);selections.erase(stack);
 }
 std::array<bozo::render::Vertex,6> nativeUiStripVertices(const NativeUiStrip &strip){
     std::array<bozo::render::Vertex,6> result;const unsigned order[6]={0,1,2,1,3,2};
@@ -102,11 +123,22 @@ std::array<bozo::render::Vertex,6> nativeUiStripVertices(const NativeUiStrip &st
 }
 std::optional<bool> nativeUiWindowInstruction(R5900Context *c,Runtime *rt,uint32_t pc){
     switch(pc){case 0x2e9640:case 0x2e970c:case 0x2e95d0:case 0x2e9e90:case 0x2ea154:case 0x2ea338:case 0x2ead10:
-        case 0x2eae90:case 0x2eb07c:case 0x2eb284:case 0x2eb2ec:case 0x2eb300:case 0x2eb320:case 0x2eb340:case 0x2eb378:break;default:return std::nullopt;}
+        case 0x2eae90:case 0x2eb07c:case 0x2eb284:case 0x2eb2ec:case 0x2eb300:case 0x2eb320:case 0x2eb340:case 0x2eb378:
+        case 0x30ee00:case 0x30ef20:case 0x30ef2c:case 0x30ef44:case 0x30ef78:case 0x30efb8:case 0x30eff4:case 0x30f028:case 0x30f070:case 0x30ed90:break;default:return std::nullopt;}
     auto *d=rt?dynamic_cast<bozo::ee::Dispatcher *>(rt->services):nullptr;auto *o=d?dynamic_cast<UiWindowOwner *>(&d->host()):nullptr;
     auto *s=d?dynamic_cast<UiSpriteOwner *>(&d->host()):nullptr;if(!c || !o || !s)throw std::runtime_error("native window requires per-run owners");
     auto &w=o->nativeUiWindows();const auto sp=c->r[29].uw[0];
-    if(pc==0x2e9640){if(c->pc!=pc)throw std::runtime_error("native window requires complete builder");w.begin(rt,sp-0x30,c->r[4].uw[0]);}
+    if(pc==0x30ee00){if(c->pc!=pc)throw std::runtime_error("native selection requires complete original builder");w.beginSelection(rt,sp-0x90,c->r[4].uw[0]);}
+    else if(pc==0x30ed90){if(c->r[4].uw[0])w.release(c->r[4].uw[0]);}
+    else if(pc==0x30ef20)w.selectionColour(sp,c->r[2].uw[0],c->r[19].uw[0]);
+    else if(pc==0x30ef2c)w.selectionCoordinate(sp,5,c->r[2].sw[0]);
+    else if(pc==0x30ef44)w.selectionCoordinate(sp,0,c->r[2].sw[0]);
+    else if(pc==0x30ef78)w.selectionCoordinate(sp,4,c->r[2].sw[0]);
+    else if(pc==0x30efb8)w.selectionCoordinate(sp,1,c->r[2].sw[0]);
+    else if(pc==0x30eff4)w.selectionCoordinate(sp,2,c->r[2].sw[0]);
+    else if(pc==0x30f028)w.selectionCoordinate(sp,3,c->r[2].sw[0]);
+    else if(pc==0x30f070)w.finishSelection(sp,c->r[16].uw[0]);
+    else if(pc==0x2e9640){if(c->pc!=pc)throw std::runtime_error("native window requires complete builder");w.begin(rt,sp-0x30,c->r[4].uw[0]);}
     else if(pc==0x2e970c)w.finish(rt,sp,c->r[16].uw[0]);
     else if(pc==0x2e95d0){if(c->r[4].uw[0]){w.release(c->r[4].uw[0]);s->nativeUiSprites().reset(c->r[4].uw[0]+0x50);}}
     else if(pc==0x2e9e90)w.beginBackground(sp-0x40,c->r[4].uw[0]);

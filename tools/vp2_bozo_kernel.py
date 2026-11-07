@@ -383,6 +383,8 @@ def overlay_adaptations(name,data):
         (0x2e9ce0,0x2ea348,'d0ec213ab5533e4c4f1dd9c34b414fe126f17660a0e92d059d6dd17c4e21b707'),
         (0x2ead10,0x2eb3a0,'e4ab374a171d1c857267fd7fac3c7f35cf92c1f81d30f0988b3d85bf5ccbd78b'),
         (0x357900,0x357960,'462a6e78b8921044746093d1279f2e1fa139896c45bacee515d4504e946a0a24'),
+        (0x30ed90,0x30ee00,'99dd9b859b2f98960359a3d9f43a0f78761f81ebe207c707331e026607154550'),
+        (0x30ee00,0x30f0c0,'15d8bbc42064f45964cc032ed2db9a95beeb2530a0c24e0ead872528eae453e4'),
         (0x239f70,0x239fa8,'c3849227f4e9e451d7b72f6b758661de4ed53015868faa6d5fb18a88f95167f9'),
         (0x239fd0,0x23a000,'941b168de034258eff47866950005885121fdd8a9f4de7cd8f57bc04c3b5bb94'),
         (0x25aa10,0x25aa40,'d75aad57b1cf26127f35bdf8a0eec8259d79c6b1cb8cbbabe269467dac4546ef'),
@@ -530,6 +532,7 @@ def overlay_native_sites(name,data):
     if name!='mod001':return ''
     overlay_adaptations(name,data)
     return ''.join(f'native 0x{pc:x}\n' for pc in (
+        0x30ee00,0x30ef20,0x30ef2c,0x30ef44,0x30ef78,0x30efb8,0x30eff4,0x30f028,0x30f070,0x30ed90,
         0x214540,0x2e9640,0x2e970c,0x2e95d0,0x2e9e90,0x2ea154,0x2ea338,0x2ead10,0x2eae90,0x2eb07c,0x2eb284,0x2eb2ec,0x2eb300,0x2eb320,0x2eb340,0x2eb378,
         0x29e1a0,0x2c3cb4,0x29cc30,0x29cd7c,0x29cf14,0x29cf30,0x29cc00,0x29e160,
         0x208a94,0x29af80,0x29b2a8,0x29caf8,0x2205c0,0x220ce0,0x29e43c,0x29e444,

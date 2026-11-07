@@ -32,6 +32,22 @@ bool nativeMathInstruction(uint8_t *,R5900Context *c,Runtime *rt,uint32_t pc){
         return true;
     }
     switch(pc){
+    case 0x378980:case 0x378984:case 0x378988:case 0x37898c:
+    case 0x378990:case 0x378994:case 0x378998:case 0x37899c:return true;
+    case 0x3789a0:{
+        // The original scalar builder subtracts the two game positions.
+        // Preserve its full temporary record and publish the consumed length.
+        float value[4],result[4];std::memcpy(value,record(rt,c->r[5].uw[0],16),16);std::memcpy(result,value,16);
+        const auto normal=[](float v){const auto bits=std::bit_cast<uint32_t>(v);return std::bit_cast<float>((bits&0x7f800000)?bits:(bits&0x80000000));};
+        for(unsigned i=0;i<3;++i){const auto bits=std::bit_cast<uint32_t>(value[i]),e=bits&0x7f800000;
+            if(e==0x7f800000 || (!e && (bits&0x7fffff)))throw std::runtime_error("unqualified native field distance");}
+        music::CodecRounding rounding;
+        for(unsigned i=0;i<3;++i){volatile float square=value[i]*value[i];result[i]=normal(square);}
+        auto squared=music::codecSum(result[0],result[1]);squared=music::codecSum(squared,result[2]);
+        if(!std::isfinite(squared))throw std::runtime_error("native field distance overflow");
+        volatile float length=std::sqrt(squared);volatile float output=0.f+length;result[0]=output;
+        std::memcpy(record(rt,c->r[4].uw[0],16),result,16);return true;
+    }
     case 0x239cfc:case 0x239d00:case 0x239d04:case 0x239d0c:
     case 0x239dc8:case 0x239dcc:case 0x239dd0:case 0x239dd4:case 0x239dd8:
     case 0x239ddc:case 0x239de0:case 0x239de4:case 0x239de8:return true;

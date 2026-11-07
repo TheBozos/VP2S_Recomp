@@ -8,6 +8,19 @@ target, not a replacement DLL loaded into PS2Recomp.
 
 ## Build and evidence
 
+### Native field position distance (2026-11-07)
+
+Mod003 `0x378908..0x3789c8` retains its scalar position subtraction, temporary
+copies and object-field consumers. The vector distance tail publishes directly
+from the completed CPU displacement record at `0x3789a0`. The native calculation
+uses the game's truncated product/sum/root order; Y/Z squares and the untouched
+W bits are preserved in the temporary without any vector state.
+
+256 full CPU/RAM cases compare the original scalar builder and consumers with
+an independent exact-product/sum and binary-search-root oracle, in all four
+rounding modes and with scratchpad stacks. Actual New Game passes this routine
+and next rejects a timer-mode write at mod003 `0x3d91f0`. Logun remains open.
+
 ### Native axis-angle quaternion normalization (2026-11-07)
 
 Common `0x215640` retains its scalar sine/cosine call and XYZ products. The

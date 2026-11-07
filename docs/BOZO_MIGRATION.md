@@ -7,6 +7,33 @@ target, not a replacement DLL loaded into PS2Recomp.
 
 ## Build and evidence
 
+### Native game sine/cosine polynomial (2026-11-07)
+
+The `0x213fd0` leaf now evaluates the game's quadrant reduction and degree-13
+polynomial from its own EE coefficient records. Both the full leaf and original
+coefficient initializer are fingerprinted. This is not a host sin/cos substitute.
+Thirty vector transport/calculation sites retire; the original integer parity,
+sign records and scalar CPU flow remain. The output retains its two coefficient
+lanes and computed cosine/sine lanes. FP arithmetic follows the caller's mode;
+active nonfinite/subnormal inputs and out-of-range reductions reject.
+
+The original scratch quad store carried meaningful quadrant integers only in
+Z/W, plus inherited vector payload in X/Y. Native publication writes the two
+integers and preserves the existing EE X/Y bytes instead of inventing a vector
+shadow. The inspected generated images show this scratch producer and the two
+Z/W scalar consumers; this is not an all-path alias proof. The fixture keeps
+poisoned X/Y bytes intact and applies no RAM comparison mask.
+
+Qualification is 384 complete generated CPU-flow/RAM cases plus 65,536
+independent scalar polynomial comparisons. Four rounding modes, FTZ/DAZ,
+quadrant boundaries, negative zero, scratchpad/global-output aliases and all
+30 retired sites are covered. A loose mathematical sin/cos bound is an extra
+sanity check, not the native result definition. A near-zero fixture initially
+misclassified a subnormal under DAZ; stored-bit classification separates that
+rejected input from the qualified minimum-normal boundary without changing
+runtime arithmetic. Boot passes this leaf and reaches inverse translation at
+`0x216ee0`. No rendered scene or Logun result yet.
+
 ### Native object world transforms (2026-11-07)
 
 The full `0x248fc0` owner is fingerprinted. Its 64 vector/microprogram transport

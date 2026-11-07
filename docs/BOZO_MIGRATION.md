@@ -7,6 +7,25 @@ target, not a replacement DLL loaded into PS2Recomp.
 
 ## Build and evidence
 
+### Retired render profiling samples (2026-11-07)
+
+The reached render task's T0 sample at `0x29e43c` fed only its private `+0x14`
+timestamp store at `0x29e444`. Its audited class methods/direct global references
+show no reader; this is not a whole-program alias proof. The next compiled helper
+overwrites the CPU temporary. Both producer and store now retire, leaving the
+existing task field untouched and returning no counter sample. Admission uses
+the live task type `0x1591f0`; a diagnostic separated it from the earlier base
+construction type `0x1591e0`. Constructor/initializer and complete owner spans
+are fingerprinted. All calls and real software completion checks remain.
+
+The scene-wait sample at `0x22106c` is locally dead before its first completion
+flag load. Only that load retires; polling and final scene record resets remain
+compiled. 64 complete render-job cases preserve callback order, arguments,
+pause/resume, scratchpad stack and arbitrary preexisting timestamp bytes; 64
+scene-wait/query cases preserve CPU/RAM. Both fixtures retire profiling without
+executing or answering device reads. Graphics fixture: 448 cases. Boot now
+reaches the device write at `0x29d75c` (`0x1000d410`); drawing/Logun remain open.
+
 ### Native visibility-input lifetime (2026-11-07)
 
 The full `0x2205c0` visibility owner is fingerprinted. A native invocation keyed

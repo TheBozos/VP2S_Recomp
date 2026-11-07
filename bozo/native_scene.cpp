@@ -100,6 +100,22 @@ std::shared_ptr<const NativeCamera> NativeScene::camera(uint32_t object)const{
     auto it=cameras.find(object);return it==cameras.end()?nullptr:it->second;
 }
 bool nativeSceneInstruction(uint8_t *,R5900Context *c,Runtime *rt,uint32_t pc){
+    if(pc==0x29e43c || pc==0x29e444){
+        // Private write-only profiling stamp: its temporary is overwritten by
+        // the next compiled helper. Retire both producer and store; no count
+        // is returned, and the initialized task field remains untouched.
+        if(!c)throw std::runtime_error("render-task profiling stamp has no context");
+        const auto object=c->r[16].uw[0],type=word(rt,object);
+        if(c->r[1].uw[0]!=0x10000000 || type!=0x1591f0)
+            throw std::runtime_error(std::format("unowned render-task profiling stamp pc={:x} object={:x} type={:x} source={:x}",pc,object,type,c->r[1].uw[0]));
+        return true;
+    }
+    if(pc==0x22106c){
+        // This sample is dead before the first software completion-flag load.
+        // Retain every real wait and both original final record resets.
+        if(!c || c->r[1].uw[0]!=0x10000000)throw std::runtime_error("unowned scene-wait profiling sample");
+        record(rt,c->r[4].uw[0],0x40e0);return true;
+    }
     const bool frustumSite=(!(pc&3) && pc>=0x207cc8 && pc<=0x207d64) || pc==0x207d6c;
     if(pc!=0x208a94 && !frustumSite)return false;
     auto *dispatcher=rt?dynamic_cast<bozo::ee::Dispatcher *>(rt->services):nullptr;

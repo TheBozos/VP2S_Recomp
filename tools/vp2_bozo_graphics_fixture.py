@@ -16,7 +16,9 @@ fixture,_=prepare(data,[dict(Name='program_install',Start='0x29e2e0',End='0x29e3
                        dict(Name='math_install',Start='0x29e150',End='0x29e180'),
                        dict(Name='camera_publication',Start='0x208900',End='0x208aac'),
                        dict(Name='frustum_publication',Start='0x207cc0',End='0x207d70'),
-                       dict(Name='visibility_inputs',Start='0x2205c0',End='0x220d14')],{})
+                       dict(Name='visibility_inputs',Start='0x2205c0',End='0x220d14'),
+                       dict(Name='render_job',Start='0x29e420',End='0x29e4a4'),
+                       dict(Name='scene_wait',Start='0x221030',End='0x2210b8')],{})
 a.out.mkdir(parents=True,exist_ok=True)
 (a.out/'fixture.elf').write_bytes(fixture)
 (a.out/'externals.txt').write_text('stub 0x201f20\nstub 0x170100\nstub 0x2138f0\nstub 0x215870\n'+('native 0x29e160\nnative 0x208a94\n' if a.variant=='adapted' else '')+''.join(f'native 0x{pc:x}\n' for pc in [*range(0x207cc8,0x207d68,4),0x207d6c]))
@@ -24,6 +26,7 @@ a.out.mkdir(parents=True,exist_ok=True)
 _,segments,_=elf_parts(data);lo,hi=0x2205c0,0x220d14;s=next(s for s in segments if s[0]==1 and s[2]<=lo<hi<=s[2]+s[4])
 with (a.out/'externals.txt').open('a') as out:
     out.write('native 0x2205c0\nnative 0x220ce0\nstub 0x20f440\nstub 0x2082f0\nstub 0x208cd0\nstub 0x100af0\nstub 0x100b30\nstub 0x23e000\n')
+    out.write('native 0x29e43c\nnative 0x29e444\nnative 0x22106c\nstub 0x21fab0\nstub 0x10d0f0\nstub 0x101080\nstub 0x10e820\nstub 0x11f4b0\nstub 0x10e290\n')
     for pc in range(lo,hi,4):
         word=int.from_bytes(data[s[1]+pc-s[2]:s[1]+pc-s[2]+4],'little')
         if word>>26 in (0x12,0x36,0x3e):out.write(f'native 0x{pc:x}\n')

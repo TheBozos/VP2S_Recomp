@@ -324,6 +324,9 @@ def overlay_adaptations(name,data):
         (0x20f440,0x20f938,'647886c3f393394904797808cb6d91bee33134f84c03343dec04d8e5a64b7173'),
         (0x207cc0,0x207d70,'1144a7e285dc63e4929e2b6b4dab7465e7307fcf43882e1ca4525de6670aa983'),
         (0x2205c0,0x220d14,'7431010872a544c9aff4e53de3a7afb8c8855b1a15f8576d847709649c272798'),
+        (0x29e310,0x29e378,'0c5bbe60fbde143fea0d349ffc2d1aa13dc1854778712938b393544af0e39a9c'),
+        (0x29e420,0x29e4a4,'62fe296e3e7fe5e2f6fd1601f6576e4f114439e6127602b6890027f427aebd1e'),
+        (0x221030,0x2210b8,'001be789bc13df36bb7c4ba82f73c495d245d6b51233fff5ec5c07fe4aa603b6'),
         (0x29aeb0,0x29af78,'7e822b8520d71ee253400f4e8565e933bb9a9495330e461385d2fe04ef673f69'),
         (0x29b480,0x29b520,'195dd1778735679111fe1a0415b42159a229bc6999f4b53594a49cb9ccb55b99'),
         (0x249720,0x24a438,'10c8d5e49e540decaa624ca4ea5f9e5aeee7cc23f9acf910d53cbe623ad1484e'),
@@ -397,4 +400,4 @@ def overlay_native_sites(name,data):
         return 'native 0x362328\n'
     if name!='mod001':return ''
     overlay_adaptations(name,data)
-    return 'native 0x29e1a0\nnative 0x2c3cb4\nnative 0x29cc30\nnative 0x29cd7c\nnative 0x29cf14\nnative 0x29cf30\nnative 0x29cc00\nnative 0x29e160\nnative 0x208a94\nnative 0x29af80\nnative 0x29b2a8\nnative 0x29caf8\nnative 0x2205c0\nnative 0x220ce0\n'
+    return 'native 0x29e1a0\nnative 0x2c3cb4\nnative 0x29cc30\nnative 0x29cd7c\nnative 0x29cf14\nnative 0x29cf30\nnative 0x29cc00\nnative 0x29e160\nnative 0x208a94\nnative 0x29af80\nnative 0x29b2a8\nnative 0x29caf8\nnative 0x2205c0\nnative 0x220ce0\nnative 0x29e43c\nnative 0x29e444\nnative 0x22106c\n'

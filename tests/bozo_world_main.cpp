@@ -1,4 +1,5 @@
 #include "native_object_math.h"
+#include "native_math.h"
 #include "bozo/ee/dispatcher.h"
 #include "bozo/port.h"
 #include "world_original_functions.h"
@@ -74,7 +75,14 @@ struct Host:bozo::ee::Host,bozo::port::Host {
     bool nativeGraphics()const override{return true;}
     bool nativeInstruction(uint8_t *r,R5900Context *c,Runtime *rt,uint32_t pc)override{
         sites.insert(pc);
-        if(native){check(vp2s::nativeObjectMathInstruction(r,c,rt,pc));return true;}
+        if(native){check(vp2s::nativeMathInstruction(r,c,rt,pc));return true;}
+        if(pc==0x216efc){
+            float basis[3][4],translation[4],result[4];
+            std::memcpy(basis,rt->memory.hostPointer(c->r[5].uw[0],48),48);auto *temporary=rt->memory.hostPointer(c->r[3].uw[0],16);
+            std::memcpy(translation,temporary,16);std::memcpy(result,translation,16);
+            for(unsigned lane=0;lane<3;++lane){float v=mul(basis[0][lane],translation[0]);v=add(v,mul(basis[1][lane],translation[1]));result[lane]=add(v,mul(basis[2][lane],translation[2]));}
+            std::memcpy(temporary,result,16);
+        }
         if(pc==0x249114)c->r[9].ud[0]=0;
         if(pc==0x249180 || pc==0x24922c){
             auto *at=rt->memory.hostPointer(c->r[16].uw[0],0x210);check(at);vp2s::ObjectWorldInput in{};
@@ -97,7 +105,7 @@ struct Host:bozo::ee::Host,bozo::port::Host {
     void fault(bozo::ee::Dispatcher &,R5900Context *,const std::string &s)override{throw std::runtime_error(s);}
 };
 template<class T>void put(uint8_t *r,uint32_t at,T v){std::memcpy(r+at,&v,sizeof(v));}
-void run(bozo::ee::Dispatcher &d,R5900Context &c){auto fn=d.runtime().functions.generated(0x248fc0);unsigned attempts=0;
+void run(bozo::ee::Dispatcher &d,R5900Context &c,uint32_t pc=0x248fc0){auto fn=d.runtime().functions.generated(pc);unsigned attempts=0;
     while(true){try{fn(d.runtime().memory.flat(),&c,&d.runtime());break;}catch(const Pause &){}
         check(++attempts<4);auto entry=d.runtime().functions.resumeEntry(c.pc);check(entry);fn=entry->resume;}
 }
@@ -140,10 +148,25 @@ int main(){try{
     }
     _mm_setcsr(saved);
     check(old.sites==now.sites && now.sites.size()==64);
+    for(unsigned mode:{_MM_ROUND_NEAREST,_MM_ROUND_DOWN,_MM_ROUND_UP,_MM_ROUND_TOWARD_ZERO})for(unsigned seed=0;seed<64;++seed){
+        auto &x=a.runtime(),&y=b.runtime();std::memset(x.memory.flat(),0x37,bozo::kFlatBytes);
+        const uint32_t stack=seed&1?0x70003f00:0x1fff000;
+        const uint32_t source=seed%3==0?0x70000100:seed%3==1?0x180000:stack-0x40;
+        const uint32_t destination=seed%3==0?source:seed%3==1?0x190000:0x70000200;
+        float matrix[16];for(unsigned i=0;i<12;++i)matrix[i]=(seed%11==0?1.e-20f:1.f)*float(int((seed+i)%17)-8)/4;
+        for(unsigned i=12;i<16;++i)matrix[i]=std::bit_cast<float>(0x7fc01234u+i);
+        std::memcpy(x.memory.hostPointer(source,64),matrix,64);std::memcpy(y.memory.flat(),x.memory.flat(),bozo::kFlatBytes);
+        R5900Context p{},q{};for(unsigned i=1;i<32;++i){p.r[i].ud[0]=0x1234000000000000ull+seed*32+i;p.r[i].ud[1]=~p.r[i].ud[0];}
+        std::memset(p.vu0_vf,0x6a,sizeof(p.vu0_vf));p.r[4].ud[0]=destination;p.r[5].ud[0]=source;p.r[29].ud[0]=stack;p.r[31].ud[0]=0x170000;q=p;
+        const unsigned control=(saved&~(_MM_ROUND_MASK|0x8040|0x3f))|mode|(seed&1?0x8040:0);
+        _mm_setcsr(control);run(a,p,0x216e40);const unsigned expectedControl=_mm_getcsr();_mm_setcsr(control);run(b,q,0x216e40);
+        check(_mm_getcsr()==expectedControl && !std::memcmp(&p,&q,sizeof(p)) && !std::memcmp(x.memory.flat(),y.memory.flat(),bozo::kFlatBytes));++cases;
+    }
+    _mm_setcsr(saved);check(old.sites==now.sites && now.sites.size()==72);
     vp2s::ObjectWorldInput input{};input.quaternion=_mm_setr_ps(0,0,0,1);input.position=_mm_setzero_ps();input.scale=_mm_set1_ps(1);
     input.attachment={_mm_setr_ps(1,0,0,0),_mm_setr_ps(0,1,0,0),_mm_setr_ps(0,0,1,0),_mm_setr_ps(0,0,0,1)};
     const auto identity=vp2s::objectWorld(input);check(!std::memcmp(identity.world.data(),input.attachment.data(),64));
     input.quaternion=_mm_setr_ps(std::bit_cast<float>(1u),0,0,1);bool rejected=false;
     try{vp2s::objectWorld(input);}catch(const std::runtime_error &){rejected=true;}check(rejected);
-    std::printf("%u generated object-world CPU/RAM and independent scalar matrix comparisons; parent/self/output/attachment aliases, FP modes, tiny terms and resumed callbacks passed\n",cases);return 0;
+    std::printf("%u generated world/inverse CPU/RAM and scalar matrix comparisons; aliases, FP modes, tiny terms and resumed callbacks passed\n",cases);return 0;
 }catch(const std::exception &e){std::fprintf(stderr,"%s\n",e.what());return 1;}}

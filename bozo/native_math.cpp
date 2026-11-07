@@ -30,6 +30,15 @@ bool nativeMathInstruction(uint8_t *,R5900Context *c,Runtime *rt,uint32_t pc){
         return true;
     }
     switch(pc){
+    case 0x216ee0:case 0x216ee4:case 0x216ee8:case 0x216eec:
+    case 0x216ef0:case 0x216ef4:case 0x216ef8:return true;
+    case 0x216efc:{
+        math::RigidBasis basis;__m128 translation;
+        std::memcpy(basis.data(),record(rt,c->r[5].uw[0],48),48);
+        auto *temporary=record(rt,c->r[3].uw[0],16);std::memcpy(&translation,temporary,16);
+        const auto result=math::rigidInverseTranslation(basis,translation);
+        std::memcpy(temporary,&result,16);return true;
+    }
     case 0x2158a4:case 0x2158ac:case 0x2158bc:case 0x2158c4:
     case 0x2158d4:case 0x2158d8:case 0x2158dc:return true;
     case 0x2158b0:case 0x2158c8:c->r[9].ud[0]=0;return true;

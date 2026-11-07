@@ -7,6 +7,23 @@ target, not a replacement DLL loaded into PS2Recomp.
 
 ## Build and evidence
 
+### Native rigid-inverse translation bridge (2026-11-07)
+
+Eight remaining transport/calculation sites in fingerprinted `0x216e40` now
+use the already lifted rigid-inverse translation algorithm on EE basis and
+temporary records. The original scalar transpose, identity initialization,
+translation negations and final output copies remain compiled. The temporary's
+fourth component is preserved, and all active source values are read before
+the native result is written. No vector register/flag/accumulator is used.
+
+The world/inverse fixture adds 256 complete CPU/RAM cases, bringing its total
+to 576. Independent scalar products, all four rounding modes, FTZ/DAZ, tiny
+terms, in-place output, stack/scratchpad input and temporary overlap match.
+Unused input last-row NaN payloads remain unconsumed. The fixture now exercises
+72 retired sites across world and inverse owners. Boot passes this bridge and
+reaches the matrix composition at `0x213e1c` in the `0x213b50` builder;
+rendering/Logun remain open.
+
 ### Native game sine/cosine polynomial (2026-11-07)
 
 The `0x213fd0` leaf now evaluates the game's quadrant reduction and degree-13

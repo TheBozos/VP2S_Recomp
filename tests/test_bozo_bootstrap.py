@@ -49,6 +49,6 @@ deeper=subprocess.run([sys.argv[1],'--iso',sys.argv[2],'--frames','600'],
                       capture_output=True,text=True,timeout=30,
                       env={**os.environ,'VP2S_BOZO_SEED':'1'})
 print(deeper.stdout+deeper.stderr,end='')
-if deeper.returncode!=1 or 'unported native VP2S algorithm at pc=216ee0' not in deeper.stdout+deeper.stderr:
-    raise SystemExit('longer native boot did not reach the next inverse-translation owner')
+if deeper.returncode!=1 or 'unported native VP2S algorithm at pc=213e1c' not in deeper.stdout+deeper.stderr:
+    raise SystemExit('longer native boot did not reach the next matrix composition')
 print('First native game-frame boundary passed; textures publish and startup reaches its next guarded producer. Native rendering remains unqualified.')

@@ -7,6 +7,23 @@ target, not a replacement DLL loaded into PS2Recomp.
 
 ## Build and evidence
 
+### Original CPU video/audio stream registration (2026-11-07)
+
+The original `sceMpegAddStrCallback` CPU routine now runs for the three actual
+constructor calls: video type 0/channel 0 and audio type 4/channels 0/1.
+Admission checks the real wrapper's saved caller, function, userdata, created
+decoder and the bounded software-handler pool. Its original filter-table lookup,
+replacement, counts and prior-function return remain unchanged. The completed
+pattern/mask/function/data/GP records are copied into the native owner; these are
+PSS media filters, not graphics/device state. No handler is invoked by registration.
+
+96 whole CPU/RAM registration/replacement cases use the actual private constant
+table, check both audio channels/video, GP/data and rejects before bad-channel
+writes. All 46 local suites pass. Scripted boot completes the three registrations
+and stops cleanly at `sceMpegReset` `0x1f0438`, caller `0x2b9ba0`, before any
+hardware body/shared wrapper. PSS payload parsing, decoded frames, actual pacing
+and Logun remain unqualified.
+
 ### Original CPU MPEG callback registration (2026-11-07)
 
 All six actual `sceMpegAddCallback` calls now run the original pure CPU table

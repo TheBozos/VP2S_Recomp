@@ -176,7 +176,7 @@ if(VP2S_BOZO_CODE)
   set(MEDIA_BUFFER_REF "${CMAKE_CURRENT_BINARY_DIR}/media-buffer-reference")
   foreach(VARIANT original adapted)
     set(MEDIA_BUFFER_DIR "${MEDIA_BUFFER_REF}/${VARIANT}")
-    add_custom_command(OUTPUT "${MEDIA_BUFFER_DIR}/media_buffer_${VARIANT}_000.cpp" "${MEDIA_BUFFER_DIR}/media_buffer_${VARIANT}_table.cpp" "${MEDIA_BUFFER_DIR}/media_buffer_${VARIANT}_functions.h"
+    add_custom_command(OUTPUT "${MEDIA_BUFFER_DIR}/media_buffer_${VARIANT}_000.cpp" "${MEDIA_BUFFER_DIR}/media_buffer_${VARIANT}_table.cpp" "${MEDIA_BUFFER_DIR}/media_buffer_${VARIANT}_functions.h" "${MEDIA_BUFFER_DIR}/streams.bin"
       COMMAND ${Python3_EXECUTABLE} "${VP2S_ROOT}/tools/vp2_bozo_media_buffer_fixture.py" "${VP2S_BOZO_DATA}/images/mod001.elf" "${MEDIA_BUFFER_DIR}" --build "${VP2S_BOZO_DATA}/.." --variant ${VARIANT}
       COMMAND $<TARGET_FILE:bozo-recomp> "${MEDIA_BUFFER_DIR}/fixture.elf" "${MEDIA_BUFFER_DIR}" --prefix media_buffer_${VARIANT} --symbol-prefix media_buffer_${VARIANT}_
         --files 1 --externals "${MEDIA_BUFFER_DIR}/externals.txt" --patches "${MEDIA_BUFFER_DIR}/patches.txt" --no-comments
@@ -189,7 +189,7 @@ if(VP2S_BOZO_CODE)
   if(MINGW)
     target_link_options(vp2s-bozo-media-buffer-check PRIVATE -static)
   endif()
-  add_test(NAME vp2s-bozo-media-buffer COMMAND vp2s-bozo-media-buffer-check)
+  add_test(NAME vp2s-bozo-media-buffer COMMAND vp2s-bozo-media-buffer-check "${MEDIA_BUFFER_REF}/adapted/streams.bin")
   foreach(VARIANT original adapted)
     set(BUTTON_DIR "${BUTTON_REF}/${VARIANT}")
     add_custom_command(OUTPUT "${BUTTON_DIR}/button_${VARIANT}_000.cpp" "${BUTTON_DIR}/button_${VARIANT}_table.cpp" "${BUTTON_DIR}/button_${VARIANT}_functions.h"

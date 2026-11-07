@@ -7,6 +7,8 @@
 #include <cstring>
 #include <source_location>
 #include <stdexcept>
+#include <fstream>
+#include <iterator>
 namespace {
 void check(bool ok,std::source_location at=std::source_location::current()){
     if(!ok)throw std::runtime_error("native media buffer assertion at "+std::to_string(at.line()));
@@ -60,7 +62,8 @@ void create(bozo::ee::Dispatcher &d,R5900Context &c,bool native){
     }
 }
 }
-int main(){try{
+int main(int argc,char **argv){try{
+    check(argc==2);std::ifstream input(argv[1],std::ios::binary);std::vector<uint8_t> constants{std::istreambuf_iterator<char>(input),{}};check(constants.size()==0xa0);
     Host before,after;bozo::ee::Dispatcher old(before),native(after);
     old.setFunctions(media_buffer_original_function_table,media_buffer_original_function_count,media_buffer_original_resume_table,media_buffer_original_resume_count);
     native.setFunctions(media_buffer_adapted_function_table,media_buffer_adapted_function_count,media_buffer_adapted_resume_table,media_buffer_adapted_resume_count);
@@ -119,9 +122,24 @@ int main(){try{
                 auto invalid=y;invalid.pc=0x1f0510;invalid.r[4].ud[0]=held->mp;invalid.r[5].ud[0]=type;invalid.r[6].ud[0]=functions[type]+4;
                 rejects([&]{vp2s::nativeMediaLibrary(&invalid,&b,0x1f0510);});check(!std::memcmp(a.memory.flat(),b.memory.flat(),bozo::kFlatBytes));
             }
+            std::memcpy(a.memory.flat()+0x313f00,constants.data(),constants.size());std::memcpy(b.memory.flat()+0x313f00,constants.data(),constants.size());
+            constexpr uint32_t streamFunctions[3]={0x2b90a0,0x2bdac0,0x2bd9b0},callers[3]={0x2be738,0x2be75c,0x2be780};
+            for(unsigned pass=0;pass<2;++pass)for(unsigned slot=0;slot<3;++slot){
+                auto x=converted;x.pc=0x1f4990;x.r[4].ud[0]=held->mp;x.r[5].ud[0]=slot?4:0;x.r[6].ud[0]=slot?slot-1:0;
+                x.r[7].ud[0]=streamFunctions[slot];x.r[8].ud[0]=object+(slot?0x15e680:0);
+                x.r[28].ud[0]=0x351000+seed*64+pass*4;x.r[31].ud[0]=0x2ba3c8;
+                put(a,x.r[29].uw[0],uint64_t(callers[slot]));put(b,x.r[29].uw[0],uint64_t(callers[slot]));auto y=x;
+                old.runtime().functions.generated(0x1f4990)(a.memory.flat(),&x,&a);check(vp2s::nativeMediaLibrary(&y,&b,0x1f4990));
+                x.cycleLimit=y.cycleLimit;check(!std::memcmp(&x,&y,sizeof(x)) && !std::memcmp(a.memory.flat(),b.memory.flat(),bozo::kFlatBytes));
+                const auto &cb=held->streams.at(slot).callback;
+                check(cb.set && cb.function==streamFunctions[slot] && cb.data==object+(slot?0x15e680:0) && cb.gp==0x351000+seed*64+pass*4);
+                if(pass)check(y.r[2].uw[0]==streamFunctions[slot]);
+                auto invalid=y;invalid.pc=0x1f4990;invalid.r[4].ud[0]=held->mp;invalid.r[5].ud[0]=4;invalid.r[6].ud[0]=2;
+                rejects([&]{vp2s::nativeMediaLibrary(&invalid,&b,0x1f4990);});check(!std::memcmp(a.memory.flat(),b.memory.flat(),bozo::kFlatBytes));
+            }
         }
         after.buffers.release(object);held.reset();
     }
     check(after.created==after.freed);
-    std::puts("64 media resets +64 constructors +64 software MPEG Create +192 original callback-registration CPU/RAM cases: decoder lifetime, native ABI, allocation failures/resume and callback function/data/GP replacement; no playback qualification");return 0;
+    std::puts("64 resets +64 constructors +64 MPEG Create +192 callbacks +96 stream-handler whole CPU/RAM cases: decoder lifetime, native ABI, allocation failure/resume, video/audio filter/GP replacement; no playback qualification");return 0;
 }catch(const std::exception &e){std::fprintf(stderr,"%s\n",e.what());return 1;}}

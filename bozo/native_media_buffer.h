@@ -8,12 +8,14 @@
 namespace vp2s {
 struct NativeMediaBuffer {
     struct Callback {uint32_t function=0,data=0,gp=0;bool set=false;};
+    struct StreamCallback {uint64_t pattern=0,mask=0;Callback callback;};
     uint32_t object=0,capacity=0,semaphore=0;
     uint64_t pacingFieldCycles=0;
     bool initialized=false;
     bool created=false;
     uint32_t mp=0,work=0,workBytes=0;
     std::array<Callback,6> callbacks{};
+    std::vector<StreamCallback> streams;
     std::unique_ptr<bozo::libs::VideoDecoder> decoder;
 };
 class NativeMediaBuffers {
@@ -35,6 +37,8 @@ public:
     void finishCreation(Runtime *,uint32_t stack,uint32_t result);
     void validateCallback(Runtime *,uint32_t mp,uint32_t type,uint32_t data)const;
     void captureCallback(Runtime *,uint32_t mp,uint32_t type);
+    void validateStreamRegistration(Runtime *,uint32_t mp)const;
+    void captureStreams(Runtime *,uint32_t mp);
     std::shared_ptr<const NativeMediaBuffer> buffer(uint32_t object)const;
     size_t outstanding()const{return pending.size()+creations.size();}
 };

@@ -331,6 +331,8 @@ def overlay_adaptations(name,data):
         (0x29d730,0x29d7ac,'ab15a11b1d355d334466795d7bfda2e9f1880b3c29be10b5eb9fccdea5e17104'),
         (0x29d6b0,0x29d72c,'2c56f08bc47c7eb3d9da06553666dc0823551eff916d28f9fee65ff6f8673787'),
         (0x29df60,0x29e06c,'28fcd50a9725807ccabaf7ab63330b908621fa8ab98e44a634f1d777cce36dc3'),
+        (0x2088d0,0x208900,'3c660370520146baad6bedd158b3039156ae25383c9800729cb3dbc2905f9978'),
+        (0x208870,0x2088c0,'fbb3c497f42aeff52417da1a45846ac4bf98fdc8672b658f606d0bf1880408d4'),
         (0x29aeb0,0x29af78,'7e822b8520d71ee253400f4e8565e933bb9a9495330e461385d2fe04ef673f69'),
         (0x29b480,0x29b520,'195dd1778735679111fe1a0415b42159a229bc6999f4b53594a49cb9ccb55b99'),
         (0x249720,0x24a438,'10c8d5e49e540decaa624ca4ea5f9e5aeee7cc23f9acf910d53cbe623ad1484e'),
@@ -371,6 +373,9 @@ def overlay_adaptations(name,data):
             '002216fc 0c0a75ac 00000000\n'
             '0022172c 4100fffa 00000000\n'
             '00221740 0c04df7e 00000000\n'
+            # Native camera selection snapshots game matrices before any
+            # camera VIF job exists. Never acknowledge a generic DMA consumer.
+            '002088ec 0c0807c8 00000000\n'
             '002021c4 3c011001 0808087a\n'
             '002021c8 2402fffd 00000000\n'
             '0029e210 4a00fc3e 00000000\n'
@@ -416,4 +421,4 @@ def overlay_native_sites(name,data):
     return ''.join(f'native 0x{pc:x}\n' for pc in (
         0x29e1a0,0x2c3cb4,0x29cc30,0x29cd7c,0x29cf14,0x29cf30,0x29cc00,0x29e160,
         0x208a94,0x29af80,0x29b2a8,0x29caf8,0x2205c0,0x220ce0,0x29e43c,0x29e444,
-        0x22106c,0x221294,0x221308,0x221540,0x221704,0x221718,0x221748))
+        0x22106c,0x221294,0x221308,0x221540,0x221704,0x221718,0x221748,0x2088f0))

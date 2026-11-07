@@ -154,7 +154,7 @@ public:
         // Known producers publish offline assets before retiring their transport.
         if(target==0x122bf8u)
             throw std::runtime_error(std::format("native VP2S image owner required at {:x} ra={:x}",target,c->r[31].uw[0]));
-        if(target==0x123550u || target==0x1235b8u || target==0x123630u || target==0x1237f0u)
+        if(target==0x123220u || target==0x123550u || target==0x1235b8u || target==0x123630u || target==0x1237f0u)
             throw std::runtime_error(std::format("native VP2S draw/data owner required at {:x} ra={:x}",target,c->r[31].uw[0]));
         if(target==0x122160u || target==0x1224d0u)
             throw std::runtime_error(std::format("native VP2S display owner required at {:x} ra={:x}",target,c->r[31].uw[0]));

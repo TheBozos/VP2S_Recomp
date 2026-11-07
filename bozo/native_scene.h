@@ -33,6 +33,7 @@ class NativeScene {
     std::map<uint32_t,NativeFrameTarget> compositions;
     std::shared_ptr<const NativeFrameTarget> target;
     std::shared_ptr<const NativeCameraFrustum> activeFrustum;
+    std::shared_ptr<const NativeCamera> selectedCamera;
     uint64_t frustumPublications=0;
     std::map<uint32_t,NativeVisibilityInputs> visibilityInputs;
     std::map<uint32_t,NativeTextureManagerFrame> textureManagerFrames;
@@ -43,6 +44,8 @@ public:
     std::shared_ptr<const NativeFrameTarget> frameTarget()const{return target;}
     void publishCamera(Runtime *,uint32_t object);
     std::shared_ptr<const NativeCamera> camera(uint32_t object)const;
+    void selectCamera(Runtime *,uint32_t object);
+    std::shared_ptr<const NativeCamera> drawingCamera()const{return selectedCamera;}
     uint64_t publicationCount()const{return cameraPublications;}
     void publishFrustum(Runtime *,uint32_t object);
     std::shared_ptr<const NativeCameraFrustum> frustum()const{return activeFrustum;}

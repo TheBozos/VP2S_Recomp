@@ -64,6 +64,7 @@ struct Host:bozo::ee::Host,bozo::port::Host,vp2s::SceneOwner {
         }else if(pc==0x201f20){
             check(c->r[4].uw[0]==0x180000);
             if(c->r[31].uw[0]==0x208a98){check(c->r[5].uw[0]==0x1b0000);scene.publishCamera(&d.runtime(),c->r[17].uw[0]);}
+            else if(c->r[31].uw[0]==0x2088f4){check(c->r[5].uw[0]==0x190220);scene.selectCamera(&d.runtime(),0x190000);}
             else check(c->r[5].uw[0]==0x190000);
             ++enqueues;c->r[2].sd[0]=1;
         }else if(pc==0x170100)c->r[2].sd[0]=0x1c0000;
@@ -241,5 +242,21 @@ int main(){try{
         check(rejected && !scene.textureManagerFrame(stack).entered);scene.textureManagerBoundary(&b,stack,object,manager,manager,false);
         rejected=false;try{scene.textureManagerBoundary(&b,stack,object,manager,manager,false);}catch(const std::runtime_error &){rejected=true;}check(rejected);
         scene.finishTextureManagerFrame(&b,stack,object);}
-    std::puts("512 graphics/math/camera/frustum/visibility/job/frame CPU/RAM cases; canonical EE texture manager, no scratch copy, callbacks and lifetimes");return 0;
+    for(unsigned seed=0;seed<64;++seed){
+        auto &a=old.runtime(),&b=native.runtime();std::memset(a.memory.flat(),0,bozo::kFlatBytes);
+        const auto word=[&](uint32_t at,uint32_t v){std::memcpy(a.memory.flat()+at,&v,4);};
+        word(0x35dde0,0x180000);word(0x190220,0x153120);word(0x1908e0,0x1b0000);word(0x1b0000,0x153140);word(0x1905a0,0x123400+seed);
+        for(unsigned i=0;i<48;++i){const float value=float(seed+i)/128;std::memcpy(a.memory.flat()+0x1902f0+i*4,&value,4);}
+        std::memcpy(b.memory.flat(),a.memory.flat(),bozo::kFlatBytes);R5900Context x{},y{};
+        x.r[4].ud[0]=0x190000;x.r[29].ud[0]=seed&1?0x70003f00:0x1fff000;x.r[31].ud[0]=0x170000;y=x;
+        const auto enqueues=oldHost.enqueues;const auto count=nativeHost.scene.publicationCount();
+        a.functions.generated(0x2088d0)(a.memory.flat(),&x,&a);b.functions.generated(0x2088d0)(b.memory.flat(),&y,&b);
+        check(oldHost.enqueues==enqueues+1 && nativeHost.scene.publicationCount()==count+1);
+        check(!std::memcmp(a.memory.flat(),b.memory.flat(),bozo::kFlatBytes));
+        check(x.cycles==y.cycles+8 && x.checkpoints==y.checkpoints+1);x.cycles-=8;--x.checkpoints;x.cycleLimit=y.cycleLimit;x.r[2]=y.r[2];
+        check(!std::memcmp(&x,&y,sizeof(x)));auto camera=nativeHost.scene.drawingCamera();check(camera && camera->object==0x190000 && camera->clearColour==0x123400+seed);
+        check(!std::memcmp(camera->view.data(),a.memory.flat()+0x1902f0,64));
+        std::memset(b.memory.flat()+0x1902f0,0,64);check(camera->view[0]==float(seed)/128);
+    }
+    std::puts("576 graphics/math/camera/frustum/visibility/job/frame CPU/RAM cases; native camera selection, canonical EE texture manager and no transport state");return 0;
 }catch(const std::exception &e){std::fprintf(stderr,"%s\n",e.what());return 1;}}

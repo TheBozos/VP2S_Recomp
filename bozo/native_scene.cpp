@@ -99,6 +99,10 @@ void NativeScene::publishCamera(Runtime *rt,uint32_t object){
 std::shared_ptr<const NativeCamera> NativeScene::camera(uint32_t object)const{
     auto it=cameras.find(object);return it==cameras.end()?nullptr:it->second;
 }
+void NativeScene::selectCamera(Runtime *rt,uint32_t object){
+    if(word(rt,object+0x220)!=0x153120)throw std::runtime_error(std::format("unowned native camera draw producer type={:x}",word(rt,object+0x220)));
+    publishCamera(rt,object);selectedCamera=camera(object);
+}
 bool nativeSceneInstruction(uint8_t *,R5900Context *c,Runtime *rt,uint32_t pc){
     if(pc==0x29e43c || pc==0x29e444){
         // Private write-only profiling stamp: its temporary is overwritten by
@@ -117,10 +121,16 @@ bool nativeSceneInstruction(uint8_t *,R5900Context *c,Runtime *rt,uint32_t pc){
         record(rt,c->r[4].uw[0],0x40e0);return true;
     }
     const bool frustumSite=(!(pc&3) && pc>=0x207cc8 && pc<=0x207d64) || pc==0x207d6c;
-    if(pc!=0x208a94 && !frustumSite)return false;
+    if(pc!=0x208a94 && pc!=0x2088f0 && !frustumSite)return false;
     auto *dispatcher=rt?dynamic_cast<bozo::ee::Dispatcher *>(rt->services):nullptr;
     auto *owner=dispatcher?dynamic_cast<SceneOwner *>(&dispatcher->host()):nullptr;
     if(!owner || !c)throw std::runtime_error("native camera publication requires a scene owner");
+    if(pc==0x2088f0){
+        const auto camera=c->r[4].uw[0];
+        if(c->pc!=0x2088d0 || !camera || c->r[5].uw[0]!=camera+0x220)throw std::runtime_error("native camera draw producer requires its complete owner");
+        owner->nativeScene().selectCamera(rt,camera);
+        c->r[4].sd[0]=static_cast<int32_t>(word(rt,0x35dde0));return true; // Retain the original scalar delay-slot load.
+    }
     if(frustumSite){
         if(c->pc!=0x207cc0)throw std::runtime_error("native frustum publication requires its complete owner");
         if(pc==0x207cc8){

@@ -7,6 +7,23 @@ target, not a replacement DLL loaded into PS2Recomp.
 
 ## Build and evidence
 
+### Native draw-camera selection (2026-11-07)
+
+The `0x2088d0` camera draw producer now selects a fresh immutable native camera
+from its EE matrices, viewport, fog and clear colour. The embedded draw producer
+type `0x153120` and existing camera-state owner are checked before admission.
+Only its enqueue retires, before a VIF job exists; original scalar setup/return
+remain. `0x208870` and the complete producer are fingerprinted. Generic DMA
+channel selection now explicitly rejects before the shared SDK could return
+a hardware-channel address; generic draw/data submission stays guarded.
+
+64 generated CPU/RAM producer cases compare an observed original enqueue with
+native publication and independently check selected camera bytes/immutability.
+No VIF job or hardware sample executes in either fixture. The enqueue's dead
+return and removed call charge are the only CPU comparison adjustments.
+Graphics fixture: 576 cases. Boot passes camera selection and reaches a T0
+read after the `0x221650` return point. Drawing and the Logun route remain open.
+
 ### Canonical EE texture-manager frame (2026-11-07)
 
 `0x221260` now keeps the game's canonical EE texture-manager record selected

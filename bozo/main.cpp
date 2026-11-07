@@ -33,6 +33,7 @@
 #include "native_frame_filter.h"
 #include "native_music.h"
 #include "native_ui_windows.h"
+#include "native_load_progress.h"
 #ifdef VP2S_BOZO_CAPTURE
 #include "native_capture.h"
 #endif
@@ -51,8 +52,10 @@
 #include <set>
 
 namespace {
-class StrictHost final : public bozo::ee::Host, public vp2s::TimerOwner, public vp2s::SettingsOwner,public vp2s::SeedOwner,public vp2s::ModuleOwner,public vp2s::BootstrapOwner,public vp2s::RandomOwner,public vp2s::TextureOwner,public vp2s::SceneOwner,public vp2s::AssetOwner,public vp2s::DebugFontOwner,public vp2s::StateSetupOwner,public vp2s::ScreenRectOwner,public vp2s::UiTextOwner,public vp2s::UiSpriteOwner,public vp2s::MediaBufferOwner,public vp2s::ModelOwner,public vp2s::FrameFilterOwner,public vp2s::MusicOwner,public vp2s::UiWindowOwner {
+class StrictHost final : public bozo::ee::Host, public vp2s::TimerOwner, public vp2s::SettingsOwner,public vp2s::SeedOwner,public vp2s::ModuleOwner,public vp2s::BootstrapOwner,public vp2s::RandomOwner,public vp2s::TextureOwner,public vp2s::SceneOwner,public vp2s::AssetOwner,public vp2s::DebugFontOwner,public vp2s::StateSetupOwner,public vp2s::ScreenRectOwner,public vp2s::UiTextOwner,public vp2s::UiSpriteOwner,public vp2s::MediaBufferOwner,public vp2s::ModelOwner,public vp2s::FrameFilterOwner,public vp2s::MusicOwner,public vp2s::UiWindowOwner,public vp2s::LoadProgressOwner {
 public:
+    vp2s::NativeLoadProgress loadingProgress;
+    vp2s::NativeLoadProgress &nativeLoadProgress()override{return loadingProgress;}
     vp2s::NativeUiWindows windows;
     vp2s::NativeUiWindows &nativeUiWindows()override{return windows;}
     vp2s::NativeMusic music{std::filesystem::path(VP2S_BOZO_IMAGES).parent_path().parent_path()/"native_music/tables.bin"};
@@ -343,6 +346,7 @@ public:
     void handlerCompleted(bozo::ee::Dispatcher &d,bozo::ee::Thread &t,const bozo::ee::Frame &f) override { native.handlerCompleted(d,t,f); }
 };
 bool noNativeInstruction(uint8_t *ram,R5900Context *ctx,Runtime *rt,uint32_t pc) {
+    if(auto handled=vp2s::nativeLoadProgressInstruction(ctx,rt,pc))return *handled;
     if(auto handled=vp2s::nativeUiWindowInstruction(ctx,rt,pc))return *handled;
     if(auto handled=vp2s::nativeUiTextInstruction(ctx,rt,pc))return *handled;
     if(auto handled=vp2s::nativeModelInstruction(ctx,rt,pc))return *handled;

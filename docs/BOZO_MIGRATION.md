@@ -8,6 +8,30 @@ target, not a replacement DLL loaded into PS2Recomp.
 
 ## Build and evidence
 
+### Native allocation entropy and loading UI schedule (2026-11-07)
+
+Common initializer `0x306950` used timer0 in two unrelated ways. At `0x306a10`,
+the timer mixed into an allocation placement whose only consumer is a four-bit
+index, shifted by four before adding it to the real allocation. The allocator
+overwrites the old incidental a2 input. This now receives a bounded per-run
+entropy choice from `SeedOwner`; all original scalar RNG updates, allocations,
+file loading, decoding, pointer publication and frees remain compiled. No timer
+count or counter result is supplied.
+
+The second use gated loading UI callbacks while the original `0x103870` request
+poll reports pending. `NativeLoadProgress` owns a schedule per original stack,
+worker and destination. It allows UI updates at native field cadence, checks
+clock/record lifetime, and releases only after the actual poll returns completed.
+The original poll, callbacks and completion branch are unchanged. Counter loads
+and their dead arithmetic retire; no file completion, ready bit or IRQ is made.
+This is a native UI cadence, not an implementation of the original timer rate.
+
+256 schedule lifetimes and 1,024 deterministic allocation choices pass without
+RAM/device writes; invalid/repeated requests, changed ownership, reversed clocks,
+overflow and premature completion reject. The signature and 1,380-frame startup
+checks also pass. Actual New Game now returns from this initializer and next
+rejects a separate timer busy-wait at mod003 `0x3d7708`. Logun remains open.
+
 ### Compiled field/menu overlay (2026-11-07)
 
 The default pipeline now includes mod003 alongside main/mod001/mod002. Its

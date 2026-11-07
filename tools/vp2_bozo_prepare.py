@@ -55,6 +55,10 @@ def overlay_entries(name,data):
                                (0x1fae30,0x1faeb0,'19049c76ab8ef6499d0b2b4d560a97b0b346d22665bcb5f628debd00ab5a8b51')):
             if hashlib.sha256(span(lo,hi)).hexdigest()!=expected:
                 raise ValueError('USA camera vtable method signature mismatch')
+        for lo,hi,expected in ((0x2ea350,0x2ea6f0,'db5089cb3d4094c6db42debc8a68945230f0780749f63fd079b4dc25aa72bb6b'),
+                               (0x357960,0x357984,'e5b3abd3983d841925eebee0e8f5586772f330a742ba58cac73fe7216836565d')):
+            if hashlib.sha256(span(lo,hi)).hexdigest()!=expected:
+                raise ValueError('USA scalar UI transition jump-table signature mismatch')
     # Constructor sections are authoritative static entry metadata, independent
     # of whether the analysis export found every prologue. Never discover code
     # from runtime bytes or skip these application initializers.
@@ -73,6 +77,10 @@ def overlay_entries(name,data):
         entries.append(dict(Name=f'module_initializer_{lo:08x}',Start=hex(lo),End=hex(hi)))
     if name=='mod001':
         entries.append(dict(Name='resource_upload_0029e240',Start='0x29e240',End='0x29e274'))
+        # One scalar function, including all nine switch branches. The export
+        # ended at its computed jump and omitted the intervening branch bodies.
+        # Preserve original bytes; this only exposes them to static compilation.
+        entries.append(dict(Name='ui_transition_002ea350',Start='0x2ea350',End='0x2ea6f0'))
         # Explicit methods referenced by the camera's original main-image
         # vtable (guarded by game_entries). Tiny setters/getters were omitted
         # by the analysis export; preserve their original CPU bodies.

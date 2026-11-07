@@ -60,12 +60,13 @@ class KernelGuardTests(unittest.TestCase):
 
     def test_overlay_initializer(self):
         data=(IMAGE.parent/'mod001.elf').read_bytes()
-        entries=overlay_entries('mod001',data);self.assertEqual(len(entries),52)
+        entries=overlay_entries('mod001',data);self.assertEqual(len(entries),53)
+        self.assertIn(dict(Name='ui_transition_002ea350',Start='0x2ea350',End='0x2ea6f0'),entries)
         self.assertIn(dict(Name='camera_method_001e8080',Start='0x1e8080',End='0x1e80a0'),entries)
         self.assertEqual(entries[0],dict(Name='module_initializer_00358200',Start='0x358200',End='0x358230'))
         _,segments,_=elf_parts(data)
         for lo,hi in ((0x358200,0x358a10),(0x358a10,0x358a7c),(0x29e240,0x29e280),
-                      (0x1e7fd0,0x1e8220),(0x1fae30,0x1faeb0)):
+                      (0x1e7fd0,0x1e8220),(0x1fae30,0x1faeb0),(0x2ea350,0x2ea6f0),(0x357960,0x357984)):
             segment=next(s for s in segments if s[0]==1 and s[2]<=lo<hi<=s[2]+s[4])
             for pc in range(lo,hi,4):
                 altered=bytearray(data);altered[segment[1]+pc-segment[2]]^=1

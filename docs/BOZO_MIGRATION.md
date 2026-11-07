@@ -8,6 +8,24 @@ target, not a replacement DLL loaded into PS2Recomp.
 
 ## Build and evidence
 
+### Scalar UI transition and story layer (2026-11-07)
+
+The analysis export ended `0x2ea350` at its computed jump, omitting branch
+`0x2ea380` and seven following branches. Its nine-target table at `0x357960`
+and complete scalar body through `0x2ea6f0` are now signature-checked offline;
+metadata exposes the whole function to static compilation. Load bytes are intact.
+
+The story/skip dialogue layer's exact `0x15bca0` / `0x15bcbc` / `0x15bd38`
+tuple now uses the existing native child submission. Its original build, draw
+and completion methods are the base methods via mod002 adjustment thunks
+`0x371fe0`, `0x371ff0`, `0x372000`. The vtable is signature-checked. Unknown
+child types and incomplete snapshots still reject; mixed type tuples reject.
+The 64 complete layer CPU/RAM cases now cover both base and story tuples.
+
+Actual New Game passes the switch and layer, then rejects uncaptured window
+element class `0x15a1b0`. The visible partial framebuffer there is the opening
+movie landscape; the dialogue itself is not yet drawn. Logun remains open.
+
 ### Direct native streamed-music publication (2026-11-07)
 
 `bozo/native_music.cpp` owns each decoded channel per run, using the already

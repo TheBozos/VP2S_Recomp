@@ -162,7 +162,8 @@ int main(int argc,char **argv){try{
         if(g.shadow){const auto shadow=vp2s::nativeUiGlyphVertices(g,true);check(shadow[0].z==float(0xffff09) && shadow[0].rgba==p.shadowColour && shadow[0].x==vertices[0].x+(seed%3==1?1.f:0.f));}
         std::memset(b.memory.flat()+items,0xee,0x30);check(vp2s::nativeUiGlyphVertices(g,false)[0].x==vertices[0].x);
         constexpr uint32_t current=0x200000,secondary=0x210000,inactive=0x1b2000;
-        put(b,layer,0x152060u);put(b,layer+0x10,0x15ba00u);put(b,layer+0x20,0x15ba1cu);put(b,layer+0xb0,0x15ba98u);
+        const bool story=seed&32;
+        put(b,layer,0x152060u);put(b,layer+0x10,story?0x15bca0u:0x15ba00u);put(b,layer+0x20,story?0x15bcbcu:0x15ba1cu);put(b,layer+0xb0,story?0x15bd38u:0x15ba98u);
         put(b,layer+0x83,uint8_t(1));put(b,layer+0x85,uint8_t(1));put(b,layer+0xca,uint8_t(2));put(b,layer+8,object);
         put(b,object+8,inactive);put(b,inactive+8,layer);put(b,inactive+0x14,layer);put(b,inactive,0x15a690u);
         put(b,object+0x39,uint8_t(!(seed&4)));put(b,object+0x3b,uint8_t(!(seed&8)));put(b,object+0x3d,uint8_t(!(seed&16)));
@@ -190,6 +191,8 @@ int main(int argc,char **argv){try{
     rejects([&]{vp2s::nativeUiTextInstruction(&rejected,&layerRam,0x2ec9e4);});
     check(!std::memcmp(&rejected,&unchanged,sizeof(rejected)) && !std::memcmp(ramBefore.data(),layerRam.memory.flat(),ramBefore.size()));
     layerAfter.failDraw=false;
+    put(layerRam,layer+0x10,0x15ba00u); // A mixed base/derived tuple is invalid.
+    rejects([&]{layerAfter.texts.layer(&layerRam,layer);});put(layerRam,layer+0x10,0x15bca0u);
     for(auto at:{0x39u,0x3bu,0x3du})put(layerRam,inactive+at,uint8_t(1));
     rejects([&]{layerAfter.texts.layer(&layerRam,layer);});
     put(layerRam,inactive+0x3b,uint8_t(0));put(layerRam,inactive+8,object);

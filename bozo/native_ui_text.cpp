@@ -14,7 +14,11 @@ const uint8_t *record(Runtime *rt,uint32_t at,uint32_t size){
     return rt->memory.hostPointer(at,size);
 }
 template<class T>T value(Runtime *rt,uint32_t at){T result;std::memcpy(&result,record(rt,at,sizeof(T)),sizeof(T));return result;}
-void type(Runtime *rt,uint32_t element){const auto actual=value<uint32_t>(rt,element);if(actual!=0x15a450)throw std::runtime_error(std::format("unported native UI text class {:x} at {:x}",actual,element));}
+void type(Runtime *rt,uint32_t element){const auto actual=value<uint32_t>(rt,element);if(actual!=0x15a450){
+    if(actual==0x15a1b0)throw std::runtime_error(std::format("unported native UI text class 15a1b0 at {:x}: flags={:08x} fis={:x} dtt={:x} parts={:x} count={}",element,
+        value<uint32_t>(rt,element+0xf0),value<uint32_t>(rt,element+0x50),value<uint32_t>(rt,element+0x54),value<uint32_t>(rt,element+0x58),value<uint16_t>(rt,element+0xa8)));
+    throw std::runtime_error(std::format("unported native UI text class {:x} at {:x}",actual,element));
+}}
 }
 void NativeUiTexts::enter(Runtime *rt,uint32_t stack,uint32_t element,uint32_t items,int32_t count){
     type(rt,element);
@@ -116,10 +120,16 @@ std::array<bozo::render::Vertex,6> nativeUiSpriteVertices(const NativeUiSprite &
 }
 NativeUiLayer NativeUiTexts::layer(Runtime *rt,uint32_t layer)const{
     record(rt,layer,0xe4);
-    if(value<uint32_t>(rt,layer)!=0x152060 || value<uint32_t>(rt,layer+0x10)!=0x15ba00 ||
-       value<uint32_t>(rt,layer+0x20)!=0x15ba1c || value<uint32_t>(rt,layer+0xb0)!=0x15ba98 ||
+    const auto layerType=value<uint32_t>(rt,layer+0x10),objectType=value<uint32_t>(rt,layer+0x20),jobType=value<uint32_t>(rt,layer+0xb0);
+    // The story/skip dialogue layer has the same original draw/build/completion
+    // methods, via the mod002 adjustment thunks. Child admission is unchanged.
+    const bool base=layerType==0x15ba00 && objectType==0x15ba1c && jobType==0x15ba98;
+    const bool story=layerType==0x15bca0 && objectType==0x15bcbc && jobType==0x15bd38;
+    if(value<uint32_t>(rt,layer)!=0x152060 || (!base && !story) ||
        value<uint8_t>(rt,layer+0x83)!=1 || value<uint8_t>(rt,layer+0xca)!=2)
-        throw std::runtime_error("unported native UI layer type/build mode");
+        throw std::runtime_error(std::format("unported native UI layer type/build mode: layer={:x} types={:x}/{:x}/{:x}/{:x} mode83={} modeca={}",
+            layer,value<uint32_t>(rt,layer),value<uint32_t>(rt,layer+0x10),value<uint32_t>(rt,layer+0x20),value<uint32_t>(rt,layer+0xb0),
+            value<uint8_t>(rt,layer+0x83),value<uint8_t>(rt,layer+0xca)));
     const auto current=value<uint32_t>(rt,0x35ddf8),object=layer+0x20;
     if(value<uint8_t>(rt,object+0x65)!=1 || value<uint32_t>(rt,current+0x40ac)!=object || value<uint8_t>(rt,current+0x40dd)!=1)
         throw std::runtime_error("native UI layer escaped its pending scene object");

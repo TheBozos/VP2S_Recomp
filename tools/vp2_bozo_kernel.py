@@ -72,6 +72,19 @@ GUARDS = {
 }
 
 
+def reject_performance_counter_reads(data):
+    # Static input admission only. The native runtime has no COP0 counter bank.
+    # If a later image consumes this instrumentation, audit/port that consumer
+    # before retaining the write-only reset retirement.
+    _,_,sections=elf_parts(data)
+    for section in sections:
+        if section[2]&6!=6:continue
+        for offset in range(0,section[5]-3,4):
+            word=struct.unpack_from('<I',data,section[4]+offset)[0]
+            if word>>26==16 and (word>>11)&31==24 and (word>>21)&31 in (0,1,2):
+                raise ValueError(f'COP0 performance consumer requires a native owner: {section[3]+offset:x}')
+
+
 def bindings(data):
     _, segments, sections = elf_parts(data)
     for (lo, hi), expected in GUARDS.items():
@@ -298,6 +311,7 @@ def overlay_adaptations(name,data):
     for lo,hi,expected in (
         (0x29af80,0x29b2c4,'ef3a9f1a6cae966ab8a687451e72ac175d88b8e9883d09449949ca5c3389d0bf'),
         (0x29c990,0x29cb18,'361b601c33bd3f57fd190aef95f4716cd08b5bbdf401f852b6e80eb96933e9e2'),
+        (0x2bef20,0x2bf0dc,'2562b94cada2f70f71933a401cc6eacc7c1eb0a71f60dafc6b7179d58fdb0fb7'),
         (0x29aeb0,0x29af78,'7e822b8520d71ee253400f4e8565e933bb9a9495330e461385d2fe04ef673f69'),
         (0x29b480,0x29b520,'195dd1778735679111fe1a0415b42159a229bc6999f4b53594a49cb9ccb55b99'),
         (0x249720,0x24a438,'10c8d5e49e540decaa624ca4ea5f9e5aeee7cc23f9acf910d53cbe623ad1484e'),
@@ -342,6 +356,13 @@ def overlay_adaptations(name,data):
             '0029e1ac 0c0807c8 00000000\n'
             '0029e160 a0820050 00000000\n'
             '0029e16c 0c0807c8 00000000\n'
+            # Write-only profiling reset, never read by the generated images.
+            # The original object-update owner and every callback remain.
+            '002bef34 4080c000 00000000\n'
+            '002bef38 4080c004 00000000\n'
+            '002bef3c 4080c005 00000000\n'
+            '002bef40 4080c006 00000000\n'
+            '002bef44 4080c007 00000000\n'
             '00208a90 0c0807c8 00000000\n'
             # Publish the immutable offline asset at its CPU producer, then
             # free the unused descriptor through the original game heap call.

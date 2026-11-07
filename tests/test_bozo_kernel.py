@@ -5,7 +5,7 @@ import unittest
 from pathlib import Path
 sys.path.insert(0,str(Path(__file__).resolve().parents[1]/'tools'))
 from vp2_bozo_prepare import elf_parts,overlay_entries
-from vp2_bozo_kernel import bindings, game_adaptations, frame_adaptations, game_entries, native_game_sites, GUARDS, RETIRED_RANGES,bootstrap_adaptations,bootstrap_tables,overlay_adaptations,overlay_native_sites,display_adaptations,DISPLAY_STORES,startup_clear_adaptations,composition_adaptations,composition_sites
+from vp2_bozo_kernel import bindings, game_adaptations, frame_adaptations, game_entries, native_game_sites, GUARDS, RETIRED_RANGES,bootstrap_adaptations,bootstrap_tables,overlay_adaptations,overlay_native_sites,display_adaptations,DISPLAY_STORES,startup_clear_adaptations,composition_adaptations,composition_sites,reject_performance_counter_reads
 
 IMAGE=Path(sys.argv.pop(1))
 
@@ -80,6 +80,8 @@ class KernelGuardTests(unittest.TestCase):
             '0029e210 4a00fc3e 00000000','0029e214 4b1f043d 00000000','0029e2fc 0c0807c8 00000000',
             '0029e1a0 a0820050 00000000','0029e1ac 0c0807c8 00000000',
             '0029e160 a0820050 00000000','0029e16c 0c0807c8 00000000',
+            '002bef34 4080c000 00000000','002bef38 4080c004 00000000',
+            '002bef3c 4080c005 00000000','002bef40 4080c006 00000000','002bef44 4080c007 00000000',
             '00208a90 0c0807c8 00000000',
             '0029cd7c 00a0302d 0220202d','0029cd80 0c044c70 0c0402cc',
             '0029cf14 00a0302d 0260202d','0029cf18 0c044c70 0c0402cc',
@@ -91,7 +93,7 @@ class KernelGuardTests(unittest.TestCase):
                       (0x29e230,0x29e310),(0x333640,0x333650),(0x333650,0x333d60),
                       (0x29e0b0,0x29e1c4),(0x312280,0x313100),(0x314138,0x31413c),
                       (0x217550,0x2175c0),(0x215870,0x2159c0),(0x216730,0x216780),(0x2494c0,0x249720),(0x249270,0x249390),(0x211da0,0x211dc0),(0x2c3c10,0x2c4378),(0x29cc30,0x29cf58),
-                      (0x29cb20,0x29cc30),(0x2b8f90,0x2b8fb4),(0x314200,0x314600),(0x208900,0x208aac),(0x2092f0,0x20975c),(0x2097c0,0x209818)):
+                      (0x29cb20,0x29cc30),(0x2b8f90,0x2b8fb4),(0x314200,0x314600),(0x208900,0x208aac),(0x2092f0,0x20975c),(0x2097c0,0x209818),(0x2bef20,0x2bf0dc)):
             segment=next(s for s in segments if s[0]==1 and s[2]<=lo<hi<=s[2]+s[4])
             for pc in range(lo,hi,4):
                 altered=bytearray(data);altered[segment[1]+pc-segment[2]]^=1
@@ -161,6 +163,14 @@ class KernelGuardTests(unittest.TestCase):
         for pc in range(0x1003bc,0x1003dc,4):
             data=bytearray(self.data);data[segment[1]+pc-segment[2]]^=1
             with self.subTest(pc=hex(pc)),self.assertRaises(ValueError):native_game_sites(data)
+
+    def test_unused_performance_counter_admission(self):
+        reject_performance_counter_reads(self.data)
+        for name in ('mod001','mod002'):
+            data=(IMAGE.parent/f'{name}.elf').read_bytes();reject_performance_counter_reads(data)
+            _,_,sections=elf_parts(data);section=next(s for s in sections if s[2]&6==6)
+            changed=bytearray(data);struct.pack_into('<I',changed,section[4],0x4002c000)
+            with self.assertRaises(ValueError):reject_performance_counter_reads(changed)
 
     def test_frame_clock_input(self):
         self.assertEqual(frame_adaptations(self.data),'0011fb54 0002137a 00000000\n')

@@ -7,6 +7,23 @@ target, not a replacement DLL loaded into PS2Recomp.
 
 ## Build and evidence
 
+### Unused profiling-counter reset (2026-11-07)
+
+The reached `0x2bef20` object-update owner wrote zero to five COP0 performance
+selectors before its software update loop. Offline inspection finds no reads
+of that counter in the currently generated main/mod001/mod002 images. Generation
+now rejects an image introducing such a read, pending a separate native
+consumer audit. Only the five write-only resets retire; the complete source
+owner is fingerprinted. No counter value, register bank or completion is served.
+
+Sixty-four generated comparisons observe the original writes without executing
+a device operation. All CPU/RAM and retained callback arguments/stack locations
+match, covering empty/disabled children, preallocated/dynamic lists, allocation
+failure, child roots and scratchpad callback branches. Original allocations,
+cleanup and virtual object updates remain compiled. Boot passes the reset and
+reaches the next unported object-update algorithm at `0x249044`. Native scene
+rendering and Logun remain unfinished.
+
 ### Constants-only global render setup (2026-11-07)
 
 The complete `0x29c990` source is fingerprinted and contains only eleven fixed

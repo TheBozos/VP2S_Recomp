@@ -12,7 +12,7 @@ import subprocess
 import sys
 from pathlib import Path
 from vp2_bozo_prepare import elf_parts
-from vp2_bozo_kernel import bindings as kernel_bindings, game_adaptations, frame_adaptations, native_game_sites,bootstrap_adaptations,overlay_adaptations,overlay_native_sites,display_adaptations,startup_clear_adaptations,composition_adaptations,debug_font_adaptations
+from vp2_bozo_kernel import bindings as kernel_bindings, game_adaptations, frame_adaptations, native_game_sites,bootstrap_adaptations,overlay_adaptations,overlay_native_sites,display_adaptations,startup_clear_adaptations,composition_adaptations,debug_font_adaptations,reject_performance_counter_reads
 
 ROOT = Path(__file__).resolve().parent.parent
 
@@ -49,6 +49,7 @@ def generate(args, build, data, engine_build, env):
         # supports macro-mode compatibility code; this port does not accept it
         # as a migration fallback. Later native algorithms replace these sites.
         raw = image.read_bytes()
+        reject_performance_counter_reads(raw)
         adaptations=[]
         if name == 'main':
             with ext.open('a') as stream:

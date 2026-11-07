@@ -10,6 +10,7 @@ struct NativeUiSprite {
     std::array<std::array<int32_t,2>,4> fixedCorners{};
     std::array<float,4> uv{};
     std::shared_ptr<const bozo::render::Texture> picture;
+    bool additive=false;
 };
 class NativeUiSprites {
     std::map<uint32_t,std::shared_ptr<const NativeButtonSheet>> sheets;
@@ -23,7 +24,7 @@ public:
     std::shared_ptr<const NativeButtonSheet> button(uint32_t sprite)const;
     void beginText(uint32_t stack,uint32_t element);
     std::vector<NativeUiSprite> finishText(uint32_t stack,uint32_t element);
-    void beginSprite(Runtime *,uint32_t stack,uint32_t sprite,uint32_t depth);
+    void beginSprite(Runtime *,uint32_t stack,uint32_t sprite,uint32_t depth,bool additive=false);
     void colour(uint32_t stack,uint32_t colour);
     void corner(uint32_t stack,unsigned index,int32_t x,int32_t y,const std::array<float,4> &uv);
     void finishSprite(uint32_t stack);

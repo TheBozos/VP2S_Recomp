@@ -105,11 +105,48 @@ int main(int argc,char **argv){try{
         check(!std::memcmp(&x,&y,sizeof(x)) && !std::memcmp(a.memory.flat(),b.memory.flat(),bozo::kFlatBytes) && !after.sprites.button(sprite));
         check(picture->rgba[0]==(0x80402000u|(seed<0x26?0x41u:0x3du)));
     }
+    for(unsigned seed=0;seed<64;++seed){
+        auto &a=old.runtime(),&b=native.runtime();std::memset(a.memory.flat(),0,bozo::kFlatBytes);
+        constexpr uint32_t element=0x1f0000,layer=0x1f1000,fis=0x1d0000;
+        put(a,0x35e170,manager);put(a,manager+0x840,16.f);put(a,manager+0x844,16.f);put(a,manager+0x848,27648.f);put(a,manager+0x84c,29184.f);
+        put(a,manager,0x15a1e0u);put(a,manager+0x828,0x1c0000u);put(a,0x1c0000,0x15a6f0u);put(a,0x1c0090,0x15a76cu);put(a,0x1c00c0,fis);
+        put(a,element,0x15a690u);put(a,element+0x14,layer);put(a,element+0x28,128.f);put(a,element+0x2c,4u);put(a,element+0x48,0x1f3000u);
+        put(a,element+0x120,2.25f+float(seed)/8);put(a,element+0x124,3.5f+float(seed)/4);put(a,element+0x1b8,.5f);
+        put(a,layer+0x40,10.f);put(a,layer+0x44,20.f);put(a,layer+0xe0,128.f);put(a,layer+0xc4,0xff0000u);
+        put(a,fis,0x534946u);put(a,fis+0x14,0x00494853u);put(a,fis+0x18,0x41u);put(a,dtt+0x10,uint16_t(1));
+        put(a,dtt+0x14,uint16_t(0x400));put(a,dtt+0x16,uint16_t(0x800));put(a,dtt+0x18,uint16_t(0xc00));put(a,dtt+0x1a,uint16_t(0x1000));
+        put(a,dtt+0x1c,uint16_t(16));put(a,dtt+0x1e,uint16_t(24));
+        for(uint32_t sprite:{element+0x50,element+0xb8}){
+            put(a,sprite,uint32_t(0));put(a,sprite+4,dtt);put(a,sprite+8,dtt+0x14);put(a,sprite+0x56,uint16_t(1));put(a,sprite+0x64,int8_t(-1));
+            put(a,sprite+0x2c,1.f);put(a,sprite+0x30,1.f);for(uint32_t at:{0x40u,0x44u,0x48u,0x4cu})put(a,sprite+at,128.f);
+        }
+        std::memcpy(b.memory.flat(),a.memory.flat(),bozo::kFlatBytes);R5900Context x{},y{};
+        for(uint32_t sprite:{element+0x50,element+0xb8})after.sprites.bindButton(&b,after.textures,sprite,0x21);
+        x.r[4].ud[0]=element;x.r[29].ud[0]=seed&1?0x70003f00:0x1fff000;x.r[31].ud[0]=0x170000;y=x;
+        run(old,x,0x2f2df0);run(native,y,0x2f2df0);x.cycleLimit=y.cycleLimit;
+        check(!std::memcmp(&x,&y,sizeof(x)) && !std::memcmp(a.memory.flat(),b.memory.flat(),bozo::kFlatBytes));
+        const auto held=after.texts.text(element);check(held && held->iconsCaptured && held->icons.size()==2 && !after.sprites.outstanding());
+        const int32_t left=27844+2*seed,top=29560+4*seed;
+        for(unsigned i=0;i<2;++i){const auto &s=held->icons[i];check(s.additive==(i==0));check(s.colour==(i?0x80808080u:0x40808080u) && s.depth==0xff0004);
+            check(s.fixedCorners==std::array<std::array<int32_t,2>,4>{{{left,top},{left+256,top},{left,top+384},{left+256,top+384}}});
+            check(s.uv==std::array<float,4>{.25f,.5f,.75f,1.f});}
+        // Cached rebuild skips preserve the same immutable publication.
+        x={};x.r[4].uw[0]=element;x.r[29].uw[0]=0x1fff000;x.r[31].uw[0]=0x170000;y=x;
+        run(old,x,0x2f2df0);run(native,y,0x2f2df0);x.cycleLimit=y.cycleLimit;
+        check(!std::memcmp(&x,&y,sizeof(x)) && !std::memcmp(a.memory.flat(),b.memory.flat(),bozo::kFlatBytes) && after.texts.text(element)==held);
+        const auto bytes=std::vector<uint8_t>(b.memory.flat(),b.memory.flat()+bozo::kFlatBytes);
+        R5900Context release{};release.pc=0x2f2d70;release.r[4].uw[0]=element;
+        check(vp2s::nativeUiSpriteInstruction(&release,&b,0x2f2d70)==false);
+        check(!after.texts.text(element) && !after.sprites.button(element+0x50) && !after.sprites.button(element+0xb8));
+        check(!std::memcmp(bytes.data(),b.memory.flat(),bytes.size()) && held->icons[0].picture->rgba[0]==0x80402041);
+    }
     auto &rt=native.runtime();constexpr uint32_t text=0x1f0000,stack=0x1fff000;
     auto rejects=[](auto action){bool rejected=false;try{action();}catch(const std::exception &){rejected=true;}check(rejected);};
     after.sprites.beginText(stack,text);check(after.sprites.buildingText(text));
     rejects([&]{after.sprites.beginText(stack,text);});
     rejects([&]{after.sprites.finishText(stack,text+4);});
+    put(rt,manager,0x15a1e0u);put(rt,manager+0x82c,0x1c0100u);put(rt,0x1c0100,0x15a6f0u);put(rt,0x1c0190,0x15a76cu);put(rt,0x1c01c0,0x1d0100u);
+    put(rt,0x1d0100,0x534946u);put(rt,0x1d0114,0x00494853u);put(rt,0x1d0118,0x3du);put(rt,dtt+0x10,uint16_t(3));
     put(rt,sprite+4,dtt);put(rt,sprite+8,dtt+0x14);put(rt,sprite+0x56,uint16_t(3));
     after.sprites.bindButton(&rt,after.textures,sprite,0x41);
     after.sprites.beginSprite(&rt,stack,sprite,0xff0000);
@@ -122,5 +159,5 @@ int main(int argc,char **argv){try{
     for(unsigned i=0;i<4;++i)after.sprites.corner(stack-0xd0,i,100+i,200+i,{0,0,1,1});
     after.sprites.finishSprite(stack-0xd0);auto retained=after.sprites.finishText(stack,text);after.sprites.reset(sprite);
     check(retained.size()==1 && retained[0].picture && !after.sprites.outstanding() && !after.sprites.buildingText(text));
-    std::puts("64 full button-sheet/reset plus64 original text-icon/scalar-sprite CPU/RAM cases: real lookup resume, both atlases, enable/reveal, colour/depth/UV/positions and immutable lifetime passed");return 0;
+    std::puts("64 button-sheet/reset +64 text-icon +64 two-pass image-element CPU/RAM cases: lookup resume, additive/alpha, cached rebuild, corners and destructor snapshot lifetime passed");return 0;
 }catch(const std::exception &e){std::fprintf(stderr,"%s\n",e.what());return 1;}}

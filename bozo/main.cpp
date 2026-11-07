@@ -107,7 +107,7 @@ public:
         const float identity[16]={1,0,0,0,0,1,0,0,0,0,1,0,0,0,0,1};
         bozo::render::Material material;material.blend=bozo::render::Material::Blend::Alpha;
         material.alphaTest=true;material.alphaRef=0;
-        for(const auto &text:layer.texts){for(const auto &glyph:text->glyphs){
+        for(const auto &text:layer.texts){material.blend=bozo::render::Material::Blend::Alpha;for(const auto &glyph:text->glyphs){
             for(bool shadow:{true,false}){
                 if(shadow && !glyph.shadow)continue;
                 const auto vertices=vp2s::nativeUiGlyphVertices(glyph,shadow);
@@ -115,6 +115,7 @@ public:
             }
         }
         for(const auto &icon:text->icons){
+            material.blend=icon.additive?bozo::render::Material::Blend::Additive:bozo::render::Material::Blend::Alpha;
             const auto vertices=vp2s::nativeUiSpriteVertices(icon);
             bozo::render::Renderer::instance().draw(material,identity,vertices.data(),vertices.size(),icon.picture);
         }}

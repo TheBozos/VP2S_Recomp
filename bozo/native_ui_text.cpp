@@ -102,6 +102,10 @@ void NativeUiTexts::icons(uint32_t element,std::vector<NativeUiSprite> icons){
     auto result=std::make_shared<NativeUiText>(*old);result->icons=std::move(icons);result->iconsCaptured=true;
     texts[element]=std::move(result);
 }
+void NativeUiTexts::spriteElement(uint32_t element,std::vector<NativeUiSprite> icons){
+    auto result=std::make_shared<NativeUiText>();result->element=element;result->icons=std::move(icons);result->iconsCaptured=true;
+    texts[element]=std::move(result);
+}
 std::array<bozo::render::Vertex,6> nativeUiSpriteVertices(const NativeUiSprite &sprite){
     const unsigned corners[6]={0,1,2,1,3,2};std::array<bozo::render::Vertex,6> vertices;
     for(unsigned i=0;i<6;++i){const auto corner=corners[i];auto &v=vertices[i];
@@ -125,6 +129,10 @@ NativeUiLayer NativeUiTexts::layer(Runtime *rt,uint32_t layer)const{
         record(rt,element,0x40);
         if(value<uint32_t>(rt,element+0x14)!=layer)throw std::runtime_error("native UI element has a different layer owner");
         if(!value<uint8_t>(rt,element+0x39) || !value<uint8_t>(rt,element+0x3d) || !value<uint8_t>(rt,element+0x3b))continue;
+        if(value<uint32_t>(rt,element)==0x15a690){
+            auto captured=text(element);if(!captured || !captured->iconsCaptured || !captured->glyphs.empty())throw std::runtime_error("native image element has no finished sprite snapshot");
+            result.texts.push_back(std::move(captured));continue;
+        }
         type(rt,element);auto captured=text(element);
         if(std::getenv("VP2S_BOZO_TRACE_QUEUES")){
             static unsigned traced=0;

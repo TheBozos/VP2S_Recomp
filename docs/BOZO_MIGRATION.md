@@ -8,6 +8,27 @@ target, not a replacement DLL loaded into PS2Recomp.
 
 ## Build and evidence
 
+### Native two-pass title image element (2026-11-07)
+
+Class `0x15a690` retains its original `0x2f2df0` builder. Native capture keeps both
+scalar sprite outputs in order: first the additive pass, then ordinary alpha.
+The original corner/colour calculations, cached-build flag and layer completion
+remain compiled. The native layer admits only a finished snapshot of this class;
+its destructor releases both sprite associations and the element snapshot.
+
+The actual source FIS pointer is null at draw. Separating evidence showed that
+the already-qualified constructor hook retained `SHI:41`, id `0x21`, for sprite
+`0x997a2c`, with the matching DTT/parts. Draw-time binding now reuses this typed
+native lease. No source-asset guess, packet lookup or hardware-address mapping
+was added. Temporary setup observers were removed.
+
+64 complete original/native builder CPU/RAM cases add null-FIS atlas leases,
+additive/alpha order, independently calculated corners/colours, scratch CPU
+stacks, cached rebuilds and immutable lifetime through destruction to the older
+128 button/icon cases. The full suite's other 48 checks and the updated startup
+check pass. Actual title layer `0x997530` submits one native image element;
+the next block is compiled Csd import `cdvdman:11` (`sceCdSync`). No Logun claim.
+
 ### Native short cosine (2026-11-07)
 
 The actual title camera next reached `0x214300`. Its degree-nine cosine

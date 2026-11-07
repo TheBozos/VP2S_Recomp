@@ -6,6 +6,21 @@ GIF packet read). Addresses are mod001 unless stated. [V] verified in the MIPS o
 
 ## Framework
 
+### Bozo two-pass image elements (2026-11-07)
+
+Class `0x15a690`, builder `0x2f2df0`, now captures the original scalar corners
+and colours for its additive and alpha sprite passes and submits immutable
+snapshots through the native UI layer. Cached rebuilds retain the snapshot;
+the destructor releases it and both sprite associations. The actual title's
+draw-time FIS pointer is null, so the image uses the original constructor's
+typed atlas lease, checked against the live DTT and parts. It never recovers
+an image from packet words or hardware addresses.
+
+64 original/native whole CPU/RAM comparisons cover both passes, independent
+corner/colour results, scratch CPU stacks and snapshot/destructor lifetime.
+The title layer submits natively; the next blocker is the compiled Csd disc
+service, not a completed Logun route.
+
 ### Bozo offline glyph assets (2026-11-07)
 
 `tools/vp2_glyphs.py` converts mcps fonts and glyph palette parts 1/2 offline.

@@ -37,6 +37,7 @@ public:
     void place(uint32_t stack,uint32_t element,const NativeUiGlyphPlacement &);
     void release(uint32_t element);
     void icons(uint32_t element,std::vector<NativeUiSprite>);
+    void spriteElement(uint32_t element,std::vector<NativeUiSprite>);
     std::shared_ptr<const NativeUiText> text(uint32_t element)const;
     NativeUiLayer layer(Runtime *,uint32_t layer)const;
     size_t outstanding()const{return builds.size();}

@@ -8,7 +8,7 @@
 namespace vp2s {
 namespace {
 template<class T>T value(Runtime *rt,uint32_t at){
-    if(!rt || at<0x100000 || at>0x2000000-sizeof(T))throw std::runtime_error("native button metadata outside EE RAM");
+    if(!rt || at<0x100000 || at>0x2000000-sizeof(T))throw std::runtime_error(std::format("native sprite metadata outside EE RAM: address={:x} size={}",at,sizeof(T)));
     T v;std::memcpy(&v,rt->memory.hostPointer(at,sizeof(T)),sizeof(T));return v;
 }
 }
@@ -52,7 +52,7 @@ std::vector<NativeUiSprite> NativeUiSprites::finishText(uint32_t stack,uint32_t 
     auto it=textBuilds.find(stack);if(it==textBuilds.end() || it->second.element!=element)throw std::runtime_error("native text-icon return escaped its invocation");
     auto result=std::move(it->second.sprites);textBuilds.erase(it);return result;
 }
-void NativeUiSprites::beginSprite(Runtime *rt,uint32_t stack,uint32_t sprite,uint32_t depth){
+void NativeUiSprites::beginSprite(Runtime *rt,uint32_t stack,uint32_t sprite,uint32_t depth,bool additive){
     if(stack<0xd0 || spriteBuilds.contains(stack-0xd0) || !textBuilds.contains(stack))throw std::runtime_error("native button draw has no original text invocation");
     const auto sheet=button(sprite);
     if(!sheet || value<uint32_t>(rt,sprite+4)!=sheet->dtt || value<uint32_t>(rt,sprite+8)!=sheet->parts ||
@@ -62,6 +62,7 @@ void NativeUiSprites::beginSprite(Runtime *rt,uint32_t stack,uint32_t sprite,uin
     const auto selected=value<int8_t>(rt,sprite+0x64);const auto csa=selected<0?value<uint8_t>(rt,part+12):uint32_t(selected);
     auto picture=sheet->asset->picture(csa);
     spriteBuilds.emplace(stack-0xd0,SpriteBuild{stack,NativeUiSprite{.sprite=sprite,.depth=depth,.picture=std::move(picture)}});
+    spriteBuilds.at(stack-0xd0).sprite.additive=additive;
 }
 void NativeUiSprites::colour(uint32_t stack,uint32_t colour){
     auto &build=spriteBuilds.at(stack);if(build.coloured)throw std::runtime_error("native button colour repeats");
@@ -79,21 +80,40 @@ void NativeUiSprites::finishSprite(uint32_t stack){
     text.sprites.push_back(std::move(it->second.sprite));spriteBuilds.erase(it);
 }
 std::optional<bool> nativeUiSpriteInstruction(R5900Context *c,Runtime *rt,uint32_t pc){
-    if(pc!=0x2ec308 && pc!=0x2ec320 && pc!=0x2efe40 && pc!=0x2effe8 && pc!=0x2eb3a0 && pc!=0x2eb5c4 && pc!=0x2ebac4 && pc!=0x2ebb0c && pc!=0x2ebb58 && pc!=0x2ebb9c && pc!=0x2ebba8)return std::nullopt;
+    if(pc!=0x2ec308 && pc!=0x2ec320 && pc!=0x2efe40 && pc!=0x2effe8 && pc!=0x2eb3a0 && pc!=0x2eb5c4 && pc!=0x2ebac4 && pc!=0x2ebb0c && pc!=0x2ebb58 && pc!=0x2ebb9c && pc!=0x2ebba8 && pc!=0x2f2df0 && pc!=0x2f2fb8 && pc!=0x2f2d70)return std::nullopt;
     auto *d=rt?dynamic_cast<bozo::ee::Dispatcher *>(rt->services):nullptr;
     auto *owner=d?dynamic_cast<UiSpriteOwner *>(&d->host()):nullptr;
     auto *textures=d?dynamic_cast<TextureOwner *>(&d->host()):nullptr;
     if(!c || !owner || !textures)throw std::runtime_error("native button sheet requires image/sprite owners");
     auto &sprites=owner->nativeUiSprites();const auto sp=c->r[29].uw[0];
-    if(pc==0x2efe40 || pc==0x2effe8){
+    if(pc==0x2f2df0 || pc==0x2f2fb8 || pc==0x2f2d70){
+        auto *texts=dynamic_cast<UiTextOwner *>(&d->host());if(!texts)throw std::runtime_error("native image element has no layer owner");
+        const auto element=c->r[pc==0x2f2fb8?18:4].uw[0];
+        if(pc==0x2f2d70 && !element)return false;
+        if(value<uint32_t>(rt,element)!=0x15a690)throw std::runtime_error("unported native image element class");
+        if(pc==0x2f2df0){
+            if(c->pc!=pc || sp<0x50 || (sp&15))throw std::runtime_error("native image element requires complete original builder");
+            if(!value<uint8_t>(rt,element+0x3b))sprites.beginText(sp-0x50,element);
+        }else if(pc==0x2f2fb8)texts->nativeUiTexts().spriteElement(element,sprites.finishText(sp,element));
+        else{
+            if(c->pc!=pc || sprites.buildingText(element))throw std::runtime_error("native image element destroyed during capture");
+            sprites.reset(element+0x50);sprites.reset(element+0xb8);texts->nativeUiTexts().release(element);
+        }
+    }else if(pc==0x2efe40 || pc==0x2effe8){
         auto *texts=dynamic_cast<UiTextOwner *>(&d->host());if(!texts)throw std::runtime_error("native button capture has no text owner");
         const auto element=c->r[pc==0x2efe40?4:21].uw[0];
         if(value<uint32_t>(rt,element)!=0x15a450 || !texts->nativeUiTexts().text(element))throw std::runtime_error("unported native button text class/lifetime");
         if(pc==0x2efe40){if(c->pc!=pc || sp<0xa0 || (sp&15))throw std::runtime_error("native text icons require original entry");sprites.beginText(sp-0xa0,element);}
         else texts->nativeUiTexts().icons(element,sprites.finishText(sp,element));
     }else if(pc==0x2eb3a0){
-        if(c->pc!=pc || c->r[31].uw[0]!=0x2eff74 || c->r[8].uw[0])throw std::runtime_error(std::format("unported native sprite caller/colour multiplier: caller={:x} sprite={:x} colour={:x} x={:x} y={:x} depth={:x}",c->r[31].uw[0],c->r[4].uw[0],c->r[8].uw[0],c->r[5].uw[0],c->r[6].uw[0],c->r[7].uw[0]));
-        sprites.beginSprite(rt,sp,c->r[4].uw[0],c->r[7].uw[0]);
+        const auto caller=c->r[31].uw[0];const bool image=caller==0x2f2efc || caller==0x2f2f8c;
+        if(c->pc!=pc || (caller!=0x2eff74 && !image) || c->r[8].uw[0])throw std::runtime_error(std::format("unported native sprite caller/colour multiplier: caller={:x} sprite={:x} colour={:x} x={:x} y={:x} depth={:x}",caller,c->r[4].uw[0],c->r[8].uw[0],c->r[5].uw[0],c->r[6].uw[0],c->r[7].uw[0]));
+        if(image){const auto element=c->r[18].uw[0];
+            if(value<uint32_t>(rt,element)!=0x15a690 || c->r[4].uw[0]!=element+(caller==0x2f2efc?0xb8:0x50) || !sprites.buildingText(element))
+                throw std::runtime_error("native image sprite escaped its original element builder");
+            if(!sprites.button(c->r[4].uw[0]))throw std::runtime_error("native image sprite requires original typed atlas binding");
+        }
+        sprites.beginSprite(rt,sp,c->r[4].uw[0],c->r[7].uw[0],caller==0x2f2efc);
     }else if(pc==0x2eb5c4)sprites.colour(sp,c->r[3].uw[0]);
     else if(pc==0x2ebba8)sprites.finishSprite(sp);
     else if(pc==0x2ebac4 || pc==0x2ebb0c || pc==0x2ebb58 || pc==0x2ebb9c){

@@ -10,16 +10,23 @@ template<class T>T value(Runtime *rt,uint32_t at){
     if(!rt || at<0x100000 || uint64_t(at)+sizeof(T)>0x2000000)throw std::runtime_error("native frame filter outside EE RAM");
     const auto *p=rt->memory.hostPointer(at,sizeof(T));if(!p)throw std::runtime_error("unmapped frame filter");T v;std::memcpy(&v,p,sizeof(T));return v;
 }
-void type(Runtime *rt,uint32_t object){
-    if(value<uint32_t>(rt,object)!=0x155d50 || value<uint32_t>(rt,object+0x90)!=0x155dcc ||
-       value<uint8_t>(rt,object+0xad) || value<uint8_t>(rt,object+0xae) || !value<uint8_t>(rt,object+0xaf))
-        throw std::runtime_error("unported native frame filter type/format/depth mode");
+bool type(Runtime *rt,uint32_t object){
+    if(value<uint32_t>(rt,object)!=0x155d50 || value<uint32_t>(rt,object+0x90)!=0x155dcc)
+        throw std::runtime_error("unowned native frame filter type");
+    // The original builder branches straight to its epilogue before reading
+    // any mode/format/source data when disabled.
+    if(!value<uint8_t>(rt,object+0xaf))return false;
+    if(value<uint8_t>(rt,object+0xad) || value<uint8_t>(rt,object+0xae))
+        throw std::runtime_error(std::format("unported native frame filter type/format/depth mode: object={:x} types={:x},{:x} selection={} format={} depth={} flag={}",object,value<uint32_t>(rt,object),value<uint32_t>(rt,object+0x90),value<uint8_t>(rt,object+0xac),value<uint8_t>(rt,object+0xad),value<uint8_t>(rt,object+0xae),value<uint8_t>(rt,object+0xaf)));
     const auto mode=value<uint8_t>(rt,object+0xac);if(mode<1 || mode>4)throw std::runtime_error("unported native frame filter level selection");
+    return true;
 }
 }
 void NativeFrameFilters::begin(Runtime *rt,uint32_t stack,uint32_t object){
     if(calls.contains(stack))throw std::runtime_error("native frame filter stack reused during capture");
-    type(rt,object);ready.erase(object);calls.emplace(stack,NativeFrameFilter{object,value<uint32_t>(rt,object+0x94)});
+    const bool enabled=type(rt,object);ready.erase(object);
+    if(!enabled){NativeFrameFilter empty;empty.object=object;empty.enabled=false;empty.finished=true;ready[object]=std::move(empty);return;}
+    calls.emplace(stack,NativeFrameFilter{object,value<uint32_t>(rt,object+0x94)});
 }
 void NativeFrameFilters::levels(uint32_t stack,uint32_t object,unsigned levels){
     auto it=calls.find(stack);if(it==calls.end() || it->second.object!=object || it->second.levels || levels<1 || levels>5)
@@ -40,9 +47,9 @@ void NativeFrameFilters::finish(uint32_t stack,uint32_t object){
     it->second.finished=true;ready[object]=std::move(it->second);calls.erase(it);
 }
 NativeFrameFilter NativeFrameFilters::submit(Runtime *rt,uint32_t object)const{
-    type(rt,object);auto it=ready.find(object);if(it==ready.end() || !it->second.finished || calls.end()!=std::find_if(calls.begin(),calls.end(),[&](const auto &p){return p.second.object==object;}))
+    const bool enabled=type(rt,object);auto it=ready.find(object);if(it==ready.end() || !it->second.finished || it->second.enabled!=enabled || calls.end()!=std::find_if(calls.begin(),calls.end(),[&](const auto &p){return p.second.object==object;}))
         throw std::runtime_error("native frame filter submitted before builder completion");
-    if(it->second.source!=value<uint32_t>(rt,object+0x94))throw std::runtime_error("native frame filter source changed after capture");
+    if(enabled && it->second.source!=value<uint32_t>(rt,object+0x94))throw std::runtime_error("native frame filter source changed after capture");
     const auto current=value<uint32_t>(rt,0x35ddf8);const auto layer=value<uint8_t>(rt,object+0x65);
     if(layer>1 || value<uint32_t>(rt,current+0x40a8+4*layer)!=object || value<uint8_t>(rt,current+0x40dc+layer)!=1)
         throw std::runtime_error("native frame filter missing pending scene ownership");
@@ -63,8 +70,11 @@ std::optional<bool> nativeFrameFilterInstruction(R5900Context *c,Runtime *rt,uin
         if(c->pc!=0x25aa10 || c->r[5].uw[0]<0x100090)throw std::runtime_error("native frame filter requires complete original producer");
         const auto submission=filters.submit(rt,c->r[5].uw[0]-0x90);
         const auto target=scene->nativeScene().frameTarget();
-        if(!target || target->object!=submission.source)throw std::runtime_error("native frame filter source is not active frame");
-        owner->drawNativeFrameFilter(submission);c->r[4].sd[0]=int32_t(submission.object);return true;
+        if(submission.enabled){
+            if(!target || target->object!=submission.source)throw std::runtime_error("native frame filter source is not active frame");
+            owner->drawNativeFrameFilter(submission);
+        }
+        c->r[4].sd[0]=int32_t(submission.object);return true;
     }
     return false;
 }

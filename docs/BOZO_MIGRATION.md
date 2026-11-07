@@ -8,6 +8,20 @@ target, not a replacement DLL loaded into PS2Recomp.
 
 ## Build and evidence
 
+### Disabled frame-filter lifetime (2026-11-07)
+
+The original `0x25aa40` builder branches directly to its epilogue when `+0xaf`
+is zero, before reading format, source or reduction mode. Native capture now
+invalidates an older enabled snapshot and publishes an owned empty result for
+that branch. Submission still checks pending scene ownership and executes the
+real original completion; no frame copy or reductions are drawn. Re-enabling
+requires a newly completed builder and cannot reuse the empty result.
+
+256 enabled plus 256 disabled snapshot/lifetime cases pass without CPU/RAM
+writes, including ignored inactive mode/source fields and stale-state rejection.
+Actual New Game reaches the next vector distance use at mod003 `0x3c5d58`.
+Logun remains open.
+
 ### Scaled source coordinates and display fields (2026-11-07)
 
 The native composition guard incorrectly required scaled source size to equal

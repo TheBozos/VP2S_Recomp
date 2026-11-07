@@ -8,7 +8,7 @@ struct NativeFrameFilter {
     unsigned levels=0;
     struct Layer{unsigned level;uint32_t colour;};
     std::vector<Layer> layers;
-    bool finished=false;
+    bool finished=false,enabled=true;
 };
 class NativeFrameFilters {
     std::map<uint32_t,NativeFrameFilter> calls;

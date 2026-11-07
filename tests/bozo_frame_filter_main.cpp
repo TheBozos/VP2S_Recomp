@@ -26,6 +26,17 @@ int main(){try{
         put(rt,scene+0x40dc,uint8_t(0));rejects([&]{filters.submit(&rt,object);});put(rt,scene+0x40dc,uint8_t(1));
         put(rt,object+0xad,uint8_t(1));rejects([&]{filters.submit(&rt,object);});put(rt,object+0xad,uint8_t(0));
         check(snapshot.layers[0].colour==(rgb|0x08000000));
+        put(rt,object+0xaf,uint8_t(0));rejects([&]{filters.submit(&rt,object);});
+        // Disabled builder must invalidate the previous enabled capture and
+        // consume no source/mode/format. Original completion still owns draw.
+        put(rt,object+0x94,uint32_t(0));put(rt,object+0xac,uint8_t(0));put(rt,object+0xad,uint8_t(255));put(rt,object+0xae,uint8_t(255));
+        const auto disabledBefore=std::vector<uint8_t>(rt.memory.flat(),rt.memory.flat()+bozo::kFlatBytes);
+        filters.begin(&rt,stack,object);const auto disabled=filters.submit(&rt,object);
+        check(!disabled.enabled && disabled.finished && !disabled.source && !disabled.levels && disabled.layers.empty());
+        rejects([&]{filters.levels(stack,object,5);});rejects([&]{filters.finish(stack,object);});
+        check(!std::memcmp(disabledBefore.data(),rt.memory.flat(),disabledBefore.size()));
+        put(rt,object+0xad,uint8_t(0));put(rt,object+0xae,uint8_t(0));put(rt,object+0xac,uint8_t(1));put(rt,object+0x94,source);put(rt,object+0xaf,uint8_t(1));
+        rejects([&]{filters.submit(&rt,object);});
     }
-    std::puts("256 native frame-filter snapshot/lifetime/ownership cases, no CPU/RAM writes");return 0;
+    std::puts("256 enabled and256 disabled native frame-filter snapshot/lifetime/ownership cases, no CPU/RAM writes");return 0;
 }catch(const std::exception &e){std::fprintf(stderr,"%s\n",e.what());return 1;}}

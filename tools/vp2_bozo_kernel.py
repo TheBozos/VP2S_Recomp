@@ -306,7 +306,9 @@ def overlay_adaptations(name,data):
         _,segments,_=elf_parts(data)
         for lo,hi,expected in ((0x3d7708,0x3d77cc,'435926535d852e22f0b20b9027f65fd6674acc7a63b6aaedb31e59c63a1cd1c8'),
                                (0x3d5670,0x3d57ec,'250a2389769015fbda23859f5082b6f69031a706af85f263b765f34130611ecc'),
-                               (0x378908,0x3789c8,'25cee96dbb982fe7f31c806c09286d7d6d1630101851998b42a1431e9cf4fd17')):
+                               (0x378908,0x3789c8,'25cee96dbb982fe7f31c806c09286d7d6d1630101851998b42a1431e9cf4fd17'),
+                               (0x3d9230,0x3d925c,'60fa72c319ee92c05082ae3e1496caba1b37138f89c8e22411be03477740c5d8'),
+                               (0x3d95ac,0x3d95b8,'e53ce69864c095f0410aa0422eb78527d3c44442b5a5f02312e8353d3e0cc3f7')):
             s=next(s for s in segments if s[0]==1 and s[2]<=lo<hi<=s[2]+s[4]);at=s[1]+lo-s[2]
             if hashlib.sha256(data[at:at+hi-lo]).hexdigest()!=expected:raise ValueError('USA native field initialization source mismatch')
         # Each initializer has returned before this delay. It polls only timer0,
@@ -315,7 +317,12 @@ def overlay_adaptations(name,data):
         # Native frame targets clear their own colour/depth/stencil. This
         # separate physical fill has no native graphics-memory destination.
         # Keep the original CPU allocation/fill/descriptors/cache reset/free.
-        return ('003d5694 0c04896e 00000000\n'
+        # Field pacing still uses the real ported frame-event API below and
+        # in the update loop. Its old timer0 HBLANK setup/reset owns no native
+        # counter; neither write produces a result or completion to replace.
+        return ('003d9238 ac220010 00000000\n'
+                '003d95b0 ac200000 00000000\n'
+                '003d5694 0c04896e 00000000\n'
                 '003d5794 0c048afe 00000000\n'
                 '003d57a0 0c04896e 00000000\n'
                 '003d7718 3c011000 00000000\n'

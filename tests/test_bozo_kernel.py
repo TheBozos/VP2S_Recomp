@@ -15,8 +15,13 @@ class KernelGuardTests(unittest.TestCase):
         data=(IMAGE.parent/'mod003.elf').read_bytes()
         words={0x3d7718:0x3c011000,0x3d771c:0x8c360000,0x3d7740:0x3c011000,0x3d7744:0x8c220000,
                0x3d7748:0x00561023,0x3d774c:0x2c41003f,0x3d7750:0x10200005,0x3d7760:0x1000fff7}
-        self.assertEqual(overlay_adaptations('mod003',data),'003d5694 0c04896e 00000000\n003d5794 0c048afe 00000000\n003d57a0 0c04896e 00000000\n'+''.join(f'{pc:08x} {word:08x} 00000000\n' for pc,word in words.items()))
+        self.assertEqual(overlay_adaptations('mod003',data),'003d9238 ac220010 00000000\n003d95b0 ac200000 00000000\n003d5694 0c04896e 00000000\n003d5794 0c048afe 00000000\n003d57a0 0c04896e 00000000\n'+''.join(f'{pc:08x} {word:08x} 00000000\n' for pc,word in words.items()))
         _,segments,_=elf_parts(data);lo,hi=0x3d7708,0x3d77cc
+        s=next(s for s in segments if s[0]==1 and s[2]<=lo<hi<=s[2]+s[4])
+        for pc in range(lo,hi,4):
+            changed=bytearray(data);changed[s[1]+pc-s[2]]^=1
+            with self.subTest(pc=hex(pc)),self.assertRaises(ValueError):overlay_adaptations('mod003',changed)
+        lo,hi=0x3d5670,0x3d57ec
         s=next(s for s in segments if s[0]==1 and s[2]<=lo<hi<=s[2]+s[4])
         for pc in range(lo,hi,4):
             changed=bytearray(data);changed[s[1]+pc-s[2]]^=1
@@ -28,12 +33,14 @@ class KernelGuardTests(unittest.TestCase):
         for pc in range(lo,hi,4):
             changed=bytearray(data);changed[s[1]+pc-s[2]]^=1
             with self.subTest(pc=hex(pc)),self.assertRaises(ValueError):overlay_adaptations('mod003',changed)
-        lo,hi=0x3d5670,0x3d57ec
-        s=next(s for s in segments if s[0]==1 and s[2]<=lo<hi<=s[2]+s[4])
-        for pc in range(lo,hi,4):
-            changed=bytearray(data);changed[s[1]+pc-s[2]]^=1
-            with self.subTest(pc=hex(pc)),self.assertRaises(ValueError):overlay_adaptations('mod003',changed)
 
+    def test_field_frame_pacing_retirement(self):
+        data=(IMAGE.parent/'mod003.elf').read_bytes();_,segments,_=elf_parts(data)
+        for lo,hi in ((0x3d9230,0x3d925c),(0x3d95ac,0x3d95b8)):
+            s=next(s for s in segments if s[0]==1 and s[2]<=lo<hi<=s[2]+s[4])
+            for pc in range(lo,hi,4):
+                changed=bytearray(data);changed[s[1]+pc-s[2]]^=1
+                with self.subTest(pc=hex(pc)),self.assertRaises(ValueError):overlay_adaptations('mod003',changed)
     @classmethod
     def setUpClass(cls):
         cls.data=IMAGE.read_bytes()

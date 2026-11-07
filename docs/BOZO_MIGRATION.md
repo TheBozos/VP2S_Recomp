@@ -8,6 +8,19 @@ target, not a replacement DLL loaded into PS2Recomp.
 
 ## Build and evidence
 
+### Native field-loop pacing ownership (2026-11-07)
+
+Mod003's field loop now retires only timer0 HBLANK-mode setup at `0x3d9238`
+and the paired counter reset at `0x3d95b0`. The loop has no timer-register
+read; its actual pacing/query calls remain through already ported `0x11f5a0`
+and `0x11f590`. Event waits, UI work and the field update remain compiled.
+No counter or completion value is provided. Guard mutations, native frame-event
+fixtures, field distance and startup checks pass (four targeted suites).
+
+Actual New Game passes the timer setup and reaches a distinct source-frame
+layout guard: logical source `512 x 512.95996`, display fields `640 x 224`.
+Scaled source-to-display composition is being traced; Logun remains open.
+
 ### Native field position distance (2026-11-07)
 
 Mod003 `0x378908..0x3789c8` retains its scalar position subtraction, temporary

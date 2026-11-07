@@ -476,6 +476,7 @@ def overlay_adaptations(name,data):
         (0x215870,0x2159c0,'c3cd1b33f97be33016d939dcf099aa81f1dddc53735f661478db065e35ed1c47'),
         (0x215640,0x2156c8,'eaaddd85c3dde1abde3f12e8cc605374ea14f6dae53cd29c9244b8294ed1c676'),
         (0x2076a0,0x2077e0,'3dbd062a459cbdf356c0f99f7dca46d7dcdcd9b593ebfb56fd52e451e201dbd7'),
+        (0x2075a0,0x2075e0,'b4f2072552d30100b174620bc445c64fa971d56c9776539660d3e632b2a939b2'),
         (0x208900,0x208aac,'18ce58f2b4fb80da5a27b84951044a913c3ad676c01eb8456f4ab893de24f9ee'),
         (0x2092f0,0x20975c,'2060db8cd95539c247455d89bf3688dddfcc7905556baaa94a3afaa96583ab59'),
         (0x2097c0,0x209818,'8d94153af0cc888db971b38ac30c105f8201685dd02ddb8c86578c1a65767f22'),
@@ -515,6 +516,13 @@ def overlay_adaptations(name,data):
             '00306bcc 3c011000 00000000\n'
             '00306bd4 8c340000 00000000\n'
             '00249830 ac22e000 00000000\n'
+            # Preserve the empty child writer's original CPU flush, then run
+            # its real scalar completion. Padding holds the relocated epilogue.
+            '002075c8 dfbf0000 0c081d60\n'
+            '002075cc 03e00008 00000000\n'
+            '002075d0 27bd0010 dfbf0000\n'
+            '002075d4 00000000 03e00008\n'
+            '002075d8 00000000 27bd0010\n'
             # Keep the canonical game texture-manager record in EE memory.
             # No copy is made, no physical job is queued, and no completion
             # condition is served. Its guarded scene frame owns this lifetime.
@@ -597,7 +605,7 @@ def overlay_native_sites(name,data):
     if name!='mod001':return ''
     overlay_adaptations(name,data)
     return ''.join(f'native 0x{pc:x}\n' for pc in (
-        0x30ce84,0x306a10,0x306b84,0x306bc4,0x306c58,
+        0x2075bc,0x2075cc,0x30ce84,0x306a10,0x306b84,0x306bc4,0x306c58,
         0x30ee00,0x30ef20,0x30ef2c,0x30ef44,0x30ef78,0x30efb8,0x30eff4,0x30f028,0x30f070,0x30ed90,
         0x214540,0x2e9640,0x2e970c,0x2e95d0,0x2e9e90,0x2ea154,0x2ea338,0x2ead10,0x2eae90,0x2eb07c,0x2eb284,0x2eb2ec,0x2eb300,0x2eb320,0x2eb340,0x2eb378,
         0x29e1a0,0x2c3cb4,0x29cc30,0x29cd7c,0x29cf14,0x29cf30,0x29cc00,0x29e160,

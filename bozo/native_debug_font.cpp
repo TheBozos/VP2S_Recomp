@@ -58,6 +58,10 @@ void NativeDebugFonts::publish(Runtime *rt,uint32_t stack,uint32_t object){
 }
 void NativeDebugFonts::retire(Runtime *rt,R5900Context *c){
     auto it=publications.find(c->r[29].uw[0]);
+    if(it==publications.end() && value<uint32_t>(rt,c->r[29].uw[0]+0x20)==0x3d3648 && c->r[9].uw[0]>=0x100090){
+        const auto object=c->r[9].uw[0]-0x90;record(rt,object,0xf8);
+        throw std::runtime_error(std::format("unported native fade: object={:x} type={:x} modes={},{},{} flags={:x} colour={:08x} box={},{},{},{} depth={:x} writerBytes={}",object,value<uint32_t>(rt,object),value<int8_t>(rt,object+0xf2),value<int8_t>(rt,object+0xf3),value<int8_t>(rt,object+0xf4),value<uint8_t>(rt,object+0xf5),value<uint32_t>(rt,object+0xa0),value<int32_t>(rt,object+0xb0),value<int32_t>(rt,object+0xb4),value<int32_t>(rt,object+0xb8),value<int32_t>(rt,object+0xbc),value<uint32_t>(rt,object+0xc0),value<uint32_t>(rt,c->r[17].uw[0]+8)-value<uint32_t>(rt,c->r[17].uw[0]+12)));
+    }
     if(it==publications.end() && std::getenv("VP2S_BOZO_TRACE_QUEUES") &&
        value<uint32_t>(rt,c->r[29].uw[0]+0x20)==0x3721a8 && c->r[9].uw[0]>=0x100090){
         const auto object=c->r[9].uw[0]-0x90,buffer=c->r[17].uw[0];record(rt,object,0xf8);

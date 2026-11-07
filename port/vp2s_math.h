@@ -208,8 +208,11 @@ inline __m128 normalizeQuaternion(__m128 value) {
     const float reciprocal=length!=0.f ? 1.f/length : std::numeric_limits<float>::max();
     // Materialize before the rounding guard restores the caller's mode.
     // Optimizers can otherwise sink this intrinsic past the MXCSR restore.
-    volatile __m128 result=_mm_mul_ps(value,_mm_set1_ps(reciprocal));
-    return result;
+    const auto scaled=_mm_mul_ps(value,_mm_set1_ps(reciprocal));
+    // Scalar volatile components also work with MSVC's special __m128 type.
+    volatile float result[4];
+    for(unsigned i=0;i<4;++i)result[i]=music::laneValue(scaled,i);
+    return _mm_setr_ps(result[0],result[1],result[2],result[3]);
 }
 // The game accepts the supplied quaternion as-is; normalization is a separate
 // operation. Preserve its product and subtraction order, including signed zero.

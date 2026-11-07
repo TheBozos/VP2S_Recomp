@@ -106,12 +106,13 @@ class KernelGuardTests(unittest.TestCase):
 
     def test_overlay_initializer(self):
         data=(IMAGE.parent/'mod001.elf').read_bytes()
-        entries=overlay_entries('mod001',data);self.assertEqual(len(entries),53)
+        entries=overlay_entries('mod001',data);self.assertEqual(len(entries),54)
+        self.assertIn(dict(Name='native_empty_child_draw',Start='0x2075a0',End='0x2075e0'),entries)
         self.assertIn(dict(Name='ui_transition_002ea350',Start='0x2ea350',End='0x2ea6f0'),entries)
         self.assertIn(dict(Name='camera_method_001e8080',Start='0x1e8080',End='0x1e80a0'),entries)
         self.assertEqual(entries[0],dict(Name='module_initializer_00358200',Start='0x358200',End='0x358230'))
         _,segments,_=elf_parts(data)
-        for lo,hi in ((0x358200,0x358a10),(0x358a10,0x358a7c),(0x29e240,0x29e280),
+        for lo,hi in ((0x2075a0,0x2075e0),(0x358200,0x358a10),(0x358a10,0x358a7c),(0x29e240,0x29e280),
                       (0x1e7fd0,0x1e8220),(0x1fae30,0x1faeb0),(0x2ea350,0x2ea6f0),(0x357960,0x357984)):
             segment=next(s for s in segments if s[0]==1 and s[2]<=lo<hi<=s[2]+s[4])
             for pc in range(lo,hi,4):
@@ -130,6 +131,8 @@ class KernelGuardTests(unittest.TestCase):
             '00306b84 3c011000 00000000','00306b8c 8c340000 00000000','00306bb8 3c011000 00000000','00306bbc 8c220000 00000000',
             '00306bc0 00541023 00000000','00306bc4 2c41002b 00000000','00306bcc 3c011000 00000000','00306bd4 8c340000 00000000',
             '00249830 ac22e000 00000000',
+            '002075c8 dfbf0000 0c081d60','002075cc 03e00008 00000000','002075d0 27bd0010 dfbf0000',
+            '002075d4 00000000 03e00008','002075d8 00000000 27bd0010',
             '00221300 0c0a75cc 00000000','00221554 4100fffa 00000000','00221568 0c04df7e 00000000',
             '002216fc 0c0a75ac 00000000','0022172c 4100fffa 00000000','00221740 0c04df7e 00000000',
             '002088ec 0c0807c8 00000000',
@@ -154,7 +157,7 @@ class KernelGuardTests(unittest.TestCase):
             '0029cc00 00a0302d 0220202d','0029cc04 0c044c70 0c0402cc',
             '002c3cb4 8c220000 00000000','002c3cb8 10000015 080b0f48'])
         self.assertEqual(overlay_native_sites('mod001',data),''.join(f'native 0x{pc:x}\n' for pc in (
-        0x30ce84,0x306a10,0x306b84,0x306bc4,0x306c58,
+        0x2075bc,0x2075cc,0x30ce84,0x306a10,0x306b84,0x306bc4,0x306c58,
         0x30ee00,0x30ef20,0x30ef2c,0x30ef44,0x30ef78,0x30efb8,0x30eff4,0x30f028,0x30f070,0x30ed90,
         0x214540,0x2e9640,0x2e970c,0x2e95d0,0x2e9e90,0x2ea154,0x2ea338,0x2ead10,0x2eae90,0x2eb07c,0x2eb284,0x2eb2ec,0x2eb300,0x2eb320,0x2eb340,0x2eb378,
             0x29e1a0,0x2c3cb4,0x29cc30,0x29cd7c,0x29cf14,0x29cf30,0x29cc00,0x29e160,
@@ -168,7 +171,7 @@ class KernelGuardTests(unittest.TestCase):
         for lo,hi in ((0x249720,0x24a438),(0x202150,0x202200),(0x29e1d0,0x29e22c),
                       (0x29e230,0x29e310),(0x333640,0x333650),(0x333650,0x333d60),
                       (0x29e0b0,0x29e1c4),(0x312280,0x313100),(0x314138,0x31413c),
-                      (0x217550,0x2175c0),(0x215870,0x2159c0),(0x215640,0x2156c8),(0x2076a0,0x2077e0),(0x216730,0x216780),(0x2494c0,0x249720),(0x249270,0x249390),(0x211da0,0x211dc0),(0x2c3c10,0x2c4378),(0x29cc30,0x29cf58),
+                      (0x217550,0x2175c0),(0x215870,0x2159c0),(0x215640,0x2156c8),(0x2076a0,0x2077e0),(0x2075a0,0x2075e0),(0x216730,0x216780),(0x2494c0,0x249720),(0x249270,0x249390),(0x211da0,0x211dc0),(0x2c3c10,0x2c4378),(0x29cc30,0x29cf58),
                       (0x29cb20,0x29cc30),(0x2b8f90,0x2b8fb4),(0x314200,0x314600),(0x208900,0x208aac),(0x2092f0,0x20975c),(0x2097c0,0x209818),(0x2bef20,0x2bf0dc),(0x248fc0,0x24926c),(0x213fd0,0x2140f4),(0x358490,0x358690),(0x216e40,0x216f4c),(0x213b50,0x213e9c),(0x216960,0x216a60),
                       (0x208cd0,0x2091d8),(0x207d70,0x2081c8),(0x208360,0x208470),(0x20f440,0x20f938),(0x207cc0,0x207d70),(0x2205c0,0x220d14),
                       (0x29e310,0x29e378),(0x29e420,0x29e4a4),(0x221030,0x2210b8),(0x221260,0x22177c),

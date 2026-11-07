@@ -30,6 +30,8 @@ int main(int argc,char **argv){try{
     for(int algorithm:{0,2,4}){
         fixture(dir,algorithm);vp2s::NativeModels models(dir);Runtime rt;vp2s::NativeScene scene;vp2s::NativeAssets assets;vp2s::NativeTextures textures;
         std::memset(rt.memory.flat(),0,bozo::kFlatBytes);
+        // This fixture uses the constructor's two-field base height (448).
+        put(rt,0x1c8d00+0xcc84,uint8_t(1));
         put(rt,0x35ddf8,current);put(rt,current+0x40a8,object);put(rt,current+0x40dc,uint8_t(1));
         put(rt,target+0x3c76,uint8_t(1));put(rt,target+0x3c60,1.f);put(rt,target+0x3c64,1.f);
         put(rt,target+0x3c68,int16_t(640));put(rt,target+0x3c6a,int16_t(448));

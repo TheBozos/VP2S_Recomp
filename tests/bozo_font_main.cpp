@@ -9,6 +9,8 @@
 #include "font_flush_adapted_functions.h"
 #include "font_defaults_original_functions.h"
 #include "font_defaults_adapted_functions.h"
+#include "font_empty_original_functions.h"
+#include "font_empty_adapted_functions.h"
 #include <cstdio>
 #include <cstring>
 #include <stdexcept>
@@ -32,6 +34,7 @@ struct Host:bozo::ee::Host,bozo::port::Host,vp2s::DebugFontOwner,vp2s::TextureOw
     bozo::libs::Libraries &libraries()override{throw std::runtime_error("libraries");}
     bool nativeGraphics()const override{return true;}
     bool nativeInstruction(uint8_t *r,R5900Context *c,Runtime *rt,uint32_t pc)override{
+        if(!adapted && pc==0x2075cc)setups.returned(rt,c->r[29].uw[0]-0x30);
         if(auto known=vp2s::nativeStateSetupInstruction(r,c,rt,pc))return *known;
         auto result=vp2s::nativeDebugFontInstruction(r,c,rt,pc);check(result.has_value());return *result;
     }
@@ -44,6 +47,7 @@ struct Host:bozo::ee::Host,bozo::port::Host,vp2s::DebugFontOwner,vp2s::TextureOw
         else if(pc==0x1134c0)c->r[2].sd[0]=0x1234;
         else if(pc==0x120f70)put(rt,c->r[4].uw[0]+8,(c->r[5].uw[0]+15)&~15u);
         else if(pc==0x1131c0){check(!adapted);if(setups.active(c->r[29].uw[0]))setups.retire(&rt,c);else fonts.retire(&rt,c);++enqueues;c->r[2].sd[0]=7;}
+        else if(pc==0x1130f0)c->r[2].ud[0]=0;
         else throw std::runtime_error("unexpected font leaf");
         c->pc=c->r[31].uw[0];if(pause){++pauses;throw Pause{};}
     }
@@ -54,8 +58,8 @@ struct Host:bozo::ee::Host,bozo::port::Host,vp2s::DebugFontOwner,vp2s::TextureOw
 };
 void run(bozo::ee::Dispatcher &d,R5900Context &c,uint32_t pc){
     auto fn=d.runtime().functions.generated(pc);check(fn);unsigned tries=0;
-    while(true){try{fn(d.runtime().memory.flat(),&c,&d.runtime());break;}catch(const Pause &){}
-        check(++tries<8);auto entry=d.runtime().functions.resumeEntry(c.pc);check(entry);fn=entry->resume;
+    while(true){try{fn(d.runtime().memory.flat(),&c,&d.runtime());if(c.pc==0x170000)break;}catch(const Pause &){}
+        check(++tries<16);auto entry=d.runtime().functions.resumeEntry(c.pc);check(entry);fn=entry->resume;
     }
 }
 }
@@ -64,20 +68,24 @@ int main(int argc,char **argv){try{
     std::vector<BozoFunctionEntry> oldFunctions(font_init_original_function_table,font_init_original_function_table+font_init_original_function_count);
     oldFunctions.insert(oldFunctions.end(),font_flush_original_function_table,font_flush_original_function_table+font_flush_original_function_count);
     oldFunctions.insert(oldFunctions.end(),font_defaults_original_function_table,font_defaults_original_function_table+font_defaults_original_function_count);
+    oldFunctions.insert(oldFunctions.end(),font_empty_original_function_table,font_empty_original_function_table+font_empty_original_function_count);
     std::vector<BozoResumeEntry> oldResume(font_init_original_resume_table,font_init_original_resume_table+font_init_original_resume_count);
     oldResume.insert(oldResume.end(),font_flush_original_resume_table,font_flush_original_resume_table+font_flush_original_resume_count);
     oldResume.insert(oldResume.end(),font_defaults_original_resume_table,font_defaults_original_resume_table+font_defaults_original_resume_count);
+    oldResume.insert(oldResume.end(),font_empty_original_resume_table,font_empty_original_resume_table+font_empty_original_resume_count);
     std::vector<BozoFunctionEntry> newFunctions(font_init_adapted_function_table,font_init_adapted_function_table+font_init_adapted_function_count);
     newFunctions.insert(newFunctions.end(),font_flush_adapted_function_table,font_flush_adapted_function_table+font_flush_adapted_function_count);
     newFunctions.insert(newFunctions.end(),font_defaults_adapted_function_table,font_defaults_adapted_function_table+font_defaults_adapted_function_count);
+    newFunctions.insert(newFunctions.end(),font_empty_adapted_function_table,font_empty_adapted_function_table+font_empty_adapted_function_count);
     std::vector<BozoResumeEntry> newResume(font_init_adapted_resume_table,font_init_adapted_resume_table+font_init_adapted_resume_count);
     newResume.insert(newResume.end(),font_flush_adapted_resume_table,font_flush_adapted_resume_table+font_flush_adapted_resume_count);
     newResume.insert(newResume.end(),font_defaults_adapted_resume_table,font_defaults_adapted_resume_table+font_defaults_adapted_resume_count);
+    newResume.insert(newResume.end(),font_empty_adapted_resume_table,font_empty_adapted_resume_table+font_empty_adapted_resume_count);
     for(auto *table:{&oldFunctions,&newFunctions})std::sort(table->begin(),table->end(),[](const auto &x,const auto &y){return x.address<y.address;});
     for(auto *table:{&oldResume,&newResume})std::sort(table->begin(),table->end(),[](const auto &x,const auto &y){return x.start<y.start;});
     a.setFunctions(oldFunctions.data(),oldFunctions.size(),oldResume.data(),oldResume.size());
     b.setFunctions(newFunctions.data(),newFunctions.size(),newResume.data(),newResume.size());a.runtime().port=&old;b.runtime().port=&now;
-    for(auto *d:{&a,&b})for(uint32_t pc:{0x112860u,0x120fa0u,0x1134c0u,0x120f70u,0x1131c0u})d->bindLibrary(pc);
+    for(auto *d:{&a,&b})for(uint32_t pc:{0x112860u,0x120fa0u,0x1134c0u,0x120f70u,0x1131c0u,0x1130f0u})d->bindLibrary(pc);
     unsigned cases=0;
     for(unsigned seed=0;seed<64;++seed){
         old.fonts={};now.fonts={};old.enqueues=now.enqueues=now.pauses=0;now.pause=(seed&4)!=0;
@@ -130,7 +138,37 @@ int main(int argc,char **argv){try{
         put<uint32_t>(y,0x35df18,value<uint32_t>(y,0x35df18)+16);bool rejected=false;
         try{now.setups.beginDefaults(&y,1);}catch(const std::runtime_error &){rejected=true;}check(rejected);
     }
-    auto &rt=b.runtime();put<uint32_t>(rt,0x35df1c,0x30180040);put<uint32_t>(rt,0x35df18,0x30180100);
+    for(unsigned seed=0;seed<64;++seed){
+        old.setups={};now.setups={};old.enqueues=now.enqueues=0;old.pause=false;now.pause=seed&4;
+        auto &x=a.runtime(),&y=b.runtime();std::memset(x.memory.flat(),0x53,bozo::kFlatBytes);
+        constexpr uint32_t object=0x180000,buffer=0x190000,base=0x1a0000,scene=0x1b0000,secondary=0x1c0000;
+        const uint32_t layer=seed&1;
+        put(x,object,uint32_t(0x1653d0));put(x,object+0x98,object+0x90);put(x,object+0x114,buffer);
+        put(x,object+0x63,uint8_t(1));put(x,object+0x64,uint8_t(0));put(x,object+0x65,uint8_t(layer));
+        put(x,buffer,base);put(x,buffer+12,base+0x40);put(x,buffer+8,base+0x60);put(x,buffer+16,uint32_t(0x100));
+        put(x,0x35ddf8,scene);put(x,scene+0x40a8+layer*4,object);put(x,scene+0x40dc+layer,uint8_t(1));
+        put(x,scene+0x4088,seed&2?secondary:0u);put(x,secondary+0x3e6a,uint8_t(0));
+        std::memcpy(y.memory.flat(),x.memory.flat(),bozo::kFlatBytes);
+        R5900Context p{};for(unsigned i=1;i<32;++i){p.r[i].ud[0]=seed*32+i;p.r[i].ud[1]=~p.r[i].ud[0];}
+        p.r[4].ud[0]=object;p.r[29].ud[0]=0x1fff000;p.r[31].ud[0]=0x170000;auto q=p;
+        run(a,p,0x2075a0);run(b,q,0x2075a0);
+        check(!std::memcmp(x.memory.flat(),y.memory.flat(),bozo::kFlatBytes));
+        check(old.enqueues==1 && now.enqueues==0 && !old.setups.outstanding() && !now.setups.outstanding());
+        check(*y.memory.hostPointer(object+0x64,1)==0 && *y.memory.hostPointer(object+0x62,1)==1 && *y.memory.hostPointer(scene+0x40dc+layer,1)==0);
+        check(value<uint32_t>(y,buffer+8)==base+0x70 && value<uint32_t>(y,buffer+12)==base+0x70);
+        check(p.cycles==q.cycles+8 && p.checkpoints==q.checkpoints+1);p.cycles-=8;--p.checkpoints;p.cycleLimit=q.cycleLimit;p.r[2]=q.r[2];
+        if(std::memcmp(&p,&q,sizeof(p))){const auto *pb=reinterpret_cast<const uint8_t *>(&p),*qb=reinterpret_cast<const uint8_t *>(&q);
+            for(unsigned i=0;i<sizeof(p);++i)if(pb[i]!=qb[i]){std::fprintf(stderr,"empty CPU seed%u diff byte%u=%02x/%02x pc%x/%x\n",seed,i,pb[i],qb[i],p.pc,q.pc);break;}}
+        check(!std::memcmp(&p,&q,sizeof(p)));++cases;
+        // Failed acceptance cannot clear the game's pending byte or flush.
+        put(y,object+0x64,uint8_t(1));put(y,scene+0x40dc+layer,uint8_t(1));put(y,scene+0x40a8+layer*4,object);
+        put(y,buffer+12,base+0x40);put(y,buffer+8,base+0x70);
+        bool rejected=false;try{now.setups.beginEmptyChildren(&y,1,object);}catch(const std::runtime_error &){rejected=true;}
+        check(rejected && !now.setups.outstanding() && *y.memory.hostPointer(object+0x64,1)==1 && value<uint32_t>(y,buffer+8)==base+0x70);
+        put(y,buffer+8,base+0x60);put(y,object+0x98,uint32_t(0x1d0000));rejected=false;
+        try{now.setups.beginEmptyChildren(&y,1,object);}catch(const std::runtime_error &){rejected=true;}check(rejected && !now.setups.outstanding());
+    }
+    auto &rt=b.runtime();put<uint32_t>(rt,0x35df10,0x30180000);put<uint32_t>(rt,0x35df20,0x1000);put<uint32_t>(rt,0x35df1c,0x30180040);put<uint32_t>(rt,0x35df18,0x30180100);
     now.setups.beginDefaults(&rt,1);bool duplicate=false;
     try{now.setups.beginDefaults(&rt,1);}catch(const std::runtime_error &){duplicate=true;}check(duplicate);
     R5900Context c{};c.r[29].uw[0]=1;c.r[17].uw[0]=0x35df10;c.r[16].uw[0]=0x30180110;c.r[2].uw[0]=0x30180040;c.r[5].uw[0]=2;c.r[8].uw[0]=13;

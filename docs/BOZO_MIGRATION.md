@@ -8,6 +8,27 @@ target, not a replacement DLL loaded into PS2Recomp.
 
 ## Build and evidence
 
+### Empty child-writer lifetime and real completion (2026-11-08)
+
+The empty class `0x1653d0` builder emits one state entry and no geometry. Its
+draw now owns a guarded 32-byte writer range through the original CPU flush;
+extra content or populated children reject. Native materials own that state.
+The original writer cursor stores remain, followed by compiled `0x207580`
+and `0x21c9a0` completion. Only the transport enqueue retires; no completion
+bit is invented. Relocated epilogue instructions use verified padding and the
+static function extent explicitly includes them.
+
+Another 64 full CPU/RAM flush/completion comparisons exercise both scene
+passes, nested resumed notifications, rejection and released leases. The test
+driver now resumes outer compiled callers after a paused nested completion.
+The numerical rounding fix materializes four volatile scalar components:
+MSVC cannot directly return a volatile `__m128`. The MSVC port build passes;
+the independent native rounding comparisons are retained. All 55 rebuilt Bozo
+checks pass, including the shared normalization and complete writer lifetime.
+
+Actual New Game reaches a distinct flat fade writer (class `0x161230`, alpha
+`0x80`, 512-square bounds) at `0x3d3648`. Logun remains open.
+
 ### Empty child-projection setup (2026-11-08)
 
 Actual common `0x2076a0` was called for class `0x1653d0` with child-list next
@@ -161,11 +182,6 @@ records/stacks. Sine/cosine is a shared bounded dependency in this fixture and
 has its own original-builder qualification. The fresh actual route passes this
 helper and next rejects mod003 distance calculation at `0x378980`.
 All 54 rebuilt Bozo checks pass after the shared normalization change.
-
-User also reports lighting changing when rotating the camera. This remains an
-unverified visual issue: compare fixed camera angles with PCSX2 after the
-native field path is running; no lighting adjustment is inferred from this
-report alone.
 
 ### Retired physical field-buffer fill transport (2026-11-07)
 

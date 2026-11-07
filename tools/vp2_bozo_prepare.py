@@ -45,6 +45,8 @@ def overlay_entries(name,data):
         s=next(s for s in segments if s[0]==1 and s[2]<=lo<hi<=s[2]+s[4]);at=s[1]+lo-s[2]
         return data[at:at+hi-lo]
     if name=='mod001':
+        if hashlib.sha256(span(0x2075a0,0x2075e0)).hexdigest()!='b4f2072552d30100b174620bc445c64fa971d56c9776539660d3e632b2a939b2':
+            raise ValueError('USA empty child publication epilogue mismatch')
         for lo,hi,expected in ((0x358200,0x358a10,'12379d6ed2c2638818509740c6a79294a47daab89c654152a5d9ca80ae864c79'),
                                (0x358a10,0x358a7c,'32428520c5199b05899bf79bd2e0966864f90648beeabb5bfa9548b5417e776e')):
             if hashlib.sha256(span(lo,hi)).hexdigest()!=expected:
@@ -92,6 +94,7 @@ def overlay_entries(name,data):
             entries.append(dict(Name=f'camera_method_{lo:08x}',Start=hex(lo),End=hex(hi)))
         for lo in range(0x1fae30,0x1faeb0,16):
             entries.append(dict(Name=f'camera_accessor_{lo:08x}',Start=hex(lo),End=hex(lo+16)))
+    if name=='mod001':entries.append(dict(Name='native_empty_child_draw',Start='0x2075a0',End='0x2075e0'))
     return entries
 
 

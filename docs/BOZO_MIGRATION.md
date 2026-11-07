@@ -2,11 +2,25 @@
 
 Started 2026-11-06 after VU0 collision-point increment `d99b892`. The existing
 PS2Recomp launcher remains the playable baseline. **The Bozo runner is not
-playable: it renders the initial screen-size page and native movies, but has no
-qualified 3D scene or Logun route.** It is an independent compiled
+playable: it renders native movies, title models and the skip dialogue, but its
+gameplay and Logun route remain unqualified.** It is an independent compiled
 target, not a replacement DLL loaded into PS2Recomp.
 
 ## Build and evidence
+
+### Compiled field/menu overlay (2026-11-07)
+
+The default pipeline now includes mod003 alongside main/mod001/mod002. Its
+4,200 primary functions and 21,229 metadata entries are compiled from the
+user's extracted ELF, with original load bytes unchanged and a distinct resident
+identity. No runtime instruction decoding or device/VU fallback is introduced;
+the image retains 33 explicit untranslated VRNEXT boundaries.
+
+Actual New Game now passes the former `0x48df80` initializer stop and next
+rejects a timer-register read in common code at `0x306a10`. The caller uses it
+in an allocation/initialization path; its consumers require analysis before
+choosing a native replacement. Logun is not reached.
+All 51 project checks pass with mod003 included.
 
 ### Native selection-highlight publication (2026-11-07)
 

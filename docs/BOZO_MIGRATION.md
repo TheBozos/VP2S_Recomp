@@ -8,6 +8,21 @@ target, not a replacement DLL loaded into PS2Recomp.
 
 ## Build and evidence
 
+### Native field row-dot transform (2026-11-07)
+
+Mod003 `0x410df0` now reads its complete matrix/vector CPU records and publishes
+the four row-dot results at the original destination. Reduction order is
+`XYZW`, `YXZW`, `ZYXW`, `WYZX` respectively; a generic matrix multiply would
+change rounding order. Inputs are copied before output, preserving aliases.
+No inherited matrix/vector state is supplied to the adjacent unported helper.
+
+512 whole CPU/RAM callers compare with independent integer significand products
+and signed aligned sums in all four rounding modes, with cancellation, signed
+zero, scratchpad matrices and output overlapping each input. The combined suite
+also retains 512 distance consumers and 256 inline rotation callers. Actual New
+Game passes and next rejects another distance producer at `0x37b548`.
+Logun remains open.
+
 ### Native field-object inline rotation (2026-11-07)
 
 Mod003 `0x379228..0x37928c` retains its selected-quaternion copy to object

@@ -34,11 +34,35 @@ uint32_t root(uint32_t bits){
         if(value*value<=target)low=mid;else high=mid-1;}
     return low;
 }
+uint32_t product(uint32_t a,uint32_t b){
+    const auto sign=(a^b)&0x80000000u;const unsigned ea=(a>>23)&255,eb=(b>>23)&255;if(!ea || !eb)return sign;
+    uint64_t p=uint64_t((a&0x7fffff)|0x800000)*((b&0x7fffff)|0x800000);int exponent=int(ea)+int(eb)-127;unsigned shift=23;
+    if(p&(1ull<<47)){++exponent;++shift;}if(exponent<=0)return sign;check(exponent<255);
+    return sign|uint32_t(exponent<<23)|uint32_t((p>>shift)&0x7fffff);
+}
+uint32_t signedSum(uint32_t a,uint32_t b){
+    if((a&0x7fffffff)<(b&0x7fffffff))std::swap(a,b);
+    if(!(b&0x7fffffff))return (a&0x7fffffff)?a:(a&b&0x80000000u);
+    int exponent=int((a>>23)&255);const auto distance=unsigned(exponent)-((b>>23)&255);
+    const int64_t large=(a&0x7fffff)|0x800000,small=distance<=23?(((b&0x7fffff)|0x800000)>>distance):0;
+    int64_t value=(a>>31?-large:large)+(b>>31?-small:small);if(!value)return 0;
+    const auto sign=value<0?0x80000000u:0u;uint64_t magnitude=value<0?-value:value;
+    while(magnitude>=0x1000000){magnitude>>=1;++exponent;}
+    while(magnitude<0x800000){magnitude<<=1;--exponent;}
+    if(exponent<=0)return sign;check(exponent<255);return sign|uint32_t(exponent<<23)|uint32_t(magnitude&0x7fffff);
+}
 struct Host:bozo::ee::Host,bozo::port::Host {
     bool reference=false;
     bozo::libs::Libraries &libraries()override{throw std::runtime_error("library");}
     bool nativeGraphics()const override{return true;}
     bool nativeInstruction(uint8_t *r,R5900Context *c,Runtime *rt,uint32_t pc)override{
+        if(reference && pc==0x410e4c){
+            uint32_t matrix[4][4],vector[4],result[4];std::memcpy(matrix,rt->memory.hostPointer(c->r[4].uw[0],64),64);std::memcpy(vector,rt->memory.hostPointer(c->r[5].uw[0],16),16);
+            const unsigned order[4][4]={{0,1,2,3},{1,0,2,3},{2,1,0,3},{3,1,2,0}};
+            for(unsigned row=0;row<4;++row){uint32_t p[4];for(unsigned i=0;i<4;++i)p[i]=product(matrix[row][i],vector[i]);
+                auto s=signedSum(p[order[row][0]],p[order[row][1]]);s=signedSum(s,p[order[row][2]]);result[row]=signedSum(s,p[order[row][3]]);}
+            std::memcpy(rt->memory.hostPointer(c->r[6].uw[0],16),result,16);return true;
+        }
         if(reference && pc==0x379280){
             // The numerical quaternion API is separately qualified. This
             // comparison isolates this caller's CPU builder/output ABI.
@@ -107,5 +131,23 @@ int main(){try{
         check(!std::memcmp(a.memory.flat(),b.memory.flat(),bozo::kFlatBytes));
         float row[4];std::memcpy(row,b.memory.ram()+object+0x1f0,16);check(row[0]==0 && row[1]==0 && row[2]==0 && row[3]==1);++rotations;
     }
-    std::printf("%u whole CPU/RAM field-distance consumers and%u inline quaternion matrix callers; four rounding modes, scratchpad stacks, no VU/device state\n",cases,rotations);return 0;
+    unsigned dots=0;uint32_t random=71;
+    for(unsigned mode:{_MM_ROUND_NEAREST,_MM_ROUND_DOWN,_MM_ROUND_UP,_MM_ROUND_TOWARD_ZERO})for(unsigned seed=0;seed<128;++seed){
+        auto &a=original.runtime();auto &b=adapted.runtime();std::memset(a.memory.flat(),seed+1,bozo::kFlatBytes);
+        const uint32_t matrix=seed&1?0x70000100:0x180000,vector=0x190000;
+        const uint32_t destination=seed%3==0?matrix+(seed%4)*16:seed%3==1?vector:0x1a0000;
+        uint32_t values[20];for(auto &v:values){random=random*1664525u+1013904223u;v=(random&0x807fffff)|((96+random%56)<<23);}
+        if(seed%8==0){for(unsigned i=0;i<20;++i)values[i]=std::bit_cast<uint32_t>(i>=16?1.f:(i%2?-1.f:1.f));}
+        if(seed%8==1){for(unsigned i=16;i<20;++i)values[i]=(i&1)?0x80000000u:0;}
+        std::memcpy(a.memory.hostPointer(matrix,64),values,64);std::memcpy(a.memory.hostPointer(vector,16),values+16,16);std::memcpy(b.memory.flat(),a.memory.flat(),bozo::kFlatBytes);
+        R5900Context x{};for(unsigned i=1;i<32;++i){x.r[i].ud[0]=seed*32+i;x.r[i].ud[1]=~x.r[i].ud[0];}
+        std::memset(x.vu0_vf,0xf3,sizeof(x.vu0_vf));x.vu0_acc.u[0]=0x4321;x.vu0_status=0x1234;
+        x.r[4].ud[0]=matrix;x.r[5].ud[0]=vector;x.r[6].ud[0]=destination;x.r[31].ud[0]=0x170000;auto y=x;
+        const auto saved=_mm_getcsr(),control=(saved&~_MM_ROUND_MASK)|mode;_mm_setcsr(control);
+        host.reference=true;a.functions.generated(0x410df0)(a.memory.flat(),&x,&a);const auto expectedFp=_mm_getcsr();_mm_setcsr(control);
+        host.reference=false;b.functions.generated(0x410df0)(b.memory.flat(),&y,&b);check(_mm_getcsr()==expectedFp);_mm_setcsr(saved);
+        x.cycleLimit=y.cycleLimit;check(x.pc==0x170000 && !std::memcmp(&x,&y,sizeof(x)));
+        check(!std::memcmp(a.memory.flat(),b.memory.flat(),bozo::kFlatBytes));++dots;
+    }
+    std::printf("%u whole CPU/RAM distances,%u inline rotations,%u independently rounded row-dot callers; four rounding modes, aliasing and no VU/device state\n",cases,rotations,dots);return 0;
 }catch(const std::exception &e){std::fprintf(stderr,"%s\n",e.what());return 1;}}

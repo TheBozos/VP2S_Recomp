@@ -21,6 +21,26 @@ bool nativeMathInstruction(uint8_t *,R5900Context *c,Runtime *rt,uint32_t pc){
     if(nativeTrigInstruction(nullptr,c,rt,pc))return true;
     if(nativeObjectMathInstruction(nullptr,c,rt,pc))return true;
     if(nativeFrustumInstruction(c,rt,pc))return true;
+    if(!(pc&3) && pc>=0x410df0 && pc<=0x410e44)return true;
+    if(pc==0x410e4c){
+        // Four row dot products. The original reduction order differs per
+        // output component, including W; no inherited basis/vector state.
+        float matrix[4][4],vector[4],result[4];
+        std::memcpy(matrix,record(rt,c->r[4].uw[0],64),64);std::memcpy(vector,record(rt,c->r[5].uw[0],16),16);
+        const auto normal=[](float value){const auto bits=std::bit_cast<uint32_t>(value);return std::bit_cast<float>((bits&0x7f800000)?bits:(bits&0x80000000));};
+        const auto finite=[](float value){const auto bits=std::bit_cast<uint32_t>(value),e=bits&0x7f800000;
+            if(e==0x7f800000 || (!e && (bits&0x7fffff)))throw std::runtime_error("unqualified native row dot input");};
+        for(auto &row:matrix)for(float value:row)finite(value);for(float value:vector)finite(value);
+        const unsigned order[4][4]={{0,1,2,3},{1,0,2,3},{2,1,0,3},{3,1,2,0}};
+        music::CodecRounding rounding;
+        for(unsigned row=0;row<4;++row){float products[4];
+            for(unsigned i=0;i<4;++i){volatile float product=matrix[row][i]*vector[i];products[i]=normal(product);}
+            auto total=normal(music::codecSum(products[order[row][0]],products[order[row][1]]));
+            total=normal(music::codecSum(total,products[order[row][2]]));total=normal(music::codecSum(total,products[order[row][3]]));
+            if(!std::isfinite(total))throw std::runtime_error("native row dot overflow");result[row]=total;
+        }
+        std::memcpy(record(rt,c->r[6].uw[0],16),result,16);return true;
+    }
     if(pc==0x29e1a0 || pc==0x29e160){
         // The default math code installation has no execution or game-data
         // result. Its algorithms are compiled native record operations. Retire

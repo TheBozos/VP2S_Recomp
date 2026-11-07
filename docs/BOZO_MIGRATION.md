@@ -8,6 +8,23 @@ target, not a replacement DLL loaded into PS2Recomp.
 
 ## Build and evidence
 
+### Native short sine (2026-11-07)
+
+The next story/skip dialogue leaf, `0x2144c0`, now evaluates its degree-nine
+sine polynomial directly from the game's coefficients. It reduces the original
+angle by integer multiples of pi; `0x35dabc` receives the consumed quadrant and
+`0x35da8c` receives the scalar result. Original parity branches and scalar return
+remain compiled. The temporary scalar sign store at `0x214540` retires because
+the original leaf's final store restored the old coefficient there. No inherited
+vector scratch bytes or register state are reproduced.
+
+768 additional complete CPU/RAM cases cover signed zero, quadrant boundaries,
+adjacent floats and four host rounding modes. The combined trig check passes
+1,920 complete CPU/RAM cases and 196,608 independent polynomial comparisons over
+76 sites. Actual New Game passes the leaf, captures the window and three text
+elements, then rejects selection-element class `0x15ac30`. Dialogue presentation
+and Logun remain open.
+
 ### Native dialogue window snapshots (2026-11-07)
 
 Class `0x15a1b0` now captures its original scalar `0x2e9640` builder: the

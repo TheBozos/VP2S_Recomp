@@ -11,5 +11,6 @@ TrigReduction reduceSineCosine(float angle,const TrigCoefficients &);
 std::array<float,4> sineCosine(float angle,const TrigCoefficients &);
 struct NativeCosine {int32_t quadrant;float value;};
 NativeCosine shortCosine(float angle,const TrigCoefficients &);
+NativeCosine shortSine(float angle,const TrigCoefficients &);
 bool nativeTrigInstruction(uint8_t *,R5900Context *,Runtime *,uint32_t pc);
 }

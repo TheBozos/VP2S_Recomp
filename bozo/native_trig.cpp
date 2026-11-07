@@ -33,6 +33,10 @@ constexpr std::array<uint32_t,24> cosineSites{
     0x214310,0x214314,0x214318,0x214324,0x214328,0x21432c,0x214330,0x214334,
     0x214338,0x21433c,0x214360,0x214388,0x214390,0x214394,0x214398,0x2143a4,
     0x2143a8,0x2143ac,0x2143b0,0x2143b4,0x2143b8,0x2143bc,0x2143c0,0x2143c4};
+constexpr std::array<uint32_t,22> shortSineSites{
+    0x2144d0,0x2144d4,0x2144e0,0x2144e4,0x2144e8,0x2144ec,0x2144f0,0x2144f4,
+    0x214518,0x214540,0x214548,0x21454c,0x214550,0x21455c,0x214560,0x214564,
+    0x214568,0x21456c,0x214570,0x214574,0x214578,0x21457c};
 }
 TrigReduction reduceSineCosine(float angle,const TrigCoefficients &c){
     qualified(angle);qualified(c.pi);qualified(c.inversePi);qualified(c.halfPi);
@@ -75,7 +79,34 @@ NativeCosine shortCosine(float angle,const TrigCoefficients &c){
     if(!std::isfinite(result))throw std::runtime_error("unqualified native short cosine polynomial overflow");
     return {quadrant,result};
 }
+NativeCosine shortSine(float angle,const TrigCoefficients &c){
+    qualified(angle);qualified(c.pi);qualified(c.inversePi);
+    for(unsigned i=2;i<6;++i)qualified(c.sine[i]);
+    const auto scaled=product(angle,c.inversePi);
+    if(!std::isfinite(scaled) || scaled>=2147483648.f || scaled< -2147483648.f)
+        throw std::runtime_error("unqualified native short sine reduction range");
+    const auto quadrant=_mm_cvttss_si32(_mm_set_ss(scaled));
+    const auto integer=_mm_cvtss_f32(_mm_cvtsi32_ss(_mm_setzero_ps(),quadrant));
+    const auto r=difference(angle,product(integer,c.pi)),square=product(r,r);
+    float p=sum(product(square,c.sine[2]),c.sine[3]);
+    p=sum(product(p,square),c.sine[4]);p=sum(product(p,square),c.sine[5]);
+    p=sum(product(p,square),1.f);
+    const auto result=product(p,product(r,(uint32_t(quadrant)&1)?-1.f:1.f));
+    if(!std::isfinite(result))throw std::runtime_error("unqualified native short sine polynomial overflow");
+    return {quadrant,result};
+}
 bool nativeTrigInstruction(uint8_t *,R5900Context *c,Runtime *rt,uint32_t pc){
+    if(std::binary_search(shortSineSites.begin(),shortSineSites.end(),pc)){
+        if(!c || c->pc!=0x2144c0)throw std::runtime_error("unported interior short sine invocation");
+        if(pc==0x2144f0 || pc==0x21457c){
+            const auto result=shortSine(c->f[12],coefficients(rt));
+            if(pc==0x2144f0)std::memcpy(record(rt,0x35dab0,16)+12,&result.quadrant,4);
+            else std::memcpy(record(rt,0x35da80,16)+12,&result.value,4);
+        }
+        // Retire the temporary scalar sign store too: the final original store
+        // restored the old Z coefficient. The native polynomial owns the sign.
+        return true;
+    }
     if(std::binary_search(cosineSites.begin(),cosineSites.end(),pc)){
         if(!c || c->pc!=0x214300)throw std::runtime_error("unported interior short cosine invocation");
         if(pc==0x214338 || pc==0x2143c4){

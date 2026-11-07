@@ -39,8 +39,8 @@ vp2s::TrigCoefficients read(Runtime *rt){
     vp2s::TrigCoefficients c;c.pi=value<float>(rt,0x35da70);c.inversePi=value<float>(rt,0x35da74);c.halfPi=value<float>(rt,0x35da98);
     c.sine={value<float>(rt,0x35daa4),value<float>(rt,0x35daa0),value<float>(rt,0x35da84),value<float>(rt,0x35da80),value<float>(rt,0x35da7c),value<float>(rt,0x35da78)};return c;
 }
-[[gnu::noinline,gnu::noclone]] vp2s::NativeCosine referenceShort(float angle,const vp2s::TrigCoefficients &c){
-    const float argument=subtract(c.halfPi,angle);volatile float turns=multiply(argument,c.inversePi);
+[[gnu::noinline,gnu::noclone]] vp2s::NativeCosine referenceShort(float angle,const vp2s::TrigCoefficients &c,bool sine=false){
+    const float argument=sine?angle:subtract(c.halfPi,angle);volatile float turns=multiply(argument,c.inversePi);
     const int32_t n=static_cast<int32_t>(turns);volatile float integer=static_cast<float>(n);
     const float r=subtract(argument,multiply(integer,c.pi)),square=multiply(r,r);
     float p=add(multiply(square,c.sine[2]),c.sine[3]);
@@ -57,6 +57,9 @@ struct Host:bozo::ee::Host,bozo::port::Host {
         if(pc==0x2140f0){const auto result=reference(c->f[12],read(rt));std::memcpy(rt->memory.hostPointer(c->r[4].uw[0],16),result.value.data(),16);}
         if(pc==0x214338 || pc==0x2143c4){auto table=read(rt);table.halfPi=value<float>(rt,0x35da9c);const auto result=referenceShort(c->f[12],table);
             if(pc==0x214338)std::memcpy(rt->memory.hostPointer(0x35dadc,4),&result.quadrant,4);
+            else std::memcpy(rt->memory.hostPointer(0x35da8c,4),&result.value,4);}
+        if(pc==0x2144f0 || pc==0x21457c){const auto result=referenceShort(c->f[12],read(rt),true);
+            if(pc==0x2144f0)std::memcpy(rt->memory.hostPointer(0x35dabc,4),&result.quadrant,4);
             else std::memcpy(rt->memory.hostPointer(0x35da8c,4),&result.value,4);}
         return true;
     }
@@ -113,6 +116,8 @@ int main(){try{
     }
     _mm_setcsr(saved);check(old.sites==now.sites && now.sites.size()==30);
     unsigned shortCases=0;
+    for(const uint32_t entry:{0x214300u,0x2144c0u}){
+    const bool sine=entry==0x2144c0;
     for(unsigned mode:{_MM_ROUND_NEAREST,_MM_ROUND_DOWN,_MM_ROUND_UP,_MM_ROUND_TOWARD_ZERO}){
         for(unsigned seed=0;seed<192;++seed){
             auto *x=a.runtime().memory.flat(),*y=b.runtime().memory.flat();std::memset(x,0x65,bozo::kFlatBytes);
@@ -126,23 +131,26 @@ int main(){try{
             R5900Context p{},q{};for(unsigned i=1;i<32;++i){p.r[i].ud[0]=0x1234000000000000ull+seed*32+i;p.r[i].ud[1]=~p.r[i].ud[0];}
             std::memset(p.vu0_vf,0x4b,sizeof(p.vu0_vf));std::memset(&p.vu0_acc,0x5c,sizeof(p.vu0_acc));p.r[31].uw[0]=0x170000;p.f[12]=angle;q=p;
             const unsigned control=(saved&~(_MM_ROUND_MASK|0x8040|0x3f))|mode|(seed&1?0x8040:0);
-            _mm_setcsr(control);a.runtime().functions.generated(0x214300)(x,&p,&a.runtime());const auto after=_mm_getcsr();
+            _mm_setcsr(control);a.runtime().functions.generated(entry)(x,&p,&a.runtime());const auto after=_mm_getcsr();
             _mm_setcsr(control);
-            try{b.runtime().functions.generated(0x214300)(y,&q,&b.runtime());}
-            catch(const std::exception &e){std::fprintf(stderr,"short cosine seed=%u mode=%x angle=%08x: %s\n",seed,mode,std::bit_cast<uint32_t>(angle),e.what());throw;}
+            try{b.runtime().functions.generated(entry)(y,&q,&b.runtime());}
+            catch(const std::exception &e){std::fprintf(stderr,"short trig entry=%x seed=%u mode=%x angle=%08x: %s\n",entry,seed,mode,std::bit_cast<uint32_t>(angle),e.what());throw;}
             check(_mm_getcsr()==after && !std::memcmp(&p,&q,sizeof(p)) && !std::memcmp(x,y,bozo::kFlatBytes));
-            check(value<uint32_t>(&b.runtime(),0x35dad0)==0x65656565 && value<uint32_t>(&b.runtime(),0x35dad4)==0x65656565 && value<uint32_t>(&b.runtime(),0x35dad8)==0x65656565);
+            const uint32_t scratch=sine?0x35dab0:0x35dad0;
+            check(value<uint32_t>(&b.runtime(),scratch)==0x65656565 && value<uint32_t>(&b.runtime(),scratch+4)==0x65656565 && value<uint32_t>(&b.runtime(),scratch+8)==0x65656565);
             check(value<uint32_t>(&b.runtime(),0x35da88)==0);++shortCases;
         }
         for(unsigned i=0;i<16384;++i){random=random*1664525u+1013904223u;const float angle=float(int32_t(random)%1000000)/8192;
-            const auto expected=referenceShort(angle,originalCoefficients),actual=vp2s::shortCosine(angle,originalCoefficients);
+            const auto expected=referenceShort(angle,originalCoefficients,sine),actual=sine?vp2s::shortSine(angle,originalCoefficients):vp2s::shortCosine(angle,originalCoefficients);
             check(expected.quadrant==actual.quadrant && std::bit_cast<uint32_t>(expected.value)==std::bit_cast<uint32_t>(actual.value));
-            check(std::abs(actual.value-std::cos(angle))<0.008f);
+            check(std::abs(actual.value-(sine?std::sin(angle):std::cos(angle)))<0.008f);
         }
     }
-    _mm_setcsr(saved);check(old.sites==now.sites && now.sites.size()==54);
+    }
+    _mm_setcsr(saved);check(old.sites==now.sites && now.sites.size()==76);
     bool rejected=false;try{vp2s::sineCosine(std::numeric_limits<float>::infinity(),originalCoefficients);}catch(const std::runtime_error &){rejected=true;}check(rejected);
     rejected=false;try{vp2s::sineCosine(std::bit_cast<float>(1u),originalCoefficients);}catch(const std::runtime_error &){rejected=true;}check(rejected);
     rejected=false;try{vp2s::shortCosine(std::bit_cast<float>(1u),originalCoefficients);}catch(const std::runtime_error &){rejected=true;}check(rejected);
-    std::printf("%u sine/cosine + %u short-cosine generated CPU/RAM cases and 131072 independent scalar polynomial comparisons;54 sites, FP controls, signs, quadrant edges and aliases passed\n",cases,shortCases);return 0;
+    rejected=false;try{vp2s::shortSine(std::bit_cast<float>(1u),originalCoefficients);}catch(const std::runtime_error &){rejected=true;}check(rejected);
+    std::printf("%u sine/cosine + %u short cosine/sine generated CPU/RAM cases and 196608 independent scalar polynomial comparisons;76 sites, FP controls, signs, quadrant edges and aliases passed\n",cases,shortCases);return 0;
 }catch(const std::exception &e){std::fprintf(stderr,"%s\n",e.what());return 1;}}

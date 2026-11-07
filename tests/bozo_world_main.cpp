@@ -1,6 +1,7 @@
 #include "native_object_math.h"
 #include "native_math.h"
 #include "native_trig.h"
+#include "native_frustum.h"
 #include "../port/vp2s_math.h"
 #include "bozo/ee/dispatcher.h"
 #include "bozo/port.h"
@@ -19,6 +20,7 @@ void check(bool v,std::source_location at=std::source_location::current()){
 float normal(float x){auto b=std::bit_cast<uint32_t>(x);return std::bit_cast<float>((b&0x7f800000)?b:(b&0x80000000));}
 [[gnu::noinline,gnu::noclone]] float mul(float a,float b){volatile float v=a*b;return normal(v);}
 [[gnu::noinline,gnu::noclone]] float add(float a,float b){volatile float v=a+b;return normal(v);}
+[[gnu::noinline,gnu::noclone]] float subtract(float a,float b){volatile float v=a-b;return normal(v);}
 [[gnu::noinline,gnu::noclone]] float chop(float a,float b){
     auto x=std::bit_cast<uint32_t>(a),y=std::bit_cast<uint32_t>(b);int ea=(x>>23)&255,eb=(y>>23)&255;
     if(ea && eb){
@@ -70,6 +72,32 @@ struct Rounding {unsigned saved=_mm_getcsr();Rounding(){_mm_setcsr((saved&~_MM_R
     std::memcpy(out.local.data(),local,64);std::memcpy(out.world.data(),world,64);return out;
 }
 struct Pause{};
+[[gnu::noinline,gnu::noclone]] vp2s::FrustumResult referenceFrustum(const float world[4][4],const float input[10][4]){
+    float basis[4][4],points[10][4],normals[10][4];
+    {Rounding rounding;for(unsigned i=0;i<4;++i)for(unsigned lane=0;lane<4;++lane)
+        basis[i][lane]=i==lane?world[lane][i]:lane==3?mul(1,world[lane][i]):chop(0,world[lane][i]);}
+    for(unsigned i=0;i<10;++i)for(unsigned lane=0;lane<4;++lane){float v=mul(basis[0][lane],input[i][0]);
+        for(unsigned k=1;k<3;++k)v=add(v,mul(basis[k][lane],input[i][k]));points[i][lane]=add(v,mul(basis[3][lane],1));}
+    auto plane=[&](unsigned first,unsigned next,unsigned index){float a[3],b[3];
+        for(unsigned lane=0;lane<3;++lane){a[lane]=subtract(points[first][lane],basis[3][lane]);b[lane]=subtract(points[next][lane],points[first][lane]);}
+        for(unsigned lane=0;lane<3;++lane){const unsigned j=(lane+1)%3,k=(lane+2)%3;normals[index][lane]=subtract(mul(a[j],b[k]),mul(b[j],a[k]));}};
+    for(unsigned i=0;i<4;++i)plane(i,(i+1)%4,i);
+    for(unsigned lane=0;lane<3;++lane){const unsigned j=(lane+1)%3,k=(lane+2)%3;
+        const float aj=subtract(points[1][j],points[0][j]),ak=subtract(points[1][k],points[0][k]);
+        const float bj=subtract(points[2][j],points[0][j]),bk=subtract(points[2][k],points[0][k]);
+        normals[4][lane]=subtract(mul(aj,bk),mul(bj,ak));}
+    for(unsigned i=0;i<4;++i)plane(6+i,6+(i+1)%4,6+i);
+    for(unsigned i=0;i<10;++i)if(i!=5){
+        float length2=add(mul(normals[i][0],normals[i][0]),mul(normals[i][1],normals[i][1]));
+        length2=add(length2,mul(1,mul(normals[i][2],normals[i][2])));
+        volatile float length=std::sqrt(length2);volatile float reciprocal=length==0?std::numeric_limits<float>::max():1.f/length;
+        for(unsigned lane=0;lane<3;++lane)normals[i][lane]=mul(normals[i][lane],reciprocal);
+    }
+    for(unsigned lane=0;lane<3;++lane)normals[5][lane]=mul(normals[4][lane],-1);
+    for(unsigned i=0;i<6;++i)std::memcpy(&normals[i][3],&input[4+i][3],4);
+    for(unsigned i=0;i<4;++i)std::memcpy(&normals[6+i][3],&normals[i][3],4);
+    vp2s::FrustumResult out;std::memcpy(out.points.data(),points,160);std::memcpy(out.normals.data(),normals,160);return out;
+}
 struct Host:bozo::ee::Host,bozo::port::Host {
     std::set<uint32_t> sites;
     bool native=false,pause=false;unsigned callbacks=0,pauses=0;
@@ -81,6 +109,11 @@ struct Host:bozo::ee::Host,bozo::port::Host {
         // The already qualified sine/cosine owner is a retained callee. Only
         // the new builder's matrix product uses the independent equations.
         if(vp2s::nativeTrigInstruction(r,c,rt,pc))return true;
+        if(pc==0x207fcc || pc==0x208080){
+            float world[4][4],points[10][4];std::memcpy(world,rt->memory.hostPointer(c->r[4].uw[0]+0x90,64),64);
+            std::memcpy(points,rt->memory.hostPointer(c->r[29].uw[0],160),160);const auto result=referenceFrustum(world,points);
+            std::memcpy(rt->memory.hostPointer(c->r[4].uw[0]+(pc==0x207fcc?0x460:0x500),160),pc==0x207fcc?result.points.data():result.normals.data(),160);
+        }
         if(pc==0x209020)c->r[9].ud[0]=0;
         if(pc==0x209028){
             float screen[4][4],point[4],transposed[4][4],result[4];
@@ -135,7 +168,7 @@ struct Host:bozo::ee::Host,bozo::port::Host {
     void frameEnd(Runtime *,R5900Context *)override{throw std::runtime_error("frame");}
     bool callLibrary(Runtime *,R5900Context *,uint32_t)override{return false;}
     void libraryCall(bozo::ee::Dispatcher &d,R5900Context *c,uint32_t pc)override{
-        if(pc==0x170200 || pc==0x170210 || pc==0x207d70 || pc==0x12e050){
+        if(pc==0x170200 || pc==0x170210 || pc==0x12e050){
             ++callbacks;if(pc==0x170200)c->r[2].ud[0]=1;
             if(pc==0x170210)c->r[2].ud[0]=c->r[4].uw[0]+0x90;
             if(pc==0x12e050)c->f[0]=std::tan(c->f[12]);
@@ -166,7 +199,7 @@ int main(){try{
     b.setFunctions(world_adapted_function_table,world_adapted_function_count,world_adapted_resume_table,world_adapted_resume_count);
     a.runtime().port=&old;b.runtime().port=&now;a.bindLibrary(0x170100);b.bindLibrary(0x170100);
     for(auto *d:{&a,&b}){d->bindLibrary(0x12e1d8);d->bindLibrary(0x12e2d8);}
-    for(auto *d:{&a,&b})for(uint32_t pc:{0x12e050,0x2138f0,0x207d70,0x170200,0x170210})d->bindLibrary(pc);
+    for(auto *d:{&a,&b})for(uint32_t pc:{0x12e050,0x2138f0,0x170200,0x170210})d->bindLibrary(pc);
     const unsigned saved=_mm_getcsr();unsigned cases=0;
     for(unsigned mode:{_MM_ROUND_NEAREST,_MM_ROUND_DOWN,_MM_ROUND_UP,_MM_ROUND_TOWARD_ZERO})for(unsigned seed=0;seed<80;++seed){
         auto *x=a.runtime().memory.flat(),*y=b.runtime().memory.flat();std::memset(x,0x22,bozo::kFlatBytes);
@@ -271,7 +304,27 @@ int main(){try{
         p.cycleLimit=q.cycleLimit;check(old.callbacks==now.callbacks);
         check(_mm_getcsr()==expectedControl && !std::memcmp(&p,&q,sizeof(p)) && !std::memcmp(x.memory.flat(),y.memory.flat(),bozo::kFlatBytes));++cases;
     }
-    _mm_setcsr(saved);check(old.sites==now.sites && now.sites.size()==177);
+    _mm_setcsr(saved);check(old.sites==now.sites && now.sites.size()==358);
+    for(unsigned mode:{_MM_ROUND_NEAREST,_MM_ROUND_DOWN,_MM_ROUND_UP,_MM_ROUND_TOWARD_ZERO})for(unsigned seed=0;seed<64;++seed){
+        auto &x=a.runtime(),&y=b.runtime();std::memset(x.memory.flat(),0x37,bozo::kFlatBytes);
+        constexpr uint32_t object=0x180000;std::memset(x.memory.flat()+object,0,0x600);
+        float world[16];for(unsigned i=0;i<16;++i)world[i]=float(int((seed+i)%9)-4)/8;
+        if(seed%8==0)for(float &v:world)v=0;
+        if(seed%8==1)for(unsigned i=0;i<3;++i)for(unsigned j=0;j<3;++j)world[i*4+j]*=1.e-20f;
+        std::memcpy(x.memory.flat()+object+0x90,world,64);
+        for(unsigned offset:{0x230,0x238,0x268})put<float>(x.memory.flat(),object+offset,offset==0x230?320.f:1.f);
+        put<float>(x.memory.flat(),object+0x270,seed%8==2?0.f:640+seed);
+        put<float>(x.memory.flat(),object+0x274,448);put<float>(x.memory.flat(),object+0x278,1000);
+        const uint32_t stack=seed&1?0x70003f00:0x1fff000;
+        for(unsigned i=0;i<10;++i){uint32_t bits=0x7fc01234u+i;std::memcpy(x.memory.hostPointer(stack-0xa0+i*16+12,4),&bits,4);}
+        std::memcpy(y.memory.flat(),x.memory.flat(),bozo::kFlatBytes);
+        R5900Context p{},q{};p.r[4].ud[0]=object;p.r[29].ud[0]=stack;p.r[31].ud[0]=0x170000;
+        std::memset(p.vu0_vf,0x6a,sizeof(p.vu0_vf));q=p;
+        const unsigned control=(saved&~(_MM_ROUND_MASK|0x8040|0x3f))|mode|(seed&1?0x8040:0);
+        _mm_setcsr(control);run(a,p,0x207d70);const unsigned expectedControl=_mm_getcsr();_mm_setcsr(control);run(b,q,0x207d70);
+        check(_mm_getcsr()==expectedControl && !std::memcmp(&p,&q,sizeof(p)) && !std::memcmp(x.memory.flat(),y.memory.flat(),bozo::kFlatBytes));++cases;
+    }
+    _mm_setcsr(saved);check(old.sites==now.sites && now.sites.size()==358);
     bool badProjection=false;try{vp2s::math::cameraProjectedPoint(vp2s::math::Matrix{},_mm_set1_ps(1));}catch(const std::runtime_error &){badProjection=true;}check(badProjection);
     vp2s::math::Matrix invalid{};invalid[0]=_mm_setr_ps(std::bit_cast<float>(1u),0,0,0);bool badColumns=false;
     try{vp2s::math::normalizedMatrixColumns(invalid);}catch(const std::runtime_error &){badColumns=true;}check(badColumns);

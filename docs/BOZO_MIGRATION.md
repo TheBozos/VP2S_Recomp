@@ -7,6 +7,27 @@ target, not a replacement DLL loaded into PS2Recomp.
 
 ## Build and evidence
 
+### Native camera frustum geometry (2026-11-07)
+
+The fingerprinted `0x207d70` owner retains its scalar stack construction/cursor
+loop. Its 181 vector sites now transform ten point records and construct ten
+normal records directly from the camera world matrix and the scalar-built
+stack data. Basis transposition retains its zero arithmetic; the subsequent
+inline products, cross products and normalizations retain caller FP mode.
+Inputs/results outside the qualified finite domain reject.
+
+The first six normal Ws originate in actual stack point records 4..9, loaded
+earlier by the original owner. The second four inherit the first four Ws.
+Native publication preserves these bytes, including NaN payloads, from those
+records without using a vector bank. It snapshots inputs before output writes.
+
+The camera fixture now retains the actual compiled frustum callee. An additional
+256 whole CPU/RAM cases cover normal/zero/tiny/degenerate bases, scratchpad
+stacks, four FP modes, FTZ/DAZ and opaque W payloads. Independent scalar geometry
+equations match, for 1,600 combined cases and 358 exercised sites. This is
+source/numeric qualification, not PCSX2 visual qualification. Boot passes this
+callee and stops at `0x208430`; native drawing and the Logun route remain open.
+
 ### Native camera projection records (2026-11-07)
 
 The fingerprinted `0x208cd0` owner now derives its projected-depth point from

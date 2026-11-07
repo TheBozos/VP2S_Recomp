@@ -286,13 +286,14 @@ class KernelGuardTests(unittest.TestCase):
             dict(Name='thread_adjustor_00107e20',Start='0x107e20',End='0x107e28'),
             dict(Name='object_constructor_001013d0',Start='0x1013d0',End='0x1013ec'),
             dict(Name='object_accessor_001010a0',Start='0x1010a0',End='0x1010ac'),
-            dict(Name='object_accessor_001010b0',Start='0x1010b0',End='0x1010bc')])
+            dict(Name='object_accessor_001010b0',Start='0x1010b0',End='0x1010bc'),
+            dict(Name='bounded_string_compare_00134b60',Start='0x134b60',End='0x134d18')])
         segment=next(s for s in self.segments if s[0]==1 and s[2]<=0x11d4e0<0x11d7c0<=s[2]+s[4])
         for pc in range(0x11d4e0,0x11d7c0,4):
             data=bytearray(self.data)
             data[segment[1]+pc-segment[2]]^=1
             with self.subTest(pc=hex(pc)),self.assertRaises(ValueError): game_entries(data)
-        for lo,hi in ((0x107e10,0x107e30),(0x1013d0,0x1013f0),(0x1010a0,0x1010e0),(0x154f90,0x155030)):
+        for lo,hi in ((0x107e10,0x107e30),(0x1013d0,0x1013f0),(0x1010a0,0x1010e0),(0x154f90,0x155030),(0x134b60,0x134d18)):
             segment=next(s for s in self.segments if s[0]==1 and s[2]<=lo<hi<=s[2]+s[4])
             for pc in range(lo,hi,4):
                 data=bytearray(self.data);data[segment[1]+pc-segment[2]]^=1

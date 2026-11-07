@@ -233,6 +233,11 @@ def game_entries(data):
     if hashlib.sha256(data[at:at+hi-lo]).hexdigest()!='03419fe90b5dbac2fef72a059dea794235ed0a708b7ea3147d539588febdec3e':
         raise ValueError('USA object accessor signatures mismatch')
     entries += [dict(Name=f'object_accessor_{pc:08x}',Start=hex(pc),End=hex(pc+12)) for pc in (0x1010a0,0x1010b0)]
+    lo,hi=0x134b60,0x134d18
+    s=next(s for s in segments if s[0]==1 and s[2]<=lo<hi<=s[2]+s[4]);at=s[1]+lo-s[2]
+    if hashlib.sha256(data[at:at+hi-lo]).hexdigest()!='de60c4b86c3704fc5eeafe80a737afa57dd43ddce1439476fc7d6ba49aa4f72b':
+        raise ValueError('USA bounded string comparison signature mismatch')
+    entries.append(dict(Name='bounded_string_compare_00134b60',Start=hex(lo),End=hex(hi)))
     return entries
 
 

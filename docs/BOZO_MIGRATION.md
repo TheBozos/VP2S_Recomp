@@ -8,6 +8,18 @@ target, not a replacement DLL loaded into PS2Recomp.
 
 ## Build and evidence
 
+### Original bounded string comparison restored (2026-11-08)
+
+The export metadata omitted main `0x134b60..0x134d18`, reached by the field
+loader at mod003 `0x43cd0c`. A source-guarded function extent now compiles this
+original CPU routine unchanged. There is no new library override or engine
+compatibility path. A private standalone fixture verifies all 16-by-16 byte
+alignment pairs with 64 bound/terminator/difference patterns: 16,384 cases,
+including high bytes and the exact unsigned-byte difference. No device/library
+call or vector-unit operation is allowed. Actual New Game now passes that call
+and reaches another position-distance block at mod003 `0x382020`.
+Logun remains open.
+
 ### Native position-pair distance (2026-11-08)
 
 `0x1fedd4..0x1fedfc` now reads its two position records directly, applies the

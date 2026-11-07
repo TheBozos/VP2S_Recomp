@@ -508,6 +508,18 @@ if(VP2S_BOZO_CODE)
     target_link_options(vp2s-bozo-bones-check PRIVATE -static)
   endif()
   add_test(NAME vp2s-bozo-bone-matrices COMMAND vp2s-bozo-bones-check)
+  set(STRING_REF "${CMAKE_CURRENT_BINARY_DIR}/string-reference")
+  add_custom_command(OUTPUT "${STRING_REF}/string_000.cpp" "${STRING_REF}/string_table.cpp" "${STRING_REF}/string_functions.h"
+    COMMAND ${Python3_EXECUTABLE} "${VP2S_ROOT}/tools/vp2_bozo_string_fixture.py" "${VP2S_BOZO_DATA}/../elf/main.elf" "${STRING_REF}" --build "${VP2S_BOZO_DATA}/.."
+    COMMAND $<TARGET_FILE:bozo-recomp> "${STRING_REF}/fixture.elf" "${STRING_REF}" --prefix string --symbol-prefix string_ --files 1 --no-comments
+    DEPENDS bozo-recomp "${VP2S_ROOT}/tools/vp2_bozo_string_fixture.py" "${VP2S_ROOT}/tools/vp2_bozo_kernel.py" "${VP2S_BOZO_DATA}/../elf/main.elf")
+  add_executable(vp2s-bozo-string-check "${VP2S_ROOT}/tests/bozo_string_main.cpp" "${STRING_REF}/string_000.cpp" "${STRING_REF}/string_table.cpp")
+  target_include_directories(vp2s-bozo-string-check PRIVATE "${STRING_REF}")
+  target_link_libraries(vp2s-bozo-string-check PRIVATE vp2s_bozo_kernel)
+  if(MINGW)
+    target_link_options(vp2s-bozo-string-check PRIVATE -static)
+  endif()
+  add_test(NAME vp2s-bozo-bounded-string COMMAND vp2s-bozo-string-check)
   set(SCREEN_RECT_REF "${CMAKE_CURRENT_BINARY_DIR}/screen-rect-reference")
   foreach(VARIANT original adapted)
     foreach(KIND screen flush completion)

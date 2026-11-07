@@ -217,6 +217,7 @@ public:
         dbc=std::make_unique<bozo::native::irx::CompiledLibraries>(native.libraries(),0x80000);
         dbc->useReadyAudioCompletions();
         dbc->useNativeFrameCallbacks();
+        dbc->useNativeDiscFiles();
         native.onFrame=[this](uint64_t,const R5900Context *){dbc->notifyFrameCompleted();};
         addVp2DbcImage(*dbc);
         addVp2ControllerImage(*dbc);controller.bind(*dbc);

@@ -80,10 +80,10 @@ with tempfile.TemporaryDirectory(prefix='vp2s-native-input-') as temporary:
                            capture_output=True,text=True,timeout=30,
                            env={**os.environ,'VP2S_BOZO_SEED':'1','VP2S_BOZO_TRACE_QUEUES':'1'})
     output=skipped.stdout+skipped.stderr;print(output,end='')
-    if skipped.returncode!=1 or 'unsupported native IRX import cdvdman:11' not in output:
-        raise SystemExit('native movie skip did not pass models/filter/cosine/image layer to native Csd disc service guard')
+    if skipped.returncode!=1 or 'unported device write 10009020 at pc=105f60' not in output:
+        raise SystemExit('native movie skip did not pass native Csd disc reads to the music upload guard')
     if '[vp2s:models] native object=' not in output or '[vp2s:filter] native object=' not in output:
         raise SystemExit('native movie skip did not submit real models and frame filter')
     if 'native layer=997530 texts=1' not in output:raise SystemExit('title image element did not reach real native layer submission')
-    if 'unported device' in output:raise SystemExit('native movie skip entered physical teardown')
+    if 'unsupported native IRX import cdvdman:' in output:raise SystemExit('native movie skip did not use the native disc provider')
 print('Scripted native input parses original PSS, retains CPU audio copies and presents at least40 real pictures at the sequence rate; producer backpressure remains bounded. Display parity/audio/Logun remain unqualified.')

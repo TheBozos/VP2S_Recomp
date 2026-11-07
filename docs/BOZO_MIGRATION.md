@@ -8,6 +8,23 @@ target, not a replacement DLL loaded into PS2Recomp.
 
 ## Build and evidence
 
+### Native compiled-library disc files (2026-11-07)
+
+BozoEngine PR 74 merged as `dbeac945068bb31f458f3b6ddd821908f53fa68a`;
+branch, PR and postmerge CI passed on Windows and Linux. The VP2S host opts into
+`useNativeDiscFiles()`. Reads use the shared ISO reader and copy actual bytes
+before owned native callback delivery; sync/error describe these requests.
+No EE drive-time fields, hardware-ready bank or synthetic interrupt is used.
+47 engine native suites cover real bytes, missing files, EOF, host short reads,
+buffer preservation on failure, callback exclusion/reentry, reset and isolation.
+
+The actual scripted route now passes Csd `cdvdman:11` and reaches music upload
+`0x105f60` at frame 670. That upload remains rejected; the next work is to port
+the existing direct coefficient-to-PCM decoder and software job ownership.
+This is title/disc bring-up, not a playable launch or Logun qualification.
+All 49 root checks pass at this pin, including the scripted title route reaching
+that explicit music-upload rejection.
+
 ### Native two-pass title image element (2026-11-07)
 
 Class `0x15a690` retains its original `0x2f2df0` builder. Native capture keeps both

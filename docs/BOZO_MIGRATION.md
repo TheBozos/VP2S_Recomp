@@ -8,6 +8,20 @@ target, not a replacement DLL loaded into PS2Recomp.
 
 ## Build and evidence
 
+### Retired physical field-buffer fill transport (2026-11-07)
+
+Mod003 `0x3d5670` fills a 256 KiB EE buffer and uploads it repeatedly to physical
+graphics memory. Native rendering has no such memory destination: native frame
+and auxiliary targets initialize their own colour/depth/stencil. The specific
+upload and its two sync calls retire; allocation/failure, CPU fill, descriptor
+construction, visibility flushes, game cache reset and free remain compiled.
+No image owner, transfer acknowledgement or completion bit is invented.
+
+32 original CPU cases check allocation failure, all 262,144 filled bytes,
+exact descriptor/visibility counts and reset-before-free lifetime. Physical
+upload/sync and device I/O reject in the fixture. Actual New Game passes the
+routine and next rejects common math at `0x2156a0`; Logun remains open.
+
 ### Native internal-record placement (2026-11-07)
 
 Common `0x30ce70` mixed timer0 with the original scalar RNG only to select one

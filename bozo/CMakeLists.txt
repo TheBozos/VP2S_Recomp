@@ -151,6 +151,19 @@ if(MINGW)
 endif()
 add_test(NAME vp2s-bozo-modules COMMAND vp2s-bozo-modules-check)
 if(VP2S_BOZO_CODE)
+  set(FIELD_FILL "${CMAKE_CURRENT_BINARY_DIR}/field-fill-reference")
+  add_custom_command(OUTPUT "${FIELD_FILL}/field_fill_000.cpp" "${FIELD_FILL}/field_fill_table.cpp" "${FIELD_FILL}/field_fill_functions.h"
+    COMMAND ${Python3_EXECUTABLE} "${VP2S_ROOT}/tools/vp2_bozo_field_fill_fixture.py" "${VP2S_BOZO_DATA}/images/mod003.elf" "${FIELD_FILL}" --build "${VP2S_BOZO_DATA}/.."
+    COMMAND $<TARGET_FILE:bozo-recomp> "${FIELD_FILL}/fixture.elf" "${FIELD_FILL}" --prefix field_fill --symbol-prefix field_fill_
+      --files 1 --externals "${FIELD_FILL}/externals.txt" --patches "${FIELD_FILL}/patches.txt" --no-comments
+    DEPENDS bozo-recomp "${VP2S_ROOT}/tools/vp2_bozo_field_fill_fixture.py" "${VP2S_ROOT}/tools/vp2_bozo_kernel.py" "${VP2S_BOZO_DATA}/images/mod003.elf")
+  add_executable(vp2s-bozo-field-fill-check "${VP2S_ROOT}/tests/bozo_field_fill_main.cpp" "${FIELD_FILL}/field_fill_000.cpp" "${FIELD_FILL}/field_fill_table.cpp")
+  target_include_directories(vp2s-bozo-field-fill-check PRIVATE "${FIELD_FILL}")
+  target_link_libraries(vp2s-bozo-field-fill-check PRIVATE bozo_runtime_core)
+  if(MINGW)
+    target_link_options(vp2s-bozo-field-fill-check PRIVATE -static)
+  endif()
+  add_test(NAME vp2s-bozo-field-fill COMMAND vp2s-bozo-field-fill-check)
   set(RECORD_INIT "${CMAKE_CURRENT_BINARY_DIR}/record-init-reference")
   add_custom_command(OUTPUT "${RECORD_INIT}/record_init_000.cpp" "${RECORD_INIT}/record_init_table.cpp" "${RECORD_INIT}/record_init_functions.h"
     COMMAND ${Python3_EXECUTABLE} "${VP2S_ROOT}/tools/vp2_bozo_record_init_fixture.py" "${VP2S_BOZO_DATA}/images/mod003.elf" "${RECORD_INIT}" --build "${VP2S_BOZO_DATA}/.."

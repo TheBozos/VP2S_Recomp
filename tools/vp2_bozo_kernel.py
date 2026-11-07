@@ -303,14 +303,21 @@ def bootstrap_adaptations(data):
 
 def overlay_adaptations(name,data):
     if name=='mod003':
-        _,segments,_=elf_parts(data);lo,hi=0x3d7708,0x3d77cc
-        s=next(s for s in segments if s[0]==1 and s[2]<=lo<hi<=s[2]+s[4]);at=s[1]+lo-s[2]
-        if hashlib.sha256(data[at:at+hi-lo]).hexdigest()!='435926535d852e22f0b20b9027f65fd6674acc7a63b6aaedb31e59c63a1cd1c8':
-            raise ValueError('USA record-initialization delay source mismatch')
+        _,segments,_=elf_parts(data)
+        for lo,hi,expected in ((0x3d7708,0x3d77cc,'435926535d852e22f0b20b9027f65fd6674acc7a63b6aaedb31e59c63a1cd1c8'),
+                               (0x3d5670,0x3d57ec,'250a2389769015fbda23859f5082b6f69031a706af85f263b765f34130611ecc')):
+            s=next(s for s in segments if s[0]==1 and s[2]<=lo<hi<=s[2]+s[4]);at=s[1]+lo-s[2]
+            if hashlib.sha256(data[at:at+hi-lo]).hexdigest()!=expected:raise ValueError('USA native field initialization source mismatch')
         # Each initializer has returned before this delay. It polls only timer0,
         # not a job/status result. Keep all36 calls, one visibility flush per
         # record, and the original UI predicate/pump; retire only the time spin.
-        return ('003d7718 3c011000 00000000\n'
+        # Native frame targets clear their own colour/depth/stencil. This
+        # separate physical fill has no native graphics-memory destination.
+        # Keep the original CPU allocation/fill/descriptors/cache reset/free.
+        return ('003d5694 0c04896e 00000000\n'
+                '003d5794 0c048afe 00000000\n'
+                '003d57a0 0c04896e 00000000\n'
+                '003d7718 3c011000 00000000\n'
                 '003d771c 8c360000 00000000\n'
                 '003d7740 3c011000 00000000\n'
                 '003d7744 8c220000 00000000\n'

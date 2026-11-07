@@ -8,6 +8,26 @@ target, not a replacement DLL loaded into PS2Recomp.
 
 ## Build and evidence
 
+### Native model bone matrix records (2026-11-08)
+
+The original scalar loop `0x2371dc..0x2372d0` now produces bone matrices from
+the root inverse on its stack, current bone records, and immutable bind matrices.
+The native operation performs the original two ordered compositions, preserves
+the untranslated fourth column, then transposes with the original zero/one
+arithmetic. Publication occurs at the original output stores. The scalar loop,
+buffer selector and buffer cursors remain compiled; no VU register bank or
+previous vector result supplies an input. Source/output overlaps reject because
+the original loop pipelines a later input before the preceding output store.
+
+512 complete scalar-loop CPU/RAM comparisons pass against an independent integer
+product/signed-sum oracle across 1–11 bones, both buffers, four rounding modes,
+signed zeros and normal/scratch stacks. Invalid index/buffer, source aliases and
+nonfinite input reject without CPU/RAM mutation. Source guards cover the original
+caller and both offline-read math program ranges, including the second MPG header
+offset; no such bytes are parsed at runtime. Actual New Game now passes this
+dependency and stops at distance calculation `0x1fedd4`. All 57 rebuilt Bozo
+checks pass, including startup and the resource lifetime increment. Logun remains open.
+
 ### Bespoke FIS resource publication (2026-11-08)
 
 The type-3 producer was mod003 `0x447af0`, class `0x165b40`: a texture

@@ -75,6 +75,16 @@ class KernelGuardTests(unittest.TestCase):
             for pc in (lo,(lo+(hi-lo)//2)&~3,hi-4):
                 changed=bytearray(data);changed[s[1]+pc-s[2]]^=1
                 with self.subTest(pc=hex(pc)),self.assertRaises(ValueError):overlay_adaptations('mod003',changed)
+
+    def test_bone_matrix_sources(self):
+        data=(IMAGE.parent/'mod001.elf').read_bytes();_,segments,_=elf_parts(data);lo,hi=0x2371dc,0x2372d0
+        s=next(s for s in segments if s[0]==1 and s[2]<=lo<hi<=s[2]+s[4])
+        for pc in (lo,0x237224,0x237284,hi-4):
+            changed=bytearray(data);changed[s[1]+pc-s[2]]^=1
+            with self.subTest(pc=hex(pc)),self.assertRaises(ValueError):overlay_adaptations('mod001',changed)
+        for at in (0x12b4a8+0x1f0,0x12b4a8+0x248,0x12b4a8+0x8a0,0x12b4a8+0x958):
+            changed=bytearray(data);changed[at]^=1
+            with self.subTest(at=hex(at)),self.assertRaises(ValueError):overlay_adaptations('mod001',changed)
     @classmethod
     def setUpClass(cls):
         cls.data=IMAGE.read_bytes()
@@ -175,6 +185,10 @@ class KernelGuardTests(unittest.TestCase):
             '0029cc00 00a0302d 0220202d','0029cc04 0c044c70 0c0402cc',
             '002c3cb4 8c220000 00000000','002c3cb8 10000015 080b0f48'])
         self.assertEqual(overlay_native_sites('mod001',data),''.join(f'native 0x{pc:x}\n' for pc in (
+        0x2371e8,0x2371ec,0x2371f0,0x2371f4,0x2371fc,0x237200,0x237204,0x237208,
+        0x23720c,0x237210,0x237214,0x237218,0x237224,0x237260,0x237264,0x237268,0x23726c,
+        0x237270,0x237274,0x237278,0x23727c,0x237280,0x237284,0x237288,0x23728c,0x237290,
+        0x23729c,0x2372b8,0x2372bc,0x2372c0,0x2372c4,0x2372c8,
         0x2075bc,0x2075cc,0x30ce84,0x306a10,0x306b84,0x306bc4,0x306c58,
         0x30ee00,0x30ef20,0x30ef2c,0x30ef44,0x30ef78,0x30efb8,0x30eff4,0x30f028,0x30f070,0x30ed90,
         0x214540,0x2e9640,0x2e970c,0x2e95d0,0x2e9e90,0x2ea154,0x2ea338,0x2ead10,0x2eae90,0x2eb07c,0x2eb284,0x2eb2ec,0x2eb300,0x2eb320,0x2eb340,0x2eb378,

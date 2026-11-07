@@ -376,6 +376,9 @@ def overlay_adaptations(name,data):
         return '0036224c ac220010 00000000\n00362760 ac200000 00000000\n00360ef4 0c048afe 00000000\n003721ac 03e00008 08087268\n'
     if name!='mod001':return ''
     _,segments,_=elf_parts(data)
+    for lo,hi,expected in ((0x12b4a8+0x1f0,0x12b4a8+0x250,'b79cf2382262fa4251a0e08c8d0b7eb05f051c8a77915bf5863c78d7d6acd784'),
+                           (0x12b4a8+0x8a0,0x12b4a8+0x960,'af7ecfd91505685a1f79a0870924e24d3b79f4c60d583d071090f16df8d183bd')):
+        if hashlib.sha256(data[lo:hi]).hexdigest()!=expected:raise ValueError('USA bone matrix algorithm mismatch')
     for lo,hi,expected in (
         (0x3140e0,0x314120,'5b1ac88e48d62e6ae747d08f015c4b4e5a80c15e7ae4e198d6b8386eaf81ccd9'),
         (0x2e74f0,0x2e75bc,'249a16a05dfd11f8b9ee28c571dfc511db7d2b6e9d5b35207a992be32ee2c767'),
@@ -447,6 +450,7 @@ def overlay_adaptations(name,data):
         (0x213fd0,0x2140f4,'929eb425f5d11c4d38fd2c0d2c18b8bad91718a8fe3845ba40df7e08a9392768'),
         (0x358490,0x358690,'9a1c658a34ce5474bcf366b3d05296b4eb6de58357684808a64cdcbe12b91b53'),
         (0x216e40,0x216f4c,'422ab7a80ab28b304ccdcd915c85f68fd5077dece21a302982f240d80845ccc8'),
+        (0x2371dc,0x2372d0,'8dd9f9b8eebc36de6371dc3273828d44f6ac31eaaba90739ab75948ca85677fc'),
         (0x213b50,0x213e9c,'1fe7bed2ee6202570c935cf1a286364c7164bc80ecd2eea8da2448bd923f046b'),
         (0x216960,0x216a60,'e14b399a6c5f8f7ed8ebd20d7f86d40e384730df022339458a1b94418c582bd4'),
         (0x208cd0,0x2091d8,'f3ee4da5dccf5e996d4fc172958ddc4e11df5e35b6cfe27daf11635b6c021369'),
@@ -617,6 +621,10 @@ def overlay_native_sites(name,data):
     if name!='mod001':return ''
     overlay_adaptations(name,data)
     return ''.join(f'native 0x{pc:x}\n' for pc in (
+        0x2371e8,0x2371ec,0x2371f0,0x2371f4,0x2371fc,0x237200,0x237204,0x237208,
+        0x23720c,0x237210,0x237214,0x237218,0x237224,0x237260,0x237264,0x237268,0x23726c,
+        0x237270,0x237274,0x237278,0x23727c,0x237280,0x237284,0x237288,0x23728c,0x237290,
+        0x23729c,0x2372b8,0x2372bc,0x2372c0,0x2372c4,0x2372c8,
         0x2075bc,0x2075cc,0x30ce84,0x306a10,0x306b84,0x306bc4,0x306c58,
         0x30ee00,0x30ef20,0x30ef2c,0x30ef44,0x30ef78,0x30efb8,0x30eff4,0x30f028,0x30f070,0x30ed90,
         0x214540,0x2e9640,0x2e970c,0x2e95d0,0x2e9e90,0x2ea154,0x2ea338,0x2ead10,0x2eae90,0x2eb07c,0x2eb284,0x2eb2ec,0x2eb300,0x2eb320,0x2eb340,0x2eb378,

@@ -22,6 +22,69 @@ bool nativeMathInstruction(uint8_t *,R5900Context *c,Runtime *rt,uint32_t pc){
     if(nativeTrigInstruction(nullptr,c,rt,pc))return true;
     if(nativeObjectMathInstruction(nullptr,c,rt,pc))return true;
     if(nativeFrustumInstruction(c,rt,pc))return true;
+    if(pc==0x237284 || pc==0x2372bc){
+        const auto word=[&](uint32_t at){uint32_t v;std::memcpy(&v,record(rt,at&~15u,16)+(at&15),4);return v;};
+        const auto owner=c->r[20].uw[0],list=word(owner+0x3c),bind=word(owner+0x40);
+        const auto count=word(word(owner+0x34)+4),step=c->r[6].uw[0];
+        if(!count || count>4096 || c->r[7].uw[0]!=count || !step || step>count || c->r[17].uw[0]!=list)
+            throw std::runtime_error("native bone matrix list escaped its CPU producer");
+        const auto index=step-1,bytes=count*64;
+        const auto selector=*(record(rt,owner+0x50,16));
+        const auto output=word(owner+0x4c)+0x40+selector*bytes;
+        const auto destination=c->r[19].uw[0];
+        if(selector>1 || (destination&0x1ffffff)!=(output+index*64 & 0x1ffffff))
+            throw std::runtime_error("native bone matrix output escaped its owned buffer");
+        const auto overlaps=[&](uint32_t at,uint32_t size){at&=0x1ffffff;const auto out=output&0x1ffffff;return at<out+bytes && out<at+size;};
+        // The original pipelines one iteration ahead. Reject source/output
+        // aliasing rather than rereading an input after a prior output store.
+        const auto inverse=c->r[29].uw[0]+0x60;
+        if(overlaps(bind,bytes) || overlaps(list,count*4) || overlaps(inverse,64))
+            throw std::runtime_error("unqualified native bone matrix alias");
+        for(unsigned i=0;i<count;++i)if(overlaps(word(list+i*4)+0x90,64))
+            throw std::runtime_error("unqualified native bone source alias");
+        math::Matrix base,bone,local,result;
+        std::memcpy(base.data(),record(rt,inverse,64),64);
+        std::memcpy(bone.data(),record(rt,word(list+index*4)+0x90,64),64);
+        std::memcpy(local.data(),record(rt,bind+index*64,64),64);
+        for(const auto *m:{&base,&bone,&local})for(auto row:*m){uint32_t bits[4];std::memcpy(bits,&row,16);
+            for(auto b:bits){const auto e=b&0x7f800000;if(e==0x7f800000 || (!e && (b&0x7fffff)))
+                throw std::runtime_error("unqualified native bone matrix input");}}
+        const auto normal=[](__m128 v){const auto bits=_mm_castps_si128(v);
+            const auto tiny=_mm_cmpeq_epi32(_mm_and_si128(bits,_mm_set1_epi32(0x7f800000)),_mm_setzero_si128());
+            return _mm_castsi128_ps(_mm_andnot_si128(_mm_and_si128(tiny,_mm_set1_epi32(0x7fffffff)),bits));};
+        const auto transform=[&](const math::Matrix &m,__m128 v){
+            auto total=normal(_mm_mul_ps(m[0],music::broadcast<0>(v)));
+            total=normal(music::codecSum(total,normal(_mm_mul_ps(m[1],music::broadcast<1>(v)))));
+            total=normal(music::codecSum(total,normal(_mm_mul_ps(m[2],music::broadcast<2>(v)))));
+            return normal(music::codecSum(total,normal(_mm_mul_ps(m[3],music::broadcast<3>(v)))));};
+        music::CodecRounding rounding;
+        math::Matrix relative;
+        for(unsigned i=0;i<3;++i)relative[i]=transform(bone,base[i]);relative[3]=bone[3];
+        for(unsigned i=0;i<3;++i)result[i]=transform(relative,local[i]);result[3]=relative[3];
+        _MM_TRANSPOSE4_PS(result[0],result[1],result[2],result[3]);
+        // The original transpose adds zero off the diagonal and scales each
+        // translation component by one; preserve the moved diagonal payloads.
+        for(unsigned i=0;i<4;++i){const auto adjusted=normal(_mm_add_ps(_mm_setzero_ps(),result[i]));
+            switch(i){case 0:result[i]=_mm_blend_ps(adjusted,result[i],9);break;
+                      case 1:result[i]=_mm_blend_ps(adjusted,result[i],10);break;
+                      case 2:result[i]=_mm_blend_ps(adjusted,result[i],12);break;
+                      case 3:result[i]=_mm_blend_ps(adjusted,result[i],8);break;}
+            if(i<3)result[i]=_mm_blend_ps(result[i],normal(_mm_mul_ps(result[i],_mm_set1_ps(1))),8);
+        }
+        for(auto row:result)if(_mm_movemask_ps(_mm_cmpunord_ps(row,row)) ||
+            _mm_movemask_ps(_mm_cmpeq_ps(_mm_andnot_ps(_mm_set1_ps(-0.f),row),_mm_set1_ps(INFINITY))))
+            throw std::runtime_error("native bone matrix overflow");
+        std::memcpy(record(rt,destination,64),result.data(),64);return true;
+    }
+    switch(pc){
+    case 0x2371e8:case 0x2371ec:case 0x2371f0:case 0x2371f4:
+    case 0x2371fc:case 0x237200:case 0x237204:case 0x237208:
+    case 0x23720c:case 0x237210:case 0x237214:case 0x237218:case 0x237224:
+    case 0x237260:case 0x237264:case 0x237268:case 0x23726c:
+    case 0x237270:case 0x237274:case 0x237278:case 0x23727c:case 0x237280:
+    case 0x237288:case 0x23728c:case 0x237290:case 0x23729c:
+    case 0x2372b8:case 0x2372c0:case 0x2372c4:case 0x2372c8:return true;
+    }
     if(pc==0x207720 || pc==0x207724 || pc==0x207728 || pc==0x20772c || pc==0x207738){
         const auto object=c->r[17].uw[0];uint32_t type,child;
         std::memcpy(&type,record(rt,object,16),4);

@@ -8,6 +8,14 @@ verified in the MIPS or the assets, [I] inferred.
 
 ## Bozo native model submission (2026-11-07)
 
+The scalar bone-palette loop `0x2371dc..0x2372d0` also builds native matrix
+records directly (2026-11-08). Its root inverse, bone transforms and bind matrices
+feed two ordered compositions and a transpose at the original output stores.
+The original loop and both buffer selections remain. Pipelined source/output
+overlaps reject; 512 whole CPU/RAM loop comparisons against independent integer
+arithmetic plus mutation-free rejection cases pass. This advances actual New Game
+to `0x1fedd4`; it does not yet qualify rendered field lighting or sky behavior.
+
 The Bozo runner replaces the model enqueue at `0x239fec` with native batch
 submission followed by the original scene completion. `bozo/native_models.cpp`
 reads game records and immutable semantic VPN1 assets converted offline from

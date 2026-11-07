@@ -22,6 +22,7 @@
 #include "native_textures.h"
 #include "native_scene.h"
 #include "native_assets.h"
+#include "native_debug_font.h"
 #include "bozo/render/renderer.h"
 #include <random>
 #include <algorithm>
@@ -36,8 +37,10 @@
 #include <stdexcept>
 
 namespace {
-class StrictHost final : public bozo::ee::Host, public vp2s::TimerOwner, public vp2s::SettingsOwner,public vp2s::SeedOwner,public vp2s::ModuleOwner,public vp2s::BootstrapOwner,public vp2s::RandomOwner,public vp2s::TextureOwner,public vp2s::SceneOwner,public vp2s::AssetOwner {
+class StrictHost final : public bozo::ee::Host, public vp2s::TimerOwner, public vp2s::SettingsOwner,public vp2s::SeedOwner,public vp2s::ModuleOwner,public vp2s::BootstrapOwner,public vp2s::RandomOwner,public vp2s::TextureOwner,public vp2s::SceneOwner,public vp2s::AssetOwner,public vp2s::DebugFontOwner {
 public:
+    vp2s::NativeDebugFonts fonts;
+    vp2s::NativeDebugFonts &nativeDebugFonts()override{return fonts;}
     vp2s::NativeAssets assets;
     vp2s::NativeAssets &nativeAssets()override{return assets;}
     vp2s::NativeScene scene;
@@ -202,6 +205,7 @@ public:
     void handlerCompleted(bozo::ee::Dispatcher &d,bozo::ee::Thread &t,const bozo::ee::Frame &f) override { native.handlerCompleted(d,t,f); }
 };
 bool noNativeInstruction(uint8_t *ram,R5900Context *ctx,Runtime *rt,uint32_t pc) {
+    if(auto handled=vp2s::nativeDebugFontInstruction(ram,ctx,rt,pc))return *handled;
     if(auto handled=vp2s::nativeCompositionInstruction(ram,ctx,rt,pc))return *handled;
     if(auto handled=vp2s::nativeAssetInstruction(ram,ctx,rt,pc))return *handled;
     if(pc==0x1131c0){

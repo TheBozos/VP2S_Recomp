@@ -49,6 +49,6 @@ deeper=subprocess.run([sys.argv[1],'--iso',sys.argv[2],'--frames','600'],
                       capture_output=True,text=True,timeout=30,
                       env={**os.environ,'VP2S_BOZO_SEED':'1'})
 print(deeper.stdout+deeper.stderr,end='')
-if deeper.returncode!=1 or 'native VP2S draw/data owner required at 1235b8 ra=112fd0' not in deeper.stdout+deeper.stderr:
-    raise SystemExit('longer native boot did not reject the next unowned menu producer')
+if deeper.returncode!=1 or 'unowned native graphics builder submission: writer=35df10 caller=29cb08' not in deeper.stdout+deeper.stderr:
+    raise SystemExit('longer native boot did not reject the next unowned graphics-setup producer')
 print('First native game-frame boundary passed; textures publish and startup reaches its next guarded producer. Native rendering remains unqualified.')

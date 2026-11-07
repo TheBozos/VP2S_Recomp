@@ -25,6 +25,8 @@ COMMAND_SEND = (0x13a3f0,0x13a524)
 EVENT_RANGES=((0x140b70,0x140c34),(0x148c58,0x148f88),(0x141780,0x141898),(0x141910,0x141958),(0x141980,0x1419cc))
 RETIRED_RANGES = (INSTALLER, QUERY, ALARM_INSTALLER, ALARM_PAYLOAD, TIMER_INITIALIZER, TIMER_HANDLER, TIMER_START, TIMER_QUERY, TIMER_REARM,MODULE_LOADER,MODULE_BUFFER_LOADER,MODULE_BUFFER_FREE,MODULE_TRANSFER,CACHE_SYNC,COMMAND_SEND)+EVENT_RANGES
 GUARDS = {
+    (0x159140,0x159150): 'a8500101af091d6d9ce554234d8be36aee2ae21748df7d30150f67fc7ec6c0f8',
+    (0x120fa0,0x120fe0): '29204e947fbf9fa9b69420ae1cae478318746c39e977062cd82bd5943da726a5',
     (0x120eb0,0x120f6c): '6439d105d9c5b0c6f64ec233e0d91cae9990c0f234df6127b82b0f8d219bb376',
     (0x118230,0x118320): 'fd8d38b9afa48075325def7aa1b70178fbb141c758539d0220addeee4e804cce',
     (0x102650,0x1029c4): 'ce64aef481b0dc8fb22939b74dbadc708dbd4cf8a338a625fb390361d5ee421d',
@@ -165,6 +167,13 @@ def composition_sites():
     return ''.join(f'native 0x{pc:x}\n' for pc in (0x114550,0x1145bc,0x1145f8,0x114634,0x114714,0x114a78,0x114da0,0x114774,0x1147ac))
 
 
+def debug_font_adaptations(data):
+    bindings(data)
+    # The native instruction at the original enqueue's delay slot rejects
+    # every writer except a specifically owned state-only font publication.
+    return '00120f48 0c044c70 00000000\n'
+
+
 def game_entries(data):
     # The thread object's vtable dispatches here from 0x119750. Ghidra exported
     # only the tail labels 0x11d770..0x11d7c0, omitting the actual entry/prologue.
@@ -218,7 +227,7 @@ def native_game_sites(data):
     at=s[1]+lo-s[2]
     if hashlib.sha256(data[at:at+hi-lo]).hexdigest()!='b51e65c468e6ccfbc18ebe97e73361841f296da61c34ec5d5dafae384360053c':
         raise ValueError('USA game frame-wait signature mismatch')
-    return 'native 0x1003c4\nnative 0x11fb50\nnative 0x11f62c\nnative 0x1131c0\n'+asset_sites()+composition_sites()
+    return 'native 0x1003c4\nnative 0x11fb50\nnative 0x11f62c\nnative 0x1131c0\n'+asset_sites()+composition_sites()+'native 0x120f4c\nnative 0x120f58\n'
 
 
 def asset_sites():
@@ -287,6 +296,9 @@ def overlay_adaptations(name,data):
     if name!='mod001':return ''
     _,segments,_=elf_parts(data)
     for lo,hi,expected in (
+        (0x29af80,0x29b2c4,'ef3a9f1a6cae966ab8a687451e72ac175d88b8e9883d09449949ca5c3389d0bf'),
+        (0x29aeb0,0x29af78,'7e822b8520d71ee253400f4e8565e933bb9a9495330e461385d2fe04ef673f69'),
+        (0x29b480,0x29b520,'195dd1778735679111fe1a0415b42159a229bc6999f4b53594a49cb9ccb55b99'),
         (0x249720,0x24a438,'10c8d5e49e540decaa624ca4ea5f9e5aeee7cc23f9acf910d53cbe623ad1484e'),
         (0x202150,0x202200,'2056326076193b416411c06ca8c0b005e58038dd2b237625a6242ce3d0b661da'),
         (0x29e230,0x29e310,'62230c5e1d41b56528bb4de238ce9919fef2df3c7043e5afa91f54b1b1dce634'),
@@ -344,6 +356,11 @@ def overlay_adaptations(name,data):
 
 
 def overlay_native_sites(name,data):
+    if name=='mod002':
+        _,segments,_=elf_parts(data);lo,hi=0x3622e8,0x362338
+        s=next(s for s in segments if s[0]==1 and s[2]<=lo<hi<=s[2]+s[4]);at=s[1]+lo-s[2]
+        if hashlib.sha256(data[at:at+hi-lo]).hexdigest()!='6d87622143495b5e67a67c1a1655a2eef28d48c7c1d78309ea18a3ad3e6f45ed':raise ValueError('USA debug-font publication caller mismatch')
+        return 'native 0x362328\n'
     if name!='mod001':return ''
     overlay_adaptations(name,data)
-    return 'native 0x29e1a0\nnative 0x2c3cb4\nnative 0x29cc30\nnative 0x29cd7c\nnative 0x29cf14\nnative 0x29cf30\nnative 0x29cc00\nnative 0x29e160\nnative 0x208a94\n'
+    return 'native 0x29e1a0\nnative 0x2c3cb4\nnative 0x29cc30\nnative 0x29cd7c\nnative 0x29cf14\nnative 0x29cf30\nnative 0x29cc00\nnative 0x29e160\nnative 0x208a94\nnative 0x29af80\nnative 0x29b2a8\n'

@@ -7,6 +7,33 @@ target, not a replacement DLL loaded into PS2Recomp.
 
 ## Build and evidence
 
+### State-only debug-font setup ownership (2026-11-07)
+
+The next producer is the ANKF debug-font object in the `mod002` loop. The
+fingerprinted `0x29af80` initializer now captures an immutable native atlas and
+glyph metrics per object/invocation. Its original CPU construction remains.
+The reached publication contains only that initializer's five-qword material
+prefix, with no glyph or background. Native materials need no standalone state
+submission, so this exact prefix has no draw to publish. This is not a native
+glyph renderer or permission to discard text.
+
+The high-level caller at `0x362328` accepts only the captured writer's untouched
+begin/end range and no background. A durable invocation owns its original CPU
+flush; that flush keeps bounds checks, terminator writes and cursor updates.
+Only its enqueue retires, and a rejecting native guard now occupies that site.
+Every other nonempty writer rejects before any queue/DMA submission; the
+generic SDK guard remains. Appended glyphs, changed ranges, backgrounds and
+unowned initializers reject. No packet byte is read, no buffer is reset or
+cleared to bypass work, and no graphics job/completion is invented.
+
+The compiled fixture has 112 initializer/flush CPU/RAM comparisons, including
+accelerated RAM aliases, allocation failure, optional-background rejection and
+pauses at every initializer out-call. The void enqueue result and exact removed
+call accounting are explicit differences. Unowned publications preserve CPU/RAM
+on rejection, and atlas pixels are checked from the offline fixture. The real
+boot passes the state-only font publication and stops at the separate global
+graphics-setup writer `0x35df10`, from `0x29cb08`. Rendering and Logun remain open.
+
 ### Native full-height source target (2026-11-07)
 
 The ordinary `0x114550` composition path now begins a native Bozo renderer frame

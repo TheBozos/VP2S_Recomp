@@ -76,7 +76,10 @@ class KernelGuardTests(unittest.TestCase):
     def test_graphics_enable_retirement(self):
         data=(IMAGE.parent/'mod001.elf').read_bytes()
         self.assertEqual(overlay_adaptations('mod001',data).splitlines(),[
-            '00249830 ac22e000 00000000','002021c4 3c011001 0808087a','002021c8 2402fffd 00000000',
+            '00249830 ac22e000 00000000',
+            '00221300 0c0a75cc 00000000','00221554 4100fffa 00000000','00221568 0c04df7e 00000000',
+            '002216fc 0c0a75ac 00000000','0022172c 4100fffa 00000000','00221740 0c04df7e 00000000',
+            '002021c4 3c011001 0808087a','002021c8 2402fffd 00000000',
             '0029e210 4a00fc3e 00000000','0029e214 4b1f043d 00000000','0029e2fc 0c0807c8 00000000',
             '0029e1a0 a0820050 00000000','0029e1ac 0c0807c8 00000000',
             '0029e160 a0820050 00000000','0029e16c 0c0807c8 00000000',
@@ -87,7 +90,10 @@ class KernelGuardTests(unittest.TestCase):
             '0029cf14 00a0302d 0260202d','0029cf18 0c044c70 0c0402cc',
             '0029cc00 00a0302d 0220202d','0029cc04 0c044c70 0c0402cc',
             '002c3cb4 8c220000 00000000','002c3cb8 10000015 080b0f48'])
-        self.assertEqual(overlay_native_sites('mod001',data),'native 0x29e1a0\nnative 0x2c3cb4\nnative 0x29cc30\nnative 0x29cd7c\nnative 0x29cf14\nnative 0x29cf30\nnative 0x29cc00\nnative 0x29e160\nnative 0x208a94\nnative 0x29af80\nnative 0x29b2a8\nnative 0x29caf8\nnative 0x2205c0\nnative 0x220ce0\nnative 0x29e43c\nnative 0x29e444\nnative 0x22106c\n')
+        self.assertEqual(overlay_native_sites('mod001',data),''.join(f'native 0x{pc:x}\n' for pc in (
+            0x29e1a0,0x2c3cb4,0x29cc30,0x29cd7c,0x29cf14,0x29cf30,0x29cc00,0x29e160,
+            0x208a94,0x29af80,0x29b2a8,0x29caf8,0x2205c0,0x220ce0,0x29e43c,0x29e444,
+            0x22106c,0x221294,0x221308,0x221540,0x221704,0x221718,0x221748)))
         _,segments,_=elf_parts(data)
         for lo,hi in ((0x249720,0x24a438),(0x202150,0x202200),(0x29e1d0,0x29e22c),
                       (0x29e230,0x29e310),(0x333640,0x333650),(0x333650,0x333d60),
@@ -95,7 +101,8 @@ class KernelGuardTests(unittest.TestCase):
                       (0x217550,0x2175c0),(0x215870,0x2159c0),(0x216730,0x216780),(0x2494c0,0x249720),(0x249270,0x249390),(0x211da0,0x211dc0),(0x2c3c10,0x2c4378),(0x29cc30,0x29cf58),
                       (0x29cb20,0x29cc30),(0x2b8f90,0x2b8fb4),(0x314200,0x314600),(0x208900,0x208aac),(0x2092f0,0x20975c),(0x2097c0,0x209818),(0x2bef20,0x2bf0dc),(0x248fc0,0x24926c),(0x213fd0,0x2140f4),(0x358490,0x358690),(0x216e40,0x216f4c),(0x213b50,0x213e9c),(0x216960,0x216a60),
                       (0x208cd0,0x2091d8),(0x207d70,0x2081c8),(0x208360,0x208470),(0x20f440,0x20f938),(0x207cc0,0x207d70),(0x2205c0,0x220d14),
-                      (0x29e310,0x29e378),(0x29e420,0x29e4a4),(0x221030,0x2210b8)):
+                      (0x29e310,0x29e378),(0x29e420,0x29e4a4),(0x221030,0x2210b8),(0x221260,0x22177c),
+                      (0x29d730,0x29d7ac),(0x29d6b0,0x29d72c),(0x29df60,0x29e06c)):
             segment=next(s for s in segments if s[0]==1 and s[2]<=lo<hi<=s[2]+s[4])
             for pc in range(lo,hi,4):
                 altered=bytearray(data);altered[segment[1]+pc-segment[2]]^=1

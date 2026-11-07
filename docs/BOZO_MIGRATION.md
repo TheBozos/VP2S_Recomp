@@ -7,6 +7,29 @@ target, not a replacement DLL loaded into PS2Recomp.
 
 ## Build and evidence
 
+### Canonical EE texture-manager frame (2026-11-07)
+
+`0x221260` now keeps the game's canonical EE texture-manager record selected
+throughout drawing. Its source and working destination are the same record;
+no scratch copy, transfer payload, channel state or completion is implemented.
+The complete frame, manager initializer and both removed transfer producers
+are fingerprinted. A per-invocation lifetime checks the scene, canonical pointer,
+entry/exit order and absence of outstanding legacy work before admission.
+Overlapping scene/manager records and changed pointers reject.
+
+Only this frame's two physical transfer calls and their paired completion polls
+and channel cleanup calls retire. Other device/COP0 conditions still reject.
+The original scalar texture-residency code, arguments, dirty-record stores,
+callbacks and global-pointer restore remain compiled and act on the EE record.
+
+64 whole empty-scene frame CPU/RAM cases qualify both compiled fixtures in this
+in-place mode. Identical bounded camera/queue callbacks mutate the canonical
+record and pause/resume; exact byte checks observe those changes and unchanged
+poisoned scratch bytes. This does not compare against executing scratch DMA or
+qualify populated-scene native drawing. Graphics fixture: 512 cases. Boot passes
+the former scratch transfer and reaches camera VIF1 wait `0x208888`
+(`0x10009000`). Native rendering and the Logun route remain open.
+
 ### Retired render profiling samples (2026-11-07)
 
 The reached render task's T0 sample at `0x29e43c` fed only its private `+0x14`

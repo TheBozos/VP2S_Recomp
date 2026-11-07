@@ -24,6 +24,7 @@ struct Host:bozo::ee::Host,bozo::port::Host,vp2s::SceneOwner {
     bozo::libs::Libraries &libraries()override{throw std::runtime_error("libraries");}
     bool nativeGraphics()const override{return true;}
     bool nativeInstruction(uint8_t *r,R5900Context *c,Runtime *rt,uint32_t pc)override{
+        if(auto handled=vp2s::nativeTextureManagerInstruction(c,rt,pc))return *handled;
         if(auto handled=vp2s::nativeVisibilityInstruction(c,rt,pc)){
             if(pc==0x2206b8)lastVisibility=scene.visibility(c->r[29].uw[0]);return *handled;
         }
@@ -33,6 +34,17 @@ struct Host:bozo::ee::Host,bozo::port::Host,vp2s::SceneOwner {
     void frameEnd(Runtime *,R5900Context *)override{throw std::runtime_error("frame");}
     bool callLibrary(Runtime *,R5900Context *,uint32_t)override{return false;}
     void libraryCall(bozo::ee::Dispatcher &d,R5900Context *c,uint32_t pc)override{
+        if(pc==0x209a30 || pc==0x112ba0){
+            const auto &frame=scene.textureManagerFrame(c->r[30].uw[0]);check(frame.entered && !frame.left);
+            ++*d.runtime().memory.hostPointer(frame.manager+0x2009,1);c->r[2].ud[0]=0;c->pc=c->r[31].uw[0];
+            if(pause)throw Pause{};return;
+        }
+        if(pc==0x137460){
+            const auto &frame=scene.textureManagerFrame(c->r[30].uw[0]);uint32_t manager;
+            std::memcpy(&manager,d.runtime().memory.flat()+0x35de38,4);check(manager==frame.manager && manager<0x2000000);
+            ++*d.runtime().memory.hostPointer(manager+0x2008,1);c->r[2].ud[0]=7;c->pc=c->r[31].uw[0];
+            if(pause)throw Pause{};return;
+        }
         if(pc==0x21fab0 || pc==0x10d0f0 || pc==0x101080 || pc==0x10e820 || pc==0x11f4b0 || pc==0x10e290){
             renderCalls.push_back(pc);
             if(pc==0x10d0f0)c->r[2].ud[0]=0x1c8d00;
@@ -63,6 +75,7 @@ struct Host:bozo::ee::Host,bozo::port::Host,vp2s::SceneOwner {
     void vu0Microprogram(bozo::ee::Dispatcher &,R5900Context *,uint32_t)override{throw std::runtime_error("unexpected VU execution");}
     void ioRead(bozo::ee::Dispatcher &,R5900Context *,uint32_t,uint32_t,uint64_t[2])override{throw std::runtime_error("unexpected device read");}
     void ioWrite(bozo::ee::Dispatcher &,R5900Context *,uint32_t,uint32_t,const uint64_t[2])override{throw std::runtime_error("unexpected device write");}
+    bool cop0Condition(bozo::ee::Dispatcher &,R5900Context *)override{throw std::runtime_error("unexpected device completion condition");}
     void fault(bozo::ee::Dispatcher &,R5900Context *,const std::string &s)override{throw std::runtime_error(s);}
 };
 }
@@ -74,6 +87,8 @@ int main(){try{
     old.boot(0x29e2e0,0x1fff000);native.boot(0x29e2e0,0x1fff000);old.bindLibrary(0x201f20);
     for(auto *d:{&old,&native})for(uint32_t pc:{0x170100u,0x2138f0u,0x215870u,0x2082f0u})d->bindLibrary(pc);
     for(auto *d:{&old,&native})for(uint32_t pc:{0x21fab0u,0x10d0f0u,0x101080u,0x10e820u,0x11f4b0u,0x10e290u})d->bindLibrary(pc);
+    old.bindLibrary(0x137460);native.bindLibrary(0x137460);old.bindLibrary(0x209a30);native.bindLibrary(0x209a30);
+    old.bindLibrary(0x112ba0);native.bindLibrary(0x112ba0);
     for(unsigned seed=0;seed<64;++seed){
         auto *a=old.runtime().memory.flat(),*b=native.runtime().memory.flat();
         std::memset(a,seed+1,bozo::kFlatBytes);uint32_t queue=0x180000;std::memcpy(a+0x35dde0,&queue,4);
@@ -202,5 +217,29 @@ int main(){try{
         R5900Context bad{};bad.r[16].ud[0]=0x180000;bad.r[1].ud[0]=0x10000000;const auto saved=bad;bool rejected=false;
         try{vp2s::nativeSceneInstruction(nullptr,&bad,&b,0x29e43c);}catch(const std::runtime_error &){rejected=true;}
         check(rejected && !std::memcmp(&bad,&saved,sizeof(bad)));}
-    std::puts("448 graphics/math/camera/frustum/visibility/job CPU/RAM cases; immutable snapshots, callbacks, lifetimes and retired profiling samples");return 0;
+    for(unsigned seed=0;seed<64;++seed){
+        auto &a=old.runtime(),&b=native.runtime();std::memset(a.memory.flat(),0,bozo::kFlatBytes);
+        constexpr uint32_t object=0x180000,manager=0x1b0000;
+        const auto word=[&](uint32_t at,uint32_t v){std::memcpy(a.memory.flat()+at,&v,4);};
+        word(0x35de38,manager);word(0x35ddc0,0x1d0000);word(0x35ddc8,0x1c0000);word(0x35ddd0,0x1c2000);word(object+0x4080,0x1a0000);
+        std::memset(a.memory.flat()+manager,seed+1,0x2910);std::memset(a.memory.hostPointer(0x70000000,0x2910),0x5a,0x2910);
+        std::memcpy(b.memory.flat(),a.memory.flat(),bozo::kFlatBytes);oldHost.pause=false;nativeHost.pause=(seed&32)!=0;
+        R5900Context x{},y{};x.r[4].ud[0]=object;x.r[29].ud[0]=seed&1?0x70003f00:0x1fff000;x.r[31].ud[0]=0x170000;y=x;
+        a.functions.generated(0x221260)(a.memory.flat(),&x,&a);auto fn=b.functions.generated(0x221260);unsigned attempts=0;
+        while(true){try{fn(b.memory.flat(),&y,&b);break;}catch(const Host::Pause &){}
+            check(++attempts<8);auto entry=b.functions.resumeEntry(y.pc);check(entry);fn=entry->resume;}
+        x.cycleLimit=y.cycleLimit;check(!std::memcmp(&x,&y,sizeof(x)) && !std::memcmp(a.memory.flat(),b.memory.flat(),bozo::kFlatBytes));
+        uint32_t actual;std::memcpy(&actual,b.memory.flat()+0x35de38,4);check(actual==manager && b.memory.flat()[manager+0x2008]==seed+2);
+        for(unsigned i=0;i<0x2910;++i)check(*b.memory.hostPointer(0x70000000+i,1)==0x5a);
+        bool released=false;try{nativeHost.scene.textureManagerFrame((seed&1?0x70003f00:0x1fff000)-0xd0);}catch(const std::runtime_error &){released=true;}check(released);
+    }
+    {auto &b=native.runtime();auto &scene=nativeHost.scene;constexpr uint32_t stack=0x1fff000,object=0x180000,manager=0x1b0000;
+        uint32_t pending=1;std::memcpy(b.memory.flat()+0x1c1000,&pending,4);bool rejected=false;
+        try{scene.beginTextureManagerFrame(&b,stack,object,manager);}catch(const std::runtime_error &){rejected=true;}check(rejected);
+        pending=0;std::memcpy(b.memory.flat()+0x1c1000,&pending,4);scene.beginTextureManagerFrame(&b,stack,object,manager);
+        rejected=false;try{scene.textureManagerBoundary(&b,stack,object,manager+16,manager,false);}catch(const std::runtime_error &){rejected=true;}
+        check(rejected && !scene.textureManagerFrame(stack).entered);scene.textureManagerBoundary(&b,stack,object,manager,manager,false);
+        rejected=false;try{scene.textureManagerBoundary(&b,stack,object,manager,manager,false);}catch(const std::runtime_error &){rejected=true;}check(rejected);
+        scene.finishTextureManagerFrame(&b,stack,object);}
+    std::puts("512 graphics/math/camera/frustum/visibility/job/frame CPU/RAM cases; canonical EE texture manager, no scratch copy, callbacks and lifetimes");return 0;
 }catch(const std::exception &e){std::fprintf(stderr,"%s\n",e.what());return 1;}}

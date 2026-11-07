@@ -185,4 +185,52 @@ std::optional<bool> nativeVisibilityInstruction(R5900Context *c,Runtime *rt,uint
     if(pc==0x2206b8)scene.visibilityView(rt,sp,c->r[20].uw[0]);
     return true;
 }
+void NativeScene::beginTextureManagerFrame(Runtime *rt,uint32_t stack,uint32_t scene,uint32_t manager){
+    if(!textureManagerFrames.empty())throw std::runtime_error("native texture-manager frame already active");
+    record(rt,manager,0x2910);record(rt,scene,0x40ec);
+    if((manager&15) || word(rt,0x35de38)!=manager)throw std::runtime_error("native texture-manager frame has no canonical EE record");
+    if(manager<scene+0x40ec && scene<manager+0x2910)throw std::runtime_error("unqualified texture-manager/scene record overlap");
+    for(uint32_t global:{0x35ddc8u,0x35ddd0u}){
+        const auto queue=word(rt,global);record(rt,queue,0x1011);
+        if(word(rt,queue+0x1000))throw std::runtime_error("native texture-manager frame has outstanding legacy work");
+    }
+    textureManagerFrames.emplace(stack,NativeTextureManagerFrame{scene,manager});
+}
+const NativeTextureManagerFrame &NativeScene::textureManagerFrame(uint32_t stack)const{
+    auto it=textureManagerFrames.find(stack);if(it==textureManagerFrames.end())throw std::runtime_error("native texture-manager frame has no invocation");return it->second;
+}
+void NativeScene::textureManagerBoundary(Runtime *rt,uint32_t stack,uint32_t scene,uint32_t source,uint32_t destination,bool leaving){
+    auto state=textureManagerFrame(stack);
+    if(state.scene!=scene || source!=state.manager || destination!=state.manager || word(rt,0x35de38)!=state.manager || word(rt,scene+0x40e8)!=state.manager)
+        throw std::runtime_error("native texture manager escaped its in-place record");
+    if(leaving){if(!state.entered || state.left)throw std::runtime_error("native texture-manager leave is out of order");state.left=true;}
+    else{if(state.entered)throw std::runtime_error("native texture-manager enter repeats");state.entered=true;}
+    textureManagerFrames.at(stack)=state;
+}
+void NativeScene::finishTextureManagerFrame(Runtime *rt,uint32_t stack,uint32_t scene){
+    const auto &state=textureManagerFrame(stack);
+    if(state.scene!=scene || !state.entered || word(rt,0x35de38)!=state.manager)
+        throw std::runtime_error("native texture-manager frame changed before return");
+    textureManagerFrames.erase(stack);
+}
+std::optional<bool> nativeTextureManagerInstruction(R5900Context *c,Runtime *rt,uint32_t pc){
+    if(pc!=0x221294 && pc!=0x221308 && pc!=0x221540 && pc!=0x221704 && pc!=0x221718 && pc!=0x221748)return std::nullopt;
+    auto *d=rt?dynamic_cast<bozo::ee::Dispatcher *>(rt->services):nullptr;
+    auto *owner=d?dynamic_cast<SceneOwner *>(&d->host()):nullptr;
+    if(!owner || !c)throw std::runtime_error("native texture-manager frame requires a scene owner");
+    auto &scene=owner->nativeScene();const auto stack=c->r[30].uw[0];
+    if(pc==0x221294){
+        if(c->pc!=0x221260 || stack!=c->r[29].uw[0])throw std::runtime_error("native texture manager requires its complete frame owner");
+        const auto manager=word(rt,0x35de38);scene.beginTextureManagerFrame(rt,stack,c->r[4].uw[0],manager);
+        c->r[17].ud[0]=manager;return true; // The game keeps using its canonical EE record, never a scratch copy.
+    }
+    const auto object=c->r[16].uw[0];
+    if(pc==0x221308 || pc==0x221704)scene.textureManagerBoundary(rt,stack,object,c->r[4].uw[0],c->r[5].uw[0],pc==0x221704);
+    if(pc==0x221540){const auto &state=scene.textureManagerFrame(stack);
+        if(state.scene!=object || !state.entered || state.left || word(rt,0x35de38)!=state.manager)throw std::runtime_error("unowned retired texture-manager enter wait");}
+    if(pc==0x221718){const auto &state=scene.textureManagerFrame(stack);
+        if(state.scene!=object || !state.left || word(rt,0x35de38)!=state.manager)throw std::runtime_error("unowned retired texture-manager transfer wait");}
+    if(pc==0x221748)scene.finishTextureManagerFrame(rt,stack,object);
+    return false; // Retain every scalar store, argument and frame restoration.
+}
 }

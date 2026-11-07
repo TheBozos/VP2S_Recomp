@@ -308,10 +308,7 @@ if(VP2S_BOZO_CODE)
   set(INSTALL_REF "${CMAKE_CURRENT_BINARY_DIR}/graphics-install-reference")
   foreach(VARIANT original adapted)
     set(INSTALL_DIR "${INSTALL_REF}/${VARIANT}")
-    set(INSTALL_PATCH_ARGS)
-    if(VARIANT STREQUAL "adapted")
-      set(INSTALL_PATCH_ARGS --patches "${INSTALL_DIR}/patches.txt")
-    endif()
+    set(INSTALL_PATCH_ARGS --patches "${INSTALL_DIR}/patches.txt")
     add_custom_command(OUTPUT "${INSTALL_DIR}/install_${VARIANT}_000.cpp" "${INSTALL_DIR}/install_${VARIANT}_table.cpp" "${INSTALL_DIR}/install_${VARIANT}_functions.h"
       COMMAND ${Python3_EXECUTABLE} "${VP2S_ROOT}/tools/vp2_bozo_graphics_fixture.py" "${VP2S_BOZO_DATA}/images/mod001.elf" "${INSTALL_DIR}" --build "${VP2S_BOZO_DATA}/.." --variant ${VARIANT}
       COMMAND $<TARGET_FILE:bozo-recomp> "${INSTALL_DIR}/fixture.elf" "${INSTALL_DIR}" --prefix install_${VARIANT} --symbol-prefix install_${VARIANT}_

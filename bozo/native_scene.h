@@ -26,6 +26,7 @@ struct NativeVisibilityInputs {
     std::shared_ptr<const NativeCameraFrustum> frustum;
     bool viewReady=false;
 };
+struct NativeTextureManagerFrame {uint32_t scene=0,manager=0;bool entered=false,left=false;};
 class NativeScene {
     std::map<uint32_t,std::shared_ptr<const NativeCamera>> cameras;
     uint64_t cameraPublications=0;
@@ -34,6 +35,7 @@ class NativeScene {
     std::shared_ptr<const NativeCameraFrustum> activeFrustum;
     uint64_t frustumPublications=0;
     std::map<uint32_t,NativeVisibilityInputs> visibilityInputs;
+    std::map<uint32_t,NativeTextureManagerFrame> textureManagerFrames;
 public:
     NativeFrameTarget beginComposition(Runtime *,uint32_t stack,uint32_t object);
     void finishComposition(uint32_t stack);
@@ -50,6 +52,10 @@ public:
     void visibilityView(Runtime *,uint32_t stack,uint32_t camera);
     const NativeVisibilityInputs &visibility(uint32_t stack)const;
     void finishVisibility(uint32_t stack,uint32_t object);
+    void beginTextureManagerFrame(Runtime *,uint32_t stack,uint32_t scene,uint32_t manager);
+    const NativeTextureManagerFrame &textureManagerFrame(uint32_t stack)const;
+    void textureManagerBoundary(Runtime *,uint32_t stack,uint32_t scene,uint32_t source,uint32_t destination,bool leaving);
+    void finishTextureManagerFrame(Runtime *,uint32_t stack,uint32_t scene);
 };
 class SceneOwner {
 public:
@@ -60,4 +66,5 @@ public:
 bool nativeSceneInstruction(uint8_t *,R5900Context *,Runtime *,uint32_t pc);
 std::optional<bool> nativeCompositionInstruction(uint8_t *,R5900Context *,Runtime *,uint32_t pc);
 std::optional<bool> nativeVisibilityInstruction(R5900Context *,Runtime *,uint32_t pc);
+std::optional<bool> nativeTextureManagerInstruction(R5900Context *,Runtime *,uint32_t pc);
 }

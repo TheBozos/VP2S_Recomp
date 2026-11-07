@@ -6,6 +6,18 @@ GIF packet read). Addresses are mod001 unless stated. [V] verified in the MIPS o
 
 ## Framework
 
+### Bozo flat scene fades (2026-11-08)
+
+Class `0x161230`, flat mode 0, captures original scalar rectangle arguments at
+mod003 `0x3d38d4` into a native snapshot, with source dimensions, colour and
+depth. Its 96-byte writer scope remains guarded through original CPU flush
+bookkeeping, followed by real `0x3d34e0`/`0x21c9a0` completion. Destruction
+releases the association; populated/alternate modes and extra writer contents
+reject. No packet input or physical graphics job is used. 64 full CPU/RAM
+builder/helper/completion cases verify vertices, alpha, both passes, nested
+resumes and lifetime. Actual New Game passes this fade; Logun and rendered
+PCSX2 parity remain open.
+
 ### Bozo dialogue windows (2026-11-07)
 
 Window `0x15a1b0` retains its original `0x2e9640` CPU builder. Native capture

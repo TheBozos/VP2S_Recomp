@@ -8,6 +8,28 @@ target, not a replacement DLL loaded into PS2Recomp.
 
 ## Build and evidence
 
+### Native flat scene fades (2026-11-08)
+
+Class `0x161230`, mode 0, now captures the original `0x3d3660` builder's scalar
+rectangle arguments at `0x3d38d4`, before packing. Its source dimensions,
+colour and depth become an immutable native rectangle, using the separately
+verified ordinary alpha blend (offline table entry 2). Other modes/flags reject.
+Destruction releases the live association and rejects an in-flight publication.
+
+The exact 96-byte original writer range stays owned through compiled flush
+bookkeeping; extra content rejects. Compiled `0x3d34e0`/`0x21c9a0` completion
+then runs, with verified epilogue padding represented in static metadata.
+No packet input, device job or invented completion is used.
+
+64 new whole CPU/RAM cases retain the entire original builder, original solid
+rectangle helper, flush and real completion. They verify native vertices,
+colour/alpha/depth, source sizes, both passes, nested resumes, unsupported modes,
+extra content and destruction/reuse. Combined writer coverage is 304 cases;
+font/writer, rectangle, signature and startup checks pass. Actual New Game
+passes the fade and next rejects graphics service `0x123220`, called while
+processing a pending type-3 queue entry. Its producer is being traced.
+Logun remains open.
+
 ### Empty child-writer lifetime and real completion (2026-11-08)
 
 The empty class `0x1653d0` builder emits one state entry and no geometry. Its

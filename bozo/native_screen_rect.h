@@ -11,8 +11,12 @@ std::array<bozo::render::Vertex,6> nativeScreenRectangleVertices(const NativeScr
 class NativeScreenRects {
     struct Lease {NativeScreenRect rect;uint32_t writer,begin,end;bool retired=false,flushed=false;};
     std::map<uint32_t,Lease> calls;
+    std::map<uint32_t,NativeScreenRect> fades;
 public:
     NativeScreenRect begin(Runtime *,uint32_t stack,uint32_t object);
+    void captureFade(Runtime *,const R5900Context *);
+    NativeScreenRect beginFade(Runtime *,uint32_t stack,uint32_t object);
+    void releaseFade(uint32_t object);
     void cancel(uint32_t stack){calls.erase(stack);}
     bool active(uint32_t stack)const{return calls.contains(stack);}
     void retire(Runtime *,R5900Context *);

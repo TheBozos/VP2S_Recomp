@@ -95,6 +95,10 @@ def overlay_entries(name,data):
         for lo in range(0x1fae30,0x1faeb0,16):
             entries.append(dict(Name=f'camera_accessor_{lo:08x}',Start=hex(lo),End=hex(lo+16)))
     if name=='mod001':entries.append(dict(Name='native_empty_child_draw',Start='0x2075a0',End='0x2075e0'))
+    if name=='mod003':
+        if hashlib.sha256(span(0x3d3620,0x3d3660)).hexdigest()!='fb483410366f6db0a0a09b4d1b6a178331a6e6be6ab08fb8083b3ecf01a2e150':
+            raise ValueError('USA native fade publication epilogue mismatch')
+        entries.append(dict(Name='native_flat_fade_draw',Start='0x3d3620',End='0x3d3660'))
     return entries
 
 

@@ -5,7 +5,7 @@ from vp2_bozo_prepare import prepare
 from vp2_bozo_kernel import bindings,overlay_adaptations,debug_font_adaptations
 p=argparse.ArgumentParser(description=__doc__)
 p.add_argument('source',type=Path);p.add_argument('out',type=Path);p.add_argument('--build',type=Path,required=True)
-p.add_argument('--kind',choices=['init','flush','defaults','empty'],required=True);p.add_argument('--variant',choices=['original','adapted'],required=True)
+p.add_argument('--kind',choices=['init','flush','defaults','empty','fade'],required=True);p.add_argument('--variant',choices=['original','adapted'],required=True)
 a=p.parse_args()
 if not a.out.resolve().is_relative_to(a.build.resolve()):raise ValueError('private build directory required')
 data=a.source.read_bytes()
@@ -22,15 +22,22 @@ elif a.kind=='empty':
     for pc,word in ((0x21c9dc,0x8c220000),(0x21c9e0,0x8e0340cc),(0x21c9e8,0x00431023),(0x21c9ec,0xae0240a4),
                     (0x21ca1c,0x8cc440cc),(0x21ca20,0x8c230000),(0x21ca24,0x00641823),(0x21ca28,0xacc340a4)):
         patches+=f'{pc:08x} {word:08x} 00000000\n'
+elif a.kind=='fade':
+    all_patches=overlay_adaptations('mod003',data);lo,hi=0x3d3620,0x3d3660
+    patches=''.join(line+'\n' for line in all_patches.splitlines() if lo<=int(line.split()[0],16)<hi)
+    native='native 0x3d38d4\nnative 0x3d363c\nnative 0x3d364c\n'
+    stubs=(0x120eb0,0x21c9a0,0x120860,0x120fa0,0x120f70,0x120a80,0x3d4fe0,0x125090)
 else:
     bindings(data);lo,hi=0x120eb0,0x120f6c
     native='native 0x120f4c\nnative 0x120f58\n';patches=debug_font_adaptations(data);stubs=(0x1131c0,)
 rows=[dict(Name='font_'+a.kind,Start=hex(lo),End=hex(hi))]
 if a.kind=='empty':rows += [dict(Name='empty_completion',Start='0x207580',End='0x20759c'),dict(Name='scene_completion',Start='0x21c9a0',End='0x21ca50')]
+if a.kind=='fade':rows += [dict(Name='fade_completion',Start='0x3d34e0',End='0x3d34fc'),dict(Name='fade_builder',Start='0x3d3660',End='0x3d44e4')]
+if a.kind=='flush':rows += [dict(Name='solid_rectangle',Start='0x120a80',End='0x120c44'),dict(Name='rectangle_blend',Start='0x120860',End='0x1208f0')]
 fixture,_=prepare(data,rows,{})
 a.out.mkdir(parents=True,exist_ok=True);(a.out/'fixture.elf').write_bytes(fixture)
 (a.out/'patches.txt').write_text(patches)
-(a.out/'externals.txt').write_text((native if a.variant=='adapted' or a.kind in ('defaults','empty') else '')+''.join(f'stub 0x{pc:x}\n' for pc in stubs))
+(a.out/'externals.txt').write_text((native if a.variant=='adapted' or a.kind in ('defaults','empty','fade') else '')+''.join(f'stub 0x{pc:x}\n' for pc in stubs))
 assets=a.out/'assets';assets.mkdir(exist_ok=True)
 linear=struct.pack('<I',0x80332211)*256
 packed=struct.pack('<III',16,16,0)+linear+bytes(1024)

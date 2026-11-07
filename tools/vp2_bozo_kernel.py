@@ -313,7 +313,10 @@ def overlay_adaptations(name,data):
                                (0x37b500,0x37b578,'7e6a36380abfc775a0388113d7bf0c9eca5fecc602e98a0ea43e0b071d0b47b4'),
                                (0x3d93dc,0x3d9400,'f8fa0f2fe2b3f9889f704dfc20ca3806981c87fd37c7904b13e77c6cc7afc39c'),
                                (0x3d9230,0x3d925c,'60fa72c319ee92c05082ae3e1496caba1b37138f89c8e22411be03477740c5d8'),
-                               (0x3d95ac,0x3d95b8,'e53ce69864c095f0410aa0422eb78527d3c44442b5a5f02312e8353d3e0cc3f7')):
+                               (0x3d95ac,0x3d95b8,'e53ce69864c095f0410aa0422eb78527d3c44442b5a5f02312e8353d3e0cc3f7'),
+                               (0x3d3620,0x3d3660,'fb483410366f6db0a0a09b4d1b6a178331a6e6be6ab08fb8083b3ecf01a2e150'),
+                               (0x3d3660,0x3d44e4,'c7d0d58342fcb2eb8e696c6afc145c73ad44f487a94acf685078c1d7a5eec94a'),
+                               (0x3d49b0,0x3d4af0,'3ee241a66da54d7847e111212bc57e162a559141b1093ace33ce0a314948ed10')):
             s=next(s for s in segments if s[0]==1 and s[2]<=lo<hi<=s[2]+s[4]);at=s[1]+lo-s[2]
             if hashlib.sha256(data[at:at+hi-lo]).hexdigest()!=expected:raise ValueError('USA native field initialization source mismatch')
         # Each initializer has returned before this delay. It polls only timer0,
@@ -337,7 +340,12 @@ def overlay_adaptations(name,data):
                 '003d7748 00561023 00000000\n'
                 '003d774c 2c41003f 00000000\n'
                 '003d7750 10200005 00000000\n'
-                '003d7760 1000fff7 00000000\n')
+                '003d7760 1000fff7 00000000\n'
+                '003d3648 dfbf0000 0c0f4d38\n'
+                '003d364c 03e00008 00000000\n'
+                '003d3650 27bd0010 dfbf0000\n'
+                '003d3654 00000000 03e00008\n'
+                '003d3658 00000000 27bd0010\n')
     if name=='mod002':
         _,segments,_=elf_parts(data);lo,hi=0x3617f0,0x362764
         s=next(s for s in segments if s[0]==1 and s[2]<=lo<hi<=s[2]+s[4]);at=s[1]+lo-s[2]
@@ -595,7 +603,7 @@ def overlay_adaptations(name,data):
 def overlay_native_sites(name,data):
     if name=='mod003':
         overlay_adaptations(name,data)
-        return 'native 0x3d93f4\n'
+        return 'native 0x3d93f4\nnative 0x3d38d4\nnative 0x3d363c\nnative 0x3d364c\nnative 0x3d49b0\n'
     if name=='mod002':
         _,segments,_=elf_parts(data);lo,hi=0x3622e8,0x362338
         s=next(s for s in segments if s[0]==1 and s[2]<=lo<hi<=s[2]+s[4]);at=s[1]+lo-s[2]

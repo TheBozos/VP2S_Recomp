@@ -129,6 +129,8 @@ def literal_vtable_targets(callers,table_image):
         result=[]
         for offset in range(at+8,min(limit,at+8+1024),4):
             value=struct.unpack_from('<I',table_image,offset)[0]
+            if value==0 and offset+8<=limit and executable(struct.unpack_from('<I',table_image,offset+4)[0]):
+                continue # an unimplemented virtual slot inside this same table
             if not executable(value):break
             result.append(value)
         return result
@@ -139,8 +141,10 @@ def literal_vtable_targets(callers,table_image):
             lo,hi=int(row['Start'],0),int(row['End'],0)
             if not any(s[2]&6==6 and s[3]<=lo<hi<=s[3]+s[5] for s in sections):continue
             segment=next(s for s in segments if s[0]==1 and s[2]<=lo<hi<=s[2]+s[4])
-            constants={}
+            constants={};clear_after=None
             for pc in range(lo,hi,4):
+                if clear_after is not None and pc>=clear_after:
+                    constants.clear();clear_after=None
                 word=struct.unpack_from('<I',data,segment[1]+pc-segment[2])[0]
                 op=word>>26;rs=(word>>21)&31;rt=(word>>16)&31;rd=(word>>11)&31;imm=word&65535
                 if op==0x2b and imm<=0x1000 and imm%4==0 and rt in constants:
@@ -160,6 +164,12 @@ def literal_vtable_targets(callers,table_image):
                     constants.pop(rd,None)
                 elif op in (8,10,11,12,14,0x1e,0x20,0x21,0x23,0x24,0x25,0x27,0x37):
                     constants.pop(rt,None)
+                elif op in (1,2,3,4,5,6,7,20,21,22,23) or (op==0 and word&63 in (8,9)) or (op in (16,17,18) and rs==8):
+                    # The delay instruction still sees the caller's constants;
+                    # destructors frequently store their vptr in a JAL delay.
+                    if op==3:constants.pop(31,None)
+                    elif op==0 and word&63==9:constants.pop(rd,None)
+                    clear_after=pc+8
                 else:
                     constants.clear() # no speculation across calls/branches/COP operations
                 constants.pop(0,None)
@@ -202,6 +212,25 @@ def linked_call_entries(data,rows,targets,known=()):
         pending |= static_call_targets(data,[row])-declared
         if len(entries)>4096:raise ValueError('static linked entry discovery exceeded its bound')
     return entries
+
+
+def link_static_images(inputs,known):
+    """Complete literal calls without mixing overlapping overlay code.
+
+    Later overlays retain their own entry provenance. Alternating common-image
+    call chains converge offline; there is no runtime code discovery.
+    """
+    counts={name:0 for name in inputs}
+    for _ in range(32):
+        references=set().union(*(static_call_targets(data,rows) for data,rows in inputs.values()))
+        added=0
+        for name,(data,rows) in inputs.items():
+            targets=references if name in ('main','mod001') else static_call_targets(data,rows)
+            entries=linked_call_entries(data,rows,targets,known.get(name,()))
+            rows+=entries;counts[name]+=len(entries);added+=len(entries)
+        if not added:return counts
+        if sum(counts.values())>4096:raise ValueError('common-image linking exceeded its entry bound')
+    raise ValueError('common-image linking did not converge')
 
 
 def prepare(data, rows, sdk):
@@ -342,6 +371,10 @@ def main():
         with (args.build/'ghidra/export'/f'{name}_functions.csv').open(newline='') as stream:
             rows=list(csv.DictReader(stream))
         rows+=overlay_entries(name,data)
+        if name=='main':
+            from vp2_bozo_kernel import game_entries,bootstrap_tables
+            rows+=game_entries(data)
+            (args.out/'bootstrap.bin').write_bytes(bootstrap_tables(data))
         inputs[name]=(data,rows)
     vtable_references={}
     for name,(data,rows) in inputs.items():
@@ -356,19 +389,10 @@ def main():
         additions=linked_call_entries(data,rows,references,sdk_names(args.build/'sdk'/f'{name}.toml'))
         rows+=additions
         print(f'{name}: {len(additions)} static vtable entries exposed')
+    linked=link_static_images(inputs,{name:sdk_names(args.build/'sdk'/f'{name}.toml') for name in names})
+    for name,count in linked.items():print(f'{name}: {count} static call entries exposed')
     for name in names:
         data,rows=inputs[name]
-        if name == 'main':
-            from vp2_bozo_kernel import game_entries,bootstrap_tables
-            rows += game_entries(data)
-            write_bootstrap=bootstrap_tables(data)
-            (args.out/'bootstrap.bin').write_bytes(write_bootstrap)
-            references=set()
-            for linked_data,linked_rows in inputs.values():
-                references |= static_call_targets(linked_data,linked_rows)
-            additions=linked_call_entries(data,rows,references,sdk_names(args.build/'sdk/main.toml'))
-            rows += additions
-            print(f'main: {len(additions)} statically linked entries exposed across input images')
         prepared, metadata = prepare(data, rows, sdk_names(args.build/'sdk'/f'{name}.toml'))
         target = args.out/f'{name}.elf'
         if not target.exists() or target.read_bytes() != prepared:

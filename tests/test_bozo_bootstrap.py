@@ -1,8 +1,8 @@
-"""Bounded headless integration through native timer/CD callback setup.
+"""Bounded headless native startup integration, without a rendered-scene claim.
 
 No window/input options or card directory are passed. The runner uses fresh
-in-memory cards. The first unsupported native service module remains a hard stop;
-this test qualifies that boundary only, not a playable route or visual parity.
+in-memory cards. Unsupported operations remain hard stops; the longer run
+qualifies its current graphics/math boundary, not a playable route or visual parity.
 """
 import subprocess
 import sys
@@ -49,6 +49,6 @@ deeper=subprocess.run([sys.argv[1],'--iso',sys.argv[2],'--frames','600'],
                       capture_output=True,text=True,timeout=30,
                       env={**os.environ,'VP2S_BOZO_SEED':'1'})
 print(deeper.stdout+deeper.stderr,end='')
-if deeper.returncode!=1 or 'unported device read 10000000 at pc=2c3c60' not in deeper.stdout+deeper.stderr:
-    raise SystemExit('longer native boot did not reach its next guarded random warmup boundary')
-print('First native game-frame boundary passed; longer run reaches guarded hardware setup. Native rendering remains unqualified.')
+if deeper.returncode!=1 or 'unported native VP2S algorithm at pc=2492ac' not in deeper.stdout+deeper.stderr:
+    raise SystemExit('longer native boot did not reach its next guarded object-update transform')
+print('First native game-frame boundary passed; longer run reaches its next guarded game algorithm. Native rendering remains unqualified.')

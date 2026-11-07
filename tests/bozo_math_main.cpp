@@ -52,6 +52,7 @@ int main(){try{
         const unsigned expectedControl=_mm_getcsr();_mm_setcsr(control);
         b.functions.generated(quaternion?0x216730:0x217550)(b.memory.flat(),&y,&b);
         check(_mm_getcsr()==expectedControl);check(x.pc==0x170000 && y.pc==x.pc);
+        check(!std::memcmp(&x,&y,sizeof(x)));
         check(!std::memcmp(x.r,y.r,sizeof(x.r)) && !std::memcmp(x.vu0_vf,y.vu0_vf,sizeof(x.vu0_vf)));
         check(!std::memcmp(a.memory.flat(),b.memory.flat(),bozo::kFlatBytes));++cases;
     }
@@ -85,6 +86,7 @@ int main(){try{
         a.functions.generated(0x2496e8)(a.memory.flat(),&x,&a);
         b.functions.generated(0x2495f4)(b.memory.flat(),&y,&b);
         check(x.pc==0x170000 && y.pc==x.pc && !std::memcmp(x.r,y.r,sizeof(x.r)));
+        check(!std::memcmp(&x,&y,sizeof(x)));
         check(!std::memcmp(x.fu,y.fu,sizeof(x.fu)) && !std::memcmp(x.vu0_vf,y.vu0_vf,sizeof(x.vu0_vf)));
         check(!std::memcmp(a.memory.flat(),b.memory.flat(),bozo::kFlatBytes));++cases;
     }

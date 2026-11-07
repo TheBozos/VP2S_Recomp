@@ -219,6 +219,7 @@ def overlay_adaptations(name,data):
         (0x314138,0x31413c,'e7f5662273401b756d9f64b866d1a7df7e95c248c34f9b0cad011eb84757f186'),
         (0x217550,0x2175c0,'bf29f73fdf9756c87ee0b7b11aaccb586cb29e0fb0653934452e96586c48b694'),
         (0x2494c0,0x249720,'c017bf6d329e88332552da7c1f5949a763f4900862bc056f18fbd56b1a9848df'),
+        (0x2c3c10,0x2c4378,'06537ab19eb16967c9643170fcf6e3a0334037ac864618129abfd696bd793ab5'),
         (0x216730,0x216780,'d863942f37e0b5485e89ddbb09d7f46b7e9112e833fbbbf3b19295fb6ec915dd'),
         (0x333640,0x333650,'806ce2a8243f8efbbe73d07c33d5ede4d06c673cc60521522982122459c89c76'),
         (0x333650,0x333d60,'1af5ec727cc7f94f98f183a70089d92938c5f386748cc07562e682558fede684'),
@@ -239,10 +240,12 @@ def overlay_adaptations(name,data):
             # the delay slot. Do not submit/complete a fictitious native job.
             '0029e2fc 0c0807c8 00000000\n'
             '0029e1a0 a0820050 00000000\n'
-            '0029e1ac 0c0807c8 00000000\n')
+            '0029e1ac 0c0807c8 00000000\n'
+            '002c3cb4 8c220000 00000000\n'
+            '002c3cb8 10000015 080b0f48\n')
 
 
 def overlay_native_sites(name,data):
     if name!='mod001':return ''
     overlay_adaptations(name,data)
-    return 'native 0x29e1a0\n'
+    return 'native 0x29e1a0\nnative 0x2c3cb4\n'

@@ -6,7 +6,7 @@ import unittest
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]/'tools'))
-from vp2_bozo_prepare import EH, PH, SH, SY, elf_parts, load_identity, prepare, sdk_names,static_call_targets,linked_call_entries,literal_vtable_targets
+from vp2_bozo_prepare import EH, PH, SH, SY, elf_parts, load_identity, prepare, sdk_names,static_call_targets,linked_call_entries,literal_vtable_targets,link_static_images
 
 BASE = 0x100000
 
@@ -30,6 +30,36 @@ def fixture():
 
 
 class PrepareTests(unittest.TestCase):
+    def test_cross_common_image_linking_reaches_fixed_point(self):
+        original,_=fixture();main=bytearray(original);module=bytearray(original)
+        # Relocate the second fixture's explicit code and load segment.
+        h=list(EH.unpack_from(module));h[4]+=BASE;EH.pack_into(module,0,*h)
+        segment=list(PH.unpack_from(module,h[5]));segment[2]+=BASE;segment[3]+=BASE;PH.pack_into(module,h[5],*segment)
+        section=list(SH.unpack_from(module,h[6]+SH.size));section[3]+=BASE;SH.pack_into(module,h[6]+SH.size,*section)
+        for data,target,at in ((main,2*BASE+32,0),(module,BASE+32,32)):
+            struct.pack_into('<4I',data,0x100+at,0x0c000000|(target>>2),0,0x03e00008,0)
+        struct.pack_into('<2I',main,0x100+32,0x03e00008,0)
+        inputs={'main':(main,[dict(Name='main',Start=hex(BASE),End=hex(BASE+16))]),
+                'mod001':(module,[dict(Name='module',Start=hex(2*BASE),End=hex(2*BASE+24))])}
+        counts=link_static_images(inputs,{})
+        self.assertEqual(counts,{'main':1,'mod001':1})
+        for data,rows in inputs.values():self.assertEqual(load_identity(prepare(data,rows,{})[0]),load_identity(data))
+        self.assertEqual(link_static_images(inputs,{}),{'main':0,'mod001':0})
+
+    def test_static_calls_do_not_nominate_other_overlays(self):
+        original,_=fixture();inputs={}
+        for name,target in (('main',64),('mod002',32),('mod003',48)):
+            data=bytearray(original);base=BASE if name=='main' else BASE*3
+            h=list(EH.unpack_from(data));h[4]=base;EH.pack_into(data,0,*h)
+            segment=list(PH.unpack_from(data,h[5]));segment[2]=segment[3]=base;PH.pack_into(data,h[5],*segment)
+            section=list(SH.unpack_from(data,h[6]+SH.size));section[3]=base;SH.pack_into(data,h[6]+SH.size,*section)
+            struct.pack_into('<4I',data,0x100,0x0c000000|((BASE*3+target)>>2),0,0x03e00008,0)
+            for at in (32,48,64):struct.pack_into('<2I',data,0x100+at,0x03e00008,0)
+            inputs[name]=(data,[dict(Name=name,Start=hex(base),End=hex(base+16))])
+        self.assertEqual(link_static_images(inputs,{}),{'main':0,'mod002':1,'mod003':1})
+        self.assertEqual({int(row['Start'],0) for row in inputs['mod002'][1]},{BASE*3,BASE*3+32})
+        self.assertEqual({int(row['Start'],0) for row in inputs['mod003'][1]},{BASE*3,BASE*3+48})
+
     def test_literal_vtable_stores_and_clobbers(self):
         original,_=fixture();data=bytearray(original)
         def word(at,value):struct.pack_into('<I',data,0x100+at,value)
@@ -50,6 +80,14 @@ class PrepareTests(unittest.TestCase):
         additions=linked_call_entries(data,rows,expected)
         output,_=prepare(data,rows+additions,{})
         self.assertEqual(load_identity(output),load_identity(data))
+        delayed=bytearray(data)
+        struct.pack_into('<3I',delayed,0x108,0x0c040008,0xac820010,0)
+        self.assertEqual(literal_vtable_targets([(delayed,rows)],delayed),expected)
+        struct.pack_into('<3I',delayed,0x108,0x0c040008,0,0xac820010)
+        self.assertEqual(literal_vtable_targets([(delayed,rows)],delayed),set())
+        nullable=bytearray(data)
+        struct.pack_into('<5I',nullable,0x100+80,0,BASE+56,0,0,BASE+60)
+        self.assertEqual(literal_vtable_targets([(nullable,rows)],nullable),expected|{BASE+56})
 
     def test_vtable_nomination_is_scoped_to_constructor_image(self):
         original,_=fixture();table=bytearray(original)

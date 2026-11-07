@@ -7,6 +7,35 @@ target, not a replacement DLL loaded into PS2Recomp.
 
 ## Build and evidence
 
+### Native initialization entropy and complete static linkage (2026-11-07)
+
+The next timer access was initialization jitter in `0x2c3c10`: it repeatedly
+advanced the scalar game RNG while waiting for a counter change, then derived a
+discard count from the first sample. The full routine is fingerprinted. Native
+code retires that hardware-dependent warmup and supplies one bounded per-run
+entropy sample to the retained discard-count/RNG/shuffle code. A fixed
+`VP2S_BOZO_SEED` gives a reproducible stream; default runs use the host seed.
+No timer count, elapsed-time register or second fake sample is returned. This
+does not claim the same random history as PCSX2's nondeterministic jitter.
+Three-host/256-draw checks cover determinism, seed independence, the original
+sample domain and complete CPU-context preservation except the input result.
+
+The subsequent UI stop identified two additional offline metadata cases:
+constructor/destructor vptr stores in JAL delay slots, and isolated null virtual
+slots before later methods. Constants now remain valid through the delay and
+expire afterwards; single null slots do not truncate the table, while a new
+two-zero header still stops it. Literal direct-call linking also converges
+between main/common code and follows each later overlay's own calls, preserving
+overlay provenance. Nine metadata tests cover these rules, including alternating
+common-image call chains and overlapping overlays with different local targets.
+
+All 28 port suites pass; the math bridge tests now compare entire CPU contexts
+in all 256 cases. Current vtable additions are 6/1176/232 for main/mod001/mod002,
+with another 48/9/0 literal-call entries. All original load bytes are unchanged.
+Boot passes the timer warmup and UI setup, and stops at the object-update
+transform `0x2492ac`. Rendering/Logun remains unqualified. C2C/F2F checks/posts
+resumed after the user supplied the new endpoint and explicitly requested resume.
+
 ### Static vtable method metadata (2026-11-07)
 
 The camera stop at `0x1e8080` was a genuine omitted setter: its original body

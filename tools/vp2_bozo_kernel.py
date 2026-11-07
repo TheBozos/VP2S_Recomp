@@ -240,10 +240,17 @@ def overlay_adaptations(name,data):
         s=next(s for s in segments if s[0]==1 and s[2]<=lo<hi<=s[2]+s[4]);at=s[1]+lo-s[2]
         if hashlib.sha256(data[at:at+hi-lo]).hexdigest()!='d6e51ee0140ca3301f0f70481b2db4caa9f92b89a4da2b0209e68e220f935aed':
             raise ValueError('USA menu frame-loop source mismatch')
+        lo,hi=0x360dd0,0x360f44
+        s=next(s for s in segments if s[0]==1 and s[2]<=lo<hi<=s[2]+s[4]);at=s[1]+lo-s[2]
+        if hashlib.sha256(data[at:at+hi-lo]).hexdigest()!='5c82211252cab0d3265c33966ab6bb1ccb433758cf6b340f51632fa109c41d4c':
+            raise ValueError('USA menu graphics-memory clear source mismatch')
         # The native frame clock already owns elapsed frames. Retire only the
         # old HBLANK mode and per-frame counter reset (both in delay slots).
         # Keep every game record, call, wait and loop/checkpoint unchanged.
-        return '0036224c ac220010 00000000\n00362760 ac200000 00000000\n'
+        # The menu's fill initializes only physical graphics memory. Preserve
+        # allocation/failure, byte fill, descriptor construction and free;
+        # retire only its upload producer, never the generic upload consumer.
+        return '0036224c ac220010 00000000\n00362760 ac200000 00000000\n00360ef4 0c048afe 00000000\n'
     if name!='mod001':return ''
     _,segments,_=elf_parts(data)
     for lo,hi,expected in (

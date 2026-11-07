@@ -177,6 +177,15 @@ bool noNativeInstruction(uint8_t *ram,R5900Context *ctx,Runtime *rt,uint32_t pc)
     if(vp2s::nativeFrameInput(ram,ctx,rt,pc))return true;
     throw std::runtime_error(std::format("unported native VP2S algorithm at pc={:x}",pc));
 }
+void traceGraphicsEnqueue(uint8_t *ram,R5900Context *ctx,Runtime *rt) {
+    // Resident CPU entry, not an overlay-cached original. Observe descriptor
+    // metadata only; run the exact generated producer and normal continuations.
+    const auto original=rt->functions.generated(0x1131c0);
+    if(!original)throw std::runtime_error("queue diagnostic original entry missing");
+    std::fprintf(stderr,"[vp2s:enqueue] ra=%x queue=%x type=%u source=%x count=%u owner=%x\n",
+                 ctx->r[31].uw[0],ctx->r[4].uw[0],ctx->r[5].uw[0],ctx->r[7].uw[0],ctx->r[8].uw[0],ctx->r[9].uw[0]);
+    original(ram,ctx,rt);
+}
 }
 
 int main(int argc,char **argv) {
@@ -204,6 +213,8 @@ int main(int argc,char **argv) {
         if(!host.native.setUp(dispatcher,vp2_main_external_table,vp2_main_external_count,&registry,error))
             throw std::runtime_error(error);
         vp2sBozoRegisterImages(dispatcher.runtime(),VP2S_BOZO_IMAGES);
+        if(std::getenv("VP2S_BOZO_TRACE_QUEUES"))
+            dispatcher.runtime().functions.setOverride(0x1131c0,&traceGraphicsEnqueue);
         const auto frames=host.native.run();
         if(std::getenv("VP2S_BOZO_TRACE_QUEUES")) {
             // Only the audited graphics-work queue header and descriptor metadata.

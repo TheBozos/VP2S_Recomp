@@ -7,6 +7,31 @@ target, not a replacement DLL loaded into PS2Recomp.
 
 ## Build and evidence
 
+### Menu physical-memory fill (2026-11-07)
+
+The next guarded image caller, `mod002 0x360dd0`, fills a temporary EE buffer
+with a byte and repeats uploads across physical graphics memory. Its complete
+body is fingerprinted; only the upload producer at `0x360ef4` retires. The native
+renderer has no physical graphics-memory image to fill. Allocation and failure,
+the byte fill, descriptor construction, synchronization calls and free remain.
+Sixty-four generated original/adapted comparisons cover normal and failed
+allocation, both sizes and varied fill bytes. All architectural CPU fields and
+RAM match; the exact removed-call scheduling delta is checked separately.
+
+Startup now rejects a real queued image upload at `0x122bf8`, returning to
+`0x112fac`. An opt-in enqueue trace identifies its producer precisely:
+`mod001 0x29cc30`, enqueue returning to `0x29cd88`. That routine reads its own
+image records, allocates a palette slot and pixel slot, and enqueues palette
+and pixel descriptors separately (`0x29cd88` and `0x29cf20`). The first reached
+descriptor has no callback owner. Its queue flags still own descriptor freeing;
+discarding the enqueue without handling that allocation would leak memory.
+The next work is this high-level asset producer and native texture ownership,
+including direct palette/pixel identity and allocation lifetime. The resident
+enqueue tracer invokes the generated original; it does not replace processing.
+No queue indices or completion flags were cleared, no DMA interrupt
+was fabricated, and no packet payload was parsed. Native scene/Logun parity is
+still unqualified.
+
 ### Display selection and unowned image guard (2026-11-07)
 
 The whole display selector `0x114240..0x114544` is fingerprinted. Only its ten

@@ -7,6 +7,25 @@ target, not a replacement DLL loaded into PS2Recomp.
 
 ## Build and evidence
 
+### Native visibility-input lifetime (2026-11-07)
+
+The full `0x2205c0` visibility owner is fingerprinted. A native invocation keyed
+by its actual game stack now captures the camera clip and view matrices at their
+distinct original read points, retaining the matching immutable frustum. Its
+13 transport/basis-preparation sites retire; scalar iteration/callbacks stay
+compiled. Entry/return annotations begin and release the invocation, including
+the no-camera branch. Missing/duplicate owners or mismatched camera inputs
+reject. No generic register storage or hardware matrix bank exists.
+
+64 generated CPU/RAM cases cover empty-scene/no-camera paths, scratchpad stack,
+callback pause/resume, source mutation between captures and actual owner return.
+The earlier clip stays intact while the later view sees callback changes.
+Independent byte checks validate snapshots/lifetimes; both CPU fixtures retire
+transport. This does not qualify populated-scene sphere/angle culling, which
+remains guarded. Graphics fixture total: 320 cases. Current boot passes these
+camera reads and reaches a device read at `0x29e438` (address `0x10000000`).
+Native drawing and the Logun route remain open.
+
 ### Native frustum publication (2026-11-07)
 
 The fingerprinted `0x207cc0` routine now publishes an immutable semantic camera

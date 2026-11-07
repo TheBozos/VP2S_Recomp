@@ -14,17 +14,31 @@ void check(bool value,std::source_location at=std::source_location::current()){
 }
 struct Host:bozo::ee::Host,bozo::port::Host,vp2s::SceneOwner {
     unsigned enqueues=0;
+    bool pause=false;
+    struct Pause{};
     vp2s::NativeScene scene;
+    std::optional<vp2s::NativeVisibilityInputs> lastVisibility;
     vp2s::NativeScene &nativeScene()override{return scene;}
     bozo::libs::Libraries &libraries()override{throw std::runtime_error("libraries");}
     bool nativeGraphics()const override{return true;}
     bool nativeInstruction(uint8_t *r,R5900Context *c,Runtime *rt,uint32_t pc)override{
-        return vp2s::nativeSceneInstruction(r,c,rt,pc) || vp2s::nativeMathInstruction(r,c,rt,pc);
+        if(auto handled=vp2s::nativeVisibilityInstruction(c,rt,pc)){
+            if(pc==0x2206b8)lastVisibility=scene.visibility(c->r[29].uw[0]);return *handled;
+        }
+        if(vp2s::nativeSceneInstruction(r,c,rt,pc) || vp2s::nativeMathInstruction(r,c,rt,pc))return true;
+        throw std::runtime_error("unported graphics fixture algorithm");
     }
     void frameEnd(Runtime *,R5900Context *)override{throw std::runtime_error("frame");}
     bool callLibrary(Runtime *,R5900Context *,uint32_t)override{return false;}
     void libraryCall(bozo::ee::Dispatcher &d,R5900Context *c,uint32_t pc)override{
-        if(pc==0x201f20){
+        if(pc==0x2082f0){
+            const float first=1,second=2,clip=999,view=888;
+            std::memcpy(d.runtime().memory.hostPointer(c->r[5].uw[0],4),&first,4);
+            std::memcpy(d.runtime().memory.hostPointer(c->r[6].uw[0],4),&second,4);
+            std::memcpy(d.runtime().memory.hostPointer(c->r[4].uw[0]+0x3f0,4),&clip,4);
+            std::memcpy(d.runtime().memory.hostPointer(c->r[4].uw[0]+0x2f0,4),&view,4);
+            c->pc=c->r[31].uw[0];if(pause)throw Pause{};return;
+        }else if(pc==0x201f20){
             check(c->r[4].uw[0]==0x180000);
             if(c->r[31].uw[0]==0x208a98){check(c->r[5].uw[0]==0x1b0000);scene.publishCamera(&d.runtime(),c->r[17].uw[0]);}
             else check(c->r[5].uw[0]==0x190000);
@@ -47,7 +61,7 @@ int main(){try{
     native.setFunctions(install_adapted_function_table,install_adapted_function_count,install_adapted_resume_table,install_adapted_resume_count);
     old.runtime().port=&oldHost;native.runtime().port=&nativeHost;
     old.boot(0x29e2e0,0x1fff000);native.boot(0x29e2e0,0x1fff000);old.bindLibrary(0x201f20);
-    for(auto *d:{&old,&native})for(uint32_t pc:{0x170100u,0x2138f0u,0x215870u})d->bindLibrary(pc);
+    for(auto *d:{&old,&native})for(uint32_t pc:{0x170100u,0x2138f0u,0x215870u,0x2082f0u})d->bindLibrary(pc);
     for(unsigned seed=0;seed<64;++seed){
         auto *a=old.runtime().memory.flat(),*b=native.runtime().memory.flat();
         std::memset(a,seed+1,bozo::kFlatBytes);uint32_t queue=0x180000;std::memcpy(a+0x35dde0,&queue,4);
@@ -125,5 +139,31 @@ int main(){try{
     }
     bool invalid=false;R5900Context bad{};bad.pc=0x207ce0;
     try{vp2s::nativeSceneInstruction(nullptr,&bad,&native.runtime(),0x207ce0);}catch(const std::runtime_error &){invalid=true;}check(invalid);
-    std::puts("64 graphics + 64 math-code + 64 camera + 64 frustum CPU/RAM cases; immutable snapshots, owner isolation and no transport state");return 0;
+    for(unsigned seed=0;seed<64;++seed){
+        auto &a=old.runtime(),&b=native.runtime();std::memset(a.memory.flat(),0,bozo::kFlatBytes);
+        constexpr uint32_t object=0x180000,camera=0x190000;
+        const auto word=[&](uint32_t at,uint32_t v){std::memcpy(a.memory.flat()+at,&v,4);};
+        word(object+8,object);word(object+0x4080,0x1a0000);word(0x1a0094,seed%4==0?0:camera);
+        a.memory.flat()[camera+0x5a4]=(seed&2)!=0;
+        for(unsigned i=0;i<16;++i){const float v=float(seed+i)/32;std::memcpy(a.memory.flat()+camera+0x3f0+i*4,&v,4);std::memcpy(a.memory.flat()+camera+0x2f0+i*4,&v,4);}
+        std::memcpy(b.memory.flat(),a.memory.flat(),bozo::kFlatBytes);oldHost.lastVisibility.reset();nativeHost.lastVisibility.reset();
+        R5900Context x{},y{};x.r[4].ud[0]=object;x.r[29].ud[0]=seed&1?0x70003f00:0x1fff000;x.r[31].ud[0]=0x170000;
+        std::memset(x.vu0_vf,0x6a,sizeof(x.vu0_vf));y=x;
+        oldHost.pause=false;nativeHost.pause=(seed&32)!=0;
+        a.functions.generated(0x2205c0)(a.memory.flat(),&x,&a);
+        auto fn=b.functions.generated(0x2205c0);unsigned attempts=0;
+        while(true){try{fn(b.memory.flat(),&y,&b);break;}catch(const Host::Pause &){}
+            check(++attempts<4);auto entry=b.functions.resumeEntry(y.pc);check(entry);fn=entry->resume;}
+        x.cycleLimit=y.cycleLimit;
+        check(!std::memcmp(&x,&y,sizeof(x)) && !std::memcmp(a.memory.flat(),b.memory.flat(),bozo::kFlatBytes));
+        const bool expected=seed%4!=0;check(nativeHost.lastVisibility.has_value()==expected);
+        if(expected){const auto &v=*nativeHost.lastVisibility;check(v.scene==object && v.camera==camera && v.viewReady && v.frustum && v.frustum->object==camera);
+            check(v.clip[0]==float(seed)/32 && !std::memcmp(v.clip.data()+1,a.memory.flat()+camera+0x3f4,60) && !std::memcmp(v.view.data(),a.memory.flat()+camera+0x2f0,64));
+            std::memset(b.memory.flat()+camera,0,0x600);check(v.clip[0]==float(seed)/32);}
+        bool released=false;try{nativeHost.scene.visibility((seed&1?0x70003f00:0x1fff000)-0x130);}catch(const std::runtime_error &){released=true;}check(released);
+    }
+    nativeHost.scene.beginVisibility(0x1fff000,0x180000);bool duplicate=false;
+    try{nativeHost.scene.beginVisibility(0x1fff000,0x180000);}catch(const std::runtime_error &){duplicate=true;}check(duplicate);
+    nativeHost.scene.finishVisibility(0x1fff000,0x180000);
+    std::puts("320 graphics/math/camera/frustum/visibility CPU/RAM cases; immutable snapshots, invocation lifetimes and no transport state");return 0;
 }catch(const std::exception &e){std::fprintf(stderr,"%s\n",e.what());return 1;}}

@@ -208,6 +208,7 @@ public:
     void handlerCompleted(bozo::ee::Dispatcher &d,bozo::ee::Thread &t,const bozo::ee::Frame &f) override { native.handlerCompleted(d,t,f); }
 };
 bool noNativeInstruction(uint8_t *ram,R5900Context *ctx,Runtime *rt,uint32_t pc) {
+    if(auto handled=vp2s::nativeVisibilityInstruction(ctx,rt,pc))return *handled;
     if(auto handled=vp2s::nativeStateSetupInstruction(ram,ctx,rt,pc))return *handled;
     if(auto handled=vp2s::nativeDebugFontInstruction(ram,ctx,rt,pc))return *handled;
     if(auto handled=vp2s::nativeCompositionInstruction(ram,ctx,rt,pc))return *handled;

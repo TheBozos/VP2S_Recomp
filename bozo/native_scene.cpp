@@ -127,4 +127,46 @@ void NativeScene::publishFrustum(Runtime *rt,uint32_t object){
     std::memcpy(view->normals.data(),source+0x500,160);
     activeFrustum=std::move(view);++frustumPublications;
 }
+void NativeScene::beginVisibility(uint32_t stack,uint32_t object){
+    if(!visibilityInputs.emplace(stack,NativeVisibilityInputs{.scene=object}).second)
+        throw std::runtime_error("native visibility invocation already active");
+}
+const NativeVisibilityInputs &NativeScene::visibility(uint32_t stack)const{
+    auto it=visibilityInputs.find(stack);if(it==visibilityInputs.end())throw std::runtime_error("native visibility has no invocation");return it->second;
+}
+void NativeScene::visibilityClip(Runtime *rt,uint32_t stack,uint32_t camera){
+    auto next=visibility(stack);
+    if(next.camera || !activeFrustum || activeFrustum->object!=camera)
+        throw std::runtime_error("native visibility clip has no matching frustum or repeats");
+    std::memcpy(next.clip.data(),record(rt,camera,0x430)+0x3f0,64);
+    next.camera=camera;next.frustum=activeFrustum;visibilityInputs.at(stack)=std::move(next);
+}
+void NativeScene::visibilityView(Runtime *rt,uint32_t stack,uint32_t camera){
+    auto next=visibility(stack);
+    if(next.camera!=camera || next.viewReady)throw std::runtime_error("native visibility view has no matching clip or repeats");
+    std::memcpy(next.view.data(),record(rt,camera,0x330)+0x2f0,64);next.viewReady=true;visibilityInputs.at(stack)=std::move(next);
+}
+void NativeScene::finishVisibility(uint32_t stack,uint32_t object){
+    if(visibility(stack).scene!=object)throw std::runtime_error("native visibility scene changed during invocation");
+    visibilityInputs.erase(stack);
+}
+std::optional<bool> nativeVisibilityInstruction(R5900Context *c,Runtime *rt,uint32_t pc){
+    const bool clip=pc==0x220624 || pc==0x220628 || pc==0x22062c || pc==0x220630;
+    const bool view=pc==0x2206b8 || pc==0x2206bc || pc==0x2206c0 || pc==0x2206c4 ||
+                    pc==0x2206d0 || pc==0x2206d4 || pc==0x2206d8 || pc==0x2206dc || pc==0x2206e0;
+    if(pc!=0x2205c0 && pc!=0x220ce0 && !clip && !view)return std::nullopt;
+    auto *d=rt?dynamic_cast<bozo::ee::Dispatcher *>(rt->services):nullptr;
+    auto *owner=d?dynamic_cast<SceneOwner *>(&d->host()):nullptr;
+    if(!owner || !c)throw std::runtime_error("native visibility requires a scene owner");
+    auto &scene=owner->nativeScene();const auto sp=c->r[29].uw[0];
+    if(pc==0x2205c0){
+        if((sp&15) || sp<0x130 || !rt->memory.hostPointer(sp-0x130,0x130))throw std::runtime_error("native visibility stack outside owned memory");
+        scene.beginVisibility(sp-0x130,c->r[4].uw[0]);return false;
+    }
+    if(pc==0x220ce0){scene.finishVisibility(sp,c->r[21].uw[0]);return false;}
+    if(scene.visibility(sp).scene!=c->r[21].uw[0])throw std::runtime_error("native visibility scene changed before capture");
+    if(pc==0x220624)scene.visibilityClip(rt,sp,c->r[20].uw[0]);
+    if(pc==0x2206b8)scene.visibilityView(rt,sp,c->r[20].uw[0]);
+    return true;
+}
 }

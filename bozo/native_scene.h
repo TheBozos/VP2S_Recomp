@@ -20,6 +20,12 @@ struct NativeCameraFrustum {
     uint32_t object=0;
     std::array<std::array<float,4>,10> points{},normals{};
 };
+struct NativeVisibilityInputs {
+    uint32_t scene=0,camera=0;
+    std::array<float,16> clip{},view{};
+    std::shared_ptr<const NativeCameraFrustum> frustum;
+    bool viewReady=false;
+};
 class NativeScene {
     std::map<uint32_t,std::shared_ptr<const NativeCamera>> cameras;
     uint64_t cameraPublications=0;
@@ -27,6 +33,7 @@ class NativeScene {
     std::shared_ptr<const NativeFrameTarget> target;
     std::shared_ptr<const NativeCameraFrustum> activeFrustum;
     uint64_t frustumPublications=0;
+    std::map<uint32_t,NativeVisibilityInputs> visibilityInputs;
 public:
     NativeFrameTarget beginComposition(Runtime *,uint32_t stack,uint32_t object);
     void finishComposition(uint32_t stack);
@@ -38,6 +45,11 @@ public:
     void publishFrustum(Runtime *,uint32_t object);
     std::shared_ptr<const NativeCameraFrustum> frustum()const{return activeFrustum;}
     uint64_t frustumPublicationCount()const{return frustumPublications;}
+    void beginVisibility(uint32_t stack,uint32_t object);
+    void visibilityClip(Runtime *,uint32_t stack,uint32_t camera);
+    void visibilityView(Runtime *,uint32_t stack,uint32_t camera);
+    const NativeVisibilityInputs &visibility(uint32_t stack)const;
+    void finishVisibility(uint32_t stack,uint32_t object);
 };
 class SceneOwner {
 public:
@@ -47,4 +59,5 @@ public:
 };
 bool nativeSceneInstruction(uint8_t *,R5900Context *,Runtime *,uint32_t pc);
 std::optional<bool> nativeCompositionInstruction(uint8_t *,R5900Context *,Runtime *,uint32_t pc);
+std::optional<bool> nativeVisibilityInstruction(R5900Context *,Runtime *,uint32_t pc);
 }

@@ -4,6 +4,7 @@
 #include "bozo/render/renderer.h"
 #include <array>
 namespace vp2s {
+struct NativeUiWindow;
 struct NativeUiGlyphPlacement {
     std::array<int32_t,4> fixedBox{};
     std::array<int32_t,2> fixedShadowOffset{};
@@ -19,7 +20,7 @@ struct NativeUiGlyph {
     NativeUiGlyphPlacement placement;
     bool placed=false;
 };
-struct NativeUiText {uint32_t element=0;bool inlineImages=false;std::vector<NativeUiGlyph> glyphs;std::vector<NativeUiSprite> icons;bool iconsCaptured=false;};
+struct NativeUiText {uint32_t element=0;bool inlineImages=false;std::vector<NativeUiGlyph> glyphs;std::vector<NativeUiSprite> icons;bool iconsCaptured=false;std::shared_ptr<const NativeUiWindow> window;};
 struct NativeUiLayer {uint32_t layer=0,object=0;std::vector<std::shared_ptr<const NativeUiText>> texts;};
 class NativeUiTexts {
     struct Build {

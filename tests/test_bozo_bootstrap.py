@@ -90,9 +90,9 @@ with tempfile.TemporaryDirectory(prefix='vp2s-native-input-') as temporary:
         raise SystemExit('native title did not retain direct software music completion')
     script.write_text('200:SQUARE/6,600:START/6,1000:CROSS/6,1300:START/6',encoding='ascii')
     story=subprocess.run([sys.argv[1],'--iso',sys.argv[2],'--frames','1600','--pad-script',str(script)],
-                         capture_output=True,text=True,timeout=30,env={**os.environ,'VP2S_BOZO_SEED':'1'})
+                         capture_output=True,text=True,timeout=30,env={**os.environ,'VP2S_BOZO_SEED':'1','VP2S_BOZO_TRACE_QUEUES':'1'})
     output=story.stdout+story.stderr;print(output,end='')
-    if story.returncode!=1 or 'unported native UI text class 15a1b0' not in output:
-        raise SystemExit('New Game did not pass scalar UI switch and story layer to the window-element guard')
+    if story.returncode!=1 or 'unported native VP2S algorithm at pc=2144d0' not in output or 'background=9 border=9' not in output:
+        raise SystemExit('New Game did not capture the native window before the short-sine guard')
     if 'unported device' in output or 'no code at' in output:raise SystemExit('New Game bypassed qualified native producers')
 print('Scripted native input parses original PSS, retains CPU audio copies and presents at least40 real pictures at the sequence rate; producer backpressure remains bounded. Display parity/audio/Logun remain unqualified.')

@@ -8,6 +8,32 @@ target, not a replacement DLL loaded into PS2Recomp.
 
 ## Build and evidence
 
+### Native dialogue window snapshots (2026-11-07)
+
+Class `0x15a1b0` now captures its original scalar `0x2e9640` builder: the
+`0x2e9e90` background's rounded grid and colours, eight edge-shading strips from
+the game's ordinary topology table, then the `0x2e9ce0` / `0x2ead10` border's
+scalar corners, depth, per-part palette choice and integer UV coordinates.
+Captures occur before packet packing; packet output is never read. Original
+CPU builders and their built flag remain intact. Scroll controls still reject.
+
+Actual separating evidence: null FIS, live DTT `0x67e200`, nine border parts,
+and an existing constructor-owned native atlas lease, button `0x27` / `SHI:3D`.
+The border reuses that lease and validates its live DTT/parts and quad-list
+ownership. No hardware-address mapping or draw-time source guess was added.
+Immutable window snapshots retain their pictures through cache rebuild and
+destruction. The layer admits only a completed snapshot; the destructor releases
+the association. Native submission preserves background/edge/border order.
+
+64 complete original/native builder cases leave CPU/RAM identical and check
+both background palettes, alpha, size thresholds, alternate rectangles, all
+background/border enable combinations, integer geometry/UVs, cached rebuild,
+null source pointers and retained picture lifetime. Actual New Game passes the
+window and next rejects `0x2144d0`, the short-sine routine. Window presentation
+and PCSX2 parity remain unqualified until that subsequent producer completes.
+The full run passed its other 50 checks; after updating the explicit native-site
+allowlist, the remaining signature check also passes (51 checks qualified).
+
 ### Scalar UI transition and story layer (2026-11-07)
 
 The analysis export ended `0x2ea350` at its computed jump, omitting branch

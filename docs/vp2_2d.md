@@ -6,6 +6,22 @@ GIF packet read). Addresses are mod001 unless stated. [V] verified in the MIPS o
 
 ## Framework
 
+### Bozo dialogue windows (2026-11-07)
+
+Window `0x15a1b0` retains its original `0x2e9640` CPU builder. Native capture
+observes the `0x2e9e90` background grid/colours and `0x2ead10` border's scalar
+corners, depth, palette choice and integer UVs before packing. It copies no
+packet bytes. The ordinary `0x357900` edge-topology table supplies eight strips.
+The actual null-FIS window reuses its constructor's native `SHI:3D` atlas lease
+(button `0x27`), validating DTT/parts and list ownership. Completed immutable
+snapshots retain pictures until the last draw owner releases them; cached
+builds reuse the snapshot and destruction clears the live association.
+
+64 complete original/native CPU/RAM cases cover enable combinations, both
+palettes, alpha, thresholds, alternate rectangles, geometry/UVs and lifetime.
+Scroll controls remain guarded. Actual New Game next stops at `0x2144d0`;
+this is not a completed dialogue presentation or Logun/PCSX2 parity claim.
+
 ### Bozo two-pass image elements (2026-11-07)
 
 Class `0x15a690`, builder `0x2f2df0`, now captures the original scalar corners

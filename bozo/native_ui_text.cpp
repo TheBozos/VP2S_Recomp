@@ -1,4 +1,5 @@
 #include "native_ui_text.h"
+#include "native_ui_windows.h"
 #include "bozo/ee/dispatcher.h"
 #include <bit>
 #include <cstring>
@@ -14,11 +15,7 @@ const uint8_t *record(Runtime *rt,uint32_t at,uint32_t size){
     return rt->memory.hostPointer(at,size);
 }
 template<class T>T value(Runtime *rt,uint32_t at){T result;std::memcpy(&result,record(rt,at,sizeof(T)),sizeof(T));return result;}
-void type(Runtime *rt,uint32_t element){const auto actual=value<uint32_t>(rt,element);if(actual!=0x15a450){
-    if(actual==0x15a1b0)throw std::runtime_error(std::format("unported native UI text class 15a1b0 at {:x}: flags={:08x} fis={:x} dtt={:x} parts={:x} count={}",element,
-        value<uint32_t>(rt,element+0xf0),value<uint32_t>(rt,element+0x50),value<uint32_t>(rt,element+0x54),value<uint32_t>(rt,element+0x58),value<uint16_t>(rt,element+0xa8)));
-    throw std::runtime_error(std::format("unported native UI text class {:x} at {:x}",actual,element));
-}}
+void type(Runtime *rt,uint32_t element){const auto actual=value<uint32_t>(rt,element);if(actual!=0x15a450)throw std::runtime_error(std::format("unported native UI text class {:x} at {:x}",actual,element));}
 }
 void NativeUiTexts::enter(Runtime *rt,uint32_t stack,uint32_t element,uint32_t items,int32_t count){
     type(rt,element);
@@ -139,6 +136,12 @@ NativeUiLayer NativeUiTexts::layer(Runtime *rt,uint32_t layer)const{
         record(rt,element,0x40);
         if(value<uint32_t>(rt,element+0x14)!=layer)throw std::runtime_error("native UI element has a different layer owner");
         if(!value<uint8_t>(rt,element+0x39) || !value<uint8_t>(rt,element+0x3d) || !value<uint8_t>(rt,element+0x3b))continue;
+        if(value<uint32_t>(rt,element)==0x15a1b0){
+            auto *d=dynamic_cast<bozo::ee::Dispatcher *>(rt->services);auto *o=d?dynamic_cast<UiWindowOwner *>(&d->host()):nullptr;
+            const auto captured=o?o->nativeUiWindows().window(element):nullptr;
+            if(!captured)throw std::runtime_error("native window has no finished scalar snapshot");
+            auto item=std::make_shared<NativeUiText>();item->element=element;item->window=captured;result.texts.push_back(std::move(item));continue;
+        }
         if(value<uint32_t>(rt,element)==0x15a690){
             auto captured=text(element);if(!captured || !captured->iconsCaptured || !captured->glyphs.empty())throw std::runtime_error("native image element has no finished sprite snapshot");
             result.texts.push_back(std::move(captured));continue;

@@ -402,6 +402,7 @@ def overlay_adaptations(name,data):
         (0x30ed90,0x30ee00,'99dd9b859b2f98960359a3d9f43a0f78761f81ebe207c707331e026607154550'),
         (0x30ee00,0x30f0c0,'15d8bbc42064f45964cc032ed2db9a95beeb2530a0c24e0ead872528eae453e4'),
         (0x306950,0x306f84,'1d86e9d29099ea34987865d5e92e9912b090428d65f9c26e8e2b9ba62d18f156'),
+        (0x30ce70,0x30ceb0,'953419ce510a7ca81e1955b302db4fe8eb4b944b91967725615a3ebbb8d3c2f6'),
         (0x239f70,0x239fa8,'c3849227f4e9e451d7b72f6b758661de4ed53015868faa6d5fb18a88f95167f9'),
         (0x239fd0,0x23a000,'941b168de034258eff47866950005885121fdd8a9f4de7cd8f57bc04c3b5bb94'),
         (0x25aa10,0x25aa40,'d75aad57b1cf26127f35bdf8a0eec8259d79c6b1cb8cbbabe269467dac4546ef'),
@@ -469,7 +470,13 @@ def overlay_adaptations(name,data):
             raise ValueError('USA graphics setup body signature mismatch')
     # Native callbacks/jobs need no PS2 global enable or channel-nine routing
     # bit. Preserve every game allocation, record and callback registration.
-    return ('00306a10 3c011000 00000000\n'
+    return ('0030ce84 3c011000 00000000\n'
+            '0030ce8c 8c230000 00000000\n'
+            '0030ce90 00621021 00000000\n'
+            '0030ce94 3042000f 00000000\n'
+            '0030ce98 00021100 00000000\n'
+            '0030ce9c 02021021 00000000\n'
+            '00306a10 3c011000 00000000\n'
             '00306a14 00102402 00000000\n'
             '00306a18 8c230000 00000000\n'
             '00306a1c 00823021 00000000\n'
@@ -565,7 +572,7 @@ def overlay_native_sites(name,data):
     if name!='mod001':return ''
     overlay_adaptations(name,data)
     return ''.join(f'native 0x{pc:x}\n' for pc in (
-        0x306a10,0x306b84,0x306bc4,0x306c58,
+        0x30ce84,0x306a10,0x306b84,0x306bc4,0x306c58,
         0x30ee00,0x30ef20,0x30ef2c,0x30ef44,0x30ef78,0x30efb8,0x30eff4,0x30f028,0x30f070,0x30ed90,
         0x214540,0x2e9640,0x2e970c,0x2e95d0,0x2e9e90,0x2ea154,0x2ea338,0x2ead10,0x2eae90,0x2eb07c,0x2eb284,0x2eb2ec,0x2eb300,0x2eb320,0x2eb340,0x2eb378,
         0x29e1a0,0x2c3cb4,0x29cc30,0x29cd7c,0x29cf14,0x29cf30,0x29cc00,0x29e160,

@@ -8,6 +8,22 @@ target, not a replacement DLL loaded into PS2Recomp.
 
 ## Build and evidence
 
+### Native internal-record placement (2026-11-07)
+
+Common `0x30ce70` mixed timer0 with the original scalar RNG only to select one
+of sixteen internal payload offsets. At `0x30ce84`, native per-run entropy now
+publishes the final payload pointer. The original pointer store at `+0x188`,
+0x78-byte clear and field initialization remain compiled; the payload fits at
+all offsets before that pointer field. No counter value is supplied. The
+original RNG call and its sequence updates remain.
+
+Another 1,024 deterministic placements check every allowed offset, both source
+alignments, complete CPU preservation except the pointer result, bounds and
+per-run isolation. Combined allocation/progress checks cover 2,048 entropy
+choices and 256 schedules, without RAM/device writes. Actual New Game passes
+this routine and next rejects the physical graphics-memory fill upload at
+mod003 `0x3d579c`. Logun remains open.
+
 ### Retired timer-only record-initialization delay (2026-11-07)
 
 Mod003 `0x3d7718..0x3d7764` delayed between 36 calls to the synchronous record

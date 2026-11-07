@@ -42,12 +42,22 @@ int main(){try{
     rejects([&]{host.progress.begin(&rt,stack,worker,destination+4,0,10);});
     rejects([&]{host.progress.begin(&rt,stack,worker,destination,std::numeric_limits<uint64_t>::max()-1,10);});
     const uint32_t gameState=0x12345678;std::memcpy(rt.memory.ram()+0x35da00,&gameState,4);std::memcpy(other.runtime().memory.ram()+0x35da00,&gameState,4);
+    const auto allocationRam=std::vector<uint8_t>(rt.memory.flat(),rt.memory.flat()+bozo::kFlatBytes);
     uint32_t choices=0;
     for(unsigned i=0;i<1024;++i){R5900Context a{},b{};std::memset(a.r,0x71,sizeof(a.r));a.r[16].uw[0]=gameState;b=a;
         const auto before=a;check(vp2s::nativeLoadProgressInstruction(&a,&rt,0x306a10)==true);
         check(vp2s::nativeLoadProgressInstruction(&b,&other.runtime(),0x306a10)==true);check(a.r[17].ud[0]==b.r[17].ud[0] && a.r[17].ud[0]<16);
         choices|=1u<<a.r[17].uw[0];a.r[17]=before.r[17];check(!std::memcmp(&a,&before,sizeof(a)));
     }
+    check(choices==0xffff);choices=0;
+    for(unsigned i=0;i<1024;++i){R5900Context a{},b{};std::memset(a.r,0x73,sizeof(a.r));const uint32_t base=0x1c0000+4*(i&1);a.r[16].uw[0]=base;b=a;
+        const auto before=a;check(vp2s::nativeLoadProgressInstruction(&a,&rt,0x30ce84)==true);
+        check(vp2s::nativeLoadProgressInstruction(&b,&other.runtime(),0x30ce84)==true);const auto address=a.r[2].uw[0];
+        check(address==b.r[2].uw[0] && address>=base && address+0x78<=base+0x188 && (address-base)%16==0 && address-base<=0xf0);
+        choices|=1u<<((address-base)/16);a.r[2]=before.r[2];check(!std::memcmp(&a,&before,sizeof(a)));
+    }
     check(choices==0xffff);R5900Context c{};rejects([&]{vp2s::nativeLoadProgressInstruction(&c,&rt,0x306a10);});
-    std::puts("256 native loading schedule lifetimes and1024 deterministic allocation choices: no RAM/device writes, actual-completion requirement, cadence, ownership, isolation and invalid states passed");return 0;
+    rejects([&]{vp2s::nativeLoadProgressInstruction(&c,&rt,0x30ce84);});
+    check(!std::memcmp(allocationRam.data(),rt.memory.flat(),allocationRam.size()));
+    std::puts("256 native loading schedule lifetimes and2048 deterministic allocation/record placements: no RAM/device writes, actual-completion requirement, cadence, ownership, isolation and invalid states passed");return 0;
 }catch(const std::exception &e){std::fprintf(stderr,"%s\n",e.what());return 1;}}

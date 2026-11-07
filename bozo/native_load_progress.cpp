@@ -32,7 +32,7 @@ void NativeLoadProgress::finish(uint32_t stack,uint32_t worker,uint32_t destinat
     pending.erase(stack);
 }
 std::optional<bool> nativeLoadProgressInstruction(R5900Context *c,Runtime *rt,uint32_t pc){
-    if(pc!=0x306a10 && pc!=0x306b84 && pc!=0x306bc4 && pc!=0x306c58)return std::nullopt;
+    if(pc!=0x306a10 && pc!=0x306b84 && pc!=0x306bc4 && pc!=0x306c58 && pc!=0x30ce84)return std::nullopt;
     auto *d=rt?dynamic_cast<bozo::ee::Dispatcher *>(rt->services):nullptr;
     auto *owner=d?dynamic_cast<LoadProgressOwner *>(&d->host()):nullptr;
     auto *seed=d?dynamic_cast<SeedOwner *>(&d->host()):nullptr;
@@ -42,6 +42,13 @@ std::optional<bool> nativeLoadProgressInstruction(R5900Context *c,Runtime *rt,ui
         // The old timer mixed only into the sixteen-way allocation placement.
         // Publish that semantic choice directly; never manufacture a count.
         c->r[17].sd[0]=int32_t(seed->initializationJitter()&15u);return true;
+    }
+    if(pc==0x30ce84){
+        const auto base=c->r[16].uw[0];
+        if(base<0x100000 || (base&3) || uint64_t(base)+0x18c>0x2000000)throw std::runtime_error("native record placement outside its owned object");
+        // A 0x78-byte payload fits at any of the sixteen original offsets,
+        // before the object's pointer field at +0x188. The CPU stores/clears it.
+        c->r[2].sd[0]=int32_t(base+16*(seed->initializationJitter()&15u));return true;
     }
     const auto stack=c->r[29].uw[0],worker=word(rt,0x35dd90),destination=c->r[16].uw[0];
     auto &progress=owner->nativeLoadProgress();

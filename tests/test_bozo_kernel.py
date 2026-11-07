@@ -88,6 +88,8 @@ class KernelGuardTests(unittest.TestCase):
     def test_graphics_enable_retirement(self):
         data=(IMAGE.parent/'mod001.elf').read_bytes()
         self.assertEqual(overlay_adaptations('mod001',data).splitlines(),[
+            '0030ce84 3c011000 00000000','0030ce8c 8c230000 00000000','0030ce90 00621021 00000000',
+            '0030ce94 3042000f 00000000','0030ce98 00021100 00000000','0030ce9c 02021021 00000000',
             '00306a10 3c011000 00000000','00306a14 00102402 00000000','00306a18 8c230000 00000000','00306a1c 00823021 00000000',
             '00306a28 000310c0 00000000','00306a2c 00431023 00000000','00306a30 00468821 00000000','00306a38 02338821 00000000',
             '00306b84 3c011000 00000000','00306b8c 8c340000 00000000','00306bb8 3c011000 00000000','00306bbc 8c220000 00000000',
@@ -117,7 +119,7 @@ class KernelGuardTests(unittest.TestCase):
             '0029cc00 00a0302d 0220202d','0029cc04 0c044c70 0c0402cc',
             '002c3cb4 8c220000 00000000','002c3cb8 10000015 080b0f48'])
         self.assertEqual(overlay_native_sites('mod001',data),''.join(f'native 0x{pc:x}\n' for pc in (
-        0x306a10,0x306b84,0x306bc4,0x306c58,
+        0x30ce84,0x306a10,0x306b84,0x306bc4,0x306c58,
         0x30ee00,0x30ef20,0x30ef2c,0x30ef44,0x30ef78,0x30efb8,0x30eff4,0x30f028,0x30f070,0x30ed90,
         0x214540,0x2e9640,0x2e970c,0x2e95d0,0x2e9e90,0x2ea154,0x2ea338,0x2ead10,0x2eae90,0x2eb07c,0x2eb284,0x2eb2ec,0x2eb300,0x2eb320,0x2eb340,0x2eb378,
             0x29e1a0,0x2c3cb4,0x29cc30,0x29cd7c,0x29cf14,0x29cf30,0x29cc00,0x29e160,

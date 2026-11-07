@@ -8,6 +8,19 @@ target, not a replacement DLL loaded into PS2Recomp.
 
 ## Build and evidence
 
+### Native field-object inline rotation (2026-11-07)
+
+Mod003 `0x379228..0x37928c` retains its selected-quaternion copy to object
+`+0x190` and scalar identity fourth-row construction at `+0x1f0`. The already
+qualified quaternion-matrix calculation now publishes the first three rows
+directly to `+0x1c0`; its unused control read leaves CPU state untouched.
+
+256 additional whole CPU/RAM caller comparisons cover all four rounding modes,
+scratchpad stacks, nonunit inputs and signed zero, alongside the existing
+512 distance consumers. This qualifies the caller boundary using the separately
+qualified numerical API. Actual New Game passes and next rejects the matrix
+record/vector helper at mod003 `0x410df0`. Logun remains open.
+
 ### Native movement displacement distance (2026-11-07)
 
 The next reached mod003 site `0x3c5d58..0x3c5d78` uses the same audited distance

@@ -32,6 +32,15 @@ bool nativeMathInstruction(uint8_t *,R5900Context *c,Runtime *rt,uint32_t pc){
         return true;
     }
     switch(pc){
+    case 0x379234:case 0x37923c:case 0x379278:case 0x379284:case 0x379288:return true;
+    case 0x379280:{
+        // The scalar producer has already copied the chosen quaternion into
+        // its object. Its identity fourth row stays built by the EE code.
+        const auto object=c->r[19].uw[0];__m128 input;
+        if(c->r[2].uw[0]!=object+0x1c0)throw std::runtime_error("native field rotation destination changed");
+        std::memcpy(&input,record(rt,object+0x190,16),16);const auto matrix=math::quaternionMatrix(input);
+        std::memcpy(record(rt,object+0x1c0,48),matrix.data(),48);return true;
+    }
     case 0x3c5d58:case 0x3c5d5c:case 0x3c5d60:case 0x3c5d64:
     case 0x3c5d68:case 0x3c5d6c:case 0x3c5d70:case 0x3c5d74:
     case 0x378980:case 0x378984:case 0x378988:case 0x37898c:

@@ -208,6 +208,15 @@ def bootstrap_adaptations(data):
 
 
 def overlay_adaptations(name,data):
+    if name=='mod002':
+        _,segments,_=elf_parts(data);lo,hi=0x3617f0,0x362764
+        s=next(s for s in segments if s[0]==1 and s[2]<=lo<hi<=s[2]+s[4]);at=s[1]+lo-s[2]
+        if hashlib.sha256(data[at:at+hi-lo]).hexdigest()!='d6e51ee0140ca3301f0f70481b2db4caa9f92b89a4da2b0209e68e220f935aed':
+            raise ValueError('USA menu frame-loop source mismatch')
+        # The native frame clock already owns elapsed frames. Retire only the
+        # old HBLANK mode and per-frame counter reset (both in delay slots).
+        # Keep every game record, call, wait and loop/checkpoint unchanged.
+        return '0036224c ac220010 00000000\n00362760 ac200000 00000000\n'
     if name!='mod001':return ''
     _,segments,_=elf_parts(data)
     for lo,hi,expected in (

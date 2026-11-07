@@ -7,6 +7,21 @@ target, not a replacement DLL loaded into PS2Recomp.
 
 ## Build and evidence
 
+### Menu frame-clock physical stores (2026-11-07)
+
+The menu module repeats the boot code's HBLANK mode setup and resets its counter
+at each frame-loop iteration. The native frame clock and game wait already own
+these transitions. Its whole `0x3617f0..0x362764` body is fingerprinted; only the
+two physical stores at `0x36224c` and `0x362760` retire. Both are delay slots:
+their adjacent call/branch, game-state writes, logical frame wait and checkpoints
+remain unchanged. No counter/status value or completion is fabricated.
+
+Targeted clock, frame-event, source-signature and native-startup checks pass.
+Startup reaches the distinct display-buffer selector (`0x114240`), stopping on
+its DISPFB2 store. That routine also updates software/movie records, so it must
+not be replaced by a dummy return; physical display stores are the next audit.
+There is still no rendered scene or playable-route qualification.
+
 ### Native component product and constructor constants (2026-11-07)
 
 The reached leaf `0x211da0` multiplies the four components of records at

@@ -75,6 +75,16 @@ class KernelGuardTests(unittest.TestCase):
                 altered=bytearray(data);altered[segment[1]+pc-segment[2]]^=1
                 with self.subTest(pc=hex(pc)),self.assertRaises(ValueError):overlay_adaptations('mod001',altered)
 
+    def test_menu_hblank_retirement(self):
+        data=(IMAGE.parent/'mod002.elf').read_bytes()
+        self.assertEqual(overlay_adaptations('mod002',data).splitlines(),[
+            '0036224c ac220010 00000000','00362760 ac200000 00000000'])
+        _,segments,_=elf_parts(data);lo,hi=0x3617f0,0x362764
+        s=next(s for s in segments if s[0]==1 and s[2]<=lo<hi<=s[2]+s[4])
+        for pc in range(lo,hi,4):
+            altered=bytearray(data);altered[s[1]+pc-s[2]]^=1
+            with self.subTest(pc=hex(pc)),self.assertRaises(ValueError):overlay_adaptations('mod002',altered)
+
     def test_every_guarded_word_rejects_mutation(self):
         for lo,hi in GUARDS:
             segment=next(s for s in self.segments if s[0]==1 and s[2]<=lo<hi<=s[2]+s[4])

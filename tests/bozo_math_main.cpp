@@ -68,9 +68,25 @@ float independentAxisScale(const vp2s::math::RigidBasis &basis){
 }
 struct Host:bozo::ee::Host,bozo::port::Host {
     bool referenceSphere=false;
+    bool referenceAxis=false;
     bozo::libs::Libraries &libraries()override{throw std::runtime_error("unexpected library request");}
     bool nativeGraphics()const override{return true;}
     bool nativeInstruction(uint8_t *r,R5900Context *c,Runtime *t,uint32_t pc)override{
+        if(referenceAxis && pc==0x2156b0){
+            // Independent finite scalar equations: exact rational products,
+            // truncated positive sums and binary-search rounded roots/ratios.
+            auto floorFloat=[](double value){uint32_t low=0,high=0x7f7fffff;
+                while(low<high){const auto middle=low+(high-low+1)/2;
+                    if(double(std::bit_cast<float>(middle))<=value)low=middle;else high=middle-1;}
+                return low;};
+            auto *p=t->memory.hostPointer(c->r[17].uw[0],16);uint32_t input[4],output[4];std::memcpy(input,p,16);
+            auto sum=exactProduct(input[0],input[0]);
+            for(unsigned i=1;i<4;++i)sum=positiveTruncatedSum(sum,exactProduct(input[i],input[i]));
+            const auto root=floorFloat(std::sqrt(double(std::bit_cast<float>(sum))));
+            const auto reciprocal=root?floorFloat(1.0/double(std::bit_cast<float>(root))):0x7f7fffffu;
+            for(unsigned i=0;i<4;++i)output[i]=exactProduct(input[i],reciprocal);
+            std::memcpy(p,output,16);return true;
+        }
         if(referenceSphere && pc==0x239d98){
             vp2s::math::RigidBasis basis;std::memcpy(basis.data(),t->memory.hostPointer(c->r[4].uw[0]+0x90,48),48);
             const auto scale=independentAxisScale(basis);std::memcpy(t->memory.hostPointer(c->r[2].uw[0],4),&scale,4);return true;
@@ -84,9 +100,15 @@ struct Host:bozo::ee::Host,bozo::port::Host {
     }
     void frameEnd(Runtime *,R5900Context *)override{throw std::runtime_error("unexpected frame end");}
     bool callLibrary(Runtime *,R5900Context *,uint32_t)override{return false;}
-    void libraryCall(bozo::ee::Dispatcher &,R5900Context *c,uint32_t pc)override{
+    void libraryCall(bozo::ee::Dispatcher &d,R5900Context *c,uint32_t pc)override{
         if(pc==0x12e1d8)c->f[0]=std::asin(c->f[12]);
         else if(pc==0x12e2d8)c->f[0]=std::atan2(c->f[12],c->f[13]);
+        else if(pc==0x213fd0){
+            // Shared bounded sine/cosine dependency, already qualified in its
+            // own suite. This fixture isolates the original scalar builder.
+            const float values[4]={0,0,std::cos(c->f[12]),std::sin(c->f[12])};
+            std::memcpy(d.runtime().memory.hostPointer(c->r[4].uw[0],16),values,16);
+        }
         else throw std::runtime_error("unexpected call");
         c->pc=c->r[31].uw[0];
     }
@@ -101,7 +123,7 @@ int main(){try{
     old.setFunctions(math_original_function_table,math_original_function_count,math_original_resume_table,math_original_resume_count);
     native.setFunctions(math_adapted_function_table,math_adapted_function_count,math_adapted_resume_table,math_adapted_resume_count);
     old.runtime().port=native.runtime().port=&host;
-    for(auto *d:{&old,&native})for(uint32_t pc:{0x12e1d8u,0x12e2d8u})d->bindLibrary(pc);
+    for(auto *d:{&old,&native})for(uint32_t pc:{0x12e1d8u,0x12e2d8u,0x213fd0u})d->bindLibrary(pc);
     unsigned cases=0;uint32_t random=17;
     for(bool quaternion:{false,true})for(unsigned seed=0;seed<96;++seed){
         auto &a=old.runtime();auto &b=native.runtime();
@@ -270,5 +292,26 @@ int main(){try{
     check(vp2s::math::largestAxisScale(invalidBasis)==1.f);
     invalidBasis[0]=_mm_castsi128_ps(_mm_setr_epi32(0x7fc00000,0,0,0));bool invalidRejected=false;
     try{vp2s::math::largestAxisScale(invalidBasis);}catch(const std::exception &){invalidRejected=true;}check(invalidRejected);
-    std::printf("%u matrix/quaternion/Euler ABI cases, %u component products, %u whole CPU/RAM sphere getters and8192 independently rounded scale cases passed; no VU/device state\n",cases,products,sphereCases);return 0;
+    unsigned axisCases=0;
+    for(unsigned rounding:{_MM_ROUND_NEAREST,_MM_ROUND_DOWN,_MM_ROUND_UP,_MM_ROUND_TOWARD_ZERO})for(unsigned seed=0;seed<64;++seed){
+        auto &a=old.runtime();auto &b=native.runtime();
+        const uint32_t stack=seed&1?0x70003f00:0x1fff000,source=seed%3?0x180000:0x70000100;
+        const uint32_t destination=seed%4?0x190000:source;
+        std::memset(a.memory.flat(),seed+1,bozo::kFlatBytes);
+        float axis[4]={float(int(seed%9)-4)/8.f,float(int(seed%13)-6)/8.f,float(int(seed%7)-3)/8.f,float(int(seed)-32)/16.f};
+        if(seed==0){axis[0]=-0.f;axis[1]=0.f;axis[2]=-0.f;axis[3]=0.f;}
+        std::memcpy(a.memory.hostPointer(source,16),axis,16);std::memcpy(b.memory.flat(),a.memory.flat(),bozo::kFlatBytes);
+        R5900Context x{};for(unsigned i=1;i<32;++i){x.r[i].ud[0]=seed*32+i;x.r[i].ud[1]=~x.r[i].ud[0];}
+        std::memset(x.vu0_vf,0xa3,sizeof(x.vu0_vf));x.vu0_acc.u[0]=0x1234;x.vu0_status=0xbeef;
+        x.r[4].ud[0]=destination;x.r[5].ud[0]=source;x.r[29].ud[0]=stack;x.r[31].ud[0]=0x170000;auto y=x;
+        const auto saved=_mm_getcsr(),control=(saved&~_MM_ROUND_MASK)|rounding;_mm_setcsr(control);
+        host.referenceAxis=true;a.functions.generated(0x215640)(a.memory.flat(),&x,&a);const auto expectedFp=_mm_getcsr();_mm_setcsr(control);
+        host.referenceAxis=false;b.functions.generated(0x215640)(b.memory.flat(),&y,&b);check(_mm_getcsr()==expectedFp);_mm_setcsr(saved);
+        x.cycleLimit=y.cycleLimit;check(x.pc==0x170000 && !std::memcmp(&x,&y,sizeof(x)));
+        if(std::memcmp(a.memory.flat(),b.memory.flat(),bozo::kFlatBytes)){
+            uint32_t expected[4],actual[4];std::memcpy(expected,a.memory.hostPointer(destination,16),16);std::memcpy(actual,b.memory.hostPointer(destination,16),16);
+            std::fprintf(stderr,"axis seed%u rounding%x: %08x %08x %08x %08x / %08x %08x %08x %08x\n",seed,rounding,expected[0],expected[1],expected[2],expected[3],actual[0],actual[1],actual[2],actual[3]);check(false);
+        }++axisCases;
+    }
+    std::printf("%u matrix/quaternion/Euler ABI cases, %u component products, %u whole CPU/RAM sphere getters,8192 independent scale cases and%u whole CPU/RAM axis-angle cases passed; no VU/device state\n",cases,products,sphereCases,axisCases);return 0;
 }catch(const std::exception &e){std::fprintf(stderr,"%s\n",e.what());return 1;}}

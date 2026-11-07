@@ -135,6 +135,14 @@ bool nativeMathInstruction(uint8_t *,R5900Context *c,Runtime *rt,uint32_t pc){
         const auto result=math::rigidInverseTranslation(basis,translation);
         std::memcpy(temporary,&result,16);return true;
     }
+    case 0x2156a0:case 0x2156a8:case 0x2156ac:return true;
+    case 0x2156b0:{
+        // The retained scalar axis-angle builder has finished XYZ*sin and
+        // cos(W/2). Normalize that game record in place. Its control read is
+        // unused by the leaf: no vector register or status result is supplied.
+        __m128 input;auto *at=record(rt,c->r[17].uw[0],16);std::memcpy(&input,at,16);
+        const auto normalized=math::normalizeQuaternion(input);std::memcpy(at,&normalized,16);return true;
+    }
     case 0x2158a4:case 0x2158ac:case 0x2158bc:case 0x2158c4:
     case 0x2158d4:case 0x2158d8:case 0x2158dc:return true;
     case 0x2158b0:case 0x2158c8:c->r[9].ud[0]=0;return true;

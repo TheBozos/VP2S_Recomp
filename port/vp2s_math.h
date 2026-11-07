@@ -206,7 +206,10 @@ inline __m128 normalizeQuaternion(__m128 value) {
     length2=music::codecSum(length2,music::laneValue(squares,3));
     const float length=std::sqrt(length2);
     const float reciprocal=length!=0.f ? 1.f/length : std::numeric_limits<float>::max();
-    return _mm_mul_ps(value,_mm_set1_ps(reciprocal));
+    // Materialize before the rounding guard restores the caller's mode.
+    // Optimizers can otherwise sink this intrinsic past the MXCSR restore.
+    volatile __m128 result=_mm_mul_ps(value,_mm_set1_ps(reciprocal));
+    return result;
 }
 // The game accepts the supplied quaternion as-is; normalization is a separate
 // operation. Preserve its product and subtraction order, including signed zero.

@@ -8,6 +8,28 @@ target, not a replacement DLL loaded into PS2Recomp.
 
 ## Build and evidence
 
+### Native axis-angle quaternion normalization (2026-11-07)
+
+Common `0x215640` retains its scalar sine/cosine call and XYZ products. The
+completed quaternion at the original destination is normalized directly at
+`0x2156b0`; the unused control read supplies no invented status. No vector
+register state or microprogram is used.
+
+An independent scalar oracle caught a one-ULP error: GCC placed the final
+multiply after restoring MXCSR. Materializing the result inside the rounding
+guard fixes that ordering; strict rounding compilation is enabled for the
+native math translation unit. 256 complete CPU/RAM cases cover four rounding
+modes, signed zero, nonunit axes, source/destination aliasing and scratchpad
+records/stacks. Sine/cosine is a shared bounded dependency in this fixture and
+has its own original-builder qualification. The fresh actual route passes this
+helper and next rejects mod003 distance calculation at `0x378980`.
+All 54 rebuilt Bozo checks pass after the shared normalization change.
+
+User also reports lighting changing when rotating the camera. This remains an
+unverified visual issue: compare fixed camera angles with PCSX2 after the
+native field path is running; no lighting adjustment is inferred from this
+report alone.
+
 ### Retired physical field-buffer fill transport (2026-11-07)
 
 Mod003 `0x3d5670` fills a 256 KiB EE buffer and uploads it repeatedly to physical

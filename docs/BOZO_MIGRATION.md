@@ -7,6 +7,34 @@ target, not a replacement DLL loaded into PS2Recomp.
 
 ## Build and evidence
 
+### Native media-buffer construction (2026-11-07)
+
+The `0x2bc330` constructor creates a software semaphore and initializes the
+typed `0x159af0` input-buffer record before calling `0x2bbfc0`. Native ownership
+now allocates a real host MPEG-2 decoder through `makeVideoDecoder` at that
+entry. The original CPU reset, timestamp records and descriptor writes remain;
+their transport contents are never read or replayed. Two scoped patches branch
+over only the subsequent physical DMA/interrupt setup to the original return.
+No transfer job is created and no completion/status is supplied. The native
+prepared-buffer association publishes only after its original CPU reset has
+finished. Original destructor entry releases it; retained owners keep resources
+alive. Other reset callers still reject until their state transitions are audited.
+
+Sixty-four whole CPU/RAM comparisons cover the original reset prefix under this
+explicit native transport contract (both fixtures omit the physical tail).
+Decoder allocation/failure, repeated initialization, incomplete reset, release
+and retained-resource lifetime checks pass. All 46 local suites pass. Actual
+scripted startup now passes `0x1000b420`, confirms native prepared ownership,
+and stops at `0x10000010` in the derived movie initializer (`0x2ba670`).
+
+The pinned engine's legacy `libmpeg` wrapper writes TMB-specific private globals
+and callback words, and `getPictureOn` sets an IPU-demand flag. VP2S explicitly
+rejects those MPEG SDK entries before delegation; none has executed in this
+bring-up. TMB independently confirms `VideoDecoder` is clean while PSS demux is
+still internal to that ABI wrapper. Native PSS/callback ownership, the movie
+pacing consumer and playback remain open; this allocation work does not qualify
+video delivery or permit a status-bank fallback. Logun remains open.
+
 ### Original scalar button-sprite geometry (2026-11-07)
 
 The three missing screen-size prompts now render natively. Capture observes the

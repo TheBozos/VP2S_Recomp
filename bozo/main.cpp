@@ -27,6 +27,7 @@
 #include "native_screen_rect.h"
 #include "native_ui_text.h"
 #include "native_ui_sprites.h"
+#include "native_media_buffer.h"
 #include "native_publication.h"
 #ifdef VP2S_BOZO_CAPTURE
 #include "native_capture.h"
@@ -45,8 +46,10 @@
 #include <stdexcept>
 
 namespace {
-class StrictHost final : public bozo::ee::Host, public vp2s::TimerOwner, public vp2s::SettingsOwner,public vp2s::SeedOwner,public vp2s::ModuleOwner,public vp2s::BootstrapOwner,public vp2s::RandomOwner,public vp2s::TextureOwner,public vp2s::SceneOwner,public vp2s::AssetOwner,public vp2s::DebugFontOwner,public vp2s::StateSetupOwner,public vp2s::ScreenRectOwner,public vp2s::UiTextOwner,public vp2s::UiSpriteOwner {
+class StrictHost final : public bozo::ee::Host, public vp2s::TimerOwner, public vp2s::SettingsOwner,public vp2s::SeedOwner,public vp2s::ModuleOwner,public vp2s::BootstrapOwner,public vp2s::RandomOwner,public vp2s::TextureOwner,public vp2s::SceneOwner,public vp2s::AssetOwner,public vp2s::DebugFontOwner,public vp2s::StateSetupOwner,public vp2s::ScreenRectOwner,public vp2s::UiTextOwner,public vp2s::UiSpriteOwner,public vp2s::MediaBufferOwner {
 public:
+    vp2s::NativeMediaBuffers mediaBuffers;
+    vp2s::NativeMediaBuffers &nativeMediaBuffers()override{return mediaBuffers;}
     vp2s::NativeUiSprites sprites;
     vp2s::NativeUiSprites &nativeUiSprites()override{return sprites;}
     vp2s::NativeGlyphs glyphs{std::filesystem::path(VP2S_BOZO_IMAGES).parent_path()/"glyphs"};
@@ -210,6 +213,10 @@ public:
     }
     unsigned traceLibrary=0;
     void libraryCall(bozo::ee::Dispatcher &d,R5900Context *c,uint32_t target) override {
+        // The shared libmpeg wrapper retains a TMB-specific reference ABI and
+        // an IPU-demand flag. VP2S needs its native media provider first.
+        if(target==0x1ef6f8 || target==0x1f0398 || target==0x1f0438 || target==0x1f0510 || target==0x1f4590 || target==0x1f4990)
+            throw std::runtime_error(std::format("native VP2S MPEG provider required at {:x} ra={:x}",target,c->r[31].uw[0]));
         // A generic SDK retirement cannot establish VP2S source ownership.
         // Known producers publish offline assets before retiring their transport.
         if(target==0x122bf8u)
@@ -276,6 +283,7 @@ public:
 bool noNativeInstruction(uint8_t *ram,R5900Context *ctx,Runtime *rt,uint32_t pc) {
     if(auto handled=vp2s::nativeUiTextInstruction(ctx,rt,pc))return *handled;
     if(auto handled=vp2s::nativeUiSpriteInstruction(ctx,rt,pc))return *handled;
+    if(auto handled=vp2s::nativeMediaBufferInstruction(ctx,rt,pc))return *handled;
     if(auto handled=vp2s::nativeScreenRectInstruction(ctx,rt,pc))return *handled;
     if(auto handled=vp2s::nativeFixedImageInstruction(ctx,rt,pc))return *handled;
     if(auto handled=vp2s::nativeTextureManagerInstruction(ctx,rt,pc))return *handled;

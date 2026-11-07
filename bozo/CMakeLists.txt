@@ -35,6 +35,7 @@ add_test(NAME vp2s-bozo-glyph-conversion COMMAND ${Python3_EXECUTABLE} "${VP2S_R
 add_library(vp2s_bozo_kernel STATIC native_kernel.cpp native_timer.cpp native_settings.cpp native_seed.cpp native_modules.cpp native_controller.cpp native_frame.cpp native_bootstrap.cpp native_random.cpp native_math.cpp native_object_math.cpp native_trig.cpp native_frustum.cpp native_textures.cpp native_scene.cpp native_assets.cpp native_debug_font.cpp native_state_setup.cpp native_screen_rect.cpp native_glyphs.cpp native_ui_text.cpp)
 target_sources(vp2s_bozo_kernel PRIVATE native_publication.cpp)
 target_sources(vp2s_bozo_kernel PRIVATE native_ui_sprites.cpp)
+target_sources(vp2s_bozo_kernel PRIVATE native_media_buffer.cpp)
 set(GLYPH_FIXTURE "${CMAKE_CURRENT_BINARY_DIR}/glyphs-fixture")
 add_custom_command(OUTPUT "${GLYPH_FIXTURE}/manifest.txt"
   COMMAND ${Python3_EXECUTABLE} "${VP2S_ROOT}/tests/test_bozo_glyphs.py" --emit "${GLYPH_FIXTURE}"
@@ -172,6 +173,23 @@ if(VP2S_BOZO_CODE)
   set(TEXTURE_REF "${CMAKE_CURRENT_BINARY_DIR}/texture-reference")
   set(UI_TEXT_REF "${CMAKE_CURRENT_BINARY_DIR}/ui-text-reference")
   set(BUTTON_REF "${CMAKE_CURRENT_BINARY_DIR}/button-reference")
+  set(MEDIA_BUFFER_REF "${CMAKE_CURRENT_BINARY_DIR}/media-buffer-reference")
+  foreach(VARIANT original adapted)
+    set(MEDIA_BUFFER_DIR "${MEDIA_BUFFER_REF}/${VARIANT}")
+    add_custom_command(OUTPUT "${MEDIA_BUFFER_DIR}/media_buffer_${VARIANT}_000.cpp" "${MEDIA_BUFFER_DIR}/media_buffer_${VARIANT}_table.cpp" "${MEDIA_BUFFER_DIR}/media_buffer_${VARIANT}_functions.h"
+      COMMAND ${Python3_EXECUTABLE} "${VP2S_ROOT}/tools/vp2_bozo_media_buffer_fixture.py" "${VP2S_BOZO_DATA}/images/mod001.elf" "${MEDIA_BUFFER_DIR}" --build "${VP2S_BOZO_DATA}/.." --variant ${VARIANT}
+      COMMAND $<TARGET_FILE:bozo-recomp> "${MEDIA_BUFFER_DIR}/fixture.elf" "${MEDIA_BUFFER_DIR}" --prefix media_buffer_${VARIANT} --symbol-prefix media_buffer_${VARIANT}_
+        --files 1 --externals "${MEDIA_BUFFER_DIR}/externals.txt" --patches "${MEDIA_BUFFER_DIR}/patches.txt" --no-comments
+      DEPENDS bozo-recomp "${VP2S_ROOT}/tools/vp2_bozo_media_buffer_fixture.py" "${VP2S_ROOT}/tools/vp2_bozo_kernel.py" "${VP2S_BOZO_DATA}/images/mod001.elf")
+    list(APPEND MEDIA_BUFFER_SOURCES "${MEDIA_BUFFER_DIR}/media_buffer_${VARIANT}_000.cpp" "${MEDIA_BUFFER_DIR}/media_buffer_${VARIANT}_table.cpp")
+  endforeach()
+  add_executable(vp2s-bozo-media-buffer-check "${VP2S_ROOT}/tests/bozo_media_buffer_main.cpp" ${MEDIA_BUFFER_SOURCES})
+  target_include_directories(vp2s-bozo-media-buffer-check PRIVATE "${MEDIA_BUFFER_REF}/original" "${MEDIA_BUFFER_REF}/adapted")
+  target_link_libraries(vp2s-bozo-media-buffer-check PRIVATE vp2s_bozo_kernel)
+  if(MINGW)
+    target_link_options(vp2s-bozo-media-buffer-check PRIVATE -static)
+  endif()
+  add_test(NAME vp2s-bozo-media-buffer COMMAND vp2s-bozo-media-buffer-check)
   foreach(VARIANT original adapted)
     set(BUTTON_DIR "${BUTTON_REF}/${VARIANT}")
     add_custom_command(OUTPUT "${BUTTON_DIR}/button_${VARIANT}_000.cpp" "${BUTTON_DIR}/button_${VARIANT}_table.cpp" "${BUTTON_DIR}/button_${VARIANT}_functions.h"

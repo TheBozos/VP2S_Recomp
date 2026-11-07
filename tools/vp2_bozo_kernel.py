@@ -332,6 +332,9 @@ def overlay_adaptations(name,data):
         (0x2ec390,0x2ec610,'bd63f498af7cda748d7235280cc32a239373f3cfe30b31b1a06d61a48a801fd5'),
         (0x2efe40,0x2f0010,'9c34d28ab52ec30569a1751d974d75e372989eb6939c2241e5deb114f34e8f5f'),
         (0x2eb3a0,0x2ebbe0,'90c38c4355f5e36e4f66a18431d3c03d960977ad76d1bc8f7c20ed2a3ea22ef6'),
+        (0x2bbfc0,0x2bc1dc,'fa2e265514606b372d7420091f9af78c0661ef40447ddd477411dc486df7a307'),
+        (0x2bc1e0,0x2bc31c,'3599cf1c9de1214629ffc9880dd26d1ff97dd85f8c5234de885e6aa6bb50d6db'),
+        (0x2bc330,0x2bc3f4,'e423f073b74534f66f1a75b4bb88abe49db71199224aa7410cdbcd9deced1cf8'),
         (0x2f0de0,0x2f0e70,'1898503143ca6ccba1d99bc209d3a7fd3c9e9a0babc361b702fb1267df6eb301'),
         (0x29af80,0x29b2c4,'ef3a9f1a6cae966ab8a687451e72ac175d88b8e9883d09449949ca5c3389d0bf'),
         (0x29c990,0x29cb18,'361b601c33bd3f57fd190aef95f4716cd08b5bbdf401f852b6e80eb96933e9e2'),
@@ -413,6 +416,10 @@ def overlay_adaptations(name,data):
             '002cb48c 0c0807c8 0c087268\n'
             '002f3710 0c0bbce4 0c087268\n'
             '002ec9e0 0c0bbce4 0c087268\n'
+            # A native decoder owns the prepared media buffer. Preserve its
+            # original CPU reset/tag construction; never create an IPU DMA job.
+            '002bc120 3c011001 080af074\n'
+            '002bc124 ac20b420 00000000\n'
             '002021c4 3c011001 0808087a\n'
             '002021c8 2402fffd 00000000\n'
             '0029e210 4a00fc3e 00000000\n'
@@ -462,4 +469,4 @@ def overlay_native_sites(name,data):
         0x22106c,0x221294,0x221308,0x221540,0x221704,0x221718,0x221748,0x2088f0,
         0x221698,0x22169c,0x21c9dc,0x21c9e0,0x21c9e8,0x21c9ec,0x21ca1c,0x21ca20,0x21ca24,0x21ca28,0x2cb490,0x2f3714,0x2ea9a0,
         0x2e74f0,0x2e7520,0x2e7550,0x2e757c,0x2e75a0,0x2f0de0,0x2e83e4,0x2ec9e4,0x2ec308,0x2ec320,
-        0x2efe40,0x2effe8,0x2eb3a0,0x2eb5c4,0x2ebac4,0x2ebb0c,0x2ebb58,0x2ebb9c,0x2ebba8))
+        0x2efe40,0x2effe8,0x2eb3a0,0x2eb5c4,0x2ebac4,0x2ebb0c,0x2ebb58,0x2ebb9c,0x2ebba8,0x2bbfc0,0x2bc1d0,0x2bc1e0))

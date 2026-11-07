@@ -7,6 +7,29 @@ target, not a replacement DLL loaded into PS2Recomp.
 
 ## Build and evidence
 
+### Partial-alpha texture publication (2026-11-07)
+
+Glyph preparation exposed a native texture publication error: VP2S expanded the
+offline texture's alpha to 255 before both engine presenters expanded it again.
+On black, source alpha 32 produced RGB 127/128 instead of 64; source alpha 64
+became fully opaque. An end-to-end hidden SDL/OpenGL readback reproduced 16 failed
+cases out of 24 through the actual `NativeTextureAsset::picture` method.
+
+The port now preserves the game's 0x80-scale alpha in the native texture object.
+All 24 direct/indexed texture cases, with six coverage values and separate frame
+and overlay paths, pass; all 41 local port suites are green with this optional
+GPU check enabled. The shared renderer remains unchanged. TMB and DC source
+audits independently describe this same input convention; the engine Texture.h
+comment says otherwise, so that comment was not treated as sufficient evidence.
+This is synthetic GPU qualification, not PCSX2/game-scene parity.
+
+The optional `VP2S_BOZO_GPU_TESTS=ON` CMake switch adds this regression test with
+an available SDL3 package (`SDL3_DIR`). It creates only a hidden 32x32 window,
+initializes no input, and reads no game files or saves. Default builds remain
+headless. Current UI metadata traces also identify the first active text layer
+and the exact decompressed-file provenance of its font pixels; offline glyph
+conversion and native text-layer submission are still pending.
+
 ### Native solid screen rectangle (2026-11-07)
 
 The next mod002 writer was measured from its game object: type `0x15bc00`,

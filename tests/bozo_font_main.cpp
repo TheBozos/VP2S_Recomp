@@ -97,7 +97,7 @@ int main(int argc,char **argv){try{
         run(b,q,0x29af80);check(!std::memcmp(ram,y.memory.flat(),bozo::kFlatBytes));p.cycleLimit=q.cycleLimit;check(!std::memcmp(&p,&q,sizeof(p)));++cases;
         check(old.fonts.outstanding()==0 && now.fonts.outstanding()==0);
         const auto snapshot=now.fonts.font(object);check(snapshot && snapshot->atlas->key==vp2s::TextureKey{0x464b4e41,0});
-        check(snapshot->atlas->picture()->rgba[255]==0xff332211);
+        check(snapshot->atlas->picture()->rgba[255]==0x80332211);
         if(snapshot->background){bool rejected=false;try{now.fonts.publish(&y,1,object);}catch(const std::runtime_error &){rejected=true;}check(rejected);continue;}
         p.r[4].ud[0]=buffer;p.r[5].ud[0]=0;p.r[17].ud[0]=object;p.r[29].ud[0]=0x1fff000;p.r[31].ud[0]=0x170000;q=p;
         old.fonts.publish(&x,0x1ffefd0,object);
@@ -112,7 +112,7 @@ int main(int argc,char **argv){try{
         check(unowned && !std::memcmp(&before,&q,sizeof(q)) && !std::memcmp(memory.data(),y.memory.flat(),memory.size()));
         put<uint32_t>(y,buffer+8,snapshot->end+16);bool rejected=false;
         try{now.fonts.publish(&y,1,object);}catch(const std::runtime_error &){rejected=true;}check(rejected);
-        check(snapshot->atlas->picture()->rgba[0]==0xff332211);
+        check(snapshot->atlas->picture()->rgba[0]==0x80332211);
     }
     for(unsigned seed=0;seed<64;++seed){
         old.setups={};now.setups={};old.enqueues=now.enqueues=0;old.allocationFailure=now.allocationFailure=false;

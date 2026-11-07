@@ -261,6 +261,31 @@ bool noNativeInstruction(uint8_t *ram,R5900Context *ctx,Runtime *rt,uint32_t pc)
                 if(!saved)throw std::runtime_error("UI producer return outside owned RAM");
                 std::memcpy(&caller,saved,8);
                 std::fprintf(stderr,"[vp2s:producer] UI caller=%x\n",static_cast<uint32_t>(caller));
+                if(caller==0x2ec9e8 && ctx->r[9].uw[0]>=0x1000b0){
+                    const auto layer=ctx->r[9].uw[0]-0xb0;
+                    const auto word=[&](uint32_t at){uint32_t v;const auto *p=rt->memory.hostPointer(at,4);
+                        if(at<0x100000 || at>0x2000000-4 || !p)throw std::runtime_error("UI metadata diagnostic outside EE RAM");
+                        std::memcpy(&v,p,4);return v;};
+                    std::fprintf(stderr,"[vp2s:UI] layer=%x type=%x kind=%x first=%x\n",layer,word(layer),word(layer+0x10),word(layer+8));
+                    std::array<uint32_t,16> seen{};auto element=word(layer+8);
+                    for(unsigned i=0;i<seen.size() && element && element!=layer;++i){
+                        if(std::find(seen.begin(),seen.begin()+i,element)!=seen.begin()+i)break;seen[i]=element;
+                        const auto type=word(element);const auto *flags=rt->memory.hostPointer(element+0x39,5);
+                        if(!flags)throw std::runtime_error("UI flags diagnostic outside EE RAM");
+                        std::fprintf(stderr,"[vp2s:UI] element=%x type=%x build=%x draw=%x visible=%u built=%u enabled=%u\n",element,type,word(type+0x20),word(type+0x1c),flags[0],flags[2],flags[4]);
+                        if(type==0x15a450){
+                            const auto font=word(element+0x6c);
+                            std::fprintf(stderr,"[vp2s:UI] text font=%x items=%x capacity=%u glyphs=%u text=%x control=%x\n",font,word(element+0x70),word(element+0xb4),word(element+0xb8),word(element+0xfc),word(element+0x100));
+                            if(font>=0x100000 && font<0x2000000-0x30){
+                                const auto pixels=word(font+0x10);
+                                std::fprintf(stderr,"[vp2s:UI] font pixels=%x bytes=%u size=%ux%u border=%u\n",pixels,word(font+0x20),word(font+0x24),word(font+0x28),word(font+0x2c));
+                                auto *d=dynamic_cast<bozo::ee::Dispatcher *>(rt->services);auto *owner=d?dynamic_cast<vp2s::AssetOwner *>(&d->host()):nullptr;
+                                if(owner)if(auto origin=owner->nativeAssets().origin(pixels))std::fprintf(stderr,"[vp2s:UI] font origin kind=%u disc=%llu part=%u offset=%u\n",unsigned(origin->kind),(unsigned long long)origin->disc,origin->part,origin->offset);
+                            }
+                        }
+                        element=word(element+8);
+                    }
+                }
             }
             if(ctx->r[31].uw[0]==0x120f50){
                 const auto *saved=rt->memory.hostPointer(ctx->r[29].uw[0]+0x20,8);uint64_t caller=0;

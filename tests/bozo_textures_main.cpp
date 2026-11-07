@@ -110,7 +110,7 @@ int main(int argc,char **argv){try{
         if(newHost.textures.publicationCount()>publications){
             auto asset=palette?newHost.textures.paletteAsset(7):newHost.textures.pixelAsset(11);check(asset && asset->key.index==index);
             auto picture=asset->picture(3);check(picture->rgba.size()==256);
-            for(unsigned i=0;i<256;++i){const unsigned k=48+(i+index)%16;check(picture->rgba[i]==((k*7%256)|(index*30<<8)|(k<<16)|0xff000000));}
+            for(unsigned i=0;i<256;++i){const unsigned k=48+(i+index)%16;check(picture->rgba[i]==((k*7%256)|(index*30<<8)|(k<<16)|0x80000000));}
         }
     }
     for(unsigned seed=0;seed<32;++seed){
@@ -126,7 +126,7 @@ int main(int argc,char **argv){try{
         x.r[4]=y.r[4];x.r[6]=y.r[6];check(x.cycleLimit==y.cycleLimit || newHost.pauses>0);x.cycleLimit=y.cycleLimit;
         check(!std::memcmp(&x,&y,sizeof(x)));
         if(!(seed&1)){auto asset=newHost.textures.paletteAsset(7);check(asset && asset->key==vp2s::kStaticScenePalette);
-            auto picture=asset->picture();for(unsigned i=0;i<256;++i)check(picture->rgba[i]==(0xff000000|i*0x010101));}
+            auto picture=asset->picture();for(unsigned i=0;i<256;++i)check(picture->rgba[i]==(0x80000000|i*0x010101));}
     }
     // Active invocation identity, stack reuse, immutable publication and slot
     // rebinding are independent of transient descriptor/game-heap lifetimes.

@@ -19,10 +19,6 @@ uint8_t *record(Runtime *rt,uint32_t at,uint32_t size){
     return rt->memory.hostPointer(at,size);
 }
 template<class T>T read(Runtime *rt,uint32_t at){T value;std::memcpy(&value,record(rt,at,sizeof(T)),sizeof(T));return value;}
-uint32_t rgba(uint32_t colour){
-    const unsigned alpha=std::min(255u,((colour>>24)*255u+64u)/128u);
-    return (colour&0xffffffu)|(alpha<<24);
-}
 }
 std::shared_ptr<const bozo::render::Texture> NativeTextureAsset::picture(unsigned csa)const{
     if(csa>15)throw std::runtime_error("native texture palette part outside range");
@@ -33,7 +29,9 @@ std::shared_ptr<const bozo::render::Texture> NativeTextureAsset::picture(unsigne
         uint32_t value;
         if(format==0)std::memcpy(&value,texels.data()+i*4,4);
         else value=palette[format==0x14?csa*16+texels[i]:texels[i]];
-        result->rgba[i]=rgba(value);
+        // Both engine presenters expand the game's 0x80-scale alpha. Preserve
+        // it here so partial coverage is scaled once, at presentation.
+        result->rgba[i]=value;
     }
     return result;
 }

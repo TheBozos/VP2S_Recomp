@@ -19,6 +19,7 @@ struct NativeTextureAsset {
     uint32_t width=0,height=0,format=0;
     std::vector<uint8_t> texels; // Offline linear indices or RGBA8, never console layout.
     std::array<uint32_t,256> palette{}; // Offline index order.
+    // Preserve 0x80-scale alpha: each engine presenter expands it once.
     std::shared_ptr<const bozo::render::Texture> picture(unsigned csa=0)const;
 };
 class NativeTextures {

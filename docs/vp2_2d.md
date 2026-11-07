@@ -6,6 +6,14 @@ GIF packet read). Addresses are mod001 unless stated. [V] verified in the MIPS o
 
 ## Framework
 
+### Bozo texture alpha (2026-11-07)
+
+Native texture pictures preserve the game's 0x80-scale alpha. The frame shader
+and overlay upload each perform their own single expansion. Expanding in the port
+first doubled partial coverage; 24 hidden GPU readback cases now cover both paths
+through actual direct/indexed native asset publication. Glyph conversion must
+retain these same alpha units. This does not establish a rendered-text parity claim.
+
 ### Bozo solid screen rectangle (2026-11-07)
 
 Mod002 `0x372180` now submits the mode-0 screen object (`0x15bc00`) as a native

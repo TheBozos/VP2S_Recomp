@@ -30,6 +30,22 @@ bool nativeMathInstruction(uint8_t *,R5900Context *c,Runtime *rt,uint32_t pc){
         return true;
     }
     switch(pc){
+    case 0x213e1c:case 0x213e20:case 0x213e24:case 0x213e28:
+    case 0x213e2c:case 0x213e30:case 0x213e34:case 0x213e38:
+    case 0x213e3c:case 0x213e40:case 0x213e44:case 0x213e48:
+    case 0x213e4c:case 0x213e50:case 0x213e54:case 0x213e58:
+    case 0x213e5c:case 0x213e60:case 0x213e64:case 0x213e68:
+    case 0x213e6c:case 0x213e70:case 0x213e74:case 0x213e78:
+    case 0x213e80:case 0x213e84:case 0x213e88:return true;
+    case 0x213e7c:{
+        // Both input records were completed by retained scalar builders and
+        // calls. Snapshot before the destination can overlap either record.
+        math::Matrix local,basis;
+        std::memcpy(local.data(),record(rt,c->r[8].uw[0],64),64);
+        std::memcpy(basis.data(),record(rt,c->r[7].uw[0],64),64);
+        const auto result=math::projectionProduct(local,basis);
+        std::memcpy(record(rt,c->r[16].uw[0],64),result.data(),64);return true;
+    }
     case 0x216ee0:case 0x216ee4:case 0x216ee8:case 0x216eec:
     case 0x216ef0:case 0x216ef4:case 0x216ef8:return true;
     case 0x216efc:{

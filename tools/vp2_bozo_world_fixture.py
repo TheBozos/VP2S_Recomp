@@ -10,6 +10,7 @@ a=p.parse_args()
 if not a.out.resolve().is_relative_to(a.build.resolve()):raise ValueError('private build directory required')
 data=a.source.read_bytes();overlay_adaptations('mod001',data)
 rows=[dict(Name='world_transform',Start='0x248fc0',End='0x24926c'),dict(Name='rigid_inverse',Start='0x216e40',End='0x216f4c')]
+rows.extend([dict(Name='frame_builder',Start='0x213b50',End='0x213e9c'),dict(Name='sine_cosine',Start='0x213fd0',End='0x2140f4'),dict(Name='coefficients',Start='0x358490',End='0x358690')])
 fixture,_=prepare(data,rows,{})
 _,segments,_=elf_parts(data)
 sites=[]

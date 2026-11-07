@@ -7,6 +7,22 @@ target, not a replacement DLL loaded into PS2Recomp.
 
 ## Build and evidence
 
+### Native frame-builder matrix composition (2026-11-07)
+
+The final matrix product in fingerprinted `0x213b50` now reads completed game
+records directly. Its 28 vector transport/calculation sites retire without a
+register bank. Both matrices are snapped before output; ordered products/sums
+retain caller FP mode and tiny-result handling. The scalar direction/basis
+builder and calls to the qualified sine/cosine and rigid-inverse owners remain
+compiled. This is not the truncating-sum matrix microprogram.
+
+256 additional complete builder CPU/RAM comparisons pass, including scratchpad,
+stack-input/output aliases, both direction branches, all FP modes and FTZ/DAZ.
+The fixture totals 832 cases and 130 retired sites; its new product oracle uses
+independent scalar equations, while retained trig calls reuse their previously
+qualified native owner. Boot passes this composition and rejects at `0x216970`.
+No rendered scene or Logun qualification yet.
+
 ### Native rigid-inverse translation bridge (2026-11-07)
 
 Eight remaining transport/calculation sites in fingerprinted `0x216e40` now

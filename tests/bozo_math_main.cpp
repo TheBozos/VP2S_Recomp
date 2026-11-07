@@ -188,11 +188,31 @@ int main(){try{
         const auto fp=_mm_getcsr();r.functions.generated(0x211da0)(r.memory.flat(),&c,&r);
         check(_mm_getcsr()==fp && !std::memcmp(&c,&expected,sizeof(c)));
         check(!std::memcmp(p+0x580,result,16));
+        c=expected;c.pc=0x23c17c;c.r[4].ud[0]=object+0x560;expected=c;expected.pc=0x170000;
+        std::memset(p+0x580,0xa4,16);r.functions.generated(0x23c17c)(r.memory.flat(),&c,&r);
+        check(_mm_getcsr()==fp && !std::memcmp(&c,&expected,sizeof(c)) && !std::memcmp(p+0x580,result,16));
         if(sample%8192==0)check(!std::memcmp(r.memory.flat(),old.runtime().memory.flat(),bozo::kFlatBytes));
+    }
+    for(unsigned rounding:{_MM_ROUND_NEAREST,_MM_ROUND_DOWN,_MM_ROUND_UP,_MM_ROUND_TOWARD_ZERO})for(unsigned seed=0;seed<64;++seed){
+        auto &reference=old.runtime();std::memset(reference.memory.flat(),seed+1,bozo::kFlatBytes);
+        const uint32_t left=seed&1?0x70000100:0x180000,right=left+(seed%4?16:0),dest=seed%3==0?left:seed%3==1?right:0x1a0000;
+        uint32_t values[8];for(auto &v:values){random=random*1664525u+1013904223u;v=(random&0x807fffff)|(((random>>23)%220)<<23);}
+        std::memcpy(reference.memory.hostPointer(left,16),values,16);std::memcpy(reference.memory.hostPointer(right,16),values+4,16);
+        uint32_t a[4],b[4],result[4];std::memcpy(a,reference.memory.hostPointer(left,16),16);std::memcpy(b,reference.memory.hostPointer(right,16),16);
+        for(unsigned i=0;i<4;++i)result[i]=exactProduct(a[i],b[i]);
+        std::memcpy(r.memory.flat(),reference.memory.flat(),bozo::kFlatBytes);std::memcpy(reference.memory.hostPointer(dest,16),result,16);
+        R5900Context c{};for(unsigned i=1;i<32;++i){c.r[i].ud[0]=seed*32+i;c.r[i].ud[1]=~c.r[i].ud[0];}
+        std::memset(c.vu0_vf,0xc3,sizeof(c.vu0_vf));c.vu0_acc.u[1]=0xbeef;c.r[3].ud[0]=dest;c.r[4].ud[0]=left;c.r[5].ud[0]=right;c.r[31].ud[0]=0x170000;
+        auto expected=c;expected.pc=0x170000;const auto saved=_mm_getcsr(),control=(saved&~_MM_ROUND_MASK)|rounding;_mm_setcsr(control);
+        r.functions.generated(0x23c17c)(r.memory.flat(),&c,&r);check(_mm_getcsr()==control);_mm_setcsr(saved);
+        check(!std::memcmp(&c,&expected,sizeof(c)) && !std::memcmp(r.memory.flat(),reference.memory.flat(),bozo::kFlatBytes));
     }
     R5900Context invalid{};invalid.r[6].uw[0]=object+0x560;invalid.r[5].uw[0]=object+0x570;invalid.r[3].uw[0]=object+0x580;
     const uint32_t nan=0x7fc00000;std::memcpy(p+0x560,&nan,4);uint32_t prior[4];std::memcpy(prior,p+0x580,16);
     bool nonfiniteRejected=false;try{vp2s::nativeMathInstruction(r.memory.flat(),&invalid,&r,0x211dbc);}catch(const std::runtime_error &){nonfiniteRejected=true;}
+    check(nonfiniteRejected && !std::memcmp(prior,p+0x580,16));
+    invalid.r[4].uw[0]=object+0x560;nonfiniteRejected=false;
+    try{vp2s::nativeMathInstruction(r.memory.flat(),&invalid,&r,0x23c188);}catch(const std::runtime_error &){nonfiniteRejected=true;}
     check(nonfiniteRejected && !std::memcmp(prior,p+0x580,16));
     std::memset(p,0,0x54);uint32_t type=0x1591d0;std::memcpy(p,&type,4);
     R5900Context c{};c.r[4].uw[0]=object;const auto saved=c;

@@ -309,6 +309,17 @@ bool noNativeInstruction(uint8_t *ram,R5900Context *ctx,Runtime *rt,uint32_t pc)
     if(auto handled=vp2s::nativeDebugFontInstruction(ram,ctx,rt,pc))return *handled;
     if(auto handled=vp2s::nativeCompositionInstruction(ram,ctx,rt,pc))return *handled;
     if(auto handled=vp2s::nativeAssetInstruction(ram,ctx,rt,pc))return *handled;
+    if(pc==0x239f70){
+        const auto object=ctx->r[4].uw[0];
+        const auto word=[&](uint32_t at){uint32_t value;const auto *p=rt->memory.hostPointer(at,4);
+            if(at<0x100000 || uint64_t(at)+4>0x2000000 || !p)throw std::runtime_error("native mesh metadata outside EE RAM");
+            std::memcpy(&value,p,4);return value;};
+        const auto model=word(object+0x7bc);
+        auto *d=dynamic_cast<bozo::ee::Dispatcher *>(rt->services);auto *owner=d?dynamic_cast<vp2s::AssetOwner *>(&d->host()):nullptr;
+        const auto origin=owner?owner->nativeAssets().origin(model+0x60):std::nullopt;
+        throw std::runtime_error(std::format("native mesh producer required: object={:x} type={:x} job={:x} model={:x} count={} list={:x} asset={:x}/{}+{:x}",
+            object,word(object),word(object+0x650),model,word(model+0x34),word(object+0x77c),origin?origin->disc:0,origin?origin->part:0,origin?origin->offset:0));
+    }
     if(pc==0x1131c0){
         if(std::getenv("VP2S_BOZO_TRACE_QUEUES")){
             std::fprintf(stderr,"[vp2s:enqueue] ra=%x queue=%x type=%u source=%x count=%u owner=%x\n",

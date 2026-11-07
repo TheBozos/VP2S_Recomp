@@ -156,10 +156,11 @@ bool nativeMathInstruction(uint8_t *,R5900Context *c,Runtime *rt,uint32_t pc){
     const bool updating=pc>=0x2492ac && pc<=0x249378;
     if(updating)pc+=0x36c;
     switch(pc){
-    case 0x211dac:case 0x211db0:case 0x211db4:return true;
-    case 0x211dbc:{
+    case 0x211dac:case 0x211db0:case 0x211db4:
+    case 0x23c17c:case 0x23c180:case 0x23c184:return true;
+    case 0x211dbc:case 0x23c188:{
         __m128 a,b;
-        std::memcpy(&a,record(rt,c->r[6].uw[0],16),16);
+        std::memcpy(&a,record(rt,c->r[pc==0x23c188?4:6].uw[0],16),16);
         std::memcpy(&b,record(rt,c->r[5].uw[0],16),16);
         const auto exponent=_mm_set1_epi32(0x7f800000);
         const auto ae=_mm_and_si128(_mm_castps_si128(a),exponent);

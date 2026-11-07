@@ -21,9 +21,16 @@ rows=[dict(Name='matrix',Start=hex(0x217598 if a.variant=='original' else 0x2175
       dict(Name='object_update',Start=hex(0x24937c if a.variant=='original' else 0x249288),End='0x24938c'),
       dict(Name='quaternion_euler',Start=hex(0x2158e0 if a.variant=='original' else 0x215870),End='0x2159c0')]
 rows.append(dict(Name='sphere_getter',Start='0x239ce0',End='0x239e00'))
-if a.variant=='adapted':rows.append(dict(Name='component_product',Start='0x211da0',End='0x211dc0'))
+if a.variant=='adapted':
+    rows.append(dict(Name='component_product',Start='0x211da0',End='0x211dc0'))
+    rows.append(dict(Name='inline_light_product',Start='0x23c17c',End='0x23c194'))
 fixture,_=prepare(data,rows,{})
 sites=[];_,segments,_=elf_parts(data)
+if a.variant=='adapted':
+    # End only this isolated four-instruction test fragment with JR/NOP.
+    fixture=bytearray(fixture);_,fs,_=elf_parts(fixture)
+    s=next(s for s in fs if s[0]==1 and s[2]<=0x23c18c<0x23c194<=s[2]+s[4])
+    at=s[1]+0x23c18c-s[2];fixture[at:at+8]=(0x03e00008).to_bytes(4,'little')+bytes(4)
 if a.variant=='original':
     # The scalar CPU reference consumes independently calculated numeric
     # records at two publication points. It executes no VU operation/call.

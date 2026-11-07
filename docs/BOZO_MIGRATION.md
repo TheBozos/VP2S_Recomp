@@ -8,6 +8,20 @@ target, not a replacement DLL loaded into PS2Recomp.
 
 ## Build and evidence
 
+### Inline model light colour and mesh boundary (2026-11-07)
+
+The four-instruction component product at `0x23c17c` now uses the already
+qualified native component-product algorithm. All four colour lanes, input/output
+aliases, signed zeros, tiny values and host FP restoration follow that contract.
+262144 independent vectors and 256 whole CPU/RAM alias cases exercise the new
+actual consumer fragment. Nonfinite inputs reject before publication.
+
+All 46 suites pass. The actual movie-skip route reaches `0x239f70` at frame 667,
+before any device write. This remains an explicit rejecting boundary, now reporting
+the actual model provenance: object `0x9a46c0`, five meshes from disc chain
+`0x21551000`, part 1, first mesh offset `0x424c0`. Native model submission and
+Logun are not yet qualified. No transfer is replayed or acknowledged here.
+
 ### Native six-plane sphere visibility (2026-11-07)
 
 The `0x220b74` caller now snapshots its actual sphere and uses the invocation's

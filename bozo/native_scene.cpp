@@ -29,18 +29,26 @@ NativeFrameTarget sourceTarget(Runtime *rt,uint32_t object){
     if(r[0x31d0] || r[0x3c40] || r[0x1cf0]!=1 || r[0x2760]!=1 ||
        r[0x1cf2]>1 || r[0x2762]!=(r[0x1cf2]^1))
         throw std::runtime_error("unported native display layer composition");
-    if(*record(rt,0x1c8d00+0xcc84,1)==2)throw std::runtime_error("unported alternate native frame alignment");
+    const auto videoMode=*record(rt,0x1c8d00+0xcc84,1);
+    if(videoMode>1)throw std::runtime_error("unported alternate native frame alignment");
     // Logical game dimensions/scales before field division and physical
     // buffer alignment in the original source-target constructor.
-    const float width=value<int16_t>(r,0x3c68)*value<float>(r,0x3c60);
-    const float height=value<int16_t>(r,0x3c6a)*value<float>(r,0x3c64);
+    const auto baseWidth=value<int16_t>(r,0x3c68),baseHeight=value<int16_t>(r,0x3c6a);
+    const unsigned fieldFactor=videoMode?2:1;
+    if(baseWidth<1 || baseWidth>2048 || baseHeight<1 || baseHeight>2048 || baseHeight%fieldFactor)
+        throw std::runtime_error("invalid native display dimensions");
+    const float width=baseWidth*value<float>(r,0x3c60);
+    const float height=baseHeight*value<float>(r,0x3c64);
     if(!std::isfinite(width) || !std::isfinite(height) || width<1 || width>2048 || height<1 || height>2048)
         throw std::runtime_error(std::format("invalid native source frame dimensions {}x{}",width,height));
     for(unsigned i=0;i<2;++i){const auto *layer=r+i*0xa70;
         if(layer[0x1cf3] || layer[0x1cf4] || layer[0x1cf5]!=1 ||
-           value<int16_t>(layer,0x1cfa)!=width || value<int16_t>(layer,0x1cfc)*2!=height)
-            throw std::runtime_error(std::format("unported native source field view: layer={} target={}x{} field={}x{}",i,width,height,value<int16_t>(layer,0x1cfa),value<int16_t>(layer,0x1cfc)));
+           value<int16_t>(layer,0x1cfa)!=baseWidth || value<int16_t>(layer,0x1cfc)*fieldFactor!=baseHeight)
+            throw std::runtime_error(std::format("unported native source field view: layer={} target={}x{} base={}x{} mode={} field={}x{} flags={},{},{}",i,width,height,baseWidth,baseHeight,videoMode,value<int16_t>(layer,0x1cfa),value<int16_t>(layer,0x1cfc),layer[0x1cf3],layer[0x1cf4],layer[0x1cf5]));
     }
+    // 0x117b00 changes source scales without resizing the display fields.
+    // The native Screen maps these source coordinates to the output viewport;
+    // no physical field-copy surface or transfer needs to be reconstructed.
     return {object,width,height};
 }
 }

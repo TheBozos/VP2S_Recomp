@@ -8,6 +8,23 @@ target, not a replacement DLL loaded into PS2Recomp.
 
 ## Build and evidence
 
+### Scaled source coordinates and display fields (2026-11-07)
+
+The native composition guard incorrectly required scaled source size to equal
+display size. The game's source-scale setter `0x117b00` changes source scales
+independently; `0x116780..0x1167bc` records one or two field heights according
+to video mode. The guard now checks each display view against that unscaled
+base and field factor, while native Screen retains the scaled coordinate span.
+The renderer already maps that span directly to its output viewport. No field
+copy or hardware surface is reconstructed.
+
+128 original/adapted composition CPU/RAM cases cover both field factors,
+identity/gameplay scales, pair selection, resumed waits and lifetime; invalid
+dimensions/field pairs still reject. Composition, signature and actual startup
+suites pass after correcting an initial assumption caught by the startup test.
+Actual New Game passes and next rejects frame-filter object `0x155d50` with
+its enable flag zero. This is not a rendered field or Logun parity claim.
+
 ### Native field-loop pacing ownership (2026-11-07)
 
 Mod003's field loop now retires only timer0 HBLANK-mode setup at `0x3d9238`

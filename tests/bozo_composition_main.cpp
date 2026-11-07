@@ -18,8 +18,9 @@ void check(bool v,std::source_location at=std::source_location::current()){
 struct Pause{};
 struct Host:bozo::ee::Host,bozo::port::Host,vp2s::SceneOwner {
     vp2s::NativeScene scene;unsigned targets=0,enqueues=0,displays=0,physicalStores=0,waits=0;bool adapted=false,pause=false;
+    float expectedWidth=640,expectedHeight=448;
     vp2s::NativeScene &nativeScene()override{return scene;}
-    void beginNativeFrame(const vp2s::NativeFrameTarget &t)override{check(t.object==0x180000 && t.width==640 && t.height==448);++targets;}
+    void beginNativeFrame(const vp2s::NativeFrameTarget &t)override{check(t.object==0x180000 && t.width==expectedWidth && t.height==expectedHeight);++targets;}
     bozo::libs::Libraries &libraries()override{throw std::runtime_error("libraries");}
     bool nativeGraphics()const override{return true;}
     bool nativeInstruction(uint8_t *r,R5900Context *c,Runtime *rt,uint32_t pc)override{
@@ -57,10 +58,13 @@ int main(){try{
     b.setFunctions(composition_adapted_function_table,composition_adapted_function_count,composition_adapted_resume_table,composition_adapted_resume_count);
     a.runtime().port=&original;b.runtime().port=&adapted;
     for(auto *d:{&a,&b})for(uint32_t pc:{0x1010e0u,0x11f5a0u,0x10d0f0u,0x1131c0u,0x122160u})d->bindLibrary(pc);
-    for(unsigned seed=0;seed<64;++seed){
+    for(unsigned seed=0;seed<128;++seed){
         auto *x=a.runtime().memory.flat(),*y=b.runtime().memory.flat();std::memset(x,0,bozo::kFlatBytes);
-        const uint32_t object=0x180000;value<int16_t>(x,object+0x3c68,640);value<int16_t>(x,object+0x3c6a,448);
-        value<float>(x,object+0x3c60,1);value<float>(x,object+0x3c64,1);x[object+0x3c76]=1;x[object+0x3e67]=(seed>>1)&1;
+        const uint32_t object=0x180000;const bool fullBase=seed&16;x[0x1c8d00+0xcc84]=fullBase?1:0;
+        value<int16_t>(x,object+0x3c68,640);value<int16_t>(x,object+0x3c6a,fullBase?448:224);
+        const bool scaled=seed<64;
+        adapted.expectedWidth=scaled?512.f:640.f;adapted.expectedHeight=scaled?512.9599609375f:448.f;
+        value<float>(x,object+0x3c60,scaled?0.8f:1.f);value<float>(x,object+0x3c64,fullBase?(scaled?1.145f:1.f):(scaled?2.29f:2.f));x[object+0x3c76]=1;x[object+0x3e67]=(seed>>1)&1;
         value<uint32_t>(x,object+0x3dd4,seed%2);
         for(unsigned i=0;i<2;++i){auto *layer=x+object+i*0xa70;layer[0x1cf0]=1;layer[0x1cf1]=(seed>>2)&1;
             layer[0x1cf2]=i^(seed&1);layer[0x1cf5]=1;value<int16_t>(layer,0x1cfa,640);value<int16_t>(layer,0x1cfc,224);}
@@ -76,7 +80,7 @@ int main(){try{
         old.r[2]=now.r[2];check(!std::memcmp(&old,&now,sizeof(old)));
         check(adapted.enqueues==0 && adapted.displays==0 && adapted.physicalStores==0 && adapted.targets==seed+1);
         check(original.physicalStores==(((seed>>2)&1)?2:0));
-        const auto frame=adapted.scene.frameTarget();check(frame && frame->width==640 && frame->height==448);
+        const auto frame=adapted.scene.frameTarget();check(frame && frame->width==adapted.expectedWidth && frame->height==adapted.expectedHeight);
         bool finished=false;try{adapted.scene.composition(0x1fff000-0xa0);}catch(const std::runtime_error &){finished=true;}check(finished);
     }
     auto *ram=b.runtime().memory.flat();const uint32_t object=0x180000;
@@ -93,6 +97,8 @@ int main(){try{
     rejects([&]{ram[object+0x31d0]=1;});
     rejects([&]{ram[object+0x2762]=ram[object+0x1cf2];});
     rejects([&]{value<float>(ram,object+0x3c60,std::numeric_limits<float>::quiet_NaN());});
+    rejects([&]{value<int16_t>(ram,object+0x3c68,-640);value<float>(ram,object+0x3c60,-1);});
+    rejects([&]{value<int16_t>(ram,object+0x3c6a,447);});
     rejects([&]{value<int16_t>(ram,object+0x1cfc,200);});
     rejects([&]{ram[object+0x1cf4]=1;});
     auto target=adapted.scene.beginComposition(&b.runtime(),0x1fff000,object);check(target.height==448);
@@ -108,5 +114,5 @@ int main(){try{
     bool invalid=false;try{publisher.next({object,0,224});}catch(const std::runtime_error &){invalid=true;}check(invalid && renderer.published()==held);
     publisher.next({object,640,448});const auto second=renderer.published();
     check(second->serial==held->serial+1 && second->screen.width==320 && second->vertices[0].rgba==0x80445566 && held->vertices[0].rgba==0x80112233);
-    std::puts("64 generated source-target composition CPU/RAM comparisons, field pair selection and resumed waits passed; no transfer consumer");return 0;
+    std::puts("128 generated source-target composition CPU/RAM comparisons, separate scaled source/display fields, pair selection and resumed waits passed; no transfer consumer");return 0;
 }catch(const std::exception &e){std::fprintf(stderr,"%s\n",e.what());return 1;}}

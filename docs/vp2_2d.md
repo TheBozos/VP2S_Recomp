@@ -13,8 +13,11 @@ The native store keys a font by decompressed-chain/part/byte-offset provenance
 and verifies its live numeric metrics, with no runtime glyph/palette decoding.
 The initial text layer resolves to chain `0x21551000`, part 0, pixels `+0x1500`.
 The USA conversion has 223 origin entries and 178 unique native RGBA packs.
-The build pipeline regenerates these private assets. Text capture/drawing is
-still pending; the resource conversion alone does not render the UI.
+The build pipeline regenerates these private assets. `NativeUiTexts` observes
+the original `0x2e74f0` emitter's callbacks and copies items before `0x2efba0`
+frees their array. Immutable snapshots survive array release/rebuild/destruction;
+64 whole CPU/RAM/callback cases cover that capture. Native layer drawing remains
+pending; the resource conversion and capture alone do not render the UI.
 
 ### Bozo texture alpha (2026-11-07)
 

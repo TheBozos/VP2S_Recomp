@@ -32,7 +32,7 @@ add_test(NAME vp2s-bozo-metadata COMMAND vp2s-bozo-metadata-check)
 add_test(NAME vp2s-bozo-prepare COMMAND ${Python3_EXECUTABLE} "${VP2S_ROOT}/tests/test_bozo_prepare.py")
 add_test(NAME vp2s-bozo-texture-manifest COMMAND ${Python3_EXECUTABLE} "${VP2S_ROOT}/tests/test_bozo_texture_manifest.py")
 add_test(NAME vp2s-bozo-glyph-conversion COMMAND ${Python3_EXECUTABLE} "${VP2S_ROOT}/tests/test_bozo_glyphs.py")
-add_library(vp2s_bozo_kernel STATIC native_kernel.cpp native_timer.cpp native_settings.cpp native_seed.cpp native_modules.cpp native_controller.cpp native_frame.cpp native_bootstrap.cpp native_random.cpp native_math.cpp native_object_math.cpp native_trig.cpp native_frustum.cpp native_textures.cpp native_scene.cpp native_assets.cpp native_debug_font.cpp native_state_setup.cpp native_screen_rect.cpp native_glyphs.cpp)
+add_library(vp2s_bozo_kernel STATIC native_kernel.cpp native_timer.cpp native_settings.cpp native_seed.cpp native_modules.cpp native_controller.cpp native_frame.cpp native_bootstrap.cpp native_random.cpp native_math.cpp native_object_math.cpp native_trig.cpp native_frustum.cpp native_textures.cpp native_scene.cpp native_assets.cpp native_debug_font.cpp native_state_setup.cpp native_screen_rect.cpp native_glyphs.cpp native_ui_text.cpp)
 set(GLYPH_FIXTURE "${CMAKE_CURRENT_BINARY_DIR}/glyphs-fixture")
 add_custom_command(OUTPUT "${GLYPH_FIXTURE}/manifest.txt"
   COMMAND ${Python3_EXECUTABLE} "${VP2S_ROOT}/tests/test_bozo_glyphs.py" --emit "${GLYPH_FIXTURE}"
@@ -168,6 +168,24 @@ if(VP2S_BOZO_CODE)
   endif()
   add_test(NAME vp2s-bozo-menu-clear COMMAND vp2s-bozo-menu-clear-check)
   set(TEXTURE_REF "${CMAKE_CURRENT_BINARY_DIR}/texture-reference")
+  set(UI_TEXT_REF "${CMAKE_CURRENT_BINARY_DIR}/ui-text-reference")
+  foreach(VARIANT original adapted)
+    set(UI_TEXT_DIR "${UI_TEXT_REF}/${VARIANT}")
+    add_custom_command(OUTPUT "${UI_TEXT_DIR}/ui_text_${VARIANT}_000.cpp" "${UI_TEXT_DIR}/ui_text_${VARIANT}_table.cpp" "${UI_TEXT_DIR}/ui_text_${VARIANT}_functions.h"
+      COMMAND ${Python3_EXECUTABLE} "${VP2S_ROOT}/tools/vp2_bozo_ui_text_fixture.py" "${VP2S_BOZO_DATA}/images/mod001.elf" "${UI_TEXT_DIR}" --build "${VP2S_BOZO_DATA}/.." --variant ${VARIANT}
+      COMMAND $<TARGET_FILE:bozo-recomp> "${UI_TEXT_DIR}/fixture.elf" "${UI_TEXT_DIR}" --prefix ui_text_${VARIANT} --symbol-prefix ui_text_${VARIANT}_
+        --files 1 --externals "${UI_TEXT_DIR}/externals.txt" --no-comments
+      DEPENDS bozo-recomp "${VP2S_ROOT}/tools/vp2_bozo_ui_text_fixture.py" "${VP2S_ROOT}/tools/vp2_bozo_kernel.py" "${VP2S_BOZO_DATA}/images/mod001.elf")
+    list(APPEND UI_TEXT_SOURCES "${UI_TEXT_DIR}/ui_text_${VARIANT}_000.cpp" "${UI_TEXT_DIR}/ui_text_${VARIANT}_table.cpp")
+  endforeach()
+  add_executable(vp2s-bozo-ui-text-check "${VP2S_ROOT}/tests/bozo_ui_text_main.cpp" ${UI_TEXT_SOURCES})
+  add_dependencies(vp2s-bozo-ui-text-check vp2s-bozo-glyph-fixture)
+  target_include_directories(vp2s-bozo-ui-text-check PRIVATE "${UI_TEXT_REF}/original" "${UI_TEXT_REF}/adapted")
+  target_link_libraries(vp2s-bozo-ui-text-check PRIVATE vp2s_bozo_kernel)
+  if(MINGW)
+    target_link_options(vp2s-bozo-ui-text-check PRIVATE -static)
+  endif()
+  add_test(NAME vp2s-bozo-ui-text-capture COMMAND vp2s-bozo-ui-text-check "${GLYPH_FIXTURE}")
   set(TRIG_REF "${CMAKE_CURRENT_BINARY_DIR}/trig-reference")
   foreach(VARIANT original adapted)
     set(TRIG_DIR "${TRIG_REF}/${VARIANT}")

@@ -7,6 +7,28 @@ target, not a replacement DLL loaded into PS2Recomp.
 
 ## Build and evidence
 
+### Text-item allocation lifetime (2026-11-07)
+
+The original `0x2efba0` text builder frees its layout-item array after calling
+`0x2e74f0`. Native capture now observes that emitter's real setup/item/final
+callbacks and copies glyph descriptions and immutable offline pictures before
+the array is released. Setup mutations are visible; later glyph-callback
+mutations do not alter the captured item. Control items remain skipped by the
+original CPU code; inline-image items are recorded explicitly for subsequent
+draw admission. No packet payload is read or replayed.
+
+Each emitter stack has a bounded invocation owner. Finished snapshots replace
+the element association, and the original text destructor releases that
+association without invalidating snapshots already held by native consumers.
+The original emitter instructions, virtual callbacks, allocation and destruction
+continue to execute. Sixty-four whole CPU/RAM/callback comparisons cover empty,
+negative-count, glyph/control/inline items and resumed callbacks. Additional
+checks reject repeated/escaped lifetimes and verify replacement ownership.
+This does not submit text to the renderer: the UI layer remains the boot blocker.
+All 44 local suites pass, including the optional hidden GPU alpha test. An actual
+headless boot captures 171 glyphs from the initial 174-item array (three controls,
+no inline images), then stops at the same guarded layer submission.
+
 ### Offline glyph assets and provenance (2026-11-07)
 
 The first active UI layer contains 174 text items. Its font pixel origin is the
@@ -27,8 +49,9 @@ Synthetic tests check nibble ordering, both offline palette parts, padding,
 raw alpha, malformed inputs and fontless bundles, plus C++ loader/provenance,
 numeric mismatch, source poisoning/invalidation, immutable pictures and host
 separation. All 43 local suites pass, including optional GPU alpha readback.
-This is glyph-resource groundwork: text-item capture and native UI layer drawing
-remain open, so boot still stops at the guarded `0x2ec9c0` layer submission.
+This is glyph-resource groundwork. Text capture was added separately above;
+native UI layer drawing remains open, so boot still stops at the guarded
+`0x2ec9c0` layer submission.
 
 ### Partial-alpha texture publication (2026-11-07)
 

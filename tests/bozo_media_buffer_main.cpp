@@ -19,7 +19,7 @@ struct Decoder:bozo::libs::VideoDecoder {
     bool next(bozo::libs::YuvPicture &)override{throw std::runtime_error("unexpected picture request");}
 };
 struct Host:bozo::ee::Host,bozo::port::Host,vp2s::MediaBufferOwner {
-    unsigned created=0,freed=0;bool fail=false;
+    unsigned created=0,freed=0;bool fail=false;uint32_t allocation=0;
     vp2s::NativeMediaBuffers buffers{[this]()->std::unique_ptr<bozo::libs::VideoDecoder>{if(fail)return {}; ++created;return std::make_unique<Decoder>(freed);}};
     vp2s::NativeMediaBuffers &nativeMediaBuffers()override{return buffers;}
     bozo::libs::Libraries &libraries()override{throw std::runtime_error("libraries");}
@@ -27,7 +27,13 @@ struct Host:bozo::ee::Host,bozo::port::Host,vp2s::MediaBufferOwner {
     bool nativeInstruction(uint8_t *,R5900Context *c,Runtime *rt,uint32_t pc)override{auto r=vp2s::nativeMediaBufferInstruction(c,rt,pc);check(r.has_value());return *r;}
     void frameEnd(Runtime *,R5900Context *)override{throw std::runtime_error("frame");}
     bool callLibrary(Runtime *,R5900Context *,uint32_t)override{return false;}
-    void libraryCall(bozo::ee::Dispatcher &,R5900Context *,uint32_t)override{throw std::runtime_error("transport/interrupt tail executed");}
+    void libraryCall(bozo::ee::Dispatcher &,R5900Context *c,uint32_t pc)override{
+        if(pc==0x1371e0)c->r[2].sd[0]=3;
+        else if(pc==0x100ab0){check(c->r[4].uw[0]==0x8100);c->r[2].ud[0]=allocation;}
+        else if(pc==0x2bd380){check(c->r[4].uw[0]==allocation);c->r[2].ud[0]=allocation;}
+        else throw std::runtime_error("transport/interrupt tail executed");
+        c->pc=c->r[31].uw[0];
+    }
     void vu0Microprogram(bozo::ee::Dispatcher &,R5900Context *,uint32_t)override{throw std::runtime_error("VU");}
     void ioRead(bozo::ee::Dispatcher &,R5900Context *,uint32_t,uint32_t,uint64_t[2])override{throw std::runtime_error("device read");}
     void ioWrite(bozo::ee::Dispatcher &,R5900Context *,uint32_t,uint32_t,const uint64_t[2])override{throw std::runtime_error("device write");}
@@ -38,6 +44,7 @@ int main(){try{
     Host before,after;bozo::ee::Dispatcher old(before),native(after);
     old.setFunctions(media_buffer_original_function_table,media_buffer_original_function_count,media_buffer_original_resume_table,media_buffer_original_resume_count);
     native.setFunctions(media_buffer_adapted_function_table,media_buffer_adapted_function_count,media_buffer_adapted_resume_table,media_buffer_adapted_resume_count);
+    for(auto *d:{&old,&native}){d->boot(0x2ba600,0x1fff000);for(auto pc:{0x1371e0u,0x100ab0u,0x2bd380u})d->bindLibrary(pc);}
     old.runtime().port=&before;native.runtime().port=&after;constexpr uint32_t object=0x180000;
     for(unsigned seed=0;seed<64;++seed){
         auto &a=old.runtime(),&b=native.runtime();std::memset(a.memory.flat(),0xa5,bozo::kFlatBytes);
@@ -57,5 +64,16 @@ int main(){try{
     put(rt,object+0xc9994,1u);rejects([&]{after.buffers.finish(&rt,0x1ff0000);});check(after.buffers.outstanding()==1 && !after.buffers.buffer(object));
     put(rt,object+0xc9994,0u);after.buffers.finish(&rt,0x1ff0000);after.buffers.release(object);
     check(after.created==after.freed && !after.buffers.outstanding());
-    std::puts("64 native-contract media-reset prefix whole CPU/RAM cases plus native decoder allocation/failure/reset/lifetime checks passed; no transport, coded-data or movie-playback qualification");return 0;
+    for(unsigned seed=0;seed<64;++seed){
+        auto &a=old.runtime(),&b=native.runtime();std::memset(a.memory.flat(),0xa5,bozo::kFlatBytes);std::memcpy(b.memory.flat(),a.memory.flat(),bozo::kFlatBytes);
+        before.allocation=after.allocation=seed&1?0x500000:0;
+        R5900Context x{},y{};x.r[4].ud[0]=object;x.r[29].ud[0]=seed&2?0x70003f00:0x1fff000;x.r[31].ud[0]=0x170000;y=x;
+        old.runtime().functions.generated(0x2ba600)(a.memory.flat(),&x,&a);native.runtime().functions.generated(0x2ba600)(b.memory.flat(),&y,&b);x.cycleLimit=y.cycleLimit;
+        check(!std::memcmp(&x,&y,sizeof(x)) && !std::memcmp(a.memory.flat(),b.memory.flat(),bozo::kFlatBytes));
+        auto held=after.buffers.buffer(object);check(held && held->pacingFieldCycles==native.kernel().field() && held->pacingFieldCycles);
+        rejects([&]{after.buffers.preparePacing(&b,object,0);});rejects([&]{after.buffers.preparePacing(&b,object,native.kernel().field());});
+        after.buffers.release(object);held.reset();
+    }
+    check(after.created==after.freed);
+    std::puts("64 native-contract media-reset prefix +64 complete constructor CPU/RAM cases: native decoder allocation/failure/lifetime and pacing-source initialization; no transport, coded-data or movie-playback qualification");return 0;
 }catch(const std::exception &e){std::fprintf(stderr,"%s\n",e.what());return 1;}}

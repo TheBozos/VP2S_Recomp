@@ -44,10 +44,12 @@
 #include <fstream>
 #include <iterator>
 #include <stdexcept>
+#include <set>
 
 namespace {
 class StrictHost final : public bozo::ee::Host, public vp2s::TimerOwner, public vp2s::SettingsOwner,public vp2s::SeedOwner,public vp2s::ModuleOwner,public vp2s::BootstrapOwner,public vp2s::RandomOwner,public vp2s::TextureOwner,public vp2s::SceneOwner,public vp2s::AssetOwner,public vp2s::DebugFontOwner,public vp2s::StateSetupOwner,public vp2s::ScreenRectOwner,public vp2s::UiTextOwner,public vp2s::UiSpriteOwner,public vp2s::MediaBufferOwner {
 public:
+    std::set<uint32_t> overlayExternals;
     vp2s::NativeMediaBuffers mediaBuffers;
     vp2s::NativeMediaBuffers &nativeMediaBuffers()override{return mediaBuffers;}
     vp2s::NativeUiSprites sprites;
@@ -215,8 +217,9 @@ public:
     void libraryCall(bozo::ee::Dispatcher &d,R5900Context *c,uint32_t target) override {
         // The shared libmpeg wrapper retains a TMB-specific reference ABI and
         // an IPU-demand flag. VP2S needs its native media provider first.
-        if(target==0x1ef6f8 || target==0x1f0398 || target==0x1f0438 || target==0x1f0510 || target==0x1f4590 || target==0x1f4990)
+        if(target==0x1ef6f8 || target==0x1f02a0 || target==0x1f0398 || target==0x1f0438 || target==0x1f0510 || target==0x1f4590 || target==0x1f4990)
             throw std::runtime_error(std::format("native VP2S MPEG provider required at {:x} ra={:x}",target,c->r[31].uw[0]));
+        if(overlayExternals.contains(target))throw std::runtime_error(std::format("native VP2S overlay library owner required at {:x}",target));
         // A generic SDK retirement cannot establish VP2S source ownership.
         // Known producers publish offline assets before retiring their transport.
         if(target==0x122bf8u)
@@ -384,7 +387,7 @@ int main(int argc,char **argv) {
             throw std::runtime_error("native kernel bindings missing from generated externals");
         if(!host.native.setUp(dispatcher,vp2_main_external_table,vp2_main_external_count,&registry,error))
             throw std::runtime_error(error);
-        vp2sBozoRegisterImages(dispatcher.runtime(),VP2S_BOZO_IMAGES);
+        vp2sBozoRegisterImages(dispatcher.runtime(),VP2S_BOZO_IMAGES,[&](uint32_t pc){host.overlayExternals.insert(pc);dispatcher.bindLibrary(pc);});
         const auto frames=host.native.run();
 #ifdef VP2S_BOZO_CAPTURE
         if(!capturePath.empty())vp2s::captureNativeFrame(capturePath);

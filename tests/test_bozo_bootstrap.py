@@ -1,10 +1,13 @@
 """Bounded headless native startup integration, without a rendered-scene claim.
 
-No window/input options or card directory are passed. The runner uses fresh
-in-memory cards. Unsupported operations remain hard stops; the longer run
+No window, host-input provider or card directory is used. The last scenario
+uses a temporary native input script and all runs use fresh in-memory cards.
+Unsupported operations remain hard stops; the longer run
 qualifies its current graphics/math boundary, not a playable route or visual parity.
 """
 import subprocess
+import tempfile
+from pathlib import Path
 import sys
 import os
 
@@ -56,3 +59,14 @@ for required in ('[vp2s:screen] native rect','captured text=997620 glyphs=171 in
     if required not in longer:raise SystemExit(f'longer native boot bypassed native source publication: {required}')
 if 'native boundary:' in longer:raise SystemExit('longer native boot reached an unexpected rejecting boundary')
 print('600 native logical frames passed with texture publication, scalar glyph capture and native UI submission. Presentation and the Logun route remain unqualified.')
+with tempfile.TemporaryDirectory(prefix='vp2s-native-input-') as temporary:
+    script=Path(temporary)/'screen.txt';script.write_text('200:SQUARE/6',encoding='ascii')
+    media=subprocess.run([sys.argv[1],'--iso',sys.argv[2],'--frames','300','--pad-script',str(script)],
+                         capture_output=True,text=True,timeout=30,
+                         env={**os.environ,'VP2S_BOZO_SEED':'1','VP2S_BOZO_TRACE_QUEUES':'1'})
+    output=media.stdout+media.stderr;print(output,end='')
+    if media.returncode!=1 or 'native VP2S MPEG provider required at 1f02a0 ra=2be6dc' not in output:
+        raise SystemExit('scripted startup did not reach the native overlay MPEG ownership guard')
+    if 'native decoder owns prepared movie input' not in output or 'unported device' in output:
+        raise SystemExit('scripted startup bypassed native buffer ownership or reached SDK hardware code')
+print('Scripted native input passes buffer and pacing-source construction, then rejects unowned overlay MPEG before its SDK hardware body. No movie/Logun claim.')

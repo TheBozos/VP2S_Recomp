@@ -7,6 +7,33 @@ target, not a replacement DLL loaded into PS2Recomp.
 
 ## Build and evidence
 
+### Native media clock source and overlay ownership (2026-11-07)
+
+The derived `0x2ba600` constructor configures Timer0 at `0x2ba670`. Its
+replacement records the native scheduler's actual field duration in the prepared
+decoder owner, after checking the original `0x159ac0` record initialization.
+It supplies no timer register/count/status. The later `0x2b99ac`/`0x2b9ab8`
+minimum-frame busy wait is a real timing consumer and remains guarded until its
+native presentation scheduler is implemented; it has not been discarded as
+profiling. Another 64 complete-constructor CPU/RAM cases preserve the original
+semaphore/allocation/callback boundaries under bounded fixture leaves.
+
+The next scripted stop exposed a separate dispatch gap: overlay SDK externals
+were emitted as stubs but not bound when their image was registered. Calls
+therefore reached their compiled SDK bodies; the device guard caught the first
+`sceMpegInit` hardware read at 0x1000f520. Image registration now declares every
+overlay external to the host explicitly and installs its runtime binding.
+Unknown overlay providers reject before generic library delegation. All seven
+current MPEG entries remain explicit VP2S provider guards, so neither the SDK
+hardware body nor the shared TMB-specific ABI wrapper executes.
+
+All 46 suites pass. The startup test now sends Square through a temporary native
+script and proves real buffer/clock-source ownership, then the expected clean
+MPEG-provider guard at `0x1f02a0`, caller `0x2be6dc`, with no device access.
+`sceMpegInit` itself returns 1 in this USA image; its generic wrapper's 0 is not
+the source contract. The next work is the native VP2S media API/PSS provider.
+Native video delivery, visible interactive launch, 3D and Logun remain open.
+
 ### Native media-buffer construction (2026-11-07)
 
 The `0x2bc330` constructor creates a software semaphore and initializes the

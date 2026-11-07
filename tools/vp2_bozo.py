@@ -90,17 +90,18 @@ def generate(args, build, data, engine_build, env):
         includes.append(f'#include "{name}/{prefix}_functions.h"')
         if name != 'main':
             registrations += [f'    add("{name}",0x{info["load"]:x}u,0x{info["end"]:x}u,',
-                              f'        {prefix}_function_table,{prefix}_function_count,{prefix}_resume_table,{prefix}_resume_count);']
+                              f'        {prefix}_function_table,{prefix}_function_count,{prefix}_resume_table,{prefix}_resume_count,{prefix}_external_table,{prefix}_external_count);']
         print(f'{name}: generated {count} chunks; {info["untranslated"]} explicit untranslated boundaries')
     header = ['// Generated locally from image metadata. No game bytes embedded.', '#pragma once',
               '#include "bozo/runtime.h"', '#include <fstream>', '#include <iterator>',
-              '#include <stdexcept>', '#include <string>', '#include <vector>'] + includes
-    header += ['inline void vp2sBozoRegisterImages(Runtime &rt,const char *root) {',
-               '    auto add=[&](const char *name,uint32_t lo,uint32_t hi,const BozoFunctionEntry *fn,size_t nf,const BozoResumeEntry *resume,size_t nr) {',
+              '#include <stdexcept>', '#include <string>', '#include <vector>', '#include <functional>'] + includes
+    header += ['inline void vp2sBozoRegisterImages(Runtime &rt,const char *root,const std::function<void(uint32_t)> &externalOwner) {',
+               '    auto add=[&](const char *name,uint32_t lo,uint32_t hi,const BozoFunctionEntry *fn,size_t nf,const BozoResumeEntry *resume,size_t nr,const BozoExternalEntry *externals,size_t ne) {',
                '        std::ifstream in(std::string(root)+"/"+name+".identity",std::ios::binary);',
                '        std::vector<uint8_t> identity{std::istreambuf_iterator<char>(in),{}};',
                '        if(identity.size()!=64 || lo>=hi || hi>0x2000000u)throw std::runtime_error("invalid native overlay identity/range");',
                '        rt.functions.addModule(lo,hi,rt.memory.ram()+lo,std::move(identity),fn,nf,resume,nr);',
+               '        for(size_t i=0;i<ne;++i){if(externals[i].kind!=1)throw std::runtime_error("unported overlay override kind");externalOwner(externals[i].address);}',
                '    };'] + registrations + ['}', '']
     (data/'generated/vp2_bozo_images.h').write_text('\n'.join(header))
     (data/'sources.cmake').write_text('set(VP2S_BOZO_SOURCES\n' + ''.join(f'  "{p.as_posix()}"\n' for p in sources) + ')\n')

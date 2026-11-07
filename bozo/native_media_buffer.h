@@ -7,6 +7,7 @@
 namespace vp2s {
 struct NativeMediaBuffer {
     uint32_t object=0,capacity=0,semaphore=0;
+    uint64_t pacingFieldCycles=0;
     std::unique_ptr<bozo::libs::VideoDecoder> decoder;
 };
 class NativeMediaBuffers {
@@ -18,6 +19,7 @@ public:
     void begin(Runtime *,uint32_t stack,uint32_t object);
     void finish(Runtime *,uint32_t stack);
     void release(uint32_t object);
+    void preparePacing(Runtime *,uint32_t object,uint64_t fieldCycles);
     std::shared_ptr<const NativeMediaBuffer> buffer(uint32_t object)const;
     size_t outstanding()const{return pending.size();}
 };

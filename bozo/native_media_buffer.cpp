@@ -36,16 +36,28 @@ void NativeMediaBuffers::release(uint32_t object){
     for(const auto &[at,entry]:pending)if(entry->object==object)throw std::runtime_error("native media buffer released during initialization");
     prepared.erase(object);
 }
+void NativeMediaBuffers::preparePacing(Runtime *rt,uint32_t object,uint64_t fieldCycles){
+    const auto entry=prepared.at(object);
+    if(!fieldCycles || entry->pacingFieldCycles || word(rt,object+0xce4ec)!=0x159ac0 || word(rt,object+0x15e600) ||
+       word(rt,object+0x15e604) || word(rt,object+0x15e608)!=0x90000)
+        throw std::runtime_error("unported native movie pacing initialization");
+    // A native field-duration contract for the later presentation scheduler.
+    // No timer register, count or status is stored or returned to game code.
+    entry->pacingFieldCycles=fieldCycles;
+}
 std::shared_ptr<const NativeMediaBuffer> NativeMediaBuffers::buffer(uint32_t object)const{
     const auto it=prepared.find(object);return it==prepared.end()?nullptr:it->second;
 }
 std::optional<bool> nativeMediaBufferInstruction(R5900Context *c,Runtime *rt,uint32_t pc){
-    if(pc!=0x2bbfc0 && pc!=0x2bc1d0 && pc!=0x2bc1e0)return std::nullopt;
+    if(pc!=0x2bbfc0 && pc!=0x2bc1d0 && pc!=0x2bc1e0 && pc!=0x2ba670)return std::nullopt;
     auto *d=rt?dynamic_cast<bozo::ee::Dispatcher *>(rt->services):nullptr;
     auto *owner=d?dynamic_cast<MediaBufferOwner *>(&d->host()):nullptr;
     if(!owner || !c)throw std::runtime_error("native movie input requires a media-buffer owner");
     const auto sp=c->r[29].uw[0];
-    if(pc==0x2bbfc0){
+    if(pc==0x2ba670){
+        if(c->pc!=0x2ba614 || c->r[2].uw[0]!=0x83)throw std::runtime_error("native movie pacing requires original initializer continuation");
+        owner->nativeMediaBuffers().preparePacing(rt,c->r[16].uw[0],d->kernel().field());return true;
+    }else if(pc==0x2bbfc0){
         if(c->pc!=pc || c->r[31].uw[0]!=0x2bc3e0 || sp<0x20 || (sp&15))throw std::runtime_error("unported native media-buffer reset caller");
         owner->nativeMediaBuffers().begin(rt,sp-0x20,c->r[4].uw[0]);
     }else if(pc==0x2bc1d0){

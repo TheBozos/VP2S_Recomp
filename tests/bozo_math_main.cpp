@@ -7,8 +7,18 @@
 #include <cstdio>
 #include <cstring>
 #include <stdexcept>
+#include <bit>
+#include <cmath>
+#include <source_location>
 namespace {
-void check(bool value){if(!value)throw std::runtime_error("native math ABI assertion failed");}
+void check(bool value,std::source_location at=std::source_location::current()){
+    if(!value)throw std::runtime_error("native math ABI assertion failed at "+std::to_string(at.line()));
+}
+// Keep the test input opaque across the rounding guard. An inlined expression
+// built from loop constants can be folded under the compiler's default mode.
+[[gnu::noinline,gnu::noclone]] __m128 referenceNormalization(const uint8_t *source){
+    __m128 input;std::memcpy(&input,source,16);return vp2s::math::normalizeQuaternion(input);
+}
 // Independent exact rational multiplication and truncation of finite float32
 // operands. Test oracle only: no runtime arithmetic/CPU/VU implementation used.
 uint32_t exactProduct(uint32_t a,uint32_t b){
@@ -29,7 +39,12 @@ struct Host:bozo::ee::Host,bozo::port::Host {
     }
     void frameEnd(Runtime *,R5900Context *)override{throw std::runtime_error("unexpected frame end");}
     bool callLibrary(Runtime *,R5900Context *,uint32_t)override{return false;}
-    void libraryCall(bozo::ee::Dispatcher &,R5900Context *,uint32_t)override{throw std::runtime_error("unexpected call");}
+    void libraryCall(bozo::ee::Dispatcher &,R5900Context *c,uint32_t pc)override{
+        if(pc==0x12e1d8)c->f[0]=std::asin(c->f[12]);
+        else if(pc==0x12e2d8)c->f[0]=std::atan2(c->f[12],c->f[13]);
+        else throw std::runtime_error("unexpected call");
+        c->pc=c->r[31].uw[0];
+    }
     void vu0Microprogram(bozo::ee::Dispatcher &,R5900Context *,uint32_t)override{throw std::runtime_error("VU");}
     void ioRead(bozo::ee::Dispatcher &,R5900Context *,uint32_t,uint32_t,uint64_t[2])override{throw std::runtime_error("device");}
     void ioWrite(bozo::ee::Dispatcher &,R5900Context *,uint32_t,uint32_t,const uint64_t[2])override{throw std::runtime_error("device");}
@@ -41,6 +56,7 @@ int main(){try{
     old.setFunctions(math_original_function_table,math_original_function_count,math_original_resume_table,math_original_resume_count);
     native.setFunctions(math_adapted_function_table,math_adapted_function_count,math_adapted_resume_table,math_adapted_resume_count);
     old.runtime().port=native.runtime().port=&host;
+    for(auto *d:{&old,&native})for(uint32_t pc:{0x12e1d8u,0x12e2d8u})d->bindLibrary(pc);
     unsigned cases=0;uint32_t random=17;
     for(bool quaternion:{false,true})for(unsigned seed=0;seed<96;++seed){
         auto &a=old.runtime();auto &b=native.runtime();
@@ -138,5 +154,22 @@ int main(){try{
     check(vp2s::nativeMathInstruction(r.memory.flat(),&c,&r,0x29e1a0));check(!std::memcmp(&saved,&c,sizeof(c)) && p[0x50]==0);
     for(unsigned mode:{1u,128u,255u}){c.r[5].uw[0]=mode;bool rejected=false;try{vp2s::nativeMathInstruction(r.memory.flat(),&c,&r,0x29e1a0);}catch(const std::runtime_error &){rejected=true;}check(rejected);}
     c.r[5].uw[0]=0;p[0x50]=1;bool rejected=false;try{vp2s::nativeMathInstruction(r.memory.flat(),&c,&r,0x29e1a0);}catch(const std::runtime_error &){rejected=true;}check(rejected && p[0x50]==1);
-    std::printf("%u generated native matrix/quaternion ABI cases and %u independently calculated component products passed; no VU or device state\n",cases,products);return 0;
+    for(unsigned seed=0;seed<64;++seed){
+        auto &a=old.runtime();auto &b=native.runtime();const uint32_t stack=seed&1?0x70003f00:0x1fff000,frame=stack-0xc0;
+        const uint32_t source=seed%3?0x180000:0x70000100,destination=seed%4?0x190000:source;
+        std::memset(a.memory.flat(),seed+1,bozo::kFlatBytes);
+        const auto input=_mm_setr_ps(float(int(seed%9)-4)/8.f,float(int(seed%13)-6)/8.f,float(int(seed%7)-3)/8.f,float(seed%11)/8.f);
+        std::memcpy(a.memory.hostPointer(source,16),&input,16);std::memcpy(b.memory.flat(),a.memory.flat(),bozo::kFlatBytes);
+        R5900Context x{},y{};for(unsigned i=1;i<32;++i){x.r[i].ud[0]=0x1234000000000000ull+seed*32+i;x.r[i].ud[1]=~x.r[i].ud[0];}
+        std::memset(x.vu0_vf,0xad,sizeof(x.vu0_vf));x.r[4].ud[0]=destination;x.r[5].ud[0]=source;x.r[29].ud[0]=stack;x.r[31].ud[0]=0x170000;y=x;
+        std::memcpy(a.memory.hostPointer(frame,16),&x.r[16],16);std::memcpy(a.memory.hostPointer(frame+0x10,8),&x.r[31].ud[0],8);
+        const auto normalized=referenceNormalization(a.memory.hostPointer(source,16));const auto rotation=vp2s::math::quaternionMatrix(input);
+        std::memcpy(a.memory.hostPointer(frame+0xa0,16),&normalized,16);std::memcpy(a.memory.hostPointer(frame+0x20,64),rotation.data(),64);
+        alignas(16) uint32_t lanes[4];std::memcpy(lanes,&input,16);for(unsigned i=0;i<4;++i)x.fu[i]=lanes[3-i];
+        x.r[16].ud[0]=destination;x.r[29].ud[0]=frame;x.r[2].ud[0]=frame+0x20;x.r[9].ud[0]=0;
+        const auto control=_mm_getcsr();a.functions.generated(0x2158e0)(a.memory.flat(),&x,&a);const auto expected=_mm_getcsr();_mm_setcsr(control);
+        b.functions.generated(0x215870)(b.memory.flat(),&y,&b);check(_mm_getcsr()==expected);
+        check(x.pc==0x170000 && !std::memcmp(&x,&y,sizeof(x)) && !std::memcmp(a.memory.flat(),b.memory.flat(),bozo::kFlatBytes));++cases;
+    }
+    std::printf("%u generated native matrix/quaternion/Euler ABI cases and %u independently calculated component products passed; no VU or device state\n",cases,products);return 0;
 }catch(const std::exception &e){std::fprintf(stderr,"%s\n",e.what());return 1;}}

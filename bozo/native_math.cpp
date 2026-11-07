@@ -25,6 +25,22 @@ bool nativeMathInstruction(uint8_t *,R5900Context *c,Runtime *rt,uint32_t pc){
             throw std::runtime_error("unported math program selection or outstanding legacy job");
         return true;
     }
+    switch(pc){
+    case 0x2158a4:case 0x2158ac:case 0x2158bc:case 0x2158c4:
+    case 0x2158d4:case 0x2158d8:case 0x2158dc:return true;
+    case 0x2158b0:case 0x2158c8:c->r[9].ud[0]=0;return true;
+    case 0x2158b8:{
+        // Preserve the normalized temporary even though the retained Euler
+        // builder takes its rotation matrix from the original input record.
+        __m128 input;auto *at=record(rt,c->r[2].uw[0],16);std::memcpy(&input,at,16);
+        const auto normalized=vp2s::math::normalizeQuaternion(input);std::memcpy(at,&normalized,16);return true;
+    }
+    case 0x2158d0:{
+        __m128 input;std::memcpy(&input,record(rt,c->r[5].uw[0],16),16);
+        const auto matrix=vp2s::math::quaternionMatrix(input);
+        std::memcpy(record(rt,c->r[2].uw[0],64),matrix.data(),64);return true;
+    }
+    }
     // The object's update uses the same audited calculation as construction,
     // with its quaternion/position, temporary records and result in different
     // ordinary CPU registers. No inherited vector state supplies either path.

@@ -7,6 +7,29 @@ target, not a replacement DLL loaded into PS2Recomp.
 
 ## Build and evidence
 
+### Quaternion/Euler builder temporaries (2026-11-07)
+
+The fingerprinted `0x215870` builder now creates its normalized temporary and
+quaternion matrix directly from ordinary EE records, using the already lifted
+native math algorithms. Its scalar branch/asin/atan2 calculation remains
+compiled, including boundary/gimbal-lock cases. Its two original vi0 CPU
+clobbers remain explicit; no vector/flag bank supplies or receives results.
+The normalized stack temporary is preserved even though the matrix uses the
+original input rather than that normalized copy.
+
+Sixty-four generated original-consumer/adapted-wrapper comparisons include
+scratchpad stacks/sources and aliased output. Complete outgoing CPU context,
+all RAM and host FP effects match. The math suite now has 384 matrix/quaternion/
+Euler cases plus 1,048,576 independently calculated scalar component products.
+An initial one-bit normalization mismatch was isolated to compiler folding of
+the loop-built test input outside its rounding guard; an opaque, non-inlined
+reference input fixes the fixture without a runtime arithmetic change.
+
+Startup passes this builder and next reaches the original scene transport at
+`0x2097c0` (VIF1 DMA data/length submission). This is a rendering producer and
+requires native scene/draw ownership, not a fabricated channel completion.
+No rendered-scene or Logun-route qualification yet.
+
 ### Unconditional default math-code installation (2026-11-07)
 
 The reached channel setup was dispatched by the unconditional program selector

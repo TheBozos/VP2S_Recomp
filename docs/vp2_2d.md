@@ -6,6 +6,15 @@ GIF packet read). Addresses are mod001 unless stated. [V] verified in the MIPS o
 
 ## Framework
 
+### Bozo solid screen rectangle (2026-11-07)
+
+Mod002 `0x372180` now submits the mode-0 screen object (`0x15bc00`) as a native
+rectangle from colour `+0x9c`, endpoint bounds `+0xac..+0xb8`, depth `+0xbc` plus
+`+0xf1`, and the original source dimensions. Its compiled scalar writer flush and
+real software completion remain. Additional modes/content reject until qualified.
+64 producer/flush/completion CPU/RAM cases check both passes and native vertex
+endpoints. Startup reaches the next unported UI layer; visual parity remains open.
+
 ### Bozo fixed-image ownership (2026-11-07)
 
 The independent Bozo runner now replaces the physical enqueue in `0x2f36f0`

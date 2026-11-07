@@ -4,6 +4,8 @@
 #include <cstring>
 #include <stdexcept>
 #include <format>
+#include <cstdio>
+#include <cstdlib>
 namespace vp2s {
 namespace {
 const uint8_t *record(Runtime *rt,uint32_t at,uint32_t bytes){
@@ -56,6 +58,14 @@ void NativeDebugFonts::publish(Runtime *rt,uint32_t stack,uint32_t object){
 }
 void NativeDebugFonts::retire(Runtime *rt,R5900Context *c){
     auto it=publications.find(c->r[29].uw[0]);
+    if(it==publications.end() && std::getenv("VP2S_BOZO_TRACE_QUEUES") &&
+       value<uint32_t>(rt,c->r[29].uw[0]+0x20)==0x3721a8 && c->r[9].uw[0]>=0x100090){
+        const auto object=c->r[9].uw[0]-0x90,buffer=c->r[17].uw[0];record(rt,object,0xf8);
+        std::fprintf(stderr,"[vp2s:producer] menu screen object=%x type=%x job=%x modes=%u/%u/%u colour=%08x rect=%d,%d,%d,%d z=%x alpha=%u writer-bytes=%u\n",
+            object,value<uint32_t>(rt,object),value<uint32_t>(rt,object+0x90),value<uint8_t>(rt,object+0xf2),value<uint8_t>(rt,object+0xf3),value<uint8_t>(rt,object+0xf4),
+            value<uint32_t>(rt,object+0x9c),value<int32_t>(rt,object+0xac),value<int32_t>(rt,object+0xb0),value<int32_t>(rt,object+0xb4),value<int32_t>(rt,object+0xb8),
+            value<uint32_t>(rt,object+0xbc),value<uint8_t>(rt,object+0xf1),value<uint32_t>(rt,buffer+8)-value<uint32_t>(rt,buffer+12));
+    }
     if(it==publications.end() || it->second.retired)throw std::runtime_error(std::format("unowned native graphics builder submission: writer={:x} caller={:x}",c->r[17].uw[0],value<uint32_t>(rt,c->r[29].uw[0]+0x20)));
     const auto &font=*it->second.font;
     if(font.end==font.begin || c->r[17].uw[0]!=font.writer || c->r[16].uw[0]!=font.end+16 ||

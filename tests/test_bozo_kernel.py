@@ -108,7 +108,7 @@ class KernelGuardTests(unittest.TestCase):
                       (0x29e310,0x29e378),(0x29e420,0x29e4a4),(0x221030,0x2210b8),(0x221260,0x22177c),
                       (0x29d730,0x29d7ac),(0x29d6b0,0x29d72c),(0x29df60,0x29e06c),(0x2088d0,0x208900),(0x208870,0x2088c0),(0x21c9a0,0x21ca50),
                       (0x2cb470,0x2cb4a0),(0x2cb400,0x2cb450),(0x2cb640,0x2cb8d0),
-                      (0x2f36f0,0x2f3724),(0x2f37b0,0x2f38f0),(0x2ea9a0,0x2eaa10),(0x2210c0,0x221260)):
+                      (0x2f36f0,0x2f3724),(0x2f37b0,0x2f38f0),(0x2ea9a0,0x2eaa10),(0x2210c0,0x221260),(0x3140e0,0x314120)):
             segment=next(s for s in segments if s[0]==1 and s[2]<=lo<hi<=s[2]+s[4])
             for pc in range(lo,hi,4):
                 altered=bytearray(data);altered[segment[1]+pc-segment[2]]^=1
@@ -117,7 +117,7 @@ class KernelGuardTests(unittest.TestCase):
     def test_menu_hblank_retirement(self):
         data=(IMAGE.parent/'mod002.elf').read_bytes()
         self.assertEqual(overlay_adaptations('mod002',data).splitlines(),[
-            '0036224c ac220010 00000000','00362760 ac200000 00000000','00360ef4 0c048afe 00000000'])
+            '0036224c ac220010 00000000','00362760 ac200000 00000000','00360ef4 0c048afe 00000000','003721ac 03e00008 08087268'])
         _,segments,_=elf_parts(data);lo,hi=0x3617f0,0x362764
         s=next(s for s in segments if s[0]==1 and s[2]<=lo<hi<=s[2]+s[4])
         for pc in range(lo,hi,4):
@@ -128,6 +128,11 @@ class KernelGuardTests(unittest.TestCase):
         for pc in range(lo,hi,4):
             altered=bytearray(data);altered[s[1]+pc-s[2]]^=1
             with self.subTest(pc=hex(pc)),self.assertRaises(ValueError):overlay_adaptations('mod002',altered)
+        for lo,hi in ((0x372180,0x3721b4),(0x372060,0x372180),(0x3721c0,0x37293c),(0x372040,0x37205c)):
+            s=next(s for s in segments if s[0]==1 and s[2]<=lo<hi<=s[2]+s[4])
+            for pc in range(lo,hi,4):
+                altered=bytearray(data);altered[s[1]+pc-s[2]]^=1
+                with self.subTest(pc=hex(pc)),self.assertRaises(ValueError):overlay_adaptations('mod002',altered)
 
     def test_every_guarded_word_rejects_mutation(self):
         for lo,hi in GUARDS:

@@ -24,6 +24,7 @@
 #include "native_assets.h"
 #include "native_debug_font.h"
 #include "native_state_setup.h"
+#include "native_screen_rect.h"
 #include "bozo/render/renderer.h"
 #include <random>
 #include <algorithm>
@@ -38,8 +39,21 @@
 #include <stdexcept>
 
 namespace {
-class StrictHost final : public bozo::ee::Host, public vp2s::TimerOwner, public vp2s::SettingsOwner,public vp2s::SeedOwner,public vp2s::ModuleOwner,public vp2s::BootstrapOwner,public vp2s::RandomOwner,public vp2s::TextureOwner,public vp2s::SceneOwner,public vp2s::AssetOwner,public vp2s::DebugFontOwner,public vp2s::StateSetupOwner {
+class StrictHost final : public bozo::ee::Host, public vp2s::TimerOwner, public vp2s::SettingsOwner,public vp2s::SeedOwner,public vp2s::ModuleOwner,public vp2s::BootstrapOwner,public vp2s::RandomOwner,public vp2s::TextureOwner,public vp2s::SceneOwner,public vp2s::AssetOwner,public vp2s::DebugFontOwner,public vp2s::StateSetupOwner,public vp2s::ScreenRectOwner {
 public:
+    vp2s::NativeScreenRects screenRects;
+    unsigned screenRectDraws=0;
+    vp2s::NativeScreenRects &nativeScreenRects()override{return screenRects;}
+    void drawNativeScreenRect(const vp2s::NativeScreenRect &rect)override{
+        if(!scene.frameTarget())throw std::runtime_error("native screen rectangle has no source frame");
+        bozo::render::Material material;material.textured=false;material.alphaTest=true;
+        material.blend=bozo::render::Material::Blend::Alpha;
+        const float identity[16]={1,0,0,0,0,1,0,0,0,0,1,0,0,0,0,1};
+        const auto vertices=vp2s::nativeScreenRectangleVertices(rect);
+        bozo::render::Renderer::instance().draw(material,identity,vertices.data(),vertices.size());
+        if(++screenRectDraws<=4 && std::getenv("VP2S_BOZO_TRACE_QUEUES"))
+            std::fprintf(stderr,"[vp2s:screen] native rect object=%x colour=%08x box=%d,%d,%d,%d\n",rect.object,rect.colour,rect.x,rect.y,rect.right,rect.bottom);
+    }
     vp2s::NativeStateSetups stateSetups;
     vp2s::NativeStateSetups &nativeStateSetups()override{return stateSetups;}
     vp2s::NativeDebugFonts fonts;
@@ -230,6 +244,7 @@ public:
     void handlerCompleted(bozo::ee::Dispatcher &d,bozo::ee::Thread &t,const bozo::ee::Frame &f) override { native.handlerCompleted(d,t,f); }
 };
 bool noNativeInstruction(uint8_t *ram,R5900Context *ctx,Runtime *rt,uint32_t pc) {
+    if(auto handled=vp2s::nativeScreenRectInstruction(ctx,rt,pc))return *handled;
     if(auto handled=vp2s::nativeFixedImageInstruction(ctx,rt,pc))return *handled;
     if(auto handled=vp2s::nativeTextureManagerInstruction(ctx,rt,pc))return *handled;
     if(auto handled=vp2s::nativeVisibilityInstruction(ctx,rt,pc))return *handled;

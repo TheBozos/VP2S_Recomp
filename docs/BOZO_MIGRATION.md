@@ -7,6 +7,35 @@ target, not a replacement DLL loaded into PS2Recomp.
 
 ## Build and evidence
 
+### Native solid screen rectangle (2026-11-07)
+
+The next mod002 writer was measured from its game object: type `0x15bc00`,
+mode 0, black `0x80000000`, bounds `(0,0,640,448)` and a 224-byte writer extent.
+The native adapter now copies the colour, depth, bounds and original source-frame
+dimensions from EE records into an ordinary renderer draw. Mode/extent/type,
+pending scene object and invocation lifetime are checked. Other modes remain
+guarded. The right/bottom fields are absolute endpoints as the original
+`0x120a80` computes them; odd source sizes retain its integer half-size rule.
+
+The full original scalar `0x120eb0` writer flush still appends its terminator and
+advances both cursors. Only this producer's proven enqueue retires. Its return
+tail-calls the original compiled `0x21c9a0` completion after native input ownership
+and scalar flush finish. The per-invocation proof survives the flush and is
+released before that real completion, which may itself pause/resume. Generic
+nonempty writers still reject. No packet payload is decoded and no hardware
+status/completion is supplied.
+
+64 generated producer/flush/completion cases preserve full CPU/RAM except the
+removed enqueue's exact call charge and the void secondary draw's dead return.
+They cover both scene passes, scratchpad/EE stacks, nested resume, copied colour,
+independent vertex endpoint checks and odd source sizes. Unsupported modes,
+additional writer contents, duplicate entry, premature completion and renderer
+failure reject. Both fixtures use this native rectangle submission contract;
+neither executes a graphics consumer. Startup now checks an actual native
+rectangle submission before reaching the next UI layer (`0x2ec9c0`). No rendered
+scene or playable Logun route is qualified yet.
+All 40 port suites pass on this tree.
+
 ### Fixed UI image publication and lifetime (2026-11-07)
 
 A caller trace separates the shared enqueue helper `0x2ef390` from the reached

@@ -25,6 +25,8 @@ COMMAND_SEND = (0x13a3f0,0x13a524)
 EVENT_RANGES=((0x140b70,0x140c34),(0x148c58,0x148f88),(0x141780,0x141898),(0x141910,0x141958),(0x141980,0x1419cc))
 RETIRED_RANGES = (INSTALLER, QUERY, ALARM_INSTALLER, ALARM_PAYLOAD, TIMER_INITIALIZER, TIMER_HANDLER, TIMER_START, TIMER_QUERY, TIMER_REARM,MODULE_LOADER,MODULE_BUFFER_LOADER,MODULE_BUFFER_FREE,MODULE_TRANSFER,CACHE_SYNC,COMMAND_SEND)+EVENT_RANGES
 GUARDS = {
+    (0x15bc00,0x15bc9c): '72c0184afee23c2710a75366952b45666767799be208e4c2d840b5718f28da27',
+    (0x120a80,0x120c40): '40434feee6a449336bafb3111882f59369fa5ef03288cd5847a3b8b86f62739a',
     (0x15a6f0,0x15a78c): '87c529989345bb1df12a2e70a1d1a6b73d93a8b84a438f8f32a577dd37fec763',
     (0x159140,0x159150): 'a8500101af091d6d9ce554234d8be36aee2ae21748df7d30150f67fc7ec6c0f8',
     (0x120fa0,0x120fe0): '29204e947fbf9fa9b69420ae1cae478318746c39e977062cd82bd5943da726a5',
@@ -300,16 +302,24 @@ def overlay_adaptations(name,data):
         s=next(s for s in segments if s[0]==1 and s[2]<=lo<hi<=s[2]+s[4]);at=s[1]+lo-s[2]
         if hashlib.sha256(data[at:at+hi-lo]).hexdigest()!='5c82211252cab0d3265c33966ab6bb1ccb433758cf6b340f51632fa109c41d4c':
             raise ValueError('USA menu graphics-memory clear source mismatch')
+        for lo,hi,expected in (
+            (0x372180,0x3721b4,'00a7de71ad33ba14ff16757ec861f55b56b4e4d0d166aae90d2c7a984e7f652a'),
+            (0x372060,0x372180,'099e335567888b5edfa7c52a63078a02481904bf55ba859ae7fdf3a669e063a9'),
+            (0x3721c0,0x37293c,'38b3ca7ed66c5b7be98e324863ac85ec73a73df5ed097d698710d313b8e4acbe'),
+            (0x372040,0x37205c,'e6e81f90b768228012c77b0ff794a4068ceb0187abc59dc45364159a238dd8ae')):
+            s=next(s for s in segments if s[0]==1 and s[2]<=lo<hi<=s[2]+s[4]);at=s[1]+lo-s[2]
+            if hashlib.sha256(data[at:at+hi-lo]).hexdigest()!=expected:raise ValueError('USA native screen rectangle owner mismatch')
         # The native frame clock already owns elapsed frames. Retire only the
         # old HBLANK mode and per-frame counter reset (both in delay slots).
         # Keep every game record, call, wait and loop/checkpoint unchanged.
         # The menu's fill initializes only physical graphics memory. Preserve
         # allocation/failure, byte fill, descriptor construction and free;
         # retire only its upload producer, never the generic upload consumer.
-        return '0036224c ac220010 00000000\n00362760 ac200000 00000000\n00360ef4 0c048afe 00000000\n'
+        return '0036224c ac220010 00000000\n00362760 ac200000 00000000\n00360ef4 0c048afe 00000000\n003721ac 03e00008 08087268\n'
     if name!='mod001':return ''
     _,segments,_=elf_parts(data)
     for lo,hi,expected in (
+        (0x3140e0,0x314120,'5b1ac88e48d62e6ae747d08f015c4b4e5a80c15e7ae4e198d6b8386eaf81ccd9'),
         (0x29af80,0x29b2c4,'ef3a9f1a6cae966ab8a687451e72ac175d88b8e9883d09449949ca5c3389d0bf'),
         (0x29c990,0x29cb18,'361b601c33bd3f57fd190aef95f4716cd08b5bbdf401f852b6e80eb96933e9e2'),
         (0x2bef20,0x2bf0dc,'2562b94cada2f70f71933a401cc6eacc7c1eb0a71f60dafc6b7179d58fdb0fb7'),
@@ -428,7 +438,8 @@ def overlay_native_sites(name,data):
         _,segments,_=elf_parts(data);lo,hi=0x3622e8,0x362338
         s=next(s for s in segments if s[0]==1 and s[2]<=lo<hi<=s[2]+s[4]);at=s[1]+lo-s[2]
         if hashlib.sha256(data[at:at+hi-lo]).hexdigest()!='6d87622143495b5e67a67c1a1655a2eef28d48c7c1d78309ea18a3ad3e6f45ed':raise ValueError('USA debug-font publication caller mismatch')
-        return 'native 0x362328\n'
+        overlay_adaptations(name,data)
+        return 'native 0x362328\nnative 0x3721a4\nnative 0x3721b0\n'
     if name!='mod001':return ''
     overlay_adaptations(name,data)
     return ''.join(f'native 0x{pc:x}\n' for pc in (

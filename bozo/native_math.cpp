@@ -52,6 +52,8 @@ bool nativeMathInstruction(uint8_t *,R5900Context *c,Runtime *rt,uint32_t pc){
         return true;
     }
     switch(pc){
+    case 0x37b548:case 0x37b54c:case 0x37b550:case 0x37b554:
+    case 0x37b558:case 0x37b55c:case 0x37b560:case 0x37b564:return true;
     case 0x379234:case 0x37923c:case 0x379278:case 0x379284:case 0x379288:return true;
     case 0x379280:{
         // The scalar producer has already copied the chosen quaternion into
@@ -65,7 +67,7 @@ bool nativeMathInstruction(uint8_t *,R5900Context *c,Runtime *rt,uint32_t pc){
     case 0x3c5d68:case 0x3c5d6c:case 0x3c5d70:case 0x3c5d74:
     case 0x378980:case 0x378984:case 0x378988:case 0x37898c:
     case 0x378990:case 0x378994:case 0x378998:case 0x37899c:return true;
-    case 0x3789a0:case 0x3c5d78:{
+    case 0x3789a0:case 0x3c5d78:case 0x37b568:{
         // The original scalar builder subtracts the two game positions.
         // Preserve its full temporary record and publish the consumed length.
         float value[4],result[4];std::memcpy(value,record(rt,c->r[5].uw[0],16),16);std::memcpy(result,value,16);

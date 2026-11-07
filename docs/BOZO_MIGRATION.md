@@ -8,6 +8,17 @@ target, not a replacement DLL loaded into PS2Recomp.
 
 ## Build and evidence
 
+### Native camera-position distance (2026-11-07)
+
+Mod003 `0x37b500..0x37b578` retains its scalar subtraction and publishes the
+same audited displacement-length record at `0x37b568`. The original scalar
+store to camera field `+0x33c` remains. Another 256 complete original/adapted
+CPU/RAM consumers pass in four rounding modes, including zero, W payloads,
+scratchpad stacks and the actual field store. Combined distance coverage is
+768 cases, with 256 inline rotations and 512 independent row-dot callers.
+Actual New Game next rejects a debug-font writer flush from `0x3d9400`;
+Logun remains open.
+
 ### Native field row-dot transform (2026-11-07)
 
 Mod003 `0x410df0` now reads its complete matrix/vector CPU records and publishes

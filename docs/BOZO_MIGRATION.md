@@ -8,6 +8,21 @@ target, not a replacement DLL loaded into PS2Recomp.
 
 ## Build and evidence
 
+### Retired timer-only record-initialization delay (2026-11-07)
+
+Mod003 `0x3d7718..0x3d7764` delayed between 36 calls to the synchronous record
+initializer `0x2f8770`. Each initializer returned before the timer-only loop;
+the loop checked elapsed timer0 counts and called FlushCache, with no job/status
+completion test. Only that delay retires. All 36 initializers, one visibility
+flush per record and the original UI predicate/update/render calls remain.
+No counter value, ready bit or fictitious completion is provided.
+
+A compiled original-loop fragment with bounded synthetic record callbacks passes
+32 cases: 1,152 constructor, visibility and UI-predicate calls, 576 UI updates,
+the original loop state and whole RAM match independent expected work. Device
+I/O rejects in the fixture. Actual New Game passes the loop and next rejects a
+different timer read at `0x30ce84`; Logun remains open.
+
 ### Native allocation entropy and loading UI schedule (2026-11-07)
 
 Common initializer `0x306950` used timer0 in two unrelated ways. At `0x306a10`,

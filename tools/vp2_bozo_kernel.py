@@ -302,6 +302,22 @@ def bootstrap_adaptations(data):
 
 
 def overlay_adaptations(name,data):
+    if name=='mod003':
+        _,segments,_=elf_parts(data);lo,hi=0x3d7708,0x3d77cc
+        s=next(s for s in segments if s[0]==1 and s[2]<=lo<hi<=s[2]+s[4]);at=s[1]+lo-s[2]
+        if hashlib.sha256(data[at:at+hi-lo]).hexdigest()!='435926535d852e22f0b20b9027f65fd6674acc7a63b6aaedb31e59c63a1cd1c8':
+            raise ValueError('USA record-initialization delay source mismatch')
+        # Each initializer has returned before this delay. It polls only timer0,
+        # not a job/status result. Keep all36 calls, one visibility flush per
+        # record, and the original UI predicate/pump; retire only the time spin.
+        return ('003d7718 3c011000 00000000\n'
+                '003d771c 8c360000 00000000\n'
+                '003d7740 3c011000 00000000\n'
+                '003d7744 8c220000 00000000\n'
+                '003d7748 00561023 00000000\n'
+                '003d774c 2c41003f 00000000\n'
+                '003d7750 10200005 00000000\n'
+                '003d7760 1000fff7 00000000\n')
     if name=='mod002':
         _,segments,_=elf_parts(data);lo,hi=0x3617f0,0x362764
         s=next(s for s in segments if s[0]==1 and s[2]<=lo<hi<=s[2]+s[4]);at=s[1]+lo-s[2]

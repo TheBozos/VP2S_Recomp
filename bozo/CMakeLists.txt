@@ -151,6 +151,19 @@ if(MINGW)
 endif()
 add_test(NAME vp2s-bozo-modules COMMAND vp2s-bozo-modules-check)
 if(VP2S_BOZO_CODE)
+  set(RECORD_INIT "${CMAKE_CURRENT_BINARY_DIR}/record-init-reference")
+  add_custom_command(OUTPUT "${RECORD_INIT}/record_init_000.cpp" "${RECORD_INIT}/record_init_table.cpp" "${RECORD_INIT}/record_init_functions.h"
+    COMMAND ${Python3_EXECUTABLE} "${VP2S_ROOT}/tools/vp2_bozo_record_init_fixture.py" "${VP2S_BOZO_DATA}/images/mod003.elf" "${RECORD_INIT}" --build "${VP2S_BOZO_DATA}/.."
+    COMMAND $<TARGET_FILE:bozo-recomp> "${RECORD_INIT}/fixture.elf" "${RECORD_INIT}" --prefix record_init --symbol-prefix record_init_
+      --files 1 --externals "${RECORD_INIT}/externals.txt" --patches "${RECORD_INIT}/patches.txt" --no-comments
+    DEPENDS bozo-recomp "${VP2S_ROOT}/tools/vp2_bozo_record_init_fixture.py" "${VP2S_ROOT}/tools/vp2_bozo_kernel.py" "${VP2S_BOZO_DATA}/images/mod003.elf")
+  add_executable(vp2s-bozo-record-init-check "${VP2S_ROOT}/tests/bozo_record_init_main.cpp" "${RECORD_INIT}/record_init_000.cpp" "${RECORD_INIT}/record_init_table.cpp")
+  target_include_directories(vp2s-bozo-record-init-check PRIVATE "${RECORD_INIT}")
+  target_link_libraries(vp2s-bozo-record-init-check PRIVATE bozo_runtime_core)
+  if(MINGW)
+    target_link_options(vp2s-bozo-record-init-check PRIVATE -static)
+  endif()
+  add_test(NAME vp2s-bozo-record-init COMMAND vp2s-bozo-record-init-check)
   set(WINDOW_REF "${CMAKE_CURRENT_BINARY_DIR}/window-reference")
   foreach(VARIANT original adapted)
     set(WINDOW_DIR "${WINDOW_REF}/${VARIANT}")

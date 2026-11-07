@@ -7,6 +7,24 @@ target, not a replacement DLL loaded into PS2Recomp.
 
 ## Build and evidence
 
+### Native matrix-column normalization (2026-11-07)
+
+The fingerprinted `0x216960` angle-extraction owner now normalizes its matrix's
+XYZ columns directly. Ten transport/call/synchronization sites retire; the
+ordinary integer zero clobber remains explicit. The lifted algorithm keeps
+truncating sums and reciprocal-square-root order, including zero-length
+handling. Translation Ws and the final matrix row survive bit-for-bit. Active
+nonfinite/subnormal input and squared-length overflow reject. Scalar angle
+branches and the production compiled libm callees remain unchanged.
+
+256 new whole CPU/RAM cases match independent scalar normalization equations
+across all FP modes and FTZ/DAZ, zero/tiny columns, both singular branches,
+in-place/stack/scratchpad aliases and resumed scalar calls. The fixture uses
+identical host scalar angle consumers on both sides to isolate normalization;
+it does not independently qualify production libm. NaN payloads in preserved
+Ws/last row remain opaque. Total fixture: 1,088 cases and 140 sites. Boot passes
+this owner and stops at `0x208f64`; scene rendering and Logun remain open.
+
 ### Native frame-builder matrix composition (2026-11-07)
 
 The final matrix product in fingerprinted `0x213b50` now reads completed game

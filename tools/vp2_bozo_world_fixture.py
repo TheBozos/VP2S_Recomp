@@ -11,6 +11,7 @@ if not a.out.resolve().is_relative_to(a.build.resolve()):raise ValueError('priva
 data=a.source.read_bytes();overlay_adaptations('mod001',data)
 rows=[dict(Name='world_transform',Start='0x248fc0',End='0x24926c'),dict(Name='rigid_inverse',Start='0x216e40',End='0x216f4c')]
 rows.extend([dict(Name='frame_builder',Start='0x213b50',End='0x213e9c'),dict(Name='sine_cosine',Start='0x213fd0',End='0x2140f4'),dict(Name='coefficients',Start='0x358490',End='0x358690')])
+rows.append(dict(Name='matrix_angles',Start='0x216960',End='0x216a60'))
 fixture,_=prepare(data,rows,{})
 _,segments,_=elf_parts(data)
 sites=[]
@@ -20,4 +21,4 @@ for row in rows:
         word=int.from_bytes(data[s[1]+pc-s[2]:s[1]+pc-s[2]+4],'little')
         if word>>26 in (0x12,0x36,0x3e):sites.append(f'native 0x{pc:x}\n')
 a.out.mkdir(parents=True,exist_ok=True);(a.out/'fixture.elf').write_bytes(fixture)
-(a.out/'externals.txt').write_text(''.join(sites)+'stub 0x170100\n')
+(a.out/'externals.txt').write_text(''.join(sites)+'stub 0x170100\nstub 0x12e1d8\nstub 0x12e2d8\n')

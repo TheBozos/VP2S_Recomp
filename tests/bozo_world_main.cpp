@@ -1,6 +1,7 @@
 #include "native_object_math.h"
 #include "native_math.h"
 #include "native_trig.h"
+#include "../port/vp2s_math.h"
 #include "bozo/ee/dispatcher.h"
 #include "bozo/port.h"
 #include "world_original_functions.h"
@@ -80,6 +81,17 @@ struct Host:bozo::ee::Host,bozo::port::Host {
         // The already qualified sine/cosine owner is a retained callee. Only
         // the new builder's matrix product uses the independent equations.
         if(vp2s::nativeTrigInstruction(r,c,rt,pc))return true;
+        if(pc==0x216988)c->r[9].ud[0]=0;
+        if(pc==0x216990){
+            float result[4][4];std::memcpy(result,rt->memory.hostPointer(c->r[5].uw[0],64),64);
+            {Rounding rounding;for(unsigned lane=0;lane<3;++lane){
+                float length2=mul(result[0][lane],result[0][lane]);
+                length2=chop(length2,mul(result[1][lane],result[1][lane]));length2=chop(length2,mul(result[2][lane],result[2][lane]));
+                volatile float length=std::sqrt(length2);volatile float factor=length==0?std::numeric_limits<float>::max():1.f/length;
+                for(unsigned row=0;row<3;++row)result[row][lane]=mul(result[row][lane],factor);
+            }}
+            std::memcpy(rt->memory.hostPointer(c->r[2].uw[0],64),result,64);
+        }
         if(pc==0x213e7c){
             float local[4][4],basis[4][4],result[4][4];
             std::memcpy(local,rt->memory.hostPointer(c->r[8].uw[0],64),64);
@@ -110,6 +122,10 @@ struct Host:bozo::ee::Host,bozo::port::Host {
     void frameEnd(Runtime *,R5900Context *)override{throw std::runtime_error("frame");}
     bool callLibrary(Runtime *,R5900Context *,uint32_t)override{return false;}
     void libraryCall(bozo::ee::Dispatcher &d,R5900Context *c,uint32_t pc)override{
+        // Identical scalar consumers on both sides isolate normalization. The
+        // production runner retains its compiled game libm implementations.
+        if(pc==0x12e1d8 || pc==0x12e2d8){++callbacks;c->f[0]=pc==0x12e1d8?std::asin(c->f[12]):std::atan2(c->f[12],c->f[13]);
+            c->pc=c->r[31].uw[0];if(pause){++pauses;throw Pause{};}return;}
         check(pc==0x170100);++callbacks;const uint32_t parent=c->r[4].uw[0];
         auto *at=d.runtime().memory.hostPointer(parent,0x110);check(at);at[0x61]=1;const float translation=1.25f;std::memcpy(at+0xdc,&translation,4);
         c->pc=c->r[31].uw[0];if(pause){++pauses;throw Pause{};}
@@ -130,6 +146,7 @@ int main(){try{
     a.setFunctions(world_original_function_table,world_original_function_count,world_original_resume_table,world_original_resume_count);
     b.setFunctions(world_adapted_function_table,world_adapted_function_count,world_adapted_resume_table,world_adapted_resume_count);
     a.runtime().port=&old;b.runtime().port=&now;a.bindLibrary(0x170100);b.bindLibrary(0x170100);
+    for(auto *d:{&a,&b}){d->bindLibrary(0x12e1d8);d->bindLibrary(0x12e2d8);}
     const unsigned saved=_mm_getcsr();unsigned cases=0;
     for(unsigned mode:{_MM_ROUND_NEAREST,_MM_ROUND_DOWN,_MM_ROUND_UP,_MM_ROUND_TOWARD_ZERO})for(unsigned seed=0;seed<80;++seed){
         auto *x=a.runtime().memory.flat(),*y=b.runtime().memory.flat();std::memset(x,0x22,bozo::kFlatBytes);
@@ -195,6 +212,28 @@ int main(){try{
         check(_mm_getcsr()==expectedControl && !std::memcmp(&p,&q,sizeof(p)) && !std::memcmp(x.memory.flat(),y.memory.flat(),bozo::kFlatBytes));++cases;
     }
     _mm_setcsr(saved);check(old.sites==now.sites && now.sites.size()==130);
+    for(unsigned mode:{_MM_ROUND_NEAREST,_MM_ROUND_DOWN,_MM_ROUND_UP,_MM_ROUND_TOWARD_ZERO})for(unsigned seed=0;seed<64;++seed){
+        auto &x=a.runtime(),&y=b.runtime();std::memset(x.memory.flat(),0x37,bozo::kFlatBytes);
+        const uint32_t stack=seed&1?0x70003f00:0x1fff000;
+        const uint32_t source=seed%3==0?0x70000100:seed%3==1?0x180000:stack-0x40;
+        const uint32_t destination=seed%3==0?source:seed%3==1?0x190000:0x70000200;
+        float matrix[16];for(unsigned i=0;i<16;++i)matrix[i]=float(int((seed+i)%17)-8)/4;
+        if(seed%8<2){for(unsigned row=0;row<3;++row)matrix[row*4+2]=row==1?(seed%8==0?1.f:-1.f):0.f;}
+        if(seed%8==2)for(unsigned row=0;row<3;++row)matrix[row*4]=0;
+        if(seed%8==3)for(unsigned row=0;row<3;++row)matrix[row*4]*=1.e-20f;
+        for(unsigned row=0;row<3;++row)matrix[row*4+3]=std::bit_cast<float>(0x7fc01234u+row);
+        for(unsigned i=12;i<16;++i)matrix[i]=std::bit_cast<float>(0x7fc05678u+i);
+        std::memcpy(x.memory.hostPointer(source,64),matrix,64);std::memcpy(y.memory.flat(),x.memory.flat(),bozo::kFlatBytes);
+        old.callbacks=now.callbacks=old.pauses=now.pauses=0;old.pause=false;now.pause=(seed&32)!=0;
+        R5900Context p{},q{};p.r[4].ud[0]=destination;p.r[5].ud[0]=source;p.r[29].ud[0]=stack;p.r[31].ud[0]=0x170000;q=p;
+        const unsigned control=(saved&~(_MM_ROUND_MASK|0x8040|0x3f))|mode|(seed&1?0x8040:0);
+        _mm_setcsr(control);run(a,p,0x216960);const unsigned expectedControl=_mm_getcsr();_mm_setcsr(control);run(b,q,0x216960);
+        p.cycleLimit=q.cycleLimit;check(old.callbacks==now.callbacks);
+        check(_mm_getcsr()==expectedControl && !std::memcmp(&p,&q,sizeof(p)) && !std::memcmp(x.memory.flat(),y.memory.flat(),bozo::kFlatBytes));++cases;
+    }
+    _mm_setcsr(saved);check(old.sites==now.sites && now.sites.size()==140);
+    vp2s::math::Matrix invalid{};invalid[0]=_mm_setr_ps(std::bit_cast<float>(1u),0,0,0);bool badColumns=false;
+    try{vp2s::math::normalizedMatrixColumns(invalid);}catch(const std::runtime_error &){badColumns=true;}check(badColumns);
     vp2s::ObjectWorldInput input{};input.quaternion=_mm_setr_ps(0,0,0,1);input.position=_mm_setzero_ps();input.scale=_mm_set1_ps(1);
     input.attachment={_mm_setr_ps(1,0,0,0),_mm_setr_ps(0,1,0,0),_mm_setr_ps(0,0,1,0),_mm_setr_ps(0,0,0,1)};
     const auto identity=vp2s::objectWorld(input);check(!std::memcmp(identity.world.data(),input.attachment.data(),64));

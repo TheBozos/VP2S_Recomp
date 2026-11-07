@@ -4,6 +4,35 @@
 namespace vp2s::math {
 using Matrix = std::array<__m128,4>;
 using RigidBasis = std::array<__m128,3>;
+// Remove per-column XYZ scale while preserving the record's translation Ws
+// and final row. This is the game's three-column normalization algorithm.
+inline Matrix normalizedMatrixColumns(Matrix value) {
+    for(unsigned row=0;row<3;++row){
+        uint32_t bits[4];std::memcpy(bits,&value[row],16);
+        for(unsigned lane=0;lane<3;++lane){const auto exponent=bits[lane]&0x7f800000;
+            if(exponent==0x7f800000 || (!exponent && (bits[lane]&0x7fffff)))
+                throw std::runtime_error("unqualified matrix-column normalization input");}
+    }
+    auto normal=[](__m128 v){
+        const auto bits=_mm_castps_si128(v);
+        const auto tiny=_mm_cmpeq_epi32(_mm_and_si128(bits,_mm_set1_epi32(0x7f800000)),_mm_setzero_si128());
+        return _mm_castsi128_ps(_mm_andnot_si128(_mm_and_si128(tiny,_mm_set1_epi32(0x7fffffff)),bits));
+    };
+    music::CodecRounding rounding;
+    Matrix xyz=value;for(unsigned i=0;i<3;++i)xyz[i]=_mm_blend_ps(xyz[i],_mm_setzero_ps(),8);
+    auto lengths=normal(_mm_mul_ps(xyz[0],xyz[0]));
+    lengths=normal(music::codecSum(lengths,normal(_mm_mul_ps(xyz[1],xyz[1]))));
+    lengths=normal(music::codecSum(lengths,normal(_mm_mul_ps(xyz[2],xyz[2]))));
+    const auto exponent=_mm_and_si128(_mm_castps_si128(lengths),_mm_set1_epi32(0x7f800000));
+    if(_mm_movemask_epi8(_mm_cmpeq_epi32(exponent,_mm_set1_epi32(0x7f800000))))
+        throw std::runtime_error("unqualified matrix-column normalization overflow");
+    float factors[4]={0,0,0,1};
+    for(unsigned i=0;i<3;++i){const float length=std::sqrt(music::laneValue(lengths,i));
+        factors[i]=length==0?std::numeric_limits<float>::max():1.f/length;}
+    __m128 reciprocal;std::memcpy(&reciprocal,factors,16);
+    for(unsigned i=0;i<3;++i)value[i]=_mm_blend_ps(normal(_mm_mul_ps(xyz[i],reciprocal)),value[i],8);
+    return value;
+}
 // Full record transform: all four input weights and output components matter.
 inline __m128 matrixVectorProduct(const Matrix &matrix,__m128 vector) {
     auto normal=[](__m128 v) {

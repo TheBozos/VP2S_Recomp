@@ -30,6 +30,14 @@ bool nativeMathInstruction(uint8_t *,R5900Context *c,Runtime *rt,uint32_t pc){
         return true;
     }
     switch(pc){
+    case 0x216970:case 0x216974:case 0x216978:case 0x21697c:
+    case 0x216984:case 0x216994:case 0x216998:case 0x21699c:return true;
+    case 0x216988:c->r[9].ud[0]=0;return true;
+    case 0x216990:{
+        math::Matrix input;std::memcpy(input.data(),record(rt,c->r[5].uw[0],64),64);
+        const auto result=math::normalizedMatrixColumns(input);
+        std::memcpy(record(rt,c->r[2].uw[0],64),result.data(),64);return true;
+    }
     case 0x213e1c:case 0x213e20:case 0x213e24:case 0x213e28:
     case 0x213e2c:case 0x213e30:case 0x213e34:case 0x213e38:
     case 0x213e3c:case 0x213e40:case 0x213e44:case 0x213e48:

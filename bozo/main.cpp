@@ -29,6 +29,8 @@
 #include "native_ui_sprites.h"
 #include "native_media_buffer.h"
 #include "native_publication.h"
+#include "native_models.h"
+#include "native_frame_filter.h"
 #ifdef VP2S_BOZO_CAPTURE
 #include "native_capture.h"
 #endif
@@ -47,8 +49,37 @@
 #include <set>
 
 namespace {
-class StrictHost final : public bozo::ee::Host, public vp2s::TimerOwner, public vp2s::SettingsOwner,public vp2s::SeedOwner,public vp2s::ModuleOwner,public vp2s::BootstrapOwner,public vp2s::RandomOwner,public vp2s::TextureOwner,public vp2s::SceneOwner,public vp2s::AssetOwner,public vp2s::DebugFontOwner,public vp2s::StateSetupOwner,public vp2s::ScreenRectOwner,public vp2s::UiTextOwner,public vp2s::UiSpriteOwner,public vp2s::MediaBufferOwner {
+class StrictHost final : public bozo::ee::Host, public vp2s::TimerOwner, public vp2s::SettingsOwner,public vp2s::SeedOwner,public vp2s::ModuleOwner,public vp2s::BootstrapOwner,public vp2s::RandomOwner,public vp2s::TextureOwner,public vp2s::SceneOwner,public vp2s::AssetOwner,public vp2s::DebugFontOwner,public vp2s::StateSetupOwner,public vp2s::ScreenRectOwner,public vp2s::UiTextOwner,public vp2s::UiSpriteOwner,public vp2s::MediaBufferOwner,public vp2s::ModelOwner,public vp2s::FrameFilterOwner {
 public:
+    vp2s::NativeFrameFilters frameFilters;
+    vp2s::NativeFrameFilters &nativeFrameFilters()override{return frameFilters;}
+    void drawNativeFrameFilter(const vp2s::NativeFrameFilter &filter)override{
+        const auto target=scene.frameTarget();if(!target || target->object!=filter.source)throw std::runtime_error("native frame filter has no source frame");
+        auto &renderer=bozo::render::Renderer::instance();
+        const float identity[16]={1,0,0,0,0,1,0,0,0,0,1,0,0,0,0,1};
+        const float xy[6][2]={{0,0},{1,0},{0,1},{1,0},{1,1},{0,1}};
+        const auto draw=[&](bozo::render::Material material,uint32_t colour){
+            bozo::render::Vertex vertices[6];for(unsigned i=0;i<6;++i){auto &v=vertices[i];v.x=2048-target->width/2+xy[i][0]*target->width;
+                v.y=2048-target->height/2+xy[i][1]*target->height;v.u=xy[i][0];v.v=xy[i][1];v.rgba=colour;}
+            renderer.draw(material,identity,vertices,6);
+        };
+        // One immutable native copy of the source, followed by the game's
+        // successive 256,128,64,32,16 square bilinear reductions. No transport.
+        bozo::render::Material material;material.textured=false;material.depthTest=false;material.depthWrite=false;
+        material.blend=bozo::render::Material::Blend::Opaque;material.alphaBlend=false;material.fromFrame=1;
+        material.target=6;material.nearest=true;renderer.setTargetSize(6,uint16_t(target->width),uint16_t(target->height));draw(material,0x80808080);
+        for(unsigned i=0;i<filter.levels;++i){const auto side=256u>>i;renderer.setTargetSize(uint8_t(i+1),side,side);
+            material.source=i?uint8_t(i):6;material.target=uint8_t(i+1);material.nearest=false;draw(material,0x80808080);}
+        material.target=0;material.alphaBlend=true;material.blend=bozo::render::Material::Blend::Alpha;
+        for(const auto &layer:filter.layers){material.source=uint8_t(layer.level+1);draw(material,layer.colour);}
+        if(std::getenv("VP2S_BOZO_TRACE_QUEUES"))std::fprintf(stderr,"[vp2s:filter] native object=%x levels=%u layers=%zu\n",filter.object,filter.levels,filter.layers.size());
+    }
+    vp2s::NativeModels models{std::filesystem::path(VP2S_BOZO_IMAGES).parent_path()/"meshes"};
+    vp2s::NativeModels &nativeModels()override{return models;}
+    void drawNativeModel(const vp2s::NativeModelSubmission &submission)override{
+        for(const auto &batch:submission.batches)bozo::render::Renderer::instance().draw(batch.material,batch.matrix.data(),batch.vertices.data(),batch.vertices.size(),batch.texture);
+        if(std::getenv("VP2S_BOZO_TRACE_QUEUES"))std::fprintf(stderr,"[vp2s:models] native object=%x camera=%x batches=%zu\n",submission.object,submission.camera,submission.batches.size());
+    }
     std::set<uint32_t> overlayExternals;
     vp2s::NativeMediaBuffers mediaBuffers;
     vp2s::NativeMediaBuffers &nativeMediaBuffers()override{return mediaBuffers;}
@@ -299,6 +330,8 @@ public:
 };
 bool noNativeInstruction(uint8_t *ram,R5900Context *ctx,Runtime *rt,uint32_t pc) {
     if(auto handled=vp2s::nativeUiTextInstruction(ctx,rt,pc))return *handled;
+    if(auto handled=vp2s::nativeModelInstruction(ctx,rt,pc))return *handled;
+    if(auto handled=vp2s::nativeFrameFilterInstruction(ctx,rt,pc))return *handled;
     if(auto handled=vp2s::nativeUiSpriteInstruction(ctx,rt,pc))return *handled;
     if(auto handled=vp2s::nativeMediaBufferInstruction(ctx,rt,pc))return *handled;
     if(auto handled=vp2s::nativeScreenRectInstruction(ctx,rt,pc))return *handled;
@@ -309,7 +342,14 @@ bool noNativeInstruction(uint8_t *ram,R5900Context *ctx,Runtime *rt,uint32_t pc)
     if(auto handled=vp2s::nativeDebugFontInstruction(ram,ctx,rt,pc))return *handled;
     if(auto handled=vp2s::nativeCompositionInstruction(ram,ctx,rt,pc))return *handled;
     if(auto handled=vp2s::nativeAssetInstruction(ram,ctx,rt,pc))return *handled;
-    if(pc==0x239f70){
+    if(pc==0x239f70 || pc==0x25aa30){
+        if(pc==0x25aa30){
+            const auto object=ctx->r[5].uw[0]-0x90;
+            const auto read=[&](uint32_t at){uint32_t v;const auto *p=rt->memory.hostPointer(at,4);if(at<0x100000 || at>0x2000000-4 || !p)throw std::runtime_error("native mipmap metadata outside EE RAM");std::memcpy(&v,p,4);return v;};
+            const auto current=read(0x35ddf8);
+            throw std::runtime_error(std::format("native mipmap producer required: object={:x} type={:x} source={:x} flags={:08x} parameters={:08x}/{:08x}/{:08x} sceneMipmap={:x}",
+                object,read(object),read(object+0x94),read(object+0xac),read(object+0xa0),read(object+0xa4),read(object+0xa8),read(current+0x444c)));
+        }
         const auto object=ctx->r[4].uw[0];
         const auto word=[&](uint32_t at){uint32_t value;const auto *p=rt->memory.hostPointer(at,4);
             if(at<0x100000 || uint64_t(at)+4>0x2000000 || !p)throw std::runtime_error("native mesh metadata outside EE RAM");
@@ -413,7 +453,18 @@ int main(int argc,char **argv) {
         if(!host.native.setUp(dispatcher,vp2_main_external_table,vp2_main_external_count,&registry,error))
             throw std::runtime_error(error);
         vp2sBozoRegisterImages(dispatcher.runtime(),VP2S_BOZO_IMAGES,[&](uint32_t pc){host.overlayExternals.insert(pc);dispatcher.bindLibrary(pc);});
-        const auto frames=host.native.run();
+        uint64_t frames=0;
+        try{frames=host.native.run();}catch(...){
+#ifdef VP2S_BOZO_CAPTURE
+            if(!capturePath.empty() && std::getenv("VP2S_BOZO_CAPTURE_BOUNDARY")){
+                // Explicit diagnostic only: this is an incomplete frame, never
+                // successful boot evidence. The original boundary still fails.
+                bozo::render::Renderer::instance().endFrame();vp2s::captureNativeFrame(capturePath);
+                std::fprintf(stderr,"[vp2s:diagnostic] partial frame at rejecting boundary captured; run still failed\n");
+            }
+#endif
+            throw;
+        }
 #ifdef VP2S_BOZO_CAPTURE
         if(!capturePath.empty())vp2s::captureNativeFrame(capturePath);
 #endif

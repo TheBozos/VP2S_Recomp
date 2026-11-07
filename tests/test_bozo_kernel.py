@@ -81,6 +81,8 @@ class KernelGuardTests(unittest.TestCase):
             '002216fc 0c0a75ac 00000000','0022172c 4100fffa 00000000','00221740 0c04df7e 00000000',
             '002088ec 0c0807c8 00000000',
             '002cb48c 0c0807c8 0c087268',
+            '00239fec 0c0807c8 0c087268',
+            '0025aa2c 0c0807c8 0c087268',
             '002f3710 0c0bbce4 0c087268',
             '002ec9e0 0c0bbce4 0c087268',
             '002bc218 afa2003c 080af0b4','002bc120 3c011001 080af074','002bc124 ac20b420 00000000',
@@ -105,7 +107,7 @@ class KernelGuardTests(unittest.TestCase):
             0x221698,0x22169c,0x21c9dc,0x21c9e0,0x21c9e8,0x21c9ec,0x21ca1c,0x21ca20,0x21ca24,0x21ca28,0x2cb490,0x2f3714,0x2ea9a0,
             0x2e74f0,0x2e7520,0x2e7550,0x2e757c,0x2e75a0,0x2f0de0,0x2e83e4,0x2ec9e4,0x2ec308,0x2ec320,
             0x2efe40,0x2effe8,0x2eb3a0,0x2eb5c4,0x2ebac4,0x2ebb0c,0x2ebb58,0x2ebb9c,0x2ebba8,0x2bbfc0,0x2bc1d0,0x2bc1e0,0x2ba670,0x1ef6f8,0x1ef914,0x1f0438,0x1f04a0,0x1efa30,
-            0x1f4590,0x1f4940,0x2bdac0,0x2bd9b0,0x2bd5d8,0x2be3d0,0x2bea60,0x239f70))+'stub 0x2b90a0\nstub 0x2b9560\nstub 0x1f04c8\n')
+            0x1f4590,0x1f4940,0x2bdac0,0x2bd9b0,0x2bd5d8,0x2be3d0,0x2bea60,0x239f70,0x239ff0,0x25aa30,0x25aa40,0x25bad0,0x25bdcc,0x25adbc))+'stub 0x2b90a0\nstub 0x2b9560\nstub 0x1f04c8\n')
         _,segments,_=elf_parts(data)
         for lo,hi in ((0x249720,0x24a438),(0x202150,0x202200),(0x29e1d0,0x29e22c),
                       (0x29e230,0x29e310),(0x333640,0x333650),(0x333650,0x333d60),
@@ -146,6 +148,14 @@ class KernelGuardTests(unittest.TestCase):
             for pc in range(lo,hi,4):
                 altered=bytearray(data);altered[s[1]+pc-s[2]]^=1
                 with self.subTest(pc=hex(pc)),self.assertRaises(ValueError):overlay_adaptations('mod002',altered)
+
+    def test_native_model_filter_source_mutations(self):
+        data=(IMAGE.parent/'mod001.elf').read_bytes();_,segments,_=elf_parts(data)
+        for lo,hi in ((0x239fd0,0x23a000),(0x25aa10,0x25aa40),(0x25aa40,0x25be00)):
+            s=next(s for s in segments if s[0]==1 and s[2]<=lo<hi<=s[2]+s[4])
+            for pc in range(lo,hi,4):
+                changed=bytearray(data);changed[s[1]+pc-s[2]]^=1
+                with self.subTest(pc=hex(pc)),self.assertRaises(ValueError):overlay_adaptations('mod001',changed)
 
     def test_every_guarded_word_rejects_mutation(self):
         for lo,hi in GUARDS:

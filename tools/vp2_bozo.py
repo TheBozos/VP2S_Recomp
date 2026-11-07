@@ -29,6 +29,8 @@ def run(command, log, env):
 
 
 def generate(args, build, data, engine_build, env):
+    run([sys.executable, ROOT/'tools/vp2_bozo_meshes.py','--source',build/'vp2_meshes',
+         '--out',data/'meshes'],data/'meshes.log',env)
     run([sys.executable, ROOT/'tools/vp2_bozo_prepare.py', '--build', build,
          '--out', data/'images', '--inputs', args.inputs], data/'prepare.log', env)
     manifest = json.loads((data/'images/manifest.json').read_text())

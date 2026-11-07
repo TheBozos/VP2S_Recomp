@@ -8,6 +8,43 @@ target, not a replacement DLL loaded into PS2Recomp.
 
 ## Build and evidence
 
+### Native title meshes and frame filter (2026-11-07)
+
+`0x239fec` now submits copied native model batches before real compiled scene
+completion. The physical mesh enqueue is retired. `NativeModels` resolves the
+actual decoded asset-part provenance to offline semantic mesh packs, then reads
+the game's transforms, camera, lighting, bone palette, editable positions/normals,
+visible mesh list, masks and texture keys. No transport is decoded or replayed.
+Unsupported mesh algorithms/light tables and missing data reject.
+
+`tools/vp2_bozo_meshes.py` converts existing VPM3 packs offline into VPN1 records:
+explicit material booleans, lighting/texture functions and blend factors replace
+raw material words. Runtime code does not interpret those words. 5139 USA packs
+convert. Six invented-record conversion tests cover truncation, malformed sources
+and algorithm payload preservation. Another 384 native captures compare independent
+rigid/two-bone/morph positions, strip order, UV and colours, whole RAM preservation,
+hidden meshes, pending ownership and immutable lifetime after source changes.
+
+The next actual producer, class `0x155d50`, is a framebuffer filter. Its original
+CPU builder remains: native observers capture the level count at `0x25adbc`
+before that register is reused, and final scalar colours at `0x25bad0`.
+Native GPU copies/reductions and composites consume these semantic snapshots;
+`0x25aa2c` then runs actual scene completion instead of enqueuing DMA. Alternate
+formats, depth modes and level selections outside 1..4 remain guarded. 256
+snapshot/ownership/lifetime cases preserve whole CPU RAM.
+
+The actual skip route accepts multiple title models and the five-level filter,
+then stops at unported scalar cosine leaf `0x214310`. An explicitly labelled
+partial-boundary GPU capture contains the title logo/menu (59 batches, 2766
+vertices). `VP2S_BOZO_CAPTURE_BOUNDARY=1` with `--capture` is diagnostic only:
+the run still fails and the image is not a completed frame or boot/parity proof.
+No PCSX2 image qualification or Logun completion is claimed.
+
+All 49 suites pass, including the original native texture publication/allocation
+lifetime and movie reset/presentation/teardown checks. Test runs remain headless,
+with memory-only cards and no host input. Both native producer bodies and the
+complete original filter builder reject source-word mutations offline.
+
 ### Inline model light colour and mesh boundary (2026-11-07)
 
 The four-instruction component product at `0x23c17c` now uses the already

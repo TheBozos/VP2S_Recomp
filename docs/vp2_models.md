@@ -6,6 +6,15 @@ those packets, so they are converted offline from the user's disc (rule decision
 loaded by the game's own pointer; everything else is read from the game's EE structures. Addresses are mod001. [V]
 verified in the MIPS or the assets, [I] inferred.
 
+## Bozo native model submission (2026-11-07)
+
+The Bozo runner replaces the model enqueue at `0x239fec` with native batch
+submission followed by the original scene completion. `bozo/native_models.cpp`
+reads game records and immutable semantic VPN1 assets converted offline from
+VPM3 by `tools/vp2_bozo_meshes.py`. No runtime VIF/GS parsing or PS2Recomp service
+is used. The partial title route draws real models; unsupported algorithms and
+light tables still reject. This does not qualify field lighting or Logun yet.
+
 ## Editable vertex sources without runtime VIF interpretation (2026-11-05)
 
 The old `vertexSources()` helper reconstructed VIF writes at runtime to find the

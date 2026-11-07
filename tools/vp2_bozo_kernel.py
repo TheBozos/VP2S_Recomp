@@ -25,6 +25,10 @@ COMMAND_SEND = (0x13a3f0,0x13a524)
 EVENT_RANGES=((0x140b70,0x140c34),(0x148c58,0x148f88),(0x141780,0x141898),(0x141910,0x141958),(0x141980,0x1419cc))
 RETIRED_RANGES = (INSTALLER, QUERY, ALARM_INSTALLER, ALARM_PAYLOAD, TIMER_INITIALIZER, TIMER_HANDLER, TIMER_START, TIMER_QUERY, TIMER_REARM,MODULE_LOADER,MODULE_BUFFER_LOADER,MODULE_BUFFER_FREE,MODULE_TRANSFER,CACHE_SYNC,COMMAND_SEND)+EVENT_RANGES
 GUARDS = {
+    (0x118230,0x118320): 'fd8d38b9afa48075325def7aa1b70178fbb141c758539d0220addeee4e804cce',
+    (0x102650,0x1029c4): 'ce64aef481b0dc8fb22939b74dbadc708dbd4cf8a338a625fb390361d5ee421d',
+    (0x105a30,0x105b78): '98ad977066058967df8a5adeaa753e6a98f451da7d58775c94e688dda5b2adf1',
+    (0x105940,0x105a24): '8905e3dfa8687e32bd4b3a8d42d3ab74d5c64fa7b529b3037171a13809b5fb3f',
     (0x1131c0,0x113344): '8a47682b3758bc684b4f47963661c23808e1ee408ed765a20514c440668e00cf',
     (0x153140,0x153160): '9d5eb316453da2fc6396c14e5ac2dc016c6c19d195a113d1ade57479a696009b',
     # Retained pure software SetCmdBuffer/Add/Remove records consumed by replies.
@@ -191,7 +195,11 @@ def native_game_sites(data):
     at=s[1]+lo-s[2]
     if hashlib.sha256(data[at:at+hi-lo]).hexdigest()!='b51e65c468e6ccfbc18ebe97e73361841f296da61c34ec5d5dafae384360053c':
         raise ValueError('USA game frame-wait signature mismatch')
-    return 'native 0x1003c4\nnative 0x11fb50\nnative 0x11f62c\nnative 0x1131c0\n'
+    return 'native 0x1003c4\nnative 0x11fb50\nnative 0x11f62c\nnative 0x1131c0\n'+asset_sites()
+
+
+def asset_sites():
+    return ''.join(f'native 0x{pc:x}\n' for pc in (0x102650,0x102998,0x105a30,0x105b58,0x105940,0x105a10,0x118230))
 
 
 def frame_adaptations(data):

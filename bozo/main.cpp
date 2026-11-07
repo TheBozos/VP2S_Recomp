@@ -21,6 +21,7 @@
 #include "native_math.h"
 #include "native_textures.h"
 #include "native_scene.h"
+#include "native_assets.h"
 #include <random>
 #include <algorithm>
 #include <charconv>
@@ -34,8 +35,10 @@
 #include <stdexcept>
 
 namespace {
-class StrictHost final : public bozo::ee::Host, public vp2s::TimerOwner, public vp2s::SettingsOwner,public vp2s::SeedOwner,public vp2s::ModuleOwner,public vp2s::BootstrapOwner,public vp2s::RandomOwner,public vp2s::TextureOwner,public vp2s::SceneOwner {
+class StrictHost final : public bozo::ee::Host, public vp2s::TimerOwner, public vp2s::SettingsOwner,public vp2s::SeedOwner,public vp2s::ModuleOwner,public vp2s::BootstrapOwner,public vp2s::RandomOwner,public vp2s::TextureOwner,public vp2s::SceneOwner,public vp2s::AssetOwner {
 public:
+    vp2s::NativeAssets assets;
+    vp2s::NativeAssets &nativeAssets()override{return assets;}
     vp2s::NativeScene scene;
     vp2s::NativeScene &nativeScene()override{return scene;}
     vp2s::NativeTextures textures{std::filesystem::path(VP2S_BOZO_IMAGES).parent_path().parent_path()/"vp2_textures",std::filesystem::path(VP2S_BOZO_IMAGES).parent_path()/"textures.manifest"};
@@ -132,15 +135,25 @@ public:
     }
     unsigned traceLibrary=0;
     void libraryCall(bozo::ee::Dispatcher &d,R5900Context *c,uint32_t target) override {
-        // The engine's TMB upload retirement assumes that port already owns
-        // the texture. VP2S has not installed its native asset owner yet.
+        // A generic SDK retirement cannot establish VP2S source ownership.
+        // Known producers publish offline assets before retiring their transport.
         if(target==0x122bf8u)
             throw std::runtime_error(std::format("native VP2S image owner required at {:x} ra={:x}",target,c->r[31].uw[0]));
         if(target==0x123550u || target==0x1235b8u || target==0x123630u || target==0x1237f0u)
             throw std::runtime_error(std::format("native VP2S draw/data owner required at {:x} ra={:x}",target,c->r[31].uw[0]));
         if(std::getenv("VP2S_BOZO_TRACE_CALLS") && traceLibrary++<160)
             std::fprintf(stderr,"[vp2s:call] pc=%x ra=%x a0=%x a1=%x\n",target,c->r[31].uw[0],c->r[4].uw[0],c->r[5].uw[0]);
+        const uint32_t a0=c->r[4].uw[0],a1=c->r[5].uw[0],a2=c->r[6].uw[0];
+        const uint32_t assetWorker=c->r[31].uw[0]==0x1059a8?c->r[17].uw[0]:0;
         native.libraryCall(d,c,target);
+        if(target==0x12a360u){
+            // The native CD library copies bytes synchronously before charging
+            // the actual read duration; failed reads publish no provenance.
+            if(c->r[2].uw[0]==1 && native.libraries().cd.error==0 &&
+               uint64_t(native.libraries().cd.readBytes)==uint64_t(a1)*2048)
+                assets.discRead(a2,a1,a0);
+        }else if(target==0x132c88u)assets.copy(a0,a1,a2,assetWorker);
+        else if(target==0x132e40u)assets.overwrite(a0,a2);
     }
     void vu0Microprogram(bozo::ee::Dispatcher &,R5900Context *c,uint32_t address) override {
         throw std::runtime_error(std::format("unported VP2S VU0 algorithm {:x} at pc={:x}",address,c->pc));
@@ -178,6 +191,7 @@ public:
     void handlerCompleted(bozo::ee::Dispatcher &d,bozo::ee::Thread &t,const bozo::ee::Frame &f) override { native.handlerCompleted(d,t,f); }
 };
 bool noNativeInstruction(uint8_t *ram,R5900Context *ctx,Runtime *rt,uint32_t pc) {
+    if(auto handled=vp2s::nativeAssetInstruction(ram,ctx,rt,pc))return *handled;
     if(pc==0x1131c0){
         if(std::getenv("VP2S_BOZO_TRACE_QUEUES"))
             std::fprintf(stderr,"[vp2s:enqueue] ra=%x queue=%x type=%u source=%x count=%u owner=%x\n",

@@ -156,7 +156,7 @@ class KernelGuardTests(unittest.TestCase):
                 with self.subTest(pc=hex(pc)),self.assertRaises(ValueError):game_entries(data)
 
     def test_boot_seed_site(self):
-        self.assertEqual(native_game_sites(self.data),'native 0x1003c4\nnative 0x11fb50\nnative 0x11f62c\nnative 0x1131c0\n')
+        self.assertEqual(native_game_sites(self.data),'native 0x1003c4\nnative 0x11fb50\nnative 0x11f62c\nnative 0x1131c0\nnative 0x102650\nnative 0x102998\nnative 0x105a30\nnative 0x105b58\nnative 0x105940\nnative 0x105a10\nnative 0x118230\n')
         segment=next(s for s in self.segments if s[0]==1 and s[2]<=0x1003bc<0x1003dc<=s[2]+s[4])
         for pc in range(0x1003bc,0x1003dc,4):
             data=bytearray(self.data);data[segment[1]+pc-segment[2]]^=1

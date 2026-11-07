@@ -7,6 +7,37 @@ target, not a replacement DLL loaded into PS2Recomp.
 
 ## Build and evidence
 
+### Native asset provenance and allocation lifetime (2026-11-07)
+
+Per-host byte provenance now follows successful native `sceCdRead`, actual
+`memcpy` and `memset`, and the original compiled decompression producers
+`0x102650`, `0x105a30` / worker `0x105940`. Native observations at entry/return
+preserve every original CPU instruction. Invocation records survive out-call
+unwinds; accepted chain identity is immutable across source-buffer rebinding.
+No runtime texture/mesh layout decoding or transfer inspection is introduced.
+
+The interval map preserves unaffected tails, propagates copies across multiple
+source intervals, snapshots overlapping source mappings, and invalidates unknown
+overwrites. Async jobs reserve their destination: no native consumer sees a
+partially completed asset, even when the raw worker calls memcpy. Only the
+original compiled worker's successful completion publishes its part identity.
+Conflicting writes/job reuse reject instead of guessing. The original heap-free
+producer `0x118230` invalidates the payload before coalescing changes its software
+header. Immutable published texture assets retain no pointer into those blocks.
+
+Qualification: 33,554,432 per-byte comparisons against an independent map,
+plus 204 generated original/adapted CPU/RAM cases for raw synchronous and sliced
+decompression, failure, resumed returns and allocation freeing. Only the host
+slice-limit refresh on synthetic resume is exempt; architectural context and
+RAM match. Compressed-format algorithms remain original compiled code; their
+individual completion paths and every other memory-writing API are not proven
+by the raw-copy fixture. This observer is groundwork for native asset selection,
+not blanket proof of all model-loader/overlay paths.
+
+The bounded boot still rejects the unowned frame-composition submission from
+`0x114550`. Native renderer integration and the Logun route remain unfinished;
+no scene image or visual-parity claim is made.
+
 ### Native camera records and remaining frame composition (2026-11-07)
 
 The camera-only enqueue in `0x208900` now publishes an immutable native camera:

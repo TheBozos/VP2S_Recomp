@@ -169,8 +169,12 @@ void sendNativeCommand(uint8_t *,R5900Context *ctx,Runtime *rt) {
     if(bytes<16 || bytes>112){finish(0);return;}
     if(mode&~5u)throw std::runtime_error("unported native command send mode");
     const auto input=[&](uint32_t address,uint32_t size){
-        auto *data=rt->memory.hostPointer(address,size);
-        if(!data || uint64_t(address)+size>0x2000000u)throw std::runtime_error("native command source outside EE RAM");
+        // The CPU sound producer uses the uncached spelling of its ordinary
+        // EE heap allocation. Resolve that explicit data alias only; hardware,
+        // scratch and other address domains remain outside this API.
+        const auto canonical=address>=0x20000000u && address<0x22000000u?address-0x20000000u:address;
+        auto *data=uint64_t(canonical)+size<=0x2000000u?rt->memory.hostPointer(canonical,size):nullptr;
+        if(!data)throw std::runtime_error(std::format("native command source outside EE RAM: command={:x} address={:x} size={} caller={:x}",command,address,size,ctx->r[31].uw[0]));
         return std::vector<uint8_t>(data,data+size);
     };
     auto packet=input(packetAt,bytes);

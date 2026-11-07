@@ -73,10 +73,10 @@ int main(int argc,char **argv){try{
     vp2s::nativeModuleTransfer(nullptr,&c,&rt);check(c.r[2].sd[0]==2);
     for(unsigned i=0;i<32;++i)check(h.service[i]==(i>=4 && i<20?ram[0x110000+i-4]:0x3a));
     d.kernel().stackHandler(*d.kernel().thread(1));d.kernel().endHandler(*d.kernel().thread(1));
-    for(uint32_t mode:{0u,1u,4u,5u})for(uint32_t extra:{0u,16u}){
+    for(uint32_t mode:{0u,1u,4u,5u})for(uint32_t extra:{0u,16u})for(uint32_t aliases=0;aliases<4;++aliases){
         std::memset(ram+0x133000,0x5a,64);std::memset(ram+0x134000,0x88,16);
-        c.pc=0x13a3f0;c.r[4].uw[0]=3;c.r[5].uw[0]=mode;c.r[6].uw[0]=0x133010;c.r[7].uw[0]=32;
-        c.r[8].uw[0]=0x134000;c.r[9].uw[0]=0x80008;c.r[10].uw[0]=extra;
+        c.pc=0x13a3f0;c.r[4].uw[0]=3;c.r[5].uw[0]=mode;c.r[6].uw[0]=0x133010|(aliases&1?0x20000000:0);c.r[7].uw[0]=32;
+        c.r[8].uw[0]=0x134000|(aliases&2?0x20000000:0);c.r[9].uw[0]=0x80008;c.r[10].uw[0]=extra;
         const auto prior=h.commands;vp2s::sendNativeCommand(nullptr,&c,&rt);
         check(h.commands==prior+1 && h.commandId==3 && h.message.size()==32 && c.r[2].uw[0]==h.commands);
         uint32_t header[4];std::memcpy(header,h.message.data(),16);
@@ -86,6 +86,12 @@ int main(int argc,char **argv){try{
         if(extra)for(unsigned i=8;i<24;++i)check(h.service[i]==0x88);
     }
     const auto priorCommands=h.commands;
+    const auto validCommand=c;
+    for(uint32_t address:{0x22000000u,0x30000000u,0x80000000u,0x70000000u,0x10000000u,0x21fffff8u}){
+        c=validCommand;c.pc=0x13a3f0;c.r[8].uw[0]=address;
+        rejects([&]{vp2s::sendNativeCommand(nullptr,&c,&rt);});check(h.commands==priorCommands);
+    }
+    c=validCommand;
     c.pc=0x13a3f0;c.r[7].uw[0]=15;vp2s::sendNativeCommand(nullptr,&c,&rt);check(c.r[2].uw[0]==0 && h.commands==priorCommands);
     c.pc=0x13a3f0;c.r[7].uw[0]=32;c.r[9].uw[0]=0x8001f;
     const auto beforeHeader=std::vector<uint8_t>(ram+0x133010,ram+0x133030);

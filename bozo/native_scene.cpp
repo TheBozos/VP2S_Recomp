@@ -104,6 +104,24 @@ void NativeScene::selectCamera(Runtime *rt,uint32_t object){
     publishCamera(rt,object);selectedCamera=camera(object);
 }
 bool nativeSceneInstruction(uint8_t *,R5900Context *c,Runtime *rt,uint32_t pc){
+    const bool profileStart=pc==0x221698 || pc==0x22169c;
+    const bool profileFirst=pc==0x21c9dc || pc==0x21c9e0 || pc==0x21c9e8 || pc==0x21c9ec;
+    const bool profileSecond=pc==0x21ca1c || pc==0x21ca20 || pc==0x21ca24 || pc==0x21ca28;
+    if(profileStart || profileFirst || profileSecond){
+        auto *d=rt?dynamic_cast<bozo::ee::Dispatcher *>(rt->services):nullptr;
+        auto *owner=d?dynamic_cast<SceneOwner *>(&d->host()):nullptr;
+        if(!owner || !c)throw std::runtime_error("native scene profiling has no owner");
+        const auto scene=c->r[profileSecond?6:16].uw[0];record(rt,scene,0x40ec);
+        if(profileStart){
+            const auto &frame=owner->nativeScene().textureManagerFrame(c->r[30].uw[0]);
+            if(frame.scene!=scene || !frame.entered || frame.left || c->r[1].uw[0]!=0x10000000)
+                throw std::runtime_error("unowned scene profiling producer");
+        }else if(c->pc!=0x21c9a0 || word(rt,0x35ddf8)!=scene)
+            throw std::runtime_error("unowned scene profiling consumer");
+        // Only the unused profiling pair retires. Original pending flags,
+        // object callbacks and the completion event remain compiled.
+        return true;
+    }
     if(pc==0x29e43c || pc==0x29e444){
         // Private write-only profiling stamp: its temporary is overwritten by
         // the next compiled helper. Retire both producer and store; no count

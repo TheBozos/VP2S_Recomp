@@ -7,6 +7,24 @@ target, not a replacement DLL loaded into PS2Recomp.
 
 ## Build and evidence
 
+### Scene profiling pair (2026-11-07)
+
+The scene start sample at `0x221698` feeds two elapsed-time calculations in
+the real completion callback `0x21c9a0`. A direct literal-access audit of all
+generated game images finds no reader of their `scene+0x40a4` result; this is
+not a whole-program alias proof. Only those ten profiling instructions retire.
+Both existing timestamp fields stay untouched. Pending-object stores, completion
+flags, the event-queue callback and the secondary completion notification remain
+original compiled game code. Complete source owners are fingerprinted; the start
+requires the active canonical texture-manager frame and completion requires its
+actual current scene. No clock sample or completion value is supplied.
+
+64 additional whole completion-callback CPU/RAM cases cover both layers,
+matching/mismatching pending objects, optional secondary notification and callback
+pause/resume. Direct producer checks preserve CPU/RAM and reject a changed scene.
+Graphics fixture: 640 cases. Headless boot advances to VIF1 write `0x10009020`
+at `0x2cb400`; native drawing and the Logun route remain open.
+
 ### Native draw-camera selection (2026-11-07)
 
 The `0x2088d0` camera draw producer now selects a fresh immutable native camera

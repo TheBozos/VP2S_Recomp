@@ -34,6 +34,11 @@ struct Host:bozo::ee::Host,bozo::port::Host,vp2s::SceneOwner {
     void frameEnd(Runtime *,R5900Context *)override{throw std::runtime_error("frame");}
     bool callLibrary(Runtime *,R5900Context *,uint32_t)override{return false;}
     void libraryCall(bozo::ee::Dispatcher &d,R5900Context *c,uint32_t pc)override{
+        if(pc==0x1130f0){
+            check(c->r[4].uw[0]==0x1b0000);renderCalls.push_back(pc);
+            ++*d.runtime().memory.hostPointer(0x1b0000,1);c->r[2].ud[0]=0x1234;c->pc=c->r[31].uw[0];
+            if(pause)throw Pause{};return;
+        }
         if(pc==0x209a30 || pc==0x112ba0){
             const auto &frame=scene.textureManagerFrame(c->r[30].uw[0]);check(frame.entered && !frame.left);
             ++*d.runtime().memory.hostPointer(frame.manager+0x2009,1);c->r[2].ud[0]=0;c->pc=c->r[31].uw[0];
@@ -90,6 +95,7 @@ int main(){try{
     for(auto *d:{&old,&native})for(uint32_t pc:{0x21fab0u,0x10d0f0u,0x101080u,0x10e820u,0x11f4b0u,0x10e290u})d->bindLibrary(pc);
     old.bindLibrary(0x137460);native.bindLibrary(0x137460);old.bindLibrary(0x209a30);native.bindLibrary(0x209a30);
     old.bindLibrary(0x112ba0);native.bindLibrary(0x112ba0);
+    old.bindLibrary(0x1130f0);native.bindLibrary(0x1130f0);
     for(unsigned seed=0;seed<64;++seed){
         auto *a=old.runtime().memory.flat(),*b=native.runtime().memory.flat();
         std::memset(a,seed+1,bozo::kFlatBytes);uint32_t queue=0x180000;std::memcpy(a+0x35dde0,&queue,4);
@@ -240,6 +246,13 @@ int main(){try{
         pending=0;std::memcpy(b.memory.flat()+0x1c1000,&pending,4);scene.beginTextureManagerFrame(&b,stack,object,manager);
         rejected=false;try{scene.textureManagerBoundary(&b,stack,object,manager+16,manager,false);}catch(const std::runtime_error &){rejected=true;}
         check(rejected && !scene.textureManagerFrame(stack).entered);scene.textureManagerBoundary(&b,stack,object,manager,manager,false);
+        R5900Context profile{};profile.r[30].ud[0]=stack;profile.r[16].ud[0]=object;profile.r[1].ud[0]=0x10000000;
+        const auto saved=profile;std::vector<uint8_t> before(b.memory.flat(),b.memory.flat()+bozo::kFlatBytes);
+        check(vp2s::nativeSceneInstruction(nullptr,&profile,&b,0x221698));
+        check(vp2s::nativeSceneInstruction(nullptr,&profile,&b,0x22169c));
+        check(!std::memcmp(&profile,&saved,sizeof(profile)) && !std::memcmp(before.data(),b.memory.flat(),before.size()));
+        profile.r[16].ud[0]=object+16;rejected=false;
+        try{vp2s::nativeSceneInstruction(nullptr,&profile,&b,0x221698);}catch(const std::runtime_error &){rejected=true;}check(rejected);
         rejected=false;try{scene.textureManagerBoundary(&b,stack,object,manager,manager,false);}catch(const std::runtime_error &){rejected=true;}check(rejected);
         scene.finishTextureManagerFrame(&b,stack,object);}
     for(unsigned seed=0;seed<64;++seed){
@@ -258,5 +271,27 @@ int main(){try{
         check(!std::memcmp(camera->view.data(),a.memory.flat()+0x1902f0,64));
         std::memset(b.memory.flat()+0x1902f0,0,64);check(camera->view[0]==float(seed)/128);
     }
-    std::puts("576 graphics/math/camera/frustum/visibility/job/frame CPU/RAM cases; native camera selection, canonical EE texture manager and no transport state");return 0;
+    for(unsigned seed=0;seed<64;++seed){
+        auto &a=old.runtime(),&b=native.runtime();std::memset(a.memory.flat(),0,bozo::kFlatBytes);
+        constexpr uint32_t scene=0x180000,object=0x190000;
+        const auto word=[&](uint32_t at,uint32_t v){std::memcpy(a.memory.flat()+at,&v,4);};
+        word(0x35ddf8,scene);word(0x35dd78,0x1b0000);word(scene+0x4088,seed&8?0:0x1c0000);
+        word(scene+0x40a8,seed&2?object+16:object);word(scene+0x40ac,seed&2?object+16:object);
+        word(scene+0x40cc,0x12345678+seed);word(scene+0x40a4,0xabcdef00+seed);
+        a.memory.flat()[object+0x65]=seed&1;a.memory.flat()[scene+0x40dc]=1;a.memory.flat()[scene+0x40dd]=1;
+        std::memcpy(b.memory.flat(),a.memory.flat(),bozo::kFlatBytes);
+        R5900Context x{},y{};x.r[4].ud[0]=object;x.r[29].ud[0]=seed&4?0x70003f00:0x1fff000;x.r[31].ud[0]=0x170000;y=x;
+        oldHost.pause=false;nativeHost.pause=seed&32;const auto calls=nativeHost.renderCalls.size();
+        a.functions.generated(0x21c9a0)(a.memory.flat(),&x,&a);auto fn=b.functions.generated(0x21c9a0);unsigned attempts=0;
+        while(true){try{fn(b.memory.flat(),&y,&b);break;}catch(const Host::Pause &){}
+            check(++attempts<2);auto entry=b.functions.resumeEntry(y.pc);check(entry);fn=entry->resume;}
+        x.cycleLimit=y.cycleLimit;check(!std::memcmp(&x,&y,sizeof(x)) && !std::memcmp(a.memory.flat(),b.memory.flat(),bozo::kFlatBytes));
+        check(nativeHost.renderCalls.size()==calls+(!(seed&1) && !(seed&2)));
+        uint32_t stamp;std::memcpy(&stamp,b.memory.flat()+scene+0x40a4,4);check(stamp==0xabcdef00+seed);
+        check(b.memory.flat()[object+0x64]==0 && b.memory.flat()[object+0x62]==1);
+        check(b.memory.flat()[scene+0x40dc]==((seed&1 || seed&2)?1:0));
+        check(b.memory.flat()[scene+0x40dd]==((!(seed&1) || seed&2)?1:0));
+        check(b.memory.flat()[0x1c3e6a]==((seed&1) && !(seed&2) && !(seed&8)?1:0));
+    }
+    std::puts("640 graphics/math/camera/frustum/visibility/job/frame CPU/RAM cases; profiling pair retired, real completion callbacks retained");return 0;
 }catch(const std::exception &e){std::fprintf(stderr,"%s\n",e.what());return 1;}}

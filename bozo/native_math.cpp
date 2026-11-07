@@ -32,6 +32,20 @@ bool nativeMathInstruction(uint8_t *,R5900Context *c,Runtime *rt,uint32_t pc){
         return true;
     }
     switch(pc){
+    case 0x208430:case 0x208434:case 0x208438:case 0x20843c:
+    case 0x208440:case 0x208444:case 0x208448:case 0x20844c:return true;
+    case 0x208450:{
+        float input[4],result[4];std::memcpy(input,record(rt,c->r[6].uw[0],16),16);std::memcpy(result,input,16);
+        auto normal=[](float v){const auto b=std::bit_cast<uint32_t>(v);return std::bit_cast<float>((b&0x7f800000)?b:(b&0x80000000));};
+        for(unsigned i=0;i<3;++i){const auto b=std::bit_cast<uint32_t>(input[i]),exponent=b&0x7f800000;
+            if(exponent==0x7f800000 || (!exponent && (b&0x7fffff)))throw std::runtime_error("unqualified native camera distance input");
+            volatile float square=input[i]*input[i];result[i]=normal(square);}
+        volatile float xy=result[0]+result[1];volatile float z=result[2]*1.f;
+        volatile float squared=normal(xy)+normal(z);
+        if(!std::isfinite(squared))throw std::runtime_error("unqualified native camera distance overflow");
+        volatile float length=std::sqrt(normal(squared));volatile float value=0.f+length;result[0]=normal(value);
+        std::memcpy(record(rt,c->r[5].uw[0],16),result,16);return true;
+    }
     case 0x208f64:case 0x208f68:case 0x208f6c:case 0x208f70:
     case 0x208f7c:case 0x208fb0:case 0x208fbc:return true;
     case 0x209020:c->r[9].ud[0]=0;return true;

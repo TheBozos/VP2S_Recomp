@@ -7,6 +7,18 @@ target, not a replacement DLL loaded into PS2Recomp.
 
 ## Build and evidence
 
+### Native camera target-distance record (2026-11-07)
+
+Nine vector sites in fingerprinted `0x208360` now compute the scalar-built
+target displacement's length directly. The temporary retains squared Y/Z and
+the input W; the original scalar copy publishes X to camera `+0x2a4`. Optional
+target/enable branches and original object/camera update calls stay compiled.
+256 new CPU/RAM cases cover missing/disabled targets, normal/tiny displacement,
+scratchpad stack, FP modes and resumed object-update calls. The fixture bounds
+the preceding object-update callee with identical callbacks; it does not newly
+qualify that callee. Combined fixture: 1,856 cases / 367 sites. Boot passes this
+owner and stops at `0x20f8fc`; native scene rendering and Logun remain open.
+
 ### Native camera frustum geometry (2026-11-07)
 
 The fingerprinted `0x207d70` owner retains its scalar stack construction/cursor

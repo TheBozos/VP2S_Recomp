@@ -258,6 +258,9 @@ def overlay_adaptations(name,data):
         (0x202150,0x202200,'2056326076193b416411c06ca8c0b005e58038dd2b237625a6242ce3d0b661da'),
         (0x29e230,0x29e310,'62230c5e1d41b56528bb4de238ce9919fef2df3c7043e5afa91f54b1b1dce634'),
         (0x29cc30,0x29cf58,'fad60754970a95b73f1a675b374267b9c468cfac43d0388aafe45e8c83e38a48'),
+        (0x29cb20,0x29cc30,'07073874d74c68aea7c1f838455b4d30b523189ea9ea03406dc4d6cce8a78e16'),
+        (0x2b8f90,0x2b8fb4,'28aa89f14be29a42a98079198bcd1cc6e83ed61b0dd12791fcd8f41eabdc1a1d'),
+        (0x314200,0x314600,'1143517174b62b3091763659810036f9cece68582ce77724d655249c30487f79'),
         (0x29e0b0,0x29e1c4,'4badfc2bd23ca38b95965aa45332f82c6efd9655b77f0d7b9344126467e8745d'),
         (0x312280,0x313100,'a834d66f34036f87f4061c9e5c2d623b29ef77f6fd6394b765333d0f72c45617'),
         (0x314138,0x31413c,'e7f5662273401b756d9f64b866d1a7df7e95c248c34f9b0cad011eb84757f186'),
@@ -294,6 +297,8 @@ def overlay_adaptations(name,data):
             '0029cd80 0c044c70 0c0402cc\n'
             '0029cf14 00a0302d 0260202d\n'
             '0029cf18 0c044c70 0c0402cc\n'
+            '0029cc00 00a0302d 0220202d\n'
+            '0029cc04 0c044c70 0c0402cc\n'
             '002c3cb4 8c220000 00000000\n'
             '002c3cb8 10000015 080b0f48\n')
 
@@ -301,4 +306,4 @@ def overlay_adaptations(name,data):
 def overlay_native_sites(name,data):
     if name!='mod001':return ''
     overlay_adaptations(name,data)
-    return 'native 0x29e1a0\nnative 0x2c3cb4\nnative 0x29cc30\nnative 0x29cd7c\nnative 0x29cf14\nnative 0x29cf30\n'
+    return 'native 0x29e1a0\nnative 0x2c3cb4\nnative 0x29cc30\nnative 0x29cd7c\nnative 0x29cf14\nnative 0x29cf30\nnative 0x29cc00\n'

@@ -7,6 +7,25 @@ target, not a replacement DLL loaded into PS2Recomp.
 
 ## Build and evidence
 
+### Static scene palette publication (2026-11-07)
+
+The next producer `0x29cb20` is reached from the fingerprinted scene setup
+`0x2b8f90`, with the fixed palette at `0x314200`. The entire palette image is
+fingerprinted and converted to linear index order offline, into the same native
+conversion format. Runtime admits this exact source identity, publishes the
+immutable palette by the game's software slot, then frees its unused descriptor
+through the compiled heap routine. Other dynamic sources remain unsupported.
+No runtime palette-layout conversion, upload inspection or graphics-memory
+mapping was added. The offline manifest now includes 4,872 unambiguous game
+keys plus this separately named native scene palette.
+
+Thirty-two additional generated CPU/RAM/ownership comparisons cover the fixed
+palette producer, allocation failure and resumed allocation/free boundaries.
+The fixture poisons the corresponding EE source bytes: publication still comes
+only from the offline file, and every native output texel is checked. Startup
+gets through both texture sets and now reaches the separate math-code transport
+leaf `0x29e0c0`. Scene rendering and the Logun route remain incomplete.
+
 ### Native FIS publication and descriptor ownership (2026-11-07)
 
 The `mod001 0x29cc30` producer now captures the FIS key into a per-host active

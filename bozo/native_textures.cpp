@@ -83,6 +83,10 @@ void NativeTextures::publish(uint32_t stack,uint16_t slot,bool palette){
 void NativeTextures::finish(uint32_t stack){
     if(pending.erase(stack)!=1)throw std::runtime_error("native texture return has no invocation");
 }
+void NativeTextures::publishStaticPalette(uint16_t slot){
+    if(slot>=0x8000)throw std::runtime_error("native static palette slot outside range");
+    auto asset=load(kStaticScenePalette);palettes[slot]=std::move(asset);++publications;
+}
 std::shared_ptr<const NativeTextureAsset> NativeTextures::pixelAsset(uint16_t slot)const{
     auto it=pixels.find(slot);return it==pixels.end()?nullptr:it->second;
 }
@@ -90,12 +94,16 @@ std::shared_ptr<const NativeTextureAsset> NativeTextures::paletteAsset(uint16_t 
     auto it=palettes.find(slot);return it==palettes.end()?nullptr:it->second;
 }
 bool nativeTextureInstruction(uint8_t *,R5900Context *c,Runtime *rt,uint32_t pc){
-    if(pc!=0x29cc30 && pc!=0x29cd7c && pc!=0x29cf14 && pc!=0x29cf30)return false;
+    if(pc!=0x29cc00 && pc!=0x29cc30 && pc!=0x29cd7c && pc!=0x29cf14 && pc!=0x29cf30)return false;
     auto *dispatcher=rt?dynamic_cast<bozo::ee::Dispatcher *>(rt->services):nullptr;
     auto *owner=dispatcher?dynamic_cast<TextureOwner *>(&dispatcher->host()):nullptr;
     if(!owner || !c)throw std::runtime_error("native image publication requires a texture owner");
     auto &textures=owner->nativeTextures();const uint32_t stack=c->r[29].uw[0];
-    if(pc==0x29cc30){
+    if(pc==0x29cc00){
+        if(c->r[18].uw[0]!=0x314200)throw std::runtime_error("unported dynamic palette producer");
+        textures.publishStaticPalette(static_cast<uint16_t>(c->r[16].uw[0]));
+        c->r[4].ud[0]=c->r[17].ud[0];
+    }else if(pc==0x29cc30){
         const uint32_t fis=c->r[4].uw[0];
         record(rt,stack-0x80,0x80);
         if(read<uint32_t>(rt,fis)!=0x534946)throw std::runtime_error("native image input is not a FIS resource");

@@ -11,6 +11,7 @@ struct TextureKey {
     uint32_t tag=0,index=0;
     auto operator<=>(const TextureKey &)const=default;
 };
+inline constexpr TextureKey kStaticScenePalette{0x50325056,0x314200};
 struct NativeTextureAsset {
     TextureKey key;
     uint64_t identity=0;
@@ -35,6 +36,7 @@ public:
     std::shared_ptr<const NativeTextureAsset> load(TextureKey);
     void begin(uint32_t stack,TextureKey);
     void publish(uint32_t stack,uint16_t slot,bool palette);
+    void publishStaticPalette(uint16_t slot);
     void finish(uint32_t stack);
     std::shared_ptr<const NativeTextureAsset> pixelAsset(uint16_t slot)const;
     std::shared_ptr<const NativeTextureAsset> paletteAsset(uint16_t slot)const;

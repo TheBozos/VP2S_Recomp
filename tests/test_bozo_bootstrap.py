@@ -80,7 +80,7 @@ with tempfile.TemporaryDirectory(prefix='vp2s-native-input-') as temporary:
                            capture_output=True,text=True,timeout=30,
                            env={**os.environ,'VP2S_BOZO_SEED':'1','VP2S_BOZO_TRACE_QUEUES':'1'})
     output=skipped.stdout+skipped.stderr;print(output,end='')
-    if skipped.returncode!=1 or 'unported native VP2S algorithm at pc=220b74' not in output:
-        raise SystemExit('native movie skip did not pass teardown and sphere getter to the visibility guard')
+    if skipped.returncode!=1 or 'unported native VP2S algorithm at pc=23c17c' not in output:
+        raise SystemExit('native movie skip did not pass sphere visibility to the object-update guard')
     if 'unported device' in output:raise SystemExit('native movie skip entered physical teardown')
 print('Scripted native input parses original PSS, retains CPU audio copies and presents at least40 real pictures at the sequence rate; producer backpressure remains bounded. Display parity/audio/Logun remain unqualified.')

@@ -2,6 +2,7 @@
 #include "bozo/port.h"
 #include "native_math.h"
 #include "native_scene.h"
+#include "native_frustum.h"
 #include "install_original_functions.h"
 #include "install_adapted_functions.h"
 #include <cstdio>
@@ -17,6 +18,8 @@ struct Host:bozo::ee::Host,bozo::port::Host,vp2s::SceneOwner {
     unsigned enqueues=0;
     bool pause=false;
     bool reference=false,rejectBrightness=false;
+    bool stopAngle=false;struct AngleBoundary{};
+    std::optional<vp2s::NativeSphereVisibility> sphereReference;
     std::vector<vp2s::NativeBrightness> brightness;
     struct Pause{};
     std::vector<uint32_t> renderCalls;
@@ -30,6 +33,14 @@ struct Host:bozo::ee::Host,bozo::port::Host,vp2s::SceneOwner {
     bozo::libs::Libraries &libraries()override{throw std::runtime_error("libraries");}
     bool nativeGraphics()const override{return true;}
     bool nativeInstruction(uint8_t *r,R5900Context *c,Runtime *rt,uint32_t pc)override{
+        if(stopAngle && pc==0x220c30)throw AngleBoundary{};
+        if(sphereReference && (pc==0x220ba4 || pc==0x220ba8 || pc==0x220bb4 || pc==0x220bdc || pc==0x220ca0)){
+            const auto &s=*sphereReference;
+            if(pc==0x220ba4)c->r[5].ud[0]=s.outside?1:0;
+            else if(pc==0x220ba8)c->r[4].ud[0]=s.intersects?1:0;
+            else {const auto &value=pc==0x220bb4?s.projected:pc==0x220bdc?s.nearPoint:s.farPoint;std::memcpy(rt->memory.hostPointer(c->r[3].uw[0],16),value.data(),16);}
+            return true;
+        }
         if(reference && pc==0x2cb490){
             const auto object=c->r[5].uw[0]-0x90;const auto *source=rt->memory.flat()+object;
             vp2s::NativeBrightness effect{.object=object,.enabled=source[0xa4]!=0};
@@ -352,5 +363,55 @@ int main(){try{
         try{vp2s::nativeBrightness(&b,object);}catch(const std::runtime_error &){rejected=true;}check(rejected);
         nativeHost.scene.finishTextureManagerFrame(&b,frame,scene);
     }
-    std::puts("704 graphics/math/camera/frustum/visibility/job/frame CPU/RAM cases; native brightness submission and real compiled completion");return 0;
+    constexpr float planePoints[6][4]={{-10,0,0,0},{10,0,0,0},{0,-10,0,0},{0,10,0,0},{0,0,1,0},{0,0,100,0}};
+    constexpr float planeNormals[6][4]={{1,0,0,0},{-1,0,0,0},{0,1,0,0},{0,-1,0,0},{0,0,1,0},{0,0,-1,0}};
+    vp2s::FrustumResult planes{};std::memcpy(planes.points.data(),planePoints,sizeof(planePoints));std::memcpy(planes.normals.data(),planeNormals,sizeof(planeNormals));
+    vp2s::math::Matrix clip{_mm_setr_ps(1,0,0,0),_mm_setr_ps(0,1,0,0),_mm_setr_ps(0,0,1,0),_mm_setzero_ps()};
+    const auto expectedSphere=[](float x,float y,float z,float radius){
+        vp2s::NativeSphereVisibility out;out.projected={x/z,y/z,z,radius};out.nearPoint=out.farPoint=out.projected;
+        out.nearPoint[2]=z-radius;out.farPoint[2]=z+radius;
+        out.outside=x+10+radius<0 || 10-x+radius<0 || y+10+radius<0 || 10-y+radius<0 || z-1+radius<0 || 100-z+radius<0;
+        out.intersects=z-1-radius<0 || 100-z-radius<0;return out;
+    };
+    unsigned sphereCases=0;
+    for(unsigned rounding:{_MM_ROUND_NEAREST,_MM_ROUND_DOWN,_MM_ROUND_UP,_MM_ROUND_TOWARD_ZERO})
+    for(float x:{-12.f,-10.f,-9.f,0.f,9.f,10.f,12.f})for(float y:{-12.f,-10.f,-9.f,0.f,9.f,10.f,12.f})
+    for(float z:{1.f,2.f,4.f,8.f,16.f,64.f,128.f})for(float radius:{0.f,1.f,2.f,4.f}){
+        const auto expected=expectedSphere(x,y,z,radius);const auto saved=_mm_getcsr(),control=(saved&~_MM_ROUND_MASK)|rounding;_mm_setcsr(control);
+        const auto actual=vp2s::sphereVisibility(clip,planes,_mm_setr_ps(x,y,z,radius));check(_mm_getcsr()==control);_mm_setcsr(saved);
+        check(actual.outside==expected.outside && actual.intersects==expected.intersects && actual.projected==expected.projected && actual.nearPoint==expected.nearPoint && actual.farPoint==expected.farPoint);++sphereCases;
+    }
+    unsigned completed=0,stopped=0;
+    for(unsigned seed=0;seed<256;++seed){
+        auto &a=old.runtime(),&b=native.runtime();std::memset(a.memory.flat(),seed+1,bozo::kFlatBytes);
+        constexpr uint32_t scene=0x180000,camera=0x190000,object=0x1a0000;const uint32_t stack=seed&1?0x70003e00:0x1ffe000,source=seed&2?object+0x70:0x1c0000;
+        const auto word=[&](uint32_t at,uint32_t v){std::memcpy(a.memory.hostPointer(at,4),&v,4);};
+        word(object+8,scene);word(scene+0x7c,0x1d0000);word(scene+0x4368,0x1e0000);word(scene+0x436c,0x1f0000);
+        word(stack+0xa0,0x170000);a.memory.hostPointer(stack+0xc0,1)[0]=seed&4?1:0;const uint16_t flags=0x10;std::memcpy(a.memory.hostPointer(object+0x6a,2),&flags,2);
+        std::memcpy(a.memory.flat()+camera+0x3f0,clip.data(),64);std::memcpy(a.memory.flat()+camera+0x2f0,clip.data(),64);
+        std::memcpy(a.memory.flat()+camera+0x460,planes.points.data(),160);std::memcpy(a.memory.flat()+camera+0x500,planes.normals.data(),160);
+        const float x=float(int(seed%7)-3)*4,y=float(int(seed%5)-2)*5,z=float(1u<<(seed%8)),radius=float(seed%5);
+        const float sphere[4]={x,y,z,radius};std::memcpy(a.memory.hostPointer(source,16),sphere,16);std::memcpy(b.memory.flat(),a.memory.flat(),bozo::kFlatBytes);
+        const auto expected=expectedSphere(x,y,z,radius);oldHost.sphereReference=expected;nativeHost.sphereReference.reset();oldHost.stopAngle=nativeHost.stopAngle=true;
+        for(auto *d:{&old,&native}){auto &owner=d==&old?oldHost:nativeHost;
+            owner.scene.publishFrustum(&d->runtime(),camera);owner.scene.beginVisibility(stack,scene);owner.scene.visibilityClip(&d->runtime(),stack,camera);owner.scene.visibilityView(&d->runtime(),stack,camera);}
+        R5900Context xctx{};std::memset(xctx.vu0_vf,0xa5,sizeof(xctx.vu0_vf));xctx.vu0_status=0x1234;
+        xctx.r[17].ud[0]=object;xctx.r[21].ud[0]=scene;xctx.r[22].ud[0]=source;xctx.r[29].ud[0]=stack;xctx.r[30].ud[0]=seed&8?1:0;xctx.f[20]=30;
+        auto yctx=xctx;check(vp2s::nativeVisibilityInstruction(&yctx,&b,0x220b74)==true);
+        // A real virtual callback may change source records after the initial
+        // read. Both consumers must use the immutable numeric snapshot.
+        std::memset(a.memory.hostPointer(source,16),0,16);std::memset(b.memory.hostPointer(source,16),0,16);
+        xctx.pc=yctx.pc=0x220ba0;bool oldStopped=false,nativeStopped=false;
+        const auto oldEntry=a.functions.resumeEntry(xctx.pc),nativeEntry=b.functions.resumeEntry(yctx.pc);check(oldEntry && nativeEntry);
+        try{oldEntry->resume(a.memory.flat(),&xctx,&a);}catch(const Host::AngleBoundary &){oldStopped=true;}
+        try{nativeEntry->resume(b.memory.flat(),&yctx,&b);}catch(const Host::AngleBoundary &){nativeStopped=true;}
+        xctx.cycleLimit=yctx.cycleLimit;check(oldStopped==nativeStopped && !std::memcmp(&xctx,&yctx,sizeof(xctx)) && !std::memcmp(a.memory.flat(),b.memory.flat(),bozo::kFlatBytes));
+        if(nativeStopped){++stopped;oldHost.scene.finishVisibility(stack,scene);nativeHost.scene.finishVisibility(stack,scene);}else ++completed;
+    }
+    check(stopped && completed);oldHost.sphereReference.reset();oldHost.stopAngle=nativeHost.stopAngle=false;
+    bool zeroRejected=false;
+    try{vp2s::sphereVisibility(clip,planes,_mm_setr_ps(0,0,0,1));}catch(const std::exception &){zeroRejected=true;}check(zeroRejected);
+    bool radiusRejected=false;
+    try{vp2s::sphereVisibility(clip,planes,_mm_setr_ps(0,0,4,-1));}catch(const std::exception &){radiusRejected=true;}check(radiusRejected);
+    std::printf("704 existing graphics cases +%u independent sphere cases +256 original CPU/RAM consumers (%u complete/%u stop before unqualified angle): native predicates/snapshots, no VU state\n",sphereCases,completed,stopped);return 0;
 }catch(const std::exception &e){std::fprintf(stderr,"%s\n",e.what());return 1;}}

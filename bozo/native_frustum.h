@@ -4,6 +4,8 @@
 namespace vp2s {
 using FrustumRecords=std::array<__m128,10>;
 struct FrustumResult {FrustumRecords points,normals;};
+struct NativeSphereVisibility;
+NativeSphereVisibility sphereVisibility(math::Matrix clip,const FrustumResult &,__m128 sphere);
 FrustumResult cameraFrustum(math::Matrix world,const FrustumRecords &points);
 bool nativeFrustumInstruction(R5900Context *,Runtime *,uint32_t);
 }

@@ -8,6 +8,36 @@ target, not a replacement DLL loaded into PS2Recomp.
 
 ## Build and evidence
 
+### Native six-plane sphere visibility (2026-11-07)
+
+The `0x220b74` caller now snapshots its actual sphere and uses the invocation's
+captured clip matrix and immutable camera frustum. The original `0x207cc0`
+producer establishes the semantic order: six plane origins, six normals,
+then four extra origins/normals. Native math projects the center and tests
+signed plane distances against the radius, returning ordinary outside/intersect
+predicates and projected/near/far records. It uses no vector memory, flags,
+registers, microprogram execution or transfer protocol. Original CPU virtual
+callbacks, output stores, culling branches and draw-list construction remain.
+
+Source and the 296-byte numerical program shape are guarded offline. The two
+predicate boundaries were separated using the actual source sequence and
+[PCSX2's four-cycle arithmetic publication](https://github.com/PCSX2/pcsx2/blob/master/pcsx2/VUops.cpp):
+outside is the six distance-plus-radius signs; near/far intersection uses the
+last two distance-minus-radius signs. Runtime code computes these predicates
+directly, without reconstructing status bits or instruction timing. Signed-zero
+side policy is retained. Zero projection depth and negative/nonfinite radius
+remain unqualified and reject.
+
+5488 independent axis-aligned geometry cases cover four host rounding modes,
+plane boundaries, projected coordinates and near/far depths. Another 256 actual
+scalar consumer CPU/RAM comparisons exercise culling, clipped objects, draw-list
+entries, far-fade stores, scratch CPU stacks, aliased/changed source data and
+snapshot lifetime. Cases reaching the separate `0xc88` angle test stop before
+that unqualified operation in both fixtures. The reference consumes ordinary
+semantic predicates rather than emulating vector flags. Actual opening skip
+passes this sphere test and reaches object update `0x23c17c`; angle culling,
+native model draws and Logun remain open.
+
 ### Native populated sphere getter (2026-11-07)
 
 The remaining `0x239ce0` getter reached after skipping the opening now computes

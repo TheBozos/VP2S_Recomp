@@ -1,4 +1,5 @@
 #include "native_scene.h"
+#include "native_frustum.h"
 #include "bozo/ee/dispatcher.h"
 #include <cstdio>
 #include <cstdlib>
@@ -220,6 +221,22 @@ void NativeScene::visibilityView(Runtime *rt,uint32_t stack,uint32_t camera){
     if(next.camera!=camera || next.viewReady)throw std::runtime_error("native visibility view has no matching clip or repeats");
     std::memcpy(next.view.data(),record(rt,camera,0x330)+0x2f0,64);next.viewReady=true;visibilityInputs.at(stack)=std::move(next);
 }
+void NativeScene::visibilitySphere(Runtime *rt,uint32_t stack,uint32_t object,uint32_t source){
+    const auto &inputs=visibility(stack);
+    if(!inputs.viewReady || !inputs.frustum || inputs.frustum->object!=inputs.camera)
+        throw std::runtime_error("native sphere visibility has no completed camera/frustum inputs");
+    __m128 sphere;math::Matrix clip;FrustumResult planes;
+    std::memcpy(&sphere,record(rt,source,16),16);std::memcpy(clip.data(),inputs.clip.data(),64);
+    std::memcpy(planes.points.data(),inputs.frustum->points.data(),160);std::memcpy(planes.normals.data(),inputs.frustum->normals.data(),160);
+    auto result=sphereVisibility(clip,planes,sphere);result.object=object;result.source=source;
+    visibilityInputs.at(stack).sphere=std::move(result);
+}
+const NativeSphereVisibility &NativeScene::visibilitySphere(uint32_t stack,uint32_t object,uint32_t source)const{
+    const auto &inputs=visibility(stack);
+    if(!inputs.sphere || inputs.sphere->object!=object || inputs.sphere->source!=source)
+        throw std::runtime_error("native sphere visibility escaped its object/input snapshot");
+    return *inputs.sphere;
+}
 void NativeScene::finishVisibility(uint32_t stack,uint32_t object){
     if(visibility(stack).scene!=object)throw std::runtime_error("native visibility scene changed during invocation");
     visibilityInputs.erase(stack);
@@ -228,7 +245,8 @@ std::optional<bool> nativeVisibilityInstruction(R5900Context *c,Runtime *rt,uint
     const bool clip=pc==0x220624 || pc==0x220628 || pc==0x22062c || pc==0x220630;
     const bool view=pc==0x2206b8 || pc==0x2206bc || pc==0x2206c0 || pc==0x2206c4 ||
                     pc==0x2206d0 || pc==0x2206d4 || pc==0x2206d8 || pc==0x2206dc || pc==0x2206e0;
-    if(pc!=0x2205c0 && pc!=0x220ce0 && !clip && !view)return std::nullopt;
+    const bool sphere=pc==0x220b74 || pc==0x220b80 || pc==0x220ba4 || pc==0x220ba8 || pc==0x220bb4 || pc==0x220bdc || pc==0x220ca0;
+    if(pc!=0x2205c0 && pc!=0x220ce0 && !clip && !view && !sphere)return std::nullopt;
     auto *d=rt?dynamic_cast<bozo::ee::Dispatcher *>(rt->services):nullptr;
     auto *owner=d?dynamic_cast<SceneOwner *>(&d->host()):nullptr;
     if(!owner || !c)throw std::runtime_error("native visibility requires a scene owner");
@@ -239,6 +257,21 @@ std::optional<bool> nativeVisibilityInstruction(R5900Context *c,Runtime *rt,uint
     }
     if(pc==0x220ce0){scene.finishVisibility(sp,c->r[21].uw[0]);return false;}
     if(scene.visibility(sp).scene!=c->r[21].uw[0])throw std::runtime_error("native visibility scene changed before capture");
+    if(sphere){
+        const auto object=c->r[17].uw[0],source=c->r[22].uw[0];
+        if(pc==0x220b74)scene.visibilitySphere(rt,sp,object,source);
+        const auto &result=scene.visibilitySphere(sp,object,source);
+        if(pc==0x220ba4)c->r[5].ud[0]=result.outside?1:0;
+        else if(pc==0x220ba8)c->r[4].ud[0]=result.intersects?1:0;
+        else if(pc==0x220bb4 || pc==0x220bdc || pc==0x220ca0){
+            const auto expected=pc==0x220bb4?object+0x70:pc==0x220bdc?sp+0xe0:sp+0xf0;
+            auto *destination=rt->memory.hostPointer(expected,16);
+            if(c->r[3].uw[0]!=expected || !destination)throw std::runtime_error("native visibility result escaped its original CPU record");
+            const auto &value=pc==0x220bb4?result.projected:pc==0x220bdc?result.nearPoint:result.farPoint;
+            std::memcpy(destination,value.data(),16);
+        }
+        return true;
+    }
     if(pc==0x220624)scene.visibilityClip(rt,sp,c->r[20].uw[0]);
     if(pc==0x2206b8)scene.visibilityView(rt,sp,c->r[20].uw[0]);
     return true;

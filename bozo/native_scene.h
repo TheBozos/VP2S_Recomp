@@ -20,11 +20,17 @@ struct NativeCameraFrustum {
     uint32_t object=0;
     std::array<std::array<float,4>,10> points{},normals{};
 };
+struct NativeSphereVisibility {
+    uint32_t object=0,source=0;
+    std::array<float,4> projected{},nearPoint{},farPoint{};
+    bool outside=false,intersects=false;
+};
 struct NativeVisibilityInputs {
     uint32_t scene=0,camera=0;
     std::array<float,16> clip{},view{};
     std::shared_ptr<const NativeCameraFrustum> frustum;
     bool viewReady=false;
+    std::optional<NativeSphereVisibility> sphere;
 };
 struct NativeTextureManagerFrame {uint32_t scene=0,manager=0;bool entered=false,left=false;};
 struct NativeBrightness {
@@ -59,6 +65,8 @@ public:
     void beginVisibility(uint32_t stack,uint32_t object);
     void visibilityClip(Runtime *,uint32_t stack,uint32_t camera);
     void visibilityView(Runtime *,uint32_t stack,uint32_t camera);
+    void visibilitySphere(Runtime *,uint32_t stack,uint32_t object,uint32_t source);
+    const NativeSphereVisibility &visibilitySphere(uint32_t stack,uint32_t object,uint32_t source)const;
     const NativeVisibilityInputs &visibility(uint32_t stack)const;
     void finishVisibility(uint32_t stack,uint32_t object);
     void beginTextureManagerFrame(Runtime *,uint32_t stack,uint32_t scene,uint32_t manager);

@@ -1,4 +1,5 @@
 #include "native_frustum.h"
+#include "native_scene.h"
 #include <algorithm>
 namespace vp2s {
 namespace {
@@ -62,6 +63,40 @@ FrustumResult cameraFrustum(math::Matrix world,const FrustumRecords &points){
     // and the second four normals retain W from the first four normals.
     for(unsigned i=0;i<6;++i)out.normals[i]=_mm_blend_ps(out.normals[i],points[4+i],8);
     for(unsigned i=0;i<4;++i)out.normals[6+i]=_mm_blend_ps(out.normals[6+i],out.normals[i],8);
+    return out;
+}
+NativeSphereVisibility sphereVisibility(math::Matrix clip,const FrustumResult &planes,__m128 sphere){
+    qualified(sphere);const auto radius=music::laneValue(sphere,3);
+    if(radius<0)throw std::runtime_error("negative native visibility sphere radius");
+    for(auto &column:clip){qualified(column,3);column=xyz(column);}
+    for(unsigned i=0;i<6;++i){qualified(planes.points[i],3);qualified(planes.normals[i],3);}
+    music::CodecRounding rounding;
+    const auto sum=[](__m128 a,__m128 b){return normal(music::codecSum(a,b));};
+    const auto difference=[&](__m128 a,__m128 b){return sum(a,_mm_xor_ps(b,_mm_castsi128_ps(_mm_set1_epi32(int(0x80000000u)))));};
+    auto projected=mul(clip[0],music::broadcast<0>(sphere));
+    projected=sum(projected,mul(clip[1],music::broadcast<1>(sphere)));
+    projected=sum(projected,mul(clip[2],music::broadcast<2>(sphere)));
+    projected=sum(projected,mul(clip[3],_mm_set1_ps(1)));
+    qualified(projected,3);const auto z=music::laneValue(projected,2);
+    if(z==0)throw std::runtime_error("unqualified native visibility projection at zero depth");
+    volatile float inverse=1.f/z;
+    const auto divided=mul(projected,_mm_set1_ps(inverse));qualified(divided,2);
+    projected=_mm_blend_ps(projected,divided,3);projected=_mm_blend_ps(projected,sphere,8);
+    NativeSphereVisibility out;std::memcpy(out.projected.data(),&projected,16);
+    out.nearPoint=out.farPoint=out.projected;
+    float distances[6];
+    for(unsigned i=0;i<6;++i){
+        const auto delta=difference(xyz(sphere),xyz(planes.points[i]));const auto terms=mul(delta,xyz(planes.normals[i]));
+        const auto first=i%3==2?sum(music::broadcast<2>(terms),music::broadcast<1>(terms)):
+                         i%3==1?sum(music::broadcast<1>(terms),music::broadcast<0>(terms)):
+                                sum(music::broadcast<0>(terms),music::broadcast<1>(terms));
+        const auto distance=sum(first,i%3==2?music::broadcast<0>(terms):music::broadcast<2>(terms));
+        qualified(distance,1);distances[i]=music::laneValue(distance,0);
+        out.outside|=std::signbit(music::laneValue(sum(distance,_mm_set1_ps(radius)),0));
+    }
+    for(unsigned i:{4u,5u})out.intersects|=std::signbit(music::laneValue(difference(_mm_set1_ps(distances[i]),_mm_set1_ps(radius)),0));
+    out.nearPoint[2]=music::laneValue(difference(_mm_set1_ps(z),_mm_set1_ps(radius)),0);
+    out.farPoint[2]=music::laneValue(sum(_mm_set1_ps(z),_mm_set1_ps(radius)),0);
     return out;
 }
 bool nativeFrustumInstruction(R5900Context *c,Runtime *rt,uint32_t pc){

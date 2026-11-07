@@ -7,6 +7,29 @@ target, not a replacement DLL loaded into PS2Recomp.
 
 ## Build and evidence
 
+### Retire the initial graphics-code installation job (2026-11-07)
+
+The hidden native boot reproduced the VIF1 write at `0x29e240`, frame 56,
+from the software queue's start callback (`ra=0x202094`, task `0x59cfe0`).
+Offline inspection separates this from a mesh or texture upload: its single
+REFE source installs 220 graphics instruction pairs and fixed transfer defaults;
+there is no UNPACK, DIRECT or MSCAL. Its completion method at `0x29e230` is empty.
+The producer's sole audited caller at `0x249950` ignores its return value.
+
+The native build retires only that producer's enqueue call (`0x29e2fc`). Object
+initialization and the call's delay-slot load remain. No job is submitted, no
+interrupt/status/busy flag is fabricated, and all later transfers still reject.
+Full source fingerprints include the producer, uploader, empty completion and
+complete offline resource bytes. Sixty-four original/adapted producer comparisons
+preserve full RAM and GPRs apart from the unused enqueue result; the original
+leaf is observed as a software enqueue without executing a DMA consumer.
+
+All 27 port suites pass. The longer boot now reaches the distinct VIF0
+program-selection vtable entry `0x29e0c0`, which was absent from the offline map.
+No rendered scene or playable route is claimed. The build driver now builds all
+configured targets before CTest, including newly added checks, avoiding stale or
+missing test executables. C2C/F2F remains paused at the user's request.
+
 ### Native procedural stream initialization (2026-11-06)
 
 The random manager's constructor now seeds ordinary per-run procedural-stream data from the game's

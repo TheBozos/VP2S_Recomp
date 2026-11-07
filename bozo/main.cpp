@@ -137,6 +137,10 @@ public:
     }
     void ioWrite(bozo::ee::Dispatcher &d,R5900Context *c,uint32_t address,uint32_t,const uint64_t[2]) override {
         boundaryHash(d);
+        if(std::getenv("VP2S_BOZO_TRACE_CALLS"))
+            std::fprintf(stderr,"[vp2s:device] pc=%x a0=%x a1=%x ra=%x frames=%llu\n",
+                         c->pc,c->r[4].uw[0],c->r[5].uw[0],c->r[31].uw[0],
+                         (unsigned long long)native.framesEnded());
         throw std::runtime_error(std::format("unported device write {:x} at pc={:x}",address,c->pc));
     }
     bool cop0Condition(bozo::ee::Dispatcher &,R5900Context *c) override {

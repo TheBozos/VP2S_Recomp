@@ -1,5 +1,21 @@
 # Native replacements for VU0 callers (USA)
 
+## Bozo native short cosine, 2026-11-07
+
+`0x214300` is the shorter scalar cosine leaf: reduce `(halfPi - angle)` by pi,
+then a degree-nine odd polynomial with quadrant sign. It uses the same game
+coefficient initialization as `0x213fd0`, with its own half-pi lane.
+Native scalar math publishes only quadrant W at `0x35dadc` and result W at
+`0x35da8c`. Original scalar parity branches and FPR return remain compiled.
+The intermediate sign store at `0x214388` is consumed only inside this numeric
+leaf and is overwritten by the original old coefficient/sign lanes. Retiring
+that store retains those real EE bytes without shadow vector state.
+
+768 complete generated CPU/RAM comparisons and 65536 independent polynomial
+cases pass across four rounding modes, including quadrant edges and signed
+zeros. Subnormal/nonfinite inputs remain guarded. Actual title camera setup
+passes this function and reaches the next independent UI sprite guard.
+
 ## Bozo native sphere getter, 2026-11-07
 
 The Bozo runner now retains the complete scalar/MMI sphere getter at `0x239ce0`

@@ -29,6 +29,10 @@ constexpr std::array<uint32_t,30> sites{
     0x214008,0x21400c,0x214010,0x214014,0x214018,0x214058,0x2140b0,0x2140b4,
     0x2140b8,0x2140bc,0x2140c0,0x2140c4,0x2140c8,0x2140cc,0x2140d0,0x2140d4,
     0x2140d8,0x2140dc,0x2140e0,0x2140e4,0x2140e8,0x2140f0};
+constexpr std::array<uint32_t,24> cosineSites{
+    0x214310,0x214314,0x214318,0x214324,0x214328,0x21432c,0x214330,0x214334,
+    0x214338,0x21433c,0x214360,0x214388,0x214390,0x214394,0x214398,0x2143a4,
+    0x2143a8,0x2143ac,0x2143b0,0x2143b4,0x2143b8,0x2143bc,0x2143c0,0x2143c4};
 }
 TrigReduction reduceSineCosine(float angle,const TrigCoefficients &c){
     qualified(angle);qualified(c.pi);qualified(c.inversePi);qualified(c.halfPi);
@@ -55,7 +59,37 @@ std::array<float,4> sineCosine(float angle,const TrigCoefficients &c){
         if(!std::isfinite(out[i+2]))throw std::runtime_error("unqualified native trigonometric polynomial overflow");
     }return out;
 }
+NativeCosine shortCosine(float angle,const TrigCoefficients &c){
+    qualified(angle);qualified(c.pi);qualified(c.inversePi);qualified(c.halfPi);
+    for(unsigned i=2;i<6;++i)qualified(c.sine[i]);
+    const auto argument=difference(c.halfPi,angle),scaled=product(argument,c.inversePi);
+    if(!std::isfinite(scaled) || scaled>=2147483648.f || scaled< -2147483648.f)
+        throw std::runtime_error("unqualified native short cosine reduction range");
+    const auto quadrant=_mm_cvttss_si32(_mm_set_ss(scaled));
+    const auto integer=_mm_cvtss_f32(_mm_cvtsi32_ss(_mm_setzero_ps(),quadrant));
+    const auto r=difference(argument,product(integer,c.pi)),square=product(r,r);
+    float p=sum(product(square,c.sine[2]),c.sine[3]);
+    p=sum(product(p,square),c.sine[4]);p=sum(product(p,square),c.sine[5]);
+    p=sum(product(p,square),1.f);
+    const auto result=product(p,product(r,(uint32_t(quadrant)&1)?-1.f:1.f));
+    if(!std::isfinite(result))throw std::runtime_error("unqualified native short cosine polynomial overflow");
+    return {quadrant,result};
+}
 bool nativeTrigInstruction(uint8_t *,R5900Context *c,Runtime *rt,uint32_t pc){
+    if(std::binary_search(cosineSites.begin(),cosineSites.end(),pc)){
+        if(!c || c->pc!=0x214300)throw std::runtime_error("unported interior short cosine invocation");
+        if(pc==0x214338 || pc==0x2143c4){
+            auto table=coefficients(rt);std::memcpy(&table.halfPi,record(rt,0x35da90,16)+12,4);
+            const auto result=shortCosine(c->f[12],table);
+            if(pc==0x214338)std::memcpy(record(rt,0x35dad0,16)+12,&result.quadrant,4);
+            else std::memcpy(record(rt,0x35da80,16)+12,&result.value,4);
+        }
+        // The temporary scalar sign store at 214388 is consumed solely by
+        // this leaf's numerical calculation, then overwritten by the original
+        // old coefficient/sign lanes at its final store. Keep those EE bytes;
+        // native math computes the sign directly from the quadrant instead.
+        return true;
+    }
     if(!std::binary_search(sites.begin(),sites.end(),pc))return false;
     // This complete leaf has no calls/checkpoints. Interior carved entries
     // cannot supply an inherited vector calculation as a native invocation.

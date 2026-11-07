@@ -1,6 +1,7 @@
 #include "native_ui_sprites.h"
 #include "native_ui_text.h"
 #include "bozo/ee/dispatcher.h"
+#include <format>
 #include <cstring>
 #include <stdexcept>
 #include <bit>
@@ -91,7 +92,7 @@ std::optional<bool> nativeUiSpriteInstruction(R5900Context *c,Runtime *rt,uint32
         if(pc==0x2efe40){if(c->pc!=pc || sp<0xa0 || (sp&15))throw std::runtime_error("native text icons require original entry");sprites.beginText(sp-0xa0,element);}
         else texts->nativeUiTexts().icons(element,sprites.finishText(sp,element));
     }else if(pc==0x2eb3a0){
-        if(c->pc!=pc || c->r[31].uw[0]!=0x2eff74 || c->r[8].uw[0])throw std::runtime_error("unported native sprite caller/colour multiplier");
+        if(c->pc!=pc || c->r[31].uw[0]!=0x2eff74 || c->r[8].uw[0])throw std::runtime_error(std::format("unported native sprite caller/colour multiplier: caller={:x} sprite={:x} colour={:x} x={:x} y={:x} depth={:x}",c->r[31].uw[0],c->r[4].uw[0],c->r[8].uw[0],c->r[5].uw[0],c->r[6].uw[0],c->r[7].uw[0]));
         sprites.beginSprite(rt,sp,c->r[4].uw[0],c->r[7].uw[0]);
     }else if(pc==0x2eb5c4)sprites.colour(sp,c->r[3].uw[0]);
     else if(pc==0x2ebba8)sprites.finishSprite(sp);

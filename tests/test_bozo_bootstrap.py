@@ -80,8 +80,8 @@ with tempfile.TemporaryDirectory(prefix='vp2s-native-input-') as temporary:
                            capture_output=True,text=True,timeout=30,
                            env={**os.environ,'VP2S_BOZO_SEED':'1','VP2S_BOZO_TRACE_QUEUES':'1'})
     output=skipped.stdout+skipped.stderr;print(output,end='')
-    if skipped.returncode!=1 or 'unported native VP2S algorithm at pc=214310' not in output:
-        raise SystemExit('native movie skip did not pass models/filter to the next math guard')
+    if skipped.returncode!=1 or 'unported native sprite caller/colour multiplier' not in output:
+        raise SystemExit('native movie skip did not pass models/filter/cosine to the next sprite guard')
     if '[vp2s:models] native object=' not in output or '[vp2s:filter] native object=' not in output:
         raise SystemExit('native movie skip did not submit real models and frame filter')
     if 'unported device' in output:raise SystemExit('native movie skip entered physical teardown')

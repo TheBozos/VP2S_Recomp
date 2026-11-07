@@ -8,6 +8,22 @@ target, not a replacement DLL loaded into PS2Recomp.
 
 ## Build and evidence
 
+### Native short cosine (2026-11-07)
+
+The actual title camera next reached `0x214300`. Its degree-nine cosine
+polynomial now uses native scalar math and the original coefficient table.
+Only the quadrant word and scalar result are published. The temporary scalar
+sign store is retired: it was used only by the same numerical calculation and
+overwritten by the leaf's old coefficient/sign lanes at its final store.
+No inherited vector scratch lanes or register state are reconstructed.
+
+768 complete generated CPU/RAM cases across all four host rounding modes and
+65536 independent polynomial comparisons cover signs, quadrant boundaries and
+FP controls. Subnormal/nonfinite input remains explicitly unqualified. The
+actual skip passes this leaf and reaches a separate UI sprite caller guard.
+All 49 suites pass. The next actual caller is `0x2f2efc`, sprite `0x997a2c`,
+with no colour multiplier. The runner still has not reached Logun.
+
 ### Native title meshes and frame filter (2026-11-07)
 
 `0x239fec` now submits copied native model batches before real compiled scene

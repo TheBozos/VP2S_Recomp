@@ -8,7 +8,8 @@ p.add_argument('source',type=Path);p.add_argument('out',type=Path);p.add_argumen
 p.add_argument('--variant',choices=['original','adapted'],required=True);a=p.parse_args()
 if not a.out.resolve().is_relative_to(a.build.resolve()):raise ValueError('private build directory required')
 data=a.source.read_bytes();patches=overlay_adaptations('mod001',data)
-fixture,_=prepare(data,[dict(Name='mpeg_create',Start='0x1ef6f8',End='0x1ef930'),dict(Name='mpeg_callback',Start='0x1f0510',End='0x1f0544'),dict(Name='clear_refs',Start='0x1f06c8',End='0x1f071c'),
+fixture,_=prepare(data,[dict(Name='mpeg_create',Start='0x1ef6f8',End='0x1ef930'),dict(Name='reset_state',Start='0x1efa30',End='0x1efaf8'),
+                      dict(Name='mpeg_reset',Start='0x1f0438',End='0x1f04b4'),dict(Name='mpeg_callback',Start='0x1f0510',End='0x1f0544'),dict(Name='clear_refs',Start='0x1f06c8',End='0x1f071c'),
                       dict(Name='pool_init',Start='0x1f08e8',End='0x1f08fc'),dict(Name='pool_reset',Start='0x1f0900',End='0x1f090c'),dict(Name='pool_alloc',Start='0x1f0920',End='0x1f098c'),
                       dict(Name='mpeg_stream_callback',Start='0x1f4990',End='0x1f4ac0'),
                       dict(Name='movie_constructor',Start='0x2ba600',End='0x2ba6d0'),dict(Name='media_buffer_reset',Start='0x2bbfc0',End='0x2bc1dc'),
@@ -17,8 +18,8 @@ a.out.mkdir(parents=True,exist_ok=True);(a.out/'fixture.elf').write_bytes(fixtur
 _,segments,_=elf_parts(data);segment=next(s for s in segments if s[0]==1 and s[2]<=0x313f00<0x313fa0<=s[2]+s[4])
 (a.out/'streams.bin').write_bytes(data[segment[1]+0x313f00-segment[2]:segment[1]+0x313fa0-segment[2]])
 # Both variants omit console transport setup. Their CPU prefixes remain intact.
-patches=''.join(line+'\n' for line in patches.splitlines() if line.startswith(('002bc120 ','002bc124 ','001ef864 ','001ef86c ')))
+patches=''.join(line+'\n' for line in patches.splitlines() if line.startswith(('002bc120 ','002bc124 ','001ef864 ','001ef86c ','001efa40 ','001efae8 ','001efaec ','001f048c ','001f049c ','001f04a4 ','001f04a8 ')))
 if a.variant=='original':patches+='002ba670 ac220010 00000000\n'
 (a.out/'patches.txt').write_text(patches)
-sites=(0x2bbfc0,0x2bc1d0,0x2ba670,0x1ef6f8,0x1ef914) if a.variant=='adapted' else ()
-(a.out/'externals.txt').write_text(''.join(f'native 0x{pc:x}\n' for pc in sites)+''.join(f'stub 0x{pc:x}\n' for pc in (0x1412a0,0x1412f0,0x1371e0,0x100ab0,0x2bd380,0x132e40,0x1f4ce0,0x1f4d38,0x1ef628,0x1f0438)))
+sites=(0x2bbfc0,0x2bc1d0,0x2ba670,0x1ef6f8,0x1ef914,0x1f0438,0x1f04a0,0x1efa30) if a.variant=='adapted' else ()
+(a.out/'externals.txt').write_text(''.join(f'native 0x{pc:x}\n' for pc in sites)+''.join(f'stub 0x{pc:x}\n' for pc in (0x1412a0,0x1412f0,0x1371e0,0x100ab0,0x2bd380,0x132e40,0x1f4ce0,0x1f4d38,0x1ef628,0x1f50a0)))

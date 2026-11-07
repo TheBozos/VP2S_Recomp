@@ -7,6 +7,24 @@ target, not a replacement DLL loaded into PS2Recomp.
 
 ## Build and evidence
 
+### Native decoder reset and original input-buffer reset (2026-11-07)
+
+The actual `0x2b9ba0` call to `sceMpegReset` now retains its original compiled
+software reset. A fresh native decoder is allocated before that routine runs;
+allocation failure preserves the old decoder and CPU/RAM. The helper retains
+its software-state writes while retiring physical decoder/interrupt setup and
+control-register accesses. At the original return, validated software records
+allow the native decoder swap. No hardware status or completion is supplied.
+
+The immediately paired `0x2b9bb4` input-buffer reset reuses the same native
+owner. Its original timestamp/tag CPU builders remain, without consuming those
+tags as DMA. Callback and stream registrations survive both resets. Duplicate
+reset, premature release and mismatched helper ownership reject. 32 decoder
+reset and 16 paired input-reset whole CPU/RAM comparisons pass, together with
+allocation-failure and lifetime checks. All 46 local suites pass. Actual scripted
+boot now stops at PSS demux `0x1f4590`, caller `0x2bdf80`, before any unowned SDK
+body. PSS delivery, native movie presentation/pacing and Logun remain open.
+
 ### Original CPU video/audio stream registration (2026-11-07)
 
 The original `sceMpegAddStrCallback` CPU routine now runs for the three actual

@@ -137,9 +137,42 @@ int main(int argc,char **argv){try{
                 auto invalid=y;invalid.pc=0x1f4990;invalid.r[4].ud[0]=held->mp;invalid.r[5].ud[0]=4;invalid.r[6].ud[0]=2;
                 rejects([&]{vp2s::nativeMediaLibrary(&invalid,&b,0x1f4990);});check(!std::memcmp(a.memory.flat(),b.memory.flat(),bozo::kFlatBytes));
             }
+            auto reset=converted;reset.pc=0x1f0438;reset.r[4].ud[0]=held->mp;reset.r[31].ud[0]=0x2b9ba0;
+            const auto originalDecoder=held->decoder.get();const auto freed=after.freed;
+            auto rejected=reset;after.fail=true;
+            rejects([&]{vp2s::nativeMediaLibrary(&rejected,&b,0x1f0438);});after.fail=false;
+            check(!std::memcmp(&reset,&rejected,sizeof(reset)) && !std::memcmp(a.memory.flat(),b.memory.flat(),bozo::kFlatBytes));
+            check(held->decoder.get()==originalDecoder && !held->inputResetPending && !after.buffers.outstanding());
+            const auto resetStack=reset.r[29].uw[0]-0x20;
+            after.buffers.beginReset(&b,resetStack,held->mp);
+            rejects([&]{after.buffers.release(object);});
+            rejects([&]{after.buffers.beginReset(&b,resetStack+0x40,held->mp);});
+            rejects([&]{after.buffers.resetHelper(resetStack,held->work+4);});
+            auto referenceReset=reset;
+            old.runtime().functions.generated(0x1f0438)(a.memory.flat(),&referenceReset,&a);
+            native.runtime().functions.generated(0x1f0438)(b.memory.flat(),&reset,&b);
+            referenceReset.cycleLimit=reset.cycleLimit;
+            check(!std::memcmp(&referenceReset,&reset,sizeof(reset)) && !std::memcmp(a.memory.flat(),b.memory.flat(),bozo::kFlatBytes));
+            check(reset.r[2].uw[0]==1 && reset.pc==0x2b9ba0 && held->decoder.get()!=originalDecoder && after.freed==freed+1);
+            check(held->inputResetPending && !after.buffers.outstanding() && held->callbacks[4].function==functions[4] && held->streams.size()==6);
+            rejects([&]{after.buffers.beginReset(&b,resetStack,held->mp);});
+            auto inputReset=converted;inputReset.pc=0x2bbfc0;inputReset.r[4].ud[0]=object;inputReset.r[31].ud[0]=0x2b9bb4;
+            auto referenceInput=inputReset;const auto freshDecoder=held->decoder.get();
+            old.runtime().functions.generated(0x2bbfc0)(a.memory.flat(),&referenceInput,&a);
+            native.runtime().functions.generated(0x2bbfc0)(b.memory.flat(),&inputReset,&b);
+            referenceInput.cycleLimit=inputReset.cycleLimit;
+            check(!std::memcmp(&referenceInput,&inputReset,sizeof(inputReset)) && !std::memcmp(a.memory.flat(),b.memory.flat(),bozo::kFlatBytes));
+            check(!held->inputResetPending && !after.buffers.outstanding() && held->decoder.get()==freshDecoder);
+            rejects([&]{after.buffers.beginInputReset(&b,resetStack,object);});
+            // Exercise the declared API path after the paired input reset, too.
+            reset=converted;reset.pc=0x1f0438;reset.r[4].ud[0]=held->mp;reset.r[31].ud[0]=0x2b9ba0;referenceReset=reset;
+            old.runtime().functions.generated(0x1f0438)(a.memory.flat(),&referenceReset,&a);
+            check(vp2s::nativeMediaLibrary(&reset,&b,0x1f0438));referenceReset.cycleLimit=reset.cycleLimit;
+            check(!std::memcmp(&referenceReset,&reset,sizeof(reset)) && !std::memcmp(a.memory.flat(),b.memory.flat(),bozo::kFlatBytes));
+            check(held->inputResetPending && !after.buffers.outstanding());
         }
         after.buffers.release(object);held.reset();
     }
     check(after.created==after.freed);
-    std::puts("64 resets +64 constructors +64 MPEG Create +192 callbacks +96 stream-handler whole CPU/RAM cases: decoder lifetime, native ABI, allocation failure/resume, video/audio filter/GP replacement; no playback qualification");return 0;
+    std::puts("64 input initializers +64 constructors +64 MPEG Create +192 callbacks +96 stream registrations +32 decoder resets +16 paired input resets: whole CPU/RAM, native decoder lifetime/failure, filter/GP replacement; no playback qualification");return 0;
 }catch(const std::exception &e){std::fprintf(stderr,"%s\n",e.what());return 1;}}

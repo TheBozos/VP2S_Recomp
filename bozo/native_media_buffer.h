@@ -13,6 +13,7 @@ struct NativeMediaBuffer {
     uint64_t pacingFieldCycles=0;
     bool initialized=false;
     bool created=false;
+    bool inputResetPending=false;
     uint32_t mp=0,work=0,workBytes=0;
     std::array<Callback,6> callbacks{};
     std::vector<StreamCallback> streams;
@@ -24,11 +25,14 @@ class NativeMediaBuffers {
     std::map<uint32_t,std::shared_ptr<NativeMediaBuffer>> pending,prepared;
     struct Creation {std::shared_ptr<NativeMediaBuffer> owner;uint32_t mp,work,bytes;};
     std::map<uint32_t,Creation> creations;
+    struct Reset {std::shared_ptr<NativeMediaBuffer> owner;std::unique_ptr<bozo::libs::VideoDecoder> decoder;};
+    std::map<uint32_t,Reset> resets;
     std::shared_ptr<NativeMediaBuffer> stream(Runtime *,uint32_t mp)const;
 public:
     explicit NativeMediaBuffers(Factory create=bozo::libs::makeVideoDecoder):factory(std::move(create)){}
     void begin(Runtime *,uint32_t stack,uint32_t object);
     void finish(Runtime *,uint32_t stack);
+    void beginInputReset(Runtime *,uint32_t stack,uint32_t object);
     void release(uint32_t object);
     void preparePacing(Runtime *,uint32_t object,uint64_t fieldCycles);
     void initialize(Runtime *,uint32_t parent);
@@ -39,8 +43,12 @@ public:
     void captureCallback(Runtime *,uint32_t mp,uint32_t type);
     void validateStreamRegistration(Runtime *,uint32_t mp)const;
     void captureStreams(Runtime *,uint32_t mp);
+    void beginReset(Runtime *,uint32_t stack,uint32_t mp);
+    void resetEntry(uint32_t stack,uint32_t mp)const;
+    void resetHelper(uint32_t stack,uint32_t work)const;
+    void finishReset(Runtime *,uint32_t stack);
     std::shared_ptr<const NativeMediaBuffer> buffer(uint32_t object)const;
-    size_t outstanding()const{return pending.size()+creations.size();}
+    size_t outstanding()const{return pending.size()+creations.size()+resets.size();}
 };
 class MediaBufferOwner {
 public:

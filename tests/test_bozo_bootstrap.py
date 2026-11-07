@@ -65,10 +65,11 @@ with tempfile.TemporaryDirectory(prefix='vp2s-native-input-') as temporary:
                          capture_output=True,text=True,timeout=30,
                          env={**os.environ,'VP2S_BOZO_SEED':'1','VP2S_BOZO_TRACE_QUEUES':'1'})
     output=media.stdout+media.stderr;print(output,end='')
-    if media.returncode!=1 or 'native VP2S MPEG provider required at 1f0438 ra=2b9ba0' not in output:
+    if media.returncode!=1 or 'native VP2S MPEG provider required at 1f4590 ra=2bdf80' not in output:
         raise SystemExit('scripted startup did not reach the native overlay MPEG ownership guard')
     if 'native decoder owns prepared movie input' not in output or 'native MPEG initializer ready' not in output or 'native decoder owns original MPEG software records' not in output or 'unported device' in output:
         raise SystemExit('scripted startup bypassed native buffer ownership or reached SDK hardware code')
     if 'native callback type=4 function=2b9320' not in output:raise SystemExit('scripted startup bypassed native callback registration')
     if 'native stream type=4 channel=1' not in output:raise SystemExit('scripted startup bypassed native stream registration')
-print('Scripted native input passes native stream registration, then rejects unowned reset before its SDK/ABI body. No movie/Logun claim.')
+    if 'native decoder reset completed' not in output:raise SystemExit('scripted startup bypassed native decoder reset')
+print('Scripted native input passes decoder and paired input reset, then rejects unowned PSS demux before its SDK/ABI body. No movie/Logun claim.')

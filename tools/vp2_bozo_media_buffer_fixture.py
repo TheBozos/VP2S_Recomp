@@ -8,7 +8,7 @@ p.add_argument('source',type=Path);p.add_argument('out',type=Path);p.add_argumen
 p.add_argument('--variant',choices=['original','adapted'],required=True);a=p.parse_args()
 if not a.out.resolve().is_relative_to(a.build.resolve()):raise ValueError('private build directory required')
 data=a.source.read_bytes();patches=overlay_adaptations('mod001',data)
-fixture,_=prepare(data,[dict(Name='mpeg_create',Start='0x1ef6f8',End='0x1ef930'),dict(Name='clear_refs',Start='0x1f06c8',End='0x1f071c'),
+fixture,_=prepare(data,[dict(Name='mpeg_create',Start='0x1ef6f8',End='0x1ef930'),dict(Name='mpeg_callback',Start='0x1f0510',End='0x1f0544'),dict(Name='clear_refs',Start='0x1f06c8',End='0x1f071c'),
                       dict(Name='pool_init',Start='0x1f08e8',End='0x1f08fc'),dict(Name='pool_reset',Start='0x1f0900',End='0x1f090c'),dict(Name='pool_alloc',Start='0x1f0920',End='0x1f098c'),
                       dict(Name='movie_constructor',Start='0x2ba600',End='0x2ba6d0'),dict(Name='media_buffer_reset',Start='0x2bbfc0',End='0x2bc1dc'),
                       dict(Name='buffer_constructor',Start='0x2bc330',End='0x2bc3f4')],{})

@@ -7,6 +7,23 @@ target, not a replacement DLL loaded into PS2Recomp.
 
 ## Build and evidence
 
+### Original CPU MPEG callback registration (2026-11-07)
+
+All six actual `sceMpegAddCallback` calls now run the original pure CPU table
+routine after native stream/caller/type/function/data admission. Its ABI returns
+the previous function pointer, not a registration counter. Function, userdata
+and GP are copied from the completed original records into native callback
+ownership; no callback is invoked or completion fabricated by registration.
+Unknown callers/functions/owners reject before the original table writes.
+
+192 whole CPU/RAM registration/replacement comparisons check all six types,
+retained actual GP/data and prior-function returns. All 46 local suites pass.
+Scripted startup completes all six registrations, then rejects stream-handler
+registration at `0x1f4990`, caller `0x2ba3c8`, before a generic SDK/ABI path.
+The three initial stream handlers are video type 0/channel 0 and audio type
+4/channels 0/1 in this image. Their source table/callback setup is the next audit;
+PSS parsing, decoded-picture delivery, actual movie pacing and Logun remain open.
+
 ### Original software MPEG stream construction (2026-11-07)
 
 `sceMpegCreate` now runs its original compiled software-record builder under

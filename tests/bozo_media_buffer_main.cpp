@@ -105,9 +105,23 @@ int main(){try{
         before.pauseMem=after.pauseMem=seed&4;create(old,reference,false);create(native,converted,true);reference.cycleLimit=converted.cycleLimit;
         check(!std::memcmp(&reference,&converted,sizeof(reference)) && !std::memcmp(a.memory.flat(),b.memory.flat(),bozo::kFlatBytes));
         check(held->created==bool(converted.r[2].uw[0]) && !after.buffers.outstanding());
-        if(held->created)check(held->mp==object+0xce500 && held->work==0x500000 && held->workBytes==0x3000);
+        if(held->created){
+            check(held->mp==object+0xce500 && held->work==0x500000 && held->workBytes==0x3000);
+            constexpr uint32_t returns[6]={0x2ba544,0x2ba564,0x2ba584,0x2ba5a4,0x2ba5e4,0x2ba5c4};
+            constexpr uint32_t functions[6]={0x2b9550,0x2b9330,0x2b9300,0x2b92e0,0x2b9320,0x2b92a0};
+            for(unsigned pass=0;pass<2;++pass)for(unsigned type=0;type<6;++type){
+                auto x=converted;x.pc=0x1f0510;x.r[4].ud[0]=held->mp;x.r[5].ud[0]=type;x.r[6].ud[0]=functions[type];
+                x.r[7].ud[0]=object;x.r[28].ud[0]=0x350000+seed*64+pass*4;x.r[31].ud[0]=returns[type];auto y=x;
+                old.runtime().functions.generated(0x1f0510)(a.memory.flat(),&x,&a);check(vp2s::nativeMediaLibrary(&y,&b,0x1f0510));
+                x.cycleLimit=y.cycleLimit;check(!std::memcmp(&x,&y,sizeof(x)) && !std::memcmp(a.memory.flat(),b.memory.flat(),bozo::kFlatBytes));
+                const auto &cb=held->callbacks[type];check(cb.set && cb.function==functions[type] && cb.data==object && cb.gp==0x350000+seed*64+pass*4);
+                if(pass)check(y.r[2].uw[0]==functions[type]);
+                auto invalid=y;invalid.pc=0x1f0510;invalid.r[4].ud[0]=held->mp;invalid.r[5].ud[0]=type;invalid.r[6].ud[0]=functions[type]+4;
+                rejects([&]{vp2s::nativeMediaLibrary(&invalid,&b,0x1f0510);});check(!std::memcmp(a.memory.flat(),b.memory.flat(),bozo::kFlatBytes));
+            }
+        }
         after.buffers.release(object);held.reset();
     }
     check(after.created==after.freed);
-    std::puts("64 native-contract media resets +64 constructors +64 original software MPEG Create CPU/RAM cases: decoder lifetime, native init, CPU records, allocation/alignment failure and nested resume; no transport or playback qualification");return 0;
+    std::puts("64 media resets +64 constructors +64 software MPEG Create +192 original callback-registration CPU/RAM cases: decoder lifetime, native ABI, allocation failures/resume and callback function/data/GP replacement; no playback qualification");return 0;
 }catch(const std::exception &e){std::fprintf(stderr,"%s\n",e.what());return 1;}}

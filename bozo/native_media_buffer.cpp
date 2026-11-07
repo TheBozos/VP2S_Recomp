@@ -77,6 +77,23 @@ void NativeMediaBuffers::finishCreation(Runtime *rt,uint32_t stack,uint32_t resu
     }
     creations.erase(stack);
 }
+std::shared_ptr<NativeMediaBuffer> NativeMediaBuffers::stream(Runtime *rt,uint32_t mp)const{
+    if(mp<0xce500)throw std::runtime_error("native MPEG stream pointer outside owner range");
+    auto entry=prepared.at(mp-0xce500);
+    if(!entry->initialized || !entry->created || entry->mp!=mp || word(rt,mp+0x40)!=entry->work)
+        throw std::runtime_error("native MPEG stream has no live original work record");
+    return entry;
+}
+void NativeMediaBuffers::validateCallback(Runtime *rt,uint32_t mp,uint32_t type,uint32_t data)const{
+    const auto entry=stream(rt,mp);
+    if(type>=entry->callbacks.size() || data!=entry->object)throw std::runtime_error("unported native MPEG callback owner/type");
+}
+void NativeMediaBuffers::captureCallback(Runtime *rt,uint32_t mp,uint32_t type){
+    auto entry=stream(rt,mp);
+    if(type>=entry->callbacks.size())throw std::runtime_error("native MPEG callback type outside range");
+    const auto at=entry->work+type*12+0xc;
+    entry->callbacks[type]={word(rt,at),word(rt,at+4),word(rt,at+8),true};
+}
 std::shared_ptr<const NativeMediaBuffer> NativeMediaBuffers::buffer(uint32_t object)const{
     const auto it=prepared.find(object);return it==prepared.end()?nullptr:it->second;
 }
@@ -110,7 +127,7 @@ std::optional<bool> nativeMediaBufferInstruction(R5900Context *c,Runtime *rt,uin
     return false; // Original CPU initialization/return remains; no transport job exists.
 }
 bool nativeMediaLibrary(R5900Context *c,Runtime *rt,uint32_t target){
-    if(target!=0x1f02a0 && target!=0x1ef6f8)return false;
+    if(target!=0x1f02a0 && target!=0x1ef6f8 && target!=0x1f0510)return false;
     auto *d=rt?dynamic_cast<bozo::ee::Dispatcher *>(rt->services):nullptr;
     auto *owner=d?dynamic_cast<MediaBufferOwner *>(&d->host()):nullptr;
     if(!owner || !c || c->pc!=target)throw std::runtime_error("native MPEG requires its declared API entry");
@@ -119,6 +136,20 @@ bool nativeMediaLibrary(R5900Context *c,Runtime *rt,uint32_t target){
         if(c->r[31].uw[0]!=0x2ba524 || sp<0x50 || (sp&15) || !original)throw std::runtime_error("unported native MPEG creation caller");
         owner->nativeMediaBuffers().beginCreation(rt,sp-0x50,c->r[17].uw[0],c->r[4].uw[0],c->r[5].uw[0],c->r[6].uw[0]);
         original(rt->memory.flat(),c,rt);return true;
+    }
+    if(target==0x1f0510){
+        const auto mp=c->r[4].uw[0],type=c->r[5].uw[0];
+        constexpr uint32_t returns[6]={0x2ba544,0x2ba564,0x2ba584,0x2ba5a4,0x2ba5e4,0x2ba5c4};
+        constexpr uint32_t functions[6]={0x2b9550,0x2b9330,0x2b9300,0x2b92e0,0x2b9320,0x2b92a0};
+        auto original=rt->functions.generated(target);
+        if(type>=6 || c->r[31].uw[0]!=returns[type] || c->r[6].uw[0]!=functions[type] || !original)
+            throw std::runtime_error("unported native MPEG callback-registration caller/function");
+        owner->nativeMediaBuffers().validateCallback(rt,mp,type,c->r[7].uw[0]);
+        original(rt->memory.flat(),c,rt);
+        if(c->pc!=returns[type])throw std::runtime_error("native MPEG scalar callback registration did not return");
+        owner->nativeMediaBuffers().captureCallback(rt,mp,type);
+        if(std::getenv("VP2S_BOZO_TRACE_QUEUES"))std::fprintf(stderr,"[vp2s:media] native callback type=%u function=%x\n",type,functions[type]);
+        return true;
     }
     if(c->r[31].uw[0]!=0x2be6dc)throw std::runtime_error("unported native MPEG initialization caller");
     owner->nativeMediaBuffers().initialize(rt,c->r[19].uw[0]);

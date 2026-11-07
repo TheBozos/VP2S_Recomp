@@ -115,6 +115,10 @@ def game_entries(data):
     # only the tail labels 0x11d770..0x11d7c0, omitting the actual entry/prologue.
     # Its source extent ends at the next independent prologue, 0x11d7c0.
     _,segments,_=elf_parts(data)
+    lo,hi=0x154f90,0x155030
+    s=next(s for s in segments if s[0]==1 and s[2]<=lo<hi<=s[2]+s[4]);at=s[1]+lo-s[2]
+    if hashlib.sha256(data[at:at+hi-lo]).hexdigest()!='747b2e550f56b251db82e0140e456c407e31c6d7a4602dc99b5185f3f120da13':
+        raise ValueError('USA camera method vtable signature mismatch')
     lo,hi=0x11d4e0,0x11d7c0
     segment=next(s for s in segments if s[0]==1 and s[2]<=lo<hi<=s[2]+s[4])
     at=segment[1]+lo-segment[2]

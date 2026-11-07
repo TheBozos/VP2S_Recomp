@@ -7,6 +7,31 @@ target, not a replacement DLL loaded into PS2Recomp.
 
 ## Build and evidence
 
+### Static vtable method metadata (2026-11-07)
+
+The camera stop at `0x1e8080` was a genuine omitted setter: its original body
+stores f12/f13/f14 and the homogeneous component, with no device operation.
+Its camera vtable and related setter/getter source spans are fingerprinted.
+Admitting that family exposed another omitted virtual leaf, `0x1ffc90`.
+
+Offline preparation now follows literal vtable pointers stored by admitted
+constructor code, including nonzero base-class offsets. Tables require the
+original two-zero RTTI header and two method addresses in explicit input code.
+Constant tracking stops at control flow/clobbers. Only original file bytes
+are used; no runtime RAM, instruction discovery or interpreter fallback exists.
+The existing bounded static entry lifter supplies original method bodies.
+Constructor provenance is kept per overlay: overlapping overlays cannot nominate
+methods for each other. Main/common-module entries can use shared references
+because those address ranges do not overlap the later overlays.
+
+The current main/mod001/mod002 build admits 10/540/116 additional vtable-linked
+entries (some become interior labels), retaining every original load byte.
+Seven metadata tests include clobbers, malformed tables, ignored raw words,
+scope isolation and byte-preserving preparation. All 28 port suites pass.
+Boot passes the omitted camera/scene setters and reaches the distinct random
+warmup's raw timer read (`0x2c3cb4`; the last call marker reports `0x2c3c60`).
+Native rendering and the playable Logun route remain unqualified.
+
 ### Native object-constructor transform (2026-11-07)
 
 The reached constructor (`0x2494c0`) uses the separate quaternion entry `0x728`.

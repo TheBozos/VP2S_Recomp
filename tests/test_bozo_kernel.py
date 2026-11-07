@@ -44,10 +44,12 @@ class KernelGuardTests(unittest.TestCase):
 
     def test_overlay_initializer(self):
         data=(IMAGE.parent/'mod001.elf').read_bytes()
-        entries=overlay_entries('mod001',data);self.assertEqual(len(entries),28)
+        entries=overlay_entries('mod001',data);self.assertEqual(len(entries),52)
+        self.assertIn(dict(Name='camera_method_001e8080',Start='0x1e8080',End='0x1e80a0'),entries)
         self.assertEqual(entries[0],dict(Name='module_initializer_00358200',Start='0x358200',End='0x358230'))
         _,segments,_=elf_parts(data)
-        for lo,hi in ((0x358200,0x358a10),(0x358a10,0x358a7c),(0x29e240,0x29e280)):
+        for lo,hi in ((0x358200,0x358a10),(0x358a10,0x358a7c),(0x29e240,0x29e280),
+                      (0x1e7fd0,0x1e8220),(0x1fae30,0x1faeb0)):
             segment=next(s for s in segments if s[0]==1 and s[2]<=lo<hi<=s[2]+s[4])
             for pc in range(lo,hi,4):
                 altered=bytearray(data);altered[segment[1]+pc-segment[2]]^=1
@@ -109,7 +111,7 @@ class KernelGuardTests(unittest.TestCase):
             data=bytearray(self.data)
             data[segment[1]+pc-segment[2]]^=1
             with self.subTest(pc=hex(pc)),self.assertRaises(ValueError): game_entries(data)
-        for lo,hi in ((0x107e10,0x107e30),(0x1013d0,0x1013f0),(0x1010a0,0x1010e0)):
+        for lo,hi in ((0x107e10,0x107e30),(0x1013d0,0x1013f0),(0x1010a0,0x1010e0),(0x154f90,0x155030)):
             segment=next(s for s in self.segments if s[0]==1 and s[2]<=lo<hi<=s[2]+s[4])
             for pc in range(lo,hi,4):
                 data=bytearray(self.data);data[segment[1]+pc-segment[2]]^=1

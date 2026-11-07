@@ -51,6 +51,10 @@ def overlay_entries(name,data):
                 raise ValueError('USA mod001 static initializer signature mismatch')
         if hashlib.sha256(span(0x29e240,0x29e280)).hexdigest()!='1803abf64643018a89bfbd0e71271c70e86d09cdec797d8692b1fdd4602d48cf':
             raise ValueError('USA graphics resource entry signature mismatch')
+        for lo,hi,expected in ((0x1e7fd0,0x1e8220,'ce0b9273fe9294c57b80a1fc698a25aadbcd67e3e2452ce48f630c87225673ba'),
+                               (0x1fae30,0x1faeb0,'19049c76ab8ef6499d0b2b4d560a97b0b346d22665bcb5f628debd00ab5a8b51')):
+            if hashlib.sha256(span(lo,hi)).hexdigest()!=expected:
+                raise ValueError('USA camera vtable method signature mismatch')
     # Constructor sections are authoritative static entry metadata, independent
     # of whether the analysis export found every prologue. Never discover code
     # from runtime bytes or skip these application initializers.
@@ -67,7 +71,19 @@ def overlay_entries(name,data):
         if lo&3 or section is None:raise ValueError('constructor target outside explicit code')
         hi=next((pc for pc in targets if pc>lo),section[3]+section[5]);hi=min(hi,section[3]+section[5])
         entries.append(dict(Name=f'module_initializer_{lo:08x}',Start=hex(lo),End=hex(hi)))
-    if name=='mod001':entries.append(dict(Name='resource_upload_0029e240',Start='0x29e240',End='0x29e274'))
+    if name=='mod001':
+        entries.append(dict(Name='resource_upload_0029e240',Start='0x29e240',End='0x29e274'))
+        # Explicit methods referenced by the camera's original main-image
+        # vtable (guarded by game_entries). Tiny setters/getters were omitted
+        # by the analysis export; preserve their original CPU bodies.
+        bounds=[0x1e7fd0,0x1e7fe0,0x1e8000,0x1e8010,0x1e8020,0x1e8030,
+                0x1e8040,0x1e8060,0x1e8080,0x1e80a0,0x1e80c0,0x1e80e0,0x1e8100]
+        bounds += [0x1e81a0,0x1e81c0,0x1e81e0,0x1e8200,0x1e8220]
+        for lo,hi in zip(bounds,bounds[1:]):
+            if lo==0x1e8100:continue # existing exported methods cover this span
+            entries.append(dict(Name=f'camera_method_{lo:08x}',Start=hex(lo),End=hex(hi)))
+        for lo in range(0x1fae30,0x1faeb0,16):
+            entries.append(dict(Name=f'camera_accessor_{lo:08x}',Start=hex(lo),End=hex(lo+16)))
     return entries
 
 
@@ -86,6 +102,68 @@ def static_call_targets(data,rows):
             word=int.from_bytes(data[segment[1]+pc-segment[2]:segment[1]+pc-segment[2]+4],'little')
             if word>>26 in (2,3):targets.add(((pc+4)&0xf0000000)|((word&0x3ffffff)<<2))
     return targets
+
+
+def literal_vtable_targets(callers,table_image):
+    """Offline C++ method pointers, from literal vtable stores in admitted code.
+
+    A table must have the original two-zero RTTI header and start with two
+    method pointers into the input images' explicit code sections. Only a
+    literal stored at a nonnegative aligned object offset is considered (base
+    classes also have vptrs at nonzero offsets); arbitrary data words
+    and runtime RAM never seed code. Constant tracking stops at control flow.
+    """
+    _,table_segments,_=elf_parts(table_image)
+    code=[]
+    for data,_ in callers:
+        _,_,sections=elf_parts(data)
+        code.extend((s[3],s[3]+s[5]) for s in sections if s[2]&6==6 and s[5])
+    def executable(pointer):return pointer%4==0 and any(lo<=pointer<hi for lo,hi in code)
+    def table_at(pointer):
+        segment=next((s for s in table_segments if s[0]==1 and s[2]<=pointer< pointer+16<=s[2]+s[4]),None)
+        if segment is None:return []
+        at=segment[1]+pointer-segment[2];limit=segment[1]+segment[4]
+        if table_image[at:at+8]!=bytes(8):return []
+        first=struct.unpack_from('<2I',table_image,at+8)
+        if not all(executable(value) for value in first):return []
+        result=[]
+        for offset in range(at+8,min(limit,at+8+1024),4):
+            value=struct.unpack_from('<I',table_image,offset)[0]
+            if not executable(value):break
+            result.append(value)
+        return result
+    tables=set()
+    for data,rows in callers:
+        _,segments,sections=elf_parts(data)
+        for row in rows:
+            lo,hi=int(row['Start'],0),int(row['End'],0)
+            if not any(s[2]&6==6 and s[3]<=lo<hi<=s[3]+s[5] for s in sections):continue
+            segment=next(s for s in segments if s[0]==1 and s[2]<=lo<hi<=s[2]+s[4])
+            constants={}
+            for pc in range(lo,hi,4):
+                word=struct.unpack_from('<I',data,segment[1]+pc-segment[2])[0]
+                op=word>>26;rs=(word>>21)&31;rt=(word>>16)&31;rd=(word>>11)&31;imm=word&65535
+                if op==0x2b and imm<=0x1000 and imm%4==0 and rt in constants:
+                    value,at=constants[rt]
+                    if pc-at<=64 and table_at(value):tables.add(value)
+                if op==15:
+                    constants[rt]=(imm<<16,pc)
+                elif op in (9,13) and rs in constants:
+                    value,at=constants[rs]
+                    value=(value+(imm-65536 if imm&32768 else imm))&0xffffffff if op==9 else value|imm
+                    constants[rt]=(value,at)
+                elif word==0 or op in (0x28,0x29,0x2b,0x1f,0x39,0x3f):
+                    pass # stores/nop do not modify the tracked CPU constants
+                elif op==0 and (word&63) not in (8,9):
+                    constants.pop(rd,None)
+                elif op==0x1c:
+                    constants.pop(rd,None)
+                elif op in (8,10,11,12,14,0x1e,0x20,0x21,0x23,0x24,0x25,0x27,0x37):
+                    constants.pop(rt,None)
+                else:
+                    constants.clear() # no speculation across calls/branches/COP operations
+                constants.pop(0,None)
+    return {target for table in tables for target in table_at(table)}
 
 
 def linked_call_entries(data,rows,targets,known=()):
@@ -258,27 +336,39 @@ def main():
         raise ValueError('invalid/duplicate image names')
     args.out.mkdir(parents=True, exist_ok=True)
     report = {}
+    inputs={}
     for name in names:
-        source = args.build/'elf'/f'{name}.elf'
-        data = source.read_bytes()
+        data=(args.build/'elf'/f'{name}.elf').read_bytes()
         with (args.build/'ghidra/export'/f'{name}_functions.csv').open(newline='') as stream:
-            rows = list(csv.DictReader(stream))
+            rows=list(csv.DictReader(stream))
+        rows+=overlay_entries(name,data)
+        inputs[name]=(data,rows)
+    vtable_references={}
+    for name,(data,rows) in inputs.items():
+        # Only this image's constructor stores nominate its virtual methods.
+        # The common images supply legal base-class code ranges, without their
+        # constructors nominating methods in an overlapping overlay.
+        shared=[(other,[]) for key,(other,_) in inputs.items() if key in ('main','mod001') and key!=name]
+        vtable_references[name]=literal_vtable_targets([(data,rows)]+shared,main_image)
+    common_references=set().union(*vtable_references.values())
+    for name,(data,rows) in inputs.items():
+        references=common_references if name in ('main','mod001') else vtable_references[name]
+        additions=linked_call_entries(data,rows,references,sdk_names(args.build/'sdk'/f'{name}.toml'))
+        rows+=additions
+        print(f'{name}: {len(additions)} static vtable entries exposed')
+    for name in names:
+        data,rows=inputs[name]
         if name == 'main':
             from vp2_bozo_kernel import game_entries,bootstrap_tables
             rows += game_entries(data)
             write_bootstrap=bootstrap_tables(data)
             (args.out/'bootstrap.bin').write_bytes(write_bootstrap)
             references=set()
-            for linked in names:
-                linked_data=(args.build/'elf'/f'{linked}.elf').read_bytes()
-                with (args.build/'ghidra/export'/f'{linked}_functions.csv').open(newline='') as stream:
-                    linked_rows=list(csv.DictReader(stream))
-                linked_rows += overlay_entries(linked,linked_data)
+            for linked_data,linked_rows in inputs.values():
                 references |= static_call_targets(linked_data,linked_rows)
             additions=linked_call_entries(data,rows,references,sdk_names(args.build/'sdk/main.toml'))
             rows += additions
             print(f'main: {len(additions)} statically linked entries exposed across input images')
-        rows += overlay_entries(name,data)
         prepared, metadata = prepare(data, rows, sdk_names(args.build/'sdk'/f'{name}.toml'))
         target = args.out/f'{name}.elf'
         if not target.exists() or target.read_bytes() != prepared:

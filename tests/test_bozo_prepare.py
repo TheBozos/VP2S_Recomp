@@ -6,7 +6,7 @@ import unittest
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]/'tools'))
-from vp2_bozo_prepare import EH, PH, SH, SY, elf_parts, load_identity, prepare, sdk_names,static_call_targets,linked_call_entries
+from vp2_bozo_prepare import EH, PH, SH, SY, elf_parts, load_identity, prepare, sdk_names,static_call_targets,linked_call_entries,literal_vtable_targets
 
 BASE = 0x100000
 
@@ -30,6 +30,40 @@ def fixture():
 
 
 class PrepareTests(unittest.TestCase):
+    def test_literal_vtable_stores_and_clobbers(self):
+        original,_=fixture();data=bytearray(original)
+        def word(at,value):struct.pack_into('<I',data,0x100+at,value)
+        # A constructor stores the vtable in a nonzero base-class subobject.
+        word(0,0x3c020010);word(4,0x24420040);word(8,0xac820010)
+        word(12,0x03e00008);word(16,0)
+        for at in (32,48):word(at,0x03e00008);word(at+4,0)
+        word(64,0);word(68,0);word(72,BASE+32);word(76,BASE+48);word(80,0)
+        rows=[dict(Name='constructor',Start=hex(BASE),End=hex(BASE+20))]
+        expected={BASE+32,BASE+48}
+        self.assertEqual(literal_vtable_targets([(data,rows)],data),expected)
+        # No raw scan of data/code; only admitted constructor instructions.
+        self.assertEqual(literal_vtable_targets([(data,[])],data),set())
+        for at,value in ((8,0),(4,0x8c820040),(4,0x0c040008),(64,1),(72,BASE+33),(76,BASE+0x10000)):
+            changed=bytearray(data);struct.pack_into('<I',changed,0x100+at,value)
+            with self.subTest(at=at,value=value):
+                self.assertEqual(literal_vtable_targets([(changed,rows)],changed),set())
+        additions=linked_call_entries(data,rows,expected)
+        output,_=prepare(data,rows+additions,{})
+        self.assertEqual(load_identity(output),load_identity(data))
+
+    def test_vtable_nomination_is_scoped_to_constructor_image(self):
+        original,_=fixture();table=bytearray(original)
+        for at,target in ((64,32),(96,40)):
+            struct.pack_into('<5I',table,0x100+at,0,0,BASE+target,BASE+target+16,0)
+        a=bytearray(table);b=bytearray(table)
+        for image,offset in ((a,64),(b,96)):
+            struct.pack_into('<5I',image,0x100,0x3c020010,0x24420000|offset,0xac820000,0x03e00008,0)
+        rows=[dict(Name='constructor',Start=hex(BASE),End=hex(BASE+20))]
+        # Overlapping address ranges do not give the other image's constructor
+        # permission to nominate methods for this image.
+        self.assertEqual(literal_vtable_targets([(a,rows),(b,[])],table),{BASE+32,BASE+48})
+        self.assertEqual(literal_vtable_targets([(b,rows),(a,[])],table),{BASE+40,BASE+56})
+
     def test_primary_labels_and_load_bytes(self):
         original, rows = fixture()
         output, info = prepare(original, rows, {})

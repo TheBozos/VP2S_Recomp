@@ -18,6 +18,7 @@ rows=[dict(Name='matrix',Start=hex(0x217598 if a.variant=='original' else 0x2175
       dict(Name='quaternion',Start=hex(0x216758 if a.variant=='original' else 0x216730),End='0x216780'),
       dict(Name='object_math',Start=hex(0x2496e8 if a.variant=='original' else 0x2495f4),End='0x249714'),
       dict(Name='object_update',Start=hex(0x24937c if a.variant=='original' else 0x249288),End='0x24938c')]
+if a.variant=='adapted':rows.append(dict(Name='component_product',Start='0x211da0',End='0x211dc0'))
 fixture,_=prepare(data,rows,{})
 sites=[];_,segments,_=elf_parts(data)
 if a.variant=='adapted':

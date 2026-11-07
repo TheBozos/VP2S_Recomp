@@ -9,6 +9,18 @@
 #include <stdexcept>
 namespace {
 void check(bool value){if(!value)throw std::runtime_error("native math ABI assertion failed");}
+// Independent exact rational multiplication and truncation of finite float32
+// operands. Test oracle only: no runtime arithmetic/CPU/VU implementation used.
+uint32_t exactProduct(uint32_t a,uint32_t b){
+    const auto sign=(a^b)&0x80000000u;const unsigned ea=(a>>23)&255,eb=(b>>23)&255;
+    if(!ea || !eb)return sign;
+    uint64_t product=uint64_t((a&0x7fffff)|0x800000)*((b&0x7fffff)|0x800000);
+    int exponent=int(ea)+int(eb)-127;unsigned shift=23;
+    if(product&(1ull<<47)){++exponent;++shift;}
+    if(exponent<=0)return sign;
+    if(exponent>=255)return sign|0x7f7fffffu;
+    return sign|uint32_t(exponent<<23)|uint32_t((product>>shift)&0x7fffff);
+}
 struct Host:bozo::ee::Host,bozo::port::Host {
     bozo::libs::Libraries &libraries()override{throw std::runtime_error("unexpected library request");}
     bool nativeGraphics()const override{return true;}
@@ -92,10 +104,39 @@ int main(){try{
         check(!std::memcmp(a.memory.flat(),b.memory.flat(),bozo::kFlatBytes));++cases;
     }
     auto &r=native.runtime();constexpr uint32_t object=0x180000;auto *p=r.memory.ram()+object;
+    std::memset(old.runtime().memory.flat(),0x79,bozo::kFlatBytes);
+    std::memcpy(r.memory.flat(),old.runtime().memory.flat(),bozo::kFlatBytes);
+    unsigned products=0;
+    for(unsigned sample=0;sample<262144;++sample){
+        uint32_t a[4],b[4],result[4];
+        for(unsigned lane=0;lane<4;++lane){
+            random=random*1664525u+1013904223u;
+            a[lane]=(random&0x807fffff)|(((random>>23)%255)<<23);
+            random=random*1664525u+1013904223u;
+            b[lane]=(random&0x807fffff)|(((random>>23)%255)<<23);
+            result[lane]=exactProduct(a[lane],b[lane]);++products;
+        }
+        for(auto *ram:{r.memory.ram(),old.runtime().memory.ram()}){
+            std::memcpy(ram+object+0x560,a,16);std::memcpy(ram+object+0x570,b,16);
+        }
+        std::memcpy(old.runtime().memory.ram()+object+0x580,result,16);
+        R5900Context c{};std::memset(c.vu0_vf,0xe2,sizeof(c.vu0_vf));c.vu0_status=0xabc;
+        c.r[4].uw[0]=object;c.r[31].uw[0]=0x170000;
+        c.r[3].ud[1]=c.r[5].ud[1]=c.r[6].ud[1]=0xabcdef1234567890ull;
+        auto expected=c;expected.r[3].ud[0]=object+0x580;expected.r[5].ud[0]=object+0x570;expected.r[6].ud[0]=object+0x560;expected.pc=0x170000;
+        const auto fp=_mm_getcsr();r.functions.generated(0x211da0)(r.memory.flat(),&c,&r);
+        check(_mm_getcsr()==fp && !std::memcmp(&c,&expected,sizeof(c)));
+        check(!std::memcmp(p+0x580,result,16));
+        if(sample%8192==0)check(!std::memcmp(r.memory.flat(),old.runtime().memory.flat(),bozo::kFlatBytes));
+    }
+    R5900Context invalid{};invalid.r[6].uw[0]=object+0x560;invalid.r[5].uw[0]=object+0x570;invalid.r[3].uw[0]=object+0x580;
+    const uint32_t nan=0x7fc00000;std::memcpy(p+0x560,&nan,4);uint32_t prior[4];std::memcpy(prior,p+0x580,16);
+    bool nonfiniteRejected=false;try{vp2s::nativeMathInstruction(r.memory.flat(),&invalid,&r,0x211dbc);}catch(const std::runtime_error &){nonfiniteRejected=true;}
+    check(nonfiniteRejected && !std::memcmp(prior,p+0x580,16));
     std::memset(p,0,0x54);uint32_t type=0x1591d0;std::memcpy(p,&type,4);
     R5900Context c{};c.r[4].uw[0]=object;const auto saved=c;
     check(vp2s::nativeMathInstruction(r.memory.flat(),&c,&r,0x29e1a0));check(!std::memcmp(&saved,&c,sizeof(c)) && p[0x50]==0);
     for(unsigned mode:{1u,128u,255u}){c.r[5].uw[0]=mode;bool rejected=false;try{vp2s::nativeMathInstruction(r.memory.flat(),&c,&r,0x29e1a0);}catch(const std::runtime_error &){rejected=true;}check(rejected);}
     c.r[5].uw[0]=0;p[0x50]=1;bool rejected=false;try{vp2s::nativeMathInstruction(r.memory.flat(),&c,&r,0x29e1a0);}catch(const std::runtime_error &){rejected=true;}check(rejected && p[0x50]==1);
-    std::printf("%u generated native matrix/quaternion ABI, working-memory and output-alias comparisons passed; no VU or device state\n",cases);return 0;
+    std::printf("%u generated native matrix/quaternion ABI cases and %u independently calculated component products passed; no VU or device state\n",cases,products);return 0;
 }catch(const std::exception &e){std::fprintf(stderr,"%s\n",e.what());return 1;}}

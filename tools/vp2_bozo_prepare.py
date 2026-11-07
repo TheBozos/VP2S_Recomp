@@ -152,17 +152,19 @@ def literal_vtable_targets(callers,table_image):
                     if pc-at<=64 and table_at(value):tables.add(value)
                 if op==15:
                     constants[rt]=(imm<<16,pc)
-                elif op in (9,13) and rs in constants:
-                    value,at=constants[rs]
-                    value=(value+(imm-65536 if imm&32768 else imm))&0xffffffff if op==9 else value|imm
+                elif op in (8,9,0x18,0x19,13) and (rs==0 or rs in constants):
+                    value,at=(0,pc) if rs==0 else constants[rs]
+                    value=(value+(imm-65536 if imm&32768 else imm))&0xffffffff if op!=13 else value|imm
                     constants[rt]=(value,at)
-                elif word==0 or op in (0x28,0x29,0x2b,0x1f,0x39,0x3f):
+                elif word==0 or op in (0x28,0x29,0x2a,0x2b,0x2c,0x2d,0x2e,0x1f,0x31,0x35,0x36,0x39,0x3d,0x3e,0x3f):
                     pass # stores/nop do not modify the tracked CPU constants
+                elif op==0 and word&63 in (12,13):
+                    constants.clear() # syscall/break has no delay-slot ABI
                 elif op==0 and (word&63) not in (8,9):
                     constants.pop(rd,None)
                 elif op==0x1c:
                     constants.pop(rd,None)
-                elif op in (8,10,11,12,14,0x1e,0x20,0x21,0x23,0x24,0x25,0x27,0x37):
+                elif op in (8,9,10,11,12,13,14,0x18,0x19,0x1a,0x1b,0x1e,0x20,0x21,0x22,0x23,0x24,0x25,0x26,0x27,0x37):
                     constants.pop(rt,None)
                 elif op in (1,2,3,4,5,6,7,20,21,22,23) or (op==0 and word&63 in (8,9)) or (op in (16,17,18) and rs==8):
                     # The delay instruction still sees the caller's constants;
@@ -170,6 +172,12 @@ def literal_vtable_targets(callers,table_image):
                     if op==3:constants.pop(31,None)
                     elif op==0 and word&63==9:constants.pop(rd,None)
                     clear_after=pc+8
+                elif op in (16,17,18) and rs in (0,1,2):
+                    constants.pop(rt,None) # move/control result into a CPU register
+                elif op in (16,17,18) and rs in (4,5,6):
+                    pass # CPU-to-coprocessor move
+                elif op in (17,18) and rs>=16:
+                    pass # arithmetic outside the CPU register file
                 else:
                     constants.clear() # no speculation across calls/branches/COP operations
                 constants.pop(0,None)

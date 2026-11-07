@@ -7,6 +7,35 @@ target, not a replacement DLL loaded into PS2Recomp.
 
 ## Build and evidence
 
+### Native component product and constructor constants (2026-11-07)
+
+The reached leaf `0x211da0` multiplies the four components of records at
+object `+0x560` and `+0x570` into `+0x580`. It now computes directly from those
+records, including its result store in the return delay slot. The whole body
+is fingerprinted. No vector bank, MAC flags or emulated instruction is supplied.
+The finite-input native path uses chop rounding, signed-zero/subnormal handling
+and restores host FP state; nonfinite inputs explicitly remain unqualified.
+The local PCSX2 reference config uses VU0 round mode 3 and denormals-as-zero;
+[PCSX2's arithmetic source](https://github.com/PCSX2/pcsx2/blob/master/pcsx2/VUops.cpp)
+was inspected for reference, with no code copied. This is not a new pixel-parity
+claim or a blanket qualification of exceptional floating-point inputs.
+
+An independent integer/rational oracle checks 1,048,576 finite scalar products,
+with complete generated CPU-context preservation and sampled full-RAM checks.
+The previous 320 matrix/quaternion/context cases still pass. The source read
+and native result are snapshotted before writes; invalid inputs do not change
+the destination.
+
+Another omitted UI type getter exposed a constant-propagation bug: unrelated
+ADDIU instructions invalidated all tracked constants. The offline scanner now
+tracks zero-source immediates and only invalidates actual CPU destinations;
+coprocessor moves/arithmetic and syscall boundaries have explicit rules. It
+continues to stop after control-flow delay slots. Nine metadata suites cover
+unrelated writes, true clobbers, null slots and overlay provenance. All 28 port
+suites pass. Current vtable additions are 8/1197/238 for main/mod001/mod002.
+Startup now reaches the menu's HBLANK control store at `0x36224c`, before its
+frame loop. No rendered scene or playable Logun-route qualification yet.
+
 ### Native object-update transform (2026-11-07)
 
 `0x249270` repeats the constructor's audited quaternion/position and scale

@@ -31,6 +31,28 @@ bool nativeMathInstruction(uint8_t *,R5900Context *c,Runtime *rt,uint32_t pc){
     const bool updating=pc>=0x2492ac && pc<=0x249378;
     if(updating)pc+=0x36c;
     switch(pc){
+    case 0x211dac:case 0x211db0:case 0x211db4:return true;
+    case 0x211dbc:{
+        __m128 a,b;
+        std::memcpy(&a,record(rt,c->r[6].uw[0],16),16);
+        std::memcpy(&b,record(rt,c->r[5].uw[0],16),16);
+        const auto exponent=_mm_set1_epi32(0x7f800000);
+        const auto ae=_mm_and_si128(_mm_castps_si128(a),exponent);
+        const auto be=_mm_and_si128(_mm_castps_si128(b),exponent);
+        if(_mm_movemask_epi8(_mm_or_si128(_mm_cmpeq_epi32(ae,exponent),_mm_cmpeq_epi32(be,exponent))))
+            throw std::runtime_error("nonfinite native component-product input is unqualified");
+        auto normal=[&](__m128 value){
+            const auto bits=_mm_castps_si128(value);
+            const auto tiny=_mm_cmpeq_epi32(_mm_and_si128(bits,exponent),_mm_setzero_si128());
+            return _mm_castsi128_ps(_mm_andnot_si128(_mm_and_si128(tiny,_mm_set1_epi32(0x7fffffff)),bits));
+        };
+        // Four independent game-record products, with the reference's chop /
+        // signed-zero policy. Host FP state and all vector-machine state stay
+        // outside this record API; no flags or instruction are executed.
+        music::CodecRounding rounding;
+        const auto result=normal(_mm_mul_ps(normal(a),normal(b)));
+        std::memcpy(record(rt,c->r[3].uw[0],16),&result,16);return true;
+    }
     case 0x249618:case 0x249620:case 0x249628:
     case 0x249664:case 0x249668:
     case 0x249678:case 0x24967c:case 0x249680:case 0x249684:

@@ -88,6 +88,15 @@ class PrepareTests(unittest.TestCase):
         nullable=bytearray(data)
         struct.pack_into('<5I',nullable,0x100+80,0,BASE+56,0,0,BASE+60)
         self.assertEqual(literal_vtable_targets([(nullable,rows)],nullable),expected|{BASE+56})
+        extended=[dict(Name='constructor',Start=hex(BASE),End=hex(BASE+24))]
+        for instruction in (0x2407fffb,0x44800000): # unrelated ADDIU / MTC1
+            interleaved=bytearray(data)
+            struct.pack_into('<4I',interleaved,0x108,instruction,0xac820010,0x03e00008,0)
+            self.assertEqual(literal_vtable_targets([(interleaved,extended)],interleaved),expected)
+        for instruction in (0x2402fffb,0x44020000,0x0000000c): # clobber v0 / MFC1 / syscall
+            interleaved=bytearray(data)
+            struct.pack_into('<4I',interleaved,0x108,instruction,0xac820010,0x03e00008,0)
+            self.assertEqual(literal_vtable_targets([(interleaved,extended)],interleaved),set())
 
     def test_vtable_nomination_is_scoped_to_constructor_image(self):
         original,_=fixture();table=bytearray(original)

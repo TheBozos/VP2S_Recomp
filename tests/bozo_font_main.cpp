@@ -99,9 +99,9 @@ int main(int argc,char **argv){try{
         const auto snapshot=now.fonts.font(object);check(snapshot && snapshot->atlas->key==vp2s::TextureKey{0x464b4e41,0});
         check(snapshot->atlas->picture()->rgba[255]==0x80332211);
         if(snapshot->background){bool rejected=false;try{now.fonts.publish(&y,1,object);}catch(const std::runtime_error &){rejected=true;}check(rejected);continue;}
-        p.r[4].ud[0]=buffer;p.r[5].ud[0]=0;p.r[17].ud[0]=object;p.r[29].ud[0]=0x1fff000;p.r[31].ud[0]=0x170000;q=p;
+        p.r[4].ud[0]=buffer;p.r[5].ud[0]=0;p.r[16].ud[0]=p.r[17].ud[0]=object;p.r[29].ud[0]=0x1fff000;p.r[31].ud[0]=0x170000;q=p;
         old.fonts.publish(&x,0x1ffefd0,object);
-        check(vp2s::nativeDebugFontInstruction(y.memory.flat(),&q,&y,0x362328)==false);
+        check(vp2s::nativeDebugFontInstruction(y.memory.flat(),&q,&y,seed&8?0x3d93f4:0x362328)==false);
         run(a,p,0x120eb0);old.fonts.returnFromFlush(0x1ffefd0);run(b,q,0x120eb0);
         check(!std::memcmp(ram,y.memory.flat(),bozo::kFlatBytes));
         check(p.cycles==q.cycles+old.enqueues*8 && p.checkpoints==q.checkpoints+old.enqueues);

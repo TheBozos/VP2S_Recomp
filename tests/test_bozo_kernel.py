@@ -49,6 +49,14 @@ class KernelGuardTests(unittest.TestCase):
             for pc in range(lo,hi,4):
                 changed=bytearray(data);changed[s[1]+pc-s[2]]^=1
                 with self.subTest(pc=hex(pc)),self.assertRaises(ValueError):overlay_adaptations('mod003',changed)
+
+    def test_field_debug_font_owner(self):
+        data=(IMAGE.parent/'mod003.elf').read_bytes();_,segments,_=elf_parts(data)
+        self.assertEqual(overlay_native_sites('mod003',data),'native 0x3d93f4\n')
+        lo,hi=0x3d93dc,0x3d9400;s=next(s for s in segments if s[0]==1 and s[2]<=lo<hi<=s[2]+s[4])
+        for pc in range(lo,hi,4):
+            changed=bytearray(data);changed[s[1]+pc-s[2]]^=1
+            with self.subTest(pc=hex(pc)),self.assertRaises(ValueError):overlay_native_sites('mod003',changed)
     @classmethod
     def setUpClass(cls):
         cls.data=IMAGE.read_bytes()

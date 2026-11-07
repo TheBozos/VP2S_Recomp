@@ -8,6 +8,18 @@ target, not a replacement DLL loaded into PS2Recomp.
 
 ## Build and evidence
 
+### Field debug-font state-only publication (2026-11-07)
+
+Mod003 `0x3d93f4` now attaches its debug-font flush to the same typed atlas,
+writer range and lifetime checks as the existing menu caller. Only the already
+accepted constructor's state prefix is admitted: appended glyphs/background
+still reject. Original scalar flush/bookkeeping remain, with no device job or
+fabricated completion. The initializer/flush CPU/RAM fixture now exercises both
+caller register conventions; font, signature and startup suites pass.
+
+Actual New Game passes this prefix-only writer and next rejects a separate
+child-projection matrix setup at common `0x207720`. Logun remains open.
+
 ### Native camera-position distance (2026-11-07)
 
 Mod003 `0x37b500..0x37b578` retains its scalar subtraction and publishes the

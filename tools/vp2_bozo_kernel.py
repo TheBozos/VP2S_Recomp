@@ -311,6 +311,7 @@ def overlay_adaptations(name,data):
                                (0x379228,0x37928c,'633fb2f7985a6967967d045de01711e611a139f1dcbd627455c7f060aea9273d'),
                                (0x410df0,0x410e50,'01f0ab9d247a3789f43323e8ee961cf30f4372e3c0d152471e6b32e89dbc32ef'),
                                (0x37b500,0x37b578,'7e6a36380abfc775a0388113d7bf0c9eca5fecc602e98a0ea43e0b071d0b47b4'),
+                               (0x3d93dc,0x3d9400,'f8fa0f2fe2b3f9889f704dfc20ca3806981c87fd37c7904b13e77c6cc7afc39c'),
                                (0x3d9230,0x3d925c,'60fa72c319ee92c05082ae3e1496caba1b37138f89c8e22411be03477740c5d8'),
                                (0x3d95ac,0x3d95b8,'e53ce69864c095f0410aa0422eb78527d3c44442b5a5f02312e8353d3e0cc3f7')):
             s=next(s for s in segments if s[0]==1 and s[2]<=lo<hi<=s[2]+s[4]);at=s[1]+lo-s[2]
@@ -583,6 +584,9 @@ def overlay_adaptations(name,data):
 
 
 def overlay_native_sites(name,data):
+    if name=='mod003':
+        overlay_adaptations(name,data)
+        return 'native 0x3d93f4\n'
     if name=='mod002':
         _,segments,_=elf_parts(data);lo,hi=0x3622e8,0x362338
         s=next(s for s in segments if s[0]==1 and s[2]<=lo<hi<=s[2]+s[4]);at=s[1]+lo-s[2]

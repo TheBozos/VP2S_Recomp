@@ -3,6 +3,8 @@
 #include "bozo/port.h"
 #include "ui_text_original_functions.h"
 #include "ui_text_adapted_functions.h"
+#include "ui_glyph_original_functions.h"
+#include "ui_glyph_adapted_functions.h"
 #include <cstring>
 #include <cstdio>
 #include <source_location>
@@ -39,8 +41,8 @@ struct Host:bozo::ee::Host,bozo::port::Host,vp2s::UiTextOwner,vp2s::AssetOwner {
     bool cop0Condition(bozo::ee::Dispatcher &,R5900Context *)override{throw std::runtime_error("device completion");}
     void fault(bozo::ee::Dispatcher &,R5900Context *,const std::string &why)override{throw std::runtime_error(why);}
 };
-void run(bozo::ee::Dispatcher &d,R5900Context &c){
-    auto fn=d.runtime().functions.generated(0x2e74f0);unsigned attempts=0;
+void run(bozo::ee::Dispatcher &d,R5900Context &c,uint32_t entry=0x2e74f0){
+    auto fn=d.runtime().functions.generated(entry);unsigned attempts=0;
     while(true){try{fn(d.runtime().memory.flat(),&c,&d.runtime());if(c.pc==0x170000)break;}catch(const Host::Pause &){}
         check(++attempts<20);auto entry=d.runtime().functions.resumeEntry(c.pc);check(entry);fn=entry->resume;}
 }
@@ -98,5 +100,46 @@ int main(int argc,char **argv){try{
     after.texts.release(object);put(rt,object,0x15a690u);
     rejects([&]{after.texts.enter(&rt,stack,object,0,0);});
     check(!after.texts.outstanding());
-    std::puts("64 full text-emitter CPU/RAM/callback cases: empty/control/inline/glyph items, setup mutation, nested resume, source release and immutable text lifetime; no native layer draw yet");return 0;
+    const auto geometry=(std::filesystem::path(argv[1])/"geometry").string();Host glyphBefore(geometry.c_str()),glyphAfter(geometry.c_str());
+    bozo::ee::Dispatcher originalGlyph(glyphBefore),nativeGlyph(glyphAfter);
+    originalGlyph.setFunctions(ui_glyph_original_function_table,ui_glyph_original_function_count,ui_glyph_original_resume_table,ui_glyph_original_resume_count);
+    nativeGlyph.setFunctions(ui_glyph_adapted_function_table,ui_glyph_adapted_function_count,ui_glyph_adapted_resume_table,ui_glyph_adapted_resume_count);
+    for(auto *d:{&originalGlyph,&nativeGlyph})d->boot(0x2e7e90,0x1fff000);
+    originalGlyph.runtime().port=&glyphBefore;nativeGlyph.runtime().port=&glyphAfter;
+    for(unsigned seed=0;seed<64;++seed){
+        auto &a=originalGlyph.runtime(),&b=nativeGlyph.runtime();std::memset(a.memory.flat(),0,bozo::kFlatBytes);
+        constexpr uint32_t layer=0x1b1000,font=0x1b0000,source=0x180000,manager=0x1e0000,glyphStack=0x1fff000;
+        put(a,object,0x15a450u);put(a,object+0x14,layer);put(a,object+0x18,2.25f);put(a,object+0x1c,3.5f);
+        put(a,object+0x78,1.f);put(a,object+0x7c,2.f);put(a,object+0x28,64.f);put(a,object+0x90,64.f);
+        put(a,object+0x2c,10u);put(a,object+0x58,0x1c0000u);put(a,object+0x60,0x1d0000u);put(a,object+0x5c,0x1d0000u);
+        put(a,layer+0x40,10.f);put(a,layer+0x44,20.f);put(a,layer+0xe0,128.f);put(a,layer+0xc4,0xffff00u);
+        put(a,0x35e170,manager);put(a,manager+0x840,16.f);put(a,manager+0x844,8.f);
+        put(a,manager+0x848,27648.f);put(a,manager+0x84c,29184.f);put(a,manager+0x850,16u);put(a,manager+0x854,32u);
+        put(a,font,source);put(a,font+0x10,source+0x80);put(a,font+0x14,4u);put(a,font+0x18,2u);
+        put(a,font+0x1c,6u);put(a,font+0x20,18u);put(a,font+0x24,6u);put(a,font+0x28,6u);put(a,font+0x2c,1u);
+        put(a,items,float(seed)/8);put(a,items+4,float(seed)/4);put(a,items+8,float(seed)/8+3);put(a,items+12,float(seed)/4+4);
+        put(a,items+0x10,0.5f);put(a,items+0x14,1.f);put(a,items+0x18,font);put(a,items+0x1c,3u);
+        put(a,items+0x20,0x80203040u);put(a,items+0x24,seed%3);put(a,items+0x28,0x80102030u);put(a,items+0x2c,uint16_t(0x21));put(a,items+0x2e,uint16_t(seed&1));
+        std::memcpy(b.memory.flat(),a.memory.flat(),bozo::kFlatBytes);
+        glyphAfter.assets={};glyphAfter.assets.discRead(0x170000,1,0x21551000/2048);glyphAfter.assets.begin(1,0x170000,source,0);glyphAfter.assets.finish(1,true,0xb0);
+        auto &texts=glyphAfter.texts;texts.enter(&b,glyphStack,object,items,1);texts.activate(glyphStack,object,items,1);
+        texts.capture(&b,glyphAfter.glyphs,glyphAfter.assets,glyphStack,object,items,0,false);
+        R5900Context x{},y{};x.r[4].ud[0]=object;x.r[5].ud[0]=items;x.r[29].ud[0]=glyphStack;x.r[31].ud[0]=0x170000;y=x;
+        run(originalGlyph,x,0x2e7e90);run(nativeGlyph,y,0x2e7e90);x.cycleLimit=y.cycleLimit;
+        check(!std::memcmp(&x,&y,sizeof(x)) && !std::memcmp(a.memory.flat(),b.memory.flat(),bozo::kFlatBytes));
+        texts.finish(glyphStack,object);auto held=texts.text(object);const auto &g=held->glyphs.at(0);const auto &p=g.placement;
+        if(!g.placed || p.fixedBox!=std::array<int32_t,4>{27820+int(seed)*2,29348+int(seed)*2,27884+int(seed)*2,29396+int(seed)*2})
+            std::fprintf(stderr,"seed=%u placed=%u box=%d,%d,%d,%d\n",seed,g.placed,p.fixedBox[0],p.fixedBox[1],p.fixedBox[2],p.fixedBox[3]);
+        check(g.placed && p.fixedBox==std::array<int32_t,4>{27820+int(seed)*2,29348+int(seed)*2,27884+int(seed)*2,29396+int(seed)*2});
+        if(p.depth!=0xffff0a || p.colour!=0x40101820 || p.shadowColour!=(seed%3?0x40081018u:0u))
+            std::fprintf(stderr,"seed=%u depth=%x colour=%08x shadow=%08x\n",seed,p.depth,p.colour,p.shadowColour);
+        check(p.depth==0xffff0a && p.colour==0x40101820 && p.shadowColour==(seed%3?0x40081018u:0u));
+        check(p.fixedShadowOffset==std::array<int32_t,2>{seed%3==1?16:0,seed%3==1?32:0});
+        const auto vertices=vp2s::nativeUiGlyphVertices(g,false);
+        check(vertices[0].x==float(27820+seed*2)/16 && vertices[0].y==float(29348+seed*2)/16 && vertices[4].z==float(0xffff0a));
+        check(vertices[0].u==0.5f/8 && vertices[0].v==0.5f/8 && vertices[4].u==4.5f/8 && vertices[4].v==5.5f/8);
+        if(g.shadow){const auto shadow=vp2s::nativeUiGlyphVertices(g,true);check(shadow[0].z==float(0xffff09) && shadow[0].rgba==p.shadowColour && shadow[0].x==vertices[0].x+(seed%3==1?1.f:0.f));}
+        std::memset(b.memory.flat()+items,0xee,0x30);check(vp2s::nativeUiGlyphVertices(g,false)[0].x==vertices[0].x);texts.release(object);
+    }
+    std::puts("64 full text-emitter CPU/RAM/callback cases plus64 original scalar glyph CPU/RAM cases: immutable lifetime, fixed-point placement, colour/alpha, shadow depth/offset and half-texel UVs; no native layer draw yet");return 0;
 }catch(const std::exception &e){std::fprintf(stderr,"%s\n",e.what());return 1;}}

@@ -7,6 +7,22 @@ target, not a replacement DLL loaded into PS2Recomp.
 
 ## Build and evidence
 
+### Original scalar glyph placement (2026-11-07)
+
+The native text snapshot now also observes `0x2e83e4` in the fully compiled
+`0x2e7e90` glyph routine. At that point the original CPU algorithm has completed
+its FPU rounding, fixed-point positions, layer/element alpha, RGB multiplier,
+shadow offset and depth calculation. Native code copies those scalar results;
+it does not decode the routine's transport buffers or replace the rounding with
+an approximation. Geometry uses the original half-texel inset and each converted
+cell's padded dimensions. Unknown UV extents, depth and coordinate ranges reject.
+
+An additional 64 whole original/adapted glyph CPU/RAM comparisons exercise the
+complete scalar routine, all three shadow modes and varied boxes. Independent
+numeric checks verify position, colour, depth, shadow offset and UVs. All 44 local
+suites pass. Actual boot accepts placement for all 171 initial glyphs and still
+stops at the guarded layer producer. No layer submission or presentation yet.
+
 ### Text-item allocation lifetime (2026-11-07)
 
 The original `0x2efba0` text builder frees its layout-item array after calling

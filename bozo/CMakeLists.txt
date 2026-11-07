@@ -177,11 +177,18 @@ if(VP2S_BOZO_CODE)
         --files 1 --externals "${UI_TEXT_DIR}/externals.txt" --no-comments
       DEPENDS bozo-recomp "${VP2S_ROOT}/tools/vp2_bozo_ui_text_fixture.py" "${VP2S_ROOT}/tools/vp2_bozo_kernel.py" "${VP2S_BOZO_DATA}/images/mod001.elf")
     list(APPEND UI_TEXT_SOURCES "${UI_TEXT_DIR}/ui_text_${VARIANT}_000.cpp" "${UI_TEXT_DIR}/ui_text_${VARIANT}_table.cpp")
+    set(UI_GLYPH_DIR "${UI_TEXT_REF}/glyph_${VARIANT}")
+    add_custom_command(OUTPUT "${UI_GLYPH_DIR}/ui_glyph_${VARIANT}_000.cpp" "${UI_GLYPH_DIR}/ui_glyph_${VARIANT}_table.cpp" "${UI_GLYPH_DIR}/ui_glyph_${VARIANT}_functions.h"
+      COMMAND ${Python3_EXECUTABLE} "${VP2S_ROOT}/tools/vp2_bozo_ui_text_fixture.py" "${VP2S_BOZO_DATA}/images/mod001.elf" "${UI_GLYPH_DIR}" --build "${VP2S_BOZO_DATA}/.." --variant ${VARIANT} --glyph
+      COMMAND $<TARGET_FILE:bozo-recomp> "${UI_GLYPH_DIR}/fixture.elf" "${UI_GLYPH_DIR}" --prefix ui_glyph_${VARIANT} --symbol-prefix ui_glyph_${VARIANT}_
+        --files 1 --externals "${UI_GLYPH_DIR}/externals.txt" --no-comments
+      DEPENDS bozo-recomp "${VP2S_ROOT}/tools/vp2_bozo_ui_text_fixture.py" "${VP2S_ROOT}/tools/vp2_bozo_kernel.py" "${VP2S_BOZO_DATA}/images/mod001.elf")
+    list(APPEND UI_TEXT_SOURCES "${UI_GLYPH_DIR}/ui_glyph_${VARIANT}_000.cpp" "${UI_GLYPH_DIR}/ui_glyph_${VARIANT}_table.cpp")
   endforeach()
   add_executable(vp2s-bozo-ui-text-check "${VP2S_ROOT}/tests/bozo_ui_text_main.cpp" ${UI_TEXT_SOURCES})
   add_dependencies(vp2s-bozo-ui-text-check vp2s-bozo-glyph-fixture)
-  target_include_directories(vp2s-bozo-ui-text-check PRIVATE "${UI_TEXT_REF}/original" "${UI_TEXT_REF}/adapted")
-  target_link_libraries(vp2s-bozo-ui-text-check PRIVATE vp2s_bozo_kernel)
+  target_include_directories(vp2s-bozo-ui-text-check PRIVATE "${UI_TEXT_REF}/original" "${UI_TEXT_REF}/adapted" "${UI_TEXT_REF}/glyph_original" "${UI_TEXT_REF}/glyph_adapted")
+  target_link_libraries(vp2s-bozo-ui-text-check PRIVATE vp2s_bozo_kernel bozo_render)
   if(MINGW)
     target_link_options(vp2s-bozo-ui-text-check PRIVATE -static)
   endif()

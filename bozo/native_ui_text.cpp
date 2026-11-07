@@ -49,7 +49,37 @@ void NativeUiTexts::capture(Runtime *rt,NativeGlyphs &glyphs,const NativeAssets 
         if(result.shadowMode)result.shadow=result.font->picture(result.index,result.shadowMode==1?1:2);
         build.text.glyphs.push_back(std::move(result));
     }
-    build.last=index;build.hasLast=true;
+    build.last=index;build.hasLast=true;build.lastIsGlyph=!image;
+}
+void NativeUiTexts::place(uint32_t stack,uint32_t element,const NativeUiGlyphPlacement &placement){
+    auto &build=builds.at(stack);
+    if(!build.active || build.text.element!=element || !build.lastIsGlyph || build.text.glyphs.empty() || build.text.glyphs.back().placed)
+        throw std::runtime_error("native glyph placement escaped its original CPU callback");
+    for(auto p:placement.fixedBox)if(p<0 || p>65535)throw std::runtime_error("native glyph position outside admitted fixed-point range");
+    for(unsigned i=0;i<4;++i){
+        const auto shifted=int64_t(placement.fixedBox[i])+placement.fixedShadowOffset[i&1];
+        if(shifted<0 || shifted>65535)throw std::runtime_error("native glyph shadow outside admitted fixed-point range");
+    }
+    if(placement.depth>0xffffff)throw std::runtime_error("native glyph depth outside admitted range");
+    auto &glyph=build.text.glyphs.back();
+    if(uint64_t(glyph.cellWidth)+2*glyph.font->border>glyph.font->width || uint64_t(glyph.font->lineHeight)+2*glyph.font->border>glyph.font->height)
+        throw std::runtime_error("native glyph UV extent exceeds its converted cell");
+    glyph.placement=placement;glyph.placed=true;
+}
+std::array<bozo::render::Vertex,6> nativeUiGlyphVertices(const NativeUiGlyph &glyph,bool shadow){
+    if(!glyph.placed || (shadow && !glyph.shadow))throw std::runtime_error("native glyph has no completed placement/picture");
+    const auto &p=glyph.placement;
+    const bool right[6]={false,true,false,true,true,false},bottom[6]={false,false,true,false,true,true};
+    std::array<bozo::render::Vertex,6> vertices;
+    for(unsigned i=0;i<6;++i){
+        auto &v=vertices[i];
+        v.x=(float(p.fixedBox[right[i]?2:0])+(shadow?float(p.fixedShadowOffset[0]):0.f))/16.f;
+        v.y=(float(p.fixedBox[bottom[i]?3:1])+(shadow?float(p.fixedShadowOffset[1]):0.f))/16.f;
+        v.z=float(shadow?(p.depth-1)&0xffffff:p.depth);v.rgba=shadow?p.shadowColour:p.colour;
+        v.u=(right[i]?float(glyph.cellWidth+2*glyph.font->border)-0.5f:0.5f)/glyph.picture->width;
+        v.v=(bottom[i]?float(glyph.font->lineHeight+2*glyph.font->border)-0.5f:0.5f)/glyph.picture->height;
+    }
+    return vertices;
 }
 void NativeUiTexts::finish(uint32_t stack,uint32_t element){
     auto it=builds.find(stack);if(it==builds.end() || !it->second.active || it->second.text.element!=element)
@@ -66,7 +96,7 @@ std::shared_ptr<const NativeUiText> NativeUiTexts::text(uint32_t element)const{
     auto it=texts.find(element);return it==texts.end()?nullptr:it->second;
 }
 std::optional<bool> nativeUiTextInstruction(R5900Context *c,Runtime *rt,uint32_t pc){
-    if(pc!=0x2e74f0 && pc!=0x2e7520 && pc!=0x2e7550 && pc!=0x2e757c && pc!=0x2e75a0 && pc!=0x2f0de0)return std::nullopt;
+    if(pc!=0x2e74f0 && pc!=0x2e7520 && pc!=0x2e7550 && pc!=0x2e757c && pc!=0x2e75a0 && pc!=0x2f0de0 && pc!=0x2e83e4)return std::nullopt;
     auto *d=rt?dynamic_cast<bozo::ee::Dispatcher *>(rt->services):nullptr;
     auto *owner=d?dynamic_cast<UiTextOwner *>(&d->host()):nullptr;
     auto *assets=d?dynamic_cast<AssetOwner *>(&d->host()):nullptr;
@@ -78,6 +108,14 @@ std::optional<bool> nativeUiTextInstruction(R5900Context *c,Runtime *rt,uint32_t
     }else if(pc==0x2f0de0){
         if(c->pc!=pc)throw std::runtime_error("native text release requires its destructor entry");
         if(c->r[4].uw[0]){type(rt,c->r[4].uw[0]);texts.release(c->r[4].uw[0]);}
+    }else if(pc==0x2e83e4){
+        // Original scalar layout has finished its FPU rounding and RGB/alpha
+        // calculation. Observe those game-code results, never packet contents.
+        NativeUiGlyphPlacement p;
+        p.fixedBox={c->r[16].sw[0],c->r[25].sw[0],c->r[24].sw[0],c->r[15].sw[0]};
+        p.fixedShadowOffset={c->r[14].sw[0],c->r[13].sw[0]};
+        p.depth=c->r[6].uw[0];p.colour=c->r[8].uw[0]|c->r[3].uw[0];p.shadowColour=c->r[9].uw[0];
+        texts.place(sp+0x80,c->r[4].uw[0],p);
     }else if(pc==0x2e7520)texts.activate(sp,c->r[19].uw[0],c->r[18].uw[0],c->r[17].sw[0]);
     else if(pc==0x2e75a0)texts.finish(sp,c->r[19].uw[0]);
     else{

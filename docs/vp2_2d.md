@@ -19,6 +19,13 @@ frees their array. Immutable snapshots survive array release/rebuild/destruction
 64 whole CPU/RAM/callback cases cover that capture. Native layer drawing remains
 pending; the resource conversion and capture alone do not render the UI.
 
+Bozo additionally observes the original scalar glyph routine at `0x2e83e4`,
+after its FPU rounding and colour/depth calculations. Native vertices retain
+12.4 coordinates divided by 16, shadow offsets and depth, and the original
+half-texel UV inset. Another 64 whole glyph CPU/RAM cases check the observation
+and numerical results. Placement is captured at build time, matching the game's
+cached geometry rather than re-evaluating live layout values during submission.
+
 ### Bozo texture alpha (2026-11-07)
 
 Native texture pictures preserve the game's 0x80-scale alpha. The frame shader

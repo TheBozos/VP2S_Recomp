@@ -44,4 +44,11 @@ if __name__=='__main__':
         for directory,data in (('bad_header',b'WRONG000'+packed[8:]),('bad_size',packed[:-4]),('extra',packed+b'x')):
             child=root/directory;child.mkdir(exist_ok=True);(child/name).write_bytes(data);(child/'manifest.txt').write_text(text)
         child=root/'bad_manifest';child.mkdir(exist_ok=True);(child/'manifest.txt').write_text('VPGFM1\n21551000 0 80 ../wrong.vpg\n')
+        geometry=root/'geometry';geometry.mkdir(exist_ok=True)
+        data=bytearray(0xb0);data[:8]=b'mcps2lib';struct.pack_into('<I',data,0x20,len(data))
+        struct.pack_into('<8I',data,0x30,0x80,2,6,18,4,6,6,1)
+        data[0x80:0xa4]=bytes([0x21]*36)
+        packed=convert(data,[0x20000000+i for i in range(256)])
+        name='g_'+hashlib.sha1(packed).hexdigest()+'.vpg';(geometry/name).write_bytes(packed)
+        (geometry/'manifest.txt').write_text(f'VPGFM1\n21551000 0 80 {name}\n')
     else:unittest.main()

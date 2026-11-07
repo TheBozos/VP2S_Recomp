@@ -273,6 +273,10 @@ bool noNativeInstruction(uint8_t *ram,R5900Context *ctx,Runtime *rt,uint32_t pc)
                         if(at<0x100000 || at>0x2000000-4 || !p)throw std::runtime_error("UI metadata diagnostic outside EE RAM");
                         std::memcpy(&v,p,4);return v;};
                     std::fprintf(stderr,"[vp2s:UI] layer=%x type=%x kind=%x first=%x\n",layer,word(layer),word(layer+0x10),word(layer+8));
+                    const auto current=word(0x35ddf8);
+                    std::fprintf(stderr,"[vp2s:UI] object type=%x job=%x pass=%u pending=%x,%x flags=%x control=%x\n",
+                        word(layer+0x20),word(layer+0xb0),unsigned(*rt->memory.hostPointer(layer+0x85,1)),
+                        word(current+0x40a8),word(current+0x40ac),word(current+0x40dc),word(layer+0xc8));
                     std::array<uint32_t,16> seen{};auto element=word(layer+8);
                     for(unsigned i=0;i<seen.size() && element && element!=layer;++i){
                         if(std::find(seen.begin(),seen.begin()+i,element)!=seen.begin()+i)break;seen[i]=element;

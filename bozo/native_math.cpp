@@ -32,6 +32,17 @@ bool nativeMathInstruction(uint8_t *,R5900Context *c,Runtime *rt,uint32_t pc){
         return true;
     }
     switch(pc){
+    case 0x20f8fc:case 0x20f900:case 0x20f904:return true;
+    case 0x20f908:{
+        __m128 left,right;std::memcpy(&left,record(rt,c->r[5].uw[0],16),16);std::memcpy(&right,record(rt,c->r[4].uw[0],16),16);
+        auto normal=[](__m128 v){const auto bits=_mm_castps_si128(v);
+            const auto tiny=_mm_cmpeq_epi32(_mm_and_si128(bits,_mm_set1_epi32(0x7f800000)),_mm_setzero_si128());
+            return _mm_castsi128_ps(_mm_andnot_si128(_mm_and_si128(tiny,_mm_set1_epi32(0x7fffffff)),bits));};
+        auto finite=[](__m128 v){const auto exponent=_mm_and_si128(_mm_castps_si128(v),_mm_set1_epi32(0x7f800000));
+            if(_mm_movemask_epi8(_mm_cmpeq_epi32(exponent,_mm_set1_epi32(0x7f800000))))throw std::runtime_error("unqualified native light-colour product");};
+        finite(left);finite(right);const auto result=normal(_mm_mul_ps(normal(left),normal(right)));finite(result);
+        std::memcpy(record(rt,c->r[3].uw[0],16),&result,16);return true;
+    }
     case 0x208430:case 0x208434:case 0x208438:case 0x20843c:
     case 0x208440:case 0x208444:case 0x208448:case 0x20844c:return true;
     case 0x208450:{

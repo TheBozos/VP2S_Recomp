@@ -109,6 +109,11 @@ struct Host:bozo::ee::Host,bozo::port::Host {
         // The already qualified sine/cosine owner is a retained callee. Only
         // the new builder's matrix product uses the independent equations.
         if(vp2s::nativeTrigInstruction(r,c,rt,pc))return true;
+        if(pc==0x20f908){float left[4],right[4],result[4];
+            std::memcpy(left,rt->memory.hostPointer(c->r[5].uw[0],16),16);std::memcpy(right,rt->memory.hostPointer(c->r[4].uw[0],16),16);
+            for(unsigned i=0;i<4;++i)result[i]=mul(normal(left[i]),normal(right[i]));
+            std::memcpy(rt->memory.hostPointer(c->r[3].uw[0],16),result,16);
+        }
         if(pc==0x208450){float result[4];std::memcpy(result,rt->memory.hostPointer(c->r[6].uw[0],16),16);
             for(unsigned i=0;i<3;++i)result[i]=mul(result[i],result[i]);
             const float squared=add(add(result[0],result[1]),mul(1,result[2]));volatile float length=std::sqrt(squared);result[0]=add(0,length);
@@ -347,6 +352,19 @@ int main(){try{
         check(_mm_getcsr()==expectedControl && !std::memcmp(&p,&q,sizeof(p)) && !std::memcmp(x.memory.flat(),y.memory.flat(),bozo::kFlatBytes));++cases;
     }
     _mm_setcsr(saved);check(old.sites==now.sites && now.sites.size()==367);
+    for(unsigned mode:{_MM_ROUND_NEAREST,_MM_ROUND_DOWN,_MM_ROUND_UP,_MM_ROUND_TOWARD_ZERO})for(unsigned seed=0;seed<64;++seed){
+        auto &x=a.runtime(),&y=b.runtime();std::memset(x.memory.flat(),0x37,bozo::kFlatBytes);
+        constexpr uint32_t object=0x180000;const uint32_t stack=seed&1?0x70003f00:0x1fff000;
+        for(unsigned i=0;i<4;++i){put<float>(x.memory.flat(),object+0x320+i*4,(seed%8==0?1.e-20f:1.f)*float(int((seed+i)%17)-8)/4);
+            put<float>(x.memory.flat(),object+0x330+i*4,(seed%8==0?1.e-20f:1.f)*float(int((seed+i)%11)-5)/8);}
+        const uint64_t target=0x170000;std::memcpy(x.memory.hostPointer(stack+0x50,8),&target,8);
+        std::memcpy(y.memory.flat(),x.memory.flat(),bozo::kFlatBytes);
+        R5900Context p{},q{};p.r[19].ud[0]=object;p.r[29].ud[0]=stack;std::memset(p.vu0_vf,0x6a,sizeof(p.vu0_vf));q=p;
+        const unsigned control=(saved&~(_MM_ROUND_MASK|0x8040|0x3f))|mode|(seed&1?0x8040:0);
+        _mm_setcsr(control);run(a,p,0x20f8f0);const unsigned expectedControl=_mm_getcsr();_mm_setcsr(control);run(b,q,0x20f8f0);
+        check(_mm_getcsr()==expectedControl && !std::memcmp(&p,&q,sizeof(p)) && !std::memcmp(x.memory.flat(),y.memory.flat(),bozo::kFlatBytes));++cases;
+    }
+    _mm_setcsr(saved);check(old.sites==now.sites && now.sites.size()==371);
     bool badProjection=false;try{vp2s::math::cameraProjectedPoint(vp2s::math::Matrix{},_mm_set1_ps(1));}catch(const std::runtime_error &){badProjection=true;}check(badProjection);
     vp2s::math::Matrix invalid{};invalid[0]=_mm_setr_ps(std::bit_cast<float>(1u),0,0,0);bool badColumns=false;
     try{vp2s::math::normalizedMatrixColumns(invalid);}catch(const std::runtime_error &){badColumns=true;}check(badColumns);
@@ -355,5 +373,5 @@ int main(){try{
     const auto identity=vp2s::objectWorld(input);check(!std::memcmp(identity.world.data(),input.attachment.data(),64));
     input.quaternion=_mm_setr_ps(std::bit_cast<float>(1u),0,0,1);bool rejected=false;
     try{vp2s::objectWorld(input);}catch(const std::runtime_error &){rejected=true;}check(rejected);
-    std::printf("%u generated world/inverse CPU/RAM and scalar matrix comparisons; aliases, FP modes, tiny terms and resumed callbacks passed\n",cases);return 0;
+    std::printf("%u generated game-record CPU/RAM and scalar math comparisons; aliases, FP modes, tiny terms and resumed callbacks passed\n",cases);return 0;
 }catch(const std::exception &e){std::fprintf(stderr,"%s\n",e.what());return 1;}}

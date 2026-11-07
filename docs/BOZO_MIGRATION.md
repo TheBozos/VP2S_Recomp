@@ -7,6 +7,18 @@ target, not a replacement DLL loaded into PS2Recomp.
 
 ## Build and evidence
 
+### Native final light-colour product (2026-11-07)
+
+Four vector sites at the end of fingerprinted `0x20f440` now multiply the
+four-component records at object `+0x320/+0x330` directly and publish `+0x340`.
+Caller FP mode and signed-zero/tiny-result handling remain; nonfinite input or
+overflow rejects. The preceding scalar light collection/interpolation stays
+compiled. 256 CPU-tail/RAM cases compare independent scalar products, saved
+register/FPU restoration, scratchpad stack, all FP modes and FTZ/DAZ. This tail
+fixture does not newly qualify preceding light branches. Combined: 2,112 cases
+/ 371 sites. Boot passes the product and reaches `0x207cc8`, the camera frustum
+publication routine. Native drawing and the Logun route remain open.
+
 ### Native camera target-distance record (2026-11-07)
 
 Nine vector sites in fingerprinted `0x208360` now compute the scalar-built

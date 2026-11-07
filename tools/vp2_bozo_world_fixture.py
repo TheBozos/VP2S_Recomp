@@ -14,6 +14,7 @@ rows.extend([dict(Name='frame_builder',Start='0x213b50',End='0x213e9c'),dict(Nam
 rows.append(dict(Name='matrix_angles',Start='0x216960',End='0x216a60'))
 rows.append(dict(Name='camera_frustum',Start='0x207d70',End='0x2081c8'))
 rows.append(dict(Name='camera_distance',Start='0x208360',End='0x208470'))
+rows.append(dict(Name='light_colour_product_tail',Start='0x20f8f0',End='0x20f938'))
 rows.extend([dict(Name='camera_builder',Start='0x208cd0',End='0x2091d8'),dict(Name='transpose',Start='0x216a60',End='0x216ad0'),dict(Name='guard_projection',Start='0x2176c0',End='0x2177b8'),dict(Name='projection',Start='0x2177c0',End='0x2178a8'),dict(Name='screen_projection',Start='0x217b10',End='0x217b68'),dict(Name='identity',Start='0x217cd0',End='0x217cf8')])
 fixture,_=prepare(data,rows,{})
 _,segments,_=elf_parts(data)

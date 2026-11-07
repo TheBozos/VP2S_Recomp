@@ -7,6 +7,25 @@ target, not a replacement DLL loaded into PS2Recomp.
 
 ## Build and evidence
 
+### Native camera projection records (2026-11-07)
+
+The fingerprinted `0x208cd0` owner now derives its projected-depth point from
+the screen matrix at camera `+0x330` and the original stack point. It needs no
+matrix/vector state across the intervening compiled scalar projection builder.
+The transposition's zero arithmetic, truncating weighted sums and reciprocal W
+remain explicit record mathematics. Invalid inputs/divisors reject. Its final
+view composition separately uses caller-mode ordered products, with both inputs
+snapped before writing the camera output. 37 vector sites retire in total.
+
+256 new complete CPU/RAM cases exercise the ordinary dirty-camera route, both
+depth-scale choices, scratchpad stacks, in-place final composition, all FP
+modes/FTZ/DAZ and resumed scalar callbacks. Independent scalar equations qualify
+the new numeric results. Identical virtual/tangent/final-update fixture callbacks
+isolate this owner; recursive target tracking and the final camera-update callee
+are not newly qualified by that fixture. Total: 1,344 cases / 177 retired sites.
+Production boot passes the owner and reaches `0x207d78` in the actual final
+camera-update callee. Native scene rendering and Logun remain open.
+
 ### Native matrix-column normalization (2026-11-07)
 
 The fingerprinted `0x216960` angle-extraction owner now normalizes its matrix's

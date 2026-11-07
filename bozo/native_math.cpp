@@ -30,6 +30,29 @@ bool nativeMathInstruction(uint8_t *,R5900Context *c,Runtime *rt,uint32_t pc){
         return true;
     }
     switch(pc){
+    case 0x208f64:case 0x208f68:case 0x208f6c:case 0x208f70:
+    case 0x208f7c:case 0x208fb0:case 0x208fbc:return true;
+    case 0x209020:c->r[9].ud[0]=0;return true;
+    case 0x209028:{
+        math::Matrix screen;__m128 point;
+        std::memcpy(screen.data(),record(rt,c->r[16].uw[0]+0x330,64),64);
+        auto *destination=record(rt,c->r[2].uw[0],16);std::memcpy(&point,destination,16);
+        const auto result=math::cameraProjectedPoint(screen,point);std::memcpy(destination,&result,16);return true;
+    }
+    case 0x2090f8:case 0x2090fc:case 0x209100:case 0x209104:
+    case 0x209108:case 0x20910c:case 0x209110:case 0x209114:
+    case 0x209118:case 0x20911c:case 0x209120:case 0x209124:
+    case 0x209128:case 0x20912c:case 0x209130:case 0x209134:
+    case 0x209138:case 0x20913c:case 0x209140:case 0x209144:
+    case 0x209148:case 0x20914c:case 0x209150:case 0x209154:
+    case 0x20915c:case 0x209160:case 0x209164:return true;
+    case 0x209158:{
+        math::Matrix local,view;
+        std::memcpy(local.data(),record(rt,c->r[5].uw[0],64),64);
+        std::memcpy(view.data(),record(rt,c->r[4].uw[0],64),64);
+        const auto result=math::projectionProduct(local,view);
+        std::memcpy(record(rt,c->r[6].uw[0],64),result.data(),64);return true;
+    }
     case 0x216970:case 0x216974:case 0x216978:case 0x21697c:
     case 0x216984:case 0x216994:case 0x216998:case 0x21699c:return true;
     case 0x216988:c->r[9].ud[0]=0;return true;

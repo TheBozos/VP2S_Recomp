@@ -81,6 +81,19 @@ struct Host:bozo::ee::Host,bozo::port::Host {
         // The already qualified sine/cosine owner is a retained callee. Only
         // the new builder's matrix product uses the independent equations.
         if(vp2s::nativeTrigInstruction(r,c,rt,pc))return true;
+        if(pc==0x209020)c->r[9].ud[0]=0;
+        if(pc==0x209028){
+            float screen[4][4],point[4],transposed[4][4],result[4];
+            std::memcpy(screen,rt->memory.hostPointer(c->r[16].uw[0]+0x330,64),64);
+            auto *destination=rt->memory.hostPointer(c->r[2].uw[0],16);std::memcpy(point,destination,16);
+            {Rounding rounding;for(unsigned i=0;i<4;++i)for(unsigned lane=0;lane<4;++lane){
+                const float v=screen[lane][i];transposed[i][lane]=i==lane?v:lane==3?mul(v,1):chop(0,v);
+            }
+            for(unsigned lane=0;lane<4;++lane){float v=mul(transposed[0][lane],point[0]);
+                for(unsigned k=1;k<4;++k)v=chop(v,mul(transposed[k][lane],point[k]));result[lane]=v;}
+            volatile float reciprocal=1.f/result[3];result[3]=1;for(float &v:result)v=mul(v,reciprocal);}
+            std::memcpy(destination,result,16);
+        }
         if(pc==0x216988)c->r[9].ud[0]=0;
         if(pc==0x216990){
             float result[4][4];std::memcpy(result,rt->memory.hostPointer(c->r[5].uw[0],64),64);
@@ -92,16 +105,16 @@ struct Host:bozo::ee::Host,bozo::port::Host {
             }}
             std::memcpy(rt->memory.hostPointer(c->r[2].uw[0],64),result,64);
         }
-        if(pc==0x213e7c){
+        if(pc==0x213e7c || pc==0x209158){
             float local[4][4],basis[4][4],result[4][4];
-            std::memcpy(local,rt->memory.hostPointer(c->r[8].uw[0],64),64);
-            std::memcpy(basis,rt->memory.hostPointer(c->r[7].uw[0],64),64);
+            std::memcpy(local,rt->memory.hostPointer(c->r[pc==0x213e7c?8:5].uw[0],64),64);
+            std::memcpy(basis,rt->memory.hostPointer(c->r[pc==0x213e7c?7:4].uw[0],64),64);
             for(unsigned row=0;row<4;++row)for(unsigned lane=0;lane<4;++lane){
                 float v=mul(basis[0][lane],local[row][0]);
                 for(unsigned k=1;k<4;++k)v=add(v,mul(basis[k][lane],local[row][k]));
                 result[row][lane]=v;
             }
-            std::memcpy(rt->memory.hostPointer(c->r[16].uw[0],64),result,64);
+            std::memcpy(rt->memory.hostPointer(c->r[pc==0x213e7c?16:6].uw[0],64),result,64);
         }
         if(pc==0x216efc){
             float basis[3][4],translation[4],result[4];
@@ -122,6 +135,12 @@ struct Host:bozo::ee::Host,bozo::port::Host {
     void frameEnd(Runtime *,R5900Context *)override{throw std::runtime_error("frame");}
     bool callLibrary(Runtime *,R5900Context *,uint32_t)override{return false;}
     void libraryCall(bozo::ee::Dispatcher &d,R5900Context *c,uint32_t pc)override{
+        if(pc==0x170200 || pc==0x170210 || pc==0x207d70 || pc==0x12e050){
+            ++callbacks;if(pc==0x170200)c->r[2].ud[0]=1;
+            if(pc==0x170210)c->r[2].ud[0]=c->r[4].uw[0]+0x90;
+            if(pc==0x12e050)c->f[0]=std::tan(c->f[12]);
+            c->pc=c->r[31].uw[0];if(pause){++pauses;throw Pause{};}return;
+        }
         // Identical scalar consumers on both sides isolate normalization. The
         // production runner retains its compiled game libm implementations.
         if(pc==0x12e1d8 || pc==0x12e2d8){++callbacks;c->f[0]=pc==0x12e1d8?std::asin(c->f[12]):std::atan2(c->f[12],c->f[13]);
@@ -138,7 +157,7 @@ struct Host:bozo::ee::Host,bozo::port::Host {
 template<class T>void put(uint8_t *r,uint32_t at,T v){std::memcpy(r+at,&v,sizeof(v));}
 void run(bozo::ee::Dispatcher &d,R5900Context &c,uint32_t pc=0x248fc0){auto fn=d.runtime().functions.generated(pc);unsigned attempts=0;
     while(true){try{fn(d.runtime().memory.flat(),&c,&d.runtime());break;}catch(const Pause &){}
-        check(++attempts<4);auto entry=d.runtime().functions.resumeEntry(c.pc);check(entry);fn=entry->resume;}
+        check(++attempts<12);auto entry=d.runtime().functions.resumeEntry(c.pc);check(entry);fn=entry->resume;}
 }
 }
 int main(){try{
@@ -147,6 +166,7 @@ int main(){try{
     b.setFunctions(world_adapted_function_table,world_adapted_function_count,world_adapted_resume_table,world_adapted_resume_count);
     a.runtime().port=&old;b.runtime().port=&now;a.bindLibrary(0x170100);b.bindLibrary(0x170100);
     for(auto *d:{&a,&b}){d->bindLibrary(0x12e1d8);d->bindLibrary(0x12e2d8);}
+    for(auto *d:{&a,&b})for(uint32_t pc:{0x12e050,0x2138f0,0x207d70,0x170200,0x170210})d->bindLibrary(pc);
     const unsigned saved=_mm_getcsr();unsigned cases=0;
     for(unsigned mode:{_MM_ROUND_NEAREST,_MM_ROUND_DOWN,_MM_ROUND_UP,_MM_ROUND_TOWARD_ZERO})for(unsigned seed=0;seed<80;++seed){
         auto *x=a.runtime().memory.flat(),*y=b.runtime().memory.flat();std::memset(x,0x22,bozo::kFlatBytes);
@@ -232,6 +252,27 @@ int main(){try{
         check(_mm_getcsr()==expectedControl && !std::memcmp(&p,&q,sizeof(p)) && !std::memcmp(x.memory.flat(),y.memory.flat(),bozo::kFlatBytes));++cases;
     }
     _mm_setcsr(saved);check(old.sites==now.sites && now.sites.size()==140);
+    for(unsigned mode:{_MM_ROUND_NEAREST,_MM_ROUND_DOWN,_MM_ROUND_UP,_MM_ROUND_TOWARD_ZERO})for(unsigned seed=0;seed<64;++seed){
+        auto &x=a.runtime(),&y=b.runtime();std::memset(x.memory.flat(),0x37,bozo::kFlatBytes);
+        constexpr uint32_t object=0x180000;std::memset(x.memory.flat()+object,0,0x600);
+        put<uint32_t>(x.memory.flat(),object,0x1a0000);put<uint32_t>(x.memory.flat(),0x1a0064,0x170200);put<uint32_t>(x.memory.flat(),0x1a0068,0x170210);
+        for(unsigned i=0;i<4;++i)put<float>(x.memory.flat(),object+0x90+i*20,1);
+        put<float>(x.memory.flat(),object+0x9c,float(seed)/8);put<float>(x.memory.flat(),object+0xac,-2.5f);put<float>(x.memory.flat(),object+0xbc,4.125f);
+        for(unsigned offset:{0x224,0x228,0x22c,0x234,0x238,0x268})put<float>(x.memory.flat(),object+offset,offset==0x234?0.25f:1.f);
+        put<int32_t>(x.memory.flat(),object+0x23c,0);put<int32_t>(x.memory.flat(),object+0x240,0xffffff);
+        put<float>(x.memory.flat(),object+0x244,1728);put<float>(x.memory.flat(),object+0x248,1824);
+        put<float>(x.memory.flat(),object+0x270,640+seed);put<float>(x.memory.flat(),object+0x274,448);put<float>(x.memory.flat(),object+0x278,1000);
+        x.memory.flat()[object+0x280]=seed&1;x.memory.flat()[object+0x44a]=1;
+        std::memcpy(y.memory.flat(),x.memory.flat(),bozo::kFlatBytes);
+        old.callbacks=now.callbacks=old.pauses=now.pauses=0;old.pause=false;now.pause=(seed&32)!=0;
+        R5900Context p{},q{};p.r[4].ud[0]=object;p.r[29].ud[0]=seed&1?0x70003f00:0x1fff000;p.r[31].ud[0]=0x170000;q=p;
+        const unsigned control=(saved&~(_MM_ROUND_MASK|0x8040|0x3f))|mode|(seed&1?0x8040:0);
+        _mm_setcsr(control);run(a,p,0x208cd0);const unsigned expectedControl=_mm_getcsr();_mm_setcsr(control);run(b,q,0x208cd0);
+        p.cycleLimit=q.cycleLimit;check(old.callbacks==now.callbacks);
+        check(_mm_getcsr()==expectedControl && !std::memcmp(&p,&q,sizeof(p)) && !std::memcmp(x.memory.flat(),y.memory.flat(),bozo::kFlatBytes));++cases;
+    }
+    _mm_setcsr(saved);check(old.sites==now.sites && now.sites.size()==177);
+    bool badProjection=false;try{vp2s::math::cameraProjectedPoint(vp2s::math::Matrix{},_mm_set1_ps(1));}catch(const std::runtime_error &){badProjection=true;}check(badProjection);
     vp2s::math::Matrix invalid{};invalid[0]=_mm_setr_ps(std::bit_cast<float>(1u),0,0,0);bool badColumns=false;
     try{vp2s::math::normalizedMatrixColumns(invalid);}catch(const std::runtime_error &){badColumns=true;}check(badColumns);
     vp2s::ObjectWorldInput input{};input.quaternion=_mm_setr_ps(0,0,0,1);input.position=_mm_setzero_ps();input.scale=_mm_set1_ps(1);

@@ -33,6 +33,41 @@ inline Matrix normalizedMatrixColumns(Matrix value) {
     for(unsigned i=0;i<3;++i)value[i]=_mm_blend_ps(normal(_mm_mul_ps(xyz[i],reciprocal)),value[i],8);
     return value;
 }
+// The camera builder projects an ordinary point through its transposed screen
+// matrix. The result record keeps reciprocal W, as its scalar consumers expect.
+inline __m128 cameraProjectedPoint(Matrix screen,__m128 point) {
+    auto qualified=[](__m128 value){uint32_t bits[4];std::memcpy(bits,&value,16);
+        for(auto b:bits){const auto exponent=b&0x7f800000;
+            if(exponent==0x7f800000 || (!exponent && (b&0x7fffff)))
+                throw std::runtime_error("unqualified native camera projection input");}};
+    for(auto column:screen)qualified(column);qualified(point);
+    auto normal=[](__m128 v){
+        const auto bits=_mm_castps_si128(v);
+        const auto tiny=_mm_cmpeq_epi32(_mm_and_si128(bits,_mm_set1_epi32(0x7f800000)),_mm_setzero_si128());
+        return _mm_castsi128_ps(_mm_andnot_si128(_mm_and_si128(tiny,_mm_set1_epi32(0x7fffffff)),bits));
+    };
+    music::CodecRounding rounding;
+    _MM_TRANSPOSE4_PS(screen[0],screen[1],screen[2],screen[3]);
+    // The original basis construction adds zero to off-diagonal XYZ entries,
+    // multiplies translation W by one, and moves its four diagonal entries.
+    for(unsigned i=0;i<4;++i){
+        const auto adjusted=normal(_mm_add_ps(_mm_setzero_ps(),screen[i]));
+        switch(i){case 0:screen[i]=_mm_blend_ps(adjusted,screen[i],9);break;
+                  case 1:screen[i]=_mm_blend_ps(adjusted,screen[i],10);break;
+                  case 2:screen[i]=_mm_blend_ps(adjusted,screen[i],12);break;
+                  case 3:screen[i]=_mm_blend_ps(adjusted,screen[i],8);break;}
+        if(i<3)screen[i]=_mm_blend_ps(screen[i],normal(_mm_mul_ps(screen[i],_mm_set1_ps(1))),8);
+    }
+    auto result=normal(_mm_mul_ps(screen[0],music::broadcast<0>(point)));
+    result=normal(music::codecSum(result,normal(_mm_mul_ps(screen[1],music::broadcast<1>(point)))));
+    result=normal(music::codecSum(result,normal(_mm_mul_ps(screen[2],music::broadcast<2>(point)))));
+    result=normal(music::codecSum(result,normal(_mm_mul_ps(screen[3],music::broadcast<3>(point)))));
+    qualified(result);
+    const float w=music::laneValue(result,3);
+    if(w==0 || !std::isfinite(w))throw std::runtime_error("unqualified native camera projection divisor");
+    volatile float reciprocal=1.f/w;
+    return normal(_mm_mul_ps(_mm_blend_ps(result,_mm_set1_ps(1),8),_mm_set1_ps(reciprocal)));
+}
 // Full record transform: all four input weights and output components matter.
 inline __m128 matrixVectorProduct(const Matrix &matrix,__m128 vector) {
     auto normal=[](__m128 v) {

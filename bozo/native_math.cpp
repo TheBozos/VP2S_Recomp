@@ -22,6 +22,25 @@ bool nativeMathInstruction(uint8_t *,R5900Context *c,Runtime *rt,uint32_t pc){
     if(nativeTrigInstruction(nullptr,c,rt,pc))return true;
     if(nativeObjectMathInstruction(nullptr,c,rt,pc))return true;
     if(nativeFrustumInstruction(c,rt,pc))return true;
+    if(pc>=0x1fedd4 && pc<=0x1fedf8 && !(pc&3))return true;
+    if(pc==0x1fedfc){
+        float first[4],second[4],result[4];
+        std::memcpy(first,record(rt,c->r[5].uw[0],16),16);
+        std::memcpy(second,record(rt,c->r[2].uw[0],16),16);std::memcpy(result,first,16);
+        const auto normal=[](float value){const auto b=std::bit_cast<uint32_t>(value);return std::bit_cast<float>((b&0x7f800000)?b:(b&0x80000000));};
+        for(unsigned i=0;i<3;++i)for(float value:{first[i],second[i]}){const auto b=std::bit_cast<uint32_t>(value),e=b&0x7f800000;
+            if(e==0x7f800000 || (!e && (b&0x7fffff)))throw std::runtime_error("unqualified native pair distance input");}
+        music::CodecRounding rounding;
+        for(unsigned i=0;i<3;++i){
+            const auto opposite=std::bit_cast<float>(std::bit_cast<uint32_t>(second[i])^0x80000000u);
+            const auto difference=normal(music::codecSum(first[i],opposite));
+            volatile float square=difference*difference;result[i]=normal(square);
+        }
+        const auto squared=music::codecSum(music::codecSum(result[0],result[1]),result[2]);
+        if(!std::isfinite(squared))throw std::runtime_error("native pair distance overflow");
+        volatile float length=std::sqrt(squared);volatile float output=0.f+length;result[0]=output;
+        std::memcpy(record(rt,c->r[4].uw[0],16),result,16);return true;
+    }
     if(pc==0x237284 || pc==0x2372bc){
         const auto word=[&](uint32_t at){uint32_t v;std::memcpy(&v,record(rt,at&~15u,16)+(at&15),4);return v;};
         const auto owner=c->r[20].uw[0],list=word(owner+0x3c),bind=word(owner+0x40);

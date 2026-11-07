@@ -8,6 +8,21 @@ target, not a replacement DLL loaded into PS2Recomp.
 
 ## Build and evidence
 
+### Native position-pair distance (2026-11-08)
+
+`0x1fedd4..0x1fedfc` now reads its two position records directly, applies the
+original truncated subtraction, XYZ squares/sum and root, and writes the original
+temporary record. Y/Z squared intermediates and the first record's untouched W
+payload remain. The scalar record lookup, index advance and final distance-field
+store remain compiled. No vector or status state is read or produced.
+
+512 additional whole CPU/RAM cases compare the retained scalar lookup/store
+against independent integer arithmetic, including cancellation, signed zero,
+opaque W payloads, input/output aliases, both stack locations and four rounding
+modes. Combined bone/distance, source-guard and startup checks pass. Actual New
+Game advances to frame 1486 and a missing compiled bounded-string comparison
+at `0x134b60`, called by mod003 `0x43cd0c`. Logun remains open.
+
 ### Native model bone matrix records (2026-11-08)
 
 The original scalar loop `0x2371dc..0x2372d0` now produces bone matrices from

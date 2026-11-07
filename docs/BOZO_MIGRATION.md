@@ -8,6 +8,32 @@ target, not a replacement DLL loaded into PS2Recomp.
 
 ## Build and evidence
 
+### Direct native streamed-music publication (2026-11-07)
+
+`bozo/native_music.cpp` owns each decoded channel per run, using the already
+qualified direct coefficient/window/synthesis algorithms and offline numeric
+tables. It intercepts class `0x151d30` before the device queue; other jobs retain
+their resident compiled producer. Original `0x106000` posts software message 5
+through `0x1131c0`, retaining its scalar stack and cooperative resume points.
+Worker `0x105b80` publishes PCM/history, validates unchanged player/source/output
+ownership, then decodes the next channel. No VIF input, hardware status or DMA
+completion is used. `0x1060a0` advances the original buffer halves and marker
+cache directly. Both completed/cancelled paths explicitly return to their caller.
+
+An optional private typed recording check covers 512 stereo pairs: all 1,048,576
+PCM samples and updated histories match exactly. It also checks deferred RAM
+visibility, rejected address changes, duplicate submission, per-run isolation,
+cancellation, return PCs, marker caching, two-frame continuation, half selection
+and all four host rounding modes. Generated reference VU kernels are not linked.
+The ordinary pipeline generates only the direct codec and converted tables.
+
+The actual hidden movie-skip route completes 1,000 logical frames with native
+title models/filter/UI and direct music (256 stereo frames logged). A successful
+native framebuffer capture contains 47 batches / 2,694 vertices. Selecting New
+Game next exposes omitted scalar UI jump-table code at `0x2ea380`, frame 1303.
+This remains a bring-up boundary, not Logun or PCSX2 visual/audio qualification.
+All 50 root checks pass, including the actual 1,000-frame startup route.
+
 ### Native compiled-library disc files (2026-11-07)
 
 BozoEngine PR 74 merged as `dbeac945068bb31f458f3b6ddd821908f53fa68a`;

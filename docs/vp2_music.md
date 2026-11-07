@@ -1,5 +1,21 @@
 # Native streamed-music DSP (USA, 2026-11-05)
 
+## Bozo integration (2026-11-07)
+
+The independent Bozo target now links the same direct numerical codec and
+converted tables, with per-run publication ownership in `bozo/native_music.cpp`.
+It intercepts the typed music job before the device queue and retains the original
+scalar `0x106000` / `0x1131c0` software-message sender and compiled resume frame.
+The worker publishes host-owned PCM/history only after actual decoding, validates
+the original buffer addresses, and advances channels, halves and marker metadata.
+There is no music VIF/VU execution or DMA completion on this path. Its compiled
+Csd/Csi/Csm services use native imports; the paragraphs below about the old IOP
+service describe the separate PS2Recomp launcher.
+
+512 private recorded stereo pairs match 1,048,576 PCM samples and histories
+exactly through the Bozo publication owner. Actual title startup completes 1,000
+logical frames with direct music. This is not a Logun or listening qualification.
+
 The default streamed-music decoder no longer processes VIF1 chains or executes
 through a VU environment. `port/vp2s_music.cpp` takes the game's coefficient
 records and per-channel synthesis history directly, calls three compiled game

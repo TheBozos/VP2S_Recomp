@@ -31,6 +31,7 @@
 #include "native_publication.h"
 #include "native_models.h"
 #include "native_frame_filter.h"
+#include "native_music.h"
 #ifdef VP2S_BOZO_CAPTURE
 #include "native_capture.h"
 #endif
@@ -49,8 +50,10 @@
 #include <set>
 
 namespace {
-class StrictHost final : public bozo::ee::Host, public vp2s::TimerOwner, public vp2s::SettingsOwner,public vp2s::SeedOwner,public vp2s::ModuleOwner,public vp2s::BootstrapOwner,public vp2s::RandomOwner,public vp2s::TextureOwner,public vp2s::SceneOwner,public vp2s::AssetOwner,public vp2s::DebugFontOwner,public vp2s::StateSetupOwner,public vp2s::ScreenRectOwner,public vp2s::UiTextOwner,public vp2s::UiSpriteOwner,public vp2s::MediaBufferOwner,public vp2s::ModelOwner,public vp2s::FrameFilterOwner {
+class StrictHost final : public bozo::ee::Host, public vp2s::TimerOwner, public vp2s::SettingsOwner,public vp2s::SeedOwner,public vp2s::ModuleOwner,public vp2s::BootstrapOwner,public vp2s::RandomOwner,public vp2s::TextureOwner,public vp2s::SceneOwner,public vp2s::AssetOwner,public vp2s::DebugFontOwner,public vp2s::StateSetupOwner,public vp2s::ScreenRectOwner,public vp2s::UiTextOwner,public vp2s::UiSpriteOwner,public vp2s::MediaBufferOwner,public vp2s::ModelOwner,public vp2s::FrameFilterOwner,public vp2s::MusicOwner {
 public:
+    vp2s::NativeMusic music{std::filesystem::path(VP2S_BOZO_IMAGES).parent_path().parent_path()/"native_music/tables.bin"};
+    vp2s::NativeMusic &nativeMusic()override{return music;}
     vp2s::NativeFrameFilters frameFilters;
     vp2s::NativeFrameFilters &nativeFrameFilters()override{return frameFilters;}
     void drawNativeFrameFilter(const vp2s::NativeFrameFilter &filter)override{
@@ -448,6 +451,7 @@ int main(int argc,char **argv) {
         dispatcher.setFunctions(vp2_main_function_table,vp2_main_function_count,vp2_main_resume_table,vp2_main_resume_count);
         bozo::port::Registry registry;
         vp2s::installNativeKernelBindings(registry);
+        vp2s::registerNativeMusic(registry);
         registry.nativeGraphics(&noNativeInstruction); // guard retired graphics; no compatibility fallback
         std::string error;
         if(!bozo::port::undeclared(registry,vp2_main_external_table,vp2_main_external_count).empty())
@@ -455,6 +459,7 @@ int main(int argc,char **argv) {
         if(!host.native.setUp(dispatcher,vp2_main_external_table,vp2_main_external_count,&registry,error))
             throw std::runtime_error(error);
         vp2sBozoRegisterImages(dispatcher.runtime(),VP2S_BOZO_IMAGES,[&](uint32_t pc){host.overlayExternals.insert(pc);dispatcher.bindLibrary(pc);});
+        vp2s::installNativeMusic(dispatcher.runtime());
         uint64_t frames=0;
         try{frames=host.native.run();}catch(...){
 #ifdef VP2S_BOZO_CAPTURE

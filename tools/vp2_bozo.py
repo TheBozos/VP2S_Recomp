@@ -33,6 +33,8 @@ def generate(args, build, data, engine_build, env):
          '--out',data/'meshes'],data/'meshes.log',env)
     run([sys.executable, ROOT/'tools/vp2_bozo_prepare.py', '--build', build,
          '--out', data/'images', '--inputs', args.inputs], data/'prepare.log', env)
+    run([sys.executable,ROOT/'tools/vp2_music.py','--elf',data/'images/main.elf',
+         '--out',build/'native_music'],data/'native-music.log',env)
     manifest = json.loads((data/'images/manifest.json').read_text())
     if 'main' not in manifest:
         raise SystemExit('the bring-up runner requires main in --inputs')
@@ -57,6 +59,7 @@ def generate(args, build, data, engine_build, env):
             with ext.open('a') as stream:
                 stream.write(kernel_bindings(raw))
                 stream.write(native_game_sites(raw))
+                stream.write('stub 0x105b80\nstub 0x1060a0\n')
             patches=data/'images'/f'{name}.patches'
             patches.write_text(game_adaptations(raw)+frame_adaptations(raw)+bootstrap_adaptations(raw)+display_adaptations(raw)+startup_clear_adaptations(raw)+composition_adaptations(raw)+debug_font_adaptations(raw))
             adaptations=['--patches',patches]

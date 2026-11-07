@@ -338,6 +338,11 @@ def overlay_adaptations(name,data):
         (0x2ba600,0x2ba6d0,'d5c1383fece3d5aef471e7077549bb4804ee9ddcdc40fca4fc72c5edc3f9e707'),
         (0x1f02a0,0x1f0350,'1438189477cd535e605306838a3b166c742f6c4238d9670fb65af21aab717323'),
         (0x2be600,0x2be940,'f71f6f8ce0b2662cee044735531ee8e0dfaa59cb116a0c28265d03c44b909dd6'),
+        (0x1ef6f8,0x1ef930,'6d8580c5bdb3b9f017e9635078ed56ef1395a7a37ac557743ddac5a3feefa731'),
+        (0x1f06c8,0x1f071c,'39b01d58e7779a8c5a6ccd36aa27a905c4e7495d9b0168315d525fefb5a4d02e'),
+        (0x1f08e8,0x1f090c,'1c9cc6c3c8bb8dc6eb023d0ca0929b18cc2b9ae616ecf086e0401c141cbf2863'),
+        (0x1f0920,0x1f098c,'2c50080a1de3823d946c8004e448bf22721ff2242fdc891dc3e2f329a5424bc3'),
+        (0x2ba4a0,0x2ba5f8,'c4d164a861b03b93c737ef97ccbc53fca761b3632d9970d4af87c6f045d3e31b'),
         (0x2f0de0,0x2f0e70,'1898503143ca6ccba1d99bc209d3a7fd3c9e9a0babc361b702fb1267df6eb301'),
         (0x29af80,0x29b2c4,'ef3a9f1a6cae966ab8a687451e72ac175d88b8e9883d09449949ca5c3389d0bf'),
         (0x29c990,0x29cb18,'361b601c33bd3f57fd190aef95f4716cd08b5bbdf401f852b6e80eb96933e9e2'),
@@ -423,6 +428,8 @@ def overlay_adaptations(name,data):
             # original CPU reset/tag construction; never create an IPU DMA job.
             '002bc120 3c011001 080af074\n'
             '002bc124 ac20b420 00000000\n'
+            '001ef864 0c07bd8a 00000000\n'
+            '001ef86c 0c07c10e 00000000\n'
             '002021c4 3c011001 0808087a\n'
             '002021c8 2402fffd 00000000\n'
             '0029e210 4a00fc3e 00000000\n'
@@ -472,4 +479,4 @@ def overlay_native_sites(name,data):
         0x22106c,0x221294,0x221308,0x221540,0x221704,0x221718,0x221748,0x2088f0,
         0x221698,0x22169c,0x21c9dc,0x21c9e0,0x21c9e8,0x21c9ec,0x21ca1c,0x21ca20,0x21ca24,0x21ca28,0x2cb490,0x2f3714,0x2ea9a0,
         0x2e74f0,0x2e7520,0x2e7550,0x2e757c,0x2e75a0,0x2f0de0,0x2e83e4,0x2ec9e4,0x2ec308,0x2ec320,
-        0x2efe40,0x2effe8,0x2eb3a0,0x2eb5c4,0x2ebac4,0x2ebb0c,0x2ebb58,0x2ebb9c,0x2ebba8,0x2bbfc0,0x2bc1d0,0x2bc1e0,0x2ba670))
+        0x2efe40,0x2effe8,0x2eb3a0,0x2eb5c4,0x2ebac4,0x2ebb0c,0x2ebb58,0x2ebb9c,0x2ebba8,0x2bbfc0,0x2bc1d0,0x2bc1e0,0x2ba670,0x1ef6f8,0x1ef914))

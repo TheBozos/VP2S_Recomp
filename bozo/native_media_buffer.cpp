@@ -34,6 +34,7 @@ void NativeMediaBuffers::finish(Runtime *rt,uint32_t stack){
 }
 void NativeMediaBuffers::release(uint32_t object){
     for(const auto &[at,entry]:pending)if(entry->object==object)throw std::runtime_error("native media buffer released during initialization");
+    for(const auto &[at,entry]:creations)if(entry.owner->object==object)throw std::runtime_error("native media buffer released during stream creation");
     prepared.erase(object);
 }
 void NativeMediaBuffers::preparePacing(Runtime *rt,uint32_t object,uint64_t fieldCycles){
@@ -52,16 +53,47 @@ void NativeMediaBuffers::initialize(Runtime *rt,uint32_t parent){
     if(!entry->decoder || !entry->pacingFieldCycles || entry->initialized)throw std::runtime_error("native MPEG initialization escaped its prepared decoder lifetime");
     entry->initialized=true;
 }
+void NativeMediaBuffers::beginCreation(Runtime *rt,uint32_t stack,uint32_t object,uint32_t mp,uint32_t work,uint32_t bytes){
+    auto entry=prepared.at(object);
+    if(!entry->initialized || entry->created || creations.contains(stack) || mp!=object+0xce500 || work<0x100000 ||
+       work>0x2000000 || bytes>0x2000000-work || mp>0x2000000-0x44 || word(rt,object+0xce4ec)!=0x159ac0)
+        throw std::runtime_error("native MPEG creation escaped its decoder/work allocation");
+    for(const auto &[at,creation]:creations)if(creation.owner==entry)throw std::runtime_error("native MPEG decoder has an active stream constructor");
+    creations.emplace(stack,Creation{std::move(entry),mp,work,bytes});
+}
+void NativeMediaBuffers::creationEntry(uint32_t stack,uint32_t mp,uint32_t work,uint32_t bytes)const{
+    const auto &entry=creations.at(stack);
+    if(entry.mp!=mp || entry.work!=work || entry.bytes!=bytes)throw std::runtime_error("native MPEG constructor input changed before original entry");
+}
+void NativeMediaBuffers::finishCreation(Runtime *rt,uint32_t stack,uint32_t result){
+    const auto entry=creations.at(stack);
+    if(result>1)throw std::runtime_error("native MPEG constructor returned an unknown result");
+    if(result){
+        const auto aligned=(entry.work+3)&~3u;
+        if(aligned<entry.work || aligned-entry.work>entry.bytes || word(rt,entry.mp+0x40)!=aligned ||
+           word(rt,entry.mp) || word(rt,entry.mp+4) || word(rt,entry.mp+8) || (aligned&63))
+            throw std::runtime_error("native MPEG constructor did not publish its original CPU records");
+        entry.owner->mp=entry.mp;entry.owner->work=aligned;entry.owner->workBytes=entry.bytes-(aligned-entry.work);entry.owner->created=true;
+    }
+    creations.erase(stack);
+}
 std::shared_ptr<const NativeMediaBuffer> NativeMediaBuffers::buffer(uint32_t object)const{
     const auto it=prepared.find(object);return it==prepared.end()?nullptr:it->second;
 }
 std::optional<bool> nativeMediaBufferInstruction(R5900Context *c,Runtime *rt,uint32_t pc){
-    if(pc!=0x2bbfc0 && pc!=0x2bc1d0 && pc!=0x2bc1e0 && pc!=0x2ba670)return std::nullopt;
+    if(pc!=0x2bbfc0 && pc!=0x2bc1d0 && pc!=0x2bc1e0 && pc!=0x2ba670 && pc!=0x1ef6f8 && pc!=0x1ef914)return std::nullopt;
     auto *d=rt?dynamic_cast<bozo::ee::Dispatcher *>(rt->services):nullptr;
     auto *owner=d?dynamic_cast<MediaBufferOwner *>(&d->host()):nullptr;
     if(!owner || !c)throw std::runtime_error("native movie input requires a media-buffer owner");
     const auto sp=c->r[29].uw[0];
-    if(pc==0x2ba670){
+    if(pc==0x1ef6f8){
+        if(c->pc!=pc || sp<0x50 || (sp&15))throw std::runtime_error("native MPEG creation requires complete original entry");
+        owner->nativeMediaBuffers().creationEntry(sp-0x50,c->r[4].uw[0],c->r[5].uw[0],c->r[6].uw[0]);
+    }else if(pc==0x1ef914){
+        owner->nativeMediaBuffers().finishCreation(rt,sp,c->r[2].uw[0]);
+        if(c->r[2].uw[0] && std::getenv("VP2S_BOZO_TRACE_QUEUES"))std::fprintf(stderr,"[vp2s:media] native decoder owns original MPEG software records\n");
+    }
+    else if(pc==0x2ba670){
         if(c->pc!=0x2ba614 || c->r[2].uw[0]!=0x83)throw std::runtime_error("native movie pacing requires original initializer continuation");
         owner->nativeMediaBuffers().preparePacing(rt,c->r[16].uw[0],d->kernel().field());return true;
     }else if(pc==0x2bbfc0){
@@ -78,10 +110,17 @@ std::optional<bool> nativeMediaBufferInstruction(R5900Context *c,Runtime *rt,uin
     return false; // Original CPU initialization/return remains; no transport job exists.
 }
 bool nativeMediaLibrary(R5900Context *c,Runtime *rt,uint32_t target){
-    if(target!=0x1f02a0)return false;
+    if(target!=0x1f02a0 && target!=0x1ef6f8)return false;
     auto *d=rt?dynamic_cast<bozo::ee::Dispatcher *>(rt->services):nullptr;
     auto *owner=d?dynamic_cast<MediaBufferOwner *>(&d->host()):nullptr;
-    if(!owner || !c || c->pc!=target || c->r[31].uw[0]!=0x2be6dc)throw std::runtime_error("unported native MPEG initialization caller");
+    if(!owner || !c || c->pc!=target)throw std::runtime_error("native MPEG requires its declared API entry");
+    if(target==0x1ef6f8){
+        const auto sp=c->r[29].uw[0];auto original=rt->functions.generated(target);
+        if(c->r[31].uw[0]!=0x2ba524 || sp<0x50 || (sp&15) || !original)throw std::runtime_error("unported native MPEG creation caller");
+        owner->nativeMediaBuffers().beginCreation(rt,sp-0x50,c->r[17].uw[0],c->r[4].uw[0],c->r[5].uw[0],c->r[6].uw[0]);
+        original(rt->memory.flat(),c,rt);return true;
+    }
+    if(c->r[31].uw[0]!=0x2be6dc)throw std::runtime_error("unported native MPEG initialization caller");
     owner->nativeMediaBuffers().initialize(rt,c->r[19].uw[0]);
     if(std::getenv("VP2S_BOZO_TRACE_QUEUES"))std::fprintf(stderr,"[vp2s:media] native MPEG initializer ready\n");
     // This USA SDK initializer returns 1. The native decoder was actually

@@ -7,6 +7,30 @@ target, not a replacement DLL loaded into PS2Recomp.
 
 ## Build and evidence
 
+### Original software MPEG stream construction (2026-11-07)
+
+`sceMpegCreate` now runs its original compiled software-record builder under
+native decoder ownership. The explicit API entry validates the prepared movie,
+MP/work allocation and real `0x2ba524` caller, then enters the generated CPU
+function directly. Only calls `0x1ef864` (physical decoder layout) and
+`0x1ef86c` (physical reset path) are retired. Original work clearing, alignment,
+pool allocation, callback tables, reference-record construction, error paths and
+return remain. No transport descriptor is consumed, hardware status provided or
+TMB private ABI written. The real native decoder already exists.
+
+A per-stack creation owner survives original memory-clear callback suspension.
+At the actual `0x1ef914` return it validates the CPU-published MP/work records,
+then associates successful creation with that decoder; failure leaves it
+uncreated. Release while creation is pending rejects. The USA result stays
+1/0, with no substituted pointer return. Another 64 whole CPU/RAM cases compare
+this original software builder under the same native backend contract, including
+small work areas, misalignment, resumed clearing and retained allocation life.
+
+All 46 suites are qualified after rerunning the affected media, source-signature
+and scripted-startup tests. Actual startup passes creation and now rejects the
+next unowned callback registration at `0x1f0510`, caller `0x2ba544`, without a
+device fault. Native PSS/video delivery and the Logun route remain open.
+
 ### Native USA MPEG initializer (2026-11-07)
 
 The explicit overlay binding now owns `sceMpegInit` at `0x1f02a0` for the real

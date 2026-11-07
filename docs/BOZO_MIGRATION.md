@@ -7,6 +7,29 @@ target, not a replacement DLL loaded into PS2Recomp.
 
 ## Build and evidence
 
+### Offline glyph assets and provenance (2026-11-07)
+
+The first active UI layer contains 174 text items. Its font pixel origin is the
+actual decompressed mcps chain `0x21551000`, part 0, byte offset `0x1500`.
+`tools/vp2_glyphs.py` now converts mcps font pixels and both glyph palette parts
+offline into padded native RGBA cells, retaining 0x80-scale alpha. The USA scan
+indexes 223 font origins into 178 deduplicated packs (59,817,624 bytes); 361
+fontless bundles produce no entry. Packs/manifests stay in the ignored build tree.
+
+`NativeGlyphs` selects these assets through `NativeAssets` decompressed-file
+provenance and checks the game's numeric font metrics against the converted
+header. Runtime code reads no font pixels or palette bytes. Glyph pictures are
+immutable copied cells; held pictures survive source invalidation, while later
+lookups reject invalidated or unknown origins. Pack/manifest dimensions, sizes,
+palette parts, glyph indices and paths reject explicitly. Caches are per host.
+
+Synthetic tests check nibble ordering, both offline palette parts, padding,
+raw alpha, malformed inputs and fontless bundles, plus C++ loader/provenance,
+numeric mismatch, source poisoning/invalidation, immutable pictures and host
+separation. All 43 local suites pass, including optional GPU alpha readback.
+This is glyph-resource groundwork: text-item capture and native UI layer drawing
+remain open, so boot still stops at the guarded `0x2ec9c0` layer submission.
+
 ### Partial-alpha texture publication (2026-11-07)
 
 Glyph preparation exposed a native texture publication error: VP2S expanded the

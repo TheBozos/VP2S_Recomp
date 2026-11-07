@@ -140,6 +140,8 @@ def main():
     generate(args, build, data, engine_build, env)
     run([sys.executable,ROOT/'tools/vp2_bozo_texture_manifest.py',build/'vp2_texture_index.json',
          build/'vp2_textures',data/'textures.manifest','--module',data/'images/mod001.elf'],data/'texture-manifest.log',env)
+    run([sys.executable,ROOT/'tools/vp2_glyphs.py','--assets',build/'extract/assets',
+         '--textures',build/'vp2_textures','--texture-manifest',data/'textures.manifest','--out',data/'glyphs'],data/'glyph-conversion.log',env)
     if args.stage == 'generate':
         return
     run(configure+['-DVP2S_BOZO_CODE=ON'], data/'configure-port.log', env)

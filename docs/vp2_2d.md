@@ -6,6 +6,16 @@ GIF packet read). Addresses are mod001 unless stated. [V] verified in the MIPS o
 
 ## Framework
 
+### Bozo offline glyph assets (2026-11-07)
+
+`tools/vp2_glyphs.py` converts mcps fonts and glyph palette parts 1/2 offline.
+The native store keys a font by decompressed-chain/part/byte-offset provenance
+and verifies its live numeric metrics, with no runtime glyph/palette decoding.
+The initial text layer resolves to chain `0x21551000`, part 0, pixels `+0x1500`.
+The USA conversion has 223 origin entries and 178 unique native RGBA packs.
+The build pipeline regenerates these private assets. Text capture/drawing is
+still pending; the resource conversion alone does not render the UI.
+
 ### Bozo texture alpha (2026-11-07)
 
 Native texture pictures preserve the game's 0x80-scale alpha. The frame shader

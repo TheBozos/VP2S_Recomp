@@ -7,6 +7,32 @@ target, not a replacement DLL loaded into PS2Recomp.
 
 ## Build and evidence
 
+### Native default math selection and record bridges (2026-11-07)
+
+The default VIF0 selection at `0x29e180` installs 453 math instruction pairs and
+fixed constants, without executing a program. Its full source resource and
+selection/uploader bodies are fingerprinted. For mode zero, native code retires
+the busy-store and enqueue before a job exists, retaining the original mode
+store, branch and CPU instructions. The inline admission requires the expected
+game object type and no outstanding legacy job. Other modes still reject before
+their mode store; no VIF stream, vector bank or DMA completion is supplied.
+
+The common matrix product (`0x217550`) and quaternion matrix (`0x216730`) now use
+the previously verified native record algorithms through Bozo's memory ABI.
+The original CPU stack/result-copy bodies remain compiled and run; only vector
+transport/calculation retires. Inputs are loaded before any output write, and
+ordinary CPU clobbers remain, including the upper half of t1 surviving its
+low-half zero. EE RAM aliases and the 16 KiB working stack are checked directly.
+No legacy runtime library is linked.
+
+All 28 suites pass, including 192 generated CPU-consumer/native-helper full-RAM
+and GPR comparisons, scratchpad stacks, in-place outputs and unchanged vector
+sentinels. The existing independent offline game-arithmetic check was rerun:
+65,552 matrix and 131,096 quaternion cases have zero differences. These numeric
+checks do not qualify visual output. Boot reaches the object constructor's
+separate quaternion/position and scale calculation at `0x249618`; it remains
+guarded pending its own lowering. No scene or Logun route has rendered yet.
+
 ### Retire the initial graphics-code installation job (2026-11-07)
 
 The hidden native boot reproduced the VIF1 write at `0x29e240`, frame 56,

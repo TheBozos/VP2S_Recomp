@@ -18,6 +18,7 @@
 #include "native_frame.h"
 #include "native_bootstrap.h"
 #include "native_random.h"
+#include "native_math.h"
 #include <random>
 #include <algorithm>
 #include <charconv>
@@ -167,6 +168,7 @@ bool noNativeInstruction(uint8_t *ram,R5900Context *ctx,Runtime *rt,uint32_t pc)
     if(vp2s::nativeBootSeed(ram,ctx,rt,pc))return true;
     if(vp2s::nativeBootstrapKey(ram,ctx,rt,pc))return true;
     if(vp2s::nativeRandomSeed(ram,ctx,rt,pc))return true;
+    if(vp2s::nativeMathInstruction(ram,ctx,rt,pc))return true;
     if(vp2s::nativeFrameInput(ram,ctx,rt,pc))return true;
     throw std::runtime_error(std::format("unported native VP2S algorithm at pc={:x}",pc));
 }

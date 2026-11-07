@@ -210,6 +210,11 @@ def overlay_adaptations(name,data):
         (0x249720,0x24a438,'10c8d5e49e540decaa624ca4ea5f9e5aeee7cc23f9acf910d53cbe623ad1484e'),
         (0x202150,0x202200,'2056326076193b416411c06ca8c0b005e58038dd2b237625a6242ce3d0b661da'),
         (0x29e230,0x29e310,'62230c5e1d41b56528bb4de238ce9919fef2df3c7043e5afa91f54b1b1dce634'),
+        (0x29e0b0,0x29e1c4,'4badfc2bd23ca38b95965aa45332f82c6efd9655b77f0d7b9344126467e8745d'),
+        (0x312280,0x313100,'a834d66f34036f87f4061c9e5c2d623b29ef77f6fd6394b765333d0f72c45617'),
+        (0x314138,0x31413c,'e7f5662273401b756d9f64b866d1a7df7e95c248c34f9b0cad011eb84757f186'),
+        (0x217550,0x2175c0,'bf29f73fdf9756c87ee0b7b11aaccb586cb29e0fb0653934452e96586c48b694'),
+        (0x216730,0x216780,'d863942f37e0b5485e89ddbb09d7f46b7e9112e833fbbbf3b19295fb6ec915dd'),
         (0x333640,0x333650,'806ce2a8243f8efbbe73d07c33d5ede4d06c673cc60521522982122459c89c76'),
         (0x333650,0x333d60,'1af5ec727cc7f94f98f183a70089d92938c5f386748cc07562e682558fede684'),
         (0x29e1d0,0x29e22c,'5a8f6625f0c067de0c3cc1c74f1e25deb76a988f034f3a7ee7fc6d82989f5834')):
@@ -227,4 +232,12 @@ def overlay_adaptations(name,data):
             # pairs are code/default constants, with no execution or data draw;
             # its completion method is empty. Retain object initialization and
             # the delay slot. Do not submit/complete a fictitious native job.
-            '0029e2fc 0c0807c8 00000000\n')
+            '0029e2fc 0c0807c8 00000000\n'
+            '0029e1a0 a0820050 00000000\n'
+            '0029e1ac 0c0807c8 00000000\n')
+
+
+def overlay_native_sites(name,data):
+    if name!='mod001':return ''
+    overlay_adaptations(name,data)
+    return 'native 0x29e1a0\n'

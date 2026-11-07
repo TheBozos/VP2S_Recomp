@@ -5,7 +5,7 @@ import unittest
 from pathlib import Path
 sys.path.insert(0,str(Path(__file__).resolve().parents[1]/'tools'))
 from vp2_bozo_prepare import elf_parts,overlay_entries
-from vp2_bozo_kernel import bindings, game_adaptations, frame_adaptations, game_entries, native_game_sites, GUARDS, RETIRED_RANGES,bootstrap_adaptations,bootstrap_tables,overlay_adaptations
+from vp2_bozo_kernel import bindings, game_adaptations, frame_adaptations, game_entries, native_game_sites, GUARDS, RETIRED_RANGES,bootstrap_adaptations,bootstrap_tables,overlay_adaptations,overlay_native_sites
 
 IMAGE=Path(sys.argv.pop(1))
 
@@ -59,10 +59,14 @@ class KernelGuardTests(unittest.TestCase):
         data=(IMAGE.parent/'mod001.elf').read_bytes()
         self.assertEqual(overlay_adaptations('mod001',data).splitlines(),[
             '00249830 ac22e000 00000000','002021c4 3c011001 0808087a','002021c8 2402fffd 00000000',
-            '0029e210 4a00fc3e 00000000','0029e214 4b1f043d 00000000','0029e2fc 0c0807c8 00000000'])
+            '0029e210 4a00fc3e 00000000','0029e214 4b1f043d 00000000','0029e2fc 0c0807c8 00000000',
+            '0029e1a0 a0820050 00000000','0029e1ac 0c0807c8 00000000'])
+        self.assertEqual(overlay_native_sites('mod001',data),'native 0x29e1a0\n')
         _,segments,_=elf_parts(data)
         for lo,hi in ((0x249720,0x24a438),(0x202150,0x202200),(0x29e1d0,0x29e22c),
-                      (0x29e230,0x29e310),(0x333640,0x333650),(0x333650,0x333d60)):
+                      (0x29e230,0x29e310),(0x333640,0x333650),(0x333650,0x333d60),
+                      (0x29e0b0,0x29e1c4),(0x312280,0x313100),(0x314138,0x31413c),
+                      (0x217550,0x2175c0),(0x216730,0x216780)):
             segment=next(s for s in segments if s[0]==1 and s[2]<=lo<hi<=s[2]+s[4])
             for pc in range(lo,hi,4):
                 altered=bytearray(data);altered[segment[1]+pc-segment[2]]^=1

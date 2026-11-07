@@ -72,7 +72,7 @@ with tempfile.TemporaryDirectory(prefix='vp2s-native-input-') as temporary:
     if 'native callback type=4 function=2b9320' not in output:raise SystemExit('scripted startup bypassed native callback registration')
     if 'native stream type=4 channel=1' not in output:raise SystemExit('scripted startup bypassed native stream registration')
     if 'native decoder reset completed' not in output:raise SystemExit('scripted startup bypassed native decoder reset')
-    for required in ('original audio payload bytes=', 'pictures=8 submitted=9', 'accepted=0 pictures=8', 'original PSS parser consumed=0'):
+    for required in ('original audio payload bytes=', 'native movie presented=1 size=640x448 rate=30000/1001', 'native movie presented=40 ', 'accepted=0 pictures=8', 'original PSS parser consumed=0'):
         if required not in output:raise SystemExit(f'scripted startup bypassed actual native decoding/backpressure: {required}')
     if 'native boundary:' in output:raise SystemExit('native movie input reached an unexpected rejecting boundary')
-print('Scripted native input parses original PSS, retains CPU audio copies and decodes eight real pictures, then pauses at native picture capacity. Presentation/pacing and Logun remain unqualified.')
+print('Scripted native input parses original PSS, retains CPU audio copies and presents at least40 real pictures at the sequence rate; producer backpressure remains bounded. Display parity/audio/Logun remain unqualified.')

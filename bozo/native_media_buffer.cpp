@@ -1,5 +1,6 @@
 #include "native_media_buffer.h"
 #include "bozo/ee/dispatcher.h"
+#include "bozo/port.h"
 #include <cstring>
 #include <stdexcept>
 #include <cstdio>
@@ -46,6 +47,7 @@ void NativeMediaBuffers::release(uint32_t object){
     for(const auto &[at,entry]:creations)if(entry.owner->object==object)throw std::runtime_error("native media buffer released during stream creation");
     for(const auto &[at,entry]:resets)if(entry.owner->object==object)throw std::runtime_error("native media buffer released during decoder reset");
     for(const auto &[at,entry]:demuxes)if(entry.owner->object==object)throw std::runtime_error("native media buffer released during PSS parsing");
+    if(prepared.contains(object))endPresentation(object);
     prepared.erase(object);
 }
 void NativeMediaBuffers::preparePacing(Runtime *rt,uint32_t object,uint64_t fieldCycles){
@@ -142,7 +144,9 @@ void NativeMediaBuffers::finishReset(Runtime *rt,uint32_t stack){
         if(word(rt,entry->work+offset))throw std::runtime_error("native MPEG reset left an original CPU state record active");
     if(word(rt,entry->mp+8) || word(rt,entry->work+0x98)!=0xffffffff || word(rt,entry->work+0x828)!=1)
         throw std::runtime_error("native MPEG reset did not finish its original software initialization");
-    entry->decoder=std::move(resets.at(stack).decoder);entry->video={};entry->inputResetPending=true;resets.erase(stack);
+    endPresentation(entry->object);
+    entry->decoder=std::move(resets.at(stack).decoder);entry->video={};entry->presentationStarted=false;entry->presentationClosed=false;
+    entry->presentationBase=entry->displayedPictures=0;entry->inputResetPending=true;resets.erase(stack);
 }
 void NativeMediaBuffers::beginDemux(Runtime *rt,uint32_t stack,uint32_t mp,uint32_t input,uint32_t bytes,uint32_t ring,uint32_t capacity){
     auto entry=stream(rt,mp);const auto expected=(entry->object+0xce5c0+63)&~63u;
@@ -167,6 +171,21 @@ void NativeMediaBuffers::demuxEntry(uint32_t stack,uint32_t mp,uint32_t input,ui
 void NativeMediaBuffers::finishDemux(uint32_t stack,uint32_t consumed){
     if(consumed>demuxes.at(stack).bytes)throw std::runtime_error("native PSS parser consumed beyond its input");
     demuxes.erase(stack);
+}
+void NativeMediaBuffers::finishPss(Runtime *rt,uint32_t stack,uint32_t consumed){
+    const auto &d=demuxes.at(stack);
+    if(consumed>d.bytes)throw std::runtime_error("native PSS parser consumed beyond its input");
+    if(d.bytes-consumed>=4){
+        uint32_t code=0;
+        for(unsigned i=0;i<4;++i){const auto at=d.ring+(uint64_t(d.input-d.ring)+consumed+i)%d.capacity;
+            code=(code<<8)|*rt->memory.hostPointer(uint32_t(at),1);
+        }
+        if(code==0x1b9){
+            d.owner->video.finishInput(*d.owner->decoder);
+            if(std::getenv("VP2S_BOZO_TRACE_QUEUES"))std::fprintf(stderr,"[vp2s:media] native movie reached PSS program end\n");
+        }
+    }
+    finishDemux(stack,consumed);
 }
 bool NativeMediaBuffers::videoPayload(Runtime *rt,R5900Context *c){
     const auto stack=c->r[29].uw[0];const auto &d=demuxes.at(stack);const auto desc=c->r[5].uw[0];
@@ -201,22 +220,85 @@ void NativeMediaBuffers::validateAudioPayload(Runtime *rt,R5900Context *c,uint32
         throw std::runtime_error("native movie audio CPU copy exceeds its allocated rings");
     if(std::getenv("VP2S_BOZO_TRACE_QUEUES"))std::fprintf(stderr,"[vp2s:media] original audio payload bytes=%u function=%x\n",bytes,function);
 }
+int NativeMediaBuffers::advanceMovie(Runtime *rt,uint32_t object,uint64_t now,MediaBufferOwner &presenter){
+    auto entry=stream(rt,object+0xce500);const auto parent=object-0xc0;
+    validate(rt,object,0x159ac0);
+    if(object<0x1000c0 || word(rt,parent)!=0x159b30 || word(rt,parent+0x15e77c)!=0x159bf8 || !entry->pacingFieldCycles)
+        throw std::runtime_error("native movie consumer lost its typed movie/clock owner");
+    const auto status=word(rt,object+0x15e648);
+    if(status>3 || word(rt,object+0x15e658)!=entry->displayedPictures)
+        throw std::runtime_error("native movie application state changed outside its consumer");
+    const auto store=[&](uint32_t at,uint32_t v){std::memcpy(rt->memory.hostPointer(at,4),&v,4);};
+    const auto close=[&]{
+        endPresentation(object);
+        store(object+0x15e648,3);return -1;
+    };
+    if(status==1 || status==3)return close();
+    const auto &video=entry->video;
+    if(entry->presentationStarted){
+        if(!video.frameRateNumerator || !video.frameRateDenominator)throw std::runtime_error("native movie presentation has no sequence clock");
+        const auto due=entry->presentationBase+entry->displayedPictures*bozo::port::kEeClockHz*video.frameRateDenominator/video.frameRateNumerator;
+        if(now<due)return 0;
+    }
+    if(video.finished())return close();
+    bozo::libs::YuvPicture picture;
+    if(!entry->video.takePicture(*entry->decoder,picture))return 0;
+    if(!video.frameRateNumerator || !video.frameRateDenominator)throw std::runtime_error("native decoded movie has no sequence frame rate");
+    presenter.presentNativeMovie(object,picture,entry->displayedPictures+1);
+    entry->closePresentation=[&presenter,object]{presenter.closeNativeMovie(object);};
+    if(!entry->presentationStarted){entry->presentationBase=now;entry->presentationStarted=true;}
+    ++entry->displayedPictures;
+    // These are application picture dimensions/counters, published only after
+    // a real decoded picture reaches the native presenter. No ViBuf/IPU state.
+    store(entry->mp,uint32_t(picture.width));store(entry->mp+4,uint32_t(picture.height));store(entry->mp+8,uint32_t(entry->displayedPictures));
+    store(object+0x15e654,1);store(object+0x15e658,uint32_t(entry->displayedPictures));
+    if(std::getenv("VP2S_BOZO_TRACE_QUEUES"))std::fprintf(stderr,"[vp2s:media] native movie presented=%llu size=%dx%d rate=%u/%u\n",(unsigned long long)entry->displayedPictures,picture.width,picture.height,video.frameRateNumerator,video.frameRateDenominator);
+    return 0;
+}
+bool NativeMediaBuffers::presentationReady(Runtime *rt,uint32_t audio,uint32_t originalOutput)const{
+    if(audio<0x15e680)throw std::runtime_error("native audio presentation check has no owner");
+    const auto object=audio-0x15e680;const auto entry=stream(rt,object+0xce500);
+    if(word(rt,audio+0x2c)!=object-0xc0 || word(rt,object+0x15e640)!=originalOutput)
+        throw std::runtime_error("native audio presentation check changed its output owner");
+    // The original branch only asks whether presentation has begun. It no
+    // longer reads the retired CPU queue of hardware-uploaded movie frames.
+    return entry->presentationStarted && !entry->presentationClosed;
+}
+void NativeMediaBuffers::endPresentation(uint32_t object){
+    const auto entry=prepared.at(object);
+    if(entry->closePresentation){entry->closePresentation();entry->closePresentation={};}
+    entry->presentationClosed=true;
+}
+bool NativeMediaBuffers::referenceEmpty(Runtime *rt,uint32_t mp)const{
+    if(mp<0xce500)throw std::runtime_error("native movie reference query has no owner");
+    const auto entry=prepared.at(mp-0xce500);
+    if(!entry->created || !entry->initialized || entry->inputResetPending || entry->mp!=mp || word(rt,mp+0x40)!=entry->work)
+        throw std::runtime_error("native movie reference query escaped its live decoder");
+    return entry->presentationClosed && entry->video.finished();
+}
 std::shared_ptr<const NativeMediaBuffer> NativeMediaBuffers::buffer(uint32_t object)const{
     const auto it=prepared.find(object);return it==prepared.end()?nullptr:it->second;
 }
 std::optional<bool> nativeMediaBufferInstruction(R5900Context *c,Runtime *rt,uint32_t pc){
-    if(pc!=0x2bbfc0 && pc!=0x2bc1d0 && pc!=0x2bc1e0 && pc!=0x2ba670 && pc!=0x1ef6f8 && pc!=0x1ef914 && pc!=0x1f0438 && pc!=0x1f04a0 && pc!=0x1efa30 && pc!=0x1f4590 && pc!=0x1f4940 && pc!=0x2bdac0 && pc!=0x2bd9b0)return std::nullopt;
+    if(pc!=0x2bbfc0 && pc!=0x2bc1d0 && pc!=0x2bc1e0 && pc!=0x2ba670 && pc!=0x1ef6f8 && pc!=0x1ef914 && pc!=0x1f0438 && pc!=0x1f04a0 && pc!=0x1efa30 && pc!=0x1f4590 && pc!=0x1f4940 && pc!=0x2bdac0 && pc!=0x2bd9b0 && pc!=0x2bd5d8 && pc!=0x2be3d0 && pc!=0x2bea60)return std::nullopt;
     auto *d=rt?dynamic_cast<bozo::ee::Dispatcher *>(rt->services):nullptr;
     auto *owner=d?dynamic_cast<MediaBufferOwner *>(&d->host()):nullptr;
     if(!owner || !c)throw std::runtime_error("native movie input requires a media-buffer owner");
     const auto sp=c->r[29].uw[0];
-    if(pc==0x2bdac0 || pc==0x2bd9b0){
+    if(pc==0x2be3d0 || pc==0x2bea60){
+        if(c->pc!=pc || word(rt,c->r[4].uw[0]+0x15e77c)!=0x159bf8)throw std::runtime_error("native movie stop requires original typed entry");
+        owner->nativeMediaBuffers().endPresentation(c->r[4].uw[0]+0xc0);
+    }else if(pc==0x2bd5d8){
+        const auto base=c->r[2].uw[0];
+        if(c->r[1].uw[0]!=base+0x10000)throw std::runtime_error("native audio readiness requires original output-check continuation");
+        c->r[2].ud[0]=owner->nativeMediaBuffers().presentationReady(rt,c->r[20].uw[0],base)?1:0;return true;
+    }else if(pc==0x2bdac0 || pc==0x2bd9b0){
         owner->nativeMediaBuffers().validateAudioPayload(rt,c,pc);
     }else if(pc==0x1f4590){
         if(c->pc!=pc || sp<0x150 || (sp&15))throw std::runtime_error("native PSS parser requires complete original entry");
         owner->nativeMediaBuffers().demuxEntry(sp-0x150,c->r[4].uw[0],c->r[5].uw[0],c->r[6].uw[0],c->r[7].uw[0],c->r[8].uw[0]);
     }else if(pc==0x1f4940){
-        owner->nativeMediaBuffers().finishDemux(sp,c->r[2].uw[0]);
+        owner->nativeMediaBuffers().finishPss(rt,sp,c->r[2].uw[0]);
         if(std::getenv("VP2S_BOZO_TRACE_QUEUES"))std::fprintf(stderr,"[vp2s:media] original PSS parser consumed=%u\n",c->r[2].uw[0]);
     }else if(pc==0x1f0438){
         if(c->pc!=pc || sp<0x20 || (sp&15))throw std::runtime_error("native MPEG reset requires complete original entry");
@@ -254,10 +336,19 @@ std::optional<bool> nativeMediaBufferInstruction(R5900Context *c,Runtime *rt,uin
     return false; // Original CPU initialization/return remains; no transport job exists.
 }
 bool nativeMediaLibrary(R5900Context *c,Runtime *rt,uint32_t target){
-    if(target!=0x1f02a0 && target!=0x1ef6f8 && target!=0x1f0510 && target!=0x1f4990 && target!=0x1f0438 && target!=0x1f4590 && target!=0x2b90a0)return false;
+    if(target!=0x1f02a0 && target!=0x1ef6f8 && target!=0x1f0510 && target!=0x1f4990 && target!=0x1f0438 && target!=0x1f4590 && target!=0x2b90a0 && target!=0x2b9560 && target!=0x1f04c8)return false;
     auto *d=rt?dynamic_cast<bozo::ee::Dispatcher *>(rt->services):nullptr;
     auto *owner=d?dynamic_cast<MediaBufferOwner *>(&d->host()):nullptr;
     if(!owner || !c || c->pc!=target)throw std::runtime_error("native MPEG requires its declared API entry");
+    if(target==0x1f04c8){
+        if(c->r[31].uw[0]!=0x2be12c)throw std::runtime_error("unported native movie reference-query caller");
+        c->r[2].sd[0]=owner->nativeMediaBuffers().referenceEmpty(rt,c->r[4].uw[0])?1:0;c->pc=c->r[31].uw[0];return true;
+    }
+    if(target==0x2b9560){
+        if(c->r[31].uw[0]!=0x2be220)throw std::runtime_error("unported native movie picture consumer caller");
+        c->r[2].sd[0]=owner->nativeMediaBuffers().advanceMovie(rt,c->r[4].uw[0],d->now(c),*owner);
+        c->pc=c->r[31].uw[0];return true;
+    }
     if(target==0x2b90a0){
         c->r[2].sd[0]=owner->nativeMediaBuffers().videoPayload(rt,c)?1:0;c->pc=c->r[31].uw[0];return true;
     }

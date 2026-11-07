@@ -6,7 +6,9 @@
 #include <map>
 #include <optional>
 #include <array>
+#include <stdexcept>
 namespace vp2s {
+class MediaBufferOwner;
 struct NativeMediaBuffer {
     struct Callback {uint32_t function=0,data=0,gp=0;bool set=false;};
     struct StreamCallback {uint64_t pattern=0,mask=0;Callback callback;};
@@ -20,6 +22,9 @@ struct NativeMediaBuffer {
     std::vector<StreamCallback> streams;
     std::unique_ptr<bozo::libs::VideoDecoder> decoder;
     NativeMovieVideo video;
+    uint64_t presentationBase=0,displayedPictures=0;
+    bool presentationStarted=false,presentationClosed=false;
+    std::function<void()> closePresentation;
 };
 class NativeMediaBuffers {
     using Factory=std::function<std::unique_ptr<bozo::libs::VideoDecoder>()>;
@@ -54,8 +59,13 @@ public:
     void beginDemux(Runtime *,uint32_t stack,uint32_t mp,uint32_t input,uint32_t bytes,uint32_t ring,uint32_t capacity);
     void demuxEntry(uint32_t stack,uint32_t mp,uint32_t input,uint32_t bytes,uint32_t ring,uint32_t capacity)const;
     void finishDemux(uint32_t stack,uint32_t consumed);
+    void finishPss(Runtime *,uint32_t stack,uint32_t consumed);
     bool videoPayload(Runtime *,R5900Context *);
     void validateAudioPayload(Runtime *,R5900Context *,uint32_t function)const;
+    int advanceMovie(Runtime *,uint32_t object,uint64_t now,MediaBufferOwner &);
+    bool presentationReady(Runtime *,uint32_t audio,uint32_t originalOutput)const;
+    void endPresentation(uint32_t object);
+    bool referenceEmpty(Runtime *,uint32_t mp)const;
     std::shared_ptr<const NativeMediaBuffer> buffer(uint32_t object)const;
     size_t outstanding()const{return pending.size()+creations.size()+resets.size()+demuxes.size();}
 };
@@ -63,6 +73,8 @@ class MediaBufferOwner {
 public:
     virtual ~MediaBufferOwner()=default;
     virtual NativeMediaBuffers &nativeMediaBuffers()=0;
+    virtual void presentNativeMovie(uint32_t,const bozo::libs::YuvPicture &,uint64_t){throw std::runtime_error("native movie presenter is missing");}
+    virtual void closeNativeMovie(uint32_t){throw std::runtime_error("native movie presenter is missing");}
 };
 std::optional<bool> nativeMediaBufferInstruction(R5900Context *,Runtime *,uint32_t pc);
 bool nativeMediaLibrary(R5900Context *,Runtime *,uint32_t target);

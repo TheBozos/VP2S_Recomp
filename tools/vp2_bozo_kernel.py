@@ -25,6 +25,8 @@ COMMAND_SEND = (0x13a3f0,0x13a524)
 EVENT_RANGES=((0x140b70,0x140c34),(0x148c58,0x148f88),(0x141780,0x141898),(0x141910,0x141958),(0x141980,0x1419cc))
 RETIRED_RANGES = (INSTALLER, QUERY, ALARM_INSTALLER, ALARM_PAYLOAD, TIMER_INITIALIZER, TIMER_HANDLER, TIMER_START, TIMER_QUERY, TIMER_REARM,MODULE_LOADER,MODULE_BUFFER_LOADER,MODULE_BUFFER_FREE,MODULE_TRANSFER,CACHE_SYNC,COMMAND_SEND)+EVENT_RANGES
 GUARDS = {
+    (0x15bd70,0x15bda8): '745c998c9dd5a82d9ed8cea079133db021b52b550e89449d5e1b894b71a7a9d5',
+    (0x1068e0,0x106a2c): 'b30262707bb8bd7ca27139232189b1698780b94cd13fe048685c3758c4708942',
     (0x15a1e0,0x15a200): '3d5516bcb133aad0302be1420e75fd0d283d1ad45aed193efeaef36368eb110f',
     (0x152060,0x152080): '82feb318e1227eae8460ec6bb489653ef560aab596c9ec7ef9a04b74df95c62a',
     (0x15ba00,0x15babc): '01c9487bea078d22ae8dea8d82ce3f48ce0d593fe75191f3598e7e805e987002',
@@ -307,6 +309,7 @@ def overlay_adaptations(name,data):
         if hashlib.sha256(data[at:at+hi-lo]).hexdigest()!='5c82211252cab0d3265c33966ab6bb1ccb433758cf6b340f51632fa109c41d4c':
             raise ValueError('USA menu graphics-memory clear source mismatch')
         for lo,hi,expected in (
+            (0x373eb0,0x373f10,'133807cdfbc46afc446b142953dd60a1af23641b22a79bed4db05677cfae6492'),
             (0x372180,0x3721b4,'00a7de71ad33ba14ff16757ec861f55b56b4e4d0d166aae90d2c7a984e7f652a'),
             (0x372060,0x372180,'099e335567888b5edfa7c52a63078a02481904bf55ba859ae7fdf3a669e063a9'),
             (0x3721c0,0x37293c,'38b3ca7ed66c5b7be98e324863ac85ec73a73df5ed097d698710d313b8e4acbe'),
@@ -334,6 +337,7 @@ def overlay_adaptations(name,data):
         (0x2eb3a0,0x2ebbe0,'90c38c4355f5e36e4f66a18431d3c03d960977ad76d1bc8f7c20ed2a3ea22ef6'),
         (0x2bbfc0,0x2bc1dc,'fa2e265514606b372d7420091f9af78c0661ef40447ddd477411dc486df7a307'),
         (0x2bc1e0,0x2bc31c,'3599cf1c9de1214629ffc9880dd26d1ff97dd85f8c5234de885e6aa6bb50d6db'),
+        (0x2bc1e0,0x2bc330,'b74e741629d88970b322389e1c628bb3778a9ab95b017c6fec1858b6e30aec4d'),
         (0x2bc330,0x2bc3f4,'e423f073b74534f66f1a75b4bb88abe49db71199224aa7410cdbcd9deced1cf8'),
         (0x2ba600,0x2ba6d0,'d5c1383fece3d5aef471e7077549bb4804ee9ddcdc40fca4fc72c5edc3f9e707'),
         (0x1f02a0,0x1f0350,'1438189477cd535e605306838a3b166c742f6c4238d9670fb65af21aab717323'),
@@ -359,6 +363,11 @@ def overlay_adaptations(name,data):
         (0x2b90a0,0x2b92e0,'3d7c76d046949235bda80828bb6f15dc6d789f37a5b7de87daba9952695024f4'),
         (0x2bd9b0,0x2bdc20,'609900e4b7175c36d7cb6ef3a4d770d4608a9f4e4f6d6e24c4f33e5b786b7cc5'),
         (0x2b9f00,0x2ba040,'0e98d8c1e6c6a061d9b2e93d130a945f54a866becb68fb53148413f7639cd976'),
+        (0x2b9560,0x2b9b80,'ca9727ce56eb89f4b5f2906e75733d96774e687ca74d93c51ba97bc7872f87c8'),
+        (0x2be020,0x2be600,'c338390f8bb0c2d68f423fac8d070b2104a9c155d91a0439accfa88531ff54c6'),
+        (0x2bd400,0x2bd9b0,'fa1fa27b51c343d7d92f62b33d97f1283643909a05a5ae3e180a32c77e366bb6'),
+        (0x2bea60,0x2beae0,'e65fba217935eec0156f4ff4238485e7cbce6af8fcee627ff778dcc5fe2c630c'),
+        (0x1f04b8,0x1f0510,'c45c191234f978918398f5c195f0ae70b36c0caec1cf815ea9d31d6c5d6ecc08'),
         (0x2f0de0,0x2f0e70,'1898503143ca6ccba1d99bc209d3a7fd3c9e9a0babc361b702fb1267df6eb301'),
         (0x29af80,0x29b2c4,'ef3a9f1a6cae966ab8a687451e72ac175d88b8e9883d09449949ca5c3389d0bf'),
         (0x29c990,0x29cb18,'361b601c33bd3f57fd190aef95f4716cd08b5bbdf401f852b6e80eb96933e9e2'),
@@ -442,6 +451,7 @@ def overlay_adaptations(name,data):
             '002ec9e0 0c0bbce4 0c087268\n'
             # A native decoder owns the prepared media buffer. Preserve its
             # original CPU reset/tag construction; never create an IPU DMA job.
+            '002bc218 afa2003c 080af0b4\n'
             '002bc120 3c011001 080af074\n'
             '002bc124 ac20b420 00000000\n'
             '001ef864 0c07bd8a 00000000\n'
@@ -503,4 +513,4 @@ def overlay_native_sites(name,data):
         0x221698,0x22169c,0x21c9dc,0x21c9e0,0x21c9e8,0x21c9ec,0x21ca1c,0x21ca20,0x21ca24,0x21ca28,0x2cb490,0x2f3714,0x2ea9a0,
         0x2e74f0,0x2e7520,0x2e7550,0x2e757c,0x2e75a0,0x2f0de0,0x2e83e4,0x2ec9e4,0x2ec308,0x2ec320,
         0x2efe40,0x2effe8,0x2eb3a0,0x2eb5c4,0x2ebac4,0x2ebb0c,0x2ebb58,0x2ebb9c,0x2ebba8,0x2bbfc0,0x2bc1d0,0x2bc1e0,0x2ba670,0x1ef6f8,0x1ef914,0x1f0438,0x1f04a0,0x1efa30,
-        0x1f4590,0x1f4940,0x2bdac0,0x2bd9b0))+'stub 0x2b90a0\n'
+        0x1f4590,0x1f4940,0x2bdac0,0x2bd9b0,0x2bd5d8,0x2be3d0,0x2bea60))+'stub 0x2b90a0\nstub 0x2b9560\nstub 0x1f04c8\n'

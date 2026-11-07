@@ -11,8 +11,9 @@
 #include <cstdio>
 namespace vp2s {
 void captureNativeFrame(const std::string &path){
-    auto &renderer=bozo::render::Renderer::instance();const auto frame=renderer.published();
-    if(!frame || frame->batches.empty())throw std::runtime_error("native capture has no completed nonempty frame");
+    auto &renderer=bozo::render::Renderer::instance();const auto published=renderer.published(),backdrop=renderer.backdrop();
+    const auto frame=published && !published->batches.empty()?published:backdrop;
+    if(!frame || frame->batches.empty())throw std::runtime_error("native capture has no completed nonempty frame or movie");
     const auto width=uint32_t(frame->screen.width),height=uint32_t(frame->screen.height);
     if(!width || !height || width>2048 || height>2048)throw std::runtime_error("native capture dimensions outside bounds");
     if(!SDL_Init(SDL_INIT_VIDEO))throw std::runtime_error(SDL_GetError());

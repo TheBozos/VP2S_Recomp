@@ -35,7 +35,19 @@ bool NativeMovieVideo::accept(bozo::libs::VideoDecoder &decoder,const uint8_t *d
         if(coded[at]==0 && coded[at+1]==0 && coded[at+2]==1){
             const auto code=coded[at+3];
             if(code==0){if(!headerOpen)cuts.push_back(at);headerOpen=false;}
-            else if(code==0xb3 || code==0xb8){if(!headerOpen)cuts.push_back(at);headerOpen=true;}
+            else if(code==0xb3 || code==0xb8){
+                if(code==0xb3){
+                    if(at+8>coded.size())break;
+                    static constexpr uint32_t numerators[9]={0,24000,24,25,30000,30,50,60000,60};
+                    const auto rate=coded[at+7]&15;
+                    if(!rate || rate>8)throw std::runtime_error("unsupported native MPEG sequence frame rate");
+                    const auto numerator=numerators[rate],denominator=(rate==1 || rate==4 || rate==7)?1001u:1u;
+                    if(frameRateNumerator && (frameRateNumerator!=numerator || frameRateDenominator!=denominator))
+                        throw std::runtime_error("native MPEG sequence changes frame rate during playback");
+                    frameRateNumerator=numerator;frameRateDenominator=denominator;
+                }
+                if(!headerOpen)cuts.push_back(at);headerOpen=true;
+            }
             else if(code==0xb7)ended=true;
             at+=4;
         }else ++at;
@@ -50,5 +62,21 @@ bool NativeMovieVideo::accept(bozo::libs::VideoDecoder &decoder,const uint8_t *d
 bool NativeMovieVideo::takePicture(bozo::libs::VideoDecoder &decoder,bozo::libs::YuvPicture &out){
     pump(decoder);if(pictures.empty())return false;
     out=std::move(pictures.front());pictures.pop_front();pump(decoder);return true;
+}
+void NativeMovieVideo::finishInput(bozo::libs::VideoDecoder &decoder){ended=true;pump(decoder);}
+std::shared_ptr<const bozo::render::Texture> nativeMoviePicture(const bozo::libs::YuvPicture &p,uint64_t key,uint64_t version){
+    if(p.width<=0 || p.height<=0 || p.width>4096 || p.height>4096 || (p.width&1) || (p.height&1) ||
+       p.y.size()!=size_t(p.width)*p.height || p.u.size()!=size_t(p.width/2)*(p.height/2) || p.v.size()!=p.u.size())
+        throw std::runtime_error("native movie presentation has invalid YUV planes");
+    auto texture=std::make_shared<bozo::render::Texture>();texture->width=p.width;texture->height=p.height;
+    texture->key=key;texture->version=version;texture->rgba.resize(p.y.size());
+    const auto clamp=[](int value){return uint32_t(std::clamp(value,0,255));};
+    for(int y=0;y<p.height;++y)for(int x=0;x<p.width;++x){
+        const auto pixel=size_t(y)*p.width+x,chroma=size_t(y/2)*(p.width/2)+x/2;
+        const int l=(9539*(int(p.y[pixel])-16))>>13,u=int(p.u[chroma])-128,v=int(p.v[chroma])-128;
+        const auto r=clamp(l+((13074*v)>>13)),g=clamp(l+((-3210*u)>>13)+((-6660*v)>>13)),b=clamp(l+((16524*u)>>13));
+        texture->rgba[pixel]=r|(g<<8)|(b<<16)|0xff000000;
+    }
+    return texture;
 }
 }

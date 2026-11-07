@@ -52,6 +52,19 @@ public:
     std::set<uint32_t> overlayExternals;
     vp2s::NativeMediaBuffers mediaBuffers;
     vp2s::NativeMediaBuffers &nativeMediaBuffers()override{return mediaBuffers;}
+    void presentNativeMovie(uint32_t object,const bozo::libs::YuvPicture &picture,uint64_t version)override{
+        const auto target=scene.frameTarget();if(!target)throw std::runtime_error("native movie has no active presentation target");
+        bozo::render::Screen screen;screen.width=target->width;screen.height=target->height;
+        screen.originX=2048-target->width/2;screen.originY=2048-target->height/2;
+        const auto texture=vp2s::nativeMoviePicture(picture,0x5650325300000000ull|object,version);
+        if(std::getenv("VP2S_BOZO_TRACE_QUEUES") && (version<=2 || version%30==0)){
+            uint64_t sum=0;uint32_t lit=0;
+            for(const auto rgba:texture->rgba){const auto rgb=(rgba&255)+((rgba>>8)&255)+((rgba>>16)&255);sum+=rgb;if(rgb>30)++lit;}
+            std::fprintf(stderr,"[vp2s:media] native movie pixels version=%llu meanRGB=%.3f lit=%u\n",(unsigned long long)version,double(sum)/(texture->rgba.size()*3),lit);
+        }
+        bozo::render::Renderer::instance().setBackdrop(texture,screen,screen.originX,screen.originY,screen.width,screen.height,true);
+    }
+    void closeNativeMovie(uint32_t)override{bozo::render::Renderer::instance().clearBackdrop();}
     vp2s::NativeUiSprites sprites;
     vp2s::NativeUiSprites &nativeUiSprites()override{return sprites;}
     vp2s::NativeGlyphs glyphs{std::filesystem::path(VP2S_BOZO_IMAGES).parent_path()/"glyphs"};
@@ -351,6 +364,12 @@ bool noNativeInstruction(uint8_t *ram,R5900Context *ctx,Runtime *rt,uint32_t pc)
     if(vp2s::nativeRandomSeed(ram,ctx,rt,pc))return true;
     if(vp2s::nativeMathInstruction(ram,ctx,rt,pc))return true;
     if(vp2s::nativeFrameInput(ram,ctx,rt,pc))return true;
+    if(pc==0x239cfc){
+        const auto object=ctx->r[4].uw[0];uint32_t shape=0,sphere=0;
+        const auto *s=rt->memory.hostPointer(object+0x644,4),*b=rt->memory.hostPointer(object+0x7bc,4);
+        if(s && b){std::memcpy(&shape,s,4);std::memcpy(&sphere,b,4);}
+        throw std::runtime_error(std::format("native sphere getter requires qualification: object={:x} shape={:x} sphere={:x}",object,shape,sphere));
+    }
     throw std::runtime_error(std::format("unported native VP2S algorithm at pc={:x}",pc));
 }
 }

@@ -6,6 +6,7 @@
 #include <cstdio>
 #include <cstdlib>
 #include <set>
+#include <format>
 namespace vp2s {
 namespace {
 const uint8_t *record(Runtime *rt,uint32_t at,uint32_t size){
@@ -13,7 +14,7 @@ const uint8_t *record(Runtime *rt,uint32_t at,uint32_t size){
     return rt->memory.hostPointer(at,size);
 }
 template<class T>T value(Runtime *rt,uint32_t at){T result;std::memcpy(&result,record(rt,at,sizeof(T)),sizeof(T));return result;}
-void type(Runtime *rt,uint32_t element){if(value<uint32_t>(rt,element)!=0x15a450)throw std::runtime_error("unported native UI text class");}
+void type(Runtime *rt,uint32_t element){const auto actual=value<uint32_t>(rt,element);if(actual!=0x15a450)throw std::runtime_error(std::format("unported native UI text class {:x} at {:x}",actual,element));}
 }
 void NativeUiTexts::enter(Runtime *rt,uint32_t stack,uint32_t element,uint32_t items,int32_t count){
     type(rt,element);
@@ -167,7 +168,11 @@ std::optional<bool> nativeUiTextInstruction(R5900Context *c,Runtime *rt,uint32_t
     }else if(pc==0x2f0de0){
         if(c->pc!=pc)throw std::runtime_error("native text release requires its destructor entry");
         if(c->r[4].uw[0]){
-            const auto element=c->r[4].uw[0];type(rt,element);
+            const auto element=c->r[4].uw[0];
+            // The mod002 derived destructor writes its own vtable before
+            // calling this base destructor. Admit only that proven teardown;
+            // it does not qualify the derived class's rendering callbacks.
+            if(value<uint32_t>(rt,element)!=0x15bd70 || c->r[31].uw[0]!=0x373ee0)type(rt,element);
             auto *sprites=dynamic_cast<UiSpriteOwner *>(&d->host());
             if(sprites && sprites->nativeUiSprites().buildingText(element))throw std::runtime_error("native text destroyed during icon capture");
             texts.release(element);

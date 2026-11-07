@@ -17,6 +17,7 @@ fixture,_=prepare(data,[dict(Name='mpeg_create',Start='0x1ef6f8',End='0x1ef930')
                       dict(Name='audio_copy',Start='0x2b9f00',End='0x2ba040'),dict(Name='audio_channel1',Start='0x2bd9b0',End='0x2bdab4'),
                       dict(Name='audio_channel0',Start='0x2bdac0',End='0x2bdbc4'),
                       dict(Name='movie_constructor',Start='0x2ba600',End='0x2ba6d0'),dict(Name='media_buffer_reset',Start='0x2bbfc0',End='0x2bc1dc'),
+                      dict(Name='media_buffer_destructor',Start='0x2bc1e0',End='0x2bc330'),
                       dict(Name='buffer_constructor',Start='0x2bc330',End='0x2bc3f4')],{})
 a.out.mkdir(parents=True,exist_ok=True);(a.out/'fixture.elf').write_bytes(fixture)
 _,segments,_=elf_parts(data);segment=next(s for s in segments if s[0]==1 and s[2]<=0x313f00<0x313fa0<=s[2]+s[4])
@@ -24,8 +25,8 @@ _,segments,_=elf_parts(data);segment=next(s for s in segments if s[0]==1 and s[2
 lookup=next(s for s in segments if s[0]==1 and s[2]<=0x356270<0x356280<=s[2]+s[4])
 (a.out/'pes.bin').write_bytes(data[lookup[1]+0x356270-lookup[2]:lookup[1]+0x356280-lookup[2]])
 # Both variants omit console transport setup. Their CPU prefixes remain intact.
-patches=''.join(line+'\n' for line in patches.splitlines() if line.startswith(('002bc120 ','002bc124 ','001ef864 ','001ef86c ','001efa40 ','001efae8 ','001efaec ','001f048c ','001f049c ','001f04a4 ','001f04a8 ')))
+patches=''.join(line+'\n' for line in patches.splitlines() if line.startswith(('002bc120 ','002bc124 ','002bc218 ','001ef864 ','001ef86c ','001efa40 ','001efae8 ','001efaec ','001f048c ','001f049c ','001f04a4 ','001f04a8 ')))
 if a.variant=='original':patches+='002ba670 ac220010 00000000\n'
 (a.out/'patches.txt').write_text(patches)
-sites=(0x2bbfc0,0x2bc1d0,0x2ba670,0x1ef6f8,0x1ef914,0x1f0438,0x1f04a0,0x1efa30,0x1f4590,0x1f4940,0x2bdac0,0x2bd9b0) if a.variant=='adapted' else ()
-(a.out/'externals.txt').write_text(''.join(f'native 0x{pc:x}\n' for pc in sites)+''.join(f'stub 0x{pc:x}\n' for pc in (0x1412a0,0x1412f0,0x1371e0,0x100ab0,0x2bd380,0x132e40,0x132c88,0x1f4ce0,0x1f4d38,0x1ef628,0x1f50a0,0x2b90a0)))
+sites=(0x2bbfc0,0x2bc1d0,0x2bc1e0,0x2ba670,0x1ef6f8,0x1ef914,0x1f0438,0x1f04a0,0x1efa30,0x1f4590,0x1f4940,0x2bdac0,0x2bd9b0) if a.variant=='adapted' else ()
+(a.out/'externals.txt').write_text(''.join(f'native 0x{pc:x}\n' for pc in sites)+''.join(f'stub 0x{pc:x}\n' for pc in (0x1412a0,0x1412f0,0x1371e0,0x1371f0,0x100ab0,0x100b30,0x2bd380,0x132e40,0x132c88,0x1f4ce0,0x1f4d38,0x1ef628,0x1f50a0,0x2b90a0)))

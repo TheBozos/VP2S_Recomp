@@ -84,12 +84,20 @@ int main(int argc,char **argv){try{
         if(expected){check(held->glyphs[0].box[0]==999.f && held->glyphs[0].scale[0]==1.f && held->glyphs[0].picture->rgba[0]==0x20000011);}
         std::memset(b.memory.flat()+items,0xee,5*0x30);after.assets.overwrite(source,0x90);
         if(expected)check(held->glyphs[0].box[0]==999.f && held->glyphs[0].picture->rgba[0]==0x20000011);
-        R5900Context dying{};dying.pc=0x2f0de0;dying.r[4].ud[0]=object;const auto saved=dying;
+        R5900Context dying{};dying.pc=0x2f0de0;dying.r[4].ud[0]=object;
+        if(seed&1){
+            put(b,object,0x15bd70u);dying.r[31].uw[0]=0x373ee0;
+            auto invalid=dying;invalid.r[31].uw[0]+=4;bool rejected=false;
+            try{vp2s::nativeUiTextInstruction(&invalid,&b,0x2f0de0);}catch(const std::exception &){rejected=true;}
+            check(rejected && after.texts.text(object)==held);
+        }
+        const auto saved=dying;
         check(vp2s::nativeUiTextInstruction(&dying,&b,0x2f0de0)==false && !after.texts.text(object));
         check(!std::memcmp(&dying,&saved,sizeof(dying)) && held->glyphs.size()==expected);
     }
     auto rejects=[](auto action){bool rejected=false;try{action();}catch(const std::exception &){rejected=true;}check(rejected);};
     auto &rt=native.runtime();constexpr uint32_t object=0x190000,items=0x1a0000,stack=0x1ff0000;
+    put(rt,object,0x15a450u);
     after.texts.enter(&rt,stack,object,items,1);
     rejects([&]{after.texts.enter(&rt,stack,object,items,1);});
     rejects([&]{after.texts.finish(stack,object);});

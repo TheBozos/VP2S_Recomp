@@ -1,5 +1,6 @@
 #pragma once
 #include "bozo/libs/mpeg.h"
+#include "bozo/render/texture.h"
 #include <deque>
 namespace vp2s {
 // Native MPEG elementary-stream framing. No SDK/device protocol lives here.
@@ -15,10 +16,14 @@ public:
     std::deque<Timestamp> timestamps;
     std::deque<bozo::libs::YuvPicture> pictures;
     uint64_t acceptedBytes=0,submittedPictures=0;
+    uint32_t frameRateNumerator=0,frameRateDenominator=0;
     static constexpr size_t capacity=0xc8000,pictureCapacity=8;
     bool accept(bozo::libs::VideoDecoder &,const uint8_t *,size_t,int64_t pts,int64_t dts);
     bool takePicture(bozo::libs::VideoDecoder &,bozo::libs::YuvPicture &);
+    void finishInput(bozo::libs::VideoDecoder &);
+    bool finished()const{return ended && flushed && coded.empty() && pictures.empty();}
     bool sequenceEnded()const{return ended;}
     size_t pendingBytes()const{return coded.size();}
 };
+std::shared_ptr<const bozo::render::Texture> nativeMoviePicture(const bozo::libs::YuvPicture &,uint64_t key,uint64_t version);
 }

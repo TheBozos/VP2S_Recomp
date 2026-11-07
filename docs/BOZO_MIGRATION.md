@@ -2,10 +2,72 @@
 
 Started 2026-11-06 after VU0 collision-point increment `d99b892`. The existing
 PS2Recomp launcher remains the playable baseline. **The Bozo runner is not
-playable: it renders the initial screen-size text page, but has no qualified 3D scene or Logun route.** It is an independent compiled
+playable: it renders the initial screen-size page and native movies, but has no
+qualified 3D scene or Logun route.** It is an independent compiled
 target, not a replacement DLL loaded into PS2Recomp.
 
 ## Build and evidence
+
+### Native movie presentation, clock and teardown (2026-11-07)
+
+The old `0x2b9560` consumer waited on retired decoder-input byte counts before
+reading Timer0, disabling hardware interrupts and decoding into the old upload
+queue. Its actual `0x2be220` call now uses a typed native picture consumer. It
+waits on real decoded pictures and their sequence frame rate, presents immutable
+native RGBA images, and publishes actual application dimensions/picture counts.
+It never fills old input/output queues or returns invented hardware counts.
+The sequence frame-rate code supplies the rational presentation period on the
+native scheduler clock; this disc's opening is 640x448 at 30000/1001.
+
+The audio consumer's `0x2bd5d8` branch now asks whether native presentation has
+actually begun. Its original software audio ring/copy/command path remains.
+Native command alias handling below lets that path submit real source bytes.
+End-of-sequence or an actual PSS program-end code flushes delayed decoder frames;
+the reference-empty query remains false until those pictures and the last
+presentation interval are drained. No generic TMB MPEG private state is used.
+
+Explicit skip/stop, successful decoder reset and buffer release clear the held
+native image exactly once. Reset allocation failure preserves the image and
+decoder. At `0x2bc218`, the input-buffer destructor now jumps over physical DMA/
+interrupt shutdown to its original software cleanup. Native semaphore deletion,
+conditional heap free, CPU return and stack restoration remain compiled. Another
+64 complete destructor CPU/RAM cases use this native backend contract. Sixteen
+movie-consumer cases cover rational deadlines, no early last-frame release,
+actual black/white YUV conversion, immutable held images, EOF flush, reference
+query, skip and reset lifetime. Tests also preserve CPU/RAM on blocked input.
+
+The mod002 derived text destructor at `0x373ed8` writes vtable `0x15bd70` before
+calling the text base destructor. That exact typed caller now releases its base
+native snapshot; other callers still reject. 32 derived/base teardown pairs
+preserve CPU state and held snapshots, and reject a wrong caller. This does not
+admit the derived class's rendering callbacks. Both source/vtable spans are
+fingerprinted.
+
+Hidden native GPU capture `build_usa/bozo/captures/native-movie-600.png` shows an
+actual opening frame. The same source image's decoded RGB mean rises from
+0.156 at picture 60 to 170.665 at picture 180; the initial black capture was
+source content, not absent presentation. A bounded 1800-frame run reaches
+815 presentations without a device fault. Skip reaches the remaining sphere
+getter at `0x239cfc` after native teardown. PCSX2 movie colour/placement parity,
+device audio and the 3D/Logun route remain unqualified. No visible interactive
+launcher is delivered by this increment.
+
+### Native command input aliases (2026-11-07)
+
+Actual movie audio submission reached command 2 with source `0x2056e9c0`,
+8192 bytes, through the real `0x13a558` sender. The CPU sound producer explicitly
+uses the uncached spelling of its ordinary EE heap allocation. The native
+command API now resolves only the `0x20000000..0x21ffffff` data alias before
+checking its canonical RAM span. It copies the actual allocation's bytes into
+the native service; no scratch/device domain, DMA replay or status bank is added.
+Both packet and extra-data sources use the same bounded rule, and packet header
+writes preserve the caller's ABI. CPU sound-producer source is fingerprinted.
+
+32 command cases cover both aliases independently, all supported modes and
+extra/no-extra payloads. Scratch, hardware, other mirrors and end-of-RAM crossing
+reject before command submission. Module/identity suites pass; ongoing native
+movie-consumer work can now progress beyond 201 presented pictures to 815 in
+1800 logical frames. This is not audio-device, movie parity or Logun qualification.
 
 ### Original PSS parser and native coded-video input (2026-11-07)
 

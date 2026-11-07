@@ -7,6 +7,24 @@ target, not a replacement DLL loaded into PS2Recomp.
 
 ## Build and evidence
 
+### Unconditional default math-code installation (2026-11-07)
+
+The reached channel setup was dispatched by the unconditional program selector
+`0x29e150`, a sibling of the already retired conditional selector `0x29e180`.
+For the validated default math mode only, its physical enqueue and associated
+busy store now retire together. The original mode record and scalar CPU body
+remain. Admission requires the expected object type and no outstanding legacy
+job; other modes reject. The fingerprinted default resource only installs math
+code/constants and executes no draw or data computation. No job is created or
+completed, and the DMA leaf remains unported.
+
+Sixty-four generated producer comparisons check the exact absent busy write,
+all other RAM, all architectural CPU fields and the removed call's cycle /
+checkpoint delta. The fixture separately allows the host slice-limit refresh
+at the original out-call. Nondefault-mode rejection is tested. Startup passes
+this producer and reaches `0x215870`, whose inline normalization/quaternion
+matrix temporaries feed its retained scalar Euler-angle calculation.
+
 ### Static scene palette publication (2026-11-07)
 
 The next producer `0x29cb20` is reached from the fingerprinted scene setup

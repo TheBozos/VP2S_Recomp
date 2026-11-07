@@ -177,7 +177,7 @@ if(VP2S_BOZO_CODE)
       set(INSTALL_PATCH_ARGS --patches "${INSTALL_DIR}/patches.txt")
     endif()
     add_custom_command(OUTPUT "${INSTALL_DIR}/install_${VARIANT}_000.cpp" "${INSTALL_DIR}/install_${VARIANT}_table.cpp" "${INSTALL_DIR}/install_${VARIANT}_functions.h"
-      COMMAND ${Python3_EXECUTABLE} "${VP2S_ROOT}/tools/vp2_bozo_graphics_fixture.py" "${VP2S_BOZO_DATA}/images/mod001.elf" "${INSTALL_DIR}" --build "${VP2S_BOZO_DATA}/.."
+      COMMAND ${Python3_EXECUTABLE} "${VP2S_ROOT}/tools/vp2_bozo_graphics_fixture.py" "${VP2S_BOZO_DATA}/images/mod001.elf" "${INSTALL_DIR}" --build "${VP2S_BOZO_DATA}/.." --variant ${VARIANT}
       COMMAND $<TARGET_FILE:bozo-recomp> "${INSTALL_DIR}/fixture.elf" "${INSTALL_DIR}" --prefix install_${VARIANT} --symbol-prefix install_${VARIANT}_
         --files 1 --externals "${INSTALL_DIR}/externals.txt" ${INSTALL_PATCH_ARGS} --no-comments
       DEPENDS bozo-recomp "${VP2S_ROOT}/tools/vp2_bozo_graphics_fixture.py" "${VP2S_ROOT}/tools/vp2_bozo_kernel.py" "${VP2S_BOZO_DATA}/images/mod001.elf")
@@ -185,7 +185,7 @@ if(VP2S_BOZO_CODE)
   endforeach()
   add_executable(vp2s-bozo-graphics-install-check "${VP2S_ROOT}/tests/bozo_graphics_install_main.cpp" ${INSTALL_SOURCES})
   target_include_directories(vp2s-bozo-graphics-install-check PRIVATE "${INSTALL_REF}/original" "${INSTALL_REF}/adapted")
-  target_link_libraries(vp2s-bozo-graphics-install-check PRIVATE bozo_runtime_core)
+  target_link_libraries(vp2s-bozo-graphics-install-check PRIVATE vp2s_bozo_kernel)
   if(MINGW)
     target_link_options(vp2s-bozo-graphics-install-check PRIVATE -static)
   endif()

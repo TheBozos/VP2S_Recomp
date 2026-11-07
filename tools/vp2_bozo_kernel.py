@@ -290,6 +290,8 @@ def overlay_adaptations(name,data):
             '0029e2fc 0c0807c8 00000000\n'
             '0029e1a0 a0820050 00000000\n'
             '0029e1ac 0c0807c8 00000000\n'
+            '0029e160 a0820050 00000000\n'
+            '0029e16c 0c0807c8 00000000\n'
             # Publish the immutable offline asset at its CPU producer, then
             # free the unused descriptor through the original game heap call.
             # Do not submit a DMA job or fabricate its completion.
@@ -306,4 +308,4 @@ def overlay_adaptations(name,data):
 def overlay_native_sites(name,data):
     if name!='mod001':return ''
     overlay_adaptations(name,data)
-    return 'native 0x29e1a0\nnative 0x2c3cb4\nnative 0x29cc30\nnative 0x29cd7c\nnative 0x29cf14\nnative 0x29cf30\nnative 0x29cc00\n'
+    return 'native 0x29e1a0\nnative 0x2c3cb4\nnative 0x29cc30\nnative 0x29cd7c\nnative 0x29cf14\nnative 0x29cf30\nnative 0x29cc00\nnative 0x29e160\n'

@@ -15,7 +15,7 @@ uint8_t *record(Runtime *rt,uint32_t address,uint32_t bytes){
 }
 }
 bool nativeMathInstruction(uint8_t *,R5900Context *c,Runtime *rt,uint32_t pc){
-    if(pc==0x29e1a0){
+    if(pc==0x29e1a0 || pc==0x29e160){
         // The default math code installation has no execution or game-data
         // result. Its algorithms are compiled native record operations. Retire
         // the physical enqueue before it exists; never mark a job busy/complete.

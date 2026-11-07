@@ -49,6 +49,6 @@ deeper=subprocess.run([sys.argv[1],'--iso',sys.argv[2],'--frames','600'],
                       capture_output=True,text=True,timeout=30,
                       env={**os.environ,'VP2S_BOZO_SEED':'1'})
 print(deeper.stdout+deeper.stderr,end='')
-if deeper.returncode!=1 or 'unported device write 10008020 at pc=29e0c0' not in deeper.stdout+deeper.stderr:
-    raise SystemExit('longer native boot did not reach the remaining math-code installation producer')
+if deeper.returncode!=1 or 'unported native VP2S algorithm at pc=2158a4' not in deeper.stdout+deeper.stderr:
+    raise SystemExit('longer native boot did not reach its quaternion/Euler builder')
 print('First native game-frame boundary passed; textures publish and startup reaches its next guarded producer. Native rendering remains unqualified.')

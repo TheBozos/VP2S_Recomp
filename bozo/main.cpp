@@ -26,6 +26,7 @@
 #include "native_state_setup.h"
 #include "native_screen_rect.h"
 #include "native_ui_text.h"
+#include "native_ui_sprites.h"
 #include "native_publication.h"
 #ifdef VP2S_BOZO_CAPTURE
 #include "native_capture.h"
@@ -44,8 +45,10 @@
 #include <stdexcept>
 
 namespace {
-class StrictHost final : public bozo::ee::Host, public vp2s::TimerOwner, public vp2s::SettingsOwner,public vp2s::SeedOwner,public vp2s::ModuleOwner,public vp2s::BootstrapOwner,public vp2s::RandomOwner,public vp2s::TextureOwner,public vp2s::SceneOwner,public vp2s::AssetOwner,public vp2s::DebugFontOwner,public vp2s::StateSetupOwner,public vp2s::ScreenRectOwner,public vp2s::UiTextOwner {
+class StrictHost final : public bozo::ee::Host, public vp2s::TimerOwner, public vp2s::SettingsOwner,public vp2s::SeedOwner,public vp2s::ModuleOwner,public vp2s::BootstrapOwner,public vp2s::RandomOwner,public vp2s::TextureOwner,public vp2s::SceneOwner,public vp2s::AssetOwner,public vp2s::DebugFontOwner,public vp2s::StateSetupOwner,public vp2s::ScreenRectOwner,public vp2s::UiTextOwner,public vp2s::UiSpriteOwner {
 public:
+    vp2s::NativeUiSprites sprites;
+    vp2s::NativeUiSprites &nativeUiSprites()override{return sprites;}
     vp2s::NativeGlyphs glyphs{std::filesystem::path(VP2S_BOZO_IMAGES).parent_path()/"glyphs"};
     vp2s::NativeUiTexts uiTexts;
     vp2s::NativeUiTexts &nativeUiTexts()override{return uiTexts;}
@@ -264,6 +267,7 @@ public:
 };
 bool noNativeInstruction(uint8_t *ram,R5900Context *ctx,Runtime *rt,uint32_t pc) {
     if(auto handled=vp2s::nativeUiTextInstruction(ctx,rt,pc))return *handled;
+    if(auto handled=vp2s::nativeUiSpriteInstruction(ctx,rt,pc))return *handled;
     if(auto handled=vp2s::nativeScreenRectInstruction(ctx,rt,pc))return *handled;
     if(auto handled=vp2s::nativeFixedImageInstruction(ctx,rt,pc))return *handled;
     if(auto handled=vp2s::nativeTextureManagerInstruction(ctx,rt,pc))return *handled;

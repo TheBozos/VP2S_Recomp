@@ -7,6 +7,29 @@ target, not a replacement DLL loaded into PS2Recomp.
 
 ## Build and evidence
 
+### Button-sheet ownership (2026-11-07)
+
+The first page's missing prompts are three enabled `0x4019` button sprites in
+text control record `+0x100`, not the emitter's `0x4010` callback. The original
+`0x2efe40` builds them separately after the glyph emitter. A bounded diagnostic
+confirms their DTT/part records and item addresses before geometry capture.
+
+`NativeUiSprites` now observes the original `0x2ec260` button-sheet setup at
+`0x2ec308`. Its original signed button-ID branch selects an actual game image
+object from UI manager `+0x828` or `+0x82c`; type/FIS identity checks resolve the
+native `SHI` 0x41/0x3d asset. It reads no TEX0 fields or hardware-address map.
+Original DTT lookup and scalar assignments remain compiled. The sprite's original
+reset `0x2ec320` releases the native association; held immutable assets survive.
+Unknown manager/image identity, escaped part lists and invalid IDs reject before
+changing an existing binding. The USA constructor writes manager type `0x15a1e0`;
+the older `vp2_2d.md` type value was stale and has been corrected from source.
+
+Sixty-four whole setup/reset CPU/RAM cases cover both ID branches, lookup resume,
+identity/part rejection and lifetime. All 45 suites are qualified after rerunning
+the affected fixture, signatures and startup tests. Actual startup again reaches
+600 logical frames. This only binds assets; scalar sprite geometry and drawing
+remain open, and the three prompt gaps are still present in the prior capture.
+
 ### Native frame publication and first capture (2026-11-07)
 
 An actual ordering trace separated target setup from drawing: at logical frame

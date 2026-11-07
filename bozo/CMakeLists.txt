@@ -34,6 +34,7 @@ add_test(NAME vp2s-bozo-texture-manifest COMMAND ${Python3_EXECUTABLE} "${VP2S_R
 add_test(NAME vp2s-bozo-glyph-conversion COMMAND ${Python3_EXECUTABLE} "${VP2S_ROOT}/tests/test_bozo_glyphs.py")
 add_library(vp2s_bozo_kernel STATIC native_kernel.cpp native_timer.cpp native_settings.cpp native_seed.cpp native_modules.cpp native_controller.cpp native_frame.cpp native_bootstrap.cpp native_random.cpp native_math.cpp native_object_math.cpp native_trig.cpp native_frustum.cpp native_textures.cpp native_scene.cpp native_assets.cpp native_debug_font.cpp native_state_setup.cpp native_screen_rect.cpp native_glyphs.cpp native_ui_text.cpp)
 target_sources(vp2s_bozo_kernel PRIVATE native_publication.cpp)
+target_sources(vp2s_bozo_kernel PRIVATE native_ui_sprites.cpp)
 set(GLYPH_FIXTURE "${CMAKE_CURRENT_BINARY_DIR}/glyphs-fixture")
 add_custom_command(OUTPUT "${GLYPH_FIXTURE}/manifest.txt"
   COMMAND ${Python3_EXECUTABLE} "${VP2S_ROOT}/tests/test_bozo_glyphs.py" --emit "${GLYPH_FIXTURE}"
@@ -170,6 +171,23 @@ if(VP2S_BOZO_CODE)
   add_test(NAME vp2s-bozo-menu-clear COMMAND vp2s-bozo-menu-clear-check)
   set(TEXTURE_REF "${CMAKE_CURRENT_BINARY_DIR}/texture-reference")
   set(UI_TEXT_REF "${CMAKE_CURRENT_BINARY_DIR}/ui-text-reference")
+  set(BUTTON_REF "${CMAKE_CURRENT_BINARY_DIR}/button-reference")
+  foreach(VARIANT original adapted)
+    set(BUTTON_DIR "${BUTTON_REF}/${VARIANT}")
+    add_custom_command(OUTPUT "${BUTTON_DIR}/button_${VARIANT}_000.cpp" "${BUTTON_DIR}/button_${VARIANT}_table.cpp" "${BUTTON_DIR}/button_${VARIANT}_functions.h"
+      COMMAND ${Python3_EXECUTABLE} "${VP2S_ROOT}/tools/vp2_bozo_button_fixture.py" "${VP2S_BOZO_DATA}/images/mod001.elf" "${BUTTON_DIR}" --build "${VP2S_BOZO_DATA}/.." --variant ${VARIANT}
+      COMMAND $<TARGET_FILE:bozo-recomp> "${BUTTON_DIR}/fixture.elf" "${BUTTON_DIR}" --prefix button_${VARIANT} --symbol-prefix button_${VARIANT}_
+        --files 1 --externals "${BUTTON_DIR}/externals.txt" --no-comments
+      DEPENDS bozo-recomp "${VP2S_ROOT}/tools/vp2_bozo_button_fixture.py" "${VP2S_ROOT}/tools/vp2_bozo_kernel.py" "${VP2S_BOZO_DATA}/images/mod001.elf")
+    list(APPEND BUTTON_SOURCES "${BUTTON_DIR}/button_${VARIANT}_000.cpp" "${BUTTON_DIR}/button_${VARIANT}_table.cpp")
+  endforeach()
+  add_executable(vp2s-bozo-button-check "${VP2S_ROOT}/tests/bozo_button_main.cpp" ${BUTTON_SOURCES})
+  target_include_directories(vp2s-bozo-button-check PRIVATE "${BUTTON_REF}/original" "${BUTTON_REF}/adapted")
+  target_link_libraries(vp2s-bozo-button-check PRIVATE vp2s_bozo_kernel)
+  if(MINGW)
+    target_link_options(vp2s-bozo-button-check PRIVATE -static)
+  endif()
+  add_test(NAME vp2s-bozo-button-sheet COMMAND vp2s-bozo-button-check "${BUTTON_REF}/adapted/assets")
   foreach(VARIANT original adapted)
     set(UI_TEXT_DIR "${UI_TEXT_REF}/${VARIANT}")
     add_custom_command(OUTPUT "${UI_TEXT_DIR}/ui_text_${VARIANT}_000.cpp" "${UI_TEXT_DIR}/ui_text_${VARIANT}_table.cpp" "${UI_TEXT_DIR}/ui_text_${VARIANT}_functions.h"

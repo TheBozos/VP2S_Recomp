@@ -112,6 +112,20 @@ NativeUiLayer NativeUiTexts::layer(Runtime *rt,uint32_t layer)const{
         if(value<uint32_t>(rt,element+0x14)!=layer)throw std::runtime_error("native UI element has a different layer owner");
         if(!value<uint8_t>(rt,element+0x39) || !value<uint8_t>(rt,element+0x3d) || !value<uint8_t>(rt,element+0x3b))continue;
         type(rt,element);auto captured=text(element);
+        if(std::getenv("VP2S_BOZO_TRACE_QUEUES")){
+            static unsigned traced=0;
+            if(traced++<4){
+                const auto control=value<uint32_t>(rt,element+0x100);
+                if(control){
+                    const auto count=value<uint32_t>(rt,control+0x28),sprites=value<uint32_t>(rt,control+0x24);
+                    std::fprintf(stderr,"[vp2s:UI] text=%x reveal=%x inline-count=%u capacity=%u sprites=%x\n",element,value<uint32_t>(rt,element+0x74),count,value<uint32_t>(rt,control+0x2c),sprites);
+                    if(count && count<=16){record(rt,sprites,count*0x70);
+                        for(uint32_t i=0;i<count;++i){const auto sprite=sprites+i*0x70;
+                            std::fprintf(stderr,"[vp2s:UI] inline sprite=%x enabled=%u item=%x fis=%x dtt=%x parts=%x part=%u\n",sprite,value<uint8_t>(rt,sprite+0x66),value<uint32_t>(rt,sprite+0x68),value<uint32_t>(rt,sprite),value<uint32_t>(rt,sprite+4),value<uint32_t>(rt,sprite+8),value<uint16_t>(rt,sprite+0x54));}
+                    }
+                }
+            }
+        }
         if(!captured || captured->inlineImages)throw std::runtime_error("native UI layer has uncaptured text/inline images");
         for(const auto &glyph:captured->glyphs)if(!glyph.placed)throw std::runtime_error("native UI layer has an unfinished glyph placement");
         result.texts.push_back(std::move(captured));

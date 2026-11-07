@@ -63,7 +63,7 @@ The native association uses image objects, with no hardware-address lookup map.
 The shared helper `0x2ef390` and unported UI layer drawing remain guarded.
 This does not qualify a rendered UI or the Logun route in the Bozo runner.
 
-- UI manager G2 = *(u32 *)0x35E170 (vtable 0x15A160): four font objects at +0x14/+0x54/+0x94/+0xD4; sheets 'SHI\0' 0x41 /
+- UI manager G2 = *(u32 *)0x35E170 (USA vtable 0x15A1E0, assigned by `0x2ec390`): four font objects at +0x14/+0x54/+0x94/+0xD4; sheets 'SHI\0' 0x41 /
   0x3D at +0x818 / +0x81C; scale +0x840 / +0x844 (16.0, 14.9333) and offset +0x848 / +0x84C (27648, 29184): GS 12.4
   X = offset + scale * vx on a virtual 640 x 480 screen (GS pixel x = 1728 + vx, y = 1824 + 0.9333 vy); text shadow
   offset +0x850 / +0x854; registered layers +0x85C (head, linked by +0x98 / +0x9C). [V]

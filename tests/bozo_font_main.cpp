@@ -1,11 +1,14 @@
 #include "native_debug_font.h"
 #include "native_assets.h"
+#include "native_state_setup.h"
 #include "bozo/ee/dispatcher.h"
 #include "bozo/port.h"
 #include "font_init_original_functions.h"
 #include "font_init_adapted_functions.h"
 #include "font_flush_original_functions.h"
 #include "font_flush_adapted_functions.h"
+#include "font_defaults_original_functions.h"
+#include "font_defaults_adapted_functions.h"
 #include <cstdio>
 #include <cstring>
 #include <stdexcept>
@@ -18,7 +21,9 @@ void check(bool v,std::source_location at=std::source_location::current()){
 struct Pause{};
 template<class T>T value(Runtime &rt,uint32_t at){T v;std::memcpy(&v,rt.memory.hostPointer(vp2s::NativeAssets::address(at),sizeof(v)),sizeof(v));return v;}
 template<class T>void put(Runtime &rt,uint32_t at,T v){std::memcpy(rt.memory.hostPointer(vp2s::NativeAssets::address(at),sizeof(v)),&v,sizeof(v));}
-struct Host:bozo::ee::Host,bozo::port::Host,vp2s::DebugFontOwner,vp2s::TextureOwner {
+struct Host:bozo::ee::Host,bozo::port::Host,vp2s::DebugFontOwner,vp2s::TextureOwner,vp2s::StateSetupOwner {
+    vp2s::NativeStateSetups setups;
+    vp2s::NativeStateSetups &nativeStateSetups()override{return setups;}
     vp2s::NativeDebugFonts fonts;vp2s::NativeTextures textures;
     bool adapted=false,pause=false,allocationFailure=false;unsigned pauses=0,enqueues=0;
     explicit Host(const std::filesystem::path &p):textures(p,p/"manifest.txt"){}
@@ -27,6 +32,7 @@ struct Host:bozo::ee::Host,bozo::port::Host,vp2s::DebugFontOwner,vp2s::TextureOw
     bozo::libs::Libraries &libraries()override{throw std::runtime_error("libraries");}
     bool nativeGraphics()const override{return true;}
     bool nativeInstruction(uint8_t *r,R5900Context *c,Runtime *rt,uint32_t pc)override{
+        if(auto known=vp2s::nativeStateSetupInstruction(r,c,rt,pc))return *known;
         auto result=vp2s::nativeDebugFontInstruction(r,c,rt,pc);check(result.has_value());return *result;
     }
     void frameEnd(Runtime *,R5900Context *)override{throw std::runtime_error("frame");}
@@ -37,7 +43,7 @@ struct Host:bozo::ee::Host,bozo::port::Host,vp2s::DebugFontOwner,vp2s::TextureOw
         else if(pc==0x120fa0)c->r[2].sd[0]=allocationFailure?0:static_cast<int32_t>(value<uint32_t>(rt,c->r[4].uw[0]+8));
         else if(pc==0x1134c0)c->r[2].sd[0]=0x1234;
         else if(pc==0x120f70)put(rt,c->r[4].uw[0]+8,(c->r[5].uw[0]+15)&~15u);
-        else if(pc==0x1131c0){check(!adapted);fonts.retire(&rt,c);++enqueues;c->r[2].sd[0]=7;}
+        else if(pc==0x1131c0){check(!adapted);if(setups.active(c->r[29].uw[0]))setups.retire(&rt,c);else fonts.retire(&rt,c);++enqueues;c->r[2].sd[0]=7;}
         else throw std::runtime_error("unexpected font leaf");
         c->pc=c->r[31].uw[0];if(pause){++pauses;throw Pause{};}
     }
@@ -57,12 +63,16 @@ int main(int argc,char **argv){try{
     check(argc==2);Host old(argv[1]),now(argv[1]);now.adapted=true;bozo::ee::Dispatcher a(old),b(now);
     std::vector<BozoFunctionEntry> oldFunctions(font_init_original_function_table,font_init_original_function_table+font_init_original_function_count);
     oldFunctions.insert(oldFunctions.end(),font_flush_original_function_table,font_flush_original_function_table+font_flush_original_function_count);
+    oldFunctions.insert(oldFunctions.end(),font_defaults_original_function_table,font_defaults_original_function_table+font_defaults_original_function_count);
     std::vector<BozoResumeEntry> oldResume(font_init_original_resume_table,font_init_original_resume_table+font_init_original_resume_count);
     oldResume.insert(oldResume.end(),font_flush_original_resume_table,font_flush_original_resume_table+font_flush_original_resume_count);
+    oldResume.insert(oldResume.end(),font_defaults_original_resume_table,font_defaults_original_resume_table+font_defaults_original_resume_count);
     std::vector<BozoFunctionEntry> newFunctions(font_init_adapted_function_table,font_init_adapted_function_table+font_init_adapted_function_count);
     newFunctions.insert(newFunctions.end(),font_flush_adapted_function_table,font_flush_adapted_function_table+font_flush_adapted_function_count);
+    newFunctions.insert(newFunctions.end(),font_defaults_adapted_function_table,font_defaults_adapted_function_table+font_defaults_adapted_function_count);
     std::vector<BozoResumeEntry> newResume(font_init_adapted_resume_table,font_init_adapted_resume_table+font_init_adapted_resume_count);
     newResume.insert(newResume.end(),font_flush_adapted_resume_table,font_flush_adapted_resume_table+font_flush_adapted_resume_count);
+    newResume.insert(newResume.end(),font_defaults_adapted_resume_table,font_defaults_adapted_resume_table+font_defaults_adapted_resume_count);
     for(auto *table:{&oldFunctions,&newFunctions})std::sort(table->begin(),table->end(),[](const auto &x,const auto &y){return x.address<y.address;});
     for(auto *table:{&oldResume,&newResume})std::sort(table->begin(),table->end(),[](const auto &x,const auto &y){return x.start<y.start;});
     a.setFunctions(oldFunctions.data(),oldFunctions.size(),oldResume.data(),oldResume.size());
@@ -104,5 +114,28 @@ int main(int argc,char **argv){try{
         try{now.fonts.publish(&y,1,object);}catch(const std::runtime_error &){rejected=true;}check(rejected);
         check(snapshot->atlas->picture()->rgba[0]==0xff332211);
     }
-    std::printf("%u generated font setup/CPU-flush comparisons; alias, failed allocation, resumed initialization and unsupported-draw rejection passed\n",cases);return 0;
+    for(unsigned seed=0;seed<64;++seed){
+        old.setups={};now.setups={};old.enqueues=now.enqueues=0;old.allocationFailure=now.allocationFailure=false;
+        now.pause=(seed&1)!=0;
+        auto &x=a.runtime(),&y=b.runtime();std::memset(x.memory.flat(),0x2b,bozo::kFlatBytes);
+        put<uint32_t>(x,0x35df10,0x30180000);put<uint32_t>(x,0x35df20,0x1000);
+        std::memcpy(y.memory.flat(),x.memory.flat(),bozo::kFlatBytes);
+        R5900Context p{},q{};p.r[29].ud[0]=0x1fff000;p.r[31].ud[0]=0x170000;q=p;
+        run(a,p,0x29c990);old.setups.finish(0x1fff000-0x20-0x30);run(b,q,0x29c990);
+        check(!std::memcmp(x.memory.flat(),y.memory.flat(),bozo::kFlatBytes));
+        check(old.enqueues==1 && now.enqueues==0 && !old.setups.outstanding() && !now.setups.outstanding());
+        check(p.cycles==q.cycles+8 && p.checkpoints==q.checkpoints+1);p.cycles-=8;--p.checkpoints;p.cycleLimit=q.cycleLimit;p.r[2]=q.r[2];
+        check(!std::memcmp(&p,&q,sizeof(p)));++cases;
+        // A different writer range cannot be admitted as the fixed defaults.
+        put<uint32_t>(y,0x35df18,value<uint32_t>(y,0x35df18)+16);bool rejected=false;
+        try{now.setups.beginDefaults(&y,1);}catch(const std::runtime_error &){rejected=true;}check(rejected);
+    }
+    auto &rt=b.runtime();put<uint32_t>(rt,0x35df1c,0x30180040);put<uint32_t>(rt,0x35df18,0x30180100);
+    now.setups.beginDefaults(&rt,1);bool duplicate=false;
+    try{now.setups.beginDefaults(&rt,1);}catch(const std::runtime_error &){duplicate=true;}check(duplicate);
+    R5900Context c{};c.r[29].uw[0]=1;c.r[17].uw[0]=0x35df10;c.r[16].uw[0]=0x30180110;c.r[2].uw[0]=0x30180040;c.r[5].uw[0]=2;c.r[8].uw[0]=13;
+    put<uint32_t>(rt,0x35df18,0x30180110);bool changed=false;
+    try{now.setups.retire(&rt,&c);}catch(const std::runtime_error &){changed=true;}check(changed);
+    put<uint32_t>(rt,0x35df18,0x30180100);now.setups.retire(&rt,&c);now.setups.finish(1);check(!now.setups.outstanding());
+    std::printf("%u generated font/defaults setup/CPU-flush comparisons; alias, failed allocation, resumed initialization and unsupported-draw rejection passed\n",cases);return 0;
 }catch(const std::exception &e){std::fprintf(stderr,"%s\n",e.what());return 1;}}

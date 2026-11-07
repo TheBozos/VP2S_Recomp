@@ -85,7 +85,7 @@ class KernelGuardTests(unittest.TestCase):
             '0029cf14 00a0302d 0260202d','0029cf18 0c044c70 0c0402cc',
             '0029cc00 00a0302d 0220202d','0029cc04 0c044c70 0c0402cc',
             '002c3cb4 8c220000 00000000','002c3cb8 10000015 080b0f48'])
-        self.assertEqual(overlay_native_sites('mod001',data),'native 0x29e1a0\nnative 0x2c3cb4\nnative 0x29cc30\nnative 0x29cd7c\nnative 0x29cf14\nnative 0x29cf30\nnative 0x29cc00\nnative 0x29e160\nnative 0x208a94\nnative 0x29af80\nnative 0x29b2a8\n')
+        self.assertEqual(overlay_native_sites('mod001',data),'native 0x29e1a0\nnative 0x2c3cb4\nnative 0x29cc30\nnative 0x29cd7c\nnative 0x29cf14\nnative 0x29cf30\nnative 0x29cc00\nnative 0x29e160\nnative 0x208a94\nnative 0x29af80\nnative 0x29b2a8\nnative 0x29caf8\n')
         _,segments,_=elf_parts(data)
         for lo,hi in ((0x249720,0x24a438),(0x202150,0x202200),(0x29e1d0,0x29e22c),
                       (0x29e230,0x29e310),(0x333640,0x333650),(0x333650,0x333d60),

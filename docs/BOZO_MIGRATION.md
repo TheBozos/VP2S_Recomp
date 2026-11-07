@@ -7,6 +7,26 @@ target, not a replacement DLL loaded into PS2Recomp.
 
 ## Build and evidence
 
+### Constants-only global render setup (2026-11-07)
+
+The complete `0x29c990` source is fingerprinted and contains only eleven fixed
+texture/filter/blend/test/clamp defaults, with no vertices or image transfer.
+Native draws carry explicit materials, so this standalone device-state prefix
+has no native draw to execute. Its source-owned invocation now retires only the
+enqueue inside the original compiled CPU flush. Writer bounds, terminator and
+cursor updates remain compiled; neither the writer nor graphics queues are
+reset/cleared to bypass pending work. Unknown writers retain the rejecting guard.
+
+The source captures its exact software range before the flush; publication
+requires that range, writer identity and bounds to remain intact. Duplicate /
+changed invocations reject. Sixty-four additional generated full-function / CPU
+flush comparisons retain all RAM and architectural state, except the void
+enqueue result and the exact removed-call accounting. The existing font/setup
+suite now has 176 comparisons, including resumed initialization and raw aliases.
+Boot now reaches logical frame 58, then rejects COP0 performance-counter reset
+at `0x2bef34`. This increment supplies no hardware-counter value or completion.
+There are still no rendered scene or Logun-route results.
+
 ### State-only debug-font setup ownership (2026-11-07)
 
 The next producer is the ANKF debug-font object in the `mod002` loop. The

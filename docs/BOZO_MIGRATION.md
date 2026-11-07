@@ -7,6 +7,23 @@ target, not a replacement DLL loaded into PS2Recomp.
 
 ## Build and evidence
 
+### Native object-update transform (2026-11-07)
+
+`0x249270` repeats the constructor's audited quaternion/position and scale
+calculation with different ordinary CPU argument registers. Its full body is
+fingerprinted; its inline sites now share the typed constructor algorithm.
+The retained CPU code still builds its fourth row, scale record and return ABI.
+Sixty-four additional generated update/tail comparisons cover varied positions,
+quaternions, signed scales and scratchpad stacks. All 320 math cases preserve
+complete CPU context and RAM against their independently populated original
+CPU consumers, without writing VU registers or flags.
+
+Targeted math, source-signature and headless-startup checks pass. Startup gets
+past object updates and reaches the separate component-product helper
+`0x211da0` (first guarded load `0x211dac`), whose four-field result still needs
+native lowering. This is not normalization; source inspection separates the
+operation. No native scene or playable-route completion is claimed.
+
 ### Native initialization entropy and complete static linkage (2026-11-07)
 
 The next timer access was initialization jitter in `0x2c3c10`: it repeatedly

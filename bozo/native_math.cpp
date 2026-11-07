@@ -25,6 +25,11 @@ bool nativeMathInstruction(uint8_t *,R5900Context *c,Runtime *rt,uint32_t pc){
             throw std::runtime_error("unported math program selection or outstanding legacy job");
         return true;
     }
+    // The object's update uses the same audited calculation as construction,
+    // with its quaternion/position, temporary records and result in different
+    // ordinary CPU registers. No inherited vector state supplies either path.
+    const bool updating=pc>=0x2492ac && pc<=0x249378;
+    if(updating)pc+=0x36c;
     switch(pc){
     case 0x249618:case 0x249620:case 0x249628:
     case 0x249664:case 0x249668:
@@ -51,14 +56,14 @@ bool nativeMathInstruction(uint8_t *,R5900Context *c,Runtime *rt,uint32_t pc){
         result[0]=_mm_blend_ps(result[0],music::broadcast<0>(position),8);
         result[1]=_mm_blend_ps(result[1],music::broadcast<1>(position),8);
         result[2]=_mm_blend_ps(result[2],music::broadcast<2>(position),8);
-        std::memcpy(record(rt,c->r[2].uw[0],48),result.data(),48);return true;
+        std::memcpy(record(rt,c->r[updating?3:2].uw[0],48),result.data(),48);return true;
     }
     case 0x2496d8:{
         math::Matrix rotation,scale,result;
-        std::memcpy(rotation.data(),record(rt,c->r[3].uw[0],64),64);
-        std::memcpy(scale.data(),record(rt,c->r[2].uw[0],64),64);
+        std::memcpy(rotation.data(),record(rt,c->r[updating?4:3].uw[0],64),64);
+        std::memcpy(scale.data(),record(rt,c->r[updating?3:2].uw[0],64),64);
         for(unsigned i=0;i<4;++i)result[i]=math::matrixVectorProduct(scale,rotation[i]);
-        std::memcpy(record(rt,c->r[4].uw[0],64),result.data(),64);return true;
+        std::memcpy(record(rt,c->r[updating?5:4].uw[0],64),result.data(),64);return true;
     }
     case 0x217554:case 0x217558:case 0x21755c:case 0x217560:
     case 0x217564:case 0x217568:case 0x21756c:case 0x217570:case 0x21757c:

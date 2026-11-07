@@ -56,7 +56,7 @@ int main(){try{
         check(!std::memcmp(x.r,y.r,sizeof(x.r)) && !std::memcmp(x.vu0_vf,y.vu0_vf,sizeof(x.vu0_vf)));
         check(!std::memcmp(a.memory.flat(),b.memory.flat(),bozo::kFlatBytes));++cases;
     }
-    for(unsigned seed=0;seed<64;++seed){
+    for(bool updating:{false,true})for(unsigned seed=0;seed<64;++seed){
         auto &a=old.runtime();auto &b=native.runtime();constexpr uint32_t object=0x180000;
         const uint32_t stack=seed&1?0x70003f00:0x1ffe000;
         std::memset(a.memory.flat(),seed+1,bozo::kFlatBytes);
@@ -83,8 +83,9 @@ int main(){try{
         for(unsigned col=0;col<4;++col)output[col]=vp2s::math::matrixVectorProduct(scale,rotation[col]);
         std::memcpy(a.memory.ram()+object+0x110,output.data(),64);
         x.r[9].ud[0]=0;x.fu[0]=x.fu[1]=0;
-        a.functions.generated(0x2496e8)(a.memory.flat(),&x,&a);
-        b.functions.generated(0x2495f4)(b.memory.flat(),&y,&b);
+        if(updating){x.r[3].ud[0]=stack+0x60;x.r[4].ud[0]=stack+0x20;x.r[5].ud[0]=object+0x110;}
+        a.functions.generated(updating?0x24937c:0x2496e8)(a.memory.flat(),&x,&a);
+        b.functions.generated(updating?0x249288:0x2495f4)(b.memory.flat(),&y,&b);
         check(x.pc==0x170000 && y.pc==x.pc && !std::memcmp(x.r,y.r,sizeof(x.r)));
         check(!std::memcmp(&x,&y,sizeof(x)));
         check(!std::memcmp(x.fu,y.fu,sizeof(x.fu)) && !std::memcmp(x.vu0_vf,y.vu0_vf,sizeof(x.vu0_vf)));

@@ -1,5 +1,33 @@
 # Native replacements for VU0 callers (USA)
 
+## Bozo native sphere getter, 2026-11-07
+
+The Bozo runner now retains the complete scalar/MMI sphere getter at `0x239ce0`
+without its VU0 microcall or register transfers. The actual post-movie skip
+route reached a populated object (`0x9a30f0`, sphere `0x1ed58e0`), so admitting
+only a null/default branch would not fix this path.
+
+The original `0xaa0` calculation is the square root of the largest XYZ column
+sum of squares of the three-row object basis. `math::largestAxisScale` takes
+those rows directly, preserves the game's truncating arithmetic and restores
+host rounding state. The retained scalar CPU code multiplies the source radius.
+The native center transform consumes the original MMI-transposed GPR records
+and the scalar stack point, preserving the resulting radius W. It does not
+reread matrix/point memory after possible aliasing stores, or read/write any
+VU register, flags, accumulator, program or data-memory state.
+
+The source helper and exact 72-byte numeric program shape are fingerprinted
+offline. 384 complete CPU/RAM comparisons cover four host rounding modes,
+null shape/sphere returns, matrix/source/output/stack aliases, ordinary/scratch
+CPU stacks and retained native VU-state bytes. The reference contains no VU
+operations: its two numeric publication points use an independent integer
+mantissa oracle and scalar center arithmetic. Another 8192 scale cases use
+exact rational products/sums and a float32 square-root floor found by binary
+search. Unused W data is ignored; nonfinite used inputs reject.
+
+Actual skip now passes this getter and reaches the remaining visibility sphere
+test at `0x220b74`. This does not qualify that test, scene rendering or Logun.
+
 VU0 execution, VIF0 uploads and their hardware environment still exist for many
 game routines. Lifting code into an AOT fragment that takes a VU execution object
 does not remove that dependency. Replacements here take game records directly

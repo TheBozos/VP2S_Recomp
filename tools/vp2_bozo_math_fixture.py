@@ -1,8 +1,9 @@
 """Compile original CPU result consumers and complete native math wrappers.
 
-The reference starts after the original numeric result has reached the stack;
-the offline mathematical checker qualifies that result independently. No VU
-instruction is executed or answered in this ABI/aliasing test.
+Most references start after the original numeric result reaches the stack.
+The sphere reference retains the complete CPU builder and uses independently
+calculated scale/center records at its publication points. No VU instruction
+or microprogram executes in either ABI/aliasing reference.
 """
 import argparse
 from pathlib import Path
@@ -19,9 +20,19 @@ rows=[dict(Name='matrix',Start=hex(0x217598 if a.variant=='original' else 0x2175
       dict(Name='object_math',Start=hex(0x2496e8 if a.variant=='original' else 0x2495f4),End='0x249714'),
       dict(Name='object_update',Start=hex(0x24937c if a.variant=='original' else 0x249288),End='0x24938c'),
       dict(Name='quaternion_euler',Start=hex(0x2158e0 if a.variant=='original' else 0x215870),End='0x2159c0')]
+rows.append(dict(Name='sphere_getter',Start='0x239ce0',End='0x239e00'))
 if a.variant=='adapted':rows.append(dict(Name='component_product',Start='0x211da0',End='0x211dc0'))
 fixture,_=prepare(data,rows,{})
 sites=[];_,segments,_=elf_parts(data)
+if a.variant=='original':
+    # The scalar CPU reference consumes independently calculated numeric
+    # records at two publication points. It executes no VU operation/call.
+    fixture=bytearray(fixture);_,fs,_=elf_parts(fixture)
+    segment=next(s for s in fs if s[0]==1 and s[2]<=0x239ce0<0x239e00<=s[2]+s[4])
+    for pc in range(0x239ce0,0x239e00,4):
+        at=segment[1]+pc-segment[2];word=int.from_bytes(fixture[at:at+4],'little')
+        if word>>26 in (0x12,0x36,0x3e):fixture[at:at+4]=(0x0000482d if pc==0x239d90 else 0).to_bytes(4,'little')
+    sites=['native 0x239d98\n','native 0x239dec\n']
 if a.variant=='adapted':
     for row in rows:
         lo,hi=int(row['Start'],0),int(row['End'],0)

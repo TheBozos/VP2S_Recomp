@@ -31,10 +31,55 @@ uint32_t exactProduct(uint32_t a,uint32_t b){
     if(exponent>=255)return sign|0x7f7fffffu;
     return sign|uint32_t(exponent<<23)|uint32_t((product>>shift)&0x7fffff);
 }
+uint32_t positiveTruncatedSum(uint32_t a,uint32_t b){
+    if(a<b)std::swap(a,b);if(!b)return a;
+    unsigned exponent=a>>23;const auto distance=exponent-(b>>23);
+    uint32_t sum=(a&0x7fffff)|0x800000;
+    if(distance<=23)sum+=((b&0x7fffff)|0x800000)>>distance;
+    if(sum&0x1000000){sum>>=1;++exponent;}
+    return (exponent<<23)|(sum&0x7fffff);
+}
+float independentAxisScale(const vp2s::math::RigidBasis &basis){
+    uint32_t rows[3][4];std::memcpy(rows,basis.data(),48);uint32_t largest=0;
+    for(unsigned lane=0;lane<3;++lane){
+        auto squared=exactProduct(rows[0][lane],rows[0][lane]);
+        squared=positiveTruncatedSum(squared,exactProduct(rows[1][lane],rows[1][lane]));
+        squared=positiveTruncatedSum(squared,exactProduct(rows[2][lane],rows[2][lane]));largest=std::max(largest,squared);
+    }
+    // Each candidate square has at most48 significant bits, exactly
+    // representable in double. Binary search gives the exact float32 floor.
+    const double target=std::bit_cast<float>(largest);uint32_t low=0,high=0x7f7fffff;
+    while(low<high){const auto middle=low+(high-low+1)/2;const auto exponent=middle>>23;
+        const auto mantissa=(middle&0x7fffff)|(exponent?0x800000:0);
+        const auto value=std::ldexp(double(mantissa),exponent?int(exponent)-150:-149);
+        if(value*value<=target)low=middle;else high=middle-1;
+    }
+    return std::bit_cast<float>(low);
+}
+[[gnu::noinline]] __m128 independentSphereCenter(const vp2s::math::Matrix &matrix,__m128 sphere){
+    float cols[4][4],point[4],out[4];std::memcpy(cols,matrix.data(),64);std::memcpy(point,&sphere,16);std::memcpy(out,point,16);
+    const auto normal=[](float v){const auto b=std::bit_cast<uint32_t>(v);return std::bit_cast<float>((b&0x7f800000)?b:(b&0x80000000));};
+    for(unsigned lane=0;lane<3;++lane){
+        volatile float first=cols[0][lane]*point[0],second=cols[1][lane]*point[1],third=cols[2][lane]*point[2];
+        volatile float xy=normal(first)+normal(second);volatile float xyz=normal(xy)+normal(third);
+        volatile float result=normal(xyz)+cols[3][lane];out[lane]=normal(result);
+    }
+    __m128 result;std::memcpy(&result,out,16);return result;
+}
 struct Host:bozo::ee::Host,bozo::port::Host {
+    bool referenceSphere=false;
     bozo::libs::Libraries &libraries()override{throw std::runtime_error("unexpected library request");}
     bool nativeGraphics()const override{return true;}
     bool nativeInstruction(uint8_t *r,R5900Context *c,Runtime *t,uint32_t pc)override{
+        if(referenceSphere && pc==0x239d98){
+            vp2s::math::RigidBasis basis;std::memcpy(basis.data(),t->memory.hostPointer(c->r[4].uw[0]+0x90,48),48);
+            const auto scale=independentAxisScale(basis);std::memcpy(t->memory.hostPointer(c->r[2].uw[0],4),&scale,4);return true;
+        }
+        if(referenceSphere && pc==0x239dec){
+            vp2s::math::Matrix basis;for(unsigned i=0;i<4;++i)std::memcpy(&basis[i],&c->r[std::array<unsigned,4>{24,11,10,8}[i]],16);
+            __m128 sphere;std::memcpy(&sphere,t->memory.hostPointer(c->r[3].uw[0],16),16);
+            const auto result=independentSphereCenter(basis,sphere);std::memcpy(t->memory.hostPointer(c->r[2].uw[0],16),&result,16);return true;
+        }
         if(!vp2s::nativeMathInstruction(r,c,t,pc))throw std::runtime_error("unported math site");return true;
     }
     void frameEnd(Runtime *,R5900Context *)override{throw std::runtime_error("unexpected frame end");}
@@ -171,5 +216,39 @@ int main(){try{
         b.functions.generated(0x215870)(b.memory.flat(),&y,&b);check(_mm_getcsr()==expected);
         check(x.pc==0x170000 && !std::memcmp(&x,&y,sizeof(x)) && !std::memcmp(a.memory.flat(),b.memory.flat(),bozo::kFlatBytes));++cases;
     }
-    std::printf("%u generated native matrix/quaternion/Euler ABI cases and %u independently calculated component products passed; no VU or device state\n",cases,products);return 0;
+    unsigned sphereCases=0;
+    for(unsigned rounding:{_MM_ROUND_NEAREST,_MM_ROUND_DOWN,_MM_ROUND_UP,_MM_ROUND_TOWARD_ZERO})for(unsigned seed=0;seed<96;++seed){
+        auto &a=old.runtime(),&b=native.runtime();constexpr uint32_t shape=0x1b0000,object=0x180000;
+        const uint32_t stack=seed&1?0x70003f00:0x1fff000,frame=stack-0x20;
+        const uint32_t sphere=seed%4==0?object+0x7e4:seed%4==1?frame-0xc:seed%4==2?object+0x84:0x1c0000;
+        std::memset(a.memory.flat(),seed+1,bozo::kFlatBytes);
+        vp2s::math::Matrix matrix;
+        for(auto &row:matrix){float values[4];for(auto &v:values){random=random*1664525u+1013904223u;v=float(int32_t(random)%100)/16.f;}std::memcpy(&row,values,16);}
+        std::memcpy(a.memory.hostPointer(object+0x90,64),matrix.data(),64);
+        const float center[4]={float(int(seed)-24)/8.f,float(seed%11)/4.f,-float(seed%7),float(seed%17)/2.f};
+        std::memcpy(a.memory.hostPointer(sphere+0xc,16),center,16);
+        const uint32_t shapePointer=seed%9?shape:0,spherePointer=seed%7?sphere:0,child=seed%3?0x1d0000:0;
+        std::memcpy(a.memory.hostPointer(object+0x644,4),&shapePointer,4);std::memcpy(a.memory.hostPointer(object+0x7bc,4),&spherePointer,4);
+        std::memcpy(a.memory.hostPointer(shape+8,4),&child,4);a.memory.ram()[shape+0x1c]=seed&1;
+        std::memcpy(b.memory.flat(),a.memory.flat(),bozo::kFlatBytes);
+        R5900Context x{};for(unsigned i=1;i<32;++i){x.r[i].ud[0]=seed*32+i;x.r[i].ud[1]=~x.r[i].ud[0];}
+        std::memset(x.vu0_vf,0xaa,sizeof(x.vu0_vf));x.vu0_acc.u[0]=0xbeef;x.vu0_status=0x1234;
+        x.r[4].ud[0]=object;x.r[29].ud[0]=stack;x.r[31].ud[0]=0x170000;auto y=x;
+        const auto saved=_mm_getcsr(),control=(saved&~_MM_ROUND_MASK)|rounding;_mm_setcsr(control);
+        host.referenceSphere=true;a.functions.generated(0x239ce0)(a.memory.flat(),&x,&a);const auto expectedFp=_mm_getcsr();_mm_setcsr(control);
+        host.referenceSphere=false;b.functions.generated(0x239ce0)(b.memory.flat(),&y,&b);
+        check(_mm_getcsr()==expectedFp);_mm_setcsr(saved);x.cycleLimit=y.cycleLimit;
+        check(!std::memcmp(&x,&y,sizeof(x)) && !std::memcmp(a.memory.flat(),b.memory.flat(),bozo::kFlatBytes));++sphereCases;
+    }
+    for(unsigned sample=0;sample<8192;++sample){
+        vp2s::math::RigidBasis basis;for(auto &row:basis){uint32_t bits[4];for(auto &b:bits){random=random*1664525u+1013904223u;b=(random&0x807fffff)|((80+(random%80))<<23);}std::memcpy(&row,bits,16);}
+        const auto expected=independentAxisScale(basis);const auto control=_mm_getcsr();const auto scale=vp2s::math::largestAxisScale(basis);
+        check(_mm_getcsr()==control && std::bit_cast<uint32_t>(expected)==std::bit_cast<uint32_t>(scale));
+    }
+    vp2s::math::RigidBasis invalidBasis{_mm_setr_ps(1,0,0,0),_mm_setr_ps(0,1,0,0),_mm_setr_ps(0,0,1,0)};
+    for(auto &row:invalidBasis)row=_mm_blend_ps(row,_mm_castsi128_ps(_mm_set1_epi32(0x7fc00000)),8);
+    check(vp2s::math::largestAxisScale(invalidBasis)==1.f);
+    invalidBasis[0]=_mm_castsi128_ps(_mm_setr_epi32(0x7fc00000,0,0,0));bool invalidRejected=false;
+    try{vp2s::math::largestAxisScale(invalidBasis);}catch(const std::exception &){invalidRejected=true;}check(invalidRejected);
+    std::printf("%u matrix/quaternion/Euler ABI cases, %u component products, %u whole CPU/RAM sphere getters and8192 independently rounded scale cases passed; no VU/device state\n",cases,products,sphereCases);return 0;
 }catch(const std::exception &e){std::fprintf(stderr,"%s\n",e.what());return 1;}}

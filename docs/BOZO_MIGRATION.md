@@ -8,6 +8,17 @@ target, not a replacement DLL loaded into PS2Recomp.
 
 ## Build and evidence
 
+### Native populated sphere getter (2026-11-07)
+
+The remaining `0x239ce0` getter reached after skipping the opening now computes
+its scale and center from game records without VU state. The radius keeps its
+original scalar CPU multiply and the center uses the original MMI-transposed
+GPR snapshot, preserving aliases and radius W. Source helper and numeric program
+shape are fingerprinted offline. 384 whole CPU/RAM cases and 8192 independent
+scale cases pass; all 46 local suites pass. See [VU0 notes](vp2_vu0.md) for the
+numeric/aliasing contract. The actual skip route now reaches the distinct
+visibility-sphere guard at `0x220b74`. Native scene rendering and Logun remain open.
+
 ### Native movie presentation, clock and teardown (2026-11-07)
 
 The old `0x2b9560` consumer waited on retired decoder-input byte counts before

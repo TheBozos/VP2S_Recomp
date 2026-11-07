@@ -1,9 +1,28 @@
 #pragma once
 #include "vp2s_music_math.h"
+#include <algorithm>
 
 namespace vp2s::math {
 using Matrix = std::array<__m128,4>;
 using RigidBasis = std::array<__m128,3>;
+// The sphere getter's original scale calculation: largest column length of
+// the three-row basis, with the game's truncating products/sums and square root.
+inline float largestAxisScale(RigidBasis basis){
+    for(auto row:basis){uint32_t bits[4];std::memcpy(bits,&row,16);
+        for(unsigned i=0;i<3;++i){const auto e=bits[i]&0x7f800000;
+            if(e==0x7f800000 || (!e && (bits[i]&0x7fffff)))throw std::runtime_error("unqualified native sphere basis");}}
+    const auto normal=[](__m128 v){const auto b=_mm_castps_si128(v);
+        const auto tiny=_mm_cmpeq_epi32(_mm_and_si128(b,_mm_set1_epi32(0x7f800000)),_mm_setzero_si128());
+        return _mm_castsi128_ps(_mm_andnot_si128(_mm_and_si128(tiny,_mm_set1_epi32(0x7fffffff)),b));};
+    music::CodecRounding rounding;
+    for(auto &row:basis)row=_mm_blend_ps(row,_mm_setzero_ps(),8);
+    auto squared=normal(_mm_mul_ps(basis[0],basis[0]));
+    squared=normal(music::codecSum(squared,normal(_mm_mul_ps(basis[1],basis[1]))));
+    squared=normal(music::codecSum(squared,normal(_mm_mul_ps(basis[2],basis[2]))));
+    float values[4];std::memcpy(values,&squared,16);const auto maximum=std::max(values[0],std::max(values[1],values[2]));
+    if(!std::isfinite(maximum))throw std::runtime_error("native sphere scale overflow");
+    volatile float length=std::sqrt(maximum);volatile float result=0.f+length;return result;
+}
 // Remove per-column XYZ scale while preserving the record's translation Ws
 // and final row. This is the game's three-column normalization algorithm.
 inline Matrix normalizedMatrixColumns(Matrix value) {

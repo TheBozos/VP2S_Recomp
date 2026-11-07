@@ -32,6 +32,28 @@ bool nativeMathInstruction(uint8_t *,R5900Context *c,Runtime *rt,uint32_t pc){
         return true;
     }
     switch(pc){
+    case 0x239cfc:case 0x239d00:case 0x239d04:case 0x239d0c:
+    case 0x239dc8:case 0x239dcc:case 0x239dd0:case 0x239dd4:case 0x239dd8:
+    case 0x239ddc:case 0x239de0:case 0x239de4:case 0x239de8:return true;
+    case 0x239d90:c->r[9].ud[0]=0;return true;
+    case 0x239d98:{
+        math::RigidBasis basis;std::memcpy(basis.data(),record(rt,c->r[4].uw[0]+0x90,48),48);
+        const auto scale=math::largestAxisScale(basis);
+        std::memcpy(record(rt,c->r[2].uw[0],16),&scale,4);return true;
+    }
+    case 0x239dec:{
+        const auto qualified=[](__m128 value){uint32_t bits[4];std::memcpy(bits,&value,16);
+            for(auto b:bits){const auto e=b&0x7f800000;
+                if(e==0x7f800000 || (!e && (b&0x7fffff)))throw std::runtime_error("unqualified native sphere center");}};
+        math::Matrix basis;for(unsigned i=0;i<4;++i){
+            std::memcpy(&basis[i],&c->r[std::array<unsigned,4>{24,11,10,8}[i]],16);
+            basis[i]=_mm_blend_ps(basis[i],_mm_setzero_ps(),8);qualified(basis[i]);
+        }
+        __m128 sphere;std::memcpy(&sphere,record(rt,c->r[3].uw[0],16),16);qualified(sphere);
+        const auto result=_mm_blend_ps(math::matrixVectorProduct(basis,_mm_blend_ps(sphere,_mm_set1_ps(1),8)),sphere,8);
+        qualified(result);
+        std::memcpy(record(rt,c->r[2].uw[0],16),&result,16);return true;
+    }
     case 0x20f8fc:case 0x20f900:case 0x20f904:return true;
     case 0x20f908:{
         __m128 left,right;std::memcpy(&left,record(rt,c->r[5].uw[0],16),16);std::memcpy(&right,record(rt,c->r[4].uw[0],16),16);

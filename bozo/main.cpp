@@ -364,12 +364,6 @@ bool noNativeInstruction(uint8_t *ram,R5900Context *ctx,Runtime *rt,uint32_t pc)
     if(vp2s::nativeRandomSeed(ram,ctx,rt,pc))return true;
     if(vp2s::nativeMathInstruction(ram,ctx,rt,pc))return true;
     if(vp2s::nativeFrameInput(ram,ctx,rt,pc))return true;
-    if(pc==0x239cfc){
-        const auto object=ctx->r[4].uw[0];uint32_t shape=0,sphere=0;
-        const auto *s=rt->memory.hostPointer(object+0x644,4),*b=rt->memory.hostPointer(object+0x7bc,4);
-        if(s && b){std::memcpy(&shape,s,4);std::memcpy(&sphere,b,4);}
-        throw std::runtime_error(std::format("native sphere getter requires qualification: object={:x} shape={:x} sphere={:x}",object,shape,sphere));
-    }
     throw std::runtime_error(std::format("unported native VP2S algorithm at pc={:x}",pc));
 }
 }

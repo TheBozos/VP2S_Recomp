@@ -75,4 +75,12 @@ with tempfile.TemporaryDirectory(prefix='vp2s-native-input-') as temporary:
     for required in ('original audio payload bytes=', 'native movie presented=1 size=640x448 rate=30000/1001', 'native movie presented=40 ', 'accepted=0 pictures=8', 'original PSS parser consumed=0'):
         if required not in output:raise SystemExit(f'scripted startup bypassed actual native decoding/backpressure: {required}')
     if 'native boundary:' in output:raise SystemExit('native movie input reached an unexpected rejecting boundary')
+    script.write_text('200:SQUARE/6,600:START/6',encoding='ascii')
+    skipped=subprocess.run([sys.argv[1],'--iso',sys.argv[2],'--frames','1000','--pad-script',str(script)],
+                           capture_output=True,text=True,timeout=30,
+                           env={**os.environ,'VP2S_BOZO_SEED':'1','VP2S_BOZO_TRACE_QUEUES':'1'})
+    output=skipped.stdout+skipped.stderr;print(output,end='')
+    if skipped.returncode!=1 or 'unported native VP2S algorithm at pc=220b74' not in output:
+        raise SystemExit('native movie skip did not pass teardown and sphere getter to the visibility guard')
+    if 'unported device' in output:raise SystemExit('native movie skip entered physical teardown')
 print('Scripted native input parses original PSS, retains CPU audio copies and presents at least40 real pictures at the sequence rate; producer backpressure remains bounded. Display parity/audio/Logun remain unqualified.')

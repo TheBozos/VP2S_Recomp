@@ -25,6 +25,8 @@ COMMAND_SEND = (0x13a3f0,0x13a524)
 EVENT_RANGES=((0x140b70,0x140c34),(0x148c58,0x148f88),(0x141780,0x141898),(0x141910,0x141958),(0x141980,0x1419cc))
 RETIRED_RANGES = (INSTALLER, QUERY, ALARM_INSTALLER, ALARM_PAYLOAD, TIMER_INITIALIZER, TIMER_HANDLER, TIMER_START, TIMER_QUERY, TIMER_REARM,MODULE_LOADER,MODULE_BUFFER_LOADER,MODULE_BUFFER_FREE,MODULE_TRANSFER,CACHE_SYNC,COMMAND_SEND)+EVENT_RANGES
 GUARDS = {
+    (0x1131c0,0x113344): '8a47682b3758bc684b4f47963661c23808e1ee408ed765a20514c440668e00cf',
+    (0x153140,0x153160): '9d5eb316453da2fc6396c14e5ac2dc016c6c19d195a113d1ade57479a696009b',
     # Retained pure software SetCmdBuffer/Add/Remove records consumed by replies.
     (0x13a2f8,0x13a3ec): 'f54416cbebce4a5d1d6ab3bf8db46d753465896633417268653373c7bbb51d21',
     COMMAND_SEND: '0a2c363e48d8b736e9b79758082641db6925e79deebb01c3d8d40db3f58d6a28',
@@ -189,7 +191,7 @@ def native_game_sites(data):
     at=s[1]+lo-s[2]
     if hashlib.sha256(data[at:at+hi-lo]).hexdigest()!='b51e65c468e6ccfbc18ebe97e73361841f296da61c34ec5d5dafae384360053c':
         raise ValueError('USA game frame-wait signature mismatch')
-    return 'native 0x1003c4\nnative 0x11fb50\nnative 0x11f62c\n'
+    return 'native 0x1003c4\nnative 0x11fb50\nnative 0x11f62c\nnative 0x1131c0\n'
 
 
 def frame_adaptations(data):
@@ -266,6 +268,9 @@ def overlay_adaptations(name,data):
         (0x314138,0x31413c,'e7f5662273401b756d9f64b866d1a7df7e95c248c34f9b0cad011eb84757f186'),
         (0x217550,0x2175c0,'bf29f73fdf9756c87ee0b7b11aaccb586cb29e0fb0653934452e96586c48b694'),
         (0x215870,0x2159c0,'c3cd1b33f97be33016d939dcf099aa81f1dddc53735f661478db065e35ed1c47'),
+        (0x208900,0x208aac,'18ce58f2b4fb80da5a27b84951044a913c3ad676c01eb8456f4ab893de24f9ee'),
+        (0x2092f0,0x20975c,'2060db8cd95539c247455d89bf3688dddfcc7905556baaa94a3afaa96583ab59'),
+        (0x2097c0,0x209818,'8d94153af0cc888db971b38ac30c105f8201685dd02ddb8c86578c1a65767f22'),
         (0x2494c0,0x249720,'c017bf6d329e88332552da7c1f5949a763f4900862bc056f18fbd56b1a9848df'),
         (0x249270,0x249390,'5ddcd40fb0819990a6319eb8774b68d84ced2390068859deb276a6acf162c1ce'),
         (0x211da0,0x211dc0,'d7d4b93075083283a98e463e5ae9b850da09436519ccbb38b52e01deeae832ac'),
@@ -293,6 +298,7 @@ def overlay_adaptations(name,data):
             '0029e1ac 0c0807c8 00000000\n'
             '0029e160 a0820050 00000000\n'
             '0029e16c 0c0807c8 00000000\n'
+            '00208a90 0c0807c8 00000000\n'
             # Publish the immutable offline asset at its CPU producer, then
             # free the unused descriptor through the original game heap call.
             # Do not submit a DMA job or fabricate its completion.
@@ -309,4 +315,4 @@ def overlay_adaptations(name,data):
 def overlay_native_sites(name,data):
     if name!='mod001':return ''
     overlay_adaptations(name,data)
-    return 'native 0x29e1a0\nnative 0x2c3cb4\nnative 0x29cc30\nnative 0x29cd7c\nnative 0x29cf14\nnative 0x29cf30\nnative 0x29cc00\nnative 0x29e160\n'
+    return 'native 0x29e1a0\nnative 0x2c3cb4\nnative 0x29cc30\nnative 0x29cd7c\nnative 0x29cf14\nnative 0x29cf30\nnative 0x29cc00\nnative 0x29e160\nnative 0x208a94\n'

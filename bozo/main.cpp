@@ -20,6 +20,7 @@
 #include "native_random.h"
 #include "native_math.h"
 #include "native_textures.h"
+#include "native_scene.h"
 #include <random>
 #include <algorithm>
 #include <charconv>
@@ -33,8 +34,10 @@
 #include <stdexcept>
 
 namespace {
-class StrictHost final : public bozo::ee::Host, public vp2s::TimerOwner, public vp2s::SettingsOwner,public vp2s::SeedOwner,public vp2s::ModuleOwner,public vp2s::BootstrapOwner,public vp2s::RandomOwner,public vp2s::TextureOwner {
+class StrictHost final : public bozo::ee::Host, public vp2s::TimerOwner, public vp2s::SettingsOwner,public vp2s::SeedOwner,public vp2s::ModuleOwner,public vp2s::BootstrapOwner,public vp2s::RandomOwner,public vp2s::TextureOwner,public vp2s::SceneOwner {
 public:
+    vp2s::NativeScene scene;
+    vp2s::NativeScene &nativeScene()override{return scene;}
     vp2s::NativeTextures textures{std::filesystem::path(VP2S_BOZO_IMAGES).parent_path().parent_path()/"vp2_textures",std::filesystem::path(VP2S_BOZO_IMAGES).parent_path()/"textures.manifest"};
     vp2s::NativeTextures &nativeTextures()override{return textures;}
     vp2s::ProceduralRandom procedural;
@@ -133,6 +136,8 @@ public:
         // the texture. VP2S has not installed its native asset owner yet.
         if(target==0x122bf8u)
             throw std::runtime_error(std::format("native VP2S image owner required at {:x} ra={:x}",target,c->r[31].uw[0]));
+        if(target==0x123550u || target==0x1235b8u || target==0x123630u || target==0x1237f0u)
+            throw std::runtime_error(std::format("native VP2S draw/data owner required at {:x} ra={:x}",target,c->r[31].uw[0]));
         if(std::getenv("VP2S_BOZO_TRACE_CALLS") && traceLibrary++<160)
             std::fprintf(stderr,"[vp2s:call] pc=%x ra=%x a0=%x a1=%x\n",target,c->r[31].uw[0],c->r[4].uw[0],c->r[5].uw[0]);
         native.libraryCall(d,c,target);
@@ -173,6 +178,13 @@ public:
     void handlerCompleted(bozo::ee::Dispatcher &d,bozo::ee::Thread &t,const bozo::ee::Frame &f) override { native.handlerCompleted(d,t,f); }
 };
 bool noNativeInstruction(uint8_t *ram,R5900Context *ctx,Runtime *rt,uint32_t pc) {
+    if(pc==0x1131c0){
+        if(std::getenv("VP2S_BOZO_TRACE_QUEUES"))
+            std::fprintf(stderr,"[vp2s:enqueue] ra=%x queue=%x type=%u source=%x count=%u owner=%x\n",
+                         ctx->r[31].uw[0],ctx->r[4].uw[0],ctx->r[5].uw[0],ctx->r[7].uw[0],ctx->r[8].uw[0],ctx->r[9].uw[0]);
+        return false; // Observe the original CPU entry; execute its scalar prologue unchanged.
+    }
+    if(vp2s::nativeSceneInstruction(ram,ctx,rt,pc))return true;
     if(vp2s::nativeTextureInstruction(ram,ctx,rt,pc))return true;
     if(vp2s::nativeBootSeed(ram,ctx,rt,pc))return true;
     if(vp2s::nativeBootstrapKey(ram,ctx,rt,pc))return true;
@@ -180,15 +192,6 @@ bool noNativeInstruction(uint8_t *ram,R5900Context *ctx,Runtime *rt,uint32_t pc)
     if(vp2s::nativeMathInstruction(ram,ctx,rt,pc))return true;
     if(vp2s::nativeFrameInput(ram,ctx,rt,pc))return true;
     throw std::runtime_error(std::format("unported native VP2S algorithm at pc={:x}",pc));
-}
-void traceGraphicsEnqueue(uint8_t *ram,R5900Context *ctx,Runtime *rt) {
-    // Resident CPU entry, not an overlay-cached original. Observe descriptor
-    // metadata only; run the exact generated producer and normal continuations.
-    const auto original=rt->functions.generated(0x1131c0);
-    if(!original)throw std::runtime_error("queue diagnostic original entry missing");
-    std::fprintf(stderr,"[vp2s:enqueue] ra=%x queue=%x type=%u source=%x count=%u owner=%x\n",
-                 ctx->r[31].uw[0],ctx->r[4].uw[0],ctx->r[5].uw[0],ctx->r[7].uw[0],ctx->r[8].uw[0],ctx->r[9].uw[0]);
-    original(ram,ctx,rt);
 }
 }
 
@@ -217,8 +220,6 @@ int main(int argc,char **argv) {
         if(!host.native.setUp(dispatcher,vp2_main_external_table,vp2_main_external_count,&registry,error))
             throw std::runtime_error(error);
         vp2sBozoRegisterImages(dispatcher.runtime(),VP2S_BOZO_IMAGES);
-        if(std::getenv("VP2S_BOZO_TRACE_QUEUES"))
-            dispatcher.runtime().functions.setOverride(0x1131c0,&traceGraphicsEnqueue);
         const auto frames=host.native.run();
         if(std::getenv("VP2S_BOZO_TRACE_QUEUES")) {
             // Only the audited graphics-work queue header and descriptor metadata.

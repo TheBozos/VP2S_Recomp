@@ -1,6 +1,7 @@
 #include "bozo/ee/dispatcher.h"
 #include "bozo/port.h"
 #include "native_math.h"
+#include "native_scene.h"
 #include "install_original_functions.h"
 #include "install_adapted_functions.h"
 #include <cstdio>
@@ -11,16 +12,28 @@ namespace {
 void check(bool value,std::source_location at=std::source_location::current()){
     if(!value)throw std::runtime_error("graphics install retirement assertion failed at "+std::to_string(at.line()));
 }
-struct Host:bozo::ee::Host,bozo::port::Host {
+struct Host:bozo::ee::Host,bozo::port::Host,vp2s::SceneOwner {
     unsigned enqueues=0;
+    vp2s::NativeScene scene;
+    vp2s::NativeScene &nativeScene()override{return scene;}
     bozo::libs::Libraries &libraries()override{throw std::runtime_error("libraries");}
     bool nativeGraphics()const override{return true;}
-    bool nativeInstruction(uint8_t *r,R5900Context *c,Runtime *rt,uint32_t pc)override{return vp2s::nativeMathInstruction(r,c,rt,pc);}
+    bool nativeInstruction(uint8_t *r,R5900Context *c,Runtime *rt,uint32_t pc)override{
+        return vp2s::nativeSceneInstruction(r,c,rt,pc) || vp2s::nativeMathInstruction(r,c,rt,pc);
+    }
     void frameEnd(Runtime *,R5900Context *)override{throw std::runtime_error("frame");}
     bool callLibrary(Runtime *,R5900Context *,uint32_t)override{return false;}
-    void libraryCall(bozo::ee::Dispatcher &,R5900Context *c,uint32_t pc)override{
-        check(pc==0x201f20 && c->r[4].uw[0]==0x180000 && c->r[5].uw[0]==0x190000);
-        ++enqueues;c->r[2].sd[0]=1;c->pc=c->r[31].uw[0];
+    void libraryCall(bozo::ee::Dispatcher &d,R5900Context *c,uint32_t pc)override{
+        if(pc==0x201f20){
+            check(c->r[4].uw[0]==0x180000);
+            if(c->r[31].uw[0]==0x208a98){check(c->r[5].uw[0]==0x1b0000);scene.publishCamera(&d.runtime(),c->r[17].uw[0]);}
+            else check(c->r[5].uw[0]==0x190000);
+            ++enqueues;c->r[2].sd[0]=1;
+        }else if(pc==0x170100)c->r[2].sd[0]=0x1c0000;
+        else if(pc==0x2138f0){auto *to=d.runtime().memory.hostPointer(c->r[4].uw[0],16);auto *from=d.runtime().memory.hostPointer(c->r[5].uw[0],16);check(to && from);std::memcpy(to,from,16);}
+        else if(pc==0x215870){const float angles[4]={0.1f,0.2f,0.3f,0};auto *to=d.runtime().memory.hostPointer(c->r[4].uw[0],16);check(to);std::memcpy(to,angles,16);}
+        else throw std::runtime_error("unexpected native scene leaf");
+        c->pc=c->r[31].uw[0];
     }
     void vu0Microprogram(bozo::ee::Dispatcher &,R5900Context *,uint32_t)override{throw std::runtime_error("unexpected VU execution");}
     void ioRead(bozo::ee::Dispatcher &,R5900Context *,uint32_t,uint32_t,uint64_t[2])override{throw std::runtime_error("unexpected device read");}
@@ -34,6 +47,7 @@ int main(){try{
     native.setFunctions(install_adapted_function_table,install_adapted_function_count,install_adapted_resume_table,install_adapted_resume_count);
     old.runtime().port=&oldHost;native.runtime().port=&nativeHost;
     old.boot(0x29e2e0,0x1fff000);native.boot(0x29e2e0,0x1fff000);old.bindLibrary(0x201f20);
+    for(auto *d:{&old,&native})for(uint32_t pc:{0x170100u,0x2138f0u,0x215870u})d->bindLibrary(pc);
     for(unsigned seed=0;seed<64;++seed){
         auto *a=old.runtime().memory.flat(),*b=native.runtime().memory.flat();
         std::memset(a,seed+1,bozo::kFlatBytes);uint32_t queue=0x180000;std::memcpy(a+0x35dde0,&queue,4);
@@ -70,5 +84,29 @@ int main(){try{
         b[0x190050]=0;bool rejected=false;try{vp2s::nativeMathInstruction(b,&c,&native.runtime(),0x29e160);}catch(const std::runtime_error &){rejected=true;}
         check(rejected && b[0x190050]==0);
     }
-    std::puts("64 graphics + 64 math-code producer CPU/RAM comparisons; busy store never created and nondefault modes reject; no queue/device completion synthesized");return 0;
+    for(unsigned seed=0;seed<64;++seed){
+        auto &a=old.runtime();auto &b=native.runtime();std::memset(a.memory.flat(),0,bozo::kFlatBytes);
+        const auto word=[&](uint32_t at,uint32_t value){std::memcpy(a.memory.ram()+at,&value,4);};
+        word(0x35dde0,0x180000);word(0x190000,0x1a0000);word(0x1a0068,0x170100);
+        word(0x1908e0,0x1b0000);word(0x1b0000,0x153140);word(0x1905c8,0x1d0000);word(0x1905a0,0x123400+seed);
+        a.memory.ram()[0x190445]=seed&1;
+        for(unsigned i=0;i<48;++i){const float value=float(i+seed)/128.f;std::memcpy(a.memory.ram()+0x1902f0+i*4,&value,4);}
+        const float fog[2]={127.f,-1024.f};std::memcpy(a.memory.ram()+0x1905a8,fog,8);std::memcpy(b.memory.flat(),a.memory.flat(),bozo::kFlatBytes);
+        R5900Context x{},y{};x.r[4].ud[0]=0x190000;x.r[29].ud[0]=0x1fff000;x.r[31].ud[0]=0x170000;y=x;
+        const auto count=nativeHost.scene.publicationCount();
+        a.functions.generated(0x208900)(a.memory.flat(),&x,&a);b.functions.generated(0x208900)(b.memory.flat(),&y,&b);
+        const unsigned published=!(seed&1);check(nativeHost.scene.publicationCount()==count+published);
+        check(!std::memcmp(a.memory.flat(),b.memory.flat(),bozo::kFlatBytes));
+        check(x.cycles==y.cycles+published*8 && x.checkpoints==y.checkpoints+published);
+        x.cycles-=published*8;x.checkpoints-=published;x.cycleLimit=y.cycleLimit;
+        // The void camera method's enqueue result is dead. Everything else,
+        // including source records, CPU temporaries and vector/flag state matches.
+        x.r[2]=y.r[2];check(!std::memcmp(&x,&y,sizeof(x)));
+        if(published){auto view=nativeHost.scene.camera(0x190000);check(view && view->clearColour==0x123400+seed);
+            check(!std::memcmp(view->view.data(),a.memory.ram()+0x1902f0,64) && !std::memcmp(view->screen.data(),a.memory.ram()+0x190330,64) && !std::memcmp(view->guard.data(),a.memory.ram()+0x190370,64));
+            check(view->fog[0]==127 && view->fog[1]==-1024);
+            const auto colour=view->clearColour;word(0x1905a0,0);check(view->clearColour==colour);
+        }
+    }
+    std::puts("64 graphics + 64 math-code + 64 camera producer CPU/RAM comparisons; immutable native camera snapshots; no queue/device completion synthesized");return 0;
 }catch(const std::exception &e){std::fprintf(stderr,"%s\n",e.what());return 1;}}

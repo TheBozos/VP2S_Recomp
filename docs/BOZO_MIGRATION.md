@@ -7,6 +7,35 @@ target, not a replacement DLL loaded into PS2Recomp.
 
 ## Build and evidence
 
+### Native camera records and remaining frame composition (2026-11-07)
+
+The camera-only enqueue in `0x208900` now publishes an immutable native camera:
+view/screen/guard matrices, viewport/centre, fog coefficients and clear colour,
+all from the camera's game records. Its original scalar body and state writes
+remain. The enqueue retires before a job exists; its empty completion method
+needs no callback. Admission checks the live job type `0x153140`, whose execute /
+completion entries are `0x2097c0` / `0x209810`. The full constructor, publisher,
+transport/completion leaf and main-image vtable are fingerprinted. Initial
+inspection found the base destructor vtable `0x1590b0`; the live type guard
+rejected it, and the constructor/static table supplied the separating evidence.
+
+Sixty-four generated camera comparisons preserve all RAM and architectural CPU
+fields except the void enqueue's dead result. Exact removed-call accounting is
+checked; the original out-call's host slice deadline is separately exempt.
+Enabled/disabled publication, matrix/fog contents and immutable record lifetime
+are covered. Together with graphics/math installs, that fixture has 192 cases.
+
+A diagnostic boot previously reached logical frame 58 after this camera change,
+then stopped at COP0 performance setup. That run exposed another earlier gap:
+shared DMA-send SDK stubs also retire data without a VP2S owner. This port now
+rejects Send/SendN/SendI/Sync before delegating. The honest current boundary is
+`sceDmaSendN 0x1235b8`, returning to `0x113048`, for a frame-composition producer
+in `0x114550` (first enqueue return `0x1145fc`). No completion was invented.
+The resident enqueue diagnostic now observes an inline CPU entry, so it also
+sees direct compiled calls; it preserves the original scalar instruction and
+does not install a global override. Native frame composition, draws and scene /
+Logun qualification remain unfinished.
+
 ### Quaternion/Euler builder temporaries (2026-11-07)
 
 The fingerprinted `0x215870` builder now creates its normalized temporary and

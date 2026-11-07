@@ -269,10 +269,7 @@ if(VP2S_BOZO_CODE)
   add_test(NAME vp2s-bozo-asset-producers COMMAND vp2s-bozo-assets-cpu-check)
   foreach(VARIANT original adapted)
     set(TEXTURE_DIR "${TEXTURE_REF}/${VARIANT}")
-    set(TEXTURE_PATCH_ARGS)
-    if(VARIANT STREQUAL "adapted")
-      set(TEXTURE_PATCH_ARGS --patches "${TEXTURE_DIR}/patches.txt")
-    endif()
+    set(TEXTURE_PATCH_ARGS --patches "${TEXTURE_DIR}/patches.txt")
     add_custom_command(OUTPUT "${TEXTURE_DIR}/texture_${VARIANT}_000.cpp" "${TEXTURE_DIR}/texture_${VARIANT}_table.cpp" "${TEXTURE_DIR}/texture_${VARIANT}_functions.h"
       COMMAND ${Python3_EXECUTABLE} "${VP2S_ROOT}/tools/vp2_bozo_texture_fixture.py" "${VP2S_BOZO_DATA}/images/mod001.elf" "${TEXTURE_DIR}" --build "${VP2S_BOZO_DATA}/.." --variant ${VARIANT}
       COMMAND $<TARGET_FILE:bozo-recomp> "${TEXTURE_DIR}/fixture.elf" "${TEXTURE_DIR}" --prefix texture_${VARIANT} --symbol-prefix texture_${VARIANT}_

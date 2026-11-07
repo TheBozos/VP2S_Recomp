@@ -1,4 +1,5 @@
 #include "native_textures.h"
+#include "native_scene.h"
 #include "bozo/ee/dispatcher.h"
 #include <algorithm>
 #include <atomic>
@@ -86,6 +87,40 @@ void NativeTextures::finish(uint32_t stack){
 void NativeTextures::publishStaticPalette(uint16_t slot){
     if(slot>=0x8000)throw std::runtime_error("native static palette slot outside range");
     auto asset=load(kStaticScenePalette);palettes[slot]=std::move(asset);++publications;
+}
+void NativeTextures::publishImage(uint32_t object,TextureKey key){
+    if(object<0x100000 || object>0x2000000-0xf0)throw std::runtime_error("native image object outside EE RAM");
+    auto asset=load(key);images[object]=std::move(asset);++publications;
+}
+void NativeTextures::releaseImage(uint32_t object){images.erase(object);}
+std::shared_ptr<const NativeTextureAsset> NativeTextures::imageAsset(uint32_t object)const{
+    auto it=images.find(object);return it==images.end()?nullptr:it->second;
+}
+std::optional<bool> nativeFixedImageInstruction(R5900Context *c,Runtime *rt,uint32_t pc){
+    if(pc!=0x2f3714 && pc!=0x2ea9a0)return std::nullopt;
+    auto *d=rt?dynamic_cast<bozo::ee::Dispatcher *>(rt->services):nullptr;
+    auto *textures=d?dynamic_cast<TextureOwner *>(&d->host()):nullptr;
+    if(!textures || !c)throw std::runtime_error("native fixed image has no texture owner");
+    const auto object=c->r[4].uw[0];
+    if(pc==0x2ea9a0 && !object)return false;
+    record(rt,object,0xf0);
+    if(read<uint32_t>(rt,object)!=0x15a6f0 || read<uint32_t>(rt,object+0x90)!=0x15a76c)
+        throw std::runtime_error("unowned native fixed image type");
+    if(pc==0x2ea9a0){
+        if(c->pc!=pc)throw std::runtime_error("native image release requires its destructor entry");
+        textures->nativeTextures().releaseImage(object);return false;
+    }
+    auto *scene=dynamic_cast<SceneOwner *>(&d->host());
+    if(!scene || c->pc!=0x2f36f0 || c->r[5].uw[0]!=object+0x90)
+        throw std::runtime_error("native fixed image requires its complete producer");
+    const auto current=read<uint32_t>(rt,0x35ddf8);
+    record(rt,current,0x40ec);const auto layer=read<uint8_t>(rt,object+0x65);
+    if(layer>1 || read<uint32_t>(rt,current+0x40a8+layer*4)!=object || read<uint8_t>(rt,current+0x40dc+layer)!=1)
+        throw std::runtime_error("native fixed image escaped its scene lifetime");
+    const auto fis=read<uint32_t>(rt,object+0xc0);
+    if(read<uint32_t>(rt,fis)!=0x534946)throw std::runtime_error("native fixed image has no FIS identity");
+    textures->nativeTextures().publishImage(object,{read<uint32_t>(rt,fis+0x14),read<uint32_t>(rt,fis+0x18)});
+    return true; // Keep a0 as the image object for the real compiled software completion.
 }
 std::shared_ptr<const NativeTextureAsset> NativeTextures::pixelAsset(uint16_t slot)const{
     auto it=pixels.find(slot);return it==pixels.end()?nullptr:it->second;

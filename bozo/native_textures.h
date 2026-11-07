@@ -5,6 +5,7 @@
 #include <filesystem>
 #include <map>
 #include <memory>
+#include <optional>
 #include <vector>
 namespace vp2s {
 struct TextureKey {
@@ -30,6 +31,7 @@ class NativeTextures {
     std::map<TextureKey,std::shared_ptr<const NativeTextureAsset>> loaded;
     std::map<uint32_t,Invocation> pending; // Per-host active stack frame, erased on every return.
     std::map<uint16_t,std::shared_ptr<const NativeTextureAsset>> palettes,pixels;
+    std::map<uint32_t,std::shared_ptr<const NativeTextureAsset>> images; // Game image objects, never hardware addresses.
     uint64_t publications=0;
 public:
     explicit NativeTextures(std::filesystem::path directory={},std::filesystem::path manifest={});
@@ -37,6 +39,9 @@ public:
     void begin(uint32_t stack,TextureKey);
     void publish(uint32_t stack,uint16_t slot,bool palette);
     void publishStaticPalette(uint16_t slot);
+    void publishImage(uint32_t object,TextureKey);
+    void releaseImage(uint32_t object);
+    std::shared_ptr<const NativeTextureAsset> imageAsset(uint32_t object)const;
     void finish(uint32_t stack);
     std::shared_ptr<const NativeTextureAsset> pixelAsset(uint16_t slot)const;
     std::shared_ptr<const NativeTextureAsset> paletteAsset(uint16_t slot)const;
@@ -49,4 +54,5 @@ public:
     virtual NativeTextures &nativeTextures()=0;
 };
 bool nativeTextureInstruction(uint8_t *,R5900Context *,Runtime *,uint32_t pc);
+std::optional<bool> nativeFixedImageInstruction(R5900Context *,Runtime *,uint32_t pc);
 }

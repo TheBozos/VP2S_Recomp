@@ -1,4 +1,5 @@
 #include "native_textures.h"
+#include "native_scene.h"
 #include "bozo/ee/dispatcher.h"
 #include "bozo/port.h"
 #include "texture_original_functions.h"
@@ -15,20 +16,28 @@ void check(bool b,std::source_location at=std::source_location::current()){
 template<class F>void rejects(F f){bool failed=false;try{f();}catch(const std::runtime_error &){failed=true;}check(failed);}
 void word(uint8_t *r,uint32_t p,uint32_t v){std::memcpy(r+p,&v,4);}
 struct Pause{};
-struct Host:bozo::ee::Host,bozo::port::Host,vp2s::TextureOwner {
+struct Host:bozo::ee::Host,bozo::port::Host,vp2s::TextureOwner,vp2s::SceneOwner {
+    vp2s::NativeScene scene;unsigned completions=0;
+    vp2s::NativeScene &nativeScene()override{return scene;}
     vp2s::NativeTextures textures;bool original=false;unsigned allocations=0,failAt=0,pauses=0,freeCalls=0;
     std::set<uint32_t> owned;bool yieldCalls=false;
     explicit Host(const char *path):textures(path,std::filesystem::path(path)/"manifest.txt"){}
     vp2s::NativeTextures &nativeTextures()override{return textures;}
     bozo::libs::Libraries &libraries()override{throw std::runtime_error("libraries");}
     bool nativeGraphics()const override{return true;}
-    bool nativeInstruction(uint8_t *r,R5900Context *c,Runtime *rt,uint32_t pc)override{return vp2s::nativeTextureInstruction(r,c,rt,pc);}
+    bool nativeInstruction(uint8_t *r,R5900Context *c,Runtime *rt,uint32_t pc)override{
+        if(auto handled=vp2s::nativeFixedImageInstruction(c,rt,pc))return *handled;
+        return vp2s::nativeSceneInstruction(r,c,rt,pc) || vp2s::nativeTextureInstruction(r,c,rt,pc);
+    }
     void frameEnd(Runtime *,R5900Context *)override{throw std::runtime_error("frame");}
     bool callLibrary(Runtime *,R5900Context *,uint32_t)override{return false;}
     void release(uint32_t pointer){check(pointer && owned.erase(pointer)==1);++freeCalls;}
     void libraryCall(bozo::ee::Dispatcher &d,R5900Context *c,uint32_t pc)override{
         bool pause=false;
-        if(pc==0x100ab0){
+        if(pc==0x1130f0){
+            check(c->r[4].uw[0]==0x1a0000);++completions;
+            ++*d.runtime().memory.hostPointer(0x1a0000,1);c->r[2].ud[0]=0;c->pc=c->r[31].uw[0];pause=yieldCalls;
+        }else if(pc==0x100ab0){
             check(c->r[4].uw[0]==0x70);++allocations;
             const uint32_t p=allocations==failAt?0:0x280000+allocations*0x80;
             if(p)check(owned.insert(p).second);c->r[2].sd[0]=p;pause=yieldCalls;
@@ -62,7 +71,7 @@ struct Host:bozo::ee::Host,bozo::port::Host,vp2s::TextureOwner {
 void run(bozo::ee::Dispatcher &d,R5900Context &c,uint32_t entry=0x29cc30){
     auto fn=d.runtime().functions.generated(entry);
     for(unsigned i=0;i<10;++i){
-        try{fn(d.runtime().memory.flat(),&c,&d.runtime());check(c.pc==0x170000);return;}catch(const Pause &){}
+        try{fn(d.runtime().memory.flat(),&c,&d.runtime());if(c.pc==0x170000)return;}catch(const Pause &){}
         auto entry=d.runtime().functions.resumeEntry(c.pc);check(entry);fn=entry->resume;
     }
     throw std::runtime_error("image fixture did not return");
@@ -74,7 +83,7 @@ int main(int argc,char **argv){try{
     old.setFunctions(texture_original_function_table,texture_original_function_count,texture_original_resume_table,texture_original_resume_count);
     now.setFunctions(texture_adapted_function_table,texture_adapted_function_count,texture_adapted_resume_table,texture_adapted_resume_count);
     old.runtime().port=&oldHost;now.runtime().port=&newHost;
-    for(auto *d:{&old,&now})for(uint32_t pc:{0x100ab0u,0x100b30u,0x113630u,0x1137f0u,0x1228d0u,0x137460u,0x1131c0u,0x133f70u})d->bindLibrary(pc);
+    for(auto *d:{&old,&now})for(uint32_t pc:{0x100ab0u,0x100b30u,0x113630u,0x1137f0u,0x1228d0u,0x137460u,0x1131c0u,0x133f70u,0x1130f0u})d->bindLibrary(pc);
     for(unsigned seed=0;seed<64;++seed){
         const unsigned fail=seed%3,palette=(seed>>2)&1,index=1+(seed&1);
         oldHost.allocations=newHost.allocations=oldHost.freeCalls=newHost.freeCalls=0;oldHost.failAt=newHost.failAt=fail;
@@ -125,5 +134,39 @@ int main(int argc,char **argv){try{
     auto first=t.pixelAsset(20);t.publish(2,20,false);check(first->key.index==1 && t.pixelAsset(20)->key.index==2);
     rejects([&]{t.begin(1,{0x12345678,2});});rejects([&]{t.publish(1,20,false);});t.finish(1);t.finish(2);
     t.begin(1,{0x12345678,2});t.finish(1);rejects([&]{t.finish(1);});rejects([&]{t.begin(3,{0,0});});check(t.outstanding()==0);
-    std::puts("64 generated image + 32 static palette CPU/RAM/ownership comparisons, allocation failures and resumed frees; immutable per-host textures and slot/stack reuse passed; no upload consumer");return 0;
+    for(unsigned seed=0;seed<64;++seed){
+        auto &a=old.runtime(),&b=now.runtime();std::memset(a.memory.flat(),0,bozo::kFlatBytes);
+        constexpr uint32_t scene=0x1d0000,image=0x190000,fis=0x180000;
+        const auto layer=(seed>>2)&1;
+        auto *ram=a.memory.flat();word(ram,image,0x15a6f0);word(ram,image+0x90,0x15a76c);word(ram,image+0xc0,fis);
+        // Original transport inputs are poisoned; only the FIS identity is native input.
+        word(ram,image+0xb8,0xdeadbeef);word(ram,image+0xc4,0xbaadf00d);word(ram,image+0xd4,0xfefefefe);
+        word(ram,fis,0x534946);word(ram,fis+0x14,0x12345678);word(ram,fis+0x18,1+(seed&1));
+        word(ram,0x35ddf8,scene);word(ram,0x35dd78,0x1a0000);
+        word(ram,scene+0x40a8+layer*4,image);ram[scene+0x40dc+layer]=1;ram[image+0x65]=layer;
+        std::memcpy(b.memory.flat(),ram,bozo::kFlatBytes);
+        R5900Context x{},y{};x.r[4].ud[0]=image;x.r[29].ud[0]=seed&2?0x70003f00:0x1fff000;x.r[31].ud[0]=0x170000;y=x;
+        oldHost.yieldCalls=false;newHost.yieldCalls=seed&32;const auto count=newHost.completions;
+        run(old,x,0x2f36f0);run(now,y,0x2f36f0);x.cycleLimit=y.cycleLimit;
+        check(!std::memcmp(&x,&y,sizeof(x)) && !std::memcmp(ram,b.memory.flat(),bozo::kFlatBytes));
+        check(newHost.completions==count+1-layer && b.memory.flat()[image+0x64]==0 && b.memory.flat()[image+0x62]==1 && b.memory.flat()[scene+0x40dc+layer]==0);
+        auto held=newHost.textures.imageAsset(image);check(held && held->key.index==1+(seed&1));
+        std::memset(b.memory.flat()+fis,0x5a,0x100);check(held->texels[0]==1+(seed&1));
+        R5900Context dying{};dying.pc=0x2ea9a0;dying.r[4].ud[0]=image;const auto saved=dying;
+        check(vp2s::nativeFixedImageInstruction(&dying,&b,0x2ea9a0)==false && !newHost.textures.imageAsset(image));
+        check(!std::memcmp(&dying,&saved,sizeof(dying)) && held->texels[0]==1+(seed&1));
+    }
+    {auto &b=now.runtime();constexpr uint32_t scene=0x1d0000,image=0x190000,fis=0x180000;
+        auto *ram=b.memory.flat();word(ram,fis,0x534946);word(ram,fis+0x14,0x12345678);word(ram,fis+0x18,999);
+        ram[scene+0x40dd]=1;ram[image+0x64]=1;
+        R5900Context c{};c.pc=0x2f36f0;c.r[4].ud[0]=image;c.r[5].ud[0]=image+0x90;const auto saved=c;
+        std::vector<uint8_t> before(ram,ram+bozo::kFlatBytes);
+        rejects([&]{vp2s::nativeFixedImageInstruction(&c,&b,0x2f3714);});
+        check(!std::memcmp(&c,&saved,sizeof(c)) && !std::memcmp(before.data(),ram,before.size()) && !newHost.textures.imageAsset(image));
+        auto &t=newHost.textures;t.publishImage(image,{0x12345678,1});auto held=t.imageAsset(image);
+        rejects([&]{t.publishImage(image,{0x12345678,999});});check(t.imageAsset(image)==held);
+        t.publishImage(image,{0x12345678,2});check(held->key.index==1 && t.imageAsset(image)->key.index==2);
+        t.releaseImage(image);check(!t.imageAsset(image) && held->texels[0]==1 && oldHost.textures.imageAsset(image)->key.index==2);
+    }
+    std::puts("64 manager images + 32 palettes + 64 fixed-image producer/completion CPU/RAM cases; offline assets survive source release, image destructor invalidates association; no upload consumer");return 0;
 }catch(const std::exception &e){std::fprintf(stderr,"%s\n",e.what());return 1;}}

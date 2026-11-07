@@ -7,6 +7,31 @@ target, not a replacement DLL loaded into PS2Recomp.
 
 ## Build and evidence
 
+### Fixed UI image publication and lifetime (2026-11-07)
+
+A caller trace separates the shared enqueue helper `0x2ef390` from the reached
+fixed-image producer `0x2f36f0`. That producer now publishes its typed image
+object's FIS key to an immutable offline texture, then calls the original compiled
+software completion. The source payload and packet pointers are never read by the
+adapter. Identity lives under the game image object; there is no DBP/VRAM lookup
+table. The destructor entry `0x2ea9a0` releases that association while previously
+held assets remain valid. Rebinding an image replaces only its current association.
+Complete producer/setup/destructor spans and the image vtable are fingerprinted.
+
+The actual reached upload is in scene pass 1 (`0x2210c0`), outside the pass-0
+canonical texture-manager invocation. Admission checks the image's pass byte,
+matching current pending object and its real pending flag. Both complete scene
+owners are guarded. The retained compiled completion performs the actual flag
+updates and event/secondary notification; no transfer-completion value is served.
+
+64 generated producer/completion CPU/RAM cases cover both passes, EE/scratchpad
+stacks and nested callback resume. Both fixtures use this native publication
+contract; neither executes an upload. Poisoned payload pointers, source overwrite,
+destructor release, immutable held assets, rebind, missing-asset atomicity and
+per-host separation are checked. Texture fixture: 160 whole cases. Headless boot
+advances to the unowned graphics writer from mod002 `0x3721a8`. Native rendering
+and the Logun route remain open.
+
 ### Native brightness draw producer (2026-11-07)
 
 BozoEngine [PR 72](https://github.com/TheBozos/BozoEngine/pull/72) merged as

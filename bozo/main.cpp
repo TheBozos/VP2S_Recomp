@@ -230,6 +230,7 @@ public:
     void handlerCompleted(bozo::ee::Dispatcher &d,bozo::ee::Thread &t,const bozo::ee::Frame &f) override { native.handlerCompleted(d,t,f); }
 };
 bool noNativeInstruction(uint8_t *ram,R5900Context *ctx,Runtime *rt,uint32_t pc) {
+    if(auto handled=vp2s::nativeFixedImageInstruction(ctx,rt,pc))return *handled;
     if(auto handled=vp2s::nativeTextureManagerInstruction(ctx,rt,pc))return *handled;
     if(auto handled=vp2s::nativeVisibilityInstruction(ctx,rt,pc))return *handled;
     if(auto handled=vp2s::nativeStateSetupInstruction(ram,ctx,rt,pc))return *handled;
@@ -240,6 +241,12 @@ bool noNativeInstruction(uint8_t *ram,R5900Context *ctx,Runtime *rt,uint32_t pc)
         if(std::getenv("VP2S_BOZO_TRACE_QUEUES")){
             std::fprintf(stderr,"[vp2s:enqueue] ra=%x queue=%x type=%u source=%x count=%u owner=%x\n",
                          ctx->r[31].uw[0],ctx->r[4].uw[0],ctx->r[5].uw[0],ctx->r[7].uw[0],ctx->r[8].uw[0],ctx->r[9].uw[0]);
+            if(ctx->r[31].uw[0]==0x2ef3b8){
+                const auto *saved=rt->memory.hostPointer(ctx->r[29].uw[0],8);uint64_t caller=0;
+                if(!saved)throw std::runtime_error("UI producer return outside owned RAM");
+                std::memcpy(&caller,saved,8);
+                std::fprintf(stderr,"[vp2s:producer] UI caller=%x\n",static_cast<uint32_t>(caller));
+            }
             if(ctx->r[31].uw[0]==0x120f50){
                 const auto *saved=rt->memory.hostPointer(ctx->r[29].uw[0]+0x20,8);uint64_t caller=0;
                 if(!saved)throw std::runtime_error("packet-builder return record outside RAM");

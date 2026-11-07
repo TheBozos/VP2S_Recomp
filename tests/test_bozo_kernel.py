@@ -81,6 +81,7 @@ class KernelGuardTests(unittest.TestCase):
             '002216fc 0c0a75ac 00000000','0022172c 4100fffa 00000000','00221740 0c04df7e 00000000',
             '002088ec 0c0807c8 00000000',
             '002cb48c 0c0807c8 0c087268',
+            '002f3710 0c0bbce4 0c087268',
             '002021c4 3c011001 0808087a','002021c8 2402fffd 00000000',
             '0029e210 4a00fc3e 00000000','0029e214 4b1f043d 00000000','0029e2fc 0c0807c8 00000000',
             '0029e1a0 a0820050 00000000','0029e1ac 0c0807c8 00000000',
@@ -96,7 +97,7 @@ class KernelGuardTests(unittest.TestCase):
             0x29e1a0,0x2c3cb4,0x29cc30,0x29cd7c,0x29cf14,0x29cf30,0x29cc00,0x29e160,
             0x208a94,0x29af80,0x29b2a8,0x29caf8,0x2205c0,0x220ce0,0x29e43c,0x29e444,
             0x22106c,0x221294,0x221308,0x221540,0x221704,0x221718,0x221748,0x2088f0,
-            0x221698,0x22169c,0x21c9dc,0x21c9e0,0x21c9e8,0x21c9ec,0x21ca1c,0x21ca20,0x21ca24,0x21ca28,0x2cb490)))
+            0x221698,0x22169c,0x21c9dc,0x21c9e0,0x21c9e8,0x21c9ec,0x21ca1c,0x21ca20,0x21ca24,0x21ca28,0x2cb490,0x2f3714,0x2ea9a0)))
         _,segments,_=elf_parts(data)
         for lo,hi in ((0x249720,0x24a438),(0x202150,0x202200),(0x29e1d0,0x29e22c),
                       (0x29e230,0x29e310),(0x333640,0x333650),(0x333650,0x333d60),
@@ -106,7 +107,8 @@ class KernelGuardTests(unittest.TestCase):
                       (0x208cd0,0x2091d8),(0x207d70,0x2081c8),(0x208360,0x208470),(0x20f440,0x20f938),(0x207cc0,0x207d70),(0x2205c0,0x220d14),
                       (0x29e310,0x29e378),(0x29e420,0x29e4a4),(0x221030,0x2210b8),(0x221260,0x22177c),
                       (0x29d730,0x29d7ac),(0x29d6b0,0x29d72c),(0x29df60,0x29e06c),(0x2088d0,0x208900),(0x208870,0x2088c0),(0x21c9a0,0x21ca50),
-                      (0x2cb470,0x2cb4a0),(0x2cb400,0x2cb450),(0x2cb640,0x2cb8d0)):
+                      (0x2cb470,0x2cb4a0),(0x2cb400,0x2cb450),(0x2cb640,0x2cb8d0),
+                      (0x2f36f0,0x2f3724),(0x2f37b0,0x2f38f0),(0x2ea9a0,0x2eaa10),(0x2210c0,0x221260)):
             segment=next(s for s in segments if s[0]==1 and s[2]<=lo<hi<=s[2]+s[4])
             for pc in range(lo,hi,4):
                 altered=bytearray(data);altered[segment[1]+pc-segment[2]]^=1

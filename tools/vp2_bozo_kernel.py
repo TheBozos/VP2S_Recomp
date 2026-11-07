@@ -25,6 +25,7 @@ COMMAND_SEND = (0x13a3f0,0x13a524)
 EVENT_RANGES=((0x140b70,0x140c34),(0x148c58,0x148f88),(0x141780,0x141898),(0x141910,0x141958),(0x141980,0x1419cc))
 RETIRED_RANGES = (INSTALLER, QUERY, ALARM_INSTALLER, ALARM_PAYLOAD, TIMER_INITIALIZER, TIMER_HANDLER, TIMER_START, TIMER_QUERY, TIMER_REARM,MODULE_LOADER,MODULE_BUFFER_LOADER,MODULE_BUFFER_FREE,MODULE_TRANSFER,CACHE_SYNC,COMMAND_SEND)+EVENT_RANGES
 GUARDS = {
+    (0x15a6f0,0x15a78c): '87c529989345bb1df12a2e70a1d1a6b73d93a8b84a438f8f32a577dd37fec763',
     (0x159140,0x159150): 'a8500101af091d6d9ce554234d8be36aee2ae21748df7d30150f67fc7ec6c0f8',
     (0x120fa0,0x120fe0): '29204e947fbf9fa9b69420ae1cae478318746c39e977062cd82bd5943da726a5',
     (0x120eb0,0x120f6c): '6439d105d9c5b0c6f64ec233e0d91cae9990c0f234df6127b82b0f8d219bb376',
@@ -337,6 +338,10 @@ def overlay_adaptations(name,data):
         (0x2cb470,0x2cb4a0,'d75aad57b1cf26127f35bdf8a0eec8259d79c6b1cb8cbbabe269467dac4546ef'),
         (0x2cb400,0x2cb450,'d5a82a827e14f659ff760bf50123311b26c433680f853e9caa6ba6ccbccaaada'),
         (0x2cb640,0x2cb8d0,'9707a3c9db31f1d7e805ec29ccb2ce31bd6922b8dc52da460a8ce41b381919da'),
+        (0x2f36f0,0x2f3724,'f6ab42d7b64064e3139b5273ddb2c37c95ee51afbf05937b631d50a7fa880445'),
+        (0x2f37b0,0x2f38f0,'6161fececd96ae665ac117bebfbe8a5912ddbaf0811a3aea530c5e7ae77c30d7'),
+        (0x2ea9a0,0x2eaa10,'51d9d49a527ee0894614cd805a3bde2fff0706aeeb84385ff002ff783750b4be'),
+        (0x2210c0,0x221260,'97a2782e507e8accd9be2dfc3a3da1e16d8c79fdb9783f48b52151f921c40ebd'),
         (0x29aeb0,0x29af78,'7e822b8520d71ee253400f4e8565e933bb9a9495330e461385d2fe04ef673f69'),
         (0x29b480,0x29b520,'195dd1778735679111fe1a0415b42159a229bc6999f4b53594a49cb9ccb55b99'),
         (0x249720,0x24a438,'10c8d5e49e540decaa624ca4ea5f9e5aeee7cc23f9acf910d53cbe623ad1484e'),
@@ -383,6 +388,7 @@ def overlay_adaptations(name,data):
             # Native brightness submission owns its copied inputs before the
             # original software completion runs; no physical job is enqueued.
             '002cb48c 0c0807c8 0c087268\n'
+            '002f3710 0c0bbce4 0c087268\n'
             '002021c4 3c011001 0808087a\n'
             '002021c8 2402fffd 00000000\n'
             '0029e210 4a00fc3e 00000000\n'
@@ -429,4 +435,4 @@ def overlay_native_sites(name,data):
         0x29e1a0,0x2c3cb4,0x29cc30,0x29cd7c,0x29cf14,0x29cf30,0x29cc00,0x29e160,
         0x208a94,0x29af80,0x29b2a8,0x29caf8,0x2205c0,0x220ce0,0x29e43c,0x29e444,
         0x22106c,0x221294,0x221308,0x221540,0x221704,0x221718,0x221748,0x2088f0,
-        0x221698,0x22169c,0x21c9dc,0x21c9e0,0x21c9e8,0x21c9ec,0x21ca1c,0x21ca20,0x21ca24,0x21ca28,0x2cb490))
+        0x221698,0x22169c,0x21c9dc,0x21c9e0,0x21c9e8,0x21c9ec,0x21ca1c,0x21ca20,0x21ca24,0x21ca28,0x2cb490,0x2f3714,0x2ea9a0))

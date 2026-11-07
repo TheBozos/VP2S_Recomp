@@ -22,6 +22,7 @@
 #include "native_textures.h"
 #include "native_scene.h"
 #include "native_assets.h"
+#include "bozo/render/renderer.h"
 #include <random>
 #include <algorithm>
 #include <charconv>
@@ -41,6 +42,14 @@ public:
     vp2s::NativeAssets &nativeAssets()override{return assets;}
     vp2s::NativeScene scene;
     vp2s::NativeScene &nativeScene()override{return scene;}
+    void beginNativeFrame(const vp2s::NativeFrameTarget &target)override{
+        auto &renderer=bozo::render::Renderer::instance();
+        renderer.setEnabled(true);renderer.setPresentsAlone(true);
+        bozo::render::Screen screen;
+        screen.width=target.width;screen.height=target.height;
+        screen.originX=2048-target.width/2;screen.originY=2048-target.height/2;
+        renderer.beginFrame(screen);
+    }
     vp2s::NativeTextures textures{std::filesystem::path(VP2S_BOZO_IMAGES).parent_path().parent_path()/"vp2_textures",std::filesystem::path(VP2S_BOZO_IMAGES).parent_path()/"textures.manifest"};
     vp2s::NativeTextures &nativeTextures()override{return textures;}
     vp2s::ProceduralRandom procedural;
@@ -141,6 +150,8 @@ public:
             throw std::runtime_error(std::format("native VP2S image owner required at {:x} ra={:x}",target,c->r[31].uw[0]));
         if(target==0x123550u || target==0x1235b8u || target==0x123630u || target==0x1237f0u)
             throw std::runtime_error(std::format("native VP2S draw/data owner required at {:x} ra={:x}",target,c->r[31].uw[0]));
+        if(target==0x122160u || target==0x1224d0u)
+            throw std::runtime_error(std::format("native VP2S display owner required at {:x} ra={:x}",target,c->r[31].uw[0]));
         if(std::getenv("VP2S_BOZO_TRACE_CALLS") && traceLibrary++<160)
             std::fprintf(stderr,"[vp2s:call] pc=%x ra=%x a0=%x a1=%x\n",target,c->r[31].uw[0],c->r[4].uw[0],c->r[5].uw[0]);
         const uint32_t a0=c->r[4].uw[0],a1=c->r[5].uw[0],a2=c->r[6].uw[0];
@@ -191,11 +202,19 @@ public:
     void handlerCompleted(bozo::ee::Dispatcher &d,bozo::ee::Thread &t,const bozo::ee::Frame &f) override { native.handlerCompleted(d,t,f); }
 };
 bool noNativeInstruction(uint8_t *ram,R5900Context *ctx,Runtime *rt,uint32_t pc) {
+    if(auto handled=vp2s::nativeCompositionInstruction(ram,ctx,rt,pc))return *handled;
     if(auto handled=vp2s::nativeAssetInstruction(ram,ctx,rt,pc))return *handled;
     if(pc==0x1131c0){
-        if(std::getenv("VP2S_BOZO_TRACE_QUEUES"))
+        if(std::getenv("VP2S_BOZO_TRACE_QUEUES")){
             std::fprintf(stderr,"[vp2s:enqueue] ra=%x queue=%x type=%u source=%x count=%u owner=%x\n",
                          ctx->r[31].uw[0],ctx->r[4].uw[0],ctx->r[5].uw[0],ctx->r[7].uw[0],ctx->r[8].uw[0],ctx->r[9].uw[0]);
+            if(ctx->r[31].uw[0]==0x120f50){
+                const auto *saved=rt->memory.hostPointer(ctx->r[29].uw[0]+0x20,8);uint64_t caller=0;
+                if(!saved)throw std::runtime_error("packet-builder return record outside RAM");
+                std::memcpy(&caller,saved,8);
+                std::fprintf(stderr,"[vp2s:producer] builder=%x caller=%x\n",ctx->r[17].uw[0],static_cast<uint32_t>(caller));
+            }
+        }
         return false; // Observe the original CPU entry; execute its scalar prologue unchanged.
     }
     if(vp2s::nativeSceneInstruction(ram,ctx,rt,pc))return true;

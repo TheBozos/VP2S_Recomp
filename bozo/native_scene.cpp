@@ -5,6 +5,7 @@
 #include <cstring>
 #include <stdexcept>
 #include <format>
+#include <cmath>
 namespace vp2s {
 namespace {
 uint8_t *record(Runtime *rt,uint32_t at,uint32_t bytes){
@@ -13,6 +14,76 @@ uint8_t *record(Runtime *rt,uint32_t at,uint32_t bytes){
     return rt->memory.hostPointer(at,bytes);
 }
 uint32_t word(Runtime *rt,uint32_t at){uint32_t v;std::memcpy(&v,record(rt,at,4),4);return v;}
+template<class T>T value(const uint8_t *r,uint32_t at){T v;std::memcpy(&v,r+at,sizeof(v));return v;}
+}
+namespace {
+NativeFrameTarget sourceTarget(Runtime *rt,uint32_t object){
+    const auto *r=record(rt,object,0x3e88);
+    // Initial ordinary source-target path only. Secondary copies, extra layers
+    // and the alternate direct-display path need their own native producers.
+    if(!r[0x3c76] || value<uint32_t>(r,0x3dd8) || r[0x3e48] || value<int16_t>(r,0x3e78))
+        throw std::runtime_error("unported secondary native frame composition");
+    // Startup configures two complementary field views of the same source,
+    // not two scene layers. Their source/size contract is checked below.
+    if(r[0x31d0] || r[0x3c40] || r[0x1cf0]!=1 || r[0x2760]!=1 ||
+       r[0x1cf2]>1 || r[0x2762]!=(r[0x1cf2]^1))
+        throw std::runtime_error("unported native display layer composition");
+    if(*record(rt,0x1c8d00+0xcc84,1)==2)throw std::runtime_error("unported alternate native frame alignment");
+    // Logical game dimensions/scales before field division and physical
+    // buffer alignment in the original source-target constructor.
+    const float width=value<int16_t>(r,0x3c68)*value<float>(r,0x3c60);
+    const float height=value<int16_t>(r,0x3c6a)*value<float>(r,0x3c64);
+    if(!std::isfinite(width) || !std::isfinite(height) || width<1 || width>2048 || height<1 || height>2048)
+        throw std::runtime_error(std::format("invalid native source frame dimensions {}x{}",width,height));
+    for(unsigned i=0;i<2;++i){const auto *layer=r+i*0xa70;
+        if(layer[0x1cf3] || layer[0x1cf4] || layer[0x1cf5]!=1 ||
+           value<int16_t>(layer,0x1cfa)!=width || value<int16_t>(layer,0x1cfc)*2!=height)
+            throw std::runtime_error(std::format("unported native source field view: layer={} target={}x{} field={}x{}",i,width,height,value<int16_t>(layer,0x1cfa),value<int16_t>(layer,0x1cfc)));
+    }
+    return {object,width,height};
+}
+}
+NativeFrameTarget NativeScene::beginComposition(Runtime *rt,uint32_t stack,uint32_t object){
+    if(!compositions.empty())throw std::runtime_error("native frame composition already active");
+    const NativeFrameTarget layout=sourceTarget(rt,object);compositions.emplace(stack,layout);
+    target=std::make_shared<NativeFrameTarget>(layout);
+    if(std::getenv("VP2S_BOZO_TRACE_QUEUES"))std::fprintf(stderr,"[vp2s:scene] native full-height target=%x %.0fx%.0f\n",object,layout.width,layout.height);
+    return layout;
+}
+const NativeFrameTarget &NativeScene::composition(uint32_t stack)const{
+    auto it=compositions.find(stack);if(it==compositions.end())throw std::runtime_error("native frame composition has no invocation");return it->second;
+}
+void NativeScene::finishComposition(uint32_t stack){
+    if(compositions.erase(stack)!=1)throw std::runtime_error("native frame return has no invocation");
+}
+std::optional<bool> nativeCompositionInstruction(uint8_t *,R5900Context *c,Runtime *rt,uint32_t pc){
+    if(pc!=0x114550 && pc!=0x1145bc && pc!=0x114da0 && pc!=0x1145f8 && pc!=0x114634 && pc!=0x114714 && pc!=0x114a78 && pc!=0x114774 && pc!=0x1147ac)return std::nullopt;
+    auto *d=rt?dynamic_cast<bozo::ee::Dispatcher *>(rt->services):nullptr;
+    auto *owner=d?dynamic_cast<SceneOwner *>(&d->host()):nullptr;
+    if(!owner || !c)throw std::runtime_error("native composition requires a scene owner");
+    auto &scene=owner->nativeScene();const uint32_t sp=c->r[29].uw[0];
+    if(pc==0x114550){scene.beginComposition(rt,sp-0xa0,c->r[4].uw[0]);return false;}
+    const uint32_t object=scene.composition(sp).object;
+    const auto current=sourceTarget(rt,object);
+    if(current.width!=scene.composition(sp).width || current.height!=scene.composition(sp).height)
+        throw std::runtime_error("native frame dimensions changed during composition");
+    const uint32_t expectedObject=object+(pc==0x114da0?4*0xa70:0);
+    if(c->r[22].uw[0]!=expectedObject)throw std::runtime_error("native frame source object changed during composition");
+    // The previous frame's original wait must finish before resetting the
+    // native renderer's building list. This point is reached once on resume.
+    if(pc==0x1145bc){owner->beginNativeFrame(scene.composition(sp));return false;}
+    if(pc==0x114da0){scene.finishComposition(sp);return false;}
+    if(pc==0x1145f8 || pc==0x114a78){
+        if(c->r[5].uw[0]!=4 || c->r[7].uw[0]!=object+(pc==0x1145f8?0x660:0x150))
+            throw std::runtime_error("unowned native source-target environment");
+    }else if(pc==0x114634){
+        if(c->r[5].uw[0]!=2)throw std::runtime_error("unowned native field-copy producer");
+    }else if(pc==0x114774 || pc==0x1147ac){
+        const uint32_t layer=c->r[17].uw[0];
+        if(layer!=object && layer!=object+0xa70)throw std::runtime_error("unowned native field view");
+        if(c->r[5].uw[0]!=(pc==0x114774?4:2))throw std::runtime_error("unowned native field-view copy");
+    }
+    return false; // Original scalar delay-slot argument/load remains compiled.
 }
 void NativeScene::publishCamera(Runtime *rt,uint32_t object){
     auto *source=record(rt,object,0x8e4);const uint32_t job=word(rt,object+0x8e0);

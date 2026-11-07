@@ -25,6 +25,7 @@ COMMAND_SEND = (0x13a3f0,0x13a524)
 EVENT_RANGES=((0x140b70,0x140c34),(0x148c58,0x148f88),(0x141780,0x141898),(0x141910,0x141958),(0x141980,0x1419cc))
 RETIRED_RANGES = (INSTALLER, QUERY, ALARM_INSTALLER, ALARM_PAYLOAD, TIMER_INITIALIZER, TIMER_HANDLER, TIMER_START, TIMER_QUERY, TIMER_REARM,MODULE_LOADER,MODULE_BUFFER_LOADER,MODULE_BUFFER_FREE,MODULE_TRANSFER,CACHE_SYNC,COMMAND_SEND)+EVENT_RANGES
 GUARDS = {
+    (0x120eb0,0x120f6c): '6439d105d9c5b0c6f64ec233e0d91cae9990c0f234df6127b82b0f8d219bb376',
     (0x118230,0x118320): 'fd8d38b9afa48075325def7aa1b70178fbb141c758539d0220addeee4e804cce',
     (0x102650,0x1029c4): 'ce64aef481b0dc8fb22939b74dbadc708dbd4cf8a338a625fb390361d5ee421d',
     (0x105a30,0x105b78): '98ad977066058967df8a5adeaa753e6a98f451da7d58775c94e688dda5b2adf1',
@@ -143,6 +144,27 @@ def startup_clear_adaptations(data):
     return '00100708 0c048afe 00000000\n'
 
 
+def composition_adaptations(data):
+    _,segments,_=elf_parts(data)
+    for lo,hi,expected in (
+        (0x114550,0x114dd0,'b8cb45e4aaac55cca40d406b822f252e25d615d95e763cc0187a50f7218a44d0'),
+        (0x1166e0,0x117120,'8c3492d778af719aad095216588ce3d3bbcb231c533ddb8b0919664c4e0ba76c'),
+        (0x1178f0,0x117b00,'e62c5ed79538f787f4adfd44ac28638502753bbe4a51e7a8d66af4c1c021b557')):
+        s=next(s for s in segments if s[0]==1 and s[2]<=lo<hi<=s[2]+s[4]);at=s[1]+lo-s[2]
+        if hashlib.sha256(data[at:at+hi-lo]).hexdigest()!=expected:raise ValueError('USA source-target composition signature mismatch')
+    # Only the admitted ordinary path. Other branches retain their transports
+    # and reject at the native entry until a separate native owner is added.
+    out=[]
+    for pc in (0x1145f4,0x114630,0x114710,0x114a74,0x114770,0x1147a8,0x114ab4,0x114ac0):
+        s=next(s for s in segments if s[0]==1 and s[2]<=pc<pc+4<=s[2]+s[4]);at=s[1]+pc-s[2]
+        out.append(f'{pc:08x} {int.from_bytes(data[at:at+4],"little"):08x} 00000000\n')
+    return ''.join(out)
+
+
+def composition_sites():
+    return ''.join(f'native 0x{pc:x}\n' for pc in (0x114550,0x1145bc,0x1145f8,0x114634,0x114714,0x114a78,0x114da0,0x114774,0x1147ac))
+
+
 def game_entries(data):
     # The thread object's vtable dispatches here from 0x119750. Ghidra exported
     # only the tail labels 0x11d770..0x11d7c0, omitting the actual entry/prologue.
@@ -183,6 +205,7 @@ def game_entries(data):
 def native_game_sites(data):
     # This one value only feeds the boot RNG initializer's constant mix. Replace
     # its entropy producer, retaining the original mix, call and checkpoint.
+    composition_adaptations(data)
     _,segments,_=elf_parts(data)
     lo,hi=0x1003bc,0x1003dc
     s=next(s for s in segments if s[0]==1 and s[2]<=lo<hi<=s[2]+s[4])
@@ -195,7 +218,7 @@ def native_game_sites(data):
     at=s[1]+lo-s[2]
     if hashlib.sha256(data[at:at+hi-lo]).hexdigest()!='b51e65c468e6ccfbc18ebe97e73361841f296da61c34ec5d5dafae384360053c':
         raise ValueError('USA game frame-wait signature mismatch')
-    return 'native 0x1003c4\nnative 0x11fb50\nnative 0x11f62c\nnative 0x1131c0\n'+asset_sites()
+    return 'native 0x1003c4\nnative 0x11fb50\nnative 0x11f62c\nnative 0x1131c0\n'+asset_sites()+composition_sites()
 
 
 def asset_sites():

@@ -7,6 +7,32 @@ target, not a replacement DLL loaded into PS2Recomp.
 
 ## Build and evidence
 
+### Native full-height source target (2026-11-07)
+
+The ordinary `0x114550` composition path now begins a native Bozo renderer frame
+from the game's logical dimensions and scales, before field division/alignment.
+The reached target is 640x448. Source and live records establish that the two
+enabled startup entries are complementary field views of that same source;
+they are not independent scene layers. Their geometry/flags must match the
+admitted contract. Secondary copies, extra layers, alternate direct-display or
+alignment modes reject. Compatibility is checked again after the retained wait.
+
+Only that path's physical environment/field-copy enqueues, display submission
+and two physical display stores retire. Software buffer selection, field-view
+state and descriptor construction remain compiled. The generic draw/DMA and
+display SDK consumers still reject without a producer owner. Source-target
+construction and the complete composer are fingerprinted. This begins a native
+target; it does not publish an empty image or claim to have drawn the scene.
+
+Sixty-four generated original/adapted comparisons preserve all RAM and CPU
+state except the void producer's dead enqueue result, exact removed-call
+cycle/checkpoint accounting and the host slice deadline. Both field phases,
+copy-enabled/disabled, visible views and resumed waits are covered; unsupported
+layouts, stack reuse and immutable target lifetime are checked separately.
+Boot passes this composer and reaches another unowned producer, enqueued by
+`0x120eb0` at return `0x120f50`, from `mod002 0x362334`. Native scene/draw integration and Logun are
+still unfinished, with no rendered-scene claim.
+
 ### Native asset provenance and allocation lifetime (2026-11-07)
 
 Per-host byte provenance now follows successful native `sceCdRead`, actual

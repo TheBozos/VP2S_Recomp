@@ -7,6 +7,44 @@ target, not a replacement DLL loaded into PS2Recomp.
 
 ## Build and evidence
 
+### Native FIS publication and descriptor ownership (2026-11-07)
+
+The `mod001 0x29cc30` producer now captures the FIS key into a per-host active
+invocation and loads its immutable offline conversion. Its original software
+palette/pixel slot allocators and CPU descriptor builders remain compiled. At
+the two original enqueue sites, the native owner publishes the immutable asset
+by the game's slot identity, then the original compiled heap-free routine
+releases that descriptor. No graphics job is enqueued, so no completion, IRQ,
+busy flag or generic SDK acknowledgement is supplied. The generic image-upload
+consumer remains guarded. The full producer body is fingerprinted; native
+annotations are module-scoped and never global cached-overlay overrides.
+
+Pending invocations survive scheduler unwinds and disappear on every original
+return, including first/second allocation failure. They retain no descriptor or
+EE pixel pointer. Reusing an active stack or publishing a part twice rejects;
+completed stack reuse is valid. Already published images keep their immutable
+identity after slot rebinding. Native picture keys also distinguish palette
+parts and different per-host asset lifetimes.
+
+The generated original/adapted fixture passes 64 cases covering allocation
+failure, descriptor release counts/outstanding allocations, and pauses at
+allocation/free return boundaries. Every RAM byte matches the reference
+ownership observer. CPU comparisons explicitly allow the changed a0/a2 call
+arguments and refreshed host slice limit after a synthetic resume; other fields,
+including cycle/checkpoint totals, FPU/vector/flag sentinels and return values,
+match. All 256 output texels of the selected palette part are checked. Separate
+cases cover concurrent invocation stacks, duplicate publication, immutable slot
+rebinding and reuse. This is not a pixel comparison against PCSX2 or a proof
+that the renderer integration is complete.
+
+`vp2_bozo_texture_manifest.py` indexes existing offline conversions; 4,872 keys
+have identical converted content in every known disc copy. Missing/conflicting
+copies remain rejected until load provenance selects one. Runtime reads only
+FIS metadata and linear native conversion files, never transfer packets,
+swizzled pixels, GS memory or a register shadow. The first real `ANKF:0` asset
+publishes palette/pixels and both descriptors are freed by compiled code.
+Startup next reaches the separate static palette producer `0x29cb20`.
+
 ### Menu physical-memory fill (2026-11-07)
 
 The next guarded image caller, `mod002 0x360dd0`, fills a temporary EE buffer

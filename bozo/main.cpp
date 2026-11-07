@@ -19,6 +19,7 @@
 #include "native_bootstrap.h"
 #include "native_random.h"
 #include "native_math.h"
+#include "native_textures.h"
 #include <random>
 #include <algorithm>
 #include <charconv>
@@ -32,8 +33,10 @@
 #include <stdexcept>
 
 namespace {
-class StrictHost final : public bozo::ee::Host, public vp2s::TimerOwner, public vp2s::SettingsOwner,public vp2s::SeedOwner,public vp2s::ModuleOwner,public vp2s::BootstrapOwner,public vp2s::RandomOwner {
+class StrictHost final : public bozo::ee::Host, public vp2s::TimerOwner, public vp2s::SettingsOwner,public vp2s::SeedOwner,public vp2s::ModuleOwner,public vp2s::BootstrapOwner,public vp2s::RandomOwner,public vp2s::TextureOwner {
 public:
+    vp2s::NativeTextures textures{std::filesystem::path(VP2S_BOZO_IMAGES).parent_path().parent_path()/"vp2_textures",std::filesystem::path(VP2S_BOZO_IMAGES).parent_path()/"textures.manifest"};
+    vp2s::NativeTextures &nativeTextures()override{return textures;}
     vp2s::ProceduralRandom procedural;
     vp2s::ProceduralRandom &proceduralRandom()override{return procedural;}
     vp2s::bootstrap::Tables startupTables{};
@@ -170,6 +173,7 @@ public:
     void handlerCompleted(bozo::ee::Dispatcher &d,bozo::ee::Thread &t,const bozo::ee::Frame &f) override { native.handlerCompleted(d,t,f); }
 };
 bool noNativeInstruction(uint8_t *ram,R5900Context *ctx,Runtime *rt,uint32_t pc) {
+    if(vp2s::nativeTextureInstruction(ram,ctx,rt,pc))return true;
     if(vp2s::nativeBootSeed(ram,ctx,rt,pc))return true;
     if(vp2s::nativeBootstrapKey(ram,ctx,rt,pc))return true;
     if(vp2s::nativeRandomSeed(ram,ctx,rt,pc))return true;

@@ -136,6 +136,8 @@ def main():
         data/'build-tools.log', env)
     if args.stage == 'tools':
         return
+    run([sys.executable,ROOT/'tools/vp2_bozo_texture_manifest.py',build/'vp2_texture_index.json',
+         build/'vp2_textures',data/'textures.manifest'],data/'texture-manifest.log',env)
     generate(args, build, data, engine_build, env)
     if args.stage == 'generate':
         return

@@ -257,6 +257,7 @@ def overlay_adaptations(name,data):
         (0x249720,0x24a438,'10c8d5e49e540decaa624ca4ea5f9e5aeee7cc23f9acf910d53cbe623ad1484e'),
         (0x202150,0x202200,'2056326076193b416411c06ca8c0b005e58038dd2b237625a6242ce3d0b661da'),
         (0x29e230,0x29e310,'62230c5e1d41b56528bb4de238ce9919fef2df3c7043e5afa91f54b1b1dce634'),
+        (0x29cc30,0x29cf58,'fad60754970a95b73f1a675b374267b9c468cfac43d0388aafe45e8c83e38a48'),
         (0x29e0b0,0x29e1c4,'4badfc2bd23ca38b95965aa45332f82c6efd9655b77f0d7b9344126467e8745d'),
         (0x312280,0x313100,'a834d66f34036f87f4061c9e5c2d623b29ef77f6fd6394b765333d0f72c45617'),
         (0x314138,0x31413c,'e7f5662273401b756d9f64b866d1a7df7e95c248c34f9b0cad011eb84757f186'),
@@ -286,6 +287,13 @@ def overlay_adaptations(name,data):
             '0029e2fc 0c0807c8 00000000\n'
             '0029e1a0 a0820050 00000000\n'
             '0029e1ac 0c0807c8 00000000\n'
+            # Publish the immutable offline asset at its CPU producer, then
+            # free the unused descriptor through the original game heap call.
+            # Do not submit a DMA job or fabricate its completion.
+            '0029cd7c 00a0302d 0220202d\n'
+            '0029cd80 0c044c70 0c0402cc\n'
+            '0029cf14 00a0302d 0260202d\n'
+            '0029cf18 0c044c70 0c0402cc\n'
             '002c3cb4 8c220000 00000000\n'
             '002c3cb8 10000015 080b0f48\n')
 
@@ -293,4 +301,4 @@ def overlay_adaptations(name,data):
 def overlay_native_sites(name,data):
     if name!='mod001':return ''
     overlay_adaptations(name,data)
-    return 'native 0x29e1a0\nnative 0x2c3cb4\n'
+    return 'native 0x29e1a0\nnative 0x2c3cb4\nnative 0x29cc30\nnative 0x29cd7c\nnative 0x29cf14\nnative 0x29cf30\n'

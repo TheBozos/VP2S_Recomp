@@ -1,7 +1,9 @@
 #include "native_ui_sprites.h"
+#include "native_ui_text.h"
 #include "bozo/ee/dispatcher.h"
 #include <cstring>
 #include <stdexcept>
+#include <bit>
 namespace vp2s {
 namespace {
 template<class T>T value(Runtime *rt,uint32_t at){
@@ -33,16 +35,73 @@ void NativeUiSprites::bindButton(Runtime *rt,NativeTextures &textures,uint32_t s
 std::shared_ptr<const NativeButtonSheet> NativeUiSprites::button(uint32_t sprite)const{
     auto it=sheets.find(sprite);return it==sheets.end()?nullptr:it->second;
 }
+void NativeUiSprites::reset(uint32_t sprite){
+    for(const auto &[stack,build]:spriteBuilds)if(build.sprite.sprite==sprite)throw std::runtime_error("native button reset during scalar capture");
+    sheets.erase(sprite);
+}
+bool NativeUiSprites::buildingText(uint32_t element)const{
+    for(const auto &[stack,build]:textBuilds)if(build.element==element)return true;return false;
+}
+void NativeUiSprites::beginText(uint32_t stack,uint32_t element){
+    if(textBuilds.contains(stack))throw std::runtime_error("native text-icon invocation repeats");
+    textBuilds.emplace(stack,TextBuild{element});
+}
+std::vector<NativeUiSprite> NativeUiSprites::finishText(uint32_t stack,uint32_t element){
+    for(const auto &[at,build]:spriteBuilds)if(build.textStack==stack)throw std::runtime_error("native icon builder returned with unfinished sprites");
+    auto it=textBuilds.find(stack);if(it==textBuilds.end() || it->second.element!=element)throw std::runtime_error("native text-icon return escaped its invocation");
+    auto result=std::move(it->second.sprites);textBuilds.erase(it);return result;
+}
+void NativeUiSprites::beginSprite(Runtime *rt,uint32_t stack,uint32_t sprite,uint32_t depth){
+    if(stack<0xd0 || spriteBuilds.contains(stack-0xd0) || !textBuilds.contains(stack))throw std::runtime_error("native button draw has no original text invocation");
+    const auto sheet=button(sprite);
+    if(!sheet || value<uint32_t>(rt,sprite+4)!=sheet->dtt || value<uint32_t>(rt,sprite+8)!=sheet->parts ||
+       value<int16_t>(rt,sprite+0x54)<0 || value<uint16_t>(rt,sprite+0x54)>=sheet->count || depth>0xffffff || (value<uint32_t>(rt,sprite+0x3c)&0x7fffffff))
+        throw std::runtime_error("unported native button parts/depth/rotation");
+    const auto part=sheet->parts+value<uint16_t>(rt,sprite+0x54)*16;
+    const auto selected=value<int8_t>(rt,sprite+0x64);const auto csa=selected<0?value<uint8_t>(rt,part+12):uint32_t(selected);
+    auto picture=sheet->asset->picture(csa);
+    spriteBuilds.emplace(stack-0xd0,SpriteBuild{stack,NativeUiSprite{.sprite=sprite,.depth=depth,.picture=std::move(picture)}});
+}
+void NativeUiSprites::colour(uint32_t stack,uint32_t colour){
+    auto &build=spriteBuilds.at(stack);if(build.coloured)throw std::runtime_error("native button colour repeats");
+    build.sprite.colour=colour;build.coloured=true;
+}
+void NativeUiSprites::corner(uint32_t stack,unsigned index,int32_t x,int32_t y,const std::array<float,4> &uv){
+    auto &build=spriteBuilds.at(stack);
+    if(index>3 || build.mask!=(1u<<index)-1 || x<0 || x>65535 || y<0 || y>65535)throw std::runtime_error("native button corner escaped its scalar routine");
+    if(!index){for(float f:uv)if((std::bit_cast<uint32_t>(f)&0x7f800000)==0x7f800000)throw std::runtime_error("nonfinite native button UV");build.sprite.uv=uv;}
+    build.sprite.fixedCorners[index]={x,y};build.mask|=1u<<index;
+}
+void NativeUiSprites::finishSprite(uint32_t stack){
+    auto it=spriteBuilds.find(stack);if(it==spriteBuilds.end() || it->second.mask!=15 || !it->second.coloured)throw std::runtime_error("native button draw has unfinished scalar outputs");
+    auto &text=textBuilds.at(it->second.textStack);if(text.sprites.size()>=8192)throw std::runtime_error("native button count outside admitted range");
+    text.sprites.push_back(std::move(it->second.sprite));spriteBuilds.erase(it);
+}
 std::optional<bool> nativeUiSpriteInstruction(R5900Context *c,Runtime *rt,uint32_t pc){
-    if(pc!=0x2ec308 && pc!=0x2ec320)return std::nullopt;
+    if(pc!=0x2ec308 && pc!=0x2ec320 && pc!=0x2efe40 && pc!=0x2effe8 && pc!=0x2eb3a0 && pc!=0x2eb5c4 && pc!=0x2ebac4 && pc!=0x2ebb0c && pc!=0x2ebb58 && pc!=0x2ebb9c && pc!=0x2ebba8)return std::nullopt;
     auto *d=rt?dynamic_cast<bozo::ee::Dispatcher *>(rt->services):nullptr;
     auto *owner=d?dynamic_cast<UiSpriteOwner *>(&d->host()):nullptr;
     auto *textures=d?dynamic_cast<TextureOwner *>(&d->host()):nullptr;
     if(!c || !owner || !textures)throw std::runtime_error("native button sheet requires image/sprite owners");
-    if(pc==0x2ec320){
+    auto &sprites=owner->nativeUiSprites();const auto sp=c->r[29].uw[0];
+    if(pc==0x2efe40 || pc==0x2effe8){
+        auto *texts=dynamic_cast<UiTextOwner *>(&d->host());if(!texts)throw std::runtime_error("native button capture has no text owner");
+        const auto element=c->r[pc==0x2efe40?4:21].uw[0];
+        if(value<uint32_t>(rt,element)!=0x15a450 || !texts->nativeUiTexts().text(element))throw std::runtime_error("unported native button text class/lifetime");
+        if(pc==0x2efe40){if(c->pc!=pc || sp<0xa0 || (sp&15))throw std::runtime_error("native text icons require original entry");sprites.beginText(sp-0xa0,element);}
+        else texts->nativeUiTexts().icons(element,sprites.finishText(sp,element));
+    }else if(pc==0x2eb3a0){
+        if(c->pc!=pc || c->r[31].uw[0]!=0x2eff74 || c->r[8].uw[0])throw std::runtime_error("unported native sprite caller/colour multiplier");
+        sprites.beginSprite(rt,sp,c->r[4].uw[0],c->r[7].uw[0]);
+    }else if(pc==0x2eb5c4)sprites.colour(sp,c->r[3].uw[0]);
+    else if(pc==0x2ebba8)sprites.finishSprite(sp);
+    else if(pc==0x2ebac4 || pc==0x2ebb0c || pc==0x2ebb58 || pc==0x2ebb9c){
+        const unsigned index=pc==0x2ebac4?0:pc==0x2ebb0c?1:pc==0x2ebb58?2:3;
+        sprites.corner(sp,index,std::bit_cast<int32_t>(c->fu[1]),std::bit_cast<int32_t>(c->fu[0]),{c->f[6],c->f[5],c->f[4],c->f[2]});
+    }else if(pc==0x2ec320){
         if(c->pc!=pc)throw std::runtime_error("native sprite reset requires original entry");
-        owner->nativeUiSprites().reset(c->r[4].uw[0]);
-    }else owner->nativeUiSprites().bindButton(rt,textures->nativeTextures(),c->r[16].uw[0],c->r[17].sw[0]);
+        sprites.reset(c->r[4].uw[0]);
+    }else sprites.bindButton(rt,textures->nativeTextures(),c->r[16].uw[0],c->r[17].sw[0]);
     return false; // Original lookup, scalar assignment/reset and callbacks remain.
 }
 }

@@ -35,6 +35,18 @@ cases cover visibility, completion flags/notification and lifetime; failed draw
 acceptance leaves CPU/RAM unchanged. Headless startup reaches 600 logical frames,
 but visible rendering and the Logun route still need qualification.
 
+Text buttons (`0x4019`) are separate from the emitter's `0x4010` callback:
+`0x2efe40` invokes the original scalar sprite routine `0x2eb3a0` over the
+control's sprite array. Bozo captures its actual colour, four FPU-rounded corners
+and UVs into an immutable text snapshot. The sheet comes from typed UI image
+objects (`+0x828`/`+0x82c`, selected by the original button ID), checked against
+their FIS identity; no TEX0 lookup or runtime pixel decoder is used. Reset clears
+the native association. Sixty-four sheet/reset plus 64 complete icon/sprite
+CPU/RAM cases qualify the initial zero-rotation text caller. Other sprite callers
+and rotations remain guarded. A missing completed icon capture rejects at the
+layer. The first hidden native capture now includes all three prompt icons;
+PCSX2 comparison and the Logun route remain open.
+
 ### Bozo texture alpha (2026-11-07)
 
 Native texture pictures preserve the game's 0x80-scale alpha. The frame shader

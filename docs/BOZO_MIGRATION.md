@@ -7,6 +7,38 @@ target, not a replacement DLL loaded into PS2Recomp.
 
 ## Build and evidence
 
+### Original scalar button-sprite geometry (2026-11-07)
+
+The three missing screen-size prompts now render natively. Capture observes the
+real `0x2efe40` text-icon builder and complete `0x2eb3a0` scalar sprite routine.
+The original routine computes colour/alpha and four rounded 12.4 coordinate
+pairs; native code copies these scalar results and normalized UVs before their
+stores, never reading transport buffers. Its original callbacks/instructions
+remain compiled. Each text-builder/sprite-builder stack owns its capture, and
+the final text snapshot is replaced only after the builder's real return.
+Held glyph snapshots and finished icon lists remain immutable through reset,
+item release and later rebuilds. Native submission draws the actual icon list
+after the glyphs. A layer with a button array but no completed icon capture now
+rejects explicitly, closing the earlier missing-prompt gap.
+
+Sixty-four additional whole text-icon/sprite CPU/RAM cases cover both bound
+atlases, disabled and unrevealed icons, positions, colour/alpha, depth and UVs.
+Invocation, corner order, premature completion, reset-during-capture and held
+snapshot checks reject invalid lifetimes. Initial support admits the real text
+caller, no extra colour pointer and zero rotation; other callers/rotation still
+reject. This does not qualify scrolling text, generic sprites or window classes.
+
+Hidden GPU capture at 600 logical frames now has 346 batches/2,076 vertices.
+Against the prior capture, exactly 1,028 pixels changed, bounded by
+(221,115)-(360,180), covering the three button prompts. This is native
+before/after evidence, not a PCSX2 parity claim. All 45 local suites pass,
+including the optional GPU alpha suite. Movie-ring setup at `0x2bbfc0`
+remains the next reached guard after scripted Square; Logun is still open.
+Its actual caller is the `0x2bc330` buffer constructor (return `0x2bc3e0`),
+before any native MPEG instance/decoder has been created. The write guard's
+diagnostic confirms active=0/mp=0/decoder=0; retiring it on an assumed active
+codec would be incorrect. Native media-buffer ownership is the next audit.
+
 ### Button-sheet ownership (2026-11-07)
 
 The first page's missing prompts are three enabled `0x4019` button sprites in

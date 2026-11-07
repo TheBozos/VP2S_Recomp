@@ -96,6 +96,19 @@ void NativeUiTexts::release(uint32_t element){
 std::shared_ptr<const NativeUiText> NativeUiTexts::text(uint32_t element)const{
     auto it=texts.find(element);return it==texts.end()?nullptr:it->second;
 }
+void NativeUiTexts::icons(uint32_t element,std::vector<NativeUiSprite> icons){
+    const auto old=text(element);if(!old)throw std::runtime_error("native text icons have no finished glyph snapshot");
+    auto result=std::make_shared<NativeUiText>(*old);result->icons=std::move(icons);result->iconsCaptured=true;
+    texts[element]=std::move(result);
+}
+std::array<bozo::render::Vertex,6> nativeUiSpriteVertices(const NativeUiSprite &sprite){
+    const unsigned corners[6]={0,1,2,1,3,2};std::array<bozo::render::Vertex,6> vertices;
+    for(unsigned i=0;i<6;++i){const auto corner=corners[i];auto &v=vertices[i];
+        v.x=float(sprite.fixedCorners[corner][0])/16;v.y=float(sprite.fixedCorners[corner][1])/16;
+        v.z=float(sprite.depth);v.rgba=sprite.colour;v.u=sprite.uv[corner&1?2:0];v.v=sprite.uv[corner>=2?3:1];
+    }
+    return vertices;
+}
 NativeUiLayer NativeUiTexts::layer(Runtime *rt,uint32_t layer)const{
     record(rt,layer,0xe4);
     if(value<uint32_t>(rt,layer)!=0x152060 || value<uint32_t>(rt,layer+0x10)!=0x15ba00 ||
@@ -127,6 +140,9 @@ NativeUiLayer NativeUiTexts::layer(Runtime *rt,uint32_t layer)const{
             }
         }
         if(!captured || captured->inlineImages)throw std::runtime_error("native UI layer has uncaptured text/inline images");
+        const auto control=value<uint32_t>(rt,element+0x100);
+        if(control && value<int32_t>(rt,control+0x2c)>0 && value<int32_t>(rt,control+0x28)>0 && !captured->iconsCaptured)
+            throw std::runtime_error("native UI layer has uncaptured button sprites");
         for(const auto &glyph:captured->glyphs)if(!glyph.placed)throw std::runtime_error("native UI layer has an unfinished glyph placement");
         result.texts.push_back(std::move(captured));
     }
@@ -150,7 +166,12 @@ std::optional<bool> nativeUiTextInstruction(R5900Context *c,Runtime *rt,uint32_t
         texts.enter(rt,sp-0x50,c->r[4].uw[0],c->r[5].uw[0],c->r[6].sw[0]);
     }else if(pc==0x2f0de0){
         if(c->pc!=pc)throw std::runtime_error("native text release requires its destructor entry");
-        if(c->r[4].uw[0]){type(rt,c->r[4].uw[0]);texts.release(c->r[4].uw[0]);}
+        if(c->r[4].uw[0]){
+            const auto element=c->r[4].uw[0];type(rt,element);
+            auto *sprites=dynamic_cast<UiSpriteOwner *>(&d->host());
+            if(sprites && sprites->nativeUiSprites().buildingText(element))throw std::runtime_error("native text destroyed during icon capture");
+            texts.release(element);
+        }
     }else if(pc==0x2e83e4){
         // Original scalar layout has finished its FPU rounding and RGB/alpha
         // calculation. Observe those game-code results, never packet contents.

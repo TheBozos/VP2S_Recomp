@@ -58,13 +58,17 @@ public:
         const float identity[16]={1,0,0,0,0,1,0,0,0,0,1,0,0,0,0,1};
         bozo::render::Material material;material.blend=bozo::render::Material::Blend::Alpha;
         material.alphaTest=true;material.alphaRef=0;
-        for(const auto &text:layer.texts)for(const auto &glyph:text->glyphs){
+        for(const auto &text:layer.texts){for(const auto &glyph:text->glyphs){
             for(bool shadow:{true,false}){
                 if(shadow && !glyph.shadow)continue;
                 const auto vertices=vp2s::nativeUiGlyphVertices(glyph,shadow);
                 bozo::render::Renderer::instance().draw(material,identity,vertices.data(),vertices.size(),shadow?glyph.shadow:glyph.picture);
             }
         }
+        for(const auto &icon:text->icons){
+            const auto vertices=vp2s::nativeUiSpriteVertices(icon);
+            bozo::render::Renderer::instance().draw(material,identity,vertices.data(),vertices.size(),icon.picture);
+        }}
         if(std::getenv("VP2S_BOZO_TRACE_QUEUES"))std::fprintf(stderr,"[vp2s:UI] native layer=%x texts=%zu frame=%llu\n",layer.layer,layer.texts.size(),static_cast<unsigned long long>(native.framesEnded()));
     }
     vp2s::NativeScreenRects screenRects;
@@ -236,6 +240,10 @@ public:
         throw std::runtime_error(std::format("unported device read {:x} at pc={:x}",address,c->pc));
     }
     void ioWrite(bozo::ee::Dispatcher &d,R5900Context *c,uint32_t address,uint32_t,const uint64_t[2]) override {
+        if(address==0x1000b420 && std::getenv("VP2S_BOZO_TRACE_CALLS")){
+            const auto &mpeg=native.libraries().mpeg;
+            std::fprintf(stderr,"[vp2s:movie-probe] reset-object=%x native-active=%u mp=%x decoder=%u delivered=%u\n",c->r[4].uw[0],mpeg.active,mpeg.mp,bool(mpeg.decoder),mpeg.delivered);
+        }
         boundaryHash(d);
         if(std::getenv("VP2S_BOZO_TRACE_CALLS"))
             std::fprintf(stderr,"[vp2s:device] pc=%x a0=%x a1=%x ra=%x frames=%llu\n",

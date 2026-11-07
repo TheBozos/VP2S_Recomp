@@ -1,5 +1,6 @@
 #pragma once
 #include "native_glyphs.h"
+#include "native_ui_sprites.h"
 #include "bozo/render/renderer.h"
 #include <array>
 namespace vp2s {
@@ -18,7 +19,7 @@ struct NativeUiGlyph {
     NativeUiGlyphPlacement placement;
     bool placed=false;
 };
-struct NativeUiText {uint32_t element=0;bool inlineImages=false;std::vector<NativeUiGlyph> glyphs;};
+struct NativeUiText {uint32_t element=0;bool inlineImages=false;std::vector<NativeUiGlyph> glyphs;std::vector<NativeUiSprite> icons;bool iconsCaptured=false;};
 struct NativeUiLayer {uint32_t layer=0,object=0;std::vector<std::shared_ptr<const NativeUiText>> texts;};
 class NativeUiTexts {
     struct Build {
@@ -35,11 +36,13 @@ public:
     void finish(uint32_t stack,uint32_t element);
     void place(uint32_t stack,uint32_t element,const NativeUiGlyphPlacement &);
     void release(uint32_t element);
+    void icons(uint32_t element,std::vector<NativeUiSprite>);
     std::shared_ptr<const NativeUiText> text(uint32_t element)const;
     NativeUiLayer layer(Runtime *,uint32_t layer)const;
     size_t outstanding()const{return builds.size();}
 };
 std::array<bozo::render::Vertex,6> nativeUiGlyphVertices(const NativeUiGlyph &,bool shadow);
+std::array<bozo::render::Vertex,6> nativeUiSpriteVertices(const NativeUiSprite &);
 class UiTextOwner {
 public:
     virtual ~UiTextOwner()=default;

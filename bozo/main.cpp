@@ -215,6 +215,7 @@ public:
     }
     unsigned traceLibrary=0;
     void libraryCall(bozo::ee::Dispatcher &d,R5900Context *c,uint32_t target) override {
+        if(vp2s::nativeMediaLibrary(c,&d.runtime(),target))return;
         // The shared libmpeg wrapper retains a TMB-specific reference ABI and
         // an IPU-demand flag. VP2S needs its native media provider first.
         if(target==0x1ef6f8 || target==0x1f02a0 || target==0x1f0398 || target==0x1f0438 || target==0x1f0510 || target==0x1f4590 || target==0x1f4990)

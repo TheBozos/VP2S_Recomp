@@ -7,6 +7,25 @@ target, not a replacement DLL loaded into PS2Recomp.
 
 ## Build and evidence
 
+### Native USA MPEG initializer (2026-11-07)
+
+The explicit overlay binding now owns `sceMpegInit` at `0x1f02a0` for the real
+`0x2be6dc` movie-constructor caller. It requires the typed `0x159bf8` parent,
+its prepared native decoder and a configured native field-duration source.
+Initialization changes only the host media lifecycle and returns the actual USA
+result 1; it writes no SDK-private globals, work records or device registers.
+Other callers/repeated initialization reject. The shared TMB-specific wrapper
+remains unused. Sixty-four ABI/whole-RAM checks verify the return, caller guard,
+unchanged CPU state outside the result/return PC and unchanged RAM.
+
+All 46 suites pass. Temporary-script startup now gets through the native
+initializer and rejects stream creation at `0x1ef6f8`, caller `0x2ba524`, before
+either its SDK body or generic wrapper runs. The startup assertion was advanced
+to this distinct guard and requires both native buffer/init markers with no
+device fault. Source audit also confirms USA `sceMpegCreate` returns 1 on
+success, while the TMB wrapper returns a work pointer; its private layout is
+different. Stream creation/PSS/decoded frames and Logun remain open.
+
 ### Native media clock source and overlay ownership (2026-11-07)
 
 The derived `0x2ba600` constructor configures Timer0 at `0x2ba670`. Its

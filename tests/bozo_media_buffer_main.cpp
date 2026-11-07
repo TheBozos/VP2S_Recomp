@@ -72,8 +72,15 @@ int main(){try{
         check(!std::memcmp(&x,&y,sizeof(x)) && !std::memcmp(a.memory.flat(),b.memory.flat(),bozo::kFlatBytes));
         auto held=after.buffers.buffer(object);check(held && held->pacingFieldCycles==native.kernel().field() && held->pacingFieldCycles);
         rejects([&]{after.buffers.preparePacing(&b,object,0);});rejects([&]{after.buffers.preparePacing(&b,object,native.kernel().field());});
+        constexpr uint32_t parent=object-0xc0;put(a,parent+0x15e77c,0x159bf8u);put(b,parent+0x15e77c,0x159bf8u);
+        auto api=y;api.pc=0x1f02a0;api.r[19].ud[0]=parent;api.r[31].ud[0]=0x2be6d8;
+        rejects([&]{vp2s::nativeMediaLibrary(&api,&b,0x1f02a0);});check(!held->initialized);
+        api.r[31].ud[0]=0x2be6dc;auto expected=api;expected.r[2].sd[0]=1;expected.pc=0x2be6dc;
+        check(vp2s::nativeMediaLibrary(&api,&b,0x1f02a0) && held->initialized);
+        check(!std::memcmp(&api,&expected,sizeof(api)) && !std::memcmp(a.memory.flat(),b.memory.flat(),bozo::kFlatBytes));
+        api.pc=0x1f02a0;rejects([&]{vp2s::nativeMediaLibrary(&api,&b,0x1f02a0);});
         after.buffers.release(object);held.reset();
     }
     check(after.created==after.freed);
-    std::puts("64 native-contract media-reset prefix +64 complete constructor CPU/RAM cases: native decoder allocation/failure/lifetime and pacing-source initialization; no transport, coded-data or movie-playback qualification");return 0;
+    std::puts("64 native-contract media-reset prefix +64 complete constructor CPU/RAM cases: decoder allocation/lifetime, pacing-source and native MPEG initializer ABI; no transport, coded-data or movie-playback qualification");return 0;
 }catch(const std::exception &e){std::fprintf(stderr,"%s\n",e.what());return 1;}}

@@ -26,6 +26,10 @@
 #include "native_state_setup.h"
 #include "native_screen_rect.h"
 #include "native_ui_text.h"
+#include "native_publication.h"
+#ifdef VP2S_BOZO_CAPTURE
+#include "native_capture.h"
+#endif
 #include "bozo/render/renderer.h"
 #include <random>
 #include <algorithm>
@@ -58,7 +62,7 @@ public:
                 bozo::render::Renderer::instance().draw(material,identity,vertices.data(),vertices.size(),shadow?glyph.shadow:glyph.picture);
             }
         }
-        if(std::getenv("VP2S_BOZO_TRACE_QUEUES"))std::fprintf(stderr,"[vp2s:UI] native layer=%x texts=%zu\n",layer.layer,layer.texts.size());
+        if(std::getenv("VP2S_BOZO_TRACE_QUEUES"))std::fprintf(stderr,"[vp2s:UI] native layer=%x texts=%zu frame=%llu\n",layer.layer,layer.texts.size(),static_cast<unsigned long long>(native.framesEnded()));
     }
     vp2s::NativeScreenRects screenRects;
     unsigned screenRectDraws=0;
@@ -81,13 +85,9 @@ public:
     vp2s::NativeAssets &nativeAssets()override{return assets;}
     vp2s::NativeScene scene;
     vp2s::NativeScene &nativeScene()override{return scene;}
+    vp2s::NativeFramePublisher publisher;
     void beginNativeFrame(const vp2s::NativeFrameTarget &target)override{
-        auto &renderer=bozo::render::Renderer::instance();
-        renderer.setEnabled(true);renderer.setPresentsAlone(true);
-        bozo::render::Screen screen;
-        screen.width=target.width;screen.height=target.height;
-        screen.originX=2048-target.width/2;screen.originY=2048-target.height/2;
-        renderer.beginFrame(screen);
+        publisher.next(target);
     }
     void drawNativeBrightness(const vp2s::NativeBrightness &effect)override{
         const auto target=scene.frameTarget();
@@ -335,12 +335,21 @@ int main(int argc,char **argv) {
     bozo::host::FreeOptions options;
     options.elf=std::string(VP2S_BOZO_IMAGES)+"/main.elf";
     options.frames=1; options.stallFields=120; options.printGameOutput=true;
+    std::string capturePath;
     for(int i=1;i<argc;++i) {
         const std::string arg=argv[i];
         if(arg=="--iso" && i+1<argc)options.iso=argv[++i];
         else if(arg=="--card-dir" && i+1<argc)options.cardDir=argv[++i];
         else if(arg=="--frames" && i+1<argc)options.frames=std::stoul(argv[++i]);
-        else { std::fprintf(stderr,"usage: vp2s-bozo-headless --iso FILE [--card-dir PRIVATE_DIR] [--frames N]\n");return 2; }
+        else if(arg=="--pad-script" && i+1<argc)options.padScript=argv[++i];
+#ifdef VP2S_BOZO_CAPTURE
+        else if(arg=="--capture" && i+1<argc)capturePath=argv[++i];
+#endif
+        else { std::fprintf(stderr,"usage: vp2s-bozo-headless --iso FILE [--card-dir PRIVATE_DIR] [--frames N] [--pad-script FILE]\n");
+#ifdef VP2S_BOZO_CAPTURE
+            std::fprintf(stderr,"GPU build also accepts --capture OUTPUT.png (hidden window, no host input)\n");
+#endif
+            return 2; }
     }
     if(options.iso.empty()) {std::fprintf(stderr,"user-owned USA ISO required\n");return 2;}
     try {
@@ -357,6 +366,9 @@ int main(int argc,char **argv) {
             throw std::runtime_error(error);
         vp2sBozoRegisterImages(dispatcher.runtime(),VP2S_BOZO_IMAGES);
         const auto frames=host.native.run();
+#ifdef VP2S_BOZO_CAPTURE
+        if(!capturePath.empty())vp2s::captureNativeFrame(capturePath);
+#endif
         if(std::getenv("VP2S_BOZO_TRACE_QUEUES")) {
             // Only the audited graphics-work queue header and descriptor metadata.
             // Do not dump payloads, arbitrary CPU pointers, or bootstrap material.

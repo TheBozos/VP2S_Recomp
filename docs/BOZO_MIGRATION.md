@@ -2,10 +2,37 @@
 
 Started 2026-11-06 after VU0 collision-point increment `d99b892`. The existing
 PS2Recomp launcher remains the playable baseline. **The Bozo runner is not
-playable: it reaches a logical game-frame boundary but has no native rendered scene.** It is an independent compiled
+playable: it renders the initial screen-size text page, but has no qualified 3D scene or Logun route.** It is an independent compiled
 target, not a replacement DLL loaded into PS2Recomp.
 
 ## Build and evidence
+
+### Native frame publication and first capture (2026-11-07)
+
+An actual ordering trace separated target setup from drawing: at logical frame
+598, `0x114550` composition returned with zero batches, then scene/UI code drew
+171 glyphs. Publishing at its return was therefore wrong. `NativeFramePublisher`
+now publishes the preceding native list at `0x1145bc`, after the next original
+wait has really completed and before resetting the list for the next target.
+The first setup only begins a list; it publishes no placeholder frame. Tests
+verify that publication keeps the old target and copied geometry, survives later
+source changes and rejects invalid next dimensions without resetting the list.
+The original composition/wait CPU/RAM comparisons remain unchanged.
+
+The optional GPU build adds `--capture OUTPUT.png`: after the bounded headless
+run, it presents the latest completed nonempty native frame in a hidden SDL
+window and reads back PNG pixels. It opens no host input provider and accesses
+no saves when `--card-dir` is omitted. At 600 frames the first capture is 640x448,
+serial 541, 343 batches/2,058 vertices. Measured lit pixels: 1,503 in the heading
+zone (200,80)-(450,140), 5,332 in the green-instruction zone (90,150)-(550,225),
+zero below y=240. The button-prompt gap is visible and needs a separate source
+audit; this is not a PCSX2 parity claim. All 44 local suites pass.
+
+`--pad-script FILE` uses the engine's existing frame-keyed native input source.
+With `200:SQUARE/6`, native controller sampling reports button 0x8000 at frames
+200-202, then boot advances to a new explicit device-write guard: 0x1000b420
+inside `0x2bbfc0` (actual store `0x2bc124`). That producer is not retired yet.
+The runner remains headless; a visible interactive launcher and Logun are open.
 
 ### Native text-layer submission (2026-11-07)
 

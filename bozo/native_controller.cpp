@@ -1,4 +1,6 @@
 #include "native_controller.h"
+#include <cstdio>
+#include <cstdlib>
 #include <algorithm>
 #include <stdexcept>
 namespace vp2s {
@@ -54,6 +56,7 @@ void ControllerBridge::sample(Env &e){
     bozo::libs::PadInputState input;
     if(libraries.pad.input)libraries.pad.input->read(libraries.framesEnded,int(port),input);
     else input.connected=port==0;
+    if(input.buttons && std::getenv("VP2S_BOZO_TRACE_INPUT"))std::fprintf(stderr,"[vp2s:input] frame=%u port=%u buttons=%04x connected=%u\n",libraries.framesEnded,port,input.buttons,input.connected);
     ++samples;
     const uint32_t state=0x282d0+port*0x1bc,output=state+0x130;
     ControllerRecord record;std::copy_n(e.ramBase()+output,128,record.begin());

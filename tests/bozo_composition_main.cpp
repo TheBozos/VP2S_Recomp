@@ -1,4 +1,6 @@
 #include "native_scene.h"
+#include "native_publication.h"
+#include "bozo/render/renderer.h"
 #include "bozo/ee/dispatcher.h"
 #include "bozo/port.h"
 #include "composition_original_functions.h"
@@ -96,5 +98,15 @@ int main(){try{
     auto target=adapted.scene.beginComposition(&b.runtime(),0x1fff000,object);check(target.height==448);
     bool reused=false;try{adapted.scene.beginComposition(&b.runtime(),0x1fff000,object);}catch(const std::runtime_error &){reused=true;}check(reused);
     adapted.scene.finishComposition(0x1fff000);check(preserved->width==640 && preserved->height==448);
+    auto &renderer=bozo::render::Renderer::instance();vp2s::NativeFramePublisher publisher;
+    check(!renderer.published());publisher.next({object,640,448});check(!renderer.published());
+    const float id[16]={1,0,0,0,0,1,0,0,0,0,1,0,0,0,0,1};bozo::render::Material material;material.textured=false;
+    bozo::render::Vertex vertices[3];vertices[0].x=1730;vertices[0].rgba=0x80112233;vertices[1].x=1750;vertices[2].y=1840;
+    renderer.draw(material,id,vertices,3);publisher.next({object,320,224});const auto held=renderer.published();
+    check(held && held->screen.width==640 && held->screen.height==448 && held->batches.size()==1 && held->vertices.size()==3 && held->vertices[0].rgba==0x80112233);
+    vertices[0].rgba=0x80445566;renderer.draw(material,id,vertices,3);
+    bool invalid=false;try{publisher.next({object,0,224});}catch(const std::runtime_error &){invalid=true;}check(invalid && renderer.published()==held);
+    publisher.next({object,640,448});const auto second=renderer.published();
+    check(second->serial==held->serial+1 && second->screen.width==320 && second->vertices[0].rgba==0x80445566 && held->vertices[0].rgba==0x80112233);
     std::puts("64 generated source-target composition CPU/RAM comparisons, field pair selection and resumed waits passed; no transfer consumer");return 0;
 }catch(const std::exception &e){std::fprintf(stderr,"%s\n",e.what());return 1;}}

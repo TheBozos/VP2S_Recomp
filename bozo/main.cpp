@@ -56,6 +56,26 @@ public:
         screen.originX=2048-target.width/2;screen.originY=2048-target.height/2;
         renderer.beginFrame(screen);
     }
+    void drawNativeBrightness(const vp2s::NativeBrightness &effect)override{
+        const auto target=scene.frameTarget();
+        if(!target)throw std::runtime_error("native brightness has no active frame");
+        if(!effect.enabled)return;
+        bozo::render::Material material;material.textured=false;
+        material.fromFrame=1;material.nearest=true;material.depthTest=false;material.depthWrite=false;
+        material.blend=bozo::render::Material::Blend::Opaque;material.colourMask=7;material.levels.enabled=true;
+        std::copy(effect.gain.begin(),effect.gain.end(),material.levels.gain);
+        std::copy(effect.high.begin(),effect.high.end(),material.levels.high);
+        std::copy(effect.low.begin(),effect.low.end(),material.levels.low);
+        const float identity[16]={1,0,0,0,0,1,0,0,0,0,1,0,0,0,0,1};
+        const float xy[6][2]={{0,0},{1,0},{0,1},{1,0},{1,1},{0,1}};
+        bozo::render::Vertex vertices[6];
+        for(unsigned i=0;i<6;++i){
+            vertices[i].x=2048-target->width/2+xy[i][0]*target->width;
+            vertices[i].y=2048-target->height/2+xy[i][1]*target->height;
+            vertices[i].u=xy[i][0];vertices[i].v=xy[i][1];vertices[i].rgba=0x80808080;
+        }
+        bozo::render::Renderer::instance().draw(material,identity,vertices,6);
+    }
     vp2s::NativeTextures textures{std::filesystem::path(VP2S_BOZO_IMAGES).parent_path().parent_path()/"vp2_textures",std::filesystem::path(VP2S_BOZO_IMAGES).parent_path()/"textures.manifest"};
     vp2s::NativeTextures &nativeTextures()override{return textures;}
     vp2s::ProceduralRandom procedural;
@@ -203,7 +223,9 @@ public:
             std::fprintf(stderr,"[vp2s:kernel] pc=%x a0=%x result=%lld stop=%d\n",target,c->r[4].uw[0],(long long)c->r[2].sd[0],stop);
         native.kernelCallEnd(d,c,target,stop);
     }
-    void kernelCallBegin(bozo::ee::Dispatcher &d,R5900Context *c,uint32_t target,uint32_t kind) override { native.kernelCallBegin(d,c,target,kind); }
+    void kernelCallBegin(bozo::ee::Dispatcher &d,R5900Context *c,uint32_t target,uint32_t kind) override {
+        vp2s::validateNativeKernelCall(c,kind);native.kernelCallBegin(d,c,target,kind);
+    }
     void waitCompleted(bozo::ee::Dispatcher &d,bozo::ee::Thread &t) override { native.waitCompleted(d,t); }
     void handlerCompleted(bozo::ee::Dispatcher &d,bozo::ee::Thread &t,const bozo::ee::Frame &f) override { native.handlerCompleted(d,t,f); }
 };

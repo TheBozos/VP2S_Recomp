@@ -7,6 +7,44 @@ target, not a replacement DLL loaded into PS2Recomp.
 
 ## Build and evidence
 
+### Native brightness draw producer (2026-11-07)
+
+BozoEngine [PR 72](https://github.com/TheBozos/BozoEngine/pull/72) merged as
+`2c91d30` after branch/PR Windows and Linux CI passed. Its merge tree matches the
+tested feature tree. All 47 local engine suites pass, including hidden OpenGL
+readbacks for native colour levels; postmerge CI is green. The operation is an
+ordinary ordered frame material: clamp/subtract/gain, with copied parameters,
+explicit admission and digest coverage. It reads no console packets or devices.
+
+The `0x2cb470` brightness draw producer now snapshots its own typed EE object,
+requires the actual scene's pending object and active canonical texture-manager
+frame, and submits mode 1 as a full-screen native correction. Disabled game
+objects draw nothing; enabled tone-band modes 0/2/3 reject pending their own
+implementation. RGB writes preserve the frame's alpha. The original physical
+enqueue is replaced by the original compiled `0x21c9a0` software completion,
+which runs only after the renderer has copied the semantic draw. No physical job,
+busy flag, device counter or transfer-completion response is created. Native
+submission completes CPU input ownership; it does not assert GPU presentation.
+
+64 additional whole producer/completion CPU/RAM cases use this same native
+submission contract in both compiled fixtures; the reference independently reads
+the exposure bytes. This is not an execution of the removed VIF transport.
+Enabled/disabled effects, scratchpad/EE stacks, nested callback resume and copied
+input lifetime pass. Renderer rejection leaves CPU/RAM and pending completion
+unchanged; unsupported modes and invalid gains reject. Graphics fixture: 704
+cases. Boot advances to the guarded generic DMA selector `0x123220`, return
+`0x112fe0`. Native scene rendering and Logun remain open.
+
+All 39 port suites pass with this engine pin and the port's strict host. Generic device
+reads/writes, BC0 and VU microprograms still throw rather than delegating to SDK
+compatibility paths; no `transfersAlwaysDone` option is enabled. Static counter
+consumer admission now rejects both COP0 register 24 and 25. The source inventory
+finds neither in the three current images; this does not qualify later images.
+New engine raw-syscall services exposed an older fixture's dependence on generic
+engine rejection. VP2S now explicitly preserves its existing raw admission:
+native stack/heap setup (60/61) only; other raw calls reject before state changes.
+Actual image alarm/firmware entry guards remain tested through the registry.
+
 ### Scene profiling pair (2026-11-07)
 
 The scene start sample at `0x221698` feeds two elapsed-time calculations in

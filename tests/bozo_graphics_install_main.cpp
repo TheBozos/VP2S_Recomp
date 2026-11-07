@@ -16,14 +16,29 @@ void check(bool value,std::source_location at=std::source_location::current()){
 struct Host:bozo::ee::Host,bozo::port::Host,vp2s::SceneOwner {
     unsigned enqueues=0;
     bool pause=false;
+    bool reference=false,rejectBrightness=false;
+    std::vector<vp2s::NativeBrightness> brightness;
     struct Pause{};
     std::vector<uint32_t> renderCalls;
     vp2s::NativeScene scene;
     std::optional<vp2s::NativeVisibilityInputs> lastVisibility;
     vp2s::NativeScene &nativeScene()override{return scene;}
+    void drawNativeBrightness(const vp2s::NativeBrightness &effect)override{
+        if(rejectBrightness)throw std::runtime_error("fixture renderer rejected brightness");
+        brightness.push_back(effect);
+    }
     bozo::libs::Libraries &libraries()override{throw std::runtime_error("libraries");}
     bool nativeGraphics()const override{return true;}
     bool nativeInstruction(uint8_t *r,R5900Context *c,Runtime *rt,uint32_t pc)override{
+        if(reference && pc==0x2cb490){
+            const auto object=c->r[5].uw[0]-0x90;const auto *source=rt->memory.flat()+object;
+            vp2s::NativeBrightness effect{.object=object,.enabled=source[0xa4]!=0};
+            if(effect.enabled)for(unsigned i=0;i<3;++i){
+                std::memcpy(&effect.gain[i],source+0xc0+i*4,4);
+                effect.high[i]=float(source[0xac+i])/255;effect.low[i]=float(source[0xb0+i])/255;
+            }
+            drawNativeBrightness(effect);c->r[4].sd[0]=static_cast<int32_t>(object);return true;
+        }
         if(auto handled=vp2s::nativeTextureManagerInstruction(c,rt,pc))return *handled;
         if(auto handled=vp2s::nativeVisibilityInstruction(c,rt,pc)){
             if(pc==0x2206b8)lastVisibility=scene.visibility(c->r[29].uw[0]);return *handled;
@@ -87,6 +102,7 @@ struct Host:bozo::ee::Host,bozo::port::Host,vp2s::SceneOwner {
 }
 int main(){try{
     Host oldHost,nativeHost;bozo::ee::Dispatcher old(oldHost),native(nativeHost);
+    oldHost.reference=true;
     old.setFunctions(install_original_function_table,install_original_function_count,install_original_resume_table,install_original_resume_count);
     native.setFunctions(install_adapted_function_table,install_adapted_function_count,install_adapted_resume_table,install_adapted_resume_count);
     old.runtime().port=&oldHost;native.runtime().port=&nativeHost;
@@ -293,5 +309,48 @@ int main(){try{
         check(b.memory.flat()[scene+0x40dd]==((!(seed&1) || seed&2)?1:0));
         check(b.memory.flat()[0x1c3e6a]==((seed&1) && !(seed&2) && !(seed&8)?1:0));
     }
-    std::puts("640 graphics/math/camera/frustum/visibility/job/frame CPU/RAM cases; profiling pair retired, real completion callbacks retained");return 0;
+    for(unsigned seed=0;seed<64;++seed){
+        auto &a=old.runtime(),&b=native.runtime();std::memset(a.memory.flat(),0,bozo::kFlatBytes);
+        constexpr uint32_t scene=0x180000,object=0x190000,manager=0x1b0000,frame=0x1ffe000;
+        const auto word=[&](uint32_t at,uint32_t v){std::memcpy(a.memory.flat()+at,&v,4);};
+        word(0x35ddf8,scene);word(0x35dd78,0x1b0000);word(0x35de38,manager);
+        word(0x35ddc8,0x1c0000);word(0x35ddd0,0x1c2000);word(scene+0x40e8,manager);
+        word(scene+0x4444,object);word(scene+0x40a8,object);a.memory.flat()[scene+0x40dc]=1;
+        word(object,0x159d10);word(object+0x90,0x159d8c);word(object+0xa8,1);
+        a.memory.flat()[object+0xa4]=seed&1;word(object+0xac,0xa08060+seed);word(object+0xb0,0x301010+seed);
+        for(unsigned i=0;i<3;++i){const float gain=float(seed+i)/16;std::memcpy(a.memory.flat()+object+0xc0+i*4,&gain,4);}
+        std::memcpy(b.memory.flat(),a.memory.flat(),bozo::kFlatBytes);
+        for(auto *d:{&old,&native}){auto &s=d==&old?oldHost.scene:nativeHost.scene;
+            s.beginTextureManagerFrame(&d->runtime(),frame,scene,manager);s.textureManagerBoundary(&d->runtime(),frame,scene,manager,manager,false);}
+        R5900Context x{},y{};x.r[4].ud[0]=object;x.r[30].ud[0]=frame;x.r[29].ud[0]=seed&2?0x70003f00:0x1fff000;x.r[31].ud[0]=0x170000;y=x;
+        oldHost.pause=false;nativeHost.pause=seed&32;const auto count=nativeHost.brightness.size();
+        a.functions.generated(0x2cb470)(a.memory.flat(),&x,&a);auto fn=b.functions.generated(0x2cb470);unsigned attempts=0;
+        while(true){try{fn(b.memory.flat(),&y,&b);if(y.pc==0x170000)break;}catch(const Host::Pause &){}
+            check(++attempts<4);auto entry=b.functions.resumeEntry(y.pc);check(entry);fn=entry->resume;}
+        x.cycleLimit=y.cycleLimit;
+        check(!std::memcmp(&x,&y,sizeof(x)) && !std::memcmp(a.memory.flat(),b.memory.flat(),bozo::kFlatBytes));
+        check(nativeHost.brightness.size()==count+1);const auto held=nativeHost.brightness.back(),expected=oldHost.brightness.back();
+        check(held.object==object && held.enabled==bool(seed&1) && held.gain==expected.gain && held.high==expected.high && held.low==expected.low);
+        check(b.memory.flat()[scene+0x40dc]==0 && b.memory.flat()[object+0x62]==1 && b.memory.flat()[manager]==1);
+        std::memset(b.memory.flat()+object+0xc0,0,12);check(nativeHost.brightness.back().gain==held.gain);
+        oldHost.scene.finishTextureManagerFrame(&a,frame,scene);nativeHost.scene.finishTextureManagerFrame(&b,frame,scene);
+    }
+    {auto &b=native.runtime();constexpr uint32_t scene=0x180000,object=0x190000,manager=0x1b0000,frame=0x1ffe000;
+        const auto word=[&](uint32_t at,uint32_t v){std::memcpy(b.memory.flat()+at,&v,4);};
+        word(scene+0x40a8,object);b.memory.flat()[scene+0x40dc]=1;
+        nativeHost.scene.beginTextureManagerFrame(&b,frame,scene,manager);
+        nativeHost.scene.textureManagerBoundary(&b,frame,scene,manager,manager,false);
+        R5900Context c{};c.pc=0x2cb470;c.r[5].ud[0]=object+0x90;c.r[30].ud[0]=frame;
+        const auto saved=c;std::vector<uint8_t> before(b.memory.flat(),b.memory.flat()+bozo::kFlatBytes);
+        nativeHost.rejectBrightness=true;bool rejected=false;
+        try{vp2s::nativeSceneInstruction(nullptr,&c,&b,0x2cb490);}catch(const std::runtime_error &){rejected=true;}
+        check(rejected && !std::memcmp(&saved,&c,sizeof(c)) && !std::memcmp(before.data(),b.memory.flat(),before.size()));
+        nativeHost.rejectBrightness=false;
+        for(uint32_t badMode:{0u,2u,3u}){word(object+0xa8,badMode);rejected=false;
+            try{vp2s::nativeBrightness(&b,object);}catch(const std::runtime_error &){rejected=true;}check(rejected);}
+        word(object+0xa8,1);word(object+0xc0,0x7fc00000);rejected=false;
+        try{vp2s::nativeBrightness(&b,object);}catch(const std::runtime_error &){rejected=true;}check(rejected);
+        nativeHost.scene.finishTextureManagerFrame(&b,frame,scene);
+    }
+    std::puts("704 graphics/math/camera/frustum/visibility/job/frame CPU/RAM cases; native brightness submission and real compiled completion");return 0;
 }catch(const std::exception &e){std::fprintf(stderr,"%s\n",e.what());return 1;}}

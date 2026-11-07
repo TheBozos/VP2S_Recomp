@@ -16,6 +16,9 @@ template<class Fn> void rejected(Fn fn) {
 class Host final : public bozo::ee::Host {
 public:
     unsigned callbacks=0;
+    void kernelCallBegin(bozo::ee::Dispatcher &,R5900Context *ctx,uint32_t,uint32_t kind)override{
+        try{vp2s::validateNativeKernelCall(ctx,kind);}catch(...){++callbacks;throw;}
+    }
     void libraryCall(bozo::ee::Dispatcher &,R5900Context *,uint32_t) override { ++callbacks; throw std::runtime_error("unexpected library call"); }
     void vu0Microprogram(bozo::ee::Dispatcher &,R5900Context *,uint32_t) override { ++callbacks; throw std::runtime_error("unexpected VU call"); }
     void ioRead(bozo::ee::Dispatcher &,R5900Context *,uint32_t,uint32_t,uint64_t[2]) override { ++callbacks; throw std::runtime_error("unexpected device read"); }
@@ -107,13 +110,10 @@ int main() {
             ctx.r[4].uw[0]=0x83; ctx.r[5].uw[0]=0x1413c0;
             rejected([&]{d.syscall(nullptr,&ctx,&rt,0);});
         }
-        // Names/enums are not evidence of working native alarm services.
-        for(auto call:{bozo::ee::KernelCall::SetAlarm,bozo::ee::KernelCall::iSetAlarm,
-                       bozo::ee::KernelCall::ReleaseAlarm,bozo::ee::KernelCall::iReleaseAlarm}) {
-            d.bindKernelCall(0x180000,call);
-            rejected([&]{bozo_call_indirect(rt.memory.flat(),&ctx,&rt,0x180000);});
-        }
-        require(host.callbacks==17 && !std::memcmp(before.data(),rt.memory.flat(),bozo::kFlatBytes));
+        // Actual image alarm/firmware entries were rejected through the port
+        // registry above; generic engine enum support is not port admission.
+        for(uint32_t number:{60u,61u}){ctx.r[3].uw[0]=number;vp2s::validateNativeKernelCall(&ctx,3);}
+        require(host.callbacks==13 && !std::memcmp(before.data(),rt.memory.flat(),bozo::kFlatBytes));
         require(k.handlerQueued() && k.sequence()==sequence && k.nextEvent()==event);
         std::puts("native installer/cache visibility, 48 context cases, RAM/kernel preservation, 1782 guards and unsupported runtime syscall rejection pass");
         return 0;

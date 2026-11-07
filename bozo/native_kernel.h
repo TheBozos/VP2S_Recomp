@@ -4,6 +4,9 @@ namespace vp2s {
 // The kernel dispatch ABI is already native. Retire only its SDK firmware-table
 // discovery; do not accept arbitrary SetSyscall requests or expose kernel RAM.
 void installNativeKernelBindings(bozo::port::Registry &registry);
+// Preserve the port's qualified raw ABI when the shared engine adds services.
+// Only the original native main-thread stack/heap setup uses raw syscalls.
+void validateNativeKernelCall(const R5900Context *,uint32_t kind);
 void initNativeSyscallServices(uint8_t *,R5900Context *,Runtime *);
 // This retires installation only. Runtime alarm/deadline APIs remain unsupported.
 void retireAlarmFirmwareInstaller(uint8_t *,R5900Context *,Runtime *);

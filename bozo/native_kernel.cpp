@@ -7,6 +7,11 @@
 #include <atomic>
 
 namespace vp2s {
+void validateNativeKernelCall(const R5900Context *ctx,uint32_t kind){
+    if(kind!=3)return; // Bound SDK calls keep their image-specific registry guards.
+    if(!ctx || (ctx->r[3].uw[0]!=60 && ctx->r[3].uw[0]!=61))
+        throw std::runtime_error("unqualified raw VP2S syscall requires a native owner");
+}
 void nativeCacheSync(uint8_t *,R5900Context *ctx,Runtime *rt){
     auto *d=rt?dynamic_cast<bozo::ee::Dispatcher *>(rt->services):nullptr;
     if(!ctx || ctx->pc!=0x137a30 || !d || d->kernel().running()<=0)

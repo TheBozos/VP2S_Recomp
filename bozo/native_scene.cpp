@@ -104,6 +104,20 @@ void NativeScene::selectCamera(Runtime *rt,uint32_t object){
     publishCamera(rt,object);selectedCamera=camera(object);
 }
 bool nativeSceneInstruction(uint8_t *,R5900Context *c,Runtime *rt,uint32_t pc){
+    if(pc==0x2cb490){
+        auto *d=rt?dynamic_cast<bozo::ee::Dispatcher *>(rt->services):nullptr;
+        auto *owner=d?dynamic_cast<SceneOwner *>(&d->host()):nullptr;
+        if(!owner || !c || c->pc!=0x2cb470 || c->r[5].uw[0]<0x90)
+            throw std::runtime_error("native brightness requires its complete draw producer");
+        const auto object=c->r[5].uw[0]-0x90,scene=word(rt,0x35ddf8);
+        const auto &frame=owner->nativeScene().textureManagerFrame(c->r[30].uw[0]);
+        if(frame.scene!=scene || !frame.entered || frame.left || word(rt,scene+0x4444)!=object || word(rt,scene+0x40a8)!=object)
+            throw std::runtime_error("native brightness escaped its scene draw lifetime");
+        const auto brightness=nativeBrightness(rt,object);
+        owner->drawNativeBrightness(brightness); // Copies semantic inputs before original completion can release them.
+        c->r[4].sd[0]=static_cast<int32_t>(object);
+        return true; // The patched call runs the real compiled completion after successful native submission.
+    }
     const bool profileStart=pc==0x221698 || pc==0x22169c;
     const bool profileFirst=pc==0x21c9dc || pc==0x21c9e0 || pc==0x21c9e8 || pc==0x21c9ec;
     const bool profileSecond=pc==0x21ca1c || pc==0x21ca20 || pc==0x21ca24 || pc==0x21ca28;
@@ -163,6 +177,22 @@ bool nativeSceneInstruction(uint8_t *,R5900Context *c,Runtime *rt,uint32_t pc){
     // Retain the original scalar delay-slot load. The camera-only transport
     // enqueue was retired before a job exists; its completion method is empty.
     c->r[5].sd[0]=static_cast<int32_t>(word(rt,camera+0x8e0));return true;
+}
+NativeBrightness nativeBrightness(Runtime *rt,uint32_t object){
+    const auto *source=record(rt,object,0x110);
+    if(value<uint32_t>(source,0)!=0x159d10 || value<uint32_t>(source,0x90)!=0x159d8c || source[0xa4]>1)
+        throw std::runtime_error("unowned native brightness object");
+    NativeBrightness result{.object=object,.enabled=source[0xa4]!=0};
+    if(!result.enabled)return result;
+    if(value<uint32_t>(source,0xa8)!=1)throw std::runtime_error("unported native brightness tone-band mode");
+    const auto high=value<uint32_t>(source,0xac),low=value<uint32_t>(source,0xb0);
+    for(unsigned i=0;i<3;++i){
+        result.gain[i]=value<float>(source,0xc0+i*4);
+        if(!std::isfinite(result.gain[i]) || result.gain[i]<0)throw std::runtime_error("invalid native brightness gain");
+        result.high[i]=float((high>>(i*8))&255)/255;
+        result.low[i]=float((low>>(i*8))&255)/255;
+    }
+    return result;
 }
 void NativeScene::publishFrustum(Runtime *rt,uint32_t object){
     const auto *source=record(rt,object,0x5a0);

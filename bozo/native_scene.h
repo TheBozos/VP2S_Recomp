@@ -27,6 +27,12 @@ struct NativeVisibilityInputs {
     bool viewReady=false;
 };
 struct NativeTextureManagerFrame {uint32_t scene=0,manager=0;bool entered=false,left=false;};
+struct NativeBrightness {
+    uint32_t object=0;
+    bool enabled=false;
+    std::array<float,3> gain{},high{},low{};
+};
+NativeBrightness nativeBrightness(Runtime *,uint32_t object);
 class NativeScene {
     std::map<uint32_t,std::shared_ptr<const NativeCamera>> cameras;
     uint64_t cameraPublications=0;
@@ -65,6 +71,7 @@ public:
     virtual ~SceneOwner()=default;
     virtual NativeScene &nativeScene()=0;
     virtual void beginNativeFrame(const NativeFrameTarget &){throw std::runtime_error("native frame target has no renderer owner");}
+    virtual void drawNativeBrightness(const NativeBrightness &){throw std::runtime_error("native brightness has no renderer owner");}
 };
 bool nativeSceneInstruction(uint8_t *,R5900Context *,Runtime *,uint32_t pc);
 std::optional<bool> nativeCompositionInstruction(uint8_t *,R5900Context *,Runtime *,uint32_t pc);

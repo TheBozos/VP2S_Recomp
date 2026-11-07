@@ -1,5 +1,6 @@
 #include "native_textures.h"
 #include "native_scene.h"
+#include "native_assets.h"
 #include "bozo/ee/dispatcher.h"
 #include <algorithm>
 #include <atomic>
@@ -95,10 +96,36 @@ std::shared_ptr<const NativeTextureAsset> NativeTextures::imageAsset(uint32_t ob
     auto it=images.find(object);return it==images.end()?nullptr:it->second;
 }
 std::optional<bool> nativeFixedImageInstruction(R5900Context *c,Runtime *rt,uint32_t pc){
-    if(pc!=0x2f3714 && pc!=0x2ea9a0)return std::nullopt;
+    const bool resource=pc==0x447af0 || pc==0x447b84 || pc==0x447d60 || pc==0x447a48 || pc==0x447f50;
+    if(!resource && pc!=0x2f3714 && pc!=0x2ea9a0)return std::nullopt;
     auto *d=rt?dynamic_cast<bozo::ee::Dispatcher *>(rt->services):nullptr;
     auto *textures=d?dynamic_cast<TextureOwner *>(&d->host()):nullptr;
     if(!textures || !c)throw std::runtime_error("native fixed image has no texture owner");
+    if(resource){
+        const bool lifecycle=pc==0x447af0 || pc==0x447f50;
+        const auto object=lifecycle?c->r[4].uw[0]:pc==0x447b84?c->r[17].uw[0]:c->r[9].uw[0]-0x90;
+        record(rt,object,0x240);
+        if(read<uint32_t>(rt,object)!=0x165b40 || read<uint32_t>(rt,object+0x90)!=0x165bbc)
+            throw std::runtime_error("unowned native FIS resource object");
+        if(lifecycle){textures->nativeTextures().releaseImage(object);return false;}
+        const auto source=read<uint32_t>(rt,object+0x228);record(rt,source,0x1c);
+        auto *assets=dynamic_cast<AssetOwner *>(&d->host());const auto origin=assets?assets->nativeAssets().origin(source):std::nullopt;
+        if(!origin || origin->kind!=AssetOrigin::Kind::Part || origin->part || origin->offset || read<uint32_t>(rt,source)!=0x534946)
+            throw std::runtime_error("native FIS resource has no completed decoded file owner");
+        const TextureKey key{read<uint32_t>(rt,source+0x14),read<uint32_t>(rt,source+0x18)};
+        if(pc==0x447b84){
+            if(c->r[16].uw[0]!=source)throw std::runtime_error("native FIS resource changed after decode");
+            textures->nativeTextures().publishImage(object,key);return false;
+        }
+        const auto image=textures->nativeTextures().imageAsset(object);
+        if(!image || image->key!=key || c->r[4].uw[0]!=read<uint32_t>(rt,0x35dd78) || c->r[5].uw[0]!=3 || c->r[6].uw[0] ||
+           c->r[7].uw[0]!=NativeAssets::address(read<uint32_t>(rt,object+0x22c)) ||
+           (pc==0x447a48 && read<uint8_t>(rt,object+0x64)!=1))
+            throw std::runtime_error("native FIS resource submission escaped its asset lifetime");
+        // Native asset publication really succeeded before this original game
+        // completion runs. No physical upload, packet input or IRQ result.
+        c->r[4].sd[0]=int32_t(object);return false;
+    }
     const auto object=c->r[4].uw[0];
     if(pc==0x2ea9a0 && !object)return false;
     record(rt,object,0xf0);

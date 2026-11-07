@@ -6,6 +6,18 @@ GIF packet read). Addresses are mod001 unless stated. [V] verified in the MIPS o
 
 ## Framework
 
+### Bozo bespoke FIS resource ownership (2026-11-08)
+
+Mod003 class `0x165b40` loads a FIS texture through original `0x447af0`.
+After real decode completion, native publication at `0x447b84` associates the
+offline atlas with that game object, using ordinary FIS identity and completed
+part-0 provenance. Both palette-load and later pixel-resource calls retain real
+`0x4479e0`/`0x21c9a0` software completion after publication. Native code reads
+no packed transfer descriptions. Original allocation/free and software waits
+remain. Reload/destruction remove the association; held immutable images survive.
+64 whole CPU/RAM producer and completion cases plus rejection checks pass.
+Actual New Game advances to math boundary `0x2371e8`; field parity remains open.
+
 ### Bozo flat scene fades (2026-11-08)
 
 Class `0x161230`, flat mode 0, captures original scalar rectangle arguments at

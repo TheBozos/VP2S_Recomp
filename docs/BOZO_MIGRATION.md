@@ -8,6 +8,30 @@ target, not a replacement DLL loaded into PS2Recomp.
 
 ## Build and evidence
 
+### Bespoke FIS resource publication (2026-11-08)
+
+The type-3 producer was mod003 `0x447af0`, class `0x165b40`: a texture
+resource, not geometry. Actual completed decoded part 0 has disc provenance
+`e408e4a0`, FIS identity `JOHN:272b`; its 256-square atlas already exists in
+the offline conversion. Native publication reads only the ordinary FIS identity
+and completed file provenance, then owns the immutable asset by game object.
+The original decoder, allocation/free, descriptor-building CPU code and two
+software waits remain. Both obsolete upload calls now invoke the real
+`0x4479e0`/`0x21c9a0` callback after successful publication. No runtime
+descriptor input, device job, status response or IRQ is constructed.
+
+Loader entry and destructor entry release the live image association. Failed
+reloads cannot retain a previous image; held native assets survive source frees.
+64 complete CPU/RAM loader comparisons cover success/failure, prior allocation
+release, both source identities, stack locations, nested resumes, retained waits
+and original draw/scene completion. The fixture uses the actual privately decoded
+FIS for scalar construction with synthetic native texture identities; decoder
+and heap dependencies are bounded contracts, not a new decoder qualification.
+Additional checks reject missing/wrong-part provenance, unknown keys and wrong
+queue ownership before CPU/RAM mutation. Resource, existing texture publication
+and source-signature suites pass. The actual New Game route now passes the old
+`0x123220` boundary and stops at unported math `0x2371e8`. Logun remains open.
+
 ### Native flat scene fades (2026-11-08)
 
 Class `0x161230`, mode 0, now captures the original `0x3d3660` builder's scalar

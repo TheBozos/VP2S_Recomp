@@ -383,6 +383,15 @@ bool noNativeInstruction(uint8_t *ram,R5900Context *ctx,Runtime *rt,uint32_t pc)
         if(std::getenv("VP2S_BOZO_TRACE_QUEUES")){
             std::fprintf(stderr,"[vp2s:enqueue] ra=%x queue=%x type=%u source=%x count=%u owner=%x\n",
                          ctx->r[31].uw[0],ctx->r[4].uw[0],ctx->r[5].uw[0],ctx->r[7].uw[0],ctx->r[8].uw[0],ctx->r[9].uw[0]);
+            if(ctx->r[31].uw[0]==0x447d64 && ctx->r[9].uw[0]>=0x100090){
+                const auto word=[&](uint32_t at){uint32_t value;const auto *p=rt->memory.hostPointer(at,4);
+                    if(at<0x100000 || at>0x2000000-4 || !p)throw std::runtime_error("resource metadata diagnostic outside EE RAM");
+                    std::memcpy(&value,p,4);return value;};
+                const auto object=ctx->r[9].uw[0]-0x90,buffer=word(object+0x228);
+                auto *d=dynamic_cast<bozo::ee::Dispatcher *>(rt->services);auto *owner=d?dynamic_cast<vp2s::AssetOwner *>(&d->host()):nullptr;
+                const auto origin=owner?owner->nativeAssets().origin(buffer):std::nullopt;
+                std::fprintf(stderr,"[vp2s:resource] object=%x type=%x buffer=%x origin=%u/%llx/%u+%x\n",object,word(object),buffer,origin?unsigned(origin->kind):999,origin?(unsigned long long)origin->disc:0,origin?origin->part:0,origin?origin->offset:0);
+            }
             if(ctx->r[31].uw[0]==0x2ef3b8){
                 const auto *saved=rt->memory.hostPointer(ctx->r[29].uw[0],8);uint64_t caller=0;
                 if(!saved)throw std::runtime_error("UI producer return outside owned RAM");

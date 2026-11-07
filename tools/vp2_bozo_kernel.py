@@ -316,7 +316,9 @@ def overlay_adaptations(name,data):
                                (0x3d95ac,0x3d95b8,'e53ce69864c095f0410aa0422eb78527d3c44442b5a5f02312e8353d3e0cc3f7'),
                                (0x3d3620,0x3d3660,'fb483410366f6db0a0a09b4d1b6a178331a6e6be6ab08fb8083b3ecf01a2e150'),
                                (0x3d3660,0x3d44e4,'c7d0d58342fcb2eb8e696c6afc145c73ad44f487a94acf685078c1d7a5eec94a'),
-                               (0x3d49b0,0x3d4af0,'3ee241a66da54d7847e111212bc57e162a559141b1093ace33ce0a314948ed10')):
+                               (0x3d49b0,0x3d4af0,'3ee241a66da54d7847e111212bc57e162a559141b1093ace33ce0a314948ed10'),
+                               (0x4479e0,0x447f50,'3dff331f2b436cc1b41965930174f4b18a70a204e69488ae0263232a22827f3b'),
+                               (0x447f50,0x4480a8,'fd4a4ee0d65621b54a09bfe7315461f498a1b0de0167ad1450531b0c967d4093')):
             s=next(s for s in segments if s[0]==1 and s[2]<=lo<hi<=s[2]+s[4]);at=s[1]+lo-s[2]
             if hashlib.sha256(data[at:at+hi-lo]).hexdigest()!=expected:raise ValueError('USA native field initialization source mismatch')
         # Each initializer has returned before this delay. It polls only timer0,
@@ -345,7 +347,9 @@ def overlay_adaptations(name,data):
                 '003d364c 03e00008 00000000\n'
                 '003d3650 27bd0010 dfbf0000\n'
                 '003d3654 00000000 03e00008\n'
-                '003d3658 00000000 27bd0010\n')
+                '003d3658 00000000 27bd0010\n'
+                '00447d5c 0c044c70 0c111e78\n'
+                '00447a44 0c044c70 0c111e78\n')
     if name=='mod002':
         _,segments,_=elf_parts(data);lo,hi=0x3617f0,0x362764
         s=next(s for s in segments if s[0]==1 and s[2]<=lo<hi<=s[2]+s[4]);at=s[1]+lo-s[2]
@@ -603,7 +607,7 @@ def overlay_adaptations(name,data):
 def overlay_native_sites(name,data):
     if name=='mod003':
         overlay_adaptations(name,data)
-        return 'native 0x3d93f4\nnative 0x3d38d4\nnative 0x3d363c\nnative 0x3d364c\nnative 0x3d49b0\n'
+        return 'native 0x3d93f4\nnative 0x3d38d4\nnative 0x3d363c\nnative 0x3d364c\nnative 0x3d49b0\nnative 0x447af0\nnative 0x447b84\nnative 0x447d60\nnative 0x447a48\nnative 0x447f50\n'
     if name=='mod002':
         _,segments,_=elf_parts(data);lo,hi=0x3622e8,0x362338
         s=next(s for s in segments if s[0]==1 and s[2]<=lo<hi<=s[2]+s[4]);at=s[1]+lo-s[2]

@@ -8,6 +8,21 @@ target, not a replacement DLL loaded into PS2Recomp.
 
 ## Build and evidence
 
+### Native movement displacement distance (2026-11-07)
+
+The next reached mod003 site `0x3c5d58..0x3c5d78` uses the same audited distance
+equations, with a different scalar displacement builder. It now publishes
+directly from that builder's CPU temporary. Its original zero/nonzero comparison
+and update of movement flag `+0xbc` remain compiled.
+
+The combined distance fixture now passes 512 full CPU/RAM cases, including
+another 256 complete movement consumers, exact zero, nonzero displacements,
+other-flag-bit preservation, W payload bits and all four rounding modes. The
+oracle preserves its own host FP state during binary search through subnormal
+candidates; outgoing CPU FP state is still compared exactly. Actual New Game
+passes this site and next rejects inline quaternion-to-matrix `0x379234`.
+Logun remains open.
+
 ### Disabled frame-filter lifetime (2026-11-07)
 
 The original `0x25aa40` builder branches directly to its epilogue when `+0xaf`

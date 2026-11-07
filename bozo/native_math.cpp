@@ -32,9 +32,11 @@ bool nativeMathInstruction(uint8_t *,R5900Context *c,Runtime *rt,uint32_t pc){
         return true;
     }
     switch(pc){
+    case 0x3c5d58:case 0x3c5d5c:case 0x3c5d60:case 0x3c5d64:
+    case 0x3c5d68:case 0x3c5d6c:case 0x3c5d70:case 0x3c5d74:
     case 0x378980:case 0x378984:case 0x378988:case 0x37898c:
     case 0x378990:case 0x378994:case 0x378998:case 0x37899c:return true;
-    case 0x3789a0:{
+    case 0x3789a0:case 0x3c5d78:{
         // The original scalar builder subtracts the two game positions.
         // Preserve its full temporary record and publish the consumed length.
         float value[4],result[4];std::memcpy(value,record(rt,c->r[5].uw[0],16),16);std::memcpy(result,value,16);

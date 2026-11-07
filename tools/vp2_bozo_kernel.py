@@ -307,6 +307,7 @@ def overlay_adaptations(name,data):
         for lo,hi,expected in ((0x3d7708,0x3d77cc,'435926535d852e22f0b20b9027f65fd6674acc7a63b6aaedb31e59c63a1cd1c8'),
                                (0x3d5670,0x3d57ec,'250a2389769015fbda23859f5082b6f69031a706af85f263b765f34130611ecc'),
                                (0x378908,0x3789c8,'25cee96dbb982fe7f31c806c09286d7d6d1630101851998b42a1431e9cf4fd17'),
+                               (0x3c5d08,0x3c5dc8,'000f0a47d3b89e66148c4d84eba1523b103743a3077c4984d2037d2b1264345c'),
                                (0x3d9230,0x3d925c,'60fa72c319ee92c05082ae3e1496caba1b37138f89c8e22411be03477740c5d8'),
                                (0x3d95ac,0x3d95b8,'e53ce69864c095f0410aa0422eb78527d3c44442b5a5f02312e8353d3e0cc3f7')):
             s=next(s for s in segments if s[0]==1 and s[2]<=lo<hi<=s[2]+s[4]);at=s[1]+lo-s[2]

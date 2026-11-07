@@ -7,6 +7,33 @@ target, not a replacement DLL loaded into PS2Recomp.
 
 ## Build and evidence
 
+### Native object world transforms (2026-11-07)
+
+The full `0x248fc0` owner is fingerprinted. Its 64 vector/microprogram transport
+sites now operate on quaternion, position, scale, parent rows and attachment
+records directly. The original parent callback, dirty flags and scalar CPU
+flow remain compiled. Native calculation snapshots every input at the first
+result store, after callbacks and before either output can alias a source.
+Local/attachment matrices are written to the original object records. No VU
+register, accumulator or flags are touched or used as hidden temporaries.
+
+Quaternion and parent calculations keep the game's truncating sum policy.
+Optional parent-column normalization keeps translation intact; the subsequent
+inline scaling and attachment products use the caller's FP mode. The original
+vi0 CPU clobber is explicit. Active nonfinite/subnormal inputs and arithmetic
+overflow remain unqualified and reject; unused position/scale fourth-component
+payloads are ignored. Tiny intermediate products retain the native flush policy.
+
+The generated CPU-flow fixture supplies independent scalar numeric equations,
+not a vector-machine executor. All 320 CPU/RAM/matrix cases match across four
+rounding modes, FTZ/DAZ settings, normal/tiny terms, signed zeros, parent/self /
+output/attachment aliases and resumed parent callbacks. Every one of the 64
+retired sites executes in the fixture; host FP controls and vector sentinels
+match. An initially invalid alias fixture placed a vtable pointer over scale.x;
+that poisoned input was separated from valid alias coverage without changing
+runtime arithmetic. Boot passes this owner and reaches a separate trigonometric
+routine at `0x213fe0`. No rendered-scene or Logun qualification yet.
+
 ### Unused profiling-counter reset (2026-11-07)
 
 The reached `0x2bef20` object-update owner wrote zero to five COP0 performance

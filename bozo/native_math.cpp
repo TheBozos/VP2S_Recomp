@@ -1,4 +1,5 @@
 #include "native_math.h"
+#include "native_object_math.h"
 #include "../port/vp2s_math.h"
 #include <cstring>
 #include <stdexcept>
@@ -15,6 +16,7 @@ uint8_t *record(Runtime *rt,uint32_t address,uint32_t bytes){
 }
 }
 bool nativeMathInstruction(uint8_t *,R5900Context *c,Runtime *rt,uint32_t pc){
+    if(nativeObjectMathInstruction(nullptr,c,rt,pc))return true;
     if(pc==0x29e1a0 || pc==0x29e160){
         // The default math code installation has no execution or game-data
         // result. Its algorithms are compiled native record operations. Retire

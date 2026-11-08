@@ -119,6 +119,9 @@ struct Host:bozo::ee::Host,bozo::port::Host {
         if(pc==0x214414 || pc==0x2144ac){const auto result=referenceShort(c->f[12],read(rt),true,true);
             if(pc==0x214414)std::memcpy(rt->memory.hostPointer(0x35dacc,4),&result.quadrant,4);
             else std::memcpy(rt->memory.hostPointer(0x35da8c,4),&result.value,4);}
+        if(pc==0x21424c || pc==0x2142e4){auto table=read(rt);table.halfPi=value<float>(rt,0x35da9c);const auto result=referenceShort(c->f[12],table,false,true);
+            if(pc==0x21424c)std::memcpy(rt->memory.hostPointer(0x35daec,4),&result.quadrant,4);
+            else std::memcpy(rt->memory.hostPointer(0x35da8c,4),&result.value,4);}
         return true;
     }
     void frameEnd(Runtime *,R5900Context *)override{throw std::runtime_error("frame");}
@@ -174,12 +177,14 @@ int main(){try{
     }
     _mm_setcsr(saved);check(old.sites==now.sites && now.sites.size()==30);
     unsigned shortCases=0;
-    for(const uint32_t entry:{0x214300u,0x2144c0u,0x2143e0u}){
-    const bool sine=entry!=0x214300,full=entry==0x2143e0;
+    for(const uint32_t entry:{0x214300u,0x2144c0u,0x2143e0u,0x214210u}){
+    const bool sine=entry!=0x214300 && entry!=0x214210,full=entry==0x2143e0 || entry==0x214210;
     for(unsigned mode:{_MM_ROUND_NEAREST,_MM_ROUND_DOWN,_MM_ROUND_UP,_MM_ROUND_TOWARD_ZERO}){
         for(unsigned seed=0;seed<192;++seed){
             auto *x=a.runtime().memory.flat(),*y=b.runtime().memory.flat();std::memset(x,0x65,bozo::kFlatBytes);
             R5900Context init{};init.r[31].uw[0]=0x170000;a.runtime().functions.generated(0x358490)(x,&init,&a.runtime());
+            if(entry==0x214210 && seed%8==4){const float distinctHalfPi=.25f;std::memcpy(a.runtime().memory.hostPointer(0x35da9c,4),&distinctHalfPi,4);}
+            const uint32_t oldSign=full && seed%8==5?0x7fc04567u:0u;std::memcpy(a.runtime().memory.hostPointer(0x35da88,4),&oldSign,4);
             std::memcpy(y,x,bozo::kFlatBytes);random=random*1664525u+1013904223u;
             float angle=float(int32_t(random)%100000)/1024;
             if(seed<64){angle=float(int(seed%16)-8)*originalCoefficients.pi;if(seed&16)angle=std::nextafter(angle,INFINITY);if(seed&32)angle=std::nextafter(angle,-INFINITY);}
@@ -194,18 +199,18 @@ int main(){try{
             try{b.runtime().functions.generated(entry)(y,&q,&b.runtime());}
             catch(const std::exception &e){std::fprintf(stderr,"short trig entry=%x seed=%u mode=%x angle=%08x: %s\n",entry,seed,mode,std::bit_cast<uint32_t>(angle),e.what());throw;}
             check(_mm_getcsr()==after && !std::memcmp(&p,&q,sizeof(p)) && !std::memcmp(x,y,bozo::kFlatBytes));
-            const uint32_t scratch=full?0x35dac0:sine?0x35dab0:0x35dad0;
+            const uint32_t scratch=entry==0x214210?0x35dae0:full?0x35dac0:sine?0x35dab0:0x35dad0;
             check(value<uint32_t>(&b.runtime(),scratch)==0x65656565 && value<uint32_t>(&b.runtime(),scratch+4)==0x65656565 && value<uint32_t>(&b.runtime(),scratch+8)==0x65656565);
-            check(value<uint32_t>(&b.runtime(),0x35da88)==0);++shortCases;
+            check(value<uint32_t>(&b.runtime(),0x35da88)==oldSign);++shortCases;
         }
         for(unsigned i=0;i<16384;++i){random=random*1664525u+1013904223u;const float angle=float(int32_t(random)%1000000)/8192;
-            const auto expected=referenceShort(angle,originalCoefficients,sine,full),actual=full?vp2s::fullSine(angle,originalCoefficients):sine?vp2s::shortSine(angle,originalCoefficients):vp2s::shortCosine(angle,originalCoefficients);
+            const auto expected=referenceShort(angle,originalCoefficients,sine,full),actual=full?(sine?vp2s::fullSine(angle,originalCoefficients):vp2s::fullCosine(angle,originalCoefficients)):sine?vp2s::shortSine(angle,originalCoefficients):vp2s::shortCosine(angle,originalCoefficients);
             check(expected.quadrant==actual.quadrant && std::bit_cast<uint32_t>(expected.value)==std::bit_cast<uint32_t>(actual.value));
             check(std::abs(actual.value-(sine?std::sin(angle):std::cos(angle)))<0.008f);
         }
     }
     }
-    _mm_setcsr(saved);check(old.sites==now.sites && now.sites.size()==103);
+    _mm_setcsr(saved);check(old.sites==now.sites && now.sites.size()==132);
     unsigned inverseCases=0;double inverseError=0;
     const uint32_t edges[]={0,0x80000000,1,0x80000001,0x00800000,0x80800000,0x23000000,0xa3000000,0x23000001,0xa3000001,
         0x3effffff,0xbeffffff,0x3f000000,0xbf000000,0x3f000001,0xbf000001,0x3f7fffff,0xbf7fffff,
@@ -237,7 +242,7 @@ int main(){try{
             const double error=std::abs(double(actual)-double(std::acos(angle)));inverseError=std::max(inverseError,error);check(error<0.000001);
         }
     }
-    _mm_setcsr(saved);check(old.sites==now.sites && now.sites.size()==207);
+    _mm_setcsr(saved);check(old.sites==now.sites && now.sites.size()==236);
     unsigned linearCallers=0,negativeCallers=0,linearRecords=0;
     for(unsigned mode:{_MM_ROUND_NEAREST,_MM_ROUND_DOWN,_MM_ROUND_UP,_MM_ROUND_TOWARD_ZERO})for(unsigned seed=0;seed<128;++seed){
         auto *x=a.runtime().memory.flat(),*y=b.runtime().memory.flat();std::memset(x,0x65,bozo::kFlatBytes);
@@ -261,7 +266,7 @@ int main(){try{
         check(_mm_getcsr()==after && !std::memcmp(&p,&q,sizeof(p)) && !std::memcmp(x,y,bozo::kFlatBytes));
         if(seed&4)++negativeCallers;++linearCallers;
     }
-    check(negativeCallers==256 && old.sites==now.sites && now.sites.size()==226);
+    check(negativeCallers==256 && old.sites==now.sites && now.sites.size()==255);
     unsigned nonlinearCallers=0;
     for(unsigned mode:{_MM_ROUND_NEAREST,_MM_ROUND_DOWN,_MM_ROUND_UP,_MM_ROUND_TOWARD_ZERO})for(unsigned seed=0;seed<128;++seed){
         auto *x=a.runtime().memory.flat(),*y=b.runtime().memory.flat();std::memset(x,0x65,bozo::kFlatBytes);
@@ -282,7 +287,7 @@ int main(){try{
         catch(const std::exception &e){std::fprintf(stderr,"nonlinear quaternion seed=%u mode=%x: %s\n",seed,mode,e.what());throw;}
         check(_mm_getcsr()==after && !std::memcmp(&p,&q,sizeof(p)) && !std::memcmp(x,y,bozo::kFlatBytes));++nonlinearCallers;
     }
-    check(old.sites==now.sites && now.sites.size()==250);
+    check(old.sites==now.sites && now.sites.size()==279);
     for(unsigned mode:{_MM_ROUND_NEAREST,_MM_ROUND_DOWN,_MM_ROUND_UP,_MM_ROUND_TOWARD_ZERO})for(unsigned seed=0;seed<128;++seed){
         auto *x=a.runtime().memory.flat(),*y=b.runtime().memory.flat();std::memset(x,0x65,bozo::kFlatBytes);
         const uint32_t stack=seed&1?0x70003000:0x1ffe000,first=seed&2?0x70000100:0x180000,second=seed%8==3?first:0x190000;
@@ -349,7 +354,7 @@ int main(){try{
             for(unsigned j=0;j<3;++j){const auto error=std::abs(double(actual[j])-double(std::sin(angles[j])));threeSineError=std::max(threeSineError,error);check(error<0.000001);}
         }
     }
-    _mm_setcsr(saved);check(old.sites==now.sites && now.sites.size()==250);
+    _mm_setcsr(saved);check(old.sites==now.sites && now.sites.size()==279);
     {auto bad=originalCoefficients;bad.sine[0]=0;bool rejected=false;try{vp2s::threeSines({0.1f,0.2f,0.3f},bad);}catch(const std::runtime_error &){rejected=true;}check(rejected);
         bad=originalCoefficients;bad.halfPi=std::numeric_limits<float>::quiet_NaN();const auto ignored=vp2s::threeSines({0.1f,0.2f,0.3f},bad),normal=vp2s::threeSines({0.1f,0.2f,0.3f},originalCoefficients);check(!std::memcmp(ignored.data(),normal.data(),12));
         for(float invalid:{std::numeric_limits<float>::infinity(),std::bit_cast<float>(1u),std::numeric_limits<float>::max()}){rejected=false;try{vp2s::threeSines({invalid,0,0},originalCoefficients);}catch(const std::runtime_error &){rejected=true;}check(rejected);}
@@ -364,7 +369,8 @@ int main(){try{
     rejected=false;try{vp2s::shortCosine(std::bit_cast<float>(1u),originalCoefficients);}catch(const std::runtime_error &){rejected=true;}check(rejected);
     rejected=false;try{vp2s::shortSine(std::bit_cast<float>(1u),originalCoefficients);}catch(const std::runtime_error &){rejected=true;}check(rejected);
     rejected=false;try{vp2s::fullSine(std::bit_cast<float>(1u),originalCoefficients);}catch(const std::runtime_error &){rejected=true;}check(rejected);
+    rejected=false;try{vp2s::fullCosine(std::bit_cast<float>(1u),originalCoefficients);}catch(const std::runtime_error &){rejected=true;}check(rejected);
     {auto table=originalCoefficients;table.halfPi=std::bit_cast<float>(0x7fc05678u);check(vp2s::fullSine(0.f,table).value==0.f);
         table.sine[0]=std::numeric_limits<float>::infinity();rejected=false;try{vp2s::fullSine(.25f,table);}catch(const std::runtime_error &){rejected=true;}check(rejected);}
-    std::printf("%u sine/cosine + %u scalar cosine/sines + %u inverse-cosine + %u linear-quaternion (%u negative-dot) + %u nonlinear-quaternion callers + %u blend records + %u three-sine callers;393216 polynomial record comparisons,250 sites; inverse-cosine max error %.9g,three-sine max error %.9g; CPU/RAM/FP, signs, endpoints and split-root stores passed\n",cases,shortCases,inverseCases,linearCallers,negativeCallers,nonlinearCallers,linearRecords,threeSineCallers,inverseError,threeSineError);return 0;
+    std::printf("%u sine/cosine + %u scalar cosine/sines + %u inverse-cosine + %u linear-quaternion (%u negative-dot) + %u nonlinear-quaternion callers + %u blend records + %u three-sine callers;458752 polynomial record comparisons,279 sites; inverse-cosine max error %.9g,three-sine max error %.9g; CPU/RAM/FP, signs, endpoints and split-root stores passed\n",cases,shortCases,inverseCases,linearCallers,negativeCallers,nonlinearCallers,linearRecords,threeSineCallers,inverseError,threeSineError);return 0;
 }catch(const std::exception &e){std::fprintf(stderr,"%s\n",e.what());return 1;}}

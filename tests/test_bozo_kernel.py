@@ -5,7 +5,7 @@ import unittest
 from pathlib import Path
 sys.path.insert(0,str(Path(__file__).resolve().parents[1]/'tools'))
 from vp2_bozo_prepare import elf_parts,overlay_entries
-from vp2_bozo_kernel import LEAFLESS_QUERY_SITES,FULL_SINE_SITES
+from vp2_bozo_kernel import LEAFLESS_QUERY_SITES,FULL_SINE_SITES,FULL_COSINE_SITES
 from vp2_bozo_kernel import bindings, game_adaptations, frame_adaptations, game_entries, native_game_sites, GUARDS, RETIRED_RANGES,bootstrap_adaptations,bootstrap_tables,overlay_adaptations,overlay_native_sites,display_adaptations,DISPLAY_STORES,startup_clear_adaptations,composition_adaptations,composition_sites,reject_performance_counter_reads
 
 IMAGE=Path(sys.argv.pop(1))
@@ -329,6 +329,7 @@ class KernelGuardTests(unittest.TestCase):
         self.assertEqual(overlay_native_sites('mod001',data),''.join(f'native 0x{pc:x}\n' for pc in (
         *LEAFLESS_QUERY_SITES,
         *FULL_SINE_SITES,
+        *FULL_COSINE_SITES,
         *range(0x252ec8,0x252f24,4),0x252fdc,0x252fe0,0x252fe4,0x252fec,0x252ff0,0x252ff8,
         0x2bf040,0x2bf058,
         0x2371e8,0x2371ec,0x2371f0,0x2371f4,0x2371fc,0x237200,0x237204,0x237208,
@@ -388,7 +389,7 @@ class KernelGuardTests(unittest.TestCase):
 
     def test_native_model_filter_source_mutations(self):
         data=(IMAGE.parent/'mod001.elf').read_bytes();_,segments,_=elf_parts(data)
-        for lo,hi in ((0x239fd0,0x23a000),(0x25aa10,0x25aa40),(0x25aa40,0x25be00),(0x214300,0x2143d4),(0x2143e0,0x2144bc),(0x2f2d70,0x2f2de0),(0x2f2df0,0x2f2fd8)):
+        for lo,hi in ((0x239fd0,0x23a000),(0x25aa10,0x25aa40),(0x25aa40,0x25be00),(0x214300,0x2143d4),(0x2143e0,0x2144bc),(0x214210,0x2142f4),(0x2f2d70,0x2f2de0),(0x2f2df0,0x2f2fd8)):
             s=next(s for s in segments if s[0]==1 and s[2]<=lo<hi<=s[2]+s[4])
             for pc in range(lo,hi,4):
                 changed=bytearray(data);changed[s[1]+pc-s[2]]^=1

@@ -41,6 +41,10 @@ constexpr std::array<uint32_t,27> fullSineSites{
     0x2143f0,0x2143f4,0x2143f8,0x214404,0x214408,0x21440c,0x214410,0x214414,0x214418,
     0x21443c,0x214460,0x214468,0x21446c,0x214470,0x21447c,0x214480,0x214484,0x214488,
     0x21448c,0x214490,0x214494,0x214498,0x21449c,0x2144a0,0x2144a4,0x2144a8,0x2144ac};
+constexpr std::array<uint32_t,29> fullCosineSites{
+    0x214220,0x214224,0x214228,0x21422c,0x214238,0x21423c,0x214240,0x214244,0x214248,0x21424c,
+    0x214250,0x214274,0x214298,0x2142a0,0x2142a4,0x2142a8,0x2142b4,0x2142b8,0x2142bc,0x2142c0,
+    0x2142c4,0x2142c8,0x2142cc,0x2142d0,0x2142d4,0x2142d8,0x2142dc,0x2142e0,0x2142e4};
 bool inverseCosineSite(uint32_t pc){
     return !(pc&3) && ((pc>=0x214ea8 && pc<=0x214eb4) || (pc>=0x214ef0 && pc<=0x214f5c) ||
         (pc>=0x214f7c && pc<=0x214ff8) || (pc>=0x215010 && pc<=0x215060) || pc==0x215074 || pc==0x215078 ||
@@ -190,7 +194,19 @@ NativeCosine fullSine(float angle,const TrigCoefficients &c){
     if(!std::isfinite(result))throw std::runtime_error("unqualified native full sine polynomial overflow");
     return {quadrant,result};
 }
+NativeCosine fullCosine(float angle,const TrigCoefficients &c){
+    qualified(angle);qualified(c.halfPi);qualified(c.pi);qualified(c.inversePi);for(float v:c.sine)qualified(v);
+    return fullSine(difference(c.halfPi,angle),c);
+}
 bool nativeTrigInstruction(uint8_t *,R5900Context *c,Runtime *rt,uint32_t pc){
+    if(std::binary_search(fullCosineSites.begin(),fullCosineSites.end(),pc)){
+        if(!c || c->pc!=0x214210)throw std::runtime_error("unported interior full cosine invocation");
+        if(pc==0x21424c || pc==0x2142e4){auto table=coefficients(rt);std::memcpy(&table.halfPi,record(rt,0x35da90,16)+12,4);
+            const auto result=fullCosine(c->f[12],table);
+            if(pc==0x21424c)std::memcpy(record(rt,0x35dae0,16)+12,&result.quadrant,4);
+            else std::memcpy(record(rt,0x35da80,16)+12,&result.value,4);}
+        return true;
+    }
     if(std::binary_search(fullSineSites.begin(),fullSineSites.end(),pc)){
         if(!c || c->pc!=0x2143e0)throw std::runtime_error("unported interior full sine invocation");
         if(pc==0x214414 || pc==0x2144ac){const auto result=fullSine(c->f[12],coefficients(rt));

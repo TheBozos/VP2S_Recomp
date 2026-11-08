@@ -531,16 +531,20 @@ bool nativeMathInstruction(uint8_t *,R5900Context *c,Runtime *rt,uint32_t pc){
         return true;
     }
     if((pc>=0x229164 && pc<=0x229180 && !(pc&3)) || (pc>=0x229228 && pc<=0x229240 && !(pc&3)) || pc==0x229248 ||
-       (pc>=0x2292f8 && pc<=0x229314 && !(pc&3))){
-        const auto stack=c->r[29].uw[0];const bool first=pc<=0x229180,second=pc>=0x229228 && pc<=0x229248;
-        const auto vector=stack+(second?0x430:0x2d0),matrix=c->r[first?19:18].uw[0];
-        const auto destination=first?stack+0x430:c->r[16].uw[0]+0x30;
+       (pc>=0x2292f8 && pc<=0x229314 && !(pc&3)) || (pc>=0x2295d4 && pc<=0x2295f0 && !(pc&3)) ||
+       (pc>=0x2295fc && pc<=0x229614 && !(pc&3)) || pc==0x22961c || (pc>=0x229628 && pc<=0x229644 && !(pc&3))){
+        const auto stack=c->r[29].uw[0];const bool change=pc>=0x2295d4;
+        const bool first=pc<=0x229180 || (pc>=0x2295d4 && pc<=0x2295f0),second=(pc>=0x229228 && pc<=0x229248) || (pc>=0x2295fc && pc<=0x22961c);
+        const auto temporary=change?0x420u:0x430u,source=change?0x210u:0x2d0u;
+        const auto vector=stack+(second?temporary:source),matrix=c->r[first?19:18].uw[0];
+        const auto destination=first?stack+temporary:c->r[16].uw[0]+(change?0x40:0x30);
         if(c->pc<0x2262b0 || c->pc>=0x22b880 ||
-           (first?(c->r[3].uw[0]!=vector || c->r[2].uw[0]!=destination):second?(c->r[2].uw[0]!=vector || c->r[3].uw[0]!=destination):
+           (first?(c->r[3].uw[0]!=vector || c->r[2].uw[0]!=destination):(second || change)?(c->r[2].uw[0]!=vector || c->r[3].uw[0]!=destination):
                (c->r[3].uw[0]!=vector || c->r[4].uw[0]!=destination)))
             throw std::runtime_error("native object-update linear-vector setup mismatch");
         record(rt,stack,0x450);
-        if(pc==0x229180 || pc==0x229248 || pc==0x229314)publishLinearVector(rt,matrix,vector,destination);
+        if(pc==0x229180 || pc==0x229248 || pc==0x229314 || pc==0x2295f0 || pc==0x22961c || pc==0x229644)
+            publishLinearVector(rt,matrix,vector,destination);
         return true;
     }
     if(pc==0x40b040){nativeParticlePhysicsInstruction(c,rt,pc);return false;}

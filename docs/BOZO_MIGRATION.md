@@ -12,6 +12,24 @@ The earlier VP2S face/shading and general brightness comparisons remain open.
 
 ## Build and evidence
 
+### Object-update change-vector branches (2026-11-08)
+
+The following three linear products at `0x2295d4`, `0x2295fc` and `0x229628`
+now share the explicit XYZ/3x4 publisher. All 24 additional sites retain the
+original optional displacement, bypass copy and full default attribute record
+publication. Input W stays opaque; basis W still contributes to output W.
+
+The extended bounded fixture qualifies 1,024 complete CPU/RAM/FP pairs across
+the velocity and change blocks, 256 known identities and all 48 sites. Independent
+integer products/sums, opaque unused lanes, aliases, scratch frames, four FP
+modes and mutation-free rejection pass. An independent attribute-copy assertion
+caught a fixture-only return accidentally replacing the original final store;
+the corrected fixture preserves that store and keeps the assertion.
+
+Five rebuilt suites pass in 58.41 s (`update-change-final-tests.log`). Actual
+`update-change-route.log` passes these branches and next stops at particle
+enclosing-sphere finalization `0x22efd8`. Field/Logun remains open.
+
 ### Object-update linear-vector branches (2026-11-08)
 
 Three inline paths at `0x229164`, `0x229228` and `0x2292f8` now publish their

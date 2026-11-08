@@ -12,6 +12,30 @@ The earlier VP2S face/shading and general brightness comparisons remain open.
 
 ## Build and evidence
 
+### Procedural projection publication (2026-11-08)
+
+The four `0x248260..0x24826c` loads are replaced with a typed local-to-screen
+projection, owned by the procedural object's scalar draw invocation. The
+original `0x247f90` producer still performs its two matrix calls, copies,
+transpose, depth-bound stores and callbacks. Publication requires its actual
+stack output, selected camera and one of the three audited caller returns.
+The matching `0x247ec0` finish removes the record; overlap, wrong object/frame,
+unknown caller, missing camera, invalid coefficients and repeated finish reject.
+No numeric processor registers, accumulators or implicit global transform bank
+are read, written or shadowed. Downstream procedural operations remain strict
+until replaced with consumers of this explicit input.
+
+512 compiled scalar tails qualify the independent transpose/copy RAM oracle,
+immutable row coefficients, five RAM aliases and scratch storage, three caller
+families, four FP modes/FTZ/DAZ, opaque processor state and original finish
+lifetime. Thirteen readonly rejection cases check CPU/RAM/FP and owner state.
+Every word of the full prepare/finish sources is fingerprint guarded. The real
+`projection-route.log` passes publication and reaches the first point consumer
+`0x2478c8` inside `0x2476b0`. This does not qualify its geometry or rendering,
+and field/Logun remains open. BozoEngine is unchanged.
+Four rebuilt projection/graphics/source/startup suites pass in 55.28 s
+(`projection-final-tests.log`).
+
 ### Native particle draw before enqueue (2026-11-08)
 
 The `0x22f140` wrapper now publishes native quads at its original delay slot

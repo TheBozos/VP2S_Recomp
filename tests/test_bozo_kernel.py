@@ -92,6 +92,12 @@ class KernelGuardTests(unittest.TestCase):
         for pc in range(lo,hi,4):
             changed=bytearray(data);changed[s[1]+pc-s[2]]^=1
             with self.subTest(pc=hex(pc)),self.assertRaises(ValueError):overlay_adaptations('mod001',changed)
+
+    def test_angle_visibility_program(self):
+        data=(IMAGE.parent/'mod001.elf').read_bytes()
+        for at in (0x12b4a8+0xc90,0x12b4a8+0xd20,0x12b4a8+0xd5c):
+            changed=bytearray(data);changed[at]^=1
+            with self.subTest(at=hex(at)),self.assertRaises(ValueError):overlay_adaptations('mod001',changed)
     @classmethod
     def setUpClass(cls):
         cls.data=IMAGE.read_bytes()

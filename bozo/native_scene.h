@@ -22,7 +22,8 @@ struct NativeCameraFrustum {
 };
 struct NativeSphereVisibility {
     uint32_t object=0,source=0;
-    std::array<float,4> projected{},nearPoint{},farPoint{};
+    std::array<float,4> input{},projected{},nearPoint{},farPoint{};
+    std::optional<uint8_t> angle;
     bool outside=false,intersects=false;
 };
 struct NativeVisibilityInputs {
@@ -66,6 +67,7 @@ public:
     void visibilityClip(Runtime *,uint32_t stack,uint32_t camera);
     void visibilityView(Runtime *,uint32_t stack,uint32_t camera);
     void visibilitySphere(Runtime *,uint32_t stack,uint32_t object,uint32_t source);
+    void visibilityAngle(uint32_t stack,uint32_t object,uint32_t source);
     const NativeSphereVisibility &visibilitySphere(uint32_t stack,uint32_t object,uint32_t source)const;
     const NativeVisibilityInputs &visibility(uint32_t stack)const;
     void finishVisibility(uint32_t stack,uint32_t object);

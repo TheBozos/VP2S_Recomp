@@ -386,8 +386,9 @@ def overlay_adaptations(name,data):
     if name!='mod001':return ''
     _,segments,_=elf_parts(data)
     for lo,hi,expected in ((0x12b4a8+0x1f0,0x12b4a8+0x250,'b79cf2382262fa4251a0e08c8d0b7eb05f051c8a77915bf5863c78d7d6acd784'),
-                           (0x12b4a8+0x8a0,0x12b4a8+0x960,'af7ecfd91505685a1f79a0870924e24d3b79f4c60d583d071090f16df8d183bd')):
-        if hashlib.sha256(data[lo:hi]).hexdigest()!=expected:raise ValueError('USA bone matrix algorithm mismatch')
+                           (0x12b4a8+0x8a0,0x12b4a8+0x960,'af7ecfd91505685a1f79a0870924e24d3b79f4c60d583d071090f16df8d183bd'),
+                           (0x12b4a8+0xc90,0x12b4a8+0xd60,'d3023b6ef8dceba14eedcde59ac05de06fccb110e6dbc8dff44b864eb221eb33')):
+        if hashlib.sha256(data[lo:hi]).hexdigest()!=expected:raise ValueError('USA native math algorithm mismatch')
     for lo,hi,expected in (
         (0x3140e0,0x314120,'5b1ac88e48d62e6ae747d08f015c4b4e5a80c15e7ae4e198d6b8386eaf81ccd9'),
         (0x2e74f0,0x2e75bc,'249a16a05dfd11f8b9ee28c571dfc511db7d2b6e9d5b35207a992be32ee2c767'),

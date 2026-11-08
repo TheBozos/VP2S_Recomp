@@ -65,6 +65,26 @@ FrustumResult cameraFrustum(math::Matrix world,const FrustumRecords &points){
     for(unsigned i=0;i<4;++i)out.normals[6+i]=_mm_blend_ps(out.normals[6+i],out.normals[i],8);
     return out;
 }
+uint8_t sphereAngleVisibility(const FrustumResult &planes,__m128 sphere){
+    qualified(sphere);const auto radius=music::laneValue(sphere,3);
+    if(radius<0)throw std::runtime_error("negative native angle sphere radius");
+    for(unsigned i=6;i<10;++i){qualified(planes.points[i],3);qualified(planes.normals[i],3);}
+    music::CodecRounding rounding;
+    const auto sum=[](__m128 a,__m128 b){return normal(music::codecSum(a,b));};
+    const auto difference=[&](__m128 a,__m128 b){return sum(a,_mm_xor_ps(b,_mm_castsi128_ps(_mm_set1_epi32(int(0x80000000u)))));};
+    bool intersects=false;
+    for(unsigned i=0;i<4;++i){
+        const auto delta=difference(xyz(sphere),xyz(planes.points[6+i]));
+        const auto terms=mul(delta,xyz(planes.normals[6+i]));
+        const auto first=i&1?sum(music::broadcast<1>(terms),music::broadcast<0>(terms)):
+                             sum(music::broadcast<0>(terms),music::broadcast<1>(terms));
+        const auto distance=sum(first,music::broadcast<2>(terms));qualified(distance,1);
+        const auto margin=difference(distance,_mm_set1_ps(radius));qualified(margin,1);
+        intersects|=std::signbit(music::laneValue(margin,0));
+    }
+    // This is the original caller's classification byte, not a status bank.
+    return intersects?0x80:0;
+}
 NativeSphereVisibility sphereVisibility(math::Matrix clip,const FrustumResult &planes,__m128 sphere){
     qualified(sphere);const auto radius=music::laneValue(sphere,3);
     if(radius<0)throw std::runtime_error("negative native visibility sphere radius");
@@ -82,7 +102,7 @@ NativeSphereVisibility sphereVisibility(math::Matrix clip,const FrustumResult &p
     volatile float inverse=1.f/z;
     const auto divided=mul(projected,_mm_set1_ps(inverse));qualified(divided,2);
     projected=_mm_blend_ps(projected,divided,3);projected=_mm_blend_ps(projected,sphere,8);
-    NativeSphereVisibility out;std::memcpy(out.projected.data(),&projected,16);
+    NativeSphereVisibility out;std::memcpy(out.input.data(),&sphere,16);std::memcpy(out.projected.data(),&projected,16);
     out.nearPoint=out.farPoint=out.projected;
     float distances[6];
     for(unsigned i=0;i<6;++i){

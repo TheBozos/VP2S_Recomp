@@ -245,6 +245,14 @@ const NativeSphereVisibility &NativeScene::visibilitySphere(uint32_t stack,uint3
         throw std::runtime_error("native sphere visibility escaped its object/input snapshot");
     return *inputs.sphere;
 }
+void NativeScene::visibilityAngle(uint32_t stack,uint32_t object,uint32_t source){
+    const auto &sphere=visibilitySphere(stack,object,source);const auto &inputs=visibility(stack);
+    if(sphere.angle || sphere.outside || sphere.intersects || !inputs.frustum)
+        throw std::runtime_error("native angle visibility escaped its sphere branch/lifetime");
+    FrustumResult planes;__m128 input;std::memcpy(&input,sphere.input.data(),16);
+    std::memcpy(planes.points.data(),inputs.frustum->points.data(),160);std::memcpy(planes.normals.data(),inputs.frustum->normals.data(),160);
+    const auto result=sphereAngleVisibility(planes,input);visibilityInputs.at(stack).sphere->angle=result;
+}
 void NativeScene::finishVisibility(uint32_t stack,uint32_t object){
     if(visibility(stack).scene!=object)throw std::runtime_error("native visibility scene changed during invocation");
     visibilityInputs.erase(stack);
@@ -253,7 +261,7 @@ std::optional<bool> nativeVisibilityInstruction(R5900Context *c,Runtime *rt,uint
     const bool clip=pc==0x220624 || pc==0x220628 || pc==0x22062c || pc==0x220630;
     const bool view=pc==0x2206b8 || pc==0x2206bc || pc==0x2206c0 || pc==0x2206c4 ||
                     pc==0x2206d0 || pc==0x2206d4 || pc==0x2206d8 || pc==0x2206dc || pc==0x2206e0;
-    const bool sphere=pc==0x220b74 || pc==0x220b80 || pc==0x220ba4 || pc==0x220ba8 || pc==0x220bb4 || pc==0x220bdc || pc==0x220ca0;
+    const bool sphere=pc==0x220b74 || pc==0x220b80 || pc==0x220ba4 || pc==0x220ba8 || pc==0x220bb4 || pc==0x220bdc || pc==0x220ca0 || pc==0x220c30 || pc==0x220c74;
     if(pc!=0x2205c0 && pc!=0x220ce0 && !clip && !view && !sphere)return std::nullopt;
     auto *d=rt?dynamic_cast<bozo::ee::Dispatcher *>(rt->services):nullptr;
     auto *owner=d?dynamic_cast<SceneOwner *>(&d->host()):nullptr;
@@ -268,9 +276,14 @@ std::optional<bool> nativeVisibilityInstruction(R5900Context *c,Runtime *rt,uint
     if(sphere){
         const auto object=c->r[17].uw[0],source=c->r[22].uw[0];
         if(pc==0x220b74)scene.visibilitySphere(rt,sp,object,source);
+        if(pc==0x220c30)scene.visibilityAngle(sp,object,source);
         const auto &result=scene.visibilitySphere(sp,object,source);
         if(pc==0x220ba4)c->r[5].ud[0]=result.outside?1:0;
         else if(pc==0x220ba8)c->r[4].ud[0]=result.intersects?1:0;
+        else if(pc==0x220c74){
+            if(!result.angle)throw std::runtime_error("native angle result has no completed owner");
+            c->r[5].ud[0]=*result.angle;
+        }
         else if(pc==0x220bb4 || pc==0x220bdc || pc==0x220ca0){
             const auto expected=pc==0x220bb4?object+0x70:pc==0x220bdc?sp+0xe0:sp+0xf0;
             auto *destination=rt->memory.hostPointer(expected,16);

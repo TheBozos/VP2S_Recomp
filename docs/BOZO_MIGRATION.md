@@ -8,6 +8,28 @@ target, not a replacement DLL loaded into PS2Recomp.
 
 ## Build and evidence
 
+### Native four-plane angle classification (2026-11-08)
+
+The remaining `0x220c30` branch consumes four further frustum origins/normals
+(`6..9`) and the sphere captured before the original virtual callback. Native
+code computes the original ordered plane distances minus radius, then returns
+the caller's `0x00`/`0x80` classification directly at `0x220c74`. It does not
+construct a vector register, status bank, sticky state or timing result. The
+original scalar draw-list construction and visibility-byte store remain.
+
+The input sphere is now an immutable part of the per-invocation snapshot. Both
+the source sphere and live camera records may change without changing that
+classification. Duplicate calculation, result consumption before publication,
+wrong object/source and consumption after release reject. Original caller and
+the complete offline angle algorithm range are fingerprinted.
+
+1,620 independent axis-plane geometry cases plus signed-zero cases pass across
+four modes. All 256 original scalar CPU/RAM comparisons now complete, including
+150 angle branches previously stopped before the unported call. Existing 5,488
+sphere geometry cases remain. Lifetime, source mutation, arithmetic and startup
+checks pass. Actual New Game advances to camera matrix scale `0x20f288`.
+Logun and rendered field/sky parity remain open.
+
 ### Native model colour/alpha product (2026-11-08)
 
 Mod003 `0x43d280` multiplies its ordinary `+0xd0` / `+0xe0` four-component

@@ -40,6 +40,27 @@ void separatePairFrame(uint8_t *frame,uint8_t *data,size_t bytes){
     const auto a=reinterpret_cast<uintptr_t>(frame),b=reinterpret_cast<uintptr_t>(data);
     if(a<b+bytes && b<a+16)throw std::runtime_error("constrained-position temporary aliases live inputs");
 }
+struct SegmentTerms {std::array<float,3> delta;float firstLength,negativeCross,secondLength,firstProjection,separation,determinant,negativeSecondProjection,secondNumerator,firstNumerator;};
+SegmentTerms segmentTerms(Runtime *rt,R5900Context *c){
+    if(c->pc!=0x2120a0 || (c->r[31].uw[0]!=0x1fc3dc && c->r[31].uw[0]!=0x1fc5f4))
+        throw std::runtime_error("unqualified segment-distance caller");
+    auto *frame=record(rt,c->r[29].uw[0],16),*first=record(rt,c->r[4].uw[0],32),*second=record(rt,c->r[5].uw[0],32);
+    separatePairFrame(frame,first,32);separatePairFrame(frame,second,32);
+    for(unsigned reg:{6u,7u}){const auto address=c->r[reg].uw[0];auto *output=rt->memory.hostPointer(address,4);
+        if((address&3) || !output)throw std::runtime_error("invalid segment-distance parameter output");separatePairFrame(frame,output,4);}
+    float a[2][4],b[2][4];std::memcpy(a,first,32);std::memcpy(b,second,32);
+    for(auto *vectors:{a,b})for(unsigned row=0;row<2;++row)for(unsigned i=0;i<3;++i){pairQualified(vectors[row][i]);
+        if(std::abs(vectors[row][i])>1.e8f)throw std::runtime_error("unqualified segment-distance magnitude");}
+    SegmentTerms result;std::array<float,3> u,v,negativeV;
+    for(unsigned i=0;i<3;++i){result.delta[i]=pairSum(a[0][i],-b[0][i]);u[i]=a[1][i];v[i]=b[1][i];negativeV[i]=pairProduct(v[i],-1.f);}
+    const auto dot=[](const auto &x,const auto &y){return pairSum(pairSum(pairProduct(x[0],y[0]),pairProduct(x[1],y[1])),pairProduct(1.f,pairProduct(x[2],y[2])));};
+    result.firstLength=dot(u,u);result.negativeCross=pairProduct(dot(u,v),-1.f);result.secondLength=dot(v,v);
+    result.firstProjection=dot(result.delta,u);result.separation=dot(result.delta,result.delta);
+    result.determinant=std::abs(pairSum(pairProduct(result.firstLength,result.secondLength),-pairProduct(result.negativeCross,result.negativeCross)));
+    result.negativeSecondProjection=dot(result.delta,negativeV);
+    result.secondNumerator=pairSum(pairProduct(result.negativeCross,result.firstProjection),-pairProduct(result.firstLength,result.negativeSecondProjection));
+    result.firstNumerator=pairSum(pairProduct(result.negativeCross,result.negativeSecondProjection),-pairProduct(result.secondLength,result.firstProjection));return result;
+}
 struct AngularDirections {std::array<float,3> first,second;float cosine;};
 AngularDirections angularDirections(Runtime *rt,R5900Context *c){
     const auto stack=c->r[29].uw[0];auto *frame=record(rt,stack,0x1a0);
@@ -120,6 +141,24 @@ bool nativeMathInstruction(uint8_t *,R5900Context *c,Runtime *rt,uint32_t pc){
     if(nativeTrigInstruction(nullptr,c,rt,pc))return true;
     if(nativeObjectMathInstruction(nullptr,c,rt,pc))return true;
     if(nativeFrustumInstruction(c,rt,pc))return true;
+    if((pc>=0x2120ac && pc<=0x212110 && !(pc&3)) || pc==0x212118 || pc==0x212138 ||
+       (pc>=0x212170 && pc<=0x212184 && !(pc&3)))return true;
+    if(pc==0x21211c || pc==0x212120 || pc==0x212128 || pc==0x212130 || pc==0x21213c || pc==0x212144 || pc==0x21214c || pc==0x212188 || pc==0x212190 || pc==0x212198){
+        const auto terms=segmentTerms(rt,c);
+        if(pc==0x21211c){if(c->r[2].uw[0]!=c->r[29].uw[0])throw std::runtime_error("segment-distance temporary mismatch");
+            // XYZ is read by the original parallel-segment scalar branch.
+            // W is dead; frame/input/output aliases that could expose it reject.
+            std::memcpy(record(rt,c->r[29].uw[0],16),terms.delta.data(),12);return true;}
+        float value=0;switch(pc){
+        case 0x212120:value=terms.firstLength;break;case 0x212128:value=terms.negativeCross;break;
+        case 0x212130:value=terms.secondLength;break;case 0x21213c:value=terms.firstProjection;break;
+        case 0x212144:value=terms.separation;break;case 0x21214c:value=terms.determinant;break;
+        case 0x212188:value=terms.negativeSecondProjection;break;case 0x212190:value=terms.secondNumerator;break;
+        case 0x212198:value=terms.firstNumerator;break;}
+        // Only the scalar word is consumed; both audited callers overwrite
+        // these integer temporaries before using a packed or upper component.
+        c->r[pc==0x21214c?3:2].uw[0]=std::bit_cast<uint32_t>(value);return true;
+    }
     if(pc==0x1fde1c || pc==0x1fde20 || (pc>=0x1fde40 && pc<=0x1fde60 && !(pc&3)) || pc==0x1fde70 || pc==0x1fde78)return true;
     if(pc==0x1fde6c){
         const auto stack=c->r[29].uw[0];auto *origin=record(rt,stack+0x460,16),*direction=record(rt,stack+0x220,16);

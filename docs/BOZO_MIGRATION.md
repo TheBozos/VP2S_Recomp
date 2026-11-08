@@ -12,6 +12,33 @@ The earlier VP2S face/shading and general brightness comparisons remain open.
 
 ## Build and evidence
 
+### Native segment-distance terms (2026-11-08)
+
+`0x2120a0` now derives ordered dot products, negative cross/projection terms,
+the absolute determinant and the two unconstrained parameter numerators from
+the two game origin/direction records. All 44 vector sites are bound; original
+scalar parallel/nonparallel selection, parameter clamps, squared-distance
+evaluation and ordered parameter stores remain compiled. No generic closest-
+segment routine or host policy replaces those branches.
+
+This contract admits only the two audited return addresses `0x1fc3dc/0x1fc5f4`.
+They consume the transfer results as scalar words and overwrite integer
+temporaries before any live packed use. Unused transfer lanes and temporary W
+retire, rather than reconstructing stale bank data. Input and scalar-output
+spans must be disjoint from the helper's temporary frame; active coordinates
+and directions must be finite normal/zero values with magnitude at most 1e8,
+bounding all dot-product and determinant intermediates. These are explicit
+qualification limits, not evidence of original full-register padding equality.
+
+512 complete scalar-function CPU/RAM/FP comparisons cover four modes, both
+return contracts, parallel/antiparallel and zero-length segments, tiny products,
+equal inputs and ordered parameter/input/output aliases. Binary-exact crossing
+and clamped examples check squared distances 4 and 8 and their parameters.
+Frame/domain/caller rejection and source-word/vector-completeness checks pass.
+All 58 rebuilt suites pass (`segment-all-tests.log`, 175.03 seconds).
+Actual New Game advances to `0x1fc628`, the following collision-normal block;
+Logun remains open and BozoEngine is unchanged.
+
 ### Native collision-query endpoint preparation (2026-11-08)
 
 `0x1fde10..0x1fde88` now prepares an origin and XYZ direction directly from

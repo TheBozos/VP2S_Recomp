@@ -12,6 +12,47 @@ The earlier VP2S face/shading and general brightness comparisons remain open.
 
 ## Build and evidence
 
+### Movement rotation and geometry addition correction (2026-11-08)
+
+The six `38011c..380164` sites now publish three quaternion rotation rows from
+the scalar quaternion at `SP+290`. Original scalar code builds the fourth
+identity row at `SP+2d0`; the real `410df0` row-product consumer remains compiled.
+The old literal-zero control read supplies zero without reading or writing a
+processor bank. Source/destination, entry and helper return are checked.
+
+The new oracle found an existing numerical bug: quaternion matrix and Bozo
+row-dot sums used the codec's smaller-significand pre-alignment (the FPU adder's
+truncation). Both sites are VU0 code: the matrix is micro program `0x720`, the
+row dot is `410df0`'s VMUL/VADDA/VMADDA chain. BozoEngine's arithmetic spec
+(`external/BozoEngine/docs/specs/r5900.md`, Q1) settles VU0 add/sub as the exact
+sum rounded to nearest even (731 captured samples need it), and mul as nearest
+even (Q10). `vp2s::math::quaternionMatrix` and the Bozo row dot now run under
+`music::NearestRounding`, which restores the caller's whole MXCSR, flags
+included. Other codec arithmetic is unchanged. This is a shared native
+quaternion helper change, so both Bozo and the USA port are rebuilt.
+
+A first draft of this change used RTZ host additions, reasoning from PCSX2's
+microVU emission (host add/sub under its default round-to-zero VU MXCSR). That
+contradicted the engine spec and failed `vp2s-bozo-object-world` (82/83): the
+compiled original (engine VU0 ops) produced matrix words one ULP above the RTZ
+result, e.g. `3e642800` vs `3e6427ff`, and an extra PE flag leaked. The field
+oracles were written with the same RTZ assumption; they now call the engine's
+own `ps2f::mul`/`ps2f::addNearest`. For quaternion bits
+`{1,80000001,00800000,3f800000}` and point `{1,2,3,1}`, the consumer's Y is
+`40000000` (2 plus a tiny normal term rounds to 2). The rows agree for that
+case, so the consumer is separated from the producer. If a PCSX2 numeric
+comparison is wanted, it must account for PCSX2's VU rounding setting.
+
+512 bounded matrix/real-consumer pairs and 64 identity cases compare whole
+CPU/RAM/FP against the engine's integer VU0 products and sums. They cover
+tiny components, subnormal-to-signed-zero reduction, unused processor state,
+five RAM aliases, scratch storage and four modes/FTZ/DAZ. Eight readonly guards
+and every-word scalar/micro-source checks qualify the boundary. The private
+fixture tail-calls the real consumer and stops before the enclosing update
+continues; it does not qualify that whole update. The initial expanded field
+suite passes in 25.66 s. The protected `movement-rotation-route.log` now reaches
+the next length calculation at `380664`; completed field/Logun remains open.
+
 ### Native procedural feedback draw (2026-11-08)
 
 Class `152d50` now collects native geometry at original scalar builder sites

@@ -12,6 +12,16 @@ IMAGE=Path(sys.argv.pop(1))
 
 
 class KernelGuardTests(unittest.TestCase):
+    def test_movement_rotation_source(self):
+        data=(IMAGE.parent/'mod003.elf').read_bytes();_,segments,_=elf_parts(data)
+        lo,hi=0x3800f0,0x380178;s=next(s for s in segments if s[0]==1 and s[2]<=lo<hi<=s[2]+s[4])
+        for pc in range(lo,hi,4):
+            changed=bytearray(data);changed[s[1]+pc-s[2]]^=1
+            with self.subTest(pc=hex(pc)),self.assertRaises(ValueError):overlay_adaptations('mod003',changed)
+        data=(IMAGE.parent/'mod001.elf').read_bytes()
+        for at in range(0x12bbc8,0x12bc98,4):
+            changed=bytearray(data);changed[at]^=1
+            with self.subTest(at=hex(at)),self.assertRaises(ValueError):overlay_adaptations('mod001',changed)
     def test_procedural_draw_source(self):
         data=(IMAGE.parent/'mod001.elf').read_bytes();_,segments,_=elf_parts(data)
         self.assertIn('00247698 0c0807c8 0c091d8c',overlay_adaptations('mod001',data).splitlines())

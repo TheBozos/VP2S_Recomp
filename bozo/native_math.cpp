@@ -522,6 +522,18 @@ std::array<uint32_t,4> NativeMotion::finish(uint32_t frame,uint32_t object){
     const auto result=it->second.position;updates.erase(it);return result;
 }
 bool nativeMathInstruction(uint8_t *,R5900Context *c,Runtime *rt,uint32_t pc){
+    if(pc==0x38011c || pc==0x380124 || pc==0x380154 || pc==0x38015c || pc==0x380160 || pc==0x380164){
+        if(!c || c->pc!=0x380118 || c->r[31].uw[0]!=0x380118)throw std::runtime_error("native movement rotation escaped scalar quaternion builder");
+        const auto stack=c->r[29].uw[0];
+        if((pc==0x38011c || pc==0x380124) && c->r[2].uw[0]!=stack+0x290)throw std::runtime_error("movement quaternion source mismatch");
+        if(pc==0x380154)c->r[9].ud[0]=0;
+        else if(pc>=0x38015c){
+            if(c->r[2].uw[0]!=stack+0x2a0)throw std::runtime_error("movement rotation destination mismatch");
+            __m128 input;std::memcpy(&input,record(rt,stack+0x290,16),16);float values[4];std::memcpy(values,&input,16);
+            for(float v:values){const auto magnitude=std::bit_cast<uint32_t>(v)&0x7fffffff;if(magnitude>=0x7f800000 || magnitude>std::bit_cast<uint32_t>(1.e8f))throw std::runtime_error("unqualified movement quaternion");}
+            const auto result=math::quaternionMatrix(input);const auto row=(pc-0x38015c)/4;std::memcpy(record(rt,stack+0x2a0+16*row,16),&result[row],16);
+        }return true;
+    }
     if(nativeParticleCallbackInstruction(c,rt,pc))return true;
     if(pc==0x22f300 || pc==0x22f304 || pc==0x22f308 || pc==0x22f30c){
         if(!c || c->pc<0x22f170 || c->pc>0x22f2f8 || !c->r[18].uw[0] || c->r[3].uw[0]!=c->r[20].uw[0]+0x580 || c->r[4].uw[0]!=c->r[18].uw[0]+0x340 || c->r[2].uw[0]!=c->r[29].uw[0]+0xb0)
@@ -1421,11 +1433,11 @@ bool nativeMathInstruction(uint8_t *,R5900Context *c,Runtime *rt,uint32_t pc){
             if(e==0x7f800000 || (!e && (bits&0x7fffff)))throw std::runtime_error("unqualified native row dot input");};
         for(auto &row:matrix)for(float value:row)finite(value);for(float value:vector)finite(value);
         const unsigned order[4][4]={{0,1,2,3},{1,0,2,3},{2,1,0,3},{3,1,2,0}};
-        music::CodecRounding rounding;
+        music::NearestRounding rounding;
         for(unsigned row=0;row<4;++row){float products[4];
             for(unsigned i=0;i<4;++i){volatile float product=matrix[row][i]*vector[i];products[i]=normal(product);}
-            auto total=normal(music::codecSum(products[order[row][0]],products[order[row][1]]));
-            total=normal(music::codecSum(total,products[order[row][2]]));total=normal(music::codecSum(total,products[order[row][3]]));
+            auto total=pairSum(products[order[row][0]],products[order[row][1]]);
+            total=pairSum(total,products[order[row][2]]);total=pairSum(total,products[order[row][3]]);
             if(!std::isfinite(total))throw std::runtime_error("native row dot overflow");result[row]=total;
         }
         std::memcpy(record(rt,c->r[6].uw[0],16),result,16);return true;

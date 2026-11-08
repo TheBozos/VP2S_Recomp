@@ -17,13 +17,23 @@ fixture,_=prepare(data,[dict(Name='field_distance',Start='0x378908',End='0x3789d
                        dict(Name='enclosing_distance',Start='0x37f95c',End='0x37f9e0'),
                        dict(Name='model_colour',Start='0x43d280',End='0x43d35c'),
                        dict(Name='field_rotation',Start='0x379228',End='0x379294'),
+                       dict(Name='movement_rotation',Start='0x380118',End='0x380178'),
                        dict(Name='row_dot',Start='0x410df0',End='0x410e50'),
                        dict(Name='action_update',Start='0x4126a0',End='0x412868'),
                        dict(Name='animation_parameter',Start='0x446520',End='0x446618'),
                        dict(Name='animation_movement',Start='0x446620',End='0x446b8c')],{})
 fixture=bytearray(fixture);_,segments,_=elf_parts(fixture)
+s=next(s for s in segments if s[0]==1 and s[2]<=0x380118<0x380178<=s[2]+s[4])
+# Tail-call the retained real row-product consumer while keeping the fixture's
+# original return address. Only private test code changes this JAL into J.
+at=s[1]+0x380170-s[2];fixture[at:at+4]=(0x0810437c).to_bytes(4,'little')
+movement_sites=[]
+for pc in (0x38011c,0x380124,0x380154,0x38015c,0x380160,0x380164):
+    if a.variant=='original' and pc!=0x38015c:
+        at=s[1]+pc-s[2];fixture[at:at+4]=bytes(4)
+    else:movement_sites.append(f'native 0x{pc:x}\n')
 s=next(s for s in segments if s[0]==1 and s[2]<=0x378908<0x3789d0<=s[2]+s[4])
-sites=[f'native 0x{pc:x}\n' for pc in range(0x377d8c,0x377db0,4)]
+sites=movement_sites+[f'native 0x{pc:x}\n' for pc in range(0x377d8c,0x377db0,4)]
 for begin,end,result in ((0x378980,0x3789c8,0x3789a0),(0x3c5d58,0x3c5dc8,0x3c5d78),(0x37b548,0x37b578,0x37b568),(0x382020,0x38204c,0x382040),(0x37f994,0x37f9d8,0x37f9b4)):
     s=next(s for s in segments if s[0]==1 and s[2]<=begin<end+8<=s[2]+s[4])
     at=s[1]+end-s[2];fixture[at:at+8]=(0x03e00008).to_bytes(4,'little')+bytes(4)

@@ -217,7 +217,8 @@ inline __m128 normalizeQuaternion(__m128 value) {
 // The game accepts the supplied quaternion as-is; normalization is a separate
 // operation. Preserve its product and subtraction order, including signed zero.
 inline Matrix quaternionMatrix(__m128 value) {
-    music::CodecRounding rounding;
+    // VU0 macro arithmetic: sums and products round to nearest even.
+    music::NearestRounding rounding;
     // Tiny components/products in this game calculation reduce to signed zero.
     // Retaining a subnormal squared term makes 1 - term round one ULP below 1.
     auto normal=[](__m128 v) {
@@ -228,14 +229,14 @@ inline Matrix quaternionMatrix(__m128 value) {
     auto product=[&](__m128 a,__m128 b) {return normal(_mm_mul_ps(a,b));};
     value=normal(value);
     const auto squares=product(value,value);
-    const auto twice=normal(music::codecSum(value,value));
-    const auto diagonal=normal(music::codecSum(squares,squares));
+    const auto twice=normal(_mm_add_ps(value,value));
+    const auto diagonal=normal(_mm_add_ps(squares,squares));
     const auto x=product(value,music::broadcast<0>(twice));
     const auto w=product(value,music::broadcast<3>(twice));
     const auto y=product(value,music::broadcast<1>(twice));
     const auto z=product(value,music::broadcast<2>(twice));
     auto lane=[](__m128 v,int n) {return music::laneValue(v,n);};
-    auto sum=[&](float a,float b) {return _mm_cvtss_f32(normal(music::codecSum(_mm_set1_ps(a),_mm_set1_ps(b))));};
+    auto sum=[&](float a,float b) {return _mm_cvtss_f32(normal(_mm_add_ss(_mm_set_ss(a),_mm_set_ss(b))));};
     return {
         _mm_setr_ps(sum(sum(1.f,-lane(diagonal,1)),-lane(diagonal,2)),
                     sum(lane(x,1),lane(w,2)),sum(lane(x,2),-lane(w,1)),0.f),

@@ -18,6 +18,13 @@ struct CodecRounding {
     CodecRounding() { _mm_setcsr((saved & ~_MM_ROUND_MASK) | _MM_ROUND_TOWARD_ZERO); }
     ~CodecRounding() { _mm_setcsr(saved); }
 };
+// VU0 vector add/sub/mul round the exact result to nearest even. Restores the
+// caller's whole MXCSR, flags included, so inexact results never leak out.
+struct NearestRounding {
+    unsigned saved = _mm_getcsr();
+    NearestRounding() { _mm_setcsr((saved & ~_MM_ROUND_MASK) | _MM_ROUND_NEAREST); }
+    ~NearestRounding() { _mm_setcsr(saved); }
+};
 // The game algorithm truncates the smaller mantissa before each sum. Keep this
 // numerical policy without an execution core, register file or pipeline state.
 inline Vector codecSum(Vector a, Vector b) {

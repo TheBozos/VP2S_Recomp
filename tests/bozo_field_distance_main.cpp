@@ -4,6 +4,7 @@
 #include "bozo/port.h"
 #include "distance_original_functions.h"
 #include "distance_adapted_functions.h"
+#include "bozo/ops_fpu.h"
 #include <bit>
 #include <cmath>
 #include <cstdio>
@@ -12,6 +13,18 @@
 #include <source_location>
 #include <stdexcept>
 namespace {
+// The engine's VU0 arithmetic definitions (ops_fpu.h, reference-capture
+// settled): sums and products round the exact result to nearest even.
+uint32_t vu0Product(uint32_t a,uint32_t b){uint32_t flags=0;return bozo::ps2f::mul(a,b,flags);}
+uint32_t vu0Sum(uint32_t a,uint32_t b){uint32_t flags=0;return bozo::ps2f::addNearest(a,b,flags);}
+std::array<uint32_t,12> movementRotationOracle(const uint32_t *raw){
+    const auto product=vu0Product;const auto sum=vu0Sum;uint32_t q[4],twice[4],diagonal[4];
+    for(unsigned i=0;i<4;++i){q[i]=(raw[i]&0x7f800000)?raw[i]:raw[i]&0x80000000;twice[i]=sum(q[i],q[i]);const auto square=product(q[i],q[i]);diagonal[i]=sum(square,square);}
+    const auto minus=[](uint32_t b){return b^0x80000000;};uint32_t x[4],y[4],z[4],w[4];for(unsigned i=0;i<4;++i){x[i]=product(q[i],twice[0]);y[i]=product(q[i],twice[1]);z[i]=product(q[i],twice[2]);w[i]=product(q[i],twice[3]);}
+    return {sum(sum(0x3f800000,minus(diagonal[1])),minus(diagonal[2])),sum(x[1],w[2]),sum(x[2],minus(w[1])),0,
+            sum(y[0],minus(w[2])),sum(sum(0x3f800000,minus(diagonal[0])),minus(diagonal[2])),sum(y[2],x[3]),0,
+            sum(z[0],w[1]),sum(z[1],minus(x[3])),sum(sum(0x3f800000,minus(diagonal[0])),minus(diagonal[1])),0};
+}
 void check(bool v,std::source_location at=std::source_location::current()){
     if(!v)throw std::runtime_error("field distance assertion at "+std::to_string(at.line()));
 }
@@ -96,6 +109,8 @@ struct Host:bozo::ee::Host,bozo::port::Host {
     bozo::libs::Libraries &libraries()override{throw std::runtime_error("library");}
     bool nativeGraphics()const override{return true;}
     bool nativeInstruction(uint8_t *r,R5900Context *c,Runtime *rt,uint32_t pc)override{
+        if(reference && pc==0x38015c){uint32_t q[4];std::memcpy(q,rt->memory.hostPointer(c->r[29].uw[0]+0x290,16),16);const auto rows=movementRotationOracle(q);
+            std::memcpy(rt->memory.hostPointer(c->r[2].uw[0],48),rows.data(),48);c->r[9].ud[0]=0;return true;}
         if(pc>=0x377d8c && pc<=0x377dac){
             if(!reference)return vp2s::nativeMathInstruction(r,c,rt,pc);
             if(pc==0x377dac){const auto saved=_mm_getcsr(),mode=saved&_MM_ROUND_MASK;uint32_t out[4];std::memcpy(out,rt->memory.hostPointer(c->r[7].uw[0],16),16);
@@ -135,8 +150,9 @@ struct Host:bozo::ee::Host,bozo::port::Host {
         if(reference && pc==0x410e4c){
             uint32_t matrix[4][4],vector[4],result[4];std::memcpy(matrix,rt->memory.hostPointer(c->r[4].uw[0],64),64);std::memcpy(vector,rt->memory.hostPointer(c->r[5].uw[0],16),16);
             const unsigned order[4][4]={{0,1,2,3},{1,0,2,3},{2,1,0,3},{3,1,2,0}};
-            for(unsigned row=0;row<4;++row){uint32_t p[4];for(unsigned i=0;i<4;++i)p[i]=product(matrix[row][i],vector[i]);
-                auto s=signedSum(p[order[row][0]],p[order[row][1]]);s=signedSum(s,p[order[row][2]]);result[row]=signedSum(s,p[order[row][3]]);}
+            // VU0 mul, then add/madd (product by 1 is exact) as the original 410df0 body.
+            for(unsigned row=0;row<4;++row){uint32_t p[4];for(unsigned i=0;i<4;++i)p[i]=vu0Product(matrix[row][i],vector[i]);
+                result[row]=vu0Sum(vu0Sum(vu0Sum(p[order[row][0]],p[order[row][1]]),p[order[row][2]]),p[order[row][3]]);}
             std::memcpy(rt->memory.hostPointer(c->r[6].uw[0],16),result,16);return true;
         }
         if(reference && pc==0x379280){
@@ -359,6 +375,35 @@ int main(){try{
         check(!std::memcmp(a.memory.flat(),b.memory.flat(),bozo::kFlatBytes));
         float row[4];std::memcpy(row,b.memory.ram()+object+0x1f0,16);check(row[0]==0 && row[1]==0 && row[2]==0 && row[3]==1);++rotations;
     }
+    unsigned movementRotations=0,knownMovementRotations=0;
+    for(unsigned mode:{_MM_ROUND_NEAREST,_MM_ROUND_DOWN,_MM_ROUND_UP,_MM_ROUND_TOWARD_ZERO})for(unsigned seed=0;seed<128;++seed){
+        auto &a=original.runtime(),&b=adapted.runtime();std::memset(a.memory.flat(),0x51,bozo::kFlatBytes);const uint32_t aliases[]={0,0x20000000,0x30000000,0x80000000,0xa0000000};
+        const auto stack=seed&1?0x70002d90u:0x1ffd000u|aliases[(seed/8)%5];uint32_t q[4];for(unsigned i=0;i<4;++i)q[i]=((seed*7919+i*3121)&0x807fffff)|((117+(seed+i)%10)<<23);
+        const bool known=seed%8==0;if(known){q[0]=q[1]=q[2]=0;q[3]=0x3f800000;}
+        if(seed%8==1){q[0]=1;q[1]=0x80000001;q[2]=0x00800000;q[3]=0x3f800000;}
+        std::memcpy(a.memory.hostPointer(stack+0x290,16),q,16);const std::array<float,4> point{1,2,3,1};std::memcpy(a.memory.hostPointer(stack+0x2e0,16),point.data(),16);
+        std::memcpy(b.memory.flat(),a.memory.flat(),bozo::kFlatBytes);R5900Context x{};for(unsigned i=1;i<32;++i){x.r[i].ud[0]=0x1234000000000000ull+seed*32+i;x.r[i].ud[1]=~x.r[i].ud[0];x.f[i]=float(i)/8;}
+        std::memset(x.vu0_vf,0xa5,sizeof(x.vu0_vf));std::memset(&x.vu0_acc,0x5a,sizeof(x.vu0_acc));x.vu0_status=0x12345678;x.vu0_q_bits=0x87654321;x.vi[0]=0x1234;
+        x.r[29].ud[0]=stack;x.r[31].ud[0]=0x380118;auto y=x;const auto saved=_mm_getcsr(),control=(saved&~(_MM_ROUND_MASK|0x8040|0x3f))|mode|(seed&8?0x8040:0);_mm_setcsr(control);
+        host.reference=true;a.functions.generated(0x380118)(a.memory.flat(),&x,&a);const auto fp=_mm_getcsr();_mm_setcsr(control);
+        host.reference=false;b.functions.generated(0x380118)(b.memory.flat(),&y,&b);check(_mm_getcsr()==fp);_mm_setcsr(saved);x.cycleLimit=y.cycleLimit;
+        if(x.pc!=0x380118 || std::memcmp(&x,&y,sizeof(x)) || std::memcmp(a.memory.flat(),b.memory.flat(),bozo::kFlatBytes)){
+            std::fprintf(stderr,"movement rotation mode%x seed%u PCs%x/%x\n",mode,seed,x.pc,y.pc);
+            for(unsigned i=0;i<sizeof(x);++i)if(reinterpret_cast<const uint8_t *>(&x)[i]!=reinterpret_cast<const uint8_t *>(&y)[i]){std::fprintf(stderr,"CPU byte%x old%02x native%02x\n",i,reinterpret_cast<const uint8_t *>(&x)[i],reinterpret_cast<const uint8_t *>(&y)[i]);break;}
+            for(unsigned i=0;i<bozo::kFlatBytes;++i)if(a.memory.flat()[i]!=b.memory.flat()[i]){std::fprintf(stderr,"RAM byte%x old%02x native%02x\n",i,a.memory.flat()[i],b.memory.flat()[i]);break;}check(false);
+        }
+        const auto rows=movementRotationOracle(q);check(!std::memcmp(rows.data(),b.memory.hostPointer(stack+0x2a0,48),48));
+        if(seed%8==1){uint32_t outputY;std::memcpy(&outputY,b.memory.hostPointer(stack+0x2e4,4),4);check(outputY==0x40000000u);} // 2 plus a tiny normal term rounds to nearest 2
+        const std::array<float,4> last{0,0,0,1};check(!std::memcmp(last.data(),b.memory.hostPointer(stack+0x2d0,16),16));if(known){check(!std::memcmp(point.data(),b.memory.hostPointer(stack+0x2e0,16),16));++knownMovementRotations;}++movementRotations;
+    }
+    {auto &rt=adapted.runtime();for(unsigned which=0;which<8;++which){constexpr uint32_t stack=0x1ffd000;const std::array<float,4> identity{0,0,0,1};std::memcpy(rt.memory.hostPointer(stack+0x290,16),identity.data(),16);
+        R5900Context c{};c.pc=0x380118;c.r[31].uw[0]=0x380118;c.r[29].uw[0]=stack;c.r[2].uw[0]=stack+0x2a0;uint32_t pc=0x38015c;
+        if(which==0)c.pc=0;else if(which==1)c.r[31].uw[0]=0;else if(which==2)c.r[2].uw[0]+=16;else if(which==3){pc=0x38011c;c.r[2].uw[0]=stack+0x2a0;}else if(which==4){pc=0x380124;c.r[2].uw[0]=stack+0x2a0;}
+        else {const uint32_t bad=which==5?0x7fa01234:which==6?0x7f800000:0x71800000;std::memcpy(rt.memory.hostPointer(stack+0x290,4),&bad,4);}
+        const auto before=c;const auto fp=_mm_getcsr();const auto ram=std::vector<uint8_t>(rt.memory.flat(),rt.memory.flat()+bozo::kFlatBytes);bool rejected=false;
+        try{vp2s::nativeMathInstruction(rt.memory.flat(),&c,&rt,pc);}catch(const std::runtime_error &){rejected=true;}check(rejected && _mm_getcsr()==fp && !std::memcmp(&before,&c,sizeof(c)) && !std::memcmp(ram.data(),rt.memory.flat(),ram.size()));
+    }}
+    std::printf("%u bounded movement rotation consumers,%u identity cases, integer quaternion/row-product oracle and8 readonly rejections passed\n",movementRotations,knownMovementRotations);
     unsigned dots=0;uint32_t random=71;
     for(unsigned mode:{_MM_ROUND_NEAREST,_MM_ROUND_DOWN,_MM_ROUND_UP,_MM_ROUND_TOWARD_ZERO})for(unsigned seed=0;seed<128;++seed){
         auto &a=original.runtime();auto &b=adapted.runtime();std::memset(a.memory.flat(),seed+1,bozo::kFlatBytes);

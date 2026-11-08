@@ -1,5 +1,6 @@
 // Real native render-to-texture readback; hidden video-only window, no input.
 #include "native_frame_copy.h"
+#include "native_dof.h"
 #include "bozo/render/renderer.h"
 #include "bozo/render/gl.h"
 #include <SDL3/SDL.h>
@@ -39,6 +40,26 @@ int main(){
         }
         ++cases;
     }
+    // Qualified image graph: immutable colour source + current depth table,
+    // smaller alpha map and two separable kernels. Constant interior zones
+    // must remain unchanged when all weights/gains are one.
+    for(bool composite:{false,true}){
+        r.beginFrame(screen);Material m;m.textured=false;m.depthTest=false;m.depthWrite=false;m.blend=Material::Blend::Opaque;
+        for(unsigned i=0;i<4;++i)quad(float(i%2)*32,float(i/2)*24,32,24,0x80202020+i*0x101010,m);
+        if(composite){
+            vp2s::drawFrameCopy({0x190000,32,24,frame});vp2s::NativeDof effect;effect.frame=frame;effect.width=16;effect.height=12;effect.gain=1;effect.depthScale=256;
+            vp2s::NativeDofBlock block;block.width=16;block.height=12;block.weightWidth=8;block.weightHeight=6;
+            block.sigma=1;block.weightSigma=1;block.gain=1;block.weightGain=1;block.weightScale=1;block.alpha=1;block.weights.fill(1);effect.blocks.push_back(block);
+            vp2s::drawDof(effect);
+        }
+        r.endFrame();gl::api().Viewport(0,0,64,48);r.present(0,0,64,48);
+        gl::api().ReadPixels(0,0,64,48,gl::kRgba,gl::kUnsignedByte,(composite?copied:baseline).data());
+    }
+    for(unsigned y:{12u,36u})for(unsigned x:{16u,48u})for(unsigned lane=0;lane<3;++lane){
+        const auto at=(y*64+x)*4+lane;++compared;if(std::abs(int(baseline[at])-int(copied[at]))>3){
+            std::printf("DOF constant zone %u,%u lane%u baseline%u copy%u\n",x,y,lane,baseline[at],copied[at]);++failures;}
+    }
+    ++cases;
     r.releaseGpu();SDL_GL_DestroyContext(context);SDL_DestroyWindow(window);SDL_Quit();
     std::printf("%u native frame-copy GPU cases, %u interior RGBA samples, %u failures\n",cases,compared,failures);return failures?1:0;
 }

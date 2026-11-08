@@ -12,6 +12,42 @@ The earlier VP2S face/shading and general brightness comparisons remain open.
 
 ## Build and evidence
 
+### Native DOF image graph and engine image operations (2026-11-08)
+
+BozoEngine PR76 merged as `8a87fc3`: generic separable image kernels,
+lookup from current native main depth, auxiliary green-channel opacity and
+per-draw target dimensions. Draws deep-copy their parameters, validate admission
+and hash active values. Existing defaults preserve their digests. All 49 engine
+suites pass locally (4.14 s); Windows/Linux branch `42496938701`, PR
+`42496956482` and postmerge `42497256623` CI pass. Hidden synthetic GPU tests
+cover exact blur, current depth, opacity, resize and shader-state reset.
+
+The game adapter observes original `0x2d9360` and complete `0x2cd020` block
+invocations, copying each finished semantic table before reuse. Its native graph
+retains colour/weight reduction, blur/composite, glow and established glare
+equations. Submission precedes enqueue and invokes real `0x2d9310/0x21c9a0`
+completion. Destruction rejects active builders and releases associations.
+The first actual frame executes no depth blocks: dead uninitialized depth
+fields are excluded when only glow runs. Unsupported block modes/constant
+opacity/parameter owners remain guarded; visual parity is open.
+
+All 68 rebuilt VP2S suites pass in 269.28 s, including three hidden GPU suites
+(`dof-all-tests.log`). Final lifetime/table-reuse assertions and destructor
+binding pass five focused suites in 47.02 s (`dof-lifetime-tests.log`). The
+complete copy builder and both pre-enqueue producer/completion paths qualify
+256 CPU/RAM/FP builder cases and 192 submissions for each producer, with an
+unavailable legacy queue and paused callbacks. DOF semantic builder observations
+have ownership/lifetime checks; the large original block builder is not a full
+paired CPU fixture. A synthetic complete DOF image graph retains four constant
+interior RGB zones on GPU.
+
+The actual protected route passes DOF and stops at `0x205a10`, screen-feedback
+producer object `0x5b2de0` (`dof-lifetime-route.log`). The diagnostic partial
+capture `captures/dof-lifetime-boundary.png`, serial 1510, has 170 batches and
+5,667 vertices: Alicia is visible against black surroundings. RGB means are
+0.985/0.997/0.976; the top-quarter means are all zero. This is a rejecting-boundary
+capture, not a completed field frame or Logun qualification.
+
 ### Colour copy publishes before transport ownership (2026-11-08)
 
 The scene wait after particle physics was caused by colour-copy publication

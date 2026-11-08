@@ -476,6 +476,11 @@ def overlay_adaptations(name,data):
         (0x2dc990,0x2dc9a8,'2514d6567752cea2fb3255856ed41e2cbe5c0e4e276d9f3310a81d895ae012af'),
         (0x2dbd90,0x2dbdac,'e6e81f90b768228012c77b0ff794a4068ceb0187abc59dc45364159a238dd8ae'),
         (0x2dbdb0,0x2dbde0,'d75aad57b1cf26127f35bdf8a0eec8259d79c6b1cb8cbbabe269467dac4546ef'),
+        (0x2d9330,0x2d9360,'d75aad57b1cf26127f35bdf8a0eec8259d79c6b1cb8cbbabe269467dac4546ef'),
+        (0x2d9360,0x2da9a8,'41fef5550eda7e9b62d9c20827b3e5e86c3b82b7f4c0061f80ddb90612845297'),
+        (0x2cd020,0x2d18d4,'618be48d56debcac8ef3fd9d80ae23483f060a7939fc8d450772d444e91e7d61'),
+        (0x2d9310,0x2d932c,'e6e81f90b768228012c77b0ff794a4068ceb0187abc59dc45364159a238dd8ae'),
+        (0x2da9b0,0x2dab58,'e9616a7a67d9711340f671a0f247d5bad039f18c4614995d8d9e91f983decbe2'),
         (0x2c76d0,0x2c81c4,'8e35c67b4a3f83e1793832f99d7cf6d43aa4292882c3e182bf72bffd678aa541'),
         (0x2c81d0,0x2c8320,'1b6a7bd130edea1272195affad652d65c9d8fe9f21a3546fb0c814809c69e364'),
         (0x2143e0,0x2144bc,'215972741f87f32b518d7c668445cb57c11ce3579448a56bd30bafb4105339c5'),
@@ -649,6 +654,7 @@ def overlay_adaptations(name,data):
             # Publish in the outer producer before a transport job can exist;
             # enter the original scalar completion with the owning object.
             '002dbdcc 0c0807c8 0c0b6f64\n'
+            '002d934c 0c0807c8 0c0b64c4\n'
             # Explicit particle records are already published synchronously.
             # Remove both device polls, without fabricating completion bits.
             '0022ee50 1a600009 10000009\n'
@@ -727,6 +733,7 @@ def overlay_native_sites(name,data):
         *SQUAD_SITES,
         *PARTICLE_PUBLICATION_SITES,
         0x2dbde0,0x2dbeb4,0x2dc6c8,0x2dbdd0,0x2dc700,
+        0x2d9360,0x2cd020,0x2d18a0,0x2da980,0x2d9350,0x2da9b0,
         *range(0x252ec8,0x252f24,4),0x252fdc,0x252fe0,0x252fe4,0x252fec,0x252ff0,0x252ff8,
         0x2bf040,0x2bf058,
         0x2371e8,0x2371ec,0x2371f0,0x2371f4,0x2371fc,0x237200,0x237204,0x237208,

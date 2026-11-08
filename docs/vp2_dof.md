@@ -2,6 +2,29 @@
 
 ## Bozo USA colour-copy source (2026-11-08)
 
+The native DOF adapter now observes the complete original `0x2d9360` builder
+and each `0x2cd020` block invocation. It snapshots the scalar parameters and
+finished G weight table at `0x2d18a0`, before another block can reuse the table.
+Only blocks the game actually writes enter the native image graph. The first
+measured frame executes glow only, despite enabled parameter records; its
+unused depth shift contains uninitialized data and is deliberately not read.
+
+`0x2d9350` publishes before the DOF legacy enqueue and enters original
+`0x2d9310/0x21c9a0` completion. BozoEngine PR76 supplies generic native image
+kernels, current-frame depth lookup, independent opacity images and per-draw
+image dimensions. The game adapter supplies its own weights, sizes and gains.
+No packet payload or device completion is consumed or synthesized.
+
+The graph retains colour and weight-map reduction, separable Gaussian passes,
+depth-limited composite, three glow levels and the established native cross
+glare equation. Glare strength and rendered PCSX2 parity remain unverified.
+Nonzero block mode `+0x1f`, nonunit constant opacity and external parameter
+owners reject. The generated DOF producer/completion fixture is qualified;
+the large scalar block builder is observed in actual runs, not independently
+qualified as a complete original/native CPU fixture. The first actual route
+passes DOF and reaches the later `0x205a10` screen-feedback producer. Logun
+remains open.
+
 The complete coordinate/copy writer `0x2d7a30` also retains its original identity
 and rotation setup, scalar coordinate loops, record writes and cursor publication.
 Its three inline matrix products (84 sites) now consume explicit stack matrices

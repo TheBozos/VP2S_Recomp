@@ -1,4 +1,5 @@
 #include "native_frame_copy.h"
+#include "native_dof.h"
 #include "bozo/ee/dispatcher.h"
 #include "bozo/port.h"
 #include "copy_original_functions.h"
@@ -15,9 +16,13 @@ constexpr uint32_t object=0x180000,target=0x190000,current=0x1a0000,queue=0x1b00
 void check(bool v,std::source_location at=std::source_location::current()){if(!v)throw std::runtime_error("frame-copy CPU assertion at "+std::to_string(at.line()));}
 template<class T>void put(Runtime &rt,uint32_t at,T v){std::memcpy(rt.memory.hostPointer(at,sizeof(T)),&v,sizeof(T));}
 template<class T>T get(Runtime &rt,uint32_t at){T v;std::memcpy(&v,rt.memory.hostPointer(at,sizeof(T)),sizeof(T));return v;}
-struct Host:bozo::ee::Host,bozo::port::Host,vp2s::SceneOwner,vp2s::FrameCopyOwner {
+template<class F>void rejects(F fn){bool bad=false;try{fn();}catch(const std::runtime_error &){bad=true;}check(bad);}
+struct Host:bozo::ee::Host,bozo::port::Host,vp2s::SceneOwner,vp2s::FrameCopyOwner,vp2s::DofOwner {
     bool reference=false,fail=false,pause=false;unsigned allocations=0,draws=0,callbacks=0;
     vp2s::NativeScene scene;vp2s::NativeFrameCopies copies;std::optional<vp2s::NativeFrameCopy> submitted;
+    vp2s::NativeDofs dofs;std::optional<vp2s::NativeDof> dofSubmitted;
+    vp2s::NativeDofs &nativeDofs()override{return dofs;}
+    void drawNativeDof(const vp2s::NativeDof &effect)override{check(effect.object==post);dofSubmitted=effect;++draws;}
     struct Pause{};
     vp2s::NativeScene &nativeScene()override{return scene;}
     vp2s::NativeFrameCopies &nativeFrameCopies()override{return copies;}
@@ -26,7 +31,9 @@ struct Host:bozo::ee::Host,bozo::port::Host,vp2s::SceneOwner,vp2s::FrameCopyOwne
     bool nativeGraphics()const override{return true;}
     bool nativeInstruction(uint8_t *r,R5900Context *c,Runtime *rt,uint32_t pc)override{
         if(reference && pc==0x2dbdd0){check(c->r[4].uw[0]==object && c->r[5].uw[0]==object+0x90);++draws;c->r[4].sd[0]=object;return true;}
+        if(reference && pc==0x2d9350){check(c->r[4].uw[0]==post && c->r[5].uw[0]==post+0x90);++draws;c->r[4].sd[0]=post;return true;}
         if(auto handled=vp2s::nativeFrameCopyInstruction(c,rt,pc))return *handled;
+        if(auto handled=vp2s::nativeDofInstruction(c,rt,pc))return *handled;
         if(vp2s::nativeSceneInstruction(r,c,rt,pc))return true;
         throw std::runtime_error("unexpected frame-copy hook");
     }
@@ -103,6 +110,46 @@ int main(){try{
                 check(get<uint8_t>(y,object+0x62)==1 && get<uint8_t>(y,object+0x64)==0 && get<uint8_t>(y,current+0x40dc+layer)==0);
                 check(old.draws==now.draws && old.callbacks==now.callbacks);++submissions;
                 check(get<uint32_t>(y,0x35dde0)==0xdead0000);
+                for(auto *d:{&a,&b}){auto &rt=d->runtime();
+                    put(rt,post,uint32_t(0x159db0));put(rt,post+0x90,uint32_t(0x159e2c));put(rt,post+0x94,target);
+                    put(rt,post+0x63,uint8_t(1));put(rt,post+0x65,layer);put(rt,current+0x40a8+4*layer,post);put(rt,current+0x40dc+layer,uint8_t(1));
+                    put(rt,post+0x131ac,uint32_t(128));put(rt,post+0x131b0,uint32_t(89));put(rt,post+0x131e0,2.f);
+                    // A glow-only frame deliberately has no initialized depth shift.
+                    put(rt,post+0x131d0,seed&2?uint32_t(seed%4):0x7013f43cu);
+                    for(unsigned i=0;i<256;++i)put(rt,post+0xef11+i*4,uint8_t((i+seed)%129));
+                    const auto at=post+0xf330;put(rt,at,uint32_t(1));put(rt,at+0x18,int16_t(128));put(rt,at+0x1a,int16_t(64));
+                    put(rt,at+0x1c,uint8_t(64));put(rt,at+0x1e,uint8_t(128));put(rt,at+0x1f,uint8_t(0));
+                    put(rt,at+0x24,5.5f);put(rt,at+0x28,2.6f);put(rt,at+0x2c,1.f);put(rt,at+0x30,1.f);put(rt,at+0x34,0.f);
+                }
+                const auto ramBefore=std::vector<uint8_t>(y.memory.flat(),y.memory.flat()+bozo::kFlatBytes);
+                rejects([&]{now.dofs.beginBlock(top-0x320,post,post+0xf330);});
+                now.dofs.begin(&y,now.scene,top-0xa0,post);
+                rejects([&]{now.dofs.release(post);});
+                rejects([&]{now.dofs.begin(&y,now.scene,top-0xa0,post);});
+                if(seed&2){
+                    rejects([&]{now.dofs.block(&y,post,post+0xf334);});
+                    now.dofs.beginBlock(top-0x320,post,post+0xf330);
+                    rejects([&]{now.dofs.beginBlock(top-0x320,post,post+0xf330);});
+                    rejects([&]{now.dofs.finish(&y,now.scene,top-0xa0,post);});
+                    rejects([&]{now.dofs.finishBlock(&y,top-0x320,post,post+0xf36c);});
+                    now.dofs.finishBlock(&y,top-0x320,post,post+0xf330);
+                    rejects([&]{now.dofs.block(&y,post,post+0xf330);});
+                }
+                now.dofs.finish(&y,now.scene,top-0xa0,post);
+                check(!std::memcmp(ramBefore.data(),y.memory.flat(),ramBefore.size()));
+                // The next block writer may overwrite the same working table.
+                // The captured block must keep its own immutable weights.
+                for(auto *d:{&a,&b})for(unsigned i=0;i<256;++i)put(d->runtime(),post+0xef11+i*4,uint8_t(0));
+                put(y,current+0x40dc+layer,uint8_t(0));rejects([&]{now.dofs.submit(&y,now.scene,now.copies,post);});put(y,current+0x40dc+layer,uint8_t(1));
+                p={};p.r[4].ud[0]=post;p.r[29].ud[0]=top;p.r[31].ud[0]=0x170000;q=p;
+                run(a,p,0x2d9330);run(b,q,0x2d9330);
+                check(!std::memcmp(&p,&q,sizeof(p)) && !std::memcmp(x.memory.flat(),y.memory.flat(),bozo::kFlatBytes));
+                check(now.dofSubmitted && now.dofSubmitted->blocks.size()==unsigned(bool(seed&2)));
+                if(seed&2){const auto &block=now.dofSubmitted->blocks[0];check(block.width==128 && block.height==89 && block.weightWidth==64 && block.weightHeight==44);
+                    check(block.weights[73]==float((73+seed)%129)/128 && block.weightScale==1 && block.alpha==1);}
+                check(get<uint32_t>(y,0x35dde0)==0xdead0000 && old.draws==now.draws && old.callbacks==now.callbacks);
+                rejects([&]{now.dofs.submit(&y,now.scene,now.copies,post);});
+                now.dofs.release(post);
             }else if(!enabled)++disabled;else ++failed;
             old.scene.finishComposition(top);now.scene.finishComposition(top);
         }

@@ -2,6 +2,9 @@
 #include "bozo/ee/dispatcher.h"
 #include <cstring>
 #include <bit>
+#include <algorithm>
+#include <cmath>
+#include <immintrin.h>
 #include <stdexcept>
 namespace vp2s {
 namespace {
@@ -82,21 +85,45 @@ void NativeParticles::includePoint(uint32_t frame,uint32_t emitter,const std::ar
 const ParticleBounds &NativeParticles::bounds(uint32_t frame,uint32_t emitter)const{
     const auto it=builds.find(frame);if(it==builds.end() || it->second.emitter!=emitter || !it->second.boundsReady)throw std::runtime_error("native particle bounds have no completed source");return it->second.bounds;
 }
+void NativeParticles::publishSphere(Runtime *rt,R5900Context *c){
+    struct ArithmeticScope{unsigned saved=_mm_getcsr();~ArithmeticScope(){_mm_setcsr(saved);}} arithmetic;
+    auto it=builds.find(c->r[29].uw[0]);if(it==builds.end())throw std::runtime_error("native particle sphere has no producer");
+    auto &build=it->second;auto *owner=record(rt,build.object,0xb10),*frame=record(rt,c->r[29].uw[0],0x160);
+    if(c->pc!=0x22efc8 || c->r[21].uw[0]!=build.object || c->r[2].uw[0]!=build.object+0xa60 || word(owner,0)!=0x154180 || owner[0xaf9]!=build.index || c->r[19].uw[0]!=build.chunks || build.pending || !build.points || !build.boundsReady || build.boundsPublished ||
+       word(owner,0xa90)!=build.emitter || !record(rt,build.emitter,16)[4] || word(owner,0xabc)!=build.points || word(owner,0xac0+build.index*4)!=build.chunks || word(frame,0xe0)!=build.next)
+        throw std::runtime_error("native particle sphere ownership mismatch");
+    float padding;std::memcpy(&padding,frame+0xf0,4);
+    const auto qualify=[](float value){const auto bits=std::bit_cast<uint32_t>(value),m=bits&0x7fffffff;
+        if(m>=0x7f800000 || (m && m<0x00800000) || std::abs(value)>1.e8f)throw std::runtime_error("unqualified native particle sphere input");};
+    qualify(padding);qualify(build.bounds.maximum[3]);
+    for(unsigned i=0;i<3;++i){qualify(build.bounds.minimum[i]);qualify(build.bounds.maximum[i]);if(build.bounds.minimum[i]>build.bounds.maximum[i])throw std::runtime_error("empty native particle sphere bounds");}
+    const auto normal=[](float value){const auto bits=std::bit_cast<uint32_t>(value);return std::bit_cast<float>((bits&0x7f800000)?bits:bits&0x80000000);};
+    const auto sum=[&](float a,float b){volatile float v=a+b;return normal(v);};
+    const auto product=[&](float a,float b){volatile float v=a*b;return normal(v);};
+    std::array<float,4> sphere;float square[3];
+    for(unsigned i=0;i<3;++i){sphere[i]=product(sum(build.bounds.minimum[i],build.bounds.maximum[i]),build.bounds.maximum[3]);
+        const float extent=sum(sum(build.bounds.maximum[i],-sphere[i]),padding);square[i]=product(extent,extent);}
+    const auto squared=sum(sum(square[0],square[1]),product(1.f,square[2]));
+    volatile float root=static_cast<float>(std::sqrt(std::abs(double(squared))));sphere[3]=product(1.f,root);
+    std::memcpy(owner+0xa40,build.bounds.minimum.data(),16);std::memcpy(owner+0xa50,build.bounds.maximum.data(),16);std::memcpy(owner+0xa60,sphere.data(),16);build.boundsPublished=true;
+}
 void NativeParticles::finish(Runtime *rt,R5900Context *c){
     auto it=builds.find(c->r[29].uw[0]);if(it==builds.end())return;const auto &build=it->second;
     auto *owner=record(rt,build.object,0xb10),*frame=record(rt,c->r[29].uw[0],0x160);
-    if(build.pending || c->r[21].uw[0]!=build.object || owner[0xaf9]!=(build.index^1) || word(owner,0xac0+build.index*4)!=build.chunks ||
+    if(build.pending || (build.points && record(rt,build.emitter,16)[4] && !build.boundsPublished) || c->r[21].uw[0]!=build.object || owner[0xaf9]!=(build.index^1) || word(owner,0xac0+build.index*4)!=build.chunks ||
        word(owner,0xabc)!=build.points || word(frame,0xe0)!=build.next)
         throw std::runtime_error("native particle producer has incomplete output/counters");
     builds.erase(it);
 }
 std::optional<bool> nativeParticleInstruction(R5900Context *c,Runtime *rt,uint32_t pc){
-    if(pc!=0x22eae0 && pc!=0x22ec9c && pc!=0x22eca0 && pc!=0x22ee88 && pc!=0x22ee94 && pc!=0x22ee9c && pc!=0x22eea4 && pc!=0x22eebc && pc!=0x22f0a0)return std::nullopt;
+    const bool sphere=std::find(std::begin(particleSphereSites),std::end(particleSphereSites),pc)!=std::end(particleSphereSites);
+    if(!sphere && pc!=0x22eae0 && pc!=0x22ec9c && pc!=0x22eca0 && pc!=0x22ee88 && pc!=0x22ee94 && pc!=0x22ee9c && pc!=0x22eea4 && pc!=0x22eebc && pc!=0x22f0a0)return std::nullopt;
     auto *d=rt?dynamic_cast<bozo::ee::Dispatcher *>(rt->services):nullptr;auto *owner=d?dynamic_cast<ParticleOwner *>(&d->host()):nullptr;
     auto *assets=d?dynamic_cast<AssetOwner *>(&d->host()):nullptr;
     if(!c || !owner || !assets)throw std::runtime_error("native particles require explicit publication/provenance owners");
     auto &particles=owner->nativeParticles();
-    if(pc==0x22eae0)particles.begin(rt,c);
+    if(sphere){if(pc==0x22f018)particles.publishSphere(rt,c);}
+    else if(pc==0x22eae0)particles.begin(rt,c);
     else if(pc==0x22ee88)particles.publish(rt,c,assets->nativeAssets());
     else if(pc==0x22f0a0){particles.finish(rt,c);return false;}
     else particles.retire(rt,c,pc);

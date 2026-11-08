@@ -12,6 +12,28 @@ The earlier VP2S face/shading and general brightness comparisons remain open.
 
 ## Build and evidence
 
+### Particle enclosing-sphere publication (2026-11-08)
+
+The final 15 sites at `0x22efd8..0x22f018` now publish minimum, maximum and
+centre/radius records from the producer's explicit native particle box and
+scalar padding. Original radius adjustment and minimum clamp remain compiled
+game code. The publication checks producer, emitter, chunk/point counters and
+cursor, and must complete once before an enabled, nonempty producer finishes.
+No vector register, accumulator, quotient or device state is retained.
+
+512 complete generated producer pairs cover 748 chunks and 9,336 points with
+enabled/disabled bounds, empty output, both buffers, RAM/scratch frames, four FP
+modes and FTZ/DAZ. Integer sum/product sphere outputs, independently known box
+endpoints, unchanged opaque minimum W and mutation-free rejection pass. The
+bounded emitter callbacks isolate the full producer; their physics internals
+remain covered by the separate motion/physics suites. A new known-W assertion
+initially expected the fixture initializer, but the original scalar producer
+sets it to 1 first; the assertion now checks that original initialization.
+
+Five rebuilt suites pass in 59.63 s (`particle-sphere-final-tests.log`). Actual
+`particle-sphere-route.log` passes sphere finalization and next stops at
+`0x410660`, a later emitter callback argument transform. Field/Logun remains open.
+
 ### Object-update change-vector branches (2026-11-08)
 
 The following three linear products at `0x2295d4`, `0x2295fc` and `0x229628`

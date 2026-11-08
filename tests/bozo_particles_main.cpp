@@ -1,4 +1,5 @@
 #include "native_particles.h"
+#include "native_float_oracle.h"
 #include "bozo/ee/dispatcher.h"
 #include "bozo/port.h"
 #include "particles_original_functions.h"
@@ -6,6 +7,8 @@
 #include <cstdio>
 #include <bit>
 #include <cstring>
+#include <cmath>
+#include <algorithm>
 #include <immintrin.h>
 #include <set>
 #include <source_location>
@@ -17,6 +20,7 @@ template<class T>void write(Runtime &rt,uint32_t at,T v){auto *p=rt.memory.hostP
 struct Host:bozo::ee::Host,bozo::port::Host,vp2s::ParticleOwner,vp2s::AssetOwner {
     bool reference=false,ready=true,dirty=true;vp2s::NativeParticles particles;vp2s::NativeAssets assets;std::set<uint32_t> sites;
     unsigned total=0,emitted=0,group=1,publications=0,points=0,finished=0;
+    std::optional<vp2s::ParticleBounds> box;
     vp2s::NativeParticles &nativeParticles()override{return particles;}
     vp2s::NativeAssets &nativeAssets()override{return assets;}
     bozo::libs::Libraries &libraries()override{throw std::runtime_error("libraries");}
@@ -25,7 +29,20 @@ struct Host:bozo::ee::Host,bozo::port::Host,vp2s::ParticleOwner,vp2s::AssetOwner
         sites.insert(pc);
         if(pc==0x22ee88){++publications;points+=c->r[2].uw[0];}
         if(!reference){const auto handled=vp2s::nativeParticleInstruction(c,rt,pc);check(handled.has_value());return *handled;}
-        if(pc==0x22eae0 || pc==0x22ec9c || pc==0x22eca0 || pc==0x22ee94 || pc==0x22ee9c || pc==0x22eea4 || pc==0x22eebc)return true;
+        if(pc==0x22eae0){box.reset();return true;}
+        if(pc==0x22ec9c){box=vp2s::ParticleBounds{read<std::array<float,4>>(*rt,0x35dbc0),read<std::array<float,4>>(*rt,0x35dbe0)};return true;}
+        if(pc==0x22eca0 || pc==0x22ee94 || pc==0x22ee9c || pc==0x22eea4 || pc==0x22eebc)return true;
+        if(std::find(std::begin(vp2s::particleSphereSites),std::end(vp2s::particleSphereSites),pc)!=std::end(vp2s::particleSphereSites)){
+            if(pc==0x22f018){check(box.has_value());const auto fp=_mm_getcsr();
+                const auto bits=[](float v){return std::bit_cast<uint32_t>(v);};std::array<uint32_t,4> sphere;uint32_t square[3];
+                const auto padding=read<uint32_t>(*rt,c->r[29].uw[0]+0xf0);
+                for(unsigned i=0;i<3;++i){sphere[i]=vp2s::test::product(vp2s::test::sum(bits(box->minimum[i]),bits(box->maximum[i])),bits(box->maximum[3]));
+                    const auto extent=vp2s::test::sum(vp2s::test::sum(bits(box->maximum[i]),sphere[i]^0x80000000u),padding);square[i]=vp2s::test::product(extent,extent);}
+                const auto sum=vp2s::test::sum(vp2s::test::sum(square[0],square[1]),vp2s::test::product(0x3f800000,square[2]));
+                volatile float root=static_cast<float>(std::sqrt(std::abs(double(std::bit_cast<float>(sum)))));sphere[3]=vp2s::test::product(0x3f800000,bits(root));
+                const auto object=c->r[21].uw[0];write(*rt,object+0xa40,box->minimum);write(*rt,object+0xa50,box->maximum);write(*rt,object+0xa60,sphere);_mm_setcsr(fp);
+            }return true;
+        }
         if(pc==0x22f0a0)return false;
         check(pc==0x22ee88);const auto stack=c->r[29].uw[0],to=read<uint32_t>(*rt,stack+0xe0),source=c->r[16].uw[0];
         const auto count=read<uint32_t>(*rt,source+0x10);check(count==c->r[2].uw[0]);
@@ -50,11 +67,16 @@ struct Host:bozo::ee::Host,bozo::port::Host,vp2s::ParticleOwner,vp2s::AssetOwner
             const auto count=std::min(c->r[5].uw[0],total-emitted);check(count%group==0);
             for(unsigned i=0;i<count;++i){std::array<uint32_t,12> point;
                 for(unsigned j=0;j<12;++j)point[j]=0x3f000000u+(emitted+i)*192+j*17;point[3]=0x3f800000;point[11]=(emitted+i)%16;
-                std::memcpy(rt.memory.hostPointer(c->r[6].uw[0]+i*48,48),point.data(),48);}
+                std::memcpy(rt.memory.hostPointer(c->r[6].uw[0]+i*48,48),point.data(),48);
+                std::array<float,4> position;std::memcpy(position.data(),point.data(),16);
+                if(reference){if(box)for(unsigned j=0;j<3;++j){box->minimum[j]=std::min(box->minimum[j],position[j]);box->maximum[j]=std::max(box->maximum[j],position[j]);}}
+                else particles.includePoint(c->r[29].uw[0],object,position);
+            }
             emitted+=count;c->r[2].ud[0]=count;
         }
         else if(pc==0x172080){}
         else if(pc==0x172090)++finished;
+        else if(pc==0x1720a0)c->f[0]=.125f;
         else throw std::runtime_error("unsupported particle software callback");
         c->pc=c->r[31].uw[0];
     }
@@ -74,6 +96,9 @@ void initialize(Runtime &rt,unsigned index){
     write(rt,table+0xf0,uint32_t(0x172000));write(rt,table+0x2c,uint32_t(0x172020));write(rt,table+0x38,uint32_t(0x172030));
     write(rt,table+0xc,uint32_t(0x172040));write(rt,table+0x10,uint32_t(0x172050));write(rt,table+0x14,uint32_t(0x172060));
     write(rt,table+0x18,uint32_t(0x172070));write(rt,table+0xfc,uint32_t(0x172080));write(rt,table+0x28,uint32_t(0x172090));
+    write(rt,table+0x48,uint32_t(0x1720a0));
+    write(rt,0x35dbc0,std::array<uint32_t,4>{0x7f800000,0x7f800000,0x7f800000,0x7fa01234});
+    write(rt,0x35dbe0,std::array<uint32_t,4>{0xff800000,0xff800000,0xff800000,0x3f000000});
 }
 }
 int main(){try{
@@ -81,10 +106,12 @@ int main(){try{
     a.setFunctions(particles_original_function_table,particles_original_function_count,particles_original_resume_table,particles_original_resume_count);
     b.setFunctions(particles_adapted_function_table,particles_adapted_function_count,particles_adapted_resume_table,particles_adapted_resume_count);
     a.runtime().port=&old;b.runtime().port=&now;
-    for(auto *d:{&a,&b}){for(uint32_t pc=0x172000;pc<0x1720a0;pc+=0x10)d->bindLibrary(pc);for(uint32_t pc:{0x2a1230u,0x137d90u,0x137df8u})d->bindLibrary(pc);}
+    for(auto *d:{&a,&b}){for(uint32_t pc=0x172000;pc<0x1720b0;pc+=0x10)d->bindLibrary(pc);for(uint32_t pc:{0x2a1230u,0x137d90u,0x137df8u})d->bindLibrary(pc);}
     const auto saved=_mm_getcsr();unsigned callers=0,chunks=0,points=0;
     for(unsigned mode:{_MM_ROUND_NEAREST,_MM_ROUND_DOWN,_MM_ROUND_UP,_MM_ROUND_TOWARD_ZERO})for(unsigned seed=0;seed<128;++seed){
-        auto &x=a.runtime(),&y=b.runtime();initialize(x,seed&1);std::memcpy(y.memory.flat(),x.memory.flat(),bozo::kFlatBytes);
+        auto &x=a.runtime(),&y=b.runtime();initialize(x,seed&1);
+        write(x,0x190004,uint8_t(seed&4?1:0));write(x,0x180ab4,float(seed%3)/16);write(x,0x180ab0,float(seed%5)/8);write(x,0x180ab8,float(seed%7)/4);
+        std::memcpy(y.memory.flat(),x.memory.flat(),bozo::kFlatBytes);
         old.group=now.group=1+seed%3;old.total=now.total=(seed%20)*old.group;
         old.publications=now.publications=old.points=now.points=old.finished=now.finished=0;
         R5900Context p{};for(unsigned i=1;i<32;++i){p.r[i].ud[0]=seed*32+i;p.r[i].ud[1]=~p.r[i].ud[0];p.f[i]=float(i)/8;}
@@ -94,12 +121,20 @@ int main(){try{
         x.functions.generated(0x22e650)(x.memory.flat(),&p,&x);const auto fp=_mm_getcsr();_mm_setcsr(control);
         try{y.functions.generated(0x22e650)(y.memory.flat(),&q,&y);}catch(const std::exception &e){std::fprintf(stderr,"particle seed=%u mode=%x: %s\n",seed,mode,e.what());throw;}
         check(_mm_getcsr()==fp);_mm_setcsr(saved);p.cycleLimit=q.cycleLimit;
+        if(std::memcmp(&p,&q,sizeof(p)) || std::memcmp(x.memory.flat(),y.memory.flat(),bozo::kFlatBytes)){
+            std::fprintf(stderr,"particle pair seed=%u mode=%x\n",seed,mode);
+            for(unsigned i=0;i<sizeof(p);++i)if(reinterpret_cast<uint8_t *>(&p)[i]!=reinterpret_cast<uint8_t *>(&q)[i]){std::fprintf(stderr,"CPU byte %x old=%02x new=%02x\n",i,reinterpret_cast<uint8_t *>(&p)[i],reinterpret_cast<uint8_t *>(&q)[i]);break;}
+            for(unsigned i=0;i<bozo::kFlatBytes;++i)if(x.memory.flat()[i]!=y.memory.flat()[i]){std::fprintf(stderr,"RAM byte %x old=%02x new=%02x\n",i,x.memory.flat()[i],y.memory.flat()[i]);break;}
+        }
         check(p.pc==0x170000 && !std::memcmp(&p,&q,sizeof(p)) && !std::memcmp(x.memory.flat(),y.memory.flat(),bozo::kFlatBytes));
         check(now.particles.outstanding()==0 && old.publications==now.publications && now.points==now.total && old.points==now.points && now.finished==1);
         check(read<uint8_t>(y,0x180af9)==((seed&1)^1) && read<uint32_t>(y,0x180ac0+(seed&1)*4)==now.publications);
+        if((seed&4) && now.total){check(read<float>(y,0x180a4c)==1.f && read<float>(y,0x180a5c)==.5f);
+            for(unsigned j=0;j<3;++j){check(read<uint32_t>(y,0x180a40+j*4)==0x3f000000u+j*17);check(read<uint32_t>(y,0x180a50+j*4)==0x3f000000u+(now.total-1)*192+j*17);}
+            check(read<float>(y,0x180a6c)>=read<float>(y,0x180ab8));}
         chunks+=now.publications;points+=now.points;++callers;
     }
-    check(old.sites==now.sites && now.sites.size()==9);
+    check(old.sites==now.sites && now.sites.size()==24);
     for(unsigned seed=0;seed<64;++seed){
         auto &x=a.runtime(),&y=b.runtime();initialize(x,seed&1);old.ready=now.ready=seed%4!=0;old.dirty=now.dirty=seed%4!=1;
         if(seed%4==2)write(x,0x180a90,uint32_t(0));if(seed%4==3)write(x,0x35ded8,0.f);
@@ -121,12 +156,12 @@ int main(){try{
         {const auto context=c;const auto frame=c.r[29].uw[0],fp=_mm_getcsr();const std::array<float,4> earlier{10,20,30,0};
             now.particles.includePoint(frame,0x190000,earlier);bool missing=false;
             try{now.particles.bounds(frame,0x190000);}catch(const std::runtime_error &){missing=true;}check(missing && _mm_getcsr()==fp);
-            const std::array<uint32_t,4> minimum{0x7f800000,0x7f800000,0x7f800000,0x3f800000},maximum{0xff800000,0xff800000,0xff800000,0x3f000000};
+            const std::array<uint32_t,4> minimum{0x7f800000,0x7f800000,0x7f800000,0x7fa01234},maximum{0xff800000,0xff800000,0xff800000,0x3f000000};
             write(rt,0x35dbc0,minimum);write(rt,0x35dbe0,maximum);c.r[3].uw[0]=0x35dbc0;c.r[2].uw[0]=0x35dbe0;
             reject(0x22eca0);check(invoke(0x22ec9c));reject(0x22ec9c);check(invoke(0x22eca0));
             now.particles.includePoint(frame,0x190000,{std::bit_cast<float>(0x80000000u),1,2,0});now.particles.includePoint(frame,0x190000,{0,0,3,0});
             const auto box=now.particles.bounds(frame,0x190000);check(std::bit_cast<uint32_t>(box.minimum[0])==0x80000000 && std::bit_cast<uint32_t>(box.maximum[0])==0x80000000);
-            check(box.minimum[1]==0 && box.maximum[1]==1 && box.minimum[2]==2 && box.maximum[2]==3 && box.minimum[3]==1 && box.maximum[3]==.5f);
+            check(box.minimum[1]==0 && box.maximum[1]==1 && box.minimum[2]==2 && box.maximum[2]==3 && std::bit_cast<uint32_t>(box.minimum[3])==0x7fa01234 && box.maximum[3]==.5f);
             bool invalid=false;try{now.particles.includePoint(frame,0x190000,{5,std::bit_cast<float>(0x7fc01234u),6,0});}catch(const std::runtime_error &){invalid=true;}
             const auto unchanged=now.particles.bounds(frame,0x190000);check(invalid && !std::memcmp(&box,&unchanged,sizeof(box)) && _mm_getcsr()==fp);c=context;
         }
@@ -143,7 +178,16 @@ int main(){try{
         reject(0x22ee88);reject(0x22ee9c);
         for(uint32_t pc:{0x22ee94u,0x22ee9cu,0x22eea4u})check(invoke(pc));reject(0x22eebc);
         write(rt,0x1fff0e0,uint32_t(0x2000d0));check(invoke(0x22eebc));reject(0x22eebc);
-        write(rt,0x180af9,uint8_t(1));write(rt,0x180ac0,uint32_t(1));write(rt,0x180abc,uint32_t(3));
+        write(rt,0x180ac0,uint32_t(1));write(rt,0x180abc,uint32_t(3));write(rt,0x190004,uint8_t(1));
+        c.pc=0x22efc8;c.r[2].uw[0]=0x180a60;write(rt,0x1fff0f0,.25f);
+        c.r[2].uw[0]+=16;reject(0x22f018);c.r[2].uw[0]-=16;
+        write(rt,0x1fff0f0,std::bit_cast<float>(0x7fa01234u));reject(0x22f018);write(rt,0x1fff0f0,.25f);
+        c.pc=0x170000;reject(0x22f018);c.pc=0x22efc8;
+        check(invoke(0x22f018));reject(0x22f018);
+        check(read<uint32_t>(rt,0x180a4c)==0x7fa01234);
+        check(read<float>(rt,0x180a64)==.5f && read<float>(rt,0x180a68)==2.5f);
+        check(read<float>(rt,0x180a6c)==float(std::sqrt(1.1875)));
+        write(rt,0x180af9,uint8_t(1));
         check(!invoke(0x22f0a0) && now.particles.outstanding()==0);reject(0x22ee88);
         // Reusing the same frame with a fresh buffer selection is valid.
         c.pc=0x22eadc;c.r[30].uw[0]=1;write(rt,0x1fff0e0,uint32_t(0x220020));check(invoke(0x22eae0));

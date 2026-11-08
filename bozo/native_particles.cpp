@@ -73,6 +73,9 @@ void NativeParticles::retire(Runtime *rt,R5900Context *c,uint32_t pc){
 void NativeParticles::validateEmitter(uint32_t frame,uint32_t emitter)const{
     const auto it=builds.find(frame);if(it==builds.end() || it->second.emitter!=emitter)throw std::runtime_error("native particle bounds have no matching producer");
 }
+void NativeParticles::validateDraw(uint32_t object)const{
+    for(const auto &[frame,build]:builds)if(build.object==object)throw std::runtime_error("native particle draw overlaps an unfinished point producer");
+}
 void NativeParticles::includePoint(uint32_t frame,uint32_t emitter,const std::array<float,4> &point){
     validateEmitter(frame,emitter);auto it=builds.find(frame);
     for(unsigned i=0;i<3;++i){const auto bits=std::bit_cast<uint32_t>(point[i]),magnitude=bits&0x7fffffff;

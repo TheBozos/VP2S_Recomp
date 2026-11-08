@@ -18,6 +18,7 @@ public:
     void publishSphere(Runtime *,R5900Context *);
     void includePoint(uint32_t producerFrame,uint32_t emitter,const std::array<float,4> &);
     void validateEmitter(uint32_t producerFrame,uint32_t emitter)const;
+    void validateDraw(uint32_t object)const;
     const ParticleBounds &bounds(uint32_t producerFrame,uint32_t emitter)const;
     size_t outstanding()const{return builds.size();}
 };

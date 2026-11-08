@@ -12,6 +12,13 @@ IMAGE=Path(sys.argv.pop(1))
 
 
 class KernelGuardTests(unittest.TestCase):
+    def test_particle_draw_source(self):
+        data=(IMAGE.parent/'mod001.elf').read_bytes();_,segments,_=elf_parts(data)
+        self.assertIn('0022f15c 0c0807c8 0c08bc48',overlay_adaptations('mod001',data).splitlines())
+        lo,hi=0x22f140,0x22f170;s=next(s for s in segments if s[0]==1 and s[2]<=lo<hi<=s[2]+s[4])
+        for pc in range(lo,hi,4):
+            changed=bytearray(data);changed[s[1]+pc-s[2]]^=1
+            with self.subTest(pc=hex(pc)),self.assertRaises(ValueError):overlay_adaptations('mod001',changed)
     def test_particle_lighting_source(self):
         data=(IMAGE.parent/'mod001.elf').read_bytes();_,segments,_=elf_parts(data)
         lo,hi=0x22f170,0x22f8f8;s=next(s for s in segments if s[0]==1 and s[2]<=lo<hi<=s[2]+s[4])
@@ -485,6 +492,7 @@ class KernelGuardTests(unittest.TestCase):
             '002dbdcc 0c0807c8 0c0b6f64',
             '002d934c 0c0807c8 0c0b64c4',
             '00205a9c 0c0807c8 0c081698',
+            '0022f15c 0c0807c8 0c08bc48',
             '0022ee50 1a600009 10000009',
             '0022f048 1a600009 10000009',
             '0025aa2c 0c0807c8 0c087268',
@@ -520,6 +528,7 @@ class KernelGuardTests(unittest.TestCase):
         *HERMITE_VECTOR_SITES,
         *SQUAD_SITES,
         *PARTICLE_PUBLICATION_SITES,
+        0x22f160,
         0x2dbde0,0x2dbeb4,0x2dc6c8,0x2dbdd0,0x2dc700,
         0x2d9360,0x2cd020,0x2d18a0,0x2da980,0x2d9350,0x2da9b0,
         0x205ab0,0x206808,0x205aa0,0x206830,

@@ -8,6 +8,19 @@ verified in the MIPS or the assets, [I] inferred.
 
 ## Bozo native model submission (2026-11-07)
 
+Bozo particle quads (2026-11-08) use `native_particle_draws.cpp`, independently
+of model mesh conversion. CPU points (48 bytes) and template kinds (80 bytes)
+supply geometry, UVs and colour; camera/view/object records supply transforms.
+Fixed asset template material words are converted **offline** to `VPP1` named
+semantics by `tools/vp2_bozo_particle_materials.py`; live template material words
+are deliberately poisoned in tests. Runtime FIS identity comes from the compact
+game descriptor and must match the selected texture-manager slot. The adapter
+requires complete decoded-part template provenance, completed buffer counts,
+class `154180`/mode 3/group 1, no shared/fade variant and unit texture Q. It
+submits before enqueue and executes the original scene completion. Unsupported
+variants reject; no VIF/DMA worker is run. Six hidden GPU cases measure quad
+coverage and partial-alpha colours; real Logun/PCSX2 parity remains open.
+
 Zero-mesh FPS models are now admitted as empty native submissions (2026-11-08).
 The live object `0x12a6d50`, class `0x1546d0`, uses model `0x100de90`, with decoded
 part provenance `a94b8b44/0+348010`. The disc's FPS chunk at `+348000` independently

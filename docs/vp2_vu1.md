@@ -5,6 +5,13 @@ direct coefficient/history decoder with no VIF/VU transport. See
 [native music](vp2_music.md). The recordings and microprogram descriptions below
 remain offline analysis/reference material, not the default rendering/audio path.
 
+Bozo bring-up now draws the first mode-3/group-1 particles directly from CPU
+point/kind records before enqueue (2026-11-08). The billboard/colour equations
+were audited offline against the particle program; runtime drawing uses native
+math and converted material semantics, with no VIF chain feed or VU interpreter.
+The real scalar completion callback is retained. See `vp2_models.md` and
+`BOZO_MIGRATION.md` for the admitted variants, tests and remaining route blocker.
+
 Notes for drawing VP2's 3D natively (TMB's mesh API: `setVif1Observer`, `setVu1Gate`, `Renderer`) instead of
 running its VU1 microprograms and translating their GS packets. Read the code with `tools/vu_disasm.py` on images
 dumped by `vp2s_vu1_replay <trace> dumpcode <dir>`.

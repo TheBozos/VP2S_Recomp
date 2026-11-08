@@ -35,6 +35,7 @@
 #include "native_dof.h"
 #include "native_feedback.h"
 #include "native_particles.h"
+#include "native_particle_draws.h"
 #include "native_music.h"
 #include "native_ui_windows.h"
 #include "native_load_progress.h"
@@ -61,10 +62,12 @@ class StrictHost final : public bozo::ee::Host,public vp2s::TimerOwner,public vp
     public vp2s::AssetOwner,public vp2s::DebugFontOwner,public vp2s::StateSetupOwner,public vp2s::ScreenRectOwner,public vp2s::UiTextOwner,
     public vp2s::UiSpriteOwner,public vp2s::MediaBufferOwner,public vp2s::ModelOwner,public vp2s::FrameFilterOwner,public vp2s::MusicOwner,
     public vp2s::UiWindowOwner,public vp2s::LoadProgressOwner,public vp2s::MotionOwner,public vp2s::FrameCopyOwner,public vp2s::DofOwner,public vp2s::FeedbackOwner,public vp2s::SquadOwner,
-    public vp2s::ParticleOwner,public vp2s::ParticleUpdateOwner {
+    public vp2s::ParticleOwner,public vp2s::ParticleUpdateOwner,public vp2s::ParticleDrawOwner {
 public:
     vp2s::NativeParticles particles;
     vp2s::NativeParticles &nativeParticles()override{return particles;}
+    vp2s::NativeParticleDraws particleDraws{std::filesystem::path(VP2S_BOZO_IMAGES).parent_path()/"particle_materials"};
+    vp2s::NativeParticleDraws &nativeParticleDraws()override{return particleDraws;}
     vp2s::NativeParticleUpdates particleUpdates;
     vp2s::NativeParticleUpdates &nativeParticleUpdates()override{return particleUpdates;}
     vp2s::NativeSquads squads;
@@ -382,6 +385,7 @@ bool noNativeInstruction(uint8_t *ram,R5900Context *ctx,Runtime *rt,uint32_t pc)
     if(auto handled=vp2s::nativeUiWindowInstruction(ctx,rt,pc))return *handled;
     if(auto handled=vp2s::nativeUiTextInstruction(ctx,rt,pc))return *handled;
     if(auto handled=vp2s::nativeModelInstruction(ctx,rt,pc))return *handled;
+    if(auto handled=vp2s::nativeParticleDrawInstruction(ctx,rt,pc))return *handled;
     if(auto handled=vp2s::nativeFrameFilterInstruction(ctx,rt,pc))return *handled;
     if(auto handled=vp2s::nativeFrameCopyInstruction(ctx,rt,pc))return *handled;
     if(auto handled=vp2s::nativeDofInstruction(ctx,rt,pc))return *handled;

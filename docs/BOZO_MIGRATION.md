@@ -12,6 +12,37 @@ The earlier VP2S face/shading and general brightness comparisons remain open.
 
 ## Build and evidence
 
+### Native particle draw before enqueue (2026-11-08)
+
+The `0x22f140` wrapper now publishes native quads at its original delay slot
+`0x22f160`, then calls the real `0x22f120` / `0x21c9a0` completion path. The
+`0x22f0e0` VIF1/DMA worker remains unsupported. Drawing consumes completed CPU
+48-byte points, 80-byte kinds, object/camera matrices and compact FIS identity.
+It never follows a chain or reads live TEX0/ALPHA/CLAMP template words. Fixed
+asset templates are converted offline to named material semantics (`VPP1`);
+4,071 templates were found across 30,331 private decoded files.
+
+The admitted domain is class `154180`, mode 3, group 1, owned double buffers,
+ordinary template/FIS records, no fade/shared-object path, unit texture Q and
+repeat/clamp wrapping. Other variants fail explicitly. Whole template-span
+provenance and the selected texture-manager key are checked. The two-stage
+point/object/kind colour calculation and immutable output are qualified by
+512 semantic captures with opaque live transport words, 28 rejection cases,
+128 original enqueue/native draw CPU/RAM/FP pairs through actual compiled
+completion, and six hidden GPU cases with 288 measured RGB samples. Screen
+depth coefficients have a separate admitted bound of 1e12; the live projection
+offset `4d200821` exceeds the spatial-input bound of 1e8 and is valid here.
+Extreme finite coefficients reject as well: RTZ overflow can saturate to a
+finite float, making an `isfinite` check alone insufficient.
+
+The real protected route (`particle-native-route.log`) passes submission and
+completion, then stops at strict math boundary `0x248260`. This is progress
+past the particle transport boundary, not completed field/Logun or visual
+parity qualification. No BozoEngine changes are part of this increment.
+All 80 rebuilt suites passed in 283.03 s (`particle-full-tests.log`); after
+the final coefficient/overflow guard, four rebuilt particle/GPU/material/startup
+suites pass in 13.65 s (`particle-final-tests.log`).
+
 ### Particle colour product (2026-11-08)
 
 The four `0x22f300..0x22f30c` sites now multiply all four object/lighting colour

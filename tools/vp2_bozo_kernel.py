@@ -540,6 +540,7 @@ def overlay_adaptations(name,data):
         (0x2262b0,0x22b880,'42becdf1b5bdeadbfb822b3c240d8e75ad43bf508ab3f159cd9bd0bf6229c009'),
         (0x22f9c0,0x22fa50,'2cf24b9daf5f4adce5fd1b6ae8fe971ad6f84a96f45050c3779f9b6099f96030'),
         (0x22f170,0x22f8f8,'d28eba3b2b21e88ad0fd553a8008ac0486e2b8d90dd163d3a5d1ebc40532d14d'),
+        (0x22f140,0x22f170,'b14ea2dd33db827c45cf9ac361606325a10e5c467c73a3901a3e5bfc33f491ed'),
         (0x248290,0x248324,'bfef5d5d6cdacb1b7602f2307178d03e47bd011efd79c9afb4f8208af13d56a5'),
         (0x2371dc,0x2372d0,'8dd9f9b8eebc36de6371dc3273828d44f6ac31eaaba90739ab75948ca85677fc'),
         (0x1fedc0,0x1fee10,'fdb88de8c0b4b42b3c9418d58b9b2337c1673c2a9e985d7f989d08178ef302ab'),
@@ -684,6 +685,7 @@ def overlay_adaptations(name,data):
             '002dbdcc 0c0807c8 0c0b6f64\n'
             '002d934c 0c0807c8 0c0b64c4\n'
             '00205a9c 0c0807c8 0c081698\n'
+            '0022f15c 0c0807c8 0c08bc48\n'
             # Explicit particle records are already published synchronously.
             # Remove both device polls, without fabricating completion bits.
             '0022ee50 1a600009 10000009\n'
@@ -766,6 +768,7 @@ def overlay_native_sites(name,data):
         *HERMITE_VECTOR_SITES,
         *SQUAD_SITES,
         *PARTICLE_PUBLICATION_SITES,
+        0x22f160,
         0x2dbde0,0x2dbeb4,0x2dc6c8,0x2dbdd0,0x2dc700,
         0x2d9360,0x2cd020,0x2d18a0,0x2da980,0x2d9350,0x2da9b0,
         0x205ab0,0x206808,0x205aa0,0x206830,

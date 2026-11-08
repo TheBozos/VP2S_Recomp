@@ -782,6 +782,18 @@ if(VP2S_BOZO_CODE)
     target_link_options(vp2s-bozo-query-point-check PRIVATE -static)
   endif()
   add_test(NAME vp2s-bozo-query-point COMMAND vp2s-bozo-query-point-check)
+  set(UPDATE_LINEAR_DIR "${CMAKE_CURRENT_BINARY_DIR}/update-linear-reference")
+  add_custom_command(OUTPUT "${UPDATE_LINEAR_DIR}/update_linear_000.cpp" "${UPDATE_LINEAR_DIR}/update_linear_table.cpp" "${UPDATE_LINEAR_DIR}/update_linear_functions.h"
+    COMMAND ${Python3_EXECUTABLE} "${VP2S_ROOT}/tools/vp2_bozo_update_linear_fixture.py" "${VP2S_BOZO_DATA}/images/mod001.elf" "${UPDATE_LINEAR_DIR}" --build "${VP2S_BOZO_DATA}/.."
+    COMMAND $<TARGET_FILE:bozo-recomp> "${UPDATE_LINEAR_DIR}/fixture.elf" "${UPDATE_LINEAR_DIR}" --prefix update_linear --symbol-prefix update_linear_ --files 1 --externals "${UPDATE_LINEAR_DIR}/externals.txt" --no-comments
+    DEPENDS bozo-recomp "${VP2S_ROOT}/tools/vp2_bozo_update_linear_fixture.py" "${VP2S_ROOT}/tools/vp2_bozo_kernel.py" "${VP2S_BOZO_DATA}/images/mod001.elf")
+  add_executable(vp2s-bozo-update-linear-check "${VP2S_ROOT}/tests/bozo_update_linear_main.cpp" "${UPDATE_LINEAR_DIR}/update_linear_000.cpp" "${UPDATE_LINEAR_DIR}/update_linear_table.cpp")
+  target_include_directories(vp2s-bozo-update-linear-check PRIVATE "${UPDATE_LINEAR_DIR}")
+  target_link_libraries(vp2s-bozo-update-linear-check PRIVATE vp2s_bozo_kernel)
+  if(MINGW)
+    target_link_options(vp2s-bozo-update-linear-check PRIVATE -static)
+  endif()
+  add_test(NAME vp2s-bozo-update-linear COMMAND vp2s-bozo-update-linear-check)
   foreach(VARIANT original adapted)
     set(HERMITE_DIR "${CMAKE_CURRENT_BINARY_DIR}/hermite-reference/${VARIANT}")
     add_custom_command(OUTPUT "${HERMITE_DIR}/hermite_${VARIANT}_000.cpp" "${HERMITE_DIR}/hermite_${VARIANT}_table.cpp" "${HERMITE_DIR}/hermite_${VARIANT}_functions.h"

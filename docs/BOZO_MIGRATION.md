@@ -12,6 +12,29 @@ The earlier VP2S face/shading and general brightness comparisons remain open.
 
 ## Build and evidence
 
+### Object-update linear-vector branches (2026-11-08)
+
+Three inline paths at `0x229164`, `0x229228` and `0x2292f8` now publish their
+linear products from explicit 3x4 bases and XYZ input components. Input W and
+the fourth basis record are not read numerically; each basis's three W
+components still contribute to the full output W. Source snapshots precede
+stores, including matrix/output aliases. Original scalar acceleration, offsets,
+branch selection and integer copies remain compiled game code.
+
+The bounded fragment qualifies all 24 sites and 512 CPU/RAM/FP pairs against
+integer product/sum outputs. 128 known identities cover both branches and all
+scalar flag combinations. Opaque input W and unused fourth basis records include
+quiet/signaling NaN, infinity and subnormal tags; meaningful basis W remains
+validated. Four rounding modes, FTZ/DAZ, RAM aliases, scratch frames, overlapping
+matrix/output records and mutation-free rejection pass. The fixture also retains
+the original bypass branch's scalar writes before its later integer overwrite;
+it does not rearrange those apparently redundant calculations.
+
+Five rebuilt suites pass in 63.71 s (`update-linear-final-tests.log`), including
+prior point/query transforms, source guards and protected startup. Actual
+`update-linear-route.log` next stops at `0x2295d4`, the following linear-product
+block for the particle's change record. Field/Logun remains open.
+
 ### Query-space point transform and query call interface (2026-11-08)
 
 The ten inline sites `0x227f08..0x227f2c` now transform the completed point

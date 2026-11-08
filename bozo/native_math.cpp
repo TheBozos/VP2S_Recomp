@@ -40,6 +40,15 @@ void publishFullPoint(Runtime *rt,uint32_t matrix,uint32_t point,uint32_t destin
         throw std::runtime_error("object-update point lacks original scalar homogeneous component");
     auto *output=record(rt,destination,16);const auto result=math::matrixVectorProduct(basis,position);std::memcpy(output,&result,16);
 }
+void publishLinearVector(Runtime *rt,uint32_t matrix,uint32_t vector,uint32_t destination){
+    struct ArithmeticScope{unsigned saved=_mm_getcsr();~ArithmeticScope(){_mm_setcsr(saved);}} arithmetic;
+    math::RigidBasis basis;__m128 input;std::memcpy(basis.data(),record(rt,matrix,48),48);std::memcpy(&input,record(rt,vector,16),16);
+    float coefficients[12],components[4];std::memcpy(coefficients,basis.data(),48);std::memcpy(components,&input,16);
+    for(float value:coefficients){pairQualified(value);if(std::abs(value)>1.e8f)throw std::runtime_error("unqualified native linear basis");}
+    for(unsigned i=0;i<3;++i){pairQualified(components[i]);if(std::abs(components[i])>1.e8f)throw std::runtime_error("unqualified native linear vector");}
+    // Input W is not a weight. Basis W still contributes to the full output.
+    auto *output=record(rt,destination,16);const auto result=math::linearVectorProduct(basis,input);std::memcpy(output,&result,16);
+}
 std::array<float,4> rowPoint(Runtime *rt,uint32_t matrixAt,uint32_t pointAt){
     float matrix[4][4],point[4];std::array<float,4> result;
     std::memcpy(matrix,record(rt,matrixAt,64),64);std::memcpy(point,record(rt,pointAt,16),16);
@@ -519,6 +528,19 @@ bool nativeMathInstruction(uint8_t *,R5900Context *c,Runtime *rt,uint32_t pc){
             throw std::runtime_error("native object-update point setup mismatch");
         record(rt,stack,0x490);
         if(pc==0x227d9c || pc==0x227e0c || pc==0x227f2c)publishFullPoint(rt,matrix,point,destination,!query);
+        return true;
+    }
+    if((pc>=0x229164 && pc<=0x229180 && !(pc&3)) || (pc>=0x229228 && pc<=0x229240 && !(pc&3)) || pc==0x229248 ||
+       (pc>=0x2292f8 && pc<=0x229314 && !(pc&3))){
+        const auto stack=c->r[29].uw[0];const bool first=pc<=0x229180,second=pc>=0x229228 && pc<=0x229248;
+        const auto vector=stack+(second?0x430:0x2d0),matrix=c->r[first?19:18].uw[0];
+        const auto destination=first?stack+0x430:c->r[16].uw[0]+0x30;
+        if(c->pc<0x2262b0 || c->pc>=0x22b880 ||
+           (first?(c->r[3].uw[0]!=vector || c->r[2].uw[0]!=destination):second?(c->r[2].uw[0]!=vector || c->r[3].uw[0]!=destination):
+               (c->r[3].uw[0]!=vector || c->r[4].uw[0]!=destination)))
+            throw std::runtime_error("native object-update linear-vector setup mismatch");
+        record(rt,stack,0x450);
+        if(pc==0x229180 || pc==0x229248 || pc==0x229314)publishLinearVector(rt,matrix,vector,destination);
         return true;
     }
     if(pc==0x40b040){nativeParticlePhysicsInstruction(c,rt,pc);return false;}

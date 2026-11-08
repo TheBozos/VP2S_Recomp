@@ -109,6 +109,8 @@ struct Host:bozo::ee::Host,bozo::port::Host {
     bozo::libs::Libraries &libraries()override{throw std::runtime_error("library");}
     bool nativeGraphics()const override{return true;}
     bool nativeInstruction(uint8_t *r,R5900Context *c,Runtime *rt,uint32_t pc)override{
+        if(reference && pc==0x39f368){uint32_t q[4];std::memcpy(q,rt->memory.hostPointer(c->r[29].uw[0]+0x20,16),16);const auto rows=movementRotationOracle(q);
+            std::memcpy(rt->memory.hostPointer(c->r[3].uw[0],48),rows.data(),48);c->r[9].ud[0]=0;return true;}
         if(reference && pc==0x38015c){uint32_t q[4];std::memcpy(q,rt->memory.hostPointer(c->r[29].uw[0]+0x290,16),16);const auto rows=movementRotationOracle(q);
             std::memcpy(rt->memory.hostPointer(c->r[2].uw[0],48),rows.data(),48);c->r[9].ud[0]=0;return true;}
         if(pc>=0x377d8c && pc<=0x377dac){
@@ -161,6 +163,16 @@ struct Host:bozo::ee::Host,bozo::port::Host {
             __m128 input;std::memcpy(&input,rt->memory.hostPointer(c->r[19].uw[0]+0x190,16),16);
             const auto result=vp2s::math::quaternionMatrix(input);
             std::memcpy(rt->memory.hostPointer(c->r[2].uw[0],48),result.data(),48);return true;
+        }
+        if(reference && (pc==0x380684 || pc==0x380864)){
+            // Original VU0 sequence: VMUL.xyz squares, VADDA.x/VMADD.x sum
+            // (product by 1 exact), VSQRT, VADD.x 0+Q; Y/Z squares and W kept.
+            uint32_t bits[4],flags=0;std::memcpy(bits,rt->memory.hostPointer(c->r[4].uw[0],16),16);
+            for(unsigned i=0;i<3;++i)bits[i]=vu0Product(bits[i],bits[i]);
+            bits[0]=vu0Sum(vu0Sum(bits[0],bits[1]),vu0Product(0x3f800000,bits[2]));
+            // ps2f::sqrt seeds from a host root; keep host FP flags out of the CPU ABI.
+            {const auto saved=_mm_getcsr();bits[0]=vu0Sum(0,bozo::ps2f::sqrt(bits[0],flags));_mm_setcsr(saved);}
+            std::memcpy(rt->memory.hostPointer(c->r[3].uw[0],16),bits,16);return true;
         }
         if(reference){const auto saved=_mm_getcsr();check(pc==0x3789a0 || pc==0x3c5d78 || pc==0x37b568 || pc==0x382040 || pc==0x37f9b4);uint32_t bits[4];std::memcpy(bits,rt->memory.hostPointer(c->r[pc==0x382040?4:pc==0x37f9b4?10:5].uw[0],16),16);
             const auto x=square(bits[0]),y=square(bits[1]),z=square(bits[2]);
@@ -404,6 +416,70 @@ int main(){try{
         try{vp2s::nativeMathInstruction(rt.memory.flat(),&c,&rt,pc);}catch(const std::runtime_error &){rejected=true;}check(rejected && _mm_getcsr()==fp && !std::memcmp(&before,&c,sizeof(c)) && !std::memcmp(ram.data(),rt.memory.flat(),ram.size()));
     }}
     std::printf("%u bounded movement rotation consumers,%u identity cases, integer quaternion/row-product oracle and8 readonly rejections passed\n",movementRotations,knownMovementRotations);
+    unsigned objectRotations=0;
+    for(unsigned mode:{_MM_ROUND_NEAREST,_MM_ROUND_DOWN,_MM_ROUND_UP,_MM_ROUND_TOWARD_ZERO})for(unsigned seed=0;seed<128;++seed){
+        auto &a=original.runtime(),&b=adapted.runtime();std::memset(a.memory.flat(),0x63+seed,bozo::kFlatBytes);const uint32_t aliases[]={0,0x20000000,0x30000000,0x80000000,0xa0000000};
+        const uint32_t object=0x190000|aliases[(seed/4)%5],stack=seed&1?0x70002d60u:0x1ffd100u|aliases[(seed/8)%5];
+        uint32_t q[4];for(unsigned i=0;i<4;++i)q[i]=((seed*6007+i*2741)&0x807fffff)|((117+(seed+i)%10)<<23);
+        if(seed%8==0){q[0]=q[1]=q[2]=0;q[3]=0x3f800000;}if(seed%8==1){q[0]=1;q[1]=0x80000001;q[2]=0x00800000;q[3]=0x3f800000;}
+        std::memcpy(a.memory.hostPointer(stack+0x20,16),q,16);const uint64_t ret=0x170000;std::memcpy(a.memory.hostPointer(stack+0x10,8),&ret,8);
+        std::memcpy(b.memory.flat(),a.memory.flat(),bozo::kFlatBytes);R5900Context x{};for(unsigned i=1;i<32;++i){x.r[i].ud[0]=0x5678000000000000ull+seed*32+i;x.r[i].ud[1]=~x.r[i].ud[0];x.f[i]=float(i)/16;}
+        std::memset(x.vu0_vf,0x5c,sizeof(x.vu0_vf));std::memset(&x.vu0_acc,0xc5,sizeof(x.vu0_acc));x.vu0_status=0x1357;x.vu0_q_bits=0x2468ace0;x.vi[0]=0x5678;
+        x.r[16].ud[0]=object;x.r[29].ud[0]=stack;x.r[31].ud[0]=0x39f318;auto y=x;const auto saved=_mm_getcsr(),control=(saved&~(_MM_ROUND_MASK|0x8040|0x3f))|mode|(seed&8?0x8040:0);_mm_setcsr(control);
+        host.reference=true;a.functions.generated(0x39f318)(a.memory.flat(),&x,&a);const auto fp=_mm_getcsr();_mm_setcsr(control);
+        host.reference=false;b.functions.generated(0x39f318)(b.memory.flat(),&y,&b);const auto rotationFp=_mm_getcsr();_mm_setcsr(saved);check(rotationFp==fp);x.cycleLimit=y.cycleLimit;
+        if(x.pc!=0x170000 || std::memcmp(&x,&y,sizeof(x)) || std::memcmp(a.memory.flat(),b.memory.flat(),bozo::kFlatBytes)){
+            std::fprintf(stderr,"object rotation mode%x seed%u PCs%x/%x\n",mode,seed,x.pc,y.pc);
+            for(unsigned i=0;i<sizeof(x);++i)if(reinterpret_cast<const uint8_t *>(&x)[i]!=reinterpret_cast<const uint8_t *>(&y)[i]){std::fprintf(stderr,"CPU byte%x old%02x native%02x\n",i,reinterpret_cast<const uint8_t *>(&x)[i],reinterpret_cast<const uint8_t *>(&y)[i]);break;}
+            for(unsigned i=0;i<bozo::kFlatBytes;++i)if(a.memory.flat()[i]!=b.memory.flat()[i]){std::fprintf(stderr,"RAM byte%x old%02x native%02x\n",i,a.memory.flat()[i],b.memory.flat()[i]);break;}check(false);
+        }
+        const auto rows=movementRotationOracle(q);check(!std::memcmp(rows.data(),b.memory.hostPointer(object+0x250,48),48));
+        const std::array<float,4> last{0,0,0,1};check(!std::memcmp(last.data(),b.memory.hostPointer(object+0x280,16),16));++objectRotations;
+    }
+    {auto &rt=adapted.runtime();for(unsigned which=0;which<7;++which){constexpr uint32_t stack=0x1ffd100,object=0x190000;const std::array<float,4> identity{0,0,0,1};std::memcpy(rt.memory.hostPointer(stack+0x20,16),identity.data(),16);
+        R5900Context c{};c.pc=0x39f318;c.r[31].uw[0]=0x39f318;c.r[29].uw[0]=stack;c.r[16].uw[0]=object;c.r[3].uw[0]=object+0x250;uint32_t pc=0x39f368;
+        if(which==0)c.pc=0;else if(which==1)c.r[31].uw[0]=0;else if(which==2)c.r[3].uw[0]+=16;else if(which==3){pc=0x39f31c;}else if(which==4){pc=0x39f324;}
+        else {const uint32_t bad=which==5?0x7fa01234:0x7f800000;std::memcpy(rt.memory.hostPointer(stack+0x24,4),&bad,4);}
+        const auto before=c;const auto fp=_mm_getcsr();const auto ram=std::vector<uint8_t>(rt.memory.flat(),rt.memory.flat()+bozo::kFlatBytes);bool rejected=false;
+        try{vp2s::nativeMathInstruction(rt.memory.flat(),&c,&rt,pc);}catch(const std::runtime_error &){rejected=true;}check(rejected && _mm_getcsr()==fp && !std::memcmp(&before,&c,sizeof(c)) && !std::memcmp(ram.data(),rt.memory.flat(),ram.size()));
+    }}
+    std::printf("%u object rotations (quaternion getter output), engine VU0 oracle and7 readonly rejections passed\n",objectRotations);
+    unsigned steps=0,skippedSteps=0;
+    for(unsigned pass=0;pass<2;++pass)for(unsigned mode:{_MM_ROUND_NEAREST,_MM_ROUND_DOWN,_MM_ROUND_UP,_MM_ROUND_TOWARD_ZERO})for(unsigned seed=0;seed<128;++seed){
+        auto &a=original.runtime(),&b=adapted.runtime();std::memset(a.memory.flat(),0x37+seed,bozo::kFlatBytes);const uint32_t aliases[]={0,0x20000000,0x30000000,0x80000000,0xa0000000};
+        const uint32_t entry=pass?0x3807d0u:0x3805f0u,positionAt=pass?0x220u:0x280u,targetAt=pass?0x10u:0x20u,lengthAt=pass?0x70u:0xa0u;
+        const uint32_t object=0x180000|aliases[(seed/4)%5],stack=seed&1?0x70002d90u:0x1ffd000u|aliases[(seed/8)%5];
+        uint32_t position[4],target[4];for(unsigned i=0;i<4;++i){position[i]=((seed*7919+i*3121)&0x807fffff)|((120+(seed+i)%14)<<23);target[i]=((seed*104729+i*7477)&0x807fffff)|((120+(seed*3+i)%14)<<23);}
+        if(seed%16==2){position[0]=target[0];position[1]=target[1];position[2]=target[2];}             // zero displacement: length +0
+        if(seed%16==3){position[0]=0x40400000;position[1]=0x40800000;position[2]=0;target[0]=target[1]=target[2]=0;} // 3,4,0 -> 5
+        if(seed%16==4){position[0]=0x00000001;position[1]=0x80000000;position[2]=0x00800001;target[0]=0;target[1]=0;target[2]=0x00800000;} // subnormal and tiny terms
+        const uint32_t time=seed%16==5?0x41200000u:seed%16==6?0x41a00000u:(0x3c000000u|((seed*977)&0x7fffff));const bool skip=seed%16==5 || seed%16==6;
+        std::memcpy(a.memory.hostPointer(stack+positionAt,16),position,16);std::memcpy(a.memory.hostPointer(object+targetAt,16),target,16);std::memcpy(a.memory.hostPointer(object+0x60,4),&time,4);
+        std::memcpy(b.memory.flat(),a.memory.flat(),bozo::kFlatBytes);R5900Context x{};for(unsigned i=1;i<32;++i){x.r[i].ud[0]=0x4321000000000000ull+seed*32+i;x.r[i].ud[1]=~x.r[i].ud[0];x.f[i]=float(i)/4;}
+        std::memset(x.vu0_vf,0x3c,sizeof(x.vu0_vf));std::memset(&x.vu0_acc,0xc3,sizeof(x.vu0_acc));x.vu0_status=0x2468;x.vu0_q_bits=0x13579bdf;x.vi[0]=0x4321;
+        x.r[20].ud[0]=object;x.r[29].ud[0]=stack;x.r[31].ud[0]=entry;auto y=x;const auto saved=_mm_getcsr(),control=(saved&~(_MM_ROUND_MASK|0x8040|0x3f))|mode|(seed&8?0x8040:0);_mm_setcsr(control);
+        host.reference=true;a.functions.generated(entry)(a.memory.flat(),&x,&a);const auto fp=_mm_getcsr();_mm_setcsr(control);
+        host.reference=false;b.functions.generated(entry)(b.memory.flat(),&y,&b);const auto stepFp=_mm_getcsr();_mm_setcsr(saved);
+        if(stepFp!=fp)std::fprintf(stderr,"movement step mode%x seed%u mxcsr old%08x native%08x control%08x\n",mode,seed,fp,stepFp,control);check(stepFp==fp);x.cycleLimit=y.cycleLimit;
+        if(x.pc!=entry || std::memcmp(&x,&y,sizeof(x)) || std::memcmp(a.memory.flat(),b.memory.flat(),bozo::kFlatBytes)){
+            std::fprintf(stderr,"movement step pass%u mode%x seed%u PCs%x/%x\n",pass,mode,seed,x.pc,y.pc);
+            for(unsigned i=0;i<sizeof(x);++i)if(reinterpret_cast<const uint8_t *>(&x)[i]!=reinterpret_cast<const uint8_t *>(&y)[i]){std::fprintf(stderr,"CPU byte%x old%02x native%02x\n",i,reinterpret_cast<const uint8_t *>(&x)[i],reinterpret_cast<const uint8_t *>(&y)[i]);break;}
+            for(unsigned i=0;i<bozo::kFlatBytes;++i)if(a.memory.flat()[i]!=b.memory.flat()[i]){std::fprintf(stderr,"RAM byte%x old%02x native%02x\n",i,a.memory.flat()[i],b.memory.flat()[i]);break;}check(false);
+        }
+        if(!skip){uint32_t length;std::memcpy(&length,b.memory.hostPointer(stack+lengthAt,4),4);
+            if(seed%16==2)check(length==0);if(seed%16==3)check(length==0x40a00000u);}
+        else{++skippedSteps;uint8_t untouched[16];std::memcpy(untouched,b.memory.hostPointer(stack+lengthAt,16),16);
+            for(uint8_t v:untouched)check(v==uint8_t(0x37+seed));} // threshold path never reaches the length
+        ++steps;
+    }
+    {auto &rt=adapted.runtime();for(unsigned which=0;which<6;++which){constexpr uint32_t stack=0x1ffd000;const std::array<float,4> displacement{1,2,3,4};std::memcpy(rt.memory.hostPointer(stack+0x270,16),displacement.data(),16);
+        R5900Context c{};c.r[31].uw[0]=0x3805f0;c.r[29].uw[0]=stack;c.r[4].uw[0]=stack+0x270;c.r[3].uw[0]=stack+0xa0;uint32_t pc=0x380684;
+        if(which==0)c.r[31].uw[0]=0x380118;else if(which==1)c.r[4].uw[0]+=16;else if(which==2)c.r[3].uw[0]=stack+0xb0;else if(which==3){pc=0x380664;c.r[4].uw[0]=0;}
+        else {const uint32_t bad=which==4?0x7f800000:0x7fa01234;std::memcpy(rt.memory.hostPointer(stack+0x274,4),&bad,4);}
+        const auto before=c;const auto fp=_mm_getcsr();const auto ram=std::vector<uint8_t>(rt.memory.flat(),rt.memory.flat()+bozo::kFlatBytes);bool rejected=false;
+        try{vp2s::nativeMathInstruction(rt.memory.flat(),&c,&rt,pc);}catch(const std::runtime_error &){rejected=true;}check(rejected && _mm_getcsr()==fp && !std::memcmp(&before,&c,sizeof(c)) && !std::memcmp(ram.data(),rt.memory.flat(),ram.size()));
+    }}
+    std::printf("%u movement step lengths (%u threshold skips), engine VU0 oracle and6 readonly rejections passed\n",steps,skippedSteps);
     unsigned dots=0;uint32_t random=71;
     for(unsigned mode:{_MM_ROUND_NEAREST,_MM_ROUND_DOWN,_MM_ROUND_UP,_MM_ROUND_TOWARD_ZERO})for(unsigned seed=0;seed<128;++seed){
         auto &a=original.runtime();auto &b=adapted.runtime();std::memset(a.memory.flat(),seed+1,bozo::kFlatBytes);

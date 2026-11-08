@@ -12,6 +12,32 @@ The earlier VP2S face/shading and general brightness comparisons remain open.
 
 ## Build and evidence
 
+### Movement step lengths and object rotation (2026-11-08)
+
+The enclosing movement update has two step passes of one shape (entries
+`3805f0` and `3807d0`). Each scalar builder writes the displacement to `SP+270`;
+the nine VU0 sites `380664..380684` / `380844..380864` (VMUL.xyz, VADDA.x,
+VMADD.x, VSQRT, VADD.x 0+Q) now publish `{|xyz|, y*y, z*z, w}` natively to
+`SP+a0` / `SP+70` with nearest-even mul, add and sqrt (engine spec Q1/Q3/Q10).
+Scalar division, step scaling and position updates stay compiled.
+
+`39f300` builds an object's rotation from the quaternion its getter writes to
+`SP+20`: sites `39f31c..39f370` publish the three rows at `s0+250` through
+`math::quaternionMatrix`; the scalar code keeps the identity row at `s0+280`.
+
+Source guards: `3805f0..380738`, `3807d0..380918`, `39f300..39f3ac`. The field
+fixture returns at each step pass's threshold join (`380730`/`380910`) and
+starts the rotation at its resume label `39f318`. 1024 step cases (128
+threshold skips) and 512 rotation cases compare whole CPU/RAM/MXCSR against
+oracles built from the engine's `ps2f::mul`/`addNearest`/`sqrt`, across four
+modes, FTZ/DAZ, five RAM aliases and scratch storage; 13 readonly rejections.
+The protected route now reaches main-ELF `1f8b34` (entry `1f8aa0`).
+
+Audit item: the older field distance sites (`3789a0`, `3c5d78`, `37b568`,
+`382040`, `37f9b4`) are the same VU0 sequence but still use the codec's
+aligned truncating sum, and their test oracles truncate squares and roots. The
+engine spec says nearest even. They were not changed here.
+
 ### Movement rotation and geometry addition correction (2026-11-08)
 
 The six `38011c..380164` sites now publish three quaternion rotation rows from

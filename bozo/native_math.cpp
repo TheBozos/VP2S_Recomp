@@ -534,6 +534,20 @@ bool nativeMathInstruction(uint8_t *,R5900Context *c,Runtime *rt,uint32_t pc){
             const auto result=math::quaternionMatrix(input);const auto row=(pc-0x38015c)/4;std::memcpy(record(rt,stack+0x2a0+16*row,16),&result[row],16);
         }return true;
     }
+    if(pc==0x39f31c || pc==0x39f324 || pc==0x39f360 || pc==0x39f368 || pc==0x39f36c || pc==0x39f370){
+        // Object rotation from the quaternion its getter wrote at SP+20; the
+        // rows land at s0+250, the scalar code builds the identity fourth row.
+        if(!c || c->pc!=0x39f318 || c->r[31].uw[0]!=0x39f318)throw std::runtime_error("native object rotation escaped scalar quaternion builder");
+        const auto stack=c->r[29].uw[0],object=c->r[16].uw[0];
+        if((pc==0x39f31c || pc==0x39f324) && c->r[3].uw[0]!=stack+0x20)throw std::runtime_error("object quaternion source mismatch");
+        if(pc==0x39f360)c->r[9].ud[0]=0;
+        else if(pc>=0x39f368){
+            if(c->r[3].uw[0]!=object+0x250)throw std::runtime_error("object rotation destination mismatch");
+            __m128 input;std::memcpy(&input,record(rt,stack+0x20,16),16);float values[4];std::memcpy(values,&input,16);
+            for(float v:values){const auto magnitude=std::bit_cast<uint32_t>(v)&0x7fffffff;if(magnitude>=0x7f800000 || magnitude>std::bit_cast<uint32_t>(1.e8f))throw std::runtime_error("unqualified object quaternion");}
+            const auto result=math::quaternionMatrix(input);const auto row=(pc-0x39f368)/4;std::memcpy(record(rt,object+0x250+16*row,16),&result[row],16);
+        }return true;
+    }
     if(nativeParticleCallbackInstruction(c,rt,pc))return true;
     if(pc==0x22f300 || pc==0x22f304 || pc==0x22f308 || pc==0x22f30c){
         if(!c || c->pc<0x22f170 || c->pc>0x22f2f8 || !c->r[18].uw[0] || c->r[3].uw[0]!=c->r[20].uw[0]+0x580 || c->r[4].uw[0]!=c->r[18].uw[0]+0x340 || c->r[2].uw[0]!=c->r[29].uw[0]+0xb0)
@@ -1487,6 +1501,29 @@ bool nativeMathInstruction(uint8_t *,R5900Context *c,Runtime *rt,uint32_t pc){
         if(!std::isfinite(squared))throw std::runtime_error("native field distance overflow");
         volatile float length=std::sqrt(squared);volatile float output=0.f+length;result[0]=output;
         std::memcpy(record(rt,destination,16),result,16);return true;
+    }
+    case 0x380664:case 0x380668:case 0x38066c:case 0x380670:
+    case 0x380674:case 0x380678:case 0x38067c:case 0x380680:case 0x380684:
+    case 0x380844:case 0x380848:case 0x38084c:case 0x380850:
+    case 0x380854:case 0x380858:case 0x38085c:case 0x380860:case 0x380864:{
+        // Movement step length, two passes of one shape: the scalar builder put
+        // the displacement at SP+270; entry 3805f0 publishes to SP+a0, entry
+        // 3807d0 to SP+70. Result {|xyz|, y*y, z*z, w} as the original VU0 macro
+        // sequence (VMUL.xyz, VADDA.x, VMADD.x, VSQRT, VADD.x 0+Q); mul, add and
+        // sqrt round to nearest even.
+        const bool second=pc>=0x380844;const uint32_t entry=second?0x3807d0:0x3805f0,out=second?0x70:0xa0;
+        if(!c || c->r[31].uw[0]!=entry || c->r[4].uw[0]!=c->r[29].uw[0]+0x270 || c->r[3].uw[0]!=c->r[29].uw[0]+out)
+            throw std::runtime_error("native movement step length escaped its scalar records");
+        if(pc!=0x380684 && pc!=0x380864)return true;
+        float value[4],result[4];std::memcpy(value,record(rt,c->r[4].uw[0],16),16);std::memcpy(result,value,16);
+        const auto normal=[](float v){const auto bits=std::bit_cast<uint32_t>(v);return std::bit_cast<float>((bits&0x7f800000)?bits:(bits&0x80000000));};
+        for(unsigned i=0;i<3;++i){if((std::bit_cast<uint32_t>(value[i])&0x7f800000)==0x7f800000 || std::abs(value[i])>1.e18f)
+            throw std::runtime_error("unqualified native movement step length");value[i]=normal(value[i]);}
+        music::NearestRounding rounding;
+        for(unsigned i=0;i<3;++i){volatile float square=value[i]*value[i];result[i]=normal(square);}
+        volatile float partial=result[0]+result[1];volatile float squared=normal(partial)+result[2];
+        volatile float length=std::sqrt(normal(squared));volatile float output=0.f+length;result[0]=output;
+        std::memcpy(record(rt,c->r[3].uw[0],16),result,16);return true;
     }
     case 0x239cfc:case 0x239d00:case 0x239d04:case 0x239d0c:
     case 0x239dc8:case 0x239dcc:case 0x239dd0:case 0x239dd4:case 0x239dd8:

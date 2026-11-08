@@ -18,6 +18,9 @@ fixture,_=prepare(data,[dict(Name='field_distance',Start='0x378908',End='0x3789d
                        dict(Name='model_colour',Start='0x43d280',End='0x43d35c'),
                        dict(Name='field_rotation',Start='0x379228',End='0x379294'),
                        dict(Name='movement_rotation',Start='0x380118',End='0x380178'),
+                       dict(Name='movement_step',Start='0x3805f0',End='0x380738'),
+                       dict(Name='movement_step_second',Start='0x3807d0',End='0x380918'),
+                       dict(Name='object_rotation',Start='0x39f318',End='0x39f3ac'),
                        dict(Name='row_dot',Start='0x410df0',End='0x410e50'),
                        dict(Name='action_update',Start='0x4126a0',End='0x412868'),
                        dict(Name='animation_parameter',Start='0x446520',End='0x446618'),
@@ -32,6 +35,20 @@ for pc in (0x38011c,0x380124,0x380154,0x38015c,0x380160,0x380164):
     if a.variant=='original' and pc!=0x38015c:
         at=s[1]+pc-s[2];fixture[at:at+4]=bytes(4)
     else:movement_sites.append(f'native 0x{pc:x}\n')
+s=next(s for s in segments if s[0]==1 and s[2]<=0x39f318<0x39f3ac<=s[2]+s[4])
+for pc in (0x39f31c,0x39f324,0x39f360,0x39f368,0x39f36c,0x39f370):
+    if a.variant=='original' and pc!=0x39f368:
+        at=s[1]+pc-s[2];fixture[at:at+4]=bytes(4)
+    else:movement_sites.append(f'native 0x{pc:x}\n')
+# Both step passes join their time threshold at 380730/380910; return there
+# so the fixture stops after each CPU position update.
+for lo,hi,join,result in ((0x3805f0,0x380738,0x380730,0x380684),(0x3807d0,0x380918,0x380910,0x380864)):
+    s=next(s for s in segments if s[0]==1 and s[2]<=lo<hi<=s[2]+s[4])
+    at=s[1]+join-s[2];fixture[at:at+8]=(0x03e00008).to_bytes(4,'little')+bytes(4)
+    for pc in range(result-0x20,result+4,4):
+        if a.variant=='original' and pc!=result:
+            at=s[1]+pc-s[2];fixture[at:at+4]=bytes(4)
+        else:movement_sites.append(f'native 0x{pc:x}\n')
 s=next(s for s in segments if s[0]==1 and s[2]<=0x378908<0x3789d0<=s[2]+s[4])
 sites=movement_sites+[f'native 0x{pc:x}\n' for pc in range(0x377d8c,0x377db0,4)]
 for begin,end,result in ((0x378980,0x3789c8,0x3789a0),(0x3c5d58,0x3c5dc8,0x3c5d78),(0x37b548,0x37b578,0x37b568),(0x382020,0x38204c,0x382040),(0x37f994,0x37f9d8,0x37f9b4)):

@@ -109,6 +109,13 @@ struct Host:bozo::ee::Host,bozo::port::Host {
     bozo::libs::Libraries &libraries()override{throw std::runtime_error("library");}
     bool nativeGraphics()const override{return true;}
     bool nativeInstruction(uint8_t *r,R5900Context *c,Runtime *rt,uint32_t pc)override{
+        if(reference && (pc==0x39f17c || pc==0x39f1e0 || pc==0x39f268 || pc==0x39f2cc)){
+            const auto object=c->r[16].uw[0];const auto b=object+(pc>=0x39f268?0x250:0x210),target=object+(pc==0x39f1e0 || pc==0x39f2cc?0xd0:0x90);
+            uint32_t m[4][4],rows[4][4],out[4][4];std::memcpy(m,rt->memory.hostPointer(b,64),64);std::memcpy(rows,rt->memory.hostPointer(target,64),64);
+            for(unsigned k=0;k<4;++k)for(unsigned i=0;i<4;++i)
+                out[k][i]=vu0Sum(vu0Sum(vu0Sum(vu0Product(m[0][i],rows[k][0]),vu0Product(m[1][i],rows[k][1])),vu0Product(m[2][i],rows[k][2])),vu0Product(m[3][i],rows[k][3]));
+            std::memcpy(rt->memory.hostPointer(target,64),out,64);return true;
+        }
         if(reference && pc==0x39f368){uint32_t q[4];std::memcpy(q,rt->memory.hostPointer(c->r[29].uw[0]+0x20,16),16);const auto rows=movementRotationOracle(q);
             std::memcpy(rt->memory.hostPointer(c->r[3].uw[0],48),rows.data(),48);c->r[9].ud[0]=0;return true;}
         if(reference && pc==0x38015c){uint32_t q[4];std::memcpy(q,rt->memory.hostPointer(c->r[29].uw[0]+0x290,16),16);const auto rows=movementRotationOracle(q);
@@ -416,6 +423,36 @@ int main(){try{
         try{vp2s::nativeMathInstruction(rt.memory.flat(),&c,&rt,pc);}catch(const std::runtime_error &){rejected=true;}check(rejected && _mm_getcsr()==fp && !std::memcmp(&before,&c,sizeof(c)) && !std::memcmp(ram.data(),rt.memory.flat(),ram.size()));
     }}
     std::printf("%u bounded movement rotation consumers,%u identity cases, integer quaternion/row-product oracle and8 readonly rejections passed\n",movementRotations,knownMovementRotations);
+    unsigned compositions=0,composedProducts=0;
+    for(unsigned mode:{_MM_ROUND_NEAREST,_MM_ROUND_DOWN,_MM_ROUND_UP,_MM_ROUND_TOWARD_ZERO})for(unsigned seed=0;seed<128;++seed){
+        auto &a=original.runtime(),&b=adapted.runtime();std::memset(a.memory.flat(),0x5d+seed,bozo::kFlatBytes);const uint32_t aliases[]={0,0x20000000,0x30000000,0x80000000,0xa0000000};
+        const uint32_t object=0x1a0000|aliases[(seed/4)%5],stack=seed&1?0x70002d00u:0x1ffd200u|aliases[(seed/8)%5];
+        uint32_t state=seed*69069u+mode;const auto next=[&](int lo,int span){state=state*1664525u+1013904223u;return ((state>>8)&0x807fffffu)|uint32_t((lo+int((state>>4)%unsigned(span)))<<23);};
+        for(uint32_t at:{0x90u,0xd0u,0x210u,0x250u})for(unsigned i=0;i<16;++i){uint32_t v=next(118,14);if(seed%16==3 && i%5)v=i%2?0x80000000u:0;std::memcpy(a.memory.hostPointer(object+at+4*i,4),&v,4);}
+        const uint8_t flags=uint8_t((0x5d+seed)&~3u)|uint8_t(seed%4),state51=seed%16==7?2:1;std::memcpy(a.memory.hostPointer(object+0x290,1),&flags,1);std::memcpy(a.memory.hostPointer(object+0x51,1),&state51,1);
+        const uint64_t ret=0x170000;std::memcpy(a.memory.hostPointer(stack+0x20,8),&ret,8);
+        std::memcpy(b.memory.flat(),a.memory.flat(),bozo::kFlatBytes);R5900Context x{};for(unsigned i=1;i<32;++i){x.r[i].ud[0]=0x7531000000000000ull+seed*32+i;x.r[i].ud[1]=~x.r[i].ud[0];x.f[i]=float(i)/32;}
+        std::memset(x.vu0_vf,0x4e,sizeof(x.vu0_vf));std::memset(&x.vu0_acc,0xe4,sizeof(x.vu0_acc));x.vu0_status=0x0f0f;x.vu0_q_bits=0x3f000001;x.vi[0]=0x0f0f;
+        x.r[16].ud[0]=object;x.r[17].ud[0]=0x100;x.r[29].ud[0]=stack;x.r[31].ud[0]=0x39f0ec;auto y=x;
+        const auto saved=_mm_getcsr(),control=(saved&~(_MM_ROUND_MASK|0x8040|0x3f))|mode|(seed&8?0x8040:0);_mm_setcsr(control);
+        host.reference=true;a.functions.generated(0x39f0ec)(a.memory.flat(),&x,&a);const auto fp=_mm_getcsr();_mm_setcsr(control);
+        host.reference=false;b.functions.generated(0x39f0ec)(b.memory.flat(),&y,&b);const auto composeFp=_mm_getcsr();_mm_setcsr(saved);check(composeFp==fp);x.cycleLimit=y.cycleLimit;
+        if(x.pc!=0x170000 || std::memcmp(&x,&y,sizeof(x)) || std::memcmp(a.memory.flat(),b.memory.flat(),bozo::kFlatBytes)){
+            std::fprintf(stderr,"object compose mode%x seed%u PCs%x/%x\n",mode,seed,x.pc,y.pc);
+            for(unsigned i=0;i<sizeof(x);++i)if(reinterpret_cast<const uint8_t *>(&x)[i]!=reinterpret_cast<const uint8_t *>(&y)[i]){std::fprintf(stderr,"CPU byte%x old%02x native%02x\n",i,reinterpret_cast<const uint8_t *>(&x)[i],reinterpret_cast<const uint8_t *>(&y)[i]);break;}
+            for(unsigned i=0;i<bozo::kFlatBytes;++i)if(a.memory.flat()[i]!=b.memory.flat()[i]){std::fprintf(stderr,"RAM byte%x old%02x native%02x\n",i,a.memory.flat()[i],b.memory.flat()[i]);break;}check(false);
+        }
+        if(state51==1)composedProducts+=2*((seed&1)+((seed>>1)&1));++compositions;
+    }
+    {auto &rt=adapted.runtime();for(unsigned which=0;which<5;++which){constexpr uint32_t object=0x1a0000;
+        R5900Context c{};c.r[16].uw[0]=object;c.r[4].uw[0]=object+0x90;c.r[3].uw[0]=object+0x210;uint32_t pc=0x39f17c;
+        const float identity[16]={1,0,0,0,0,1,0,0,0,0,1,0,0,0,0,1};for(uint32_t at:{0x90u,0xd0u,0x210u,0x250u})std::memcpy(rt.memory.hostPointer(object+at,64),identity,64);
+        if(which==0)c.r[3].uw[0]=object+0x250;else if(which==1){pc=0x39f1e0;c.r[3].uw[0]=object+0x90;}else if(which==2)c.r[16].uw[0]=0;
+        else{const uint32_t bad=which==3?0x7f800000:0x7fc00001;std::memcpy(rt.memory.hostPointer(object+0x214,4),&bad,4);}
+        const auto before=c;const auto fp=_mm_getcsr();const auto ram=std::vector<uint8_t>(rt.memory.flat(),rt.memory.flat()+bozo::kFlatBytes);bool rejected=false;
+        try{vp2s::nativeMathInstruction(rt.memory.flat(),&c,&rt,pc);}catch(const std::runtime_error &){rejected=true;}check(rejected && _mm_getcsr()==fp && !std::memcmp(&before,&c,sizeof(c)) && !std::memcmp(ram.data(),rt.memory.flat(),ram.size()));
+    }}
+    std::printf("%u object compositions (%u matrix products) and5 readonly rejections passed\n",compositions,composedProducts);
     unsigned objectRotations=0;
     for(unsigned mode:{_MM_ROUND_NEAREST,_MM_ROUND_DOWN,_MM_ROUND_UP,_MM_ROUND_TOWARD_ZERO})for(unsigned seed=0;seed<128;++seed){
         auto &a=original.runtime(),&b=adapted.runtime();std::memset(a.memory.flat(),0x63+seed,bozo::kFlatBytes);const uint32_t aliases[]={0,0x20000000,0x30000000,0x80000000,0xa0000000};

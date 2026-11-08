@@ -12,6 +12,41 @@ The earlier VP2S face/shading and general brightness comparisons remain open.
 
 ## Build and evidence
 
+### Object overlap, camera projection, composition, contact (2026-11-08)
+
+All four follow the engine's VU0 arithmetic (nearest even) and are qualified
+by whole CPU/RAM/MXCSR comparisons against fixtures whose reference executes
+no VU instruction (COP2 words become NOPs, VI0 reads clear `t1`, and each
+publication uses an oracle built from the engine's `ps2f` functions).
+
+- mod001 `1f8aa0` object pair overlap: the VF1..VF9 spill/restore sites hold
+  no native state (the SP+a0 area has no EE reader). Both common-math `0x7f0`
+  calls (micro program disassembled: per-lane `sqrt` of the basis column's
+  squared length) publish XYZ to `SP+70`/`SP+60`; the micro program leaves
+  W as inherited register state and nobody reads it. The two-matrix block
+  publishes `{((dx²+dy²)-r²)+dz², dy², dz², t1.w}` to `SP+80`, whose X is the
+  overlap test. 1152 cases (16 touching), 6 rejections.
+- mod001 `209aa0` camera point projection: common-math `0x1f0` (column load
+  of the camera matrix at `s2+330`, with `0+x` canonical lanes, diagonal
+  moves and `1*x` for the fourth row) then `0x0` (`p = M*v`, `Q = 1/p.w`,
+  result `(p.x*Q, p.y*Q, p.z*Q, Q)`). The matrix is reread at each
+  projection: between the load and the projections the original writes only
+  its stack frame and `s0`'s `+3e8c`/`+3ecc` table, and any overlap is refused.
+  768 runs (1824 points), 5 rejections.
+- mod003 `39f0d0` object composition: `s0+90` and `s0+d0` become `row*B`
+  with `B = s0+210` (flag bit 0) and/or `s0+250` (bit 1, the rotation
+  `39f300` publishes). 512 runs (896 products), 5 rejections.
+- mod001 `1fc4b0` segment/sphere contact: normal `d*(1/sqrt|d|²)` with
+  `d = (0+A + D*t) - P` to `a2` (in `s2`). The 128-bit store's address is
+  masked like the hardware's; W (inherited register state) is not written.
+  The interleaved CPU scalar stores must not alias the inputs. 512 runs
+  (440 contacts), 5 rejections.
+
+Source guards: `1f8aa0..1f9128`, `209aa0..20a4bc`, `39f0d0..39f2f4`,
+`1fc4b0..1fc5a8`. Its sibling `1fc300` reads VF24..VF27 inherited from other
+code and is not ported. The protected route now stops at the math program
+selection boundary `29e1a0` (entry `29e180`, ra `218d40`).
+
 ### Movement step lengths and object rotation (2026-11-08)
 
 The enclosing movement update has two step passes of one shape (entries
@@ -35,8 +70,9 @@ The protected route now reaches main-ELF `1f8b34` (entry `1f8aa0`).
 
 Audit item: the older field distance sites (`3789a0`, `3c5d78`, `37b568`,
 `382040`, `37f9b4`) are the same VU0 sequence but still use the codec's
-aligned truncating sum, and their test oracles truncate squares and roots. The
-engine spec says nearest even. They were not changed here.
+aligned truncating sum, and their test oracles truncate squares and roots.
+`math::largestAxisScale` (sphere getter `239d98`, the same `0x7f0` program)
+also truncates. The engine spec says nearest even. They were not changed here.
 
 ### Movement rotation and geometry addition correction (2026-11-08)
 

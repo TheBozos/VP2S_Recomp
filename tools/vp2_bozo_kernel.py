@@ -347,6 +347,7 @@ def overlay_adaptations(name,data):
                                (0x3805f0,0x380738,'f99bce02f1bbb8aadad57eb274856e29eaec38cbbb9783432c141e6ce401b093'),
                                (0x3807d0,0x380918,'96443dbe9708b70866512175223295131ef04a96f7789cf2829b3b232f1faa68'),
                                (0x39f300,0x39f3ac,'1e1eec457a4706387c92ec3864026df1a64657a562f78358a56a945c8cdd0cde'),
+                               (0x39f0d0,0x39f2f4,'fa1b55f8495a559439e1073ad09d23f5c777c8850ae11087decf613b6fabed24'),
                                (0x3e7e94,0x3e80f0,'9d7958bae8751020c5857db7a226947e203b17a7434cd0b937267dd3da47bed2'),
                                (0x3d7708,0x3d77cc,'435926535d852e22f0b20b9027f65fd6674acc7a63b6aaedb31e59c63a1cd1c8'),
                                (0x3d5670,0x3d57ec,'250a2389769015fbda23859f5082b6f69031a706af85f263b765f34130611ecc'),
@@ -442,6 +443,9 @@ def overlay_adaptations(name,data):
     for lo,hi,expected in (
         (0x252e30,0x253344,'0aa2f411a373a9d07357735229c7599e0d2f7ec1dbec3a6371e03c683b5bd448'),
         (0x1f6f40,0x1f739c,'64aa600e45325da65e5dbde01bf3d555bfcf683fd446955177b2c987b40246ee'),
+        (0x1f8aa0,0x1f9128,'6b6f4904da15dc26a04bab0d45b242ed8137e59f6eb8f3a5da5fad53e50e1e91'),
+        (0x209aa0,0x20a4bc,'475ada92e212bc095a32fa12a341da89bf20261019a6a7873e42a55a090ca0b6'),
+        (0x1fc4b0,0x1fc5a8,'e08fecf06bb52a8de57369b0d98ca938222d1cde05391599aabcc7f54cfe2b75'),
         (0x3140e0,0x314120,'5b1ac88e48d62e6ae747d08f015c4b4e5a80c15e7ae4e198d6b8386eaf81ccd9'),
         (0x2e74f0,0x2e75bc,'249a16a05dfd11f8b9ee28c571dfc511db7d2b6e9d5b35207a992be32ee2c767'),
         (0x2e7e90,0x2e8678,'6a2e9aae85037a750a67937b87fd1fb9ec416ef0825fd3851a07ea449086d6ab'),

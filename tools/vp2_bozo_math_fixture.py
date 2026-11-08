@@ -22,6 +22,14 @@ rows=[dict(Name='matrix',Start=hex(0x217598 if a.variant=='original' else 0x2175
       dict(Name='quaternion_euler',Start=hex(0x2158e0 if a.variant=='original' else 0x215870),End='0x2159c0')]
 rows.append(dict(Name='sphere_getter',Start='0x239ce0',End='0x239e00'))
 rows.append(dict(Name='axis_angle',Start='0x215640',End='0x2156c8'))
+# Object pair overlap (1f8aa0): bounded spill, both basis scales, sphere test.
+overlap_rows=[(0x1f8b30,0x1f8b60,0x1f8b58),(0x1f8cc8,0x1f8dbc,0x1f8db4),(0x1f8dbc,0x1f8e64,0x1f8e5c)]
+# Camera point projection (209aa0): the loop of two projections and the single one.
+overlap_rows+=[(0x209bd0,0x209d54,0x209d4c),(0x20a00c,0x20a090,0x20a088)]
+# Segment/sphere contact (1fc4b0) from its post-call label through its own return.
+overlap_rows+=[(0x1fc4f0,0x1fc5a8,None)]
+published=(0x1f8d1c,0x1f8d94,0x1f8e58,0x209c94,0x209d14,0x20a084,0x1fc570);vi_reads=(0x1f8d14,0x1f8d8c,0x209c90,0x209d10,0x20a07c)
+for lo,hi,_ in overlap_rows:rows.append(dict(Name=f'vu_bounded_{lo:x}',Start=hex(lo),End=hex(hi)))
 if a.variant=='adapted':
     rows.append(dict(Name='component_product',Start='0x211da0',End='0x211dc0'))
     rows.append(dict(Name='inline_light_product',Start='0x23c17c',End='0x23c194'))
@@ -45,6 +53,18 @@ if a.variant=='original':
     for pc in (0x2156a0,0x2156a8,0x2156ac):
         at=segment[1]+pc-segment[2];fixture[at:at+4]=bytes(4)
     sites.append('native 0x2156b0\n')
+fixture=bytearray(fixture);_,fs,_=elf_parts(fixture)
+for lo,hi,stop in overlap_rows:
+    s=next(s for s in fs if s[0]==1 and s[2]<=lo<hi<=s[2]+s[4])
+    if stop is not None:at=s[1]+stop-s[2];fixture[at:at+8]=(0x03e00008).to_bytes(4,'little')+bytes(4)
+    if a.variant=='original':
+        # The reference executes no VU operation: COP2 words become NOPs,
+        # the VI0 reads clear t1, and the publications use oracles.
+        for pc in range(lo,hi if stop is None else stop,4):
+            at=s[1]+pc-s[2];word=int.from_bytes(fixture[at:at+4],'little')
+            if word>>26 not in (0x12,0x36,0x3e):continue
+            if pc in published:sites.append(f'native 0x{pc:x}\n')
+            else:fixture[at:at+4]=(0x0000482d if pc in vi_reads else 0).to_bytes(4,'little')
 if a.variant=='adapted':
     for row in rows:
         lo,hi=int(row['Start'],0),int(row['End'],0)

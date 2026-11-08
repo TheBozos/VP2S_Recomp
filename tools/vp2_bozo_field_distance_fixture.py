@@ -21,6 +21,7 @@ fixture,_=prepare(data,[dict(Name='field_distance',Start='0x378908',End='0x3789d
                        dict(Name='movement_step',Start='0x3805f0',End='0x380738'),
                        dict(Name='movement_step_second',Start='0x3807d0',End='0x380918'),
                        dict(Name='object_rotation',Start='0x39f318',End='0x39f3ac'),
+                       dict(Name='object_compose',Start='0x39f0ec',End='0x39f2f4'),
                        dict(Name='row_dot',Start='0x410df0',End='0x410e50'),
                        dict(Name='action_update',Start='0x4126a0',End='0x412868'),
                        dict(Name='animation_parameter',Start='0x446520',End='0x446618'),
@@ -39,6 +40,12 @@ s=next(s for s in segments if s[0]==1 and s[2]<=0x39f318<0x39f3ac<=s[2]+s[4])
 for pc in (0x39f31c,0x39f324,0x39f360,0x39f368,0x39f36c,0x39f370):
     if a.variant=='original' and pc!=0x39f368:
         at=s[1]+pc-s[2];fixture[at:at+4]=bytes(4)
+    else:movement_sites.append(f'native 0x{pc:x}\n')
+s=next(s for s in segments if s[0]==1 and s[2]<=0x39f0ec<0x39f2f4<=s[2]+s[4])
+for pc in range(0x39f0ec,0x39f2f4,4):
+    at=s[1]+pc-s[2];word=int.from_bytes(fixture[at:at+4],'little')
+    if word>>26 not in (0x12,0x36,0x3e):continue
+    if a.variant=='original' and pc not in (0x39f17c,0x39f1e0,0x39f268,0x39f2cc):fixture[at:at+4]=bytes(4)
     else:movement_sites.append(f'native 0x{pc:x}\n')
 # Both step passes join their time threshold at 380730/380910; return there
 # so the fixture stops after each CPU position update.

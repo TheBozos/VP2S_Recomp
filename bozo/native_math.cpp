@@ -521,7 +521,176 @@ std::array<uint32_t,4> NativeMotion::finish(uint32_t frame,uint32_t object){
     auto it=updates.find(frame);if(it==updates.end() || it->second.object!=object)throw std::runtime_error("native motion publication has no matching update");
     const auto result=it->second.position;updates.erase(it);return result;
 }
+// Object pair overlap, main 1f8aa0. Its VU0 register spills/restores hold no
+// native state (the SP+a0 area has no EE reader). Two common-math 0x7f0 calls
+// publish each object's per-axis basis lengths; the transform block computes
+// ((dx*dx+dy*dy)-r*r)+dz*dz between the two transformed sphere centres.
+// VU0 mul/add/sqrt round to nearest even (engine spec Q1/Q3/Q10).
+float vu0Input(float v){const auto bits=std::bit_cast<uint32_t>(v);
+    if((bits&0x7f800000)==0x7f800000 || std::abs(v)>1.e18f)throw std::runtime_error("unqualified native object overlap input");
+    return pairNormal(v);}
+bool nativeObjectOverlap(R5900Context *c,Runtime *rt,uint32_t pc){
+    const bool spill=pc>=0x1f8b34 && pc<=0x1f8b54,restore=(pc>=0x1f8e70 && pc<=0x1f8e90) || (pc>=0x1f8fec && pc<=0x1f900c)
+        || (pc>=0x1f907c && pc<=0x1f909c) || (pc>=0x1f90dc && pc<=0x1f90fc);
+    const bool firstScale=pc==0x1f8d00 || pc==0x1f8d04 || pc==0x1f8d08 || pc==0x1f8d10 || pc==0x1f8d14 || pc==0x1f8d1c;
+    const bool secondScale=pc==0x1f8d78 || pc==0x1f8d7c || pc==0x1f8d80 || pc==0x1f8d88 || pc==0x1f8d8c || pc==0x1f8d94;
+    const bool overlap=pc>=0x1f8ddc && pc<=0x1f8e58 && (pc&3)==0 && pc!=0x1f8e54;
+    if(!(spill || restore || firstScale || secondScale || overlap) || (pc&3))return false;
+    if(!c)throw std::runtime_error("native object overlap has no CPU record");
+    const auto stack=c->r[29].uw[0],first=c->r[18].uw[0],second=c->r[17].uw[0];
+    if(spill || restore){
+        if(c->r[2].uw[0]!=stack+0xa0)throw std::runtime_error("native object overlap spill escaped its frame");
+        return true;
+    }
+    if(firstScale || secondScale){
+        const auto object=firstScale?first:second;const auto out=stack+(firstScale?0x70:0x60);
+        if(c->r[5].uw[0]!=object+0x90)throw std::runtime_error("native object scale basis mismatch");
+        if(pc==0x1f8d14 || pc==0x1f8d8c){c->r[9].ud[0]=0;return true;}
+        if(pc!=0x1f8d1c && pc!=0x1f8d94)return true;
+        if(c->r[2].uw[0]!=out)throw std::runtime_error("native object scale destination mismatch");
+        float rows[3][4];std::memcpy(rows,record(rt,object+0x90,48),48);
+        for(auto &row:rows)for(unsigned i=0;i<3;++i)row[i]=vu0Input(row[i]);
+        float lengths[3];
+        {music::NearestRounding rounding;
+            for(unsigned i=0;i<3;++i){
+                auto squared=pairSum(pairSum(pairProduct(rows[0][i],rows[0][i]),pairProduct(rows[1][i],rows[1][i])),pairProduct(rows[2][i],rows[2][i]));
+                volatile float root=std::sqrt(squared);lengths[i]=pairSum(0.f,root);
+            }}
+        // The micro program leaves W as inherited register state; no reader.
+        std::memcpy(record(rt,out,12),lengths,12);return true;
+    }
+    if(c->r[4].uw[0]!=c->r[20].uw[0]+0x10 || c->r[3].uw[0]!=c->r[19].uw[0]+0x10 || c->r[6].uw[0]!=first+0x150 || c->r[5].uw[0]!=second+0x150)
+        throw std::runtime_error("native object overlap escaped its records");
+    if(pc!=0x1f8e58){if(pc<0x1f8e50 && c->r[2].uw[0]!=stack+0x90)throw std::runtime_error("native object overlap scale record mismatch");return true;}
+    if(c->r[2].uw[0]!=stack+0x80)throw std::runtime_error("native object overlap destination mismatch");
+    float scale[4],a[4],b[4],m1[4][4],m2[4][4];
+    std::memcpy(scale,record(rt,stack+0x90,16),16);std::memcpy(a,record(rt,c->r[4].uw[0],16),16);std::memcpy(b,record(rt,c->r[3].uw[0],16),16);
+    std::memcpy(m1,record(rt,first+0x150,64),64);std::memcpy(m2,record(rt,second+0x150,64),64);
+    // Only the lanes the original consumes: scales X/Y, both centres, all of
+    // the first transform (its W is published) and the second's XYZ columns.
+    for(unsigned i=0;i<2;++i)scale[i]=vu0Input(scale[i]);for(float &v:a)v=vu0Input(v);for(float &v:b)v=vu0Input(v);
+    for(auto &row:m1)for(float &v:row)v=vu0Input(v);for(auto &row:m2)for(unsigned i=0;i<3;++i)row[i]=vu0Input(row[i]);
+    float result[4];
+    {music::NearestRounding rounding;
+        const auto transform=[](const float (&m)[4][4],const float (&p)[4],float (&out)[4],unsigned lanes){
+            for(unsigned i=0;i<lanes;++i)out[i]=pairSum(pairSum(pairSum(pairProduct(m[0][i],p[0]),pairProduct(m[1][i],p[1])),pairProduct(m[2][i],p[2])),pairProduct(m[3][i],1.f));};
+        float t1[4],t2[4]{};transform(m1,a,t1,4);transform(m2,b,t2,3);
+        const auto radius=pairSum(pairProduct(a[3],scale[0]),pairProduct(b[3],scale[1]));const auto radius2=pairProduct(radius,radius);
+        float squared[3];for(unsigned i=0;i<3;++i){const auto d=pairSum(t1[i],-t2[i]);squared[i]=pairProduct(d,d);}
+        auto total=pairSum(pairProduct(1.f,squared[0]),pairProduct(1.f,squared[1]));
+        total=pairSum(total,-pairProduct(1.f,radius2));total=pairSum(total,pairProduct(1.f,squared[2]));
+        for(float v:{total,t1[3]})if(!std::isfinite(v))throw std::runtime_error("native object overlap overflow");
+        result[0]=total;result[1]=squared[1];result[2]=squared[2];result[3]=t1[3];
+    }
+    std::memcpy(record(rt,stack+0x80,16),result,16);return true;
+}
+// Camera point projection, mod001 209aa0. Common-math 0x1f0 loads the camera
+// matrix at s2+330 as columns (0+x canonical lanes, diagonal moves, 1*x for
+// the fourth row); 0x0 then projects a stack point: p = M*v, Q = 1/p.w,
+// result (p.x*Q, p.y*Q, p.z*Q, Q). Between the load and each projection the
+// original writes only its stack frame and s0's +3e8c/+3ecc table, so the
+// native projection rereads the matrix record; overlap with those is refused.
+bool nativeCameraProjection(R5900Context *c,Runtime *rt,uint32_t pc){
+    const bool loadA=(pc>=0x209bd0 && pc<=0x209bdc) || pc==0x209be8,loadB=(pc>=0x20a00c && pc<=0x20a018) || pc==0x20a024;
+    const bool first=pc==0x209c80 || pc==0x209c8c || pc==0x209c90 || pc==0x209c94;
+    const bool second=pc==0x209d00 || pc==0x209d0c || pc==0x209d10 || pc==0x209d14;
+    const bool third=pc==0x20a06c || pc==0x20a078 || pc==0x20a07c || pc==0x20a084;
+    if(!(loadA || loadB || first || second || third) || (pc&3))return false;
+    if(!c || !c->r[18].uw[0])throw std::runtime_error("native camera projection has no camera record");
+    const auto stack=c->r[29].uw[0],matrixAt=c->r[18].uw[0]+0x330;
+    if(loadA || loadB){if(c->r[2].uw[0]!=matrixAt)throw std::runtime_error("native camera matrix source mismatch");return true;}
+    const uint32_t point=stack+(first?0x80:second?0x70:0x60);
+    const unsigned pointReg=first?2:second?10:2,outReg=first?11:second?8:2;
+    if((pc==0x209c80 || pc==0x209d00 || pc==0x20a06c) && c->r[pointReg].uw[0]!=point)throw std::runtime_error("native camera projection source mismatch");
+    if(pc==0x209c90 || pc==0x209d10 || pc==0x20a07c){c->r[9].ud[0]=0;return true;}
+    if(pc!=0x209c94 && pc!=0x209d14 && pc!=0x20a084)return true;
+    if(c->r[outReg].uw[0]!=point)throw std::runtime_error("native camera projection destination mismatch");
+    const auto overlaps=[](uint32_t a,uint32_t an,uint32_t b,uint32_t bn){return (a&0x1fffffff)<(b&0x1fffffff)+bn && (b&0x1fffffff)<(a&0x1fffffff)+an;};
+    if(overlaps(matrixAt,0x40,stack+0x60,0x30))throw std::runtime_error("native camera matrix aliases the projection frame");
+    if(!third){uint32_t table;std::memcpy(&table,record(rt,c->r[16].uw[0]+0x80,16)+0xc,4);
+        if(overlaps(matrixAt,0x40,table+0x3e8c,0x40+0x200))throw std::runtime_error("native camera matrix aliases the screen table");}
+    float m[4][4],v[4];std::memcpy(m,record(rt,matrixAt,64),64);std::memcpy(v,record(rt,point,16),16);
+    for(auto &row:m)for(float &x:row)x=vu0Input(x);for(float &x:v)x=vu0Input(x);
+    float result[4];
+    {music::NearestRounding rounding;
+        float p[4];
+        for(unsigned i=0;i<4;++i){
+            // Column load: lane i of each column is row i, canonicalized as
+            // 0x1f0 does (0+x except the diagonal move and the 1*x W row).
+            float column[4];for(unsigned k=0;k<4;++k)column[k]=k==i?m[i][k]:i==3?pairProduct(1.f,m[3][k]):pairSum(0.f,m[i][k]);
+            p[i]=pairSum(pairSum(pairSum(pairProduct(column[0],v[0]),pairProduct(column[1],v[1])),pairProduct(column[2],v[2])),pairProduct(column[3],v[3]));
+        }
+        if((std::bit_cast<uint32_t>(p[3])&0x7fffffff)==0)throw std::runtime_error("native camera projection has zero depth");
+        volatile float q=1.f/p[3];const auto reciprocal=pairNormal(q);
+        for(unsigned i=0;i<3;++i)result[i]=pairProduct(p[i],reciprocal);result[3]=pairProduct(1.f,reciprocal);
+        for(float x:result)if(!std::isfinite(x))throw std::runtime_error("native camera projection overflow");
+    }
+    std::memcpy(record(rt,point,16),result,16);return true;
+}
+// Object matrix composition, mod003 39f0d0: when s0+290 bit 0 (B = s0+210)
+// and/or bit 1 (B = s0+250, the rotation 39f300 publishes) is set, the
+// object's matrices at s0+90 and s0+d0 become row*B. Each row lane is
+// ((B0*r.x + B1*r.y) + B2*r.z) + B3*r.w, VU0 mul/madd nearest even. B stays
+// in registers between the two products; natively it is reread (B never
+// overlaps the products' records, all at fixed offsets of the same object).
+bool nativeObjectCompose(R5900Context *c,Runtime *rt,uint32_t pc){
+    if(pc<0x39f11c || pc>0x39f2d8 || (pc&3) || (pc>=0x39f1f0 && pc<0x39f208) || pc==0x39f18c || pc==0x39f278)return false;
+    if(!c || !c->r[16].uw[0])throw std::runtime_error("native object composition has no object");
+    const auto object=c->r[16].uw[0];const bool second=pc>=0x39f208;
+    const bool lower=second?pc>=0x39f27c:pc>=0x39f190;   // product into s0+d0
+    const uint32_t b=object+(second?0x250:0x210),target=object+(lower?0xd0:0x90);
+    if(c->r[lower?3:4].uw[0]!=target || (!lower && c->r[3].uw[0]!=b) || (lower && c->r[4].uw[0]!=object+0x90))
+        throw std::runtime_error("native object composition escaped its records");
+    const uint32_t store=lower?(second?0x39f2cc:0x39f1e0):(second?0x39f268:0x39f17c);
+    if(pc!=store)return true;
+    float m[4][4],rows[4][4],out[4][4];std::memcpy(m,record(rt,b,64),64);std::memcpy(rows,record(rt,target,64),64);
+    for(auto &r:m)for(float &v:r)v=vu0Input(v);for(auto &r:rows)for(float &v:r)v=vu0Input(v);
+    {music::NearestRounding rounding;
+        for(unsigned k=0;k<4;++k)for(unsigned i=0;i<4;++i){
+            out[k][i]=pairSum(pairSum(pairSum(pairProduct(m[0][i],rows[k][0]),pairProduct(m[1][i],rows[k][1])),pairProduct(m[2][i],rows[k][2])),pairProduct(m[3][i],rows[k][3]));
+            if(!std::isfinite(out[k][i]))throw std::runtime_error("native object composition overflow");}
+    }
+    std::memcpy(record(rt,target,64),out,64);return true;
+}
+// Segment/sphere contact normal, mod001 1fc4b0. The CPU found the segment
+// parameter t (SP+6c, also moved to v0); the VU0 block forms
+// d = (0+A + D*t) - P from the segment record at s3+230 (A, D at +10) and
+// the sphere centre at s4+230, then publishes d * (1/sqrt(|d|^2)) to the
+// caller's normal record (a2, kept in s2). VU0 mul/add/sqrt/div round to
+// nearest even. The original's 128-bit store leaves W as inherited register
+// state; natively W is untouched. The interleaved CPU stores to s0/s1 must
+// not alias the inputs (checked).
+bool nativeSegmentContact(R5900Context *c,Runtime *rt,uint32_t pc){
+    if(pc<0x1fc51c || pc>0x1fc570 || (pc&3))return false;
+    if(pc==0x1fc524 || pc==0x1fc528 || (pc>0x1fc550 && pc<0x1fc568))return false;
+    if(!c)throw std::runtime_error("native segment contact has no CPU record");
+    const auto segment=c->r[19].uw[0]+0x230,sphere=c->r[20].uw[0]+0x230;
+    if(c->r[4].uw[0]!=segment || c->r[3].uw[0]!=sphere || (pc==0x1fc520 && c->r[2].uw[0]!=segment+0x10))
+        throw std::runtime_error("native segment contact escaped its records");
+    if(pc!=0x1fc570)return true;
+    const auto normalAt=c->r[18].uw[0]&~15u;   // 128-bit stores ignore the low address bits
+    const auto overlaps=[](uint32_t a,uint32_t an,uint32_t b,uint32_t bn){return (a&0x1fffffff)<(b&0x1fffffff)+bn && (b&0x1fffffff)<(a&0x1fffffff)+an;};
+    for(uint32_t scalar:{c->r[16].uw[0],c->r[17].uw[0]})
+        if(overlaps(scalar,4,segment,0x20) || overlaps(scalar,4,sphere,0x10))throw std::runtime_error("native segment contact inputs alias its scalar outputs");
+    float a[4],d[4],p[4];std::memcpy(a,record(rt,segment,16),16);std::memcpy(d,record(rt,segment+0x10,16),16);std::memcpy(p,record(rt,sphere,16),16);
+    const float t=vu0Input(std::bit_cast<float>(c->r[2].uw[0]));
+    for(unsigned i=0;i<3;++i){a[i]=vu0Input(a[i]);d[i]=vu0Input(d[i]);p[i]=vu0Input(p[i]);}
+    float normal[3];
+    {music::NearestRounding rounding;
+        float delta[3],squared[3];
+        for(unsigned i=0;i<3;++i){delta[i]=pairSum(pairSum(pairSum(0.f,a[i]),pairProduct(d[i],t)),-pairProduct(p[i],1.f));squared[i]=pairProduct(delta[i],delta[i]);}
+        const auto length2=pairSum(pairSum(squared[0],squared[1]),pairProduct(1.f,squared[2]));
+        if(!std::bit_cast<uint32_t>(length2) || !std::isfinite(length2))throw std::runtime_error("unqualified native segment contact length");
+        volatile float root=std::sqrt(length2);volatile float reciprocal=1.f/pairNormal(root);
+        for(unsigned i=0;i<3;++i)normal[i]=pairProduct(delta[i],pairNormal(reciprocal));
+    }
+    std::memcpy(record(rt,normalAt,16),normal,12);return true;
+}
 bool nativeMathInstruction(uint8_t *,R5900Context *c,Runtime *rt,uint32_t pc){
+    if(nativeObjectOverlap(c,rt,pc))return true;
+    if(nativeSegmentContact(c,rt,pc))return true;
+    if(nativeObjectCompose(c,rt,pc))return true;
+    if(nativeCameraProjection(c,rt,pc))return true;
     if(pc==0x38011c || pc==0x380124 || pc==0x380154 || pc==0x38015c || pc==0x380160 || pc==0x380164){
         if(!c || c->pc!=0x380118 || c->r[31].uw[0]!=0x380118)throw std::runtime_error("native movement rotation escaped scalar quaternion builder");
         const auto stack=c->r[29].uw[0];

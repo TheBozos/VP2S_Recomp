@@ -4,12 +4,14 @@
 #include "bozo/port.h"
 #include "math_original_functions.h"
 #include "math_adapted_functions.h"
+#include "bozo/ops_fpu.h"
 #include <cstdio>
 #include <cstring>
 #include <stdexcept>
 #include <bit>
 #include <cmath>
 #include <source_location>
+#include <vector>
 namespace {
 void check(bool value,std::source_location at=std::source_location::current()){
     if(!value)throw std::runtime_error("native math ABI assertion failed at "+std::to_string(at.line()));
@@ -69,6 +71,7 @@ float independentAxisScale(const vp2s::math::RigidBasis &basis){
 struct Host:bozo::ee::Host,bozo::port::Host {
     bool referenceSphere=false;
     bool referenceAxis=false;
+    bool referenceOverlap=false;
     bozo::libs::Libraries &libraries()override{throw std::runtime_error("unexpected library request");}
     bool nativeGraphics()const override{return true;}
     bool nativeInstruction(uint8_t *r,R5900Context *c,Runtime *t,uint32_t pc)override{
@@ -86,6 +89,52 @@ struct Host:bozo::ee::Host,bozo::port::Host {
             const auto reciprocal=root?floorFloat(1.0/double(std::bit_cast<float>(root))):0x7f7fffffu;
             for(unsigned i=0;i<4;++i)output[i]=exactProduct(input[i],reciprocal);
             std::memcpy(p,output,16);return true;
+        }
+        if(referenceOverlap && pc==0x1fc570){
+            const auto mul=[](uint32_t a,uint32_t b){uint32_t f=0;return bozo::ps2f::mul(a,b,f);};
+            const auto add=[](uint32_t a,uint32_t b){uint32_t f=0;return bozo::ps2f::addNearest(a,b,f);};
+            uint32_t a[4],d[4],p[4],delta[3],sq[3],out[3],flags=0;const auto segment=c->r[19].uw[0]+0x230;
+            std::memcpy(a,t->memory.hostPointer(segment,16),16);std::memcpy(d,t->memory.hostPointer(segment+0x10,16),16);std::memcpy(p,t->memory.hostPointer(c->r[20].uw[0]+0x230,16),16);
+            const uint32_t s=c->r[2].uw[0];
+            for(unsigned i=0;i<3;++i){delta[i]=add(add(add(0,a[i]),mul(d[i],s)),mul(p[i],0x3f800000)^0x80000000u);sq[i]=mul(delta[i],delta[i]);}
+            const auto saved=_mm_getcsr();const auto q=bozo::ps2f::rsqrt(0x3f800000,add(add(sq[0],sq[1]),mul(0x3f800000,sq[2])),flags);_mm_setcsr(saved);
+            for(unsigned i=0;i<3;++i)out[i]=mul(delta[i],q);std::memcpy(t->memory.hostPointer(c->r[18].uw[0]&~15u,12),out,12);return true;
+        }
+        if(referenceOverlap && (pc==0x209c94 || pc==0x209d14 || pc==0x20a084)){
+            // Common-math 0x1f0 column load then 0x0 projection, engine ps2f arithmetic.
+            const auto mul=[](uint32_t a,uint32_t b){uint32_t f=0;return bozo::ps2f::mul(a,b,f);};
+            const auto add=[](uint32_t a,uint32_t b){uint32_t f=0;return bozo::ps2f::addNearest(a,b,f);};
+            const auto point=c->r[29].uw[0]+(pc==0x209c94?0x80:pc==0x209d14?0x70:0x60);
+            uint32_t m[4][4],v[4],p[4],out[4],flags=0;std::memcpy(m,t->memory.hostPointer(c->r[18].uw[0]+0x330,64),64);std::memcpy(v,t->memory.hostPointer(point,16),16);
+            for(unsigned i=0;i<4;++i){uint32_t column[4];
+                for(unsigned k=0;k<4;++k)column[k]=k==i?m[i][k]:i==3?mul(0x3f800000,m[3][k]):add(0,m[i][k]);
+                p[i]=add(add(add(mul(column[0],v[0]),mul(column[1],v[1])),mul(column[2],v[2])),mul(column[3],v[3]));}
+            const auto saved=_mm_getcsr();const auto q=bozo::ps2f::div(0x3f800000,p[3],flags);_mm_setcsr(saved);
+            for(unsigned i=0;i<3;++i)out[i]=mul(p[i],q);out[3]=mul(0x3f800000,q);
+            std::memcpy(t->memory.hostPointer(point,16),out,16);return true;
+        }
+        if(referenceOverlap && (pc==0x1f8d1c || pc==0x1f8d94 || pc==0x1f8e58)){
+            // The engine's VU0 arithmetic definitions (ps2f, nearest even).
+            const auto mul=[](uint32_t a,uint32_t b){uint32_t f=0;return bozo::ps2f::mul(a,b,f);};
+            const auto add=[](uint32_t a,uint32_t b){uint32_t f=0;return bozo::ps2f::addNearest(a,b,f);};
+            const auto saved=_mm_getcsr();const auto stack=c->r[29].uw[0];
+            if(pc!=0x1f8e58){
+                // Common-math 0x7f0: per-lane sqrt of the basis column's squared length.
+                uint32_t rows[3][4],out[3],flags=0;std::memcpy(rows,t->memory.hostPointer(c->r[5].uw[0],48),48);
+                for(unsigned i=0;i<3;++i)out[i]=add(0,bozo::ps2f::sqrt(add(add(mul(rows[0][i],rows[0][i]),mul(rows[1][i],rows[1][i])),mul(rows[2][i],rows[2][i])),flags));
+                std::memcpy(t->memory.hostPointer(c->r[2].uw[0],12),out,12);
+            }else{
+                uint32_t scale[4],a[4],b[4],m1[4][4],m2[4][4],t1[4],t2[4],out[4];
+                std::memcpy(scale,t->memory.hostPointer(stack+0x90,16),16);std::memcpy(a,t->memory.hostPointer(c->r[4].uw[0],16),16);std::memcpy(b,t->memory.hostPointer(c->r[3].uw[0],16),16);
+                std::memcpy(m1,t->memory.hostPointer(c->r[6].uw[0],64),64);std::memcpy(m2,t->memory.hostPointer(c->r[5].uw[0],64),64);
+                for(unsigned i=0;i<4;++i){t1[i]=add(add(add(mul(m1[0][i],a[0]),mul(m1[1][i],a[1])),mul(m1[2][i],a[2])),mul(m1[3][i],0x3f800000));
+                    t2[i]=add(add(add(mul(m2[0][i],b[0]),mul(m2[1][i],b[1])),mul(m2[2][i],b[2])),mul(m2[3][i],0x3f800000));}
+                const auto radius=add(mul(a[3],scale[0]),mul(b[3],scale[1]));const auto radius2=mul(radius,radius);uint32_t sq[3];
+                for(unsigned i=0;i<3;++i){const auto d=add(t1[i],t2[i]^0x80000000u);sq[i]=mul(d,d);}
+                out[0]=add(add(add(mul(0x3f800000,sq[0]),mul(0x3f800000,sq[1])),mul(0x3f800000,radius2)^0x80000000u),mul(0x3f800000,sq[2]));
+                out[1]=sq[1];out[2]=sq[2];out[3]=t1[3];std::memcpy(t->memory.hostPointer(stack+0x80,16),out,16);
+            }
+            _mm_setcsr(saved);return true;
         }
         if(referenceSphere && pc==0x239d98){
             vp2s::math::RigidBasis basis;std::memcpy(basis.data(),t->memory.hostPointer(c->r[4].uw[0]+0x90,48),48);
@@ -328,5 +377,126 @@ int main(){try{
             std::fprintf(stderr,"axis seed%u rounding%x: %08x %08x %08x %08x / %08x %08x %08x %08x\n",seed,rounding,expected[0],expected[1],expected[2],expected[3],actual[0],actual[1],actual[2],actual[3]);check(false);
         }++axisCases;
     }
+    unsigned overlapCases=0,touching=0;
+    for(unsigned part=0;part<3;++part)for(unsigned rounding:{_MM_ROUND_NEAREST,_MM_ROUND_DOWN,_MM_ROUND_UP,_MM_ROUND_TOWARD_ZERO})for(unsigned seed=0;seed<96;++seed){
+        auto &a=old.runtime();auto &b=native.runtime();std::memset(a.memory.flat(),0x41+seed,bozo::kFlatBytes);
+        const uint32_t aliases[]={0,0x20000000,0x30000000,0x80000000,0xa0000000};
+        const uint32_t stack=seed&1?0x70002e00:0x1ffe000|aliases[(seed/2)%5],first=0x180000|aliases[(seed/3)%5],second=0x184000,pointA=0x188000,pointB=0x70000400;
+        uint32_t state=seed*2654435761u+part*97+rounding;const auto next=[&](int lo,int span){state=state*1664525u+1013904223u;
+            return ((state>>8)&0x807fffffu)|uint32_t((lo+int((state>>4)%unsigned(span)))<<23);};
+        for(uint32_t object:{first,second}){
+            for(unsigned i=0;i<12;++i){uint32_t v=next(120,12);if(seed%16==3)v=0;std::memcpy(a.memory.hostPointer(object+0x90+4*i,4),&v,4);}
+            for(unsigned i=0;i<16;++i){uint32_t v=i%4==3?(i==15?0x3f800000u:0u):next(118,14);std::memcpy(a.memory.hostPointer(object+0x150+4*i,4),&v,4);}
+            const uint32_t scale=next(124,6)&0x7fffffff;std::memcpy(a.memory.hostPointer(object+0x204,4),&scale,4);
+            uint8_t flags=uint8_t(0x41+seed);flags&=~0x40;if(object==first && seed%5==4)flags|=0x40;std::memcpy(a.memory.hostPointer(object+0x20e,1),&flags,1);
+        }
+        for(uint32_t point:{pointA,pointB})for(unsigned i=0;i<4;++i){uint32_t v=i==3?next(122,6)&0x7fffffff:next(118,12);if(seed%16==5 && i<3)v=0;std::memcpy(a.memory.hostPointer(point+0x10+4*i,4),&v,4);}
+        std::memcpy(b.memory.flat(),a.memory.flat(),bozo::kFlatBytes);
+        R5900Context x{};for(unsigned i=1;i<32;++i){x.r[i].ud[0]=0x2468000000000000ull+seed*32+i;x.r[i].ud[1]=~x.r[i].ud[0];x.f[i]=float(i)/8;}
+        std::memset(x.vu0_vf,0x6b,sizeof(x.vu0_vf));std::memset(&x.vu0_acc,0xb6,sizeof(x.vu0_acc));x.vu0_status=0x1928;x.vu0_q_bits=0x3f800001;x.vi[0]=0x1928;
+        x.r[18].ud[0]=first;x.r[17].ud[0]=second;x.r[20].ud[0]=pointA;x.r[19].ud[0]=pointB;x.r[29].ud[0]=stack;x.r[31].ud[0]=0x170000;
+        const uint32_t entry=part==0?0x1f8b30:part==1?0x1f8cc8:0x1f8dbc;if(part==2)x.r[4].ud[0]=pointA+0x10;auto y=x;
+        const auto saved=_mm_getcsr(),control=(saved&~(_MM_ROUND_MASK|0x8040|0x3f))|rounding|(seed&8?0x8040:0);_mm_setcsr(control);
+        host.referenceOverlap=true;a.functions.generated(entry)(a.memory.flat(),&x,&a);const auto expectedFp=_mm_getcsr();_mm_setcsr(control);
+        host.referenceOverlap=false;b.functions.generated(entry)(b.memory.flat(),&y,&b);const auto actualFp=_mm_getcsr();_mm_setcsr(saved);
+        x.cycleLimit=y.cycleLimit;
+        if(actualFp!=expectedFp || x.pc!=0x170000 || std::memcmp(&x,&y,sizeof(x)) || std::memcmp(a.memory.flat(),b.memory.flat(),bozo::kFlatBytes)){
+            std::fprintf(stderr,"overlap part%u rounding%x seed%u pc%x/%x fp%08x/%08x\n",part,rounding,seed,x.pc,y.pc,expectedFp,actualFp);
+            for(unsigned i=0;i<sizeof(x);++i)if(reinterpret_cast<const uint8_t *>(&x)[i]!=reinterpret_cast<const uint8_t *>(&y)[i]){std::fprintf(stderr,"CPU byte%x old%02x native%02x\n",i,reinterpret_cast<const uint8_t *>(&x)[i],reinterpret_cast<const uint8_t *>(&y)[i]);break;}
+            for(unsigned i=0;i<bozo::kFlatBytes;++i)if(a.memory.flat()[i]!=b.memory.flat()[i]){std::fprintf(stderr,"RAM byte%x old%02x native%02x\n",i,a.memory.flat()[i],b.memory.flat()[i]);break;}check(false);
+        }
+        if(part==2){float value;std::memcpy(&value,b.memory.hostPointer(stack+0x80,4),4);touching+=value<=0;}
+        ++overlapCases;
+    }
+    {auto &rt=native.runtime();for(unsigned which=0;which<6;++which){constexpr uint32_t stack=0x1ffe000,first=0x180000,second=0x184000;
+        R5900Context c{};c.r[29].uw[0]=stack;c.r[18].uw[0]=first;c.r[17].uw[0]=second;c.r[20].uw[0]=0x188000;c.r[19].uw[0]=0x70000400;uint32_t pc=0x1f8b34;
+        c.r[2].uw[0]=stack+0xa0;c.r[5].uw[0]=first+0x90;
+        if(which==0)c.r[2].uw[0]=stack+0xb0;else if(which==1){pc=0x1f8d1c;c.r[5].uw[0]=second+0x90;}else if(which==2){pc=0x1f8d1c;c.r[2].uw[0]=stack+0x60;}
+        else if(which==3){pc=0x1f8e58;c.r[2].uw[0]=stack+0x80;c.r[4].uw[0]=0x188010;c.r[3].uw[0]=0x70000410;c.r[6].uw[0]=first+0x150;c.r[5].uw[0]=second+0x140;}
+        else{pc=0x1f8e58;c.r[2].uw[0]=stack+0x80;c.r[4].uw[0]=0x188010;c.r[3].uw[0]=0x70000410;c.r[6].uw[0]=first+0x150;c.r[5].uw[0]=second+0x150;
+            const uint32_t bad=which==4?0x7f800000:0x7fc00001;std::memcpy(rt.memory.hostPointer(first+0x150+4,4),&bad,4);}
+        const auto before=c;const auto fp=_mm_getcsr();const auto ram=std::vector<uint8_t>(rt.memory.flat(),rt.memory.flat()+bozo::kFlatBytes);bool rejected=false;
+        try{vp2s::nativeMathInstruction(rt.memory.flat(),&c,&rt,pc);}catch(const std::runtime_error &){rejected=true;}
+        check(rejected && _mm_getcsr()==fp && !std::memcmp(&before,&c,sizeof(c)) && !std::memcmp(ram.data(),rt.memory.flat(),ram.size()));
+    }}
+    std::printf("%u object overlap cases (spill, basis scales, %u touching spheres) and6 readonly rejections passed\n",overlapCases,touching);
+    unsigned projectionCases=0,projectedPoints=0;
+    for(unsigned part=0;part<2;++part)for(unsigned rounding:{_MM_ROUND_NEAREST,_MM_ROUND_DOWN,_MM_ROUND_UP,_MM_ROUND_TOWARD_ZERO})for(unsigned seed=0;seed<96;++seed){
+        auto &a=old.runtime();auto &b=native.runtime();std::memset(a.memory.flat(),0x29+seed,bozo::kFlatBytes);
+        const uint32_t aliases[]={0,0x20000000,0x30000000,0x80000000,0xa0000000};
+        const uint32_t stack=seed&1?0x70002f00:0x1ffd800|aliases[(seed/2)%5],camera=0x1b0000|aliases[(seed/3)%5],owner=0x1a8000,table=0x1c0000;
+        uint32_t state=seed*40503u+part*7+rounding;const auto next=[&](int lo,int span){state=state*1664525u+1013904223u;
+            return ((state>>8)&0x807fffffu)|uint32_t((lo+int((state>>4)%unsigned(span)))<<23);};
+        for(unsigned row=0;row<4;++row)for(unsigned k=0;k<4;++k){uint32_t v=row<3?next(118,12):k==3?(next(127,2)&0x7fffffff):next(110,8);
+            if(seed%16==2 && row<3 && k!=row)v=k%2?0x80000000u:0;std::memcpy(a.memory.hostPointer(camera+0x330+16*row+4*k,4),&v,4);}
+        for(uint32_t at:{0x270u,0x274u,0x278u,0x2a4u}){const uint32_t v=next(122,8);std::memcpy(a.memory.hostPointer(camera+at,4),&v,4);}
+        std::memcpy(a.memory.hostPointer(owner+0x8c,4),&table,4);const uint8_t count=uint8_t(seed%6),both=uint8_t(seed&2);
+        std::memcpy(a.memory.hostPointer(owner+0x9a,1),&count,1);std::memcpy(a.memory.hostPointer(owner+0x99,1),&both,1);
+        std::memcpy(b.memory.flat(),a.memory.flat(),bozo::kFlatBytes);
+        R5900Context x{};for(unsigned i=1;i<32;++i){x.r[i].ud[0]=0x1357000000000000ull+seed*32+i;x.r[i].ud[1]=~x.r[i].ud[0];x.f[i]=float(int(i)-16)/16;}
+        std::memset(x.vu0_vf,0x7d,sizeof(x.vu0_vf));std::memset(&x.vu0_acc,0xd7,sizeof(x.vu0_acc));x.vu0_status=0x2b2b;x.vu0_q_bits=0x40000001;x.vi[0]=0x2b2b;
+        x.r[16].ud[0]=owner;x.r[18].ud[0]=camera;x.r[2].ud[0]=camera+0x330;x.r[29].ud[0]=stack;x.r[31].ud[0]=0x170000;
+        const uint32_t entry=part?0x20a00c:0x209bd0;auto y=x;
+        const auto saved=_mm_getcsr(),control=(saved&~(_MM_ROUND_MASK|0x8040|0x3f))|rounding|(seed&8?0x8040:0);_mm_setcsr(control);
+        host.referenceOverlap=true;a.functions.generated(entry)(a.memory.flat(),&x,&a);const auto expectedFp=_mm_getcsr();_mm_setcsr(control);
+        host.referenceOverlap=false;b.functions.generated(entry)(b.memory.flat(),&y,&b);const auto actualFp=_mm_getcsr();_mm_setcsr(saved);
+        x.cycleLimit=y.cycleLimit;
+        if(actualFp!=expectedFp || x.pc!=0x170000 || std::memcmp(&x,&y,sizeof(x)) || std::memcmp(a.memory.flat(),b.memory.flat(),bozo::kFlatBytes)){
+            std::fprintf(stderr,"projection part%u rounding%x seed%u pc%x/%x fp%08x/%08x\n",part,rounding,seed,x.pc,y.pc,expectedFp,actualFp);
+            for(unsigned i=0;i<sizeof(x);++i)if(reinterpret_cast<const uint8_t *>(&x)[i]!=reinterpret_cast<const uint8_t *>(&y)[i]){std::fprintf(stderr,"CPU byte%x old%02x native%02x\n",i,reinterpret_cast<const uint8_t *>(&x)[i],reinterpret_cast<const uint8_t *>(&y)[i]);break;}
+            for(unsigned i=0;i<bozo::kFlatBytes;++i)if(a.memory.flat()[i]!=b.memory.flat()[i]){std::fprintf(stderr,"RAM byte%x old%02x native%02x\n",i,a.memory.flat()[i],b.memory.flat()[i]);break;}check(false);
+        }
+        projectedPoints+=part?1:count*(both?2:1);++projectionCases;
+    }
+    {auto &rt=native.runtime();for(unsigned which=0;which<5;++which){constexpr uint32_t stack=0x1ffd800,camera=0x1b0000,owner=0x1a8000;
+        R5900Context c{};c.r[29].uw[0]=stack;c.r[18].uw[0]=camera;c.r[16].uw[0]=owner;c.r[2].uw[0]=stack+0x60;uint32_t pc=0x20a084;
+        const uint32_t table=0x1c0000;std::memcpy(rt.memory.hostPointer(owner+0x8c,4),&table,4);
+        const float identity[16]={1,0,0,0,0,1,0,0,0,0,1,0,0,0,0,1},point[4]={1,2,3,1};std::memcpy(rt.memory.hostPointer(camera+0x330,64),identity,64);std::memcpy(rt.memory.hostPointer(stack+0x60,16),point,16);
+        if(which==0){pc=0x209bd0;}else if(which==1)c.r[2].uw[0]=stack+0x70;else if(which==2){const float flat[4]={0,0,0,0};std::memcpy(rt.memory.hostPointer(camera+0x360,16),flat,16);}
+        else if(which==3){pc=0x209c94;c.r[11].uw[0]=stack+0x80;c.r[18].uw[0]=table+0x3e8c-0x330;}else c.r[18].uw[0]=0;
+        const auto before=c;const auto fp=_mm_getcsr();const auto ram=std::vector<uint8_t>(rt.memory.flat(),rt.memory.flat()+bozo::kFlatBytes);bool rejected=false;
+        try{vp2s::nativeMathInstruction(rt.memory.flat(),&c,&rt,pc);}catch(const std::runtime_error &){rejected=true;}
+        check(rejected && _mm_getcsr()==fp && !std::memcmp(&before,&c,sizeof(c)) && !std::memcmp(ram.data(),rt.memory.flat(),ram.size()));
+    }}
+    std::printf("%u camera projection runs (%u projected points) and5 readonly rejections passed\n",projectionCases,projectedPoints);
+    unsigned contactCases=0,contacts=0;
+    for(unsigned rounding:{_MM_ROUND_NEAREST,_MM_ROUND_DOWN,_MM_ROUND_UP,_MM_ROUND_TOWARD_ZERO})for(unsigned seed=0;seed<128;++seed){
+        auto &a=old.runtime();auto &b=native.runtime();std::memset(a.memory.flat(),0x33+seed,bozo::kFlatBytes);
+        const uint32_t aliases[]={0,0x20000000,0x30000000,0x80000000,0xa0000000};
+        const uint32_t stack=seed&1?0x70003000:0x1ffd400|aliases[(seed/2)%5],segment=0x1d0000|aliases[(seed/3)%5],sphere=0x1d4000,outputs=0x1d8000;
+        uint32_t state=seed*22695477u+rounding;const auto next=[&](int lo,int span){state=state*1664525u+1013904223u;return ((state>>8)&0x807fffffu)|uint32_t((lo+int((state>>4)%unsigned(span)))<<23);};
+        for(unsigned i=0;i<4;++i){uint32_t v=next(120,10);std::memcpy(a.memory.hostPointer(segment+0x230+4*i,4),&v,4);v=next(116,10);std::memcpy(a.memory.hostPointer(segment+0x240+4*i,4),&v,4);
+            v=next(120,10);if(seed%16==2)std::memcpy(&v,a.memory.hostPointer(segment+0x230+4*i,4),4),v^=1;std::memcpy(a.memory.hostPointer(sphere+0x230+4*i,4),&v,4);}
+        for(uint32_t at:{segment+0x220,sphere+0x220}){const uint32_t v=next(124,4)&0x7fffffff;std::memcpy(a.memory.hostPointer(at,4),&v,4);}
+        const uint32_t t=seed%16==5?0:next(118,8)&0x7fffffff;std::memcpy(a.memory.hostPointer(stack+0x6c,4),&t,4);
+        const uint64_t ret=0x170000;std::memcpy(a.memory.hostPointer(stack+0x50,8),&ret,8);
+        std::memcpy(b.memory.flat(),a.memory.flat(),bozo::kFlatBytes);
+        R5900Context x{};for(unsigned i=1;i<32;++i){x.r[i].ud[0]=0x0246000000000000ull+seed*32+i;x.r[i].ud[1]=~x.r[i].ud[0];x.f[i]=float(i)/64;}
+        std::memset(x.vu0_vf,0x2d,sizeof(x.vu0_vf));std::memset(&x.vu0_acc,0xd2,sizeof(x.vu0_acc));x.vu0_status=0x3c3c;x.vu0_q_bits=0x3f800003;x.vi[0]=0x3c3c;
+        x.f[0]=seed%7==6?100.f:float(seed%5)/64;   // squared distance from the parameter search
+        x.r[19].ud[0]=segment;x.r[20].ud[0]=sphere;x.r[16].ud[0]=outputs;x.r[17].ud[0]=outputs+4;x.r[18].ud[0]=outputs+0x20+(seed%3==2?4:0);
+        x.r[29].ud[0]=stack;x.r[31].ud[0]=0x1fc4f0;auto y=x;
+        const auto saved=_mm_getcsr(),control=(saved&~(_MM_ROUND_MASK|0x8040|0x3f))|rounding|(seed&8?0x8040:0);_mm_setcsr(control);
+        host.referenceOverlap=true;a.functions.generated(0x1fc4f0)(a.memory.flat(),&x,&a);const auto expectedFp=_mm_getcsr();_mm_setcsr(control);
+        host.referenceOverlap=false;b.functions.generated(0x1fc4f0)(b.memory.flat(),&y,&b);const auto actualFp=_mm_getcsr();_mm_setcsr(saved);
+        x.cycleLimit=y.cycleLimit;
+        if(actualFp!=expectedFp || x.pc!=0x170000 || std::memcmp(&x,&y,sizeof(x)) || std::memcmp(a.memory.flat(),b.memory.flat(),bozo::kFlatBytes)){
+            std::fprintf(stderr,"contact rounding%x seed%u pc%x/%x fp%08x/%08x\n",rounding,seed,x.pc,y.pc,expectedFp,actualFp);
+            for(unsigned i=0;i<sizeof(x);++i)if(reinterpret_cast<const uint8_t *>(&x)[i]!=reinterpret_cast<const uint8_t *>(&y)[i]){std::fprintf(stderr,"CPU byte%x old%02x native%02x\n",i,reinterpret_cast<const uint8_t *>(&x)[i],reinterpret_cast<const uint8_t *>(&y)[i]);break;}
+            for(unsigned i=0;i<bozo::kFlatBytes;++i)if(a.memory.flat()[i]!=b.memory.flat()[i]){std::fprintf(stderr,"RAM byte%x old%02x native%02x\n",i,a.memory.flat()[i],b.memory.flat()[i]);break;}check(false);
+        }
+        contacts+=x.r[2].uw[0]==1;++contactCases;
+    }
+    {auto &rt=native.runtime();for(unsigned which=0;which<5;++which){constexpr uint32_t segment=0x1d0000,sphere=0x1d4000,outputs=0x1d8000;
+        R5900Context c{};c.r[19].uw[0]=segment;c.r[20].uw[0]=sphere;c.r[4].uw[0]=segment+0x230;c.r[3].uw[0]=sphere+0x230;c.r[16].uw[0]=outputs;c.r[17].uw[0]=outputs+4;c.r[18].uw[0]=outputs+0x20;
+        c.r[2].uw[0]=0x3f000000;uint32_t pc=0x1fc570;const float a0[4]={0,0,0,1},d0[4]={1,0,0,0},p0[4]={2,0,0,1};
+        std::memcpy(rt.memory.hostPointer(segment+0x230,16),a0,16);std::memcpy(rt.memory.hostPointer(segment+0x240,16),d0,16);std::memcpy(rt.memory.hostPointer(sphere+0x230,16),p0,16);
+        if(which==0)c.r[3].uw[0]+=16;else if(which==1)c.r[16].uw[0]=segment+0x234;else if(which==2){const float same[4]={0.5f,0,0,1};std::memcpy(rt.memory.hostPointer(sphere+0x230,16),same,16);}
+        else if(which==3)c.r[2].uw[0]=0x7f800000;else{pc=0x1fc520;c.r[2].uw[0]=segment+0x220;}
+        const auto before=c;const auto fp=_mm_getcsr();const auto ram=std::vector<uint8_t>(rt.memory.flat(),rt.memory.flat()+bozo::kFlatBytes);bool rejected=false;
+        try{vp2s::nativeMathInstruction(rt.memory.flat(),&c,&rt,pc);}catch(const std::runtime_error &){rejected=true;}
+        check(rejected && _mm_getcsr()==fp && !std::memcmp(&before,&c,sizeof(c)) && !std::memcmp(ram.data(),rt.memory.flat(),ram.size()));
+    }}
+    std::printf("%u segment/sphere contact runs (%u contacts) and5 readonly rejections passed\n",contactCases,contacts);
     std::printf("%u matrix/quaternion/Euler ABI cases, %u component products, %u whole CPU/RAM sphere getters,8192 independent scale cases and%u whole CPU/RAM axis-angle cases passed; no VU/device state\n",cases,products,sphereCases,axisCases);return 0;
 }catch(const std::exception &e){std::fprintf(stderr,"%s\n",e.what());return 1;}}

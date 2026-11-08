@@ -24,6 +24,7 @@ OBJECT_UPDATE_POINT_SITES=(*range(0x227d78,0x227da0,4),*range(0x227de8,0x227e10,
 OBJECT_QUERY_POINT_SITES=(*range(0x227f08,0x227f30,4),)
 OBJECT_LINEAR_SITES=(*range(0x229164,0x229184,4),*range(0x229228,0x229244,4),0x229248,*range(0x2292f8,0x229318,4))
 OBJECT_CHANGE_SITES=(*range(0x2295d4,0x2295f4,4),*range(0x2295fc,0x229618,4),0x22961c,*range(0x229628,0x229648,4))
+PARTICLE_CALLBACK_TRANSFORM_SITES=(*range(0x410660,0x410688,4),*range(0x4106b0,0x4106d0,4),*range(0x4106f8,0x410718,4))
 HERMITE_VECTOR_SITES=(*range(0x2a68d4,0x2a68f8,4),0x2a68fc)
 SQUAD_SITES=(0x214c40,*range(0x214c98,0x214ca4,4),*range(0x214cbc,0x214cc8,4),
     *range(0x214cdc,0x214cec,4),*range(0x214db8,0x214dd4,4),0x214dd8,
@@ -340,6 +341,7 @@ def overlay_adaptations(name,data):
                                (0x408e90,0x4095d8,'65e31072aaf7deec4ca8c5bde663e26b8e000e79f634d8a321bd254404d7b0f0'),
                                (0x40a8b0,0x40b07c,'cd09fe7920018dacc97ec1192c1ee41b355a7e3afdb5d025f439d0a77c1676c3'),
                                (0x420ca0,0x4210c4,'b92572ee6121f449ec4445f9874096b68fbda868dee7bcbdf08a28c7d1664037'),
+                               (0x410640,0x4107c4,'ff6bd98076903b5882e141046754b6f8e303f5b1863a79a584fc40c8b6e668e8'),
                                (0x3e7e94,0x3e80f0,'9d7958bae8751020c5857db7a226947e203b17a7434cd0b937267dd3da47bed2'),
                                (0x3d7708,0x3d77cc,'435926535d852e22f0b20b9027f65fd6674acc7a63b6aaedb31e59c63a1cd1c8'),
                                (0x3d5670,0x3d57ec,'250a2389769015fbda23859f5082b6f69031a706af85f263b765f34130611ecc'),

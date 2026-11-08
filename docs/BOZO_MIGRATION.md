@@ -12,6 +12,24 @@ The earlier VP2S face/shading and general brightness comparisons remain open.
 
 ## Build and evidence
 
+### Particle callback argument transforms (2026-11-08)
+
+The 26 inline sites in `0x410640` now publish the selected callback argument
+records from explicit emitter matrices and input XYZ. Position includes the
+fourth basis record with weight 1; the other two vectors use only three basis
+records. All input W components are unused, while full output W remains live.
+Original flag-controlled pointer selection remains scalar game code.
+
+512 bounded callers qualify all flag combinations, RAM aliases, scratch/RAM
+frames, four FP modes, opaque unused W, integer product/sum outputs, known
+identity outputs and mutation-free rejection. This fixture returns through the
+real epilogue before the callback and does not qualify that callback or its
+surrounding saved state. Four rebuilt suites pass in 56.04 s
+(`particle-callback-final-tests.log`). Actual `particle-callback-route.log`
+passes the transforms and rejects the old saved-state boundary `0x41074c`,
+identifying object `0x1210a60` and method `0x2262b0` for the next consumer audit.
+Field/Logun remains open.
+
 ### Particle enclosing-sphere publication (2026-11-08)
 
 The final 15 sites at `0x22efd8..0x22f018` now publish minimum, maximum and

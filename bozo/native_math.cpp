@@ -485,6 +485,34 @@ std::array<uint32_t,4> NativeMotion::finish(uint32_t frame,uint32_t object){
     const auto result=it->second.position;updates.erase(it);return result;
 }
 bool nativeMathInstruction(uint8_t *,R5900Context *c,Runtime *rt,uint32_t pc){
+    if(pc==0x41074c){
+        const auto word=[](const uint8_t *p){uint32_t value;std::memcpy(&value,p,4);return value;};
+        auto *emitter=record(rt,c->r[4].uw[0],0xe0);const auto callback=word(emitter+0x6c);
+        const auto table=word(record(rt,callback,16));auto *method=rt->memory.hostPointer(table+0x98,4);
+        if(!method)throw std::runtime_error("particle callback method outside owned RAM");
+        throw std::runtime_error(std::format("unported particle callback saved state: object={:x} method={:x}",callback,word(method)));
+    }
+    const bool callbackPoint=pc>=0x410660 && pc<=0x410684 && !(pc&3);
+    const bool callbackSecond=pc>=0x4106b0 && pc<=0x4106cc && !(pc&3);
+    const bool callbackThird=pc>=0x4106f8 && pc<=0x410714 && !(pc&3);
+    if(callbackPoint || callbackSecond || callbackThird){
+        if(!c || c->pc!=0x410640)throw std::runtime_error("native particle callback transform lacks scalar owner");
+        const auto stack=c->r[29].uw[0],emitter=c->r[4].uw[0],destination=stack+(callbackPoint?0x70:callbackSecond?0x60:0x50);
+        auto *owner=record(rt,emitter,0xe0);record(rt,stack,0x80);
+        const unsigned flag=callbackPoint?1:callbackSecond?2:4;
+        if(!(owner[0xd2]&flag) || c->r[2].uw[0]!=destination || c->r[3].uw[0]!=emitter+0x80)
+            throw std::runtime_error("native particle callback transform argument mismatch");
+        if(pc==0x410684 || pc==0x4106cc || pc==0x410714){
+            const auto input=c->r[callbackPoint?5:callbackSecond?6:7].uw[0];
+            if(callbackPoint){
+                struct ArithmeticScope{unsigned saved=_mm_getcsr();~ArithmeticScope(){_mm_setcsr(saved);}} arithmetic;
+                math::Matrix basis;std::array<float,4> position;std::memcpy(basis.data(),owner+0x80,64);std::memcpy(position.data(),record(rt,input,16),16);position[3]=1.f;
+                float values[16];std::memcpy(values,basis.data(),64);for(float value:values){pairQualified(value);if(std::abs(value)>1.e8f)throw std::runtime_error("unqualified particle callback basis");}
+                for(unsigned i=0;i<3;++i){pairQualified(position[i]);if(std::abs(position[i])>1.e8f)throw std::runtime_error("unqualified particle callback position");}
+                __m128 point;std::memcpy(&point,position.data(),16);const auto result=math::matrixVectorProduct(basis,point);std::memcpy(record(rt,destination,16),&result,16);
+            }else publishLinearVector(rt,emitter+0x80,input,destination);
+        }return true;
+    }
     if(pc==0x216f54){
         if(!c || c->pc!=0x216f50)throw std::runtime_error("inverse pivot weights require complete scalar owner");
         auto *input=record(rt,c->r[4].uw[0],64),*output=record(rt,c->r[5].uw[0],64),*frame=record(rt,c->r[29].uw[0],0x90);

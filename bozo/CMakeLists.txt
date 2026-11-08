@@ -759,6 +759,18 @@ if(VP2S_BOZO_CODE)
   endif()
   add_test(NAME vp2s-bozo-inverse-pivot COMMAND vp2s-bozo-inverse-pivot-check)
   set(UPDATE_POINT_DIR "${CMAKE_CURRENT_BINARY_DIR}/update-point-reference")
+  set(PARTICLE_CALLBACK_DIR "${CMAKE_CURRENT_BINARY_DIR}/particle-callback-reference")
+  add_custom_command(OUTPUT "${PARTICLE_CALLBACK_DIR}/particle_callback_000.cpp" "${PARTICLE_CALLBACK_DIR}/particle_callback_table.cpp" "${PARTICLE_CALLBACK_DIR}/particle_callback_functions.h"
+    COMMAND ${Python3_EXECUTABLE} "${VP2S_ROOT}/tools/vp2_bozo_particle_callback_fixture.py" "${VP2S_BOZO_DATA}/images/mod003.elf" "${PARTICLE_CALLBACK_DIR}" --build "${VP2S_BOZO_DATA}/.."
+    COMMAND $<TARGET_FILE:bozo-recomp> "${PARTICLE_CALLBACK_DIR}/fixture.elf" "${PARTICLE_CALLBACK_DIR}" --prefix particle_callback --symbol-prefix particle_callback_ --files 1 --externals "${PARTICLE_CALLBACK_DIR}/externals.txt" --no-comments
+    DEPENDS bozo-recomp "${VP2S_ROOT}/tools/vp2_bozo_particle_callback_fixture.py" "${VP2S_ROOT}/tools/vp2_bozo_kernel.py" "${VP2S_BOZO_DATA}/images/mod003.elf")
+  add_executable(vp2s-bozo-particle-callback-check "${VP2S_ROOT}/tests/bozo_particle_callback_main.cpp" "${PARTICLE_CALLBACK_DIR}/particle_callback_000.cpp" "${PARTICLE_CALLBACK_DIR}/particle_callback_table.cpp")
+  target_include_directories(vp2s-bozo-particle-callback-check PRIVATE "${PARTICLE_CALLBACK_DIR}")
+  target_link_libraries(vp2s-bozo-particle-callback-check PRIVATE vp2s_bozo_kernel)
+  if(MINGW)
+    target_link_options(vp2s-bozo-particle-callback-check PRIVATE -static)
+  endif()
+  add_test(NAME vp2s-bozo-particle-callback COMMAND vp2s-bozo-particle-callback-check)
   add_custom_command(OUTPUT "${UPDATE_POINT_DIR}/update_point_000.cpp" "${UPDATE_POINT_DIR}/update_point_table.cpp" "${UPDATE_POINT_DIR}/update_point_functions.h"
     COMMAND ${Python3_EXECUTABLE} "${VP2S_ROOT}/tools/vp2_bozo_update_point_fixture.py" "${VP2S_BOZO_DATA}/images/mod001.elf" "${UPDATE_POINT_DIR}" --build "${VP2S_BOZO_DATA}/.."
     COMMAND $<TARGET_FILE:bozo-recomp> "${UPDATE_POINT_DIR}/fixture.elf" "${UPDATE_POINT_DIR}" --prefix update_point --symbol-prefix update_point_ --files 1 --externals "${UPDATE_POINT_DIR}/externals.txt" --no-comments

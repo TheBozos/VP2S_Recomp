@@ -770,6 +770,18 @@ if(VP2S_BOZO_CODE)
     target_link_options(vp2s-bozo-update-point-check PRIVATE -static)
   endif()
   add_test(NAME vp2s-bozo-update-point COMMAND vp2s-bozo-update-point-check)
+  set(QUERY_POINT_DIR "${CMAKE_CURRENT_BINARY_DIR}/query-point-reference")
+  add_custom_command(OUTPUT "${QUERY_POINT_DIR}/query_point_000.cpp" "${QUERY_POINT_DIR}/query_point_table.cpp" "${QUERY_POINT_DIR}/query_point_functions.h"
+    COMMAND ${Python3_EXECUTABLE} "${VP2S_ROOT}/tools/vp2_bozo_query_point_fixture.py" "${VP2S_BOZO_DATA}/images/mod001.elf" "${QUERY_POINT_DIR}" --build "${VP2S_BOZO_DATA}/.."
+    COMMAND $<TARGET_FILE:bozo-recomp> "${QUERY_POINT_DIR}/fixture.elf" "${QUERY_POINT_DIR}" --prefix query_point --symbol-prefix query_point_ --files 1 --externals "${QUERY_POINT_DIR}/externals.txt" --no-comments
+    DEPENDS bozo-recomp "${VP2S_ROOT}/tools/vp2_bozo_query_point_fixture.py" "${VP2S_ROOT}/tools/vp2_bozo_kernel.py" "${VP2S_BOZO_DATA}/images/mod001.elf")
+  add_executable(vp2s-bozo-query-point-check "${VP2S_ROOT}/tests/bozo_query_point_main.cpp" "${QUERY_POINT_DIR}/query_point_000.cpp" "${QUERY_POINT_DIR}/query_point_table.cpp")
+  target_include_directories(vp2s-bozo-query-point-check PRIVATE "${QUERY_POINT_DIR}")
+  target_link_libraries(vp2s-bozo-query-point-check PRIVATE vp2s_bozo_kernel)
+  if(MINGW)
+    target_link_options(vp2s-bozo-query-point-check PRIVATE -static)
+  endif()
+  add_test(NAME vp2s-bozo-query-point COMMAND vp2s-bozo-query-point-check)
   foreach(VARIANT original adapted)
     set(HERMITE_DIR "${CMAKE_CURRENT_BINARY_DIR}/hermite-reference/${VARIANT}")
     add_custom_command(OUTPUT "${HERMITE_DIR}/hermite_${VARIANT}_000.cpp" "${HERMITE_DIR}/hermite_${VARIANT}_table.cpp" "${HERMITE_DIR}/hermite_${VARIANT}_functions.h"

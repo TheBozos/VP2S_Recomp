@@ -12,6 +12,29 @@ The earlier VP2S face/shading and general brightness comparisons remain open.
 
 ## Build and evidence
 
+### Query-space point transform and query call interface (2026-11-08)
+
+The ten inline sites `0x227f08..0x227f2c` now transform the completed point
+through the explicit inverse matrix, publishing full XYZW before the original
+`0x22d5f0` query argument setup. This input's W is meaningful and is retained;
+the earlier branches' scalar W=1 requirement does not apply. The shared native
+matrix-product publisher validates/copies inputs before output and preserves
+host FP state. No new engine code is needed.
+
+The bounded generated fragment retains the query call, arguments and scalar
+result move. Its fixture-only return restores a seeded outer RA; the callback
+is bounded separately and does not qualify the collision query's internals.
+512 complete fragment pairs, 128 known homogeneous transforms and all ten sites
+pass full CPU/RAM/FP checks, integer product/sum outputs, meaningful positive,
+zero and negative W, matrix/input/output aliases, four modes and paused-call
+resumption. Eight numeric/setup guard cases reject without mutation. Earlier
+point branches remain green after sharing their publisher.
+
+Four rebuilt suites pass in 67.47 s (`query-point-final-tests.log`). The actual
+protected route passes the query-space transform and query call, next rejecting
+the linear-vector product at `0x229164` in the same large object update
+(`query-point-route.log`). Field/Logun remains open.
+
 ### Object-update point branches (2026-11-08)
 
 Both inline point transforms at `0x227d78..0x227d9c` and

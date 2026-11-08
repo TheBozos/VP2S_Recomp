@@ -33,6 +33,7 @@
 #include "native_frame_filter.h"
 #include "native_frame_copy.h"
 #include "native_dof.h"
+#include "native_feedback.h"
 #include "native_particles.h"
 #include "native_music.h"
 #include "native_ui_windows.h"
@@ -59,7 +60,7 @@ class StrictHost final : public bozo::ee::Host,public vp2s::TimerOwner,public vp
     public vp2s::ModuleOwner,public vp2s::BootstrapOwner,public vp2s::RandomOwner,public vp2s::TextureOwner,public vp2s::SceneOwner,
     public vp2s::AssetOwner,public vp2s::DebugFontOwner,public vp2s::StateSetupOwner,public vp2s::ScreenRectOwner,public vp2s::UiTextOwner,
     public vp2s::UiSpriteOwner,public vp2s::MediaBufferOwner,public vp2s::ModelOwner,public vp2s::FrameFilterOwner,public vp2s::MusicOwner,
-    public vp2s::UiWindowOwner,public vp2s::LoadProgressOwner,public vp2s::MotionOwner,public vp2s::FrameCopyOwner,public vp2s::DofOwner,public vp2s::SquadOwner,
+    public vp2s::UiWindowOwner,public vp2s::LoadProgressOwner,public vp2s::MotionOwner,public vp2s::FrameCopyOwner,public vp2s::DofOwner,public vp2s::FeedbackOwner,public vp2s::SquadOwner,
     public vp2s::ParticleOwner,public vp2s::ParticleUpdateOwner {
 public:
     vp2s::NativeParticles particles;
@@ -109,6 +110,9 @@ public:
     vp2s::NativeDofs dofs;
     vp2s::NativeDofs &nativeDofs()override{return dofs;}
     void drawNativeDof(const vp2s::NativeDof &effect)override{vp2s::drawDof(effect);}
+    vp2s::NativeFeedbackCopies feedbackCopies;
+    vp2s::NativeFeedbackCopies &nativeFeedbackCopies()override{return feedbackCopies;}
+    void drawNativeFeedbackCopy(const vp2s::NativeFeedbackCopy &copy)override{vp2s::drawFeedbackCopy(copy);}
     vp2s::NativeModels &nativeModels()override{return models;}
     void drawNativeModel(const vp2s::NativeModelSubmission &submission)override{
         for(const auto &batch:submission.batches)bozo::render::Renderer::instance().draw(batch.material,batch.matrix.data(),batch.vertices.data(),batch.vertices.size(),batch.texture);
@@ -381,6 +385,7 @@ bool noNativeInstruction(uint8_t *ram,R5900Context *ctx,Runtime *rt,uint32_t pc)
     if(auto handled=vp2s::nativeFrameFilterInstruction(ctx,rt,pc))return *handled;
     if(auto handled=vp2s::nativeFrameCopyInstruction(ctx,rt,pc))return *handled;
     if(auto handled=vp2s::nativeDofInstruction(ctx,rt,pc))return *handled;
+    if(auto handled=vp2s::nativeFeedbackInstruction(ctx,rt,pc))return *handled;
     if(auto handled=vp2s::nativeParticleInstruction(ctx,rt,pc))return *handled;
     if(auto handled=vp2s::nativeUiSpriteInstruction(ctx,rt,pc))return *handled;
     if(auto handled=vp2s::nativeMediaBufferInstruction(ctx,rt,pc))return *handled;
@@ -526,8 +531,10 @@ int main(int argc,char **argv) {
             if(!capturePath.empty() && std::getenv("VP2S_BOZO_CAPTURE_BOUNDARY")){
                 // Explicit diagnostic only: this is an incomplete frame, never
                 // successful boot evidence. The original boundary still fails.
-                bozo::render::Renderer::instance().endFrame();vp2s::captureNativeFrame(capturePath);
-                std::fprintf(stderr,"[vp2s:diagnostic] partial frame at rejecting boundary captured; run still failed\n");
+                try{
+                    bozo::render::Renderer::instance().endFrame();vp2s::captureNativeFrame(capturePath);
+                    std::fprintf(stderr,"[vp2s:diagnostic] partial frame at rejecting boundary captured; run still failed\n");
+                }catch(const std::exception &e){std::fprintf(stderr,"[vp2s:diagnostic] boundary capture unavailable: %s\n",e.what());}
             }
 #endif
             throw;

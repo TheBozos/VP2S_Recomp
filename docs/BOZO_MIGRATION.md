@@ -12,6 +12,33 @@ The earlier VP2S face/shading and general brightness comparisons remain open.
 
 ## Build and evidence
 
+### Native screen-feedback image (2026-11-08)
+
+Class `0x152e80` retains its full original `0x205ab0` scalar builder, dimension
+and texture-cache bookkeeping. Native observations copy ordinary source-frame,
+writer, mode and dimension metadata; no command payload is read. Mode 0 makes a
+nearest image at source dimensions. The actual first route uses mode 1: a
+filtered 512-square image with the original trailing black border. A separate
+nearest snapshot avoids the engine main sampler's extra mip bias.
+
+Submission at `0x205aa0` precedes legacy enqueue and invokes original
+`0x205a60/0x21c9a0` completion. Native source/pending owner, writer, mode,
+dimensions, frame identity and destruction lifetimes are guarded. Mode 2 remains
+unqualified. The scalar builder's original active/disabled paths remain intact.
+
+Evidence: `feedback-final-tests.log`, five rebuilt suites green in 49.66 s.
+The extended CPU fixture adds 192 complete original/native feedback builders
+and 96 submissions, covering both modes, CPU/RAM/FP, scratch/ordinary stacks,
+real writer helpers and paused completion callbacks with an unavailable legacy
+queue. Another 128 cases qualify metadata/lifetime and mutation-free rejection.
+The hidden GPU suite now checks 15 cases and 804 interior RGBA samples across
+colour copy, DOF graph and both feedback modes, with zero failures.
+
+Actual `feedback-mode-route.log` passes this screen-copy producer and next
+rejects a raster-clock read inside mod003 `0x420ca0` at `0x420ee0`. This is an
+animation-precache loop with a software 128-sample bound; its obsolete raster
+time budget is the next native scheduling boundary. Logun remains open.
+
 ### Native DOF image graph and engine image operations (2026-11-08)
 
 BozoEngine PR76 merged as `8a87fc3`: generic separable image kernels,

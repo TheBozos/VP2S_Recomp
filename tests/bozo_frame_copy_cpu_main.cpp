@@ -1,5 +1,6 @@
 #include "native_frame_copy.h"
 #include "native_dof.h"
+#include "native_feedback.h"
 #include "bozo/ee/dispatcher.h"
 #include "bozo/port.h"
 #include "copy_original_functions.h"
@@ -13,16 +14,20 @@
 #include <immintrin.h>
 namespace {
 constexpr uint32_t object=0x180000,target=0x190000,current=0x1a0000,queue=0x1b0000,post=0x200000,manager=0x230000,writer=0x240000,buffer=0x250000;
+constexpr uint32_t feedback=0x280000;
 void check(bool v,std::source_location at=std::source_location::current()){if(!v)throw std::runtime_error("frame-copy CPU assertion at "+std::to_string(at.line()));}
 template<class T>void put(Runtime &rt,uint32_t at,T v){std::memcpy(rt.memory.hostPointer(at,sizeof(T)),&v,sizeof(T));}
 template<class T>T get(Runtime &rt,uint32_t at){T v;std::memcpy(&v,rt.memory.hostPointer(at,sizeof(T)),sizeof(T));return v;}
 template<class F>void rejects(F fn){bool bad=false;try{fn();}catch(const std::runtime_error &){bad=true;}check(bad);}
-struct Host:bozo::ee::Host,bozo::port::Host,vp2s::SceneOwner,vp2s::FrameCopyOwner,vp2s::DofOwner {
+struct Host:bozo::ee::Host,bozo::port::Host,vp2s::SceneOwner,vp2s::FrameCopyOwner,vp2s::DofOwner,vp2s::FeedbackOwner {
     bool reference=false,fail=false,pause=false;unsigned allocations=0,draws=0,callbacks=0;
     vp2s::NativeScene scene;vp2s::NativeFrameCopies copies;std::optional<vp2s::NativeFrameCopy> submitted;
     vp2s::NativeDofs dofs;std::optional<vp2s::NativeDof> dofSubmitted;
     vp2s::NativeDofs &nativeDofs()override{return dofs;}
     void drawNativeDof(const vp2s::NativeDof &effect)override{check(effect.object==post);dofSubmitted=effect;++draws;}
+    vp2s::NativeFeedbackCopies feedbackCopies;std::optional<vp2s::NativeFeedbackCopy> feedbackSubmitted;
+    vp2s::NativeFeedbackCopies &nativeFeedbackCopies()override{return feedbackCopies;}
+    void drawNativeFeedbackCopy(const vp2s::NativeFeedbackCopy &copy)override{check(copy.object==feedback);feedbackSubmitted=copy;++draws;}
     struct Pause{};
     vp2s::NativeScene &nativeScene()override{return scene;}
     vp2s::NativeFrameCopies &nativeFrameCopies()override{return copies;}
@@ -32,8 +37,10 @@ struct Host:bozo::ee::Host,bozo::port::Host,vp2s::SceneOwner,vp2s::FrameCopyOwne
     bool nativeInstruction(uint8_t *r,R5900Context *c,Runtime *rt,uint32_t pc)override{
         if(reference && pc==0x2dbdd0){check(c->r[4].uw[0]==object && c->r[5].uw[0]==object+0x90);++draws;c->r[4].sd[0]=object;return true;}
         if(reference && pc==0x2d9350){check(c->r[4].uw[0]==post && c->r[5].uw[0]==post+0x90);++draws;c->r[4].sd[0]=post;return true;}
+        if(reference && pc==0x205aa0){check(c->r[4].uw[0]==feedback && c->r[5].uw[0]==feedback+0x90);++draws;c->r[4].sd[0]=feedback;return true;}
         if(auto handled=vp2s::nativeFrameCopyInstruction(c,rt,pc))return *handled;
         if(auto handled=vp2s::nativeDofInstruction(c,rt,pc))return *handled;
+        if(auto handled=vp2s::nativeFeedbackInstruction(c,rt,pc))return *handled;
         if(vp2s::nativeSceneInstruction(r,c,rt,pc))return true;
         throw std::runtime_error("unexpected frame-copy hook");
     }
@@ -44,6 +51,8 @@ struct Host:bozo::ee::Host,bozo::port::Host,vp2s::SceneOwner,vp2s::FrameCopyOwne
         else if(pc==0x29d9b0){check(c->r[4].uw[0]==manager);c->r[2].ud[0]=fail?0:allocations%2?0x3400:0x2800;++allocations;}
         else if(pc==0x23da20){check(c->r[4].uw[0]==manager);c->r[2].ud[0]=0x4000;}
         else if(pc==0x29d7c0){check(c->r[4].uw[0]==manager);c->r[2].ud[0]=0;}
+        else if(pc==0x29dbb0){check(c->r[4].uw[0]==manager);c->r[2].ud[0]=0;}
+        else if(pc==0x112930){check(c->r[4].uw[0]==target);c->r[2].ud[0]=0;}
         else if(pc==0x1130f0){check(draws && c->r[4].uw[0]==queue);++callbacks;++*d.runtime().memory.hostPointer(queue,1);}
         else throw std::runtime_error("unexpected frame-copy leaf");
         c->pc=c->r[31].uw[0];if(pause && pc==0x1130f0)throw Pause{};
@@ -69,8 +78,8 @@ int main(){try{
     for(auto *table:{&ar,&br})std::sort(table->begin(),table->end(),[](auto x,auto y){return x.start<y.start;});
     a.setFunctions(af.data(),af.size(),ar.data(),ar.size());b.setFunctions(bf.data(),bf.size(),br.data(),br.size());
     a.runtime().port=&old;b.runtime().port=&now;
-    for(auto *d:{&a,&b})for(uint32_t pc:{0x112960u,0x29d9b0u,0x23da20u,0x29d7c0u,0x1130f0u})d->bindLibrary(pc);
-    const auto saved=_mm_getcsr();unsigned builders=0,submissions=0,disabled=0,failed=0;
+    for(auto *d:{&a,&b})for(uint32_t pc:{0x112960u,0x29d9b0u,0x23da20u,0x29d7c0u,0x1130f0u,0x29dbb0u,0x112930u})d->bindLibrary(pc);
+    const auto saved=_mm_getcsr();unsigned builders=0,submissions=0,disabled=0,failed=0,feedbackBuilders=0,feedbackSubmissions=0;
     for(unsigned mode:{_MM_ROUND_NEAREST,_MM_ROUND_DOWN,_MM_ROUND_UP,_MM_ROUND_TOWARD_ZERO})for(unsigned seed=0;seed<32;++seed){
         auto &x=a.runtime();auto &y=b.runtime();std::memset(x.memory.flat(),0,bozo::kFlatBytes);
         old.allocations=now.allocations=0;old.draws=now.draws=old.callbacks=now.callbacks=0;old.fail=now.fail=seed%8==3;
@@ -150,10 +159,23 @@ int main(){try{
                 check(get<uint32_t>(y,0x35dde0)==0xdead0000 && old.draws==now.draws && old.callbacks==now.callbacks);
                 rejects([&]{now.dofs.submit(&y,now.scene,now.copies,post);});
                 now.dofs.release(post);
+                for(auto *d:{&a,&b}){auto &rt=d->runtime();put(rt,0x35d980,target);put(rt,feedback,uint32_t(0x152e80));
+                    put(rt,feedback+0x90,uint32_t(0x152efc));put(rt,feedback+0x94,writer);put(rt,feedback+0x98,uint8_t(seed&1));put(rt,feedback+0x99,uint8_t((seed>>2)&1));}
+                p={};p.r[4].ud[0]=feedback;p.r[29].ud[0]=top;p.r[31].ud[0]=0x170000;q=p;
+                _mm_setcsr(control);run(a,p,0x205ab0);const auto feedbackFp=_mm_getcsr();_mm_setcsr(control);run(b,q,0x205ab0);
+                check(_mm_getcsr()==feedbackFp && !std::memcmp(&p,&q,sizeof(p)) && !std::memcmp(x.memory.flat(),y.memory.flat(),bozo::kFlatBytes));++feedbackBuilders;
+                if(seed&1){
+                    for(auto *d:{&a,&b}){auto &rt=d->runtime();put(rt,feedback+0x65,layer);put(rt,current+0x40a8+4*layer,feedback);put(rt,current+0x40dc+layer,uint8_t(1));}
+                    p={};p.r[4].ud[0]=feedback;p.r[29].ud[0]=top;p.r[31].ud[0]=0x170000;q=p;
+                    run(a,p,0x205a80);run(b,q,0x205a80);
+                    check(!std::memcmp(&p,&q,sizeof(p)) && !std::memcmp(x.memory.flat(),y.memory.flat(),bozo::kFlatBytes));
+                    check(now.feedbackSubmitted && now.feedbackSubmitted->width==512 && now.feedbackSubmitted->height==512 && now.feedbackSubmitted->frame==now.scene.frameTarget());
+                    check(get<uint32_t>(y,0x35dde0)==0xdead0000 && old.draws==now.draws && old.callbacks==now.callbacks);++feedbackSubmissions;
+                }
             }else if(!enabled)++disabled;else ++failed;
             old.scene.finishComposition(top);now.scene.finishComposition(top);
         }
     }
     _mm_setcsr(saved);check(submissions && disabled && failed);
-    std::printf("%u complete scalar copy builders, %u native submissions/real completions, %u disabled/%u failed allocations; CPU/RAM/FP, four modes, real writer helpers, reuse and paused callback passed\n",builders,submissions,disabled,failed);return 0;
+    std::printf("%u complete scalar copy builders, %u copy and DOF submissions/real completions, %u disabled/%u failed allocations; %u feedback builders/%u submissions; CPU/RAM/FP, four modes, real writer helpers, reuse and paused callback passed\n",builders,submissions,disabled,failed,feedbackBuilders,feedbackSubmissions);return 0;
 }catch(const std::exception &e){std::fprintf(stderr,"%s\n",e.what());return 1;}}

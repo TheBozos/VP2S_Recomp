@@ -20,6 +20,9 @@ rows=[dict(Name='colour_copy_builder',Start='0x2dbde0',End='0x2dc6f4'),
       dict(Name='copy_completion',Start='0x2dbd90',End='0x2dbdac'),
       dict(Name='dof_producer',Start='0x2d9330',End='0x2d9360'),
       dict(Name='dof_completion',Start='0x2d9310',End='0x2d932c'),
+      dict(Name='feedback_builder',Start='0x205ab0',End='0x20682c'),
+      dict(Name='feedback_producer',Start='0x205a80',End='0x205ab0'),
+      dict(Name='feedback_completion',Start='0x205a60',End='0x205a7c'),
       dict(Name='scene_completion',Start='0x21c9a0',End='0x21ca50')]
 fixture,_=prepare(data,rows,{})
 _,segments,_=elf_parts(data)
@@ -33,8 +36,8 @@ main,_=prepare((a.source.parent/'main.elf').read_bytes(),[
     dict(Name='writer_commit',Start='0x120f70',End='0x120f94'),
     dict(Name='writer_current',Start='0x120fa0',End='0x120fd4')],{})
 a.out.mkdir(parents=True,exist_ok=True);(a.out/'fixture.elf').write_bytes(fixture);(a.out/'helpers.elf').write_bytes(main)
-sites=[0x2dbdd0,0x2d9350,0x21c9dc,0x21c9e0,0x21c9e8,0x21c9ec,0x21ca1c,0x21ca20,0x21ca24,0x21ca28]
-if a.variant=='adapted':sites += [0x2dbde0,0x2dbeb4,0x2dc6c8]
-(a.out/'externals.txt').write_text(''.join(f'native 0x{pc:x}\n' for pc in sites)+''.join(f'stub 0x{pc:x}\n' for pc in (0x112960,0x29d9b0,0x23da20,0x29d7c0,0x1130f0)))
-selected={'002dbdcc','002d934c'}
+sites=[0x2dbdd0,0x2d9350,0x205aa0,0x21c9dc,0x21c9e0,0x21c9e8,0x21c9ec,0x21ca1c,0x21ca20,0x21ca24,0x21ca28]
+if a.variant=='adapted':sites += [0x2dbde0,0x2dbeb4,0x2dc6c8,0x205ab0,0x206808]
+(a.out/'externals.txt').write_text(''.join(f'native 0x{pc:x}\n' for pc in sites)+''.join(f'stub 0x{pc:x}\n' for pc in (0x112960,0x29d9b0,0x23da20,0x29d7c0,0x1130f0,0x112930,0x29dbb0)))
+selected={'002dbdcc','002d934c','00205a9c'}
 (a.out/'patches.txt').write_text(''.join(line+'\n' for line in patches.splitlines() if line.split()[0] in selected))

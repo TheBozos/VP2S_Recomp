@@ -47,6 +47,26 @@ int main(){try{
     check(!a.origin(0x120080) && a.origin(0x120100)->offset==256);
     rejects([&]{a.overwrite(0x1ffffff,2);});rejects([&]{a.origin(0x12000000);});
     rejects([&]{a.discRead(0x100000,0xffffffff,1);});
+    // Real field memset uses a scratch-stack record at SP+0x80. Copies through
+    // that storage keep byte provenance, overlap holes and worker ownership.
+    a.discRead(0x180000,1,99);a.copy(0x70003800,0x180000,2048);
+    check(a.origin(0x70003fff)==Origin{Kind::Disc,99*2048,0,2047});
+    a.overwrite(0x70003960,0x200);
+    check(!a.origin(0x70003960) && !a.origin(0x70003b5f));
+    check(a.origin(0x7000395f)->offset==0x15f && a.origin(0x70003b60)->offset==0x360);
+    a.copy(0x70003880,0x70003800,0x400);
+    check(a.origin(0x70003880)->offset==0 && !a.origin(0x700039e0) && a.origin(0x70003be0)->offset==0x360);
+    a.copy(0x190000,0x70003880,0x400);
+    check(a.origin(0x190000)->offset==0 && !a.origin(0x190160) && a.origin(0x190360)->offset==0x360);
+    check(a.origin(0x180160)->offset==0x160); // Distinct main-RAM bytes unchanged.
+    a.begin(0x1ff000,0x180000,0x70000000,19,0x181000);a.finish(0x1ff000,true,256);
+    check(!a.origin(0x70000000));rejects([&]{a.overwrite(0x70000000,1);});
+    a.beginStep(0x1fe000,0x181000);a.copy(0x70000000,0x180000,128,0x181000);a.finishStep(0x1fe000,true);
+    check(a.origin(0x700000ff)==Origin{Kind::Part,99*2048,19,255});
+    rejects([&]{vp2s::NativeAssets::address(0x70000000);}); // Public RAM-only pointer contract unchanged.
+    rejects([&]{a.overwrite(0x70003fff,2);});rejects([&]{a.origin(0x70004000);});
+    rejects([&]{a.copy(0x180000,0x70003ff0,32);});rejects([&]{a.copy(0x70003ff0,0x180000,32);});
+    check(a.origin(0x180000)->offset==0 && a.origin(0x70003fff)->offset==2047);
     // An independent per-byte oracle catches interval splitting, multi-source
     // copies, unknown overwrites and source/destination overlap in every step.
     vp2s::NativeAssets fuzz;

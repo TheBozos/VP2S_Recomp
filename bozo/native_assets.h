@@ -4,7 +4,7 @@
 #include <optional>
 #include <vector>
 namespace vp2s {
-// Byte provenance from actual game I/O and CPU producers. This is not a
+// Byte provenance in RAM/scratch storage from actual game I/O and CPU producers. This is not a
 // graphics-address map: no transfer payload, hardware layout or device state.
 struct AssetOrigin {
     enum class Kind { Disc, Part } kind=Kind::Disc;

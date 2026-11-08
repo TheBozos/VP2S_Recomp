@@ -8,8 +8,15 @@
 namespace vp2s {
 namespace {
 uint32_t endOf(uint32_t at,uint32_t bytes){
-    if(at>=0x2000000 || bytes>0x2000000-at)throw std::runtime_error(std::format("native asset range outside EE RAM: address={:x} bytes={:x}",at,bytes));
+    const uint32_t limit=at>=0x70000000 && at<0x70004000?0x70004000:0x2000000;
+    if(at>=limit || bytes>limit-at)throw std::runtime_error(std::format("native asset range outside CPU storage: address={:x} bytes={:x}",at,bytes));
     return at+bytes;
+}
+uint32_t storageAddress(uint32_t at){
+    // Keep scratch addresses disjoint from RAM aliases in provenance. The
+    // actual bytes are owned/written by the native memory library as usual.
+    if(at>=0x70000000 && at<0x70004000)return at;
+    return NativeAssets::address(at);
 }
 AssetOrigin advance(AssetOrigin origin,uint32_t bytes){
     if(bytes>std::numeric_limits<uint32_t>::max()-origin.offset)throw std::runtime_error("native asset offset overflow");
@@ -29,7 +36,7 @@ uint32_t NativeAssets::address(uint32_t at){
     at&=0x0fffffffu;endOf(at,0);return at;
 }
 void NativeAssets::assign(uint32_t at,uint32_t bytes,std::optional<AssetOrigin> value){
-    at=address(at);const uint32_t end=endOf(at,bytes);if(!bytes)return;
+    at=storageAddress(at);const uint32_t end=endOf(at,bytes);if(!bytes)return;
     std::vector<Range> next;next.reserve(ranges.size()+2);
     for(const auto &r:ranges){
         if(r.end<=at || r.begin>=end){next.push_back(r);continue;}
@@ -41,7 +48,7 @@ void NativeAssets::assign(uint32_t at,uint32_t bytes,std::optional<AssetOrigin> 
     ranges=std::move(next);
 }
 void NativeAssets::checkWrite(uint32_t at,uint32_t bytes,uint32_t worker)const{
-    at=address(at);const uint32_t end=endOf(at,bytes);if(!bytes)return;
+    at=storageAddress(at);const uint32_t end=endOf(at,bytes);if(!bytes)return;
     for(const auto &[job,d]:jobs)if(at<d.destination+d.size && d.destination<end && job!=worker)
         throw std::runtime_error("another producer overwrote an unfinished native asset job");
     if(worker && std::none_of(steps.begin(),steps.end(),[&](const auto &s){return s.second==worker;}))
@@ -54,7 +61,7 @@ void NativeAssets::discRead(uint32_t at,uint32_t sectors,uint32_t lbn){
     assign(at,sectors*2048,AssetOrigin{AssetOrigin::Kind::Disc,uint64_t(lbn)*2048,0,0});
 }
 void NativeAssets::copy(uint32_t to,uint32_t from,uint32_t bytes,uint32_t worker){
-    to=address(to);from=address(from);endOf(to,bytes);const uint32_t end=endOf(from,bytes);
+    to=storageAddress(to);from=storageAddress(from);endOf(to,bytes);const uint32_t end=endOf(from,bytes);
     checkWrite(to,bytes,worker);
     // Snapshot first: an overlapping copy must not resolve its own new mapping.
     std::vector<Range> copied;
@@ -66,7 +73,7 @@ void NativeAssets::copy(uint32_t to,uint32_t from,uint32_t bytes,uint32_t worker
     for(const auto &r:copied)assign(r.begin,r.end-r.begin,r.origin);
 }
 std::optional<AssetOrigin> NativeAssets::origin(uint32_t at)const{
-    at=address(at);
+    at=storageAddress(at);
     // A sliced decode is unavailable until the original compiled worker reports
     // completion; interim raw memcpy calls cannot publish partially ready data.
     for(const auto &[job,d]:jobs)if(at>=d.destination && at<d.destination+d.size)return std::nullopt;
@@ -76,7 +83,7 @@ std::optional<AssetOrigin> NativeAssets::origin(uint32_t at)const{
 void NativeAssets::begin(uint32_t stack,uint32_t chain,uint32_t destination,uint32_t part,uint32_t job){
     if(calls.contains(stack))throw std::runtime_error("active asset invocation stack reused");
     auto source=origin(chain);if(source && source->kind!=AssetOrigin::Kind::Disc)source.reset();
-    calls.emplace(stack,Invocation{source,address(destination),part,job});
+    calls.emplace(stack,Invocation{source,storageAddress(destination),part,job});
 }
 void NativeAssets::finish(uint32_t stack,bool success,uint32_t size){
     auto it=calls.find(stack);if(it==calls.end())throw std::runtime_error("asset publication without invocation");

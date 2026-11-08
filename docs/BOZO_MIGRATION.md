@@ -12,6 +12,22 @@ The earlier VP2S face/shading and general brightness comparisons remain open.
 
 ## Build and evidence
 
+### Scratch-stack asset provenance (2026-11-08)
+
+The actual field memset at `0x4227c8` writes 512 bytes to `0x70003960` while
+using the game's declared scratch work stack. The native memory library already
+performed that valid write; the subsequent provenance observation rejected it
+because it only recognized main RAM. Provenance now keeps bounded 16 KiB scratch
+intervals disjoint from RAM aliases, with the same copy/overwrite/job ownership
+rules. The public RAM-only pointer validator remains strict.
+
+Tests cover the measured memset, RAM/scratch and overlapping scratch copies,
+unknown holes, decode completion/worker ownership, exact end boundaries and
+mutation-free range rejection. The existing 33,554,432 per-byte comparisons
+remain. All 59 rebuilt suites pass (`scratch-all-tests.log`, 242.28 seconds).
+Actual seed-1 proceeds to `0x41278c`, entry `0x4126a0`, caller `0x3975fc`
+(`scratch-assets-route.log`); visible field/Logun remains unqualified.
+
 ### Field auxiliary overlay coverage (2026-11-08)
 
 The missing `0x48ef80` target is the original `mod004` entry. A private 64-byte

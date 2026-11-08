@@ -22,6 +22,21 @@ bool nativeMathInstruction(uint8_t *,R5900Context *c,Runtime *rt,uint32_t pc){
     if(nativeTrigInstruction(nullptr,c,rt,pc))return true;
     if(nativeObjectMathInstruction(nullptr,c,rt,pc))return true;
     if(nativeFrustumInstruction(c,rt,pc))return true;
+    if(pc==0x43d2a0 || pc==0x43d2a4 || pc==0x43d2a8)return true;
+    if(pc==0x43d2ac){
+        const auto object=c->r[16].uw[0];
+        if(c->r[6].uw[0]!=object+0xd0 || c->r[4].uw[0]!=object+0xe0 || c->r[3].uw[0]!=c->r[29].uw[0]+0x30)
+            throw std::runtime_error("native model colour product escaped its CPU producer");
+        float first[4],second[4],result[4];
+        std::memcpy(first,record(rt,c->r[6].uw[0],16),16);std::memcpy(second,record(rt,c->r[4].uw[0],16),16);
+        for(unsigned i=0;i<4;++i){for(float v:{first[i],second[i]}){const auto b=std::bit_cast<uint32_t>(v),e=b&0x7f800000;
+                if(e==0x7f800000 || (!e && (b&0x7fffff)))throw std::runtime_error("unqualified native model colour input");}
+            if(std::abs(double(first[i])*second[i])>std::numeric_limits<float>::max())throw std::runtime_error("native model colour product overflow");}
+        music::CodecRounding rounding;
+        for(unsigned i=0;i<4;++i){volatile float value=first[i]*second[i];const auto b=std::bit_cast<uint32_t>(float(value));
+            result[i]=std::bit_cast<float>((b&0x7f800000)?b:(b&0x80000000));}
+        std::memcpy(record(rt,c->r[3].uw[0],16),result,16);return true;
+    }
     if(pc>=0x37faa0 && pc<=0x37fad4 && !(pc&3))return true;
     if(pc==0x37fad8){
         const auto box=c->r[4].uw[0];

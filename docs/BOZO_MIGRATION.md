@@ -8,6 +8,25 @@ target, not a replacement DLL loaded into PS2Recomp.
 
 ## Build and evidence
 
+### Native model colour/alpha product (2026-11-08)
+
+Mod003 `0x43d280` multiplies its ordinary `+0xd0` / `+0xe0` four-component
+records into the original stack temporary. The original scalar loop retains
+its optional flag update: type `0x110` consumes W at `+0x874`; other nodes
+receive the complete record at `+0x560` before their original virtual update.
+Native calculation snapshots both inputs and preserves truncated products,
+signed zeros and tiny-result reduction. Nonfinite/subnormal inputs, overflow
+and a mismatched producer ABI reject before CPU/RAM mutation.
+
+512 complete original caller CPU/RAM comparisons pass against independent
+integer products, covering empty/populated lists, both consumer branches,
+retained/replaced flags, output/source overlap, tiny products, stack locations
+and four host modes. Iterator and virtual methods are bounded software test
+contracts; this does not qualify their independent implementations or rendering.
+The real route retains those original methods and advances to the separate
+four-plane visibility test at `0x220c30`. Arithmetic, source-guard and startup
+suites pass. Logun and rendered field/sky parity remain open.
+
 ### Enclosing-object distance caller (2026-11-08)
 
 Mod003 `0x37f994..0x37f9b4` uses the qualified XYZ length operation with its

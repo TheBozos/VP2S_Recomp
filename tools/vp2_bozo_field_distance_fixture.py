@@ -14,6 +14,7 @@ fixture,_=prepare(data,[dict(Name='field_distance',Start='0x378908',End='0x3789d
                        dict(Name='setup_distance',Start='0x381fb8',End='0x382054'),
                        dict(Name='box_sphere',Start='0x37fa30',End='0x37fb44'),
                        dict(Name='enclosing_distance',Start='0x37f95c',End='0x37f9e0'),
+                       dict(Name='model_colour',Start='0x43d280',End='0x43d35c'),
                        dict(Name='field_rotation',Start='0x379228',End='0x379294'),
                        dict(Name='row_dot',Start='0x410df0',End='0x410e50')],{})
 fixture=bytearray(fixture);_,segments,_=elf_parts(fixture)
@@ -42,4 +43,10 @@ for pc in range(0x37faa0,0x37fadc,4):
     if a.variant=='original' and pc!=0x37fad8:
         at=s[1]+pc-s[2];fixture[at:at+4]=bytes(4)
     else:sites.append(f'native 0x{pc:x}\n')
+s=next(s for s in segments if s[0]==1 and s[2]<=0x43d280<0x43d35c<=s[2]+s[4])
+for pc in range(0x43d2a0,0x43d2b0,4):
+    if a.variant=='original' and pc!=0x43d2ac:
+        at=s[1]+pc-s[2];fixture[at:at+4]=bytes(4)
+    else:sites.append(f'native 0x{pc:x}\n')
+sites += [f'stub 0x{pc:x}\n' for pc in (0x267280,0x266950,0x172000,0x172010)]
 a.out.mkdir(parents=True,exist_ok=True);(a.out/'fixture.elf').write_bytes(fixture);(a.out/'externals.txt').write_text(''.join(sites))

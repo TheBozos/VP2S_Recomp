@@ -58,10 +58,13 @@ uint32_t reciprocal(uint32_t bits){
         if(value*denominator<=1.)lo=mid;else hi=mid-1;}return lo;
 }
 struct Host:bozo::ee::Host,bozo::port::Host {
-    bool reference=false;
+    bool reference=false;std::vector<uint32_t> nodes;unsigned colourCalls=0;
     bozo::libs::Libraries &libraries()override{throw std::runtime_error("library");}
     bool nativeGraphics()const override{return true;}
     bool nativeInstruction(uint8_t *r,R5900Context *c,Runtime *rt,uint32_t pc)override{
+        if(reference && pc==0x43d2ac){uint32_t first[4],second[4],out[4];
+            std::memcpy(first,rt->memory.hostPointer(c->r[6].uw[0],16),16);std::memcpy(second,rt->memory.hostPointer(c->r[4].uw[0],16),16);
+            for(unsigned i=0;i<4;++i)out[i]=product(first[i],second[i]);std::memcpy(rt->memory.hostPointer(c->r[3].uw[0],16),out,16);return true;}
         if(reference && pc==0x37fad8){
             const auto saved=_mm_getcsr();uint32_t corners[8],out[4],squares[3];
             std::memcpy(corners,rt->memory.hostPointer(c->r[4].uw[0],32),32);
@@ -95,7 +98,16 @@ struct Host:bozo::ee::Host,bozo::port::Host {
     }
     void frameEnd(Runtime *,R5900Context *)override{throw std::runtime_error("frame");}
     bool callLibrary(Runtime *,R5900Context *,uint32_t)override{return false;}
-    void libraryCall(bozo::ee::Dispatcher &,R5900Context *,uint32_t)override{throw std::runtime_error("call");}
+    void libraryCall(bozo::ee::Dispatcher &d,R5900Context *c,uint32_t pc)override{
+        // Bounded software iterator/setter contracts isolate this original
+        // caller. They do not qualify the model manager or renderer itself.
+        if(pc==0x267280){check(c->r[4].uw[0]==0x1e0000 && c->r[5].uw[0]==0);c->r[2].ud[0]=nodes.empty()?0:nodes.front();}
+        else if(pc==0x266950){check(c->r[4].uw[0]==0x1e0000);auto i=std::find(nodes.begin(),nodes.end(),c->r[5].uw[0]);check(i!=nodes.end());c->r[2].ud[0]=++i==nodes.end()?0:*i;}
+        else if(pc==0x172000){*d.runtime().memory.hostPointer(c->r[4].uw[0]+0x110,1)=uint8_t(c->r[5].uw[0]);c->r[2].ud[0]=0;++colourCalls;}
+        else if(pc==0x172010){check(std::find(nodes.begin(),nodes.end(),c->r[4].uw[0])!=nodes.end());c->r[2].ud[0]=0;++colourCalls;}
+        else throw std::runtime_error("call");
+        c->pc=c->r[31].uw[0];
+    }
     void vu0Microprogram(bozo::ee::Dispatcher &,R5900Context *,uint32_t)override{throw std::runtime_error("VU");}
     void ioRead(bozo::ee::Dispatcher &,R5900Context *,uint32_t,uint32_t,uint64_t[2])override{throw std::runtime_error("device");}
     void ioWrite(bozo::ee::Dispatcher &,R5900Context *,uint32_t,uint32_t,const uint64_t[2])override{throw std::runtime_error("device");}
@@ -107,6 +119,7 @@ int main(){try{
     original.setFunctions(distance_original_function_table,distance_original_function_count,distance_original_resume_table,distance_original_resume_count);
     adapted.setFunctions(distance_adapted_function_table,distance_adapted_function_count,distance_adapted_resume_table,distance_adapted_resume_count);
     original.runtime().port=adapted.runtime().port=&host;unsigned cases=0;
+    for(auto *d:{&original,&adapted})for(uint32_t pc:{0x267280u,0x266950u,0x172000u,0x172010u})d->bindLibrary(pc);
     for(unsigned profile=0;profile<5;++profile)for(unsigned mode:{_MM_ROUND_NEAREST,_MM_ROUND_DOWN,_MM_ROUND_UP,_MM_ROUND_TOWARD_ZERO})for(unsigned seed=0;seed<64;++seed){
         const bool movement=profile==1,camera=profile==2,setup=profile==3,enclosing=profile==4;
         auto &a=original.runtime();auto &b=adapted.runtime();std::memset(a.memory.flat(),seed+1,bozo::kFlatBytes);
@@ -202,5 +215,38 @@ int main(){try{
         uint32_t value=0x7fc00000;std::memcpy(r.memory.hostPointer(0x180000,4),&value,4);reject("NaN");
         value=0x7f7fffff;std::memcpy(r.memory.hostPointer(0x180000,4),&value,4);reject("squared overflow");
     }
-    std::printf("%u distances,%u rotations,%u row dots,%u box/sphere whole CPU/RAM cases; integer arithmetic, four rounding modes and mutation-free sphere rejection; no VU/device state\n",cases,rotations,dots,boxes);return 0;
+    unsigned colours=0;
+    for(unsigned mode:{_MM_ROUND_NEAREST,_MM_ROUND_DOWN,_MM_ROUND_UP,_MM_ROUND_TOWARD_ZERO})for(unsigned seed=0;seed<128;++seed){
+        auto &a=original.runtime(),&b=adapted.runtime();std::memset(a.memory.flat(),0x61,bozo::kFlatBytes);
+        constexpr uint32_t object=0x180000,table=0x1f0000;const uint32_t stack=seed%4==0?object+0xe0:seed&1?0x70003e00:0x1fff000;
+        uint32_t values[8];for(auto &v:values){random=random*1664525u+1013904223u;v=(random&0x807fffff)|((95+random%40)<<23);}
+        if(seed%8==0)for(unsigned i=0;i<8;++i)values[i]=(i&1)?0x80000000u:0;
+        if(seed%8==2)for(unsigned i=0;i<4;++i){values[i]=0x00800000u|(i&1?0x80000000u:0);values[i+4]=0x3f000000;}
+        std::memcpy(a.memory.ram()+object+0xd0,values,32);
+        const uint32_t manager=seed%5==0?0:0x1e0000,flag=seed%3==0?0xffffffffu:seed%4;
+        std::memcpy(a.memory.ram()+object+0x104,&manager,4);a.memory.ram()[object+0x110]=0x7b;
+        host.nodes.clear();unsigned expectedCalls=0;
+        for(unsigned i=0;i<seed%4;++i){const uint32_t node=0x200000+i*0x1000;host.nodes.push_back(node);
+            std::memcpy(a.memory.ram()+node,&table,4);const uint16_t type=(i+seed)&1?0x110:0x111;
+            std::memcpy(a.memory.ram()+node+0x6c,&type,2);if(type!=0x110)expectedCalls+=2;}
+        const uint32_t setter=0x172000,colour=0x172010;std::memcpy(a.memory.ram()+table+0x8c,&setter,4);std::memcpy(a.memory.ram()+table+0x94,&colour,4);
+        std::memcpy(b.memory.flat(),a.memory.flat(),bozo::kFlatBytes);
+        R5900Context x{};for(unsigned i=1;i<32;++i){x.r[i].ud[0]=seed*32+i;x.r[i].ud[1]=~x.r[i].ud[0];}
+        std::memset(x.vu0_vf,0x82,sizeof(x.vu0_vf));x.vu0_status=0x1254;x.r[4].ud[0]=object;x.r[5].sd[0]=int32_t(flag);x.r[29].ud[0]=stack;x.r[31].ud[0]=0x170000;auto y=x;
+        const auto saved=_mm_getcsr(),control=(saved&~_MM_ROUND_MASK)|mode;_mm_setcsr(control);
+        host.colourCalls=0;host.reference=true;a.functions.generated(0x43d280)(a.memory.flat(),&x,&a);const auto expectedFp=_mm_getcsr();check(host.colourCalls==(manager?expectedCalls:0));_mm_setcsr(control);
+        host.colourCalls=0;host.reference=false;b.functions.generated(0x43d280)(b.memory.flat(),&y,&b);check(_mm_getcsr()==expectedFp && host.colourCalls==(manager?expectedCalls:0));_mm_setcsr(saved);
+        x.cycleLimit=y.cycleLimit;check(x.pc==0x170000 && !std::memcmp(&x,&y,sizeof(x)));check(!std::memcmp(a.memory.flat(),b.memory.flat(),bozo::kFlatBytes));
+        check(b.memory.ram()[object+0x110]==(flag==0xffffffffu?0x7b:flag));++colours;
+    }
+    {auto &r=adapted.runtime();constexpr uint32_t object=0x180000;R5900Context c{};c.r[16].ud[0]=object;c.r[6].ud[0]=object+0xd0;c.r[4].ud[0]=object+0xe0;c.r[29].ud[0]=0x1fff000;c.r[3].ud[0]=0x1fff030;
+        uint32_t values[8];for(auto &v:values)v=0x3f800000;std::memcpy(r.memory.ram()+object+0xd0,values,32);
+        auto reject=[&]{const auto saved=c;std::vector<uint8_t> ram(r.memory.flat(),r.memory.flat()+bozo::kFlatBytes);bool bad=false;
+            try{vp2s::nativeMathInstruction(r.memory.flat(),&c,&r,0x43d2ac);}catch(const std::runtime_error &){bad=true;}
+            check(bad && !std::memcmp(&saved,&c,sizeof(c)) && !std::memcmp(ram.data(),r.memory.flat(),ram.size()));};
+        c.r[3].ud[0]+=16;reject();c.r[3].ud[0]-=16;
+        for(uint32_t bad:{0x7fc00000u,1u}){std::memcpy(r.memory.ram()+object+0xd0,&bad,4);reject();}
+        values[0]=0x7f7fffff;values[4]=0x40000000;std::memcpy(r.memory.ram()+object+0xd0,values,32);reject();
+    }
+    std::printf("%u distances,%u rotations,%u row dots,%u box/spheres,%u model-colour callers; CPU/RAM, integer arithmetic, four modes, aliasing and rejected input; no VU/device state\n",cases,rotations,dots,boxes,colours);return 0;
 }catch(const std::exception &e){std::fprintf(stderr,"%s\n",e.what());return 1;}}

@@ -23,4 +23,7 @@ void freeNativeModuleBuffer(uint8_t *,R5900Context *,Runtime *);
 void nativeOsdSettings(uint8_t *,R5900Context *,Runtime *);
 void retireEventFirmwareInstaller(uint8_t *,R5900Context *,Runtime *);
 void nativeCacheSync(uint8_t *,R5900Context *,Runtime *);
+// Observe the guarded object's temporary work-stack switch; original scalar
+// SP assignments still execute in generated game code.
+void nativeWorkStack(R5900Context *,Runtime *,uint32_t pc);
 }

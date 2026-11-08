@@ -7,6 +7,21 @@
 #include <atomic>
 
 namespace vp2s {
+void nativeWorkStack(R5900Context *c,Runtime *rt,uint32_t pc){
+    auto *d=rt?dynamic_cast<bozo::ee::Dispatcher *>(rt->services):nullptr;
+    auto *t=d?d->kernel().thread(d->kernel().running()):nullptr;
+    if(!c || !t || t->pseudo || &t->top().ctx!=c)
+        throw std::runtime_error("native work-stack handoff requires the running game frame");
+    if(pc==0x2bf040){
+        if(c->r[8].uw[0]!=0x70003ff0 || c->r[17].uw[0]!=c->r[29].uw[0])
+            throw std::runtime_error("native work-stack entry does not match original saved SP");
+        d->kernel().parkThreadStack(c->r[29].uw[0]);
+    }else if(pc==0x2bf058){
+        if(c->r[29].uw[0]<0x70000000 || c->r[29].uw[0]>0x70003ff0)
+            throw std::runtime_error("native work-stack return is outside its work frame");
+        d->kernel().resumeThreadStack(c->r[17].uw[0]);
+    }else throw std::runtime_error("unqualified native work-stack site");
+}
 void validateNativeKernelCall(const R5900Context *ctx,uint32_t kind){
     if(kind!=3)return; // Bound SDK calls keep their image-specific registry guards.
     if(!ctx || (ctx->r[3].uw[0]!=60 && ctx->r[3].uw[0]!=61))

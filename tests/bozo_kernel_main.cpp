@@ -56,6 +56,25 @@ int main() {
             rejected([&]{vp2s::initNativeSyscallServices(nullptr,&ctx,&missing.runtime());});
         }
         auto &k=d.kernel();
+        {
+            auto &frame=k.thread(1)->top();auto &c=frame.ctx;
+            k.threadSetup(0x1fefff0,0x10000,0);k.useOwnedHandlerStacks();
+            c.r[17].uw[0]=c.r[29].uw[0];c.r[8].uw[0]=0x70003ff0;
+            const auto original=c;
+            vp2s::nativeWorkStack(&c,&rt,0x2bf040);
+            require(frame.parkedStack==c.r[29].uw[0] && !std::memcmp(&c,&original,sizeof(c)));
+            rejected([&]{vp2s::nativeWorkStack(&c,&rt,0x2bf040);});
+            c.r[29].sd[0]=0x70003ff0; // original move SP,t0
+            bozo::ee::QueuedHandler h;h.pc=0x155000;k.queue(h);
+            require(k.stackHandler(*k.thread(1)).sp==0x1ffff70);
+            k.endHandler(*k.thread(1));
+            rejected([&]{vp2s::nativeWorkStack(&ctx,&rt,0x2bf058);});
+            const auto work=c;
+            vp2s::nativeWorkStack(&c,&rt,0x2bf058);
+            require(frame.parkedStack==0 && !std::memcmp(&c,&work,sizeof(c)));
+            c.r[29].sd[0]=c.r[17].sd[0]; // original move SP,s1
+            rejected([&]{vp2s::nativeWorkStack(&c,&rt,0x2bf058);});
+        }
         const auto first=k.createSema(1,2,0,0);
         require(first>0);
         bozo::ee::QueuedHandler pending;

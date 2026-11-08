@@ -119,7 +119,15 @@ std::optional<bool> nativeAssetInstruction(uint8_t *,R5900Context *c,Runtime *rt
         const uint32_t at=NativeAssets::address(c->r[4].uw[0]);
         if(at<0x20)throw std::runtime_error("invalid native asset heap free");
         const uint32_t bytes=word(rt,at-0x20);
-        if(bytes<0x20)throw std::runtime_error("invalid native asset heap block size");
+        if(bytes<0x20 || bytes-0x20>0x2000000-at){
+            uint32_t caller=0;if(c->r[31].uw[0]==0x100b90)if(auto *saved=rt->memory.hostPointer(sp+0x20,4))std::memcpy(&caller,saved,4);
+            uint32_t buffer=0,bufferCaller=0,bufferFlags=0;
+            if(caller==0x43fe60){if(auto *p=rt->memory.hostPointer(sp,4))std::memcpy(&buffer,p,4);
+                if(auto *p=rt->memory.hostPointer(sp+0x60,4))std::memcpy(&bufferCaller,p,4);
+                if(auto *p=rt->memory.hostPointer(buffer+0x16,1))bufferFlags=*p;}
+            throw std::runtime_error(std::format("invalid native asset heap block: pointer={:x} total={:x} flags={:x} heap={:x} magic={:x} deleteCaller={:x} buffer={:x} bufferCaller={:x} bufferFlags={:x}",
+                at,bytes,word(rt,at-0x1c),word(rt,at-0x10),word(rt,at-4),caller,buffer,bufferCaller,bufferFlags));
+        }
         assets.overwrite(at,bytes-0x20);
     }
     return false; // All CPU instructions, including the load at each return, remain compiled game code.

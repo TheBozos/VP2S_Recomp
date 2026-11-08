@@ -239,6 +239,25 @@ std::array<uint32_t,4> NativeMotion::finish(uint32_t frame,uint32_t object){
     const auto result=it->second.position;updates.erase(it);return result;
 }
 bool nativeMathInstruction(uint8_t *,R5900Context *c,Runtime *rt,uint32_t pc){
+    if(pc==0x3e5ca4 || pc==0x3e5ca8 || pc==0x3e5cac || pc==0x3e5cb4 || pc==0x3e5cb8 || pc==0x3e5cc0){
+        const auto object=c->r[18].uw[0],stack=c->r[29].uw[0],output=c->r[19].uw[0];
+        if(c->r[4].uw[0]!=object+0x90 || (pc==0x3e5cc0 && c->r[3].uw[0]!=stack+0x50))
+            throw std::runtime_error("native height-bound argument setup mismatch");
+        auto *basis=record(rt,object+0x90,48),*temporary=record(rt,stack+0x50,16);
+        auto *destination=rt->memory.hostPointer(output,8);
+        if((output&3) || output<0x100000 || !destination)throw std::runtime_error("native height-bound output outside owned memory");
+        separatePairFrame(temporary,record(rt,object,0x254),0x254);separatePairFrame(temporary,destination,8);
+        float values[3];for(unsigned i=0;i<3;++i){std::memcpy(values+i,basis+i*16+4,4);pairQualified(values[i]);
+            if(std::abs(values[i])>1.e8f)throw std::runtime_error("unqualified native height-bound basis");}
+        // Only scale.Y reaches the scalar min/max consumers. Other temporary
+        // lanes and the unused control read retire with the record separated
+        // from the complete object/output; no inherited vector state is needed.
+        if(pc==0x3e5cc0){music::CodecRounding rounding;
+            const auto squared=pairSum(pairSum(pairProduct(values[0],values[0]),pairProduct(values[1],values[1])),pairProduct(values[2],values[2]));
+            volatile float length=std::sqrt(squared);const auto scale=pairSum(0.f,length);
+            std::memcpy(temporary+4,&scale,4);}
+        return true;
+    }
     if(nativeTrigInstruction(nullptr,c,rt,pc))return true;
     if(nativeObjectMathInstruction(nullptr,c,rt,pc))return true;
     if(nativeFrustumInstruction(c,rt,pc))return true;

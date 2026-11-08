@@ -12,6 +12,60 @@ The earlier VP2S face/shading and general brightness comparisons remain open.
 
 ## Build and evidence
 
+### Native height-table bounds (2026-11-08)
+
+Mod003 `0x3e5bc0` retains the complete signed-height sample loop, `0x7fff`
+sentinel skips, optional indirect object update and original integer bound stores.
+The native six-site calculation supplies only the consumed column-Y scale from
+the object's world basis. Temporary X/Z/W and the unused control read retire
+with the temporary record separated from the complete object and output.
+Other basis lanes and copied X/Z translations may contain opaque NaN-shaped
+bits. Active subnormal/nonfinite/oversized basis values and unsafe aliases reject.
+
+512 complete original CPU/RAM/FP callers over four modes pass, including
+FTZ/DAZ, 256 bounded update calls, no-sample/degenerate/skewed bases, object-output
+aliases, ordinary/work stacks and exact upper/lower examples. The zero-root
+oracle initially admitted subnormal binary-search candidates as zero under DAZ;
+the explicit zero case corrected the fixture, with production code unchanged.
+Source mutation and executable-vector coverage guards pass. Actual seed-1 New
+Game advances to the next bounds-transform boundary `0x3e7edc`
+(`height-route.log`). Visible field and Logun remain unqualified.
+All 59 rebuilt VP2S suites pass with the merged engine pin
+(`owned-height-all-tests.log`, 196.87 seconds).
+
+### Owned native handler stacks (2026-11-08)
+
+BozoEngine [PR 75](https://github.com/TheBozos/BozoEngine/pull/75), source
+`666aecb`, is merged as `436d5d8`. The fixed default callback arena was not
+allocated by the game: its seventh slot overwrote a genuine VP2S heap block.
+The block at `0x1fe7f80` initially had size `0x2070`, heap `0x549080` and magic
+`0x4d655279`; callback prologues at `0x114240/0x1195e0`, SP `0x1fe7f60`,
+then destroyed that header. Buffer ownership and menu-input hypotheses were
+ruled out by the allocation/store trace and the same failure without later
+menu presses. Temporary generated-header write observers were removed.
+
+FreeHost now selects live declared thread stacks with a protected 128-byte
+argument/home area and 16-byte alignment. Idle callbacks borrow the parked main
+stack under the dispatcher's existing pseudo-handler priority. Missing ownership
+or headroom rejects without consuming the callback. Explicit SP and recorded-host
+stack conventions remain unchanged. All 48 engine suites pass locally; Windows
+and Linux branch/PR CI `42480047225/42480053582` are green.
+The merged main CI `42480380727` is also green on both platforms.
+
+VP2S deliberately switches to a work stack at `0x2bf040`, preserving its RAM SP
+in S1 until `0x2bf058`. The guarded port sites bracket those original scalar
+assignments with the engine's checked per-frame `parkThreadStack` and
+`resumeThreadStack`; callbacks use the parked RAM frame. Original CPU assignments,
+object calls and work-stack bytes remain. Engine tests cover nesting, idle and
+parked frames, explicit SP, bounds, exact return, queue retention and restart;
+actual dispatcher scratch writes preserve the suspended frame and former heap
+overlap region. The port kernel boundary/source suites pass (31.96 seconds).
+
+An actual seed-1 New Game run now passes the strict allocation-lifetime failure
+and reaches the next unported game boundary, `0x3e5ca4`
+(`owned-stack-handoff-route.log`). No allocation check was relaxed. This is not
+yet a visible field or Logun qualification.
+
 ### Native plane-contact projection and caller publication (2026-11-08)
 
 The actual indirect call was measured at `0x1fe210` before qualification.

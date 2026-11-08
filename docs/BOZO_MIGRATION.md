@@ -12,6 +12,30 @@ The earlier VP2S face/shading and general brightness comparisons remain open.
 
 ## Build and evidence
 
+### Animation movement magnitude (2026-11-08)
+
+Nine sites in `0x446620` now publish length X, squared Y/Z and the unchanged W
+from the explicit accumulated movement record. The equation is shared with the
+qualified action magnitude adapter. Original list iteration, exclusion masks,
+scalar accumulation, parameter clamping, `0x446520` state transitions, frame/time
+writes and epilogue remain. Setup/owner-frame overlap and numeric guards fail
+without mutation; no hardware or vector state is synthesized.
+
+512 complete CPU/RAM/FP callers exercise 600 movement-node callbacks, empty and
+filtered lists, zero/tiny/large lengths, both initialization modes and subsequent
+animation flags/counters, scratch/RAM frames, four rounding modes and FTZ/DAZ.
+An independent rounded-integer length oracle checks full temporary records;
+direct coverage retains opaque W and rejects bad setup/numbers. The fixture's
+pose/node providers are bounded software contracts, and its animation-component
+collection is empty; it does not qualify the downstream animation manager.
+Existing action magnitude cases also rerun after factoring the shared equation.
+Three suites pass (`animation-move-tests.log`, 60.70 seconds), including every
+source word in the complete owner/helper. Actual seed-1 now stops at the particle
+producer's scratch-to-RAM setup `0x22eae0`, continuation `0x22eadc`, device
+`0x1000d020` (`animation-move-route.log`). The next task is explicit particle
+record publication, not a DMA/device fallback. Visible field/Logun remains open;
+engine stays `436d5d8`.
+
 ### Three-stage quaternion interpolation (2026-11-08)
 
 `0x214c40` now owns three explicit native quaternion publications from

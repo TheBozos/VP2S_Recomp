@@ -297,6 +297,14 @@ std::array<float,4> linearQuaternionBlend(const std::array<float,4> &a,const std
         throw std::runtime_error("linear quaternion normalization overflow");}
     for(unsigned i=0;i<4;++i)result[i]=pairProduct(value[i],pairNormal(reciprocal));return result;
 }
+void publishMagnitude(Runtime *rt,uint32_t source,uint32_t destination){
+    std::array<float,4> out;std::memcpy(out.data(),record(rt,source,16),16);auto *to=record(rt,destination,16);
+    for(unsigned i=0;i<3;++i){pairQualified(out[i]);if(std::abs(out[i])>1.e8f)throw std::runtime_error("unqualified native magnitude input");}
+    struct ArithmeticScope {unsigned saved=_mm_getcsr();~ArithmeticScope(){_mm_setcsr(saved);}} arithmetic;
+    for(unsigned i=0;i<3;++i)out[i]=pairProduct(out[i],out[i]);
+    const auto squared=pairSum(pairSum(out[0],out[1]),pairProduct(1.f,out[2]));
+    volatile float length=std::sqrt(squared);out[0]=pairSum(0.f,length);std::memcpy(to,out.data(),16);
+}
 }
 void qualifySquadSines(Runtime *rt,R5900Context *c,uint32_t leafFrame){
     auto *dispatcher=rt?dynamic_cast<bozo::ee::Dispatcher *>(rt->services):nullptr;
@@ -428,15 +436,17 @@ bool nativeMathInstruction(uint8_t *,R5900Context *c,Runtime *rt,uint32_t pc){
         auto *frame=record(rt,stack,0x30),*owner=record(rt,object,0x7d0);
         const auto f=reinterpret_cast<uintptr_t>(frame),o=reinterpret_cast<uintptr_t>(owner);
         if(f<o+0x7d0 && o<f+0x30)throw std::runtime_error("native action magnitude frame overlaps owner");
-        if(pc==0x4127ac){
-            std::array<float,4> out;std::memcpy(out.data(),owner+0x220,16);
-            for(unsigned i=0;i<3;++i){pairQualified(out[i]);if(std::abs(out[i])>1.e8f)throw std::runtime_error("unqualified native action magnitude input");}
-            struct ArithmeticScope {unsigned saved=_mm_getcsr();~ArithmeticScope(){_mm_setcsr(saved);}} arithmetic;
-            for(unsigned i=0;i<3;++i)out[i]=pairProduct(out[i],out[i]);
-            const auto squared=pairSum(pairSum(out[0],out[1]),pairProduct(1.f,out[2]));
-            volatile float length=std::sqrt(squared);out[0]=pairSum(0.f,length);
-            std::memcpy(frame+0x20,out.data(),16);
-        }return true;
+        if(pc==0x4127ac)publishMagnitude(rt,object+0x220,stack+0x20);
+        return true;
+    }
+    if(pc>=0x446724 && pc<=0x446744 && !(pc&3)){
+        const auto stack=c->r[29].uw[0],object=c->r[18].uw[0];
+        if((c->pc!=0x44665c && c->pc!=0x4466c0) || c->r[4].uw[0]!=stack+0xb0 || c->r[3].uw[0]!=stack+0x50)
+            throw std::runtime_error("native animation movement magnitude setup mismatch");
+        const auto f=reinterpret_cast<uintptr_t>(record(rt,stack,0xe0)),o=reinterpret_cast<uintptr_t>(record(rt,object,0x130));
+        if(f<o+0x130 && o<f+0xe0)throw std::runtime_error("native animation movement frame aliases owner");
+        if(pc==0x446744)publishMagnitude(rt,stack+0xb0,stack+0x50);
+        return true;
     }
     if(pc==0x216390 || pc==0x216398 || pc==0x21639c || pc==0x2163a4 ||
        pc==0x2163f4 || pc==0x2163fc || pc==0x216400 || pc==0x216408 ||

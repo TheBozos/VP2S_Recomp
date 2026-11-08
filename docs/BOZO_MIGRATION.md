@@ -12,6 +12,18 @@ The earlier VP2S face/shading and general brightness comparisons remain open.
 
 ## Build and evidence
 
+### Embedded glyph fonts (2026-11-09)
+
+The field's text uses a 16-glyph (32x28) mcps font embedded at `0x1800` in a
+model container (`a94ab020` part 0), not a standalone `.mcps` bundle.
+`tools/vp2_glyphs.py` now also converts `mcps2lib` fonts embedded at 16-byte
+boundaries in other decompressed files, keyed by the pixels' absolute offset
+in the part (here `0x1a00`); the runtime admits a non-zero font base only when
+it holds the `mcps2lib` header and the pixels sit at base + header `+30`.
+Conversion: 241 font origins, 181 unique packs. The rejection message now
+reports both origins. No dedicated fixture yet. The route then stops at the
+UI layer type `168970` (`2ec9e4`), an unported layer class.
+
 ### DOF block constant opacity (2026-11-09)
 
 Field DOF block 4 (`object+f420`) has opacity byte `+1e` = 102. The block

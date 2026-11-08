@@ -2,6 +2,7 @@
 #include <algorithm>
 #include <atomic>
 #include <cstring>
+#include <format>
 #include <fstream>
 #include <sstream>
 #include <stdexcept>
@@ -59,8 +60,17 @@ std::shared_ptr<const NativeGlyphFont> NativeGlyphs::font(Runtime *rt,const Nati
     const auto pixels=word(rt,object+0x10),base=word(rt,object);
     const auto origin=assets.origin(pixels),source=assets.origin(base);
     if(!origin || !source || origin->kind!=AssetOrigin::Kind::Part || source->kind!=AssetOrigin::Kind::Part ||
-       source->disc!=origin->disc || source->part!=origin->part || source->offset)
-        throw std::runtime_error("native glyph font has no complete decompressed-file provenance");
+       source->disc!=origin->disc || source->part!=origin->part ||
+       // A font embedded in a larger decompressed file (e.g. a model container)
+       // starts at a 16-byte boundary with its own header: pixels at base+[+30].
+       (source->offset && ((source->offset&15) || std::memcmp(rt->memory.hostPointer(base,8),"mcps2lib",8) ||
+                           origin->offset!=source->offset+word(rt,base+0x30))))
+    {
+        const auto describe=[](const std::optional<AssetOrigin> &o){if(!o)return std::string("none");
+            return std::format("{} disc={:x} part={:x} offset={:x}",o->kind==AssetOrigin::Kind::Part?"part":"disc",o->disc,o->part,o->offset);};
+        throw std::runtime_error(std::format("native glyph font has no complete decompressed-file provenance: object={:x} base={:x} ({}) pixels={:x} ({})",
+            object,base,describe(source),pixels,describe(origin)));
+    }
     auto result=load({origin->disc,origin->part,origin->offset});
     if(word(rt,object+0x14)!=result->lineHeight || word(rt,object+0x18)!=result->count || word(rt,object+0x20)!=result->stride ||
        word(rt,object+0x24)!=result->width || word(rt,object+0x28)!=result->height || word(rt,object+0x2c)!=result->border)

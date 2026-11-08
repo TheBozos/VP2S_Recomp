@@ -77,10 +77,24 @@ def main():
     p.add_argument('--texture-manifest',type=Path,required=True);p.add_argument('--out',type=Path,required=True)
     a=p.parse_args();palette=glyph_palette(a.textures,a.texture_manifest)
     a.out.mkdir(parents=True,exist_ok=True);entries={};packs={};skipped=0;fonts={}
-    for source in sorted(a.assets.rglob('*.mcps')):
-        data=source.read_bytes();font=inspect_font(data)
+    # Standalone .mcps bundles, and mcps fonts embedded at 16-byte boundaries
+    # inside other decompressed files (e.g. a model container). The key is the
+    # glyph pixels' offset within the decompressed part.
+    def embedded():
+        for source in sorted(a.assets.rglob('*_*.*')):
+            if not source.is_file():continue
+            whole=source.read_bytes()
+            if source.suffix=='.mcps':yield source,whole,0;continue
+            at=whole.find(b'mcps2lib')
+            while at>=0:
+                if at%16==0 and at+0x80<=len(whole):
+                    size,=struct.unpack_from('<I',whole,at+0x20)
+                    if 0<size<=len(whole)-at:yield source,whole[at:at+size],at
+                at=whole.find(b'mcps2lib',at+1)
+    for source,data,base in embedded():
+        font=inspect_font(data)
         if font is None:skipped+=1;continue
-        stem,part=source.stem.rsplit('_',1);key=(int(stem,16),int(part),font.offset)
+        stem,part=source.stem.rsplit('_',1);key=(int(stem,16),int(part),base+font.offset)
         # Deduplicate source glyphs before conversion; repeated text bundles
         # generally share the same font. Different metrics/palette stay distinct.
         identity=hashlib.sha256(repr(font).encode()+data[font.offset:font.offset+font.count*font.stride]+struct.pack('<256I',*palette)).digest()

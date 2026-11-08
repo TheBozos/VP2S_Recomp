@@ -12,5 +12,8 @@ std::array<float,4> sineCosine(float angle,const TrigCoefficients &);
 struct NativeCosine {int32_t quadrant;float value;};
 NativeCosine shortCosine(float angle,const TrigCoefficients &);
 NativeCosine shortSine(float angle,const TrigCoefficients &);
+struct InverseCosineCoefficients {std::array<float,15> values;};
+float inverseCosineRoot(float angle,const InverseCosineCoefficients &);
+float inverseCosine(float angle,const InverseCosineCoefficients &);
 bool nativeTrigInstruction(uint8_t *,R5900Context *,Runtime *,uint32_t pc);
 }

@@ -12,6 +12,25 @@ The earlier VP2S face/shading and general brightness comparisons remain open.
 
 ## Build and evidence
 
+### Native inverse-cosine polynomial (2026-11-08)
+
+All 104 vector sites in `0x214e40` now retire or publish typed scalar polynomial
+results from the game's own initialized coefficients. The original integer
+endpoint/tiny-input branches, input publication, positive-root bit truncation,
+scratch stores and scalar return remain. Small, negative-large and positive-large
+polynomials retain their original operation order. The positive path publishes
+its root, lets original CPU code truncate it, then checks that split word before
+final publication. XYZ coefficient payloads stay unchanged. Frame/coefficient
+overlap and unsupported coefficient/divisor domains reject; no register bank,
+status or library-acos substitution is provided.
+
+1,024 complete caller comparisons cover whole CPU/RAM/FP, four rounding modes,
+DAZ/FTZ controls, normal/scratch stacks, branch edges, tiny inputs and signed
+out-of-range/NaN endpoint bit patterns. 65,536 additional scalar comparisons,
+std::acos error checks, exact CPU split-root stores, all-site reach, input-domain
+rejections, source/completeness and startup checks pass. Actual New Game advances
+to `0x2152b4`, the near-angle quaternion interpolation branch. Logun is open.
+
 ### Native constraint/joint quaternion composition (2026-11-08)
 
 `0x1fcdfc..0x1fce30` now snapshots both full quaternion records and computes

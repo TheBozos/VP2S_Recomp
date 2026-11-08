@@ -132,6 +132,13 @@ class KernelGuardTests(unittest.TestCase):
                 changed=bytearray(data);changed[s[1]+pc-s[2]]^=1
                 with self.subTest(pc=hex(pc)),self.assertRaises(ValueError):overlay_adaptations('mod001',changed)
 
+    def test_inverse_cosine_source(self):
+        data=(IMAGE.parent/'mod001.elf').read_bytes();_,segments,_=elf_parts(data);lo,hi=0x214e40,0x2150f0
+        s=next(s for s in segments if s[0]==1 and s[2]<=lo<hi<=s[2]+s[4])
+        for pc in range(lo,hi,4):
+            changed=bytearray(data);changed[s[1]+pc-s[2]]^=1
+            with self.subTest(pc=hex(pc)),self.assertRaises(ValueError):overlay_adaptations('mod001',changed)
+
     def test_point_direction_source(self):
         data=(IMAGE.parent/'mod001.elf').read_bytes();_,segments,_=elf_parts(data);lo,hi=0x1fb6a0,0x1fb7b8
         s=next(s for s in segments if s[0]==1 and s[2]<=lo<hi<=s[2]+s[4])

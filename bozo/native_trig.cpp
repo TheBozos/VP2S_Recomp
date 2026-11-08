@@ -37,6 +37,51 @@ constexpr std::array<uint32_t,22> shortSineSites{
     0x2144d0,0x2144d4,0x2144e0,0x2144e4,0x2144e8,0x2144ec,0x2144f0,0x2144f4,
     0x214518,0x214540,0x214548,0x21454c,0x214550,0x21455c,0x214560,0x214564,
     0x214568,0x21456c,0x214570,0x214574,0x214578,0x21457c};
+bool inverseCosineSite(uint32_t pc){
+    return !(pc&3) && ((pc>=0x214ea8 && pc<=0x214eb4) || (pc>=0x214ef0 && pc<=0x214f5c) ||
+        (pc>=0x214f7c && pc<=0x214ff8) || (pc>=0x215010 && pc<=0x215060) || pc==0x215074 || pc==0x215078 ||
+        pc==0x215094 || (pc>=0x2150a0 && pc<=0x2150dc));
+}
+void qualifiedInverseCosine(const InverseCosineCoefficients &c){
+    for(float value:c.values){qualified(value);if(std::abs(value)>4.f)throw std::runtime_error("unsupported inverse-cosine coefficient domain");}
+    if(std::bit_cast<uint32_t>(c.values[13])!=0x3f000000 || std::bit_cast<uint32_t>(c.values[14])!=0x40000000)
+        throw std::runtime_error("inverse-cosine literal coefficients mismatch");
+}
+float inverseCosineRatio(float z,const InverseCosineCoefficients &c){
+    const auto &v=c.values;float numerator=sum(product(z,v[8]),v[7]),denominator=sum(product(z,v[12]),v[11]);
+    numerator=sum(product(numerator,z),v[6]);denominator=sum(product(denominator,z),v[10]);
+    numerator=sum(product(numerator,z),v[5]);denominator=sum(product(denominator,z),v[9]);
+    numerator=sum(product(numerator,z),v[4]);denominator=sum(product(denominator,z),1.f);
+    numerator=sum(product(numerator,z),v[3]);numerator=product(numerator,z);
+    if(denominator==0)throw std::runtime_error("unqualified inverse-cosine polynomial divisor");
+    volatile float ratio=numerator/denominator;return normal(ratio);
+}
+float inverseCosineSquare(float angle,const InverseCosineCoefficients &c){
+    return std::signbit(angle)?sum(c.values[13],product(angle,c.values[13])):difference(c.values[13],product(angle,c.values[13]));
+}
+}
+float inverseCosineRoot(float angle,const InverseCosineCoefficients &c){
+    const auto bits=std::bit_cast<uint32_t>(angle);
+    if(bits<0x3f000000 || bits>=0x3f800000)throw std::runtime_error("unqualified positive inverse-cosine root input");
+    qualifiedInverseCosine(c);const auto z=inverseCosineSquare(angle,c);
+    volatile float root=static_cast<float>(std::sqrt(std::abs(double(z))));return normal(root);
+}
+float inverseCosine(float angle,const InverseCosineCoefficients &c){
+    const auto bits=std::bit_cast<uint32_t>(angle),magnitude=bits&0x7fffffff;
+    // These integer-domain endpoint/tiny decisions are the game's scalar code,
+    // including its signed out-of-range bit patterns. No library acos replaces it.
+    if(magnitude>=0x3f800000)return bits>>31?std::bit_cast<float>(0x40490fdbu):0.f;
+    if(magnitude<0x23000001)return std::bit_cast<float>(0x3fc90fdbu);
+    qualified(angle);qualifiedInverseCosine(c);const auto &v=c.values;
+    if(magnitude<0x3f000000){const auto ratio=inverseCosineRatio(product(angle,angle),c);
+        return difference(v[1],difference(angle,difference(v[2],product(angle,ratio))));}
+    const auto z=inverseCosineSquare(angle,c),ratio=inverseCosineRatio(z,c);
+    volatile float root=static_cast<float>(std::sqrt(std::abs(double(z))));const auto s=normal(root);
+    if(bits>>31){const auto correction=difference(product(s,ratio),v[2]);return difference(v[0],product(sum(correction,s),v[14]));}
+    const auto split=std::bit_cast<float>(std::bit_cast<uint32_t>(s)&0xfffff000u),divisor=sum(s,split);
+    if(divisor==0)throw std::runtime_error("unqualified inverse-cosine split divisor");
+    volatile float correction=difference(z,product(split,split))/divisor;
+    const auto residual=sum(product(s,ratio),normal(correction));return sum(product(v[14],split),product(v[14],residual));
 }
 TrigReduction reduceSineCosine(float angle,const TrigCoefficients &c){
     qualified(angle);qualified(c.pi);qualified(c.inversePi);qualified(c.halfPi);
@@ -96,6 +141,29 @@ NativeCosine shortSine(float angle,const TrigCoefficients &c){
     return {quadrant,result};
 }
 bool nativeTrigInstruction(uint8_t *,R5900Context *c,Runtime *rt,uint32_t pc){
+    if(inverseCosineSite(pc)){
+        if(!c || c->pc!=0x214e40)throw std::runtime_error("unported interior inverse-cosine invocation");
+        const auto frame=reinterpret_cast<uintptr_t>(record(rt,c->r[29].uw[0],16)),tableAddress=reinterpret_cast<uintptr_t>(record(rt,0x35da30,64));
+        if(frame<tableAddress+64 && tableAddress<frame+16)throw std::runtime_error("inverse-cosine caller frame aliases its coefficient record");
+        if(pc==0x214f5c || pc==0x214ff8 || pc==0x215050 || pc==0x2150dc){
+            const auto bits=std::bit_cast<uint32_t>(c->f[12]),magnitude=bits&0x7fffffff;
+            const bool small=magnitude<0x3f000000,negative=bits>>31;
+            if(magnitude>=0x3f800000 || magnitude<0x23000001 || (pc==0x214f5c?!small:small || (pc==0x214ff8?!negative:negative)))
+                throw std::runtime_error("inverse-cosine scalar branch mismatch");
+            InverseCosineCoefficients table;std::memcpy(table.values.data(),record(rt,0x35da30,64),60);
+            float result;
+            if(pc==0x215050)result=inverseCosineRoot(c->f[12],table);
+            else {
+                if(pc==0x2150dc){const auto root=inverseCosineRoot(c->f[12],table);uint32_t split;
+                    std::memcpy(&split,record(rt,0x35da60,16)+12,4);
+                    if(split!=(std::bit_cast<uint32_t>(root)&0xfffff000u))throw std::runtime_error("inverse-cosine split-root publication mismatch");}
+                result=inverseCosine(c->f[12],table);
+            }
+            // XYZ are unchanged coefficient payloads in every full source
+            // store. Only W publishes the root or polynomial result.
+            std::memcpy(record(rt,0x35da60,16)+12,&result,4);
+        }return true;
+    }
     if(std::binary_search(shortSineSites.begin(),shortSineSites.end(),pc)){
         if(!c || c->pc!=0x2144c0)throw std::runtime_error("unported interior short sine invocation");
         if(pc==0x2144f0 || pc==0x21457c){

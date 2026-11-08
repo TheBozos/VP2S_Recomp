@@ -39,6 +39,29 @@ vp2s::TrigCoefficients read(Runtime *rt){
     vp2s::TrigCoefficients c;c.pi=value<float>(rt,0x35da70);c.inversePi=value<float>(rt,0x35da74);c.halfPi=value<float>(rt,0x35da98);
     c.sine={value<float>(rt,0x35daa4),value<float>(rt,0x35daa0),value<float>(rt,0x35da84),value<float>(rt,0x35da80),value<float>(rt,0x35da7c),value<float>(rt,0x35da78)};return c;
 }
+vp2s::InverseCosineCoefficients readInverse(Runtime *rt){
+    vp2s::InverseCosineCoefficients c;std::memcpy(c.values.data(),rt->memory.hostPointer(0x35da30,60),60);return c;
+}
+[[gnu::noinline,gnu::noclone]] float referenceInverseRoot(float angle,const vp2s::InverseCosineCoefficients &c){
+    const auto z=subtract(c.values[13],multiply(angle,c.values[13]));volatile float root=static_cast<float>(std::sqrt(std::abs(double(z))));return flush(root);
+}
+[[gnu::noinline,gnu::noclone]] float referenceInverse(float angle,const vp2s::InverseCosineCoefficients &c){
+    const auto bits=std::bit_cast<uint32_t>(angle),magnitude=bits&0x7fffffff;
+    if(magnitude>=0x3f800000)return bits&0x80000000?std::bit_cast<float>(0x40490fdbu):0.f;
+    if(magnitude<0x23000001)return std::bit_cast<float>(0x3fc90fdbu);
+    const auto &v=c.values;const bool small=magnitude<0x3f000000,negative=bits&0x80000000;
+    const float z=small?multiply(angle,angle):negative?add(v[13],multiply(angle,v[13])):subtract(v[13],multiply(angle,v[13]));
+    float numerator=v[8];for(int i=7;i>=3;--i)numerator=add(multiply(numerator,z),v[i]);numerator=multiply(numerator,z);
+    float denominator=v[12];for(int i=11;i>=9;--i)denominator=add(multiply(denominator,z),v[i]);denominator=add(multiply(denominator,z),1.f);
+    volatile float quotient=numerator/denominator;const auto ratio=flush(quotient);
+    if(small)return subtract(v[1],subtract(angle,subtract(v[2],multiply(angle,ratio))));
+    volatile float root=static_cast<float>(std::sqrt(std::abs(double(z))));const auto s=flush(root);
+    if(negative)return subtract(v[0],multiply(add(subtract(multiply(s,ratio),v[2]),s),v[14]));
+    const auto truncated=std::bit_cast<float>(std::bit_cast<uint32_t>(s)&0xfffff000u);
+    const auto numeratorCorrection=subtract(z,multiply(truncated,truncated)),denominatorCorrection=add(s,truncated);
+    volatile float correction=numeratorCorrection/denominatorCorrection;
+    return add(multiply(v[14],truncated),multiply(v[14],add(multiply(s,ratio),flush(correction))));
+}
 [[gnu::noinline,gnu::noclone]] vp2s::NativeCosine referenceShort(float angle,const vp2s::TrigCoefficients &c,bool sine=false){
     const float argument=sine?angle:subtract(c.halfPi,angle);volatile float turns=multiply(argument,c.inversePi);
     const int32_t n=static_cast<int32_t>(turns);volatile float integer=static_cast<float>(n);
@@ -53,6 +76,10 @@ struct Host:bozo::ee::Host,bozo::port::Host {
     bool nativeGraphics()const override{return true;}
     bool nativeInstruction(uint8_t *r,R5900Context *c,Runtime *rt,uint32_t pc)override{
         sites.insert(pc);if(native){check(vp2s::nativeTrigInstruction(r,c,rt,pc));return true;}
+        if(pc==0x214f5c || pc==0x214ff8 || pc==0x215050 || pc==0x2150dc){
+            const auto table=readInverse(rt);const auto result=pc==0x215050?referenceInverseRoot(c->f[12],table):referenceInverse(c->f[12],table);
+            std::memcpy(rt->memory.hostPointer(0x35da6c,4),&result,4);
+        }
         if(pc==0x214014){const auto result=reference(c->f[12],read(rt));std::memcpy(rt->memory.hostPointer(0x35db08,8),result.quadrants.data(),8);}
         if(pc==0x2140f0){const auto result=reference(c->f[12],read(rt));std::memcpy(rt->memory.hostPointer(c->r[4].uw[0],16),result.value.data(),16);}
         if(pc==0x214338 || pc==0x2143c4){auto table=read(rt);table.halfPi=value<float>(rt,0x35da9c);const auto result=referenceShort(c->f[12],table);
@@ -148,9 +175,48 @@ int main(){try{
     }
     }
     _mm_setcsr(saved);check(old.sites==now.sites && now.sites.size()==76);
+    unsigned inverseCases=0;double inverseError=0;
+    const uint32_t edges[]={0,0x80000000,1,0x80000001,0x00800000,0x80800000,0x23000000,0xa3000000,0x23000001,0xa3000001,
+        0x3effffff,0xbeffffff,0x3f000000,0xbf000000,0x3f000001,0xbf000001,0x3f7fffff,0xbf7fffff,
+        0x3f800000,0xbf800000,0x3f800001,0xbf800001,0x7f7fffff,0xff7fffff,0x7f800000,0xff800000,0x7fc01234,0xffc01234,0x7f801234,0xff801234};
+    vp2s::InverseCosineCoefficients inverseTable{};
+    for(unsigned mode:{_MM_ROUND_NEAREST,_MM_ROUND_DOWN,_MM_ROUND_UP,_MM_ROUND_TOWARD_ZERO}){
+        for(unsigned seed=0;seed<256;++seed){
+            auto *x=a.runtime().memory.flat(),*y=b.runtime().memory.flat();std::memset(x,0x65,bozo::kFlatBytes);
+            init={};init.r[31].uw[0]=0x170000;a.runtime().functions.generated(0x358490)(x,&init,&a.runtime());inverseTable=readInverse(&a.runtime());
+            random=random*1664525u+1013904223u;uint32_t bits;
+            if(seed<std::size(edges))bits=edges[seed];else bits=(random&0x80000000u)|(0x23000001u+random%(0x3f800000u-0x23000001u));
+            if(seed>=64 && seed<128)bits=(seed&1?0x80000000u:0u)|(0x3f000000u+(random%0x800000u));
+            const auto angle=std::bit_cast<float>(bits);std::memcpy(y,x,bozo::kFlatBytes);
+            R5900Context p{};for(unsigned i=1;i<32;++i){p.r[i].ud[0]=0x1234000000000000ull+seed*32+i;p.r[i].ud[1]=~p.r[i].ud[0];}
+            std::memset(p.vu0_vf,0x4d,sizeof(p.vu0_vf));std::memset(&p.vu0_acc,0x5e,sizeof(p.vu0_acc));p.vu0_status=0x1234;p.r[31].uw[0]=0x170000;p.r[29].ud[0]=seed&2?0x70003fd0:0x1fff000;p.f[12]=angle;auto q=p;
+            const auto control=(saved&~(_MM_ROUND_MASK|0x8040|0x3f))|mode|(seed&1?0x8040:0);_mm_setcsr(control);
+            a.runtime().functions.generated(0x214e40)(x,&p,&a.runtime());const auto after=_mm_getcsr();_mm_setcsr(control);
+            try{b.runtime().functions.generated(0x214e40)(y,&q,&b.runtime());}
+            catch(const std::exception &e){std::fprintf(stderr,"inverse cosine seed=%u mode=%x angle=%08x: %s\n",seed,mode,bits,e.what());throw;}
+            check(_mm_getcsr()==after && !std::memcmp(&p,&q,sizeof(p)) && !std::memcmp(x,y,bozo::kFlatBytes));
+            check(!std::memcmp(b.runtime().memory.hostPointer(0x35da30,60),inverseTable.values.data(),60));
+            if(bits>=0x3f000000 && bits<0x3f800000)check(value<uint32_t>(&b.runtime(),q.r[29].uw[0]-8)==(value<uint32_t>(&b.runtime(),q.r[29].uw[0]-4)&0xfffff000u));
+            if((bits&0x7fffffff)<=0x3f800000){const double error=std::abs(double(q.f[0])-double(std::acos(angle)));inverseError=std::max(inverseError,error);check(error<0.000001);}
+            ++inverseCases;
+        }
+        _mm_setcsr((saved&~(_MM_ROUND_MASK|0x8040|0x3f))|mode);
+        for(unsigned i=0;i<16384;++i){random=random*1664525u+1013904223u;const float angle=float(int32_t(random)%1000000)/1000000.f;
+            const auto expected=referenceInverse(angle,inverseTable),actual=vp2s::inverseCosine(angle,inverseTable);check(std::bit_cast<uint32_t>(expected)==std::bit_cast<uint32_t>(actual));
+            const double error=std::abs(double(actual)-double(std::acos(angle)));inverseError=std::max(inverseError,error);check(error<0.000001);
+        }
+    }
+    _mm_setcsr(saved);check(old.sites==now.sites && now.sites.size()==180);
+    {auto bad=inverseTable;bad.values[13]=0.25f;bool rejected=false;try{vp2s::inverseCosine(0.25f,bad);}catch(const std::runtime_error &){rejected=true;}check(rejected);
+        bad=inverseTable;bad.values[8]=std::numeric_limits<float>::infinity();rejected=false;try{vp2s::inverseCosine(0.25f,bad);}catch(const std::runtime_error &){rejected=true;}check(rejected);
+        bad=inverseTable;for(unsigned i=9;i<13;++i)bad.values[i]=0;bad.values[9]=-4;rejected=false;try{vp2s::inverseCosine(0.5f,bad);}catch(const std::runtime_error &){rejected=true;}check(rejected);
+        R5900Context c{};c.pc=0x214e40;c.r[29].uw[0]=0x35da40;const auto before=c;std::vector<uint8_t> ram(b.runtime().memory.flat(),b.runtime().memory.flat()+bozo::kFlatBytes);
+        rejected=false;try{vp2s::nativeTrigInstruction(b.runtime().memory.flat(),&c,&b.runtime(),0x214ea8);}catch(const std::runtime_error &){rejected=true;}
+        check(rejected && !std::memcmp(&before,&c,sizeof(c)) && !std::memcmp(ram.data(),b.runtime().memory.flat(),ram.size()));
+    }
     bool rejected=false;try{vp2s::sineCosine(std::numeric_limits<float>::infinity(),originalCoefficients);}catch(const std::runtime_error &){rejected=true;}check(rejected);
     rejected=false;try{vp2s::sineCosine(std::bit_cast<float>(1u),originalCoefficients);}catch(const std::runtime_error &){rejected=true;}check(rejected);
     rejected=false;try{vp2s::shortCosine(std::bit_cast<float>(1u),originalCoefficients);}catch(const std::runtime_error &){rejected=true;}check(rejected);
     rejected=false;try{vp2s::shortSine(std::bit_cast<float>(1u),originalCoefficients);}catch(const std::runtime_error &){rejected=true;}check(rejected);
-    std::printf("%u sine/cosine + %u short cosine/sine generated CPU/RAM cases and 196608 independent scalar polynomial comparisons;76 sites, FP controls, signs, quadrant edges and aliases passed\n",cases,shortCases);return 0;
+    std::printf("%u sine/cosine + %u short cosine/sine + %u inverse-cosine generated CPU/RAM cases;262144 scalar polynomial comparisons,180 sites; inverse-cosine max absolute error %.9g; FP controls, signs, endpoints and split-root stores passed\n",cases,shortCases,inverseCases,inverseError);return 0;
 }catch(const std::exception &e){std::fprintf(stderr,"%s\n",e.what());return 1;}}

@@ -395,6 +395,7 @@ def overlay_adaptations(name,data):
                            (0x12b4a8+0xc90,0x12b4a8+0xd60,'d3023b6ef8dceba14eedcde59ac05de06fccb110e6dbc8dff44b864eb221eb33')):
         if hashlib.sha256(data[lo:hi]).hexdigest()!=expected:raise ValueError('USA native math algorithm mismatch')
     for lo,hi,expected in (
+        (0x252e30,0x253344,'0aa2f411a373a9d07357735229c7599e0d2f7ec1dbec3a6371e03c683b5bd448'),
         (0x3140e0,0x314120,'5b1ac88e48d62e6ae747d08f015c4b4e5a80c15e7ae4e198d6b8386eaf81ccd9'),
         (0x2e74f0,0x2e75bc,'249a16a05dfd11f8b9ee28c571dfc511db7d2b6e9d5b35207a992be32ee2c767'),
         (0x2e7e90,0x2e8678,'6a2e9aae85037a750a67937b87fd1fb9ec416ef0825fd3851a07ea449086d6ab'),
@@ -671,6 +672,7 @@ def overlay_native_sites(name,data):
     if name!='mod001':return ''
     overlay_adaptations(name,data)
     return ''.join(f'native 0x{pc:x}\n' for pc in (
+        *range(0x252ec8,0x252f24,4),0x252fdc,0x252fe0,0x252fe4,0x252fec,0x252ff0,0x252ff8,
         0x2bf040,0x2bf058,
         0x2371e8,0x2371ec,0x2371f0,0x2371f4,0x2371fc,0x237200,0x237204,0x237208,
         0x23720c,0x237210,0x237214,0x237218,0x237224,0x237260,0x237264,0x237268,0x23726c,

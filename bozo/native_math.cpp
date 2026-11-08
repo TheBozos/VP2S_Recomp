@@ -24,6 +24,24 @@ float pairProduct(float a,float b){volatile float value=a*b;return pairNormal(va
 float pairSum(float a,float b){volatile float value=a+b;return pairNormal(value);}
 void pairQualified(float v){const auto b=std::bit_cast<uint32_t>(v),e=b&0x7f800000;
     if(e==0x7f800000 || (!e && (b&0x7fffff)))throw std::runtime_error("unqualified native geometric input");}
+std::array<float,4> rowPoint(Runtime *rt,uint32_t matrixAt,uint32_t pointAt){
+    float matrix[4][4],point[4];std::array<float,4> result;
+    std::memcpy(matrix,record(rt,matrixAt,64),64);std::memcpy(point,record(rt,pointAt,16),16);
+    for(auto &row:matrix)for(float value:row){pairQualified(value);if(std::abs(value)>1.e8f)throw std::runtime_error("unqualified native row-point matrix");}
+    for(float value:point){pairQualified(value);if(std::abs(value)>1.e8f)throw std::runtime_error("unqualified native row-point input");}
+    music::CodecRounding rounding;
+    constexpr unsigned order[4][4]={{0,1,2,3},{1,0,2,3},{2,1,0,3},{3,1,2,0}};
+    for(unsigned row=0;row<4;++row){float terms[4];for(unsigned i=0;i<4;++i)terms[i]=pairProduct(matrix[row][i],point[i]);
+        result[row]=pairSum(pairSum(pairSum(terms[order[row][0]],terms[order[row][1]]),pairProduct(1.f,terms[order[row][2]])),pairProduct(1.f,terms[order[row][3]]));}
+    return result;
+}
+float basisYScale(uint8_t *basis){
+    float values[3];for(unsigned i=0;i<3;++i){std::memcpy(values+i,basis+i*16+4,4);pairQualified(values[i]);
+        if(std::abs(values[i])>1.e8f)throw std::runtime_error("unqualified native vertical basis");}
+    music::CodecRounding rounding;
+    const auto squared=pairSum(pairSum(pairProduct(values[0],values[0]),pairProduct(values[1],values[1])),pairProduct(values[2],values[2]));
+    volatile float length=std::sqrt(squared);return pairSum(0.f,length);
+}
 struct PositionPairGeometry {std::array<float,3> difference;float distance;};
 PositionPairGeometry positionPairGeometry(const float first[4],const float second[4]){
     for(unsigned i=0;i<3;++i){pairQualified(first[i]);pairQualified(second[i]);}
@@ -239,21 +257,34 @@ std::array<uint32_t,4> NativeMotion::finish(uint32_t frame,uint32_t object){
     const auto result=it->second.position;updates.erase(it);return result;
 }
 bool nativeMathInstruction(uint8_t *,R5900Context *c,Runtime *rt,uint32_t pc){
+    if(pc>=0x252ec8 && pc<=0x252f20 && !(pc&3)){
+        if(pc==0x252f20){const auto destination=c->r[29].uw[0]+0xd0;
+            if(c->r[2].uw[0]!=destination || c->r[3].uw[0]!=c->r[16].uw[0]+0x210)
+                throw std::runtime_error("native height-query transform setup mismatch");
+            const auto result=rowPoint(rt,c->r[3].uw[0],c->r[17].uw[0]);std::memcpy(record(rt,destination,16),result.data(),16);}
+        return true;
+    }
+    if(pc==0x252fdc || pc==0x252fe0 || pc==0x252fe4 || pc==0x252fec || pc==0x252ff0 || pc==0x252ff8){
+        if(pc==0x252ff8){const auto object=c->r[16].uw[0],stack=c->r[29].uw[0];
+            if(c->r[2].uw[0]!=stack+0xb0)throw std::runtime_error("native height-query scale destination mismatch");
+            auto *owner=record(rt,object,0x260),*temporary=record(rt,stack+0xb0,16);
+            uint32_t descriptor;std::memcpy(&descriptor,owner+0x250,4);auto *header=record(rt,descriptor,32);uint32_t width,height;
+            std::memcpy(&width,header+8,4);std::memcpy(&height,header+12,4);
+            const auto bytes=32ull+uint64_t(width)*height*2;
+            if(!width || !height || width>2048 || height>2048 || bytes>0x2000000)throw std::runtime_error("unqualified native height-query grid");
+            // The scalar interpolation consumes scale.Y only; prevent the
+            // retired temporary lanes from aliasing any live input/grid record.
+            separatePairFrame(temporary,owner,0x260);separatePairFrame(temporary,record(rt,descriptor,uint32_t(bytes)),size_t(bytes));
+            separatePairFrame(temporary,record(rt,c->r[17].uw[0],16),16);
+            const auto scale=basisYScale(owner+0x90);std::memcpy(temporary+4,&scale,4);}
+        return true;
+    }
     if(((pc>=0x3e7edc && pc<=0x3e7f34) || (pc>=0x3e7fa0 && pc<=0x3e7ff8)) && !(pc&3)){
         if(pc==0x3e7f34 || pc==0x3e7ff8){
             const auto destination=c->r[29].uw[0]+0x70;
             if(c->r[3].uw[0]!=destination)throw std::runtime_error("native corner transform destination mismatch");
-            float matrix[4][4],point[4],result[4];
-            std::memcpy(matrix,record(rt,c->r[2].uw[0],64),64);std::memcpy(point,record(rt,destination,16),16);
-            for(auto &row:matrix)for(float value:row){pairQualified(value);if(std::abs(value)>1.e8f)throw std::runtime_error("unqualified native corner matrix");}
-            for(float value:point){pairQualified(value);if(std::abs(value)>1.e8f)throw std::runtime_error("unqualified native corner point");}
-            music::CodecRounding rounding;
-            // Each row has its own original reduction order. All four output
-            // words are known from these records; retain the complete store.
-            constexpr unsigned order[4][4]={{0,1,2,3},{1,0,2,3},{2,1,0,3},{3,1,2,0}};
-            for(unsigned row=0;row<4;++row){float terms[4];for(unsigned i=0;i<4;++i)terms[i]=pairProduct(matrix[row][i],point[i]);
-                result[row]=pairSum(pairSum(pairSum(terms[order[row][0]],terms[order[row][1]]),pairProduct(1.f,terms[order[row][2]])),pairProduct(1.f,terms[order[row][3]]));}
-            std::memcpy(record(rt,destination,16),result,16);
+            const auto result=rowPoint(rt,c->r[2].uw[0],destination);
+            std::memcpy(record(rt,destination,16),result.data(),16);
         }
         return true;
     }
@@ -265,15 +296,11 @@ bool nativeMathInstruction(uint8_t *,R5900Context *c,Runtime *rt,uint32_t pc){
         auto *destination=rt->memory.hostPointer(output,8);
         if((output&3) || output<0x100000 || !destination)throw std::runtime_error("native height-bound output outside owned memory");
         separatePairFrame(temporary,record(rt,object,0x254),0x254);separatePairFrame(temporary,destination,8);
-        float values[3];for(unsigned i=0;i<3;++i){std::memcpy(values+i,basis+i*16+4,4);pairQualified(values[i]);
-            if(std::abs(values[i])>1.e8f)throw std::runtime_error("unqualified native height-bound basis");}
+        const auto scale=basisYScale(basis);
         // Only scale.Y reaches the scalar min/max consumers. Other temporary
         // lanes and the unused control read retire with the record separated
         // from the complete object/output; no inherited vector state is needed.
-        if(pc==0x3e5cc0){music::CodecRounding rounding;
-            const auto squared=pairSum(pairSum(pairProduct(values[0],values[0]),pairProduct(values[1],values[1])),pairProduct(values[2],values[2]));
-            volatile float length=std::sqrt(squared);const auto scale=pairSum(0.f,length);
-            std::memcpy(temporary+4,&scale,4);}
+        if(pc==0x3e5cc0)std::memcpy(temporary+4,&scale,4);
         return true;
     }
     if(nativeTrigInstruction(nullptr,c,rt,pc))return true;

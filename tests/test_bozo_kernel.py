@@ -11,6 +11,12 @@ IMAGE=Path(sys.argv.pop(1))
 
 
 class KernelGuardTests(unittest.TestCase):
+    def test_terrain_height_source(self):
+        data=(IMAGE.parent/'mod001.elf').read_bytes();_,segments,_=elf_parts(data)
+        lo,hi=0x252e30,0x253344;s=next(s for s in segments if s[0]==1 and s[2]<=lo<hi<=s[2]+s[4])
+        for pc in range(lo,hi,4):
+            changed=bytearray(data);changed[s[1]+pc-s[2]]^=1
+            with self.subTest(pc=hex(pc)),self.assertRaises(ValueError):overlay_adaptations('mod001',changed)
     def test_height_bound_source(self):
         data=(IMAGE.parent/'mod003.elf').read_bytes();_,segments,_=elf_parts(data)
         lo,hi=0x3e5bc0,0x3e5d34;s=next(s for s in segments if s[0]==1 and s[2]<=lo<hi<=s[2]+s[4])
@@ -312,6 +318,7 @@ class KernelGuardTests(unittest.TestCase):
             '0029cc00 00a0302d 0220202d','0029cc04 0c044c70 0c0402cc',
             '002c3cb4 8c220000 00000000','002c3cb8 10000015 080b0f48'])
         self.assertEqual(overlay_native_sites('mod001',data),''.join(f'native 0x{pc:x}\n' for pc in (
+        *range(0x252ec8,0x252f24,4),0x252fdc,0x252fe0,0x252fe4,0x252fec,0x252ff0,0x252ff8,
         0x2bf040,0x2bf058,
         0x2371e8,0x2371ec,0x2371f0,0x2371f4,0x2371fc,0x237200,0x237204,0x237208,
         0x23720c,0x237210,0x237214,0x237218,0x237224,0x237260,0x237264,0x237268,0x23726c,

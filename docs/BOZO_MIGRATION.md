@@ -12,6 +12,32 @@ The earlier VP2S face/shading and general brightness comparisons remain open.
 
 ## Build and evidence
 
+### Native terrain-height query math (2026-11-08)
+
+`0x252e30` now transforms its query point from explicit inverse/point records
+and computes the consumed world-basis Y scale. Its original bounds rejection,
+grid indexing, signed-height sentinel repairs, bilinear interpolation, return
+value, dirty byte and scalar/MMI frame handling remain compiled. The shared
+row-point and basis-Y equations also serve the two previously qualified bounds
+callers. The scale's unused temporary lanes retire only with complete object,
+query and full height-grid spans separated from that temporary.
+
+512 complete cached-inverse caller comparisons pass over four modes and FTZ/DAZ:
+240 out of bounds, 28 missing-height fallbacks and 244 interpolated results.
+The exact ordinary grid returns height 25. Query/output and inverse/source
+aliases, unused NaN-shaped basis lanes, unsafe-grid/alias/domain rejection and
+whole source/vector coverage pass. The fixture initially put its live Y
+translation in the other bounds caller's `+0xec` slot; this routine consumes
+`+0xac`. Correcting the fixture preserves the production algorithm. The uncached
+inverse/update branch is not covered by this caller fixture; its real New Game
+path already runs the independently qualified inverse before these math sites.
+
+All three targeted suites pass (`terrain-tests.log`, 56.83 seconds), including
+the earlier height/corner comparisons after factoring their typed equations.
+Actual seed-1 New Game reaches `0x1f6f94`, the recursive collision-query entry's
+old intermediate save (`terrain-route.log`). Engine remains `436d5d8`; visible
+field/Logun remains unqualified.
+
 ### Native two-corner bounds transform (2026-11-08)
 
 The actual `0x3e7edc` boundary now derives all four result words from the explicit

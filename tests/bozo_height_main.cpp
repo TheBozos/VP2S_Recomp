@@ -4,6 +4,8 @@
 #include "bozo/port.h"
 #include "height_reference_functions.h"
 #include "height_adapted_functions.h"
+#include "terrain_reference_functions.h"
+#include "terrain_adapted_functions.h"
 #include <bit>
 #include <cmath>
 #include <cstring>
@@ -33,17 +35,19 @@ uint32_t signedSum(uint32_t a,uint32_t b){if((a&0x7fffffff)<(b&0x7fffffff))std::
     int e=(a>>23)&255;unsigned d=unsigned(e)-((b>>23)&255);const int64_t large=(a&0x7fffff)|0x800000,small=d<=23?(((b&0x7fffff)|0x800000)>>d):0;
     const auto v=(a>>31?-large:large)+(b>>31?-small:small);if(!v)return 0;const auto sign=v<0?0x80000000u:0u;uint64_t m=v<0?-v:v;
     while(m>=0x1000000){m>>=1;++e;}while(m<0x800000){m<<=1;--e;}check(e<255);return e<=0?sign:sign|uint32_t(e<<23)|uint32_t(m&0x7fffff);}
-void corner(Runtime &r,R5900Context *c){uint32_t matrix[4][4],point[4],out[4];std::memcpy(matrix,r.memory.hostPointer(c->r[2].uw[0],64),64);std::memcpy(point,r.memory.hostPointer(c->r[29].uw[0]+0x70,16),16);
+void rowPointOracle(Runtime &r,uint32_t matrixAt,uint32_t pointAt,uint32_t destination){uint32_t matrix[4][4],point[4],out[4];std::memcpy(matrix,r.memory.hostPointer(matrixAt,64),64);std::memcpy(point,r.memory.hostPointer(pointAt,16),16);
     constexpr unsigned order[4][4]={{0,1,2,3},{1,0,2,3},{2,1,0,3},{3,1,2,0}};
     for(unsigned row=0;row<4;++row){uint32_t terms[4];for(unsigned i=0;i<4;++i)terms[i]=signedProduct(matrix[row][i],point[i]);
         out[row]=signedSum(signedSum(signedSum(terms[order[row][0]],terms[order[row][1]]),signedProduct(0x3f800000u,terms[order[row][2]])),signedProduct(0x3f800000u,terms[order[row][3]]));}
-    std::memcpy(r.memory.hostPointer(c->r[29].uw[0]+0x70,16),out,16);
+    std::memcpy(r.memory.hostPointer(destination,16),out,16);
 }
 struct Host final:bozo::ee::Host,bozo::port::Host{
     bozo::libs::Libraries &libraries()override{throw std::runtime_error("unexpected native library ownership");}
     bool reference=false;unsigned callbacks=0,getters=0;uint32_t matrices[2]{};
     bool nativeInstruction(uint8_t *ram,R5900Context *c,Runtime *rt,uint32_t pc)override{
-        if(reference){if(pc==0x3e7f34 || pc==0x3e7ff8){corner(*rt,c);return true;}
+        if(reference){if(pc==0x252f20){rowPointOracle(*rt,c->r[3].uw[0],c->r[17].uw[0],c->r[2].uw[0]);return true;}
+            if(pc==0x252ff8){put(*rt,c->r[29].uw[0]+0xb4,scale(*rt,c->r[16].uw[0]));return true;}
+            if(pc==0x3e7f34 || pc==0x3e7ff8){rowPointOracle(*rt,c->r[2].uw[0],c->r[29].uw[0]+0x70,c->r[29].uw[0]+0x70);return true;}
             check(pc==0x3e5cc0);put(*rt,c->r[29].uw[0]+0x54,scale(*rt,c->r[18].uw[0]));return true;}
         check(vp2s::nativeMathInstruction(ram,c,rt,pc));return true;
     }
@@ -140,5 +144,47 @@ int main(){try{
         c.r[3].ud[0]+=16;reject();c.r[3].ud[0]-=16;c.r[2].ud[0]+=4;reject();c.r[2].ud[0]-=4;
         for(auto at:{0x180000u,0x1fff070u})for(auto bits:{0x7fc00000u,1u,0x7f000000u}){put(r,at,bits);reject();put(r,at,0u);}
     }
-    std::printf("%u complete height-bound callers/%u bounded update calls, %u two-corner consumers with two getters: four modes, CPU/RAM/FP, aliases, exact bounds and rejection preservation\n",cases,host.callbacks,corners);return 0;
+    a.setFunctions(terrain_reference_function_table,terrain_reference_function_count,terrain_reference_resume_table,terrain_reference_resume_count);
+    b.setFunctions(terrain_adapted_function_table,terrain_adapted_function_count,terrain_adapted_resume_table,terrain_adapted_resume_count);
+    unsigned terrains=0,rejectedBounds=0,missingHeights=0,heights=0;
+    for(unsigned mode:{_MM_ROUND_NEAREST,_MM_ROUND_DOWN,_MM_ROUND_UP,_MM_ROUND_TOWARD_ZERO})for(unsigned seed=0;seed<128;++seed){
+        auto &x=a.runtime(),&y=b.runtime();std::memset(x.memory.flat(),0x53,bozo::kFlatBytes);
+        const uint32_t object=0x180000,grid=0x190000,stack=seed&1?0x70003e00:0x1fff000,frame=stack-0xe0;
+        const uint32_t point=seed%5==0?frame+0xd0:seed%5==1?object+0x210:0x1a0000;
+        for(unsigned i=0;i<16;++i)put(x,object+0x210+i*4,std::bit_cast<uint32_t>(i%5?0.f:1.f));
+        for(unsigned i=0;i<12;++i)put(x,object+0x90+i*4,(i%4==1)?std::bit_cast<uint32_t>(i/4==1?2.f:0.f):0x7f805678u);
+        put(x,object+0xac,0x41200000u); // this caller uses the +0x90 matrix's Y translation
+        put(x,object+0xdc,0x7fc01234u);put(x,object+0xec,0x41200000u);put(x,object+0xfc,0x7f805678u);
+        put<uint8_t>(x,object+0x61,1);put(x,object+0x250,grid);
+        for(unsigned i=0;i<8;++i)put<int32_t>(x,grid+i*4,std::array<int,8>{10,10,4,4,0,0,30,30}[i]);
+        for(unsigned z=0;z<4;++z)for(unsigned xx=0;xx<4;++xx){int16_t value=int16_t(5+xx*2+z*3);
+            if(seed%11==1 || (seed%11==2 && xx==0 && z==0) || (seed%11==3 && (xx+z)%2==0))value=0x7fff;
+            put(x,grid+0x20+(z*4+xx)*2,value);}
+        float sample[4]={float(5+(seed%3)*10),0,float(5+(seed%5)*5),1};
+        if(seed%9==1)sample[0]=-1;else if(seed%9==2)sample[0]=30;else if(seed%9==3)sample[2]=30;
+        if(seed==0){sample[0]=sample[2]=5;}
+        std::memcpy(x.memory.hostPointer(point,16),sample,16);
+        // Test source/output and inverse/source aliases without inventing an
+        // inverse update. Cached matrices are ordinary records the routine owns.
+        std::memcpy(y.memory.flat(),x.memory.flat(),bozo::kFlatBytes);
+        R5900Context p{};for(unsigned i=1;i<32;++i){p.r[i].ud[0]=seed*32+i;p.r[i].ud[1]=~p.r[i].ud[0];}std::memset(p.vu0_vf,0x47,sizeof(p.vu0_vf));
+        p.r[4].ud[0]=object;p.r[5].ud[0]=point;p.r[29].ud[0]=stack;p.r[31].ud[0]=0x170000;auto q=p;
+        const auto saved=_mm_getcsr(),control=(saved&~(_MM_ROUND_MASK|0x8040u))|mode|(seed&1?0x8040u:0u);_mm_setcsr(control);
+        host.reference=true;x.functions.generated(0x252e30)(x.memory.flat(),&p,&x);const auto expected=_mm_getcsr();_mm_setcsr(control);
+        host.reference=false;y.functions.generated(0x252e30)(y.memory.flat(),&q,&y);check(_mm_getcsr()==expected);_mm_setcsr(saved);
+        p.cycleLimit=q.cycleLimit;check(p.pc==0x170000 && !std::memcmp(&p,&q,sizeof(p)));check(!std::memcmp(x.memory.flat(),y.memory.flat(),bozo::kFlatBytes));
+        const bool miss=*y.memory.hostPointer(object+0x255,1)!=0;if(miss){if(q.fu[0]==0)++rejectedBounds;else ++missingHeights;}else ++heights;
+        if(seed==0){if(miss || q.f[0]!=25.f)std::fprintf(stderr,"exact terrain got=%g missing=%u\n",q.f[0],unsigned(miss));check(!miss && q.f[0]==25.f);}++terrains;
+    }
+    check(rejectedBounds && missingHeights && heights);
+    {auto &r=b.runtime();R5900Context c{};c.r[16].ud[0]=0x180000;c.r[17].ud[0]=0x1a0000;c.r[29].ud[0]=0x1fff000;c.r[2].ud[0]=0x1fff0b0;
+        put(r,0x180250,0x190000u);put(r,0x190008,4u);put(r,0x19000c,4u);for(unsigned i=0;i<3;++i)put(r,0x180094+i*16,0u);
+        const auto reject=[&]{const auto before=c;std::vector<uint8_t> memory(r.memory.flat(),r.memory.flat()+bozo::kFlatBytes);bool bad=false;
+            try{vp2s::nativeMathInstruction(r.memory.flat(),&c,&r,0x252ff8);}catch(const std::runtime_error &){bad=true;}
+            check(bad && !std::memcmp(&before,&c,sizeof(c)) && !std::memcmp(memory.data(),r.memory.flat(),memory.size()));};
+        c.r[2].ud[0]+=16;reject();c.r[2].ud[0]-=16;put(r,0x190008,0u);reject();put(r,0x190008,4u);
+        for(auto bits:{0x7fc00000u,1u,0x7f000000u}){put(r,0x180094,bits);reject();}put(r,0x180094,0u);
+        c.r[17].ud[0]=0x1fff0b0;reject();c.r[17].ud[0]=0x1a0000;put(r,0x180250,0x1fff090u);put(r,0x1fff098,4u);put(r,0x1fff09c,4u);reject();
+    }
+    std::printf("%u height-bound callers/%u update calls, %u two-corner consumers, %u terrain callers (%u out-of-bounds/%u missing/%u interpolated): four modes, CPU/RAM/FP, aliases and exact results\n",cases,host.callbacks,corners,terrains,rejectedBounds,missingHeights,heights);return 0;
 }catch(const std::exception &e){std::fprintf(stderr,"%s\n",e.what());return 1;}}

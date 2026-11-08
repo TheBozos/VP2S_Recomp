@@ -1629,9 +1629,13 @@ bool nativeMathInstruction(uint8_t *,R5900Context *c,Runtime *rt,uint32_t pc){
         // The default math code installation has no execution or game-data
         // result. Its algorithms are compiled native record operations. Retire
         // the physical enqueue before it exists; never mark a job busy/complete.
+        // Mode 1 (selected around the mod001 2188d0 update) installs a second
+        // fingerprinted VU0 program the same way: one REFE of code only, no
+        // UNPACK or MSCAL. Its routines run only from later VIF0 jobs, which
+        // stay unported boundaries; the game's own mode byte (+51) records it.
         const uint32_t object=c->r[4].uw[0];auto *p=record(rt,object,0x54);
-        uint32_t type=0;std::memcpy(&type,p,4);
-        if(type!=0x1591d0 || (c->r[5].uw[0]&255)!=0 || p[0x50]!=0)
+        uint32_t type=0;std::memcpy(&type,p,4);const auto mode=c->r[5].uw[0]&255;
+        if(type!=0x1591d0 || (mode!=0 && (mode!=1 || pc!=0x29e1a0)) || p[0x50]!=0)
             throw std::runtime_error("unported math program selection or outstanding legacy job");
         return true;
     }

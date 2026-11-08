@@ -12,6 +12,26 @@ The earlier VP2S face/shading and general brightness comparisons remain open.
 
 ## Build and evidence
 
+### Math program mode 1 admission (2026-11-08)
+
+The mod001 `2188d0` update selects VU0 program mode 1 through `29e180`
+(`218d30`), works, waits (`29e080`) and restores mode 0 (`218e8c`). The
+mode table at `314138` points mode 1 at one REFE (`313100`, 206 QW) whose VIF0
+stream holds only two MPGs: a second 410-pair program at VU0 `0x0..0xcd0`, no
+UNPACK and no MSCAL. A static call-graph scan of the window's callees finds no
+`callms`, so the program only serves later VIF0 jobs, which remain unported
+boundaries. Mode 1 is now admitted at the conditional selector exactly like
+mode 0: no job, no busy flag; the game's mode byte (+51) records the
+selection. Resource and table entry are fingerprinted; mode 1 at the
+unconditional selector `29e160`, and modes 2+, still reject.
+
+Next boundary: `21927c` writes `D9_SADR` (`0x1000d480`). `2188d0` streams
+model data into three 0x14d0-byte scratchpad buffers at `70000180` with a
+chained toSPR transfer (TADR/SADR from the model's `+68` table), polls
+`D_STAT` bits 8/9, runs per-element callbacks (vtable `+10`) on each buffer
+and streams results back with fromSPR. Porting it needs native ownership of
+those records (callbacks reading/writing ordinary memory), not a DMA engine.
+
 ### Object overlap, camera projection, composition, contact (2026-11-08)
 
 All four follow the engine's VU0 arithmetic (nearest even) and are qualified

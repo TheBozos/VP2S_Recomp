@@ -626,6 +626,10 @@ def overlay_adaptations(name,data):
         (0x29e0b0,0x29e1c4,'4badfc2bd23ca38b95965aa45332f82c6efd9655b77f0d7b9344126467e8745d'),
         (0x312280,0x313100,'a834d66f34036f87f4061c9e5c2d623b29ef77f6fd6394b765333d0f72c45617'),
         (0x314138,0x31413c,'e7f5662273401b756d9f64b866d1a7df7e95c248c34f9b0cad011eb84757f186'),
+        # Mode 1: a single REFE installing a second 410-pair VU0 program (no
+        # UNPACK/MSCAL); table entry and the whole resource are fixed.
+        (0x313100,0x313df0,'dddda5466feacf82fea1794ebdbb071f6e2a631f48501fd15a8417b29615f58c'),
+        (0x314138,0x314140,'62295285f66d7820b28099ac97093512c3520f3c7fbf62d9014044d627be9aa3'),
         (0x217550,0x2175c0,'bf29f73fdf9756c87ee0b7b11aaccb586cb29e0fb0653934452e96586c48b694'),
         (0x215870,0x2159c0,'c3cd1b33f97be33016d939dcf099aa81f1dddc53735f661478db065e35ed1c47'),
         (0x215640,0x2156c8,'eaaddd85c3dde1abde3f12e8cc605374ea14f6dae53cd29c9244b8294ed1c676'),

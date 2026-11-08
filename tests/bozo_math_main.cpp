@@ -288,7 +288,11 @@ int main(){try{
     std::memset(p,0,0x54);uint32_t type=0x1591d0;std::memcpy(p,&type,4);
     R5900Context c{};c.r[4].uw[0]=object;const auto saved=c;
     check(vp2s::nativeMathInstruction(r.memory.flat(),&c,&r,0x29e1a0));check(!std::memcmp(&saved,&c,sizeof(c)) && p[0x50]==0);
-    for(unsigned mode:{1u,128u,255u}){c.r[5].uw[0]=mode;bool rejected=false;try{vp2s::nativeMathInstruction(r.memory.flat(),&c,&r,0x29e1a0);}catch(const std::runtime_error &){rejected=true;}check(rejected);}
+    // Mode 1 (fingerprinted second code-only program) is admitted at the
+    // conditional selector only; other modes and the unconditional one reject.
+    c.r[5].uw[0]=1;check(vp2s::nativeMathInstruction(r.memory.flat(),&c,&r,0x29e1a0));check(p[0x50]==0);
+    {bool rejected=false;try{vp2s::nativeMathInstruction(r.memory.flat(),&c,&r,0x29e160);}catch(const std::runtime_error &){rejected=true;}check(rejected);}
+    for(unsigned mode:{2u,128u,255u}){c.r[5].uw[0]=mode;bool rejected=false;try{vp2s::nativeMathInstruction(r.memory.flat(),&c,&r,0x29e1a0);}catch(const std::runtime_error &){rejected=true;}check(rejected);}
     c.r[5].uw[0]=0;p[0x50]=1;bool rejected=false;try{vp2s::nativeMathInstruction(r.memory.flat(),&c,&r,0x29e1a0);}catch(const std::runtime_error &){rejected=true;}check(rejected && p[0x50]==1);
     for(unsigned seed=0;seed<64;++seed){
         auto &a=old.runtime();auto &b=native.runtime();const uint32_t stack=seed&1?0x70003f00:0x1fff000,frame=stack-0xc0;

@@ -12,6 +12,12 @@ IMAGE=Path(sys.argv.pop(1))
 
 
 class KernelGuardTests(unittest.TestCase):
+    def test_animated_uv_sources(self):
+        data=(IMAGE.parent/'mod001.elf').read_bytes();_,segments,_=elf_parts(data)
+        for pc in (0x219210,0x219214,0x2188d0,0x219620,0x21a620,0x29cfe0,0x29d0d0,0x25cb00,0x25cb30,0x25cc20,0x25cc80):
+            s=next(s for s in segments if s[0]==1 and s[2]<=pc<s[2]+s[4])
+            changed=bytearray(data);changed[s[1]+pc-s[2]]^=1
+            with self.subTest(pc=hex(pc)),self.assertRaises(ValueError):overlay_adaptations('mod001',changed)
     def test_movement_rotation_source(self):
         data=(IMAGE.parent/'mod003.elf').read_bytes();_,segments,_=elf_parts(data)
         lo,hi=0x3800f0,0x380178;s=next(s for s in segments if s[0]==1 and s[2]<=lo<hi<=s[2]+s[4])
@@ -530,6 +536,7 @@ class KernelGuardTests(unittest.TestCase):
             '00247698 0c0807c8 0c091d8c',
             '0022ee50 1a600009 10000009',
             '0022f048 1a600009 10000009',
+            '00219214 184000d2 100000d2',
             '0025aa2c 0c0807c8 0c087268',
             '002f3710 0c0bbce4 0c087268',
             '002ec9e0 0c0bbce4 0c087268',
@@ -563,6 +570,7 @@ class KernelGuardTests(unittest.TestCase):
         *HERMITE_VECTOR_SITES,
         *SQUAD_SITES,
         *PARTICLE_PUBLICATION_SITES,
+        0x219210,
         0x22f160,0x247ec0,
         0x247700,0x247a90,0x247ac0,0x24769c,
         0x2dbde0,0x2dbeb4,0x2dc6c8,0x2dbdd0,0x2dc700,

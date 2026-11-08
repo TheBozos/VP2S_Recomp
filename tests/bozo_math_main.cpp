@@ -502,5 +502,105 @@ int main(){try{
         check(rejected && _mm_getcsr()==fp && !std::memcmp(&before,&c,sizeof(c)) && !std::memcmp(ram.data(),rt.memory.flat(),ram.size()));
     }}
     std::printf("%u segment/sphere contact runs (%u contacts) and5 readonly rejections passed\n",contactCases,contacts);
+    // Animated packet UVs. The original loader 219620 (with its mesh cursors
+    // and element methods) builds the scratchpad description; a test-only
+    // oracle reproduces the original pipeline from it (toSPR chain, callback
+    // 29cfe0 + micro 0xc80 with ps2f arithmetic, fromSPR destination chain).
+    // The native rewrite reads only the records and must produce the same packets.
+    unsigned uvCases=0,uvChunks=0,uvWords=0,uvEmpty=0;
+    for(unsigned seed=0;seed<96;++seed){
+        auto &a=old.runtime(),&b=native.runtime();std::memset(a.memory.flat(),0,bozo::kFlatBytes);
+        uint32_t state=seed*747796405u+2891336453u;const auto next=[&](){state=state*1664525u+1013904223u;return state>>8;};
+        const auto put=[&](uint32_t at,uint32_t v){std::memcpy(a.memory.hostPointer(at,4),&v,4);};
+        const auto put16=[&](uint32_t at,uint16_t v){std::memcpy(a.memory.hostPointer(at,2),&v,2);};
+        const auto get=[&](Runtime &r,uint32_t at){uint32_t v;std::memcpy(&v,r.memory.hostPointer(at,4),4);return v;};
+        constexpr uint32_t object=0x200000,model=0x201000,iterator=0x201800,maskAt=0x200800,vtable=0x1591b0,data=0x210000,packets=0x240000,stack=0x1ffc000;
+        const unsigned meshes=1+seed%4,elements=1+seed%3;const bool unaligned=seed&1;
+        const uint32_t base=data;  // 128-aligned, so both iterator modes agree
+        put(object+0x54,model);put(model+0x644,iterator);put(iterator+8,data);put(iterator+0x14,seed%5==4?0:packets);
+        std::memcpy(a.memory.hostPointer(iterator+0x1c,1),&unaligned,1);
+        put(base+0x10+0x34,meshes);put(object+0x48,maskAt);put(object+0x58,0x28);
+        put(object+0x5c,0x202000);put(object+0x60,0x203000);put(object+0x68,0x204000);put(object+0x6c,0x204400);put(object+0x70,0x205000);
+        const uint8_t mode=uint8_t(seed%2),rebuild=2,flags8d=uint8_t(seed%7==3?4:0);
+        std::memcpy(a.memory.hostPointer(object+0x8a,1),&mode,1);std::memcpy(a.memory.hostPointer(object+0x8c,1),&rebuild,1);std::memcpy(a.memory.hostPointer(object+0x8d,1),&flags8d,1);
+        uint32_t maskBits=0;for(unsigned j=0;j<meshes;++j)if(seed%5==0 || next()%4)maskBits|=1u<<j;put(maskAt,maskBits);
+        const uint32_t packetStart=seed%5==4?base+0x70:packets+0x60;
+        uint32_t source=base+0x70,packet=packetStart;
+        for(unsigned j=0;j<meshes;++j){
+            const uint16_t n=uint16_t(seed%9==8?1+next()%3:4+next()%(seed%3==0?1000:120));const uint16_t offset=0x40;
+            const uint32_t span=(0x40+((n+3)/4)*16+0x2f)&~0xfu;
+            put16(source+0x16,n);put16(source+0x1c,offset);put16(source+4,uint16_t(span));
+            if(packet!=source){put16(packet+4,uint16_t(span));}
+            for(unsigned w=0;w<((n+3u)&~3u);++w){put(source+offset+4*w,next()*7u);if(packet!=source)put(packet+offset+4*w,0xdeadbeef);}
+            source+=span;packet+=span;
+        }
+        put16(source+4,0);if(packet!=source)put16(packet+4,0);  // terminators (never inside the count)
+        put(vtable+0x10,0x29cfe0);put(vtable+0x14,0x29cfd0);put(vtable+0x18,0x29d0d0);
+        uint32_t descriptorAt=0x230000;
+        for(unsigned i=0;i<elements;++i){
+            const uint32_t e=0x206000+0x100*i,bits=0x206800+0x10*i;put(e,vtable);put(e+8,i+1<elements?e+0x100:object);
+            const uint8_t enabled=1,all=uint8_t(seed%4==1 && i==0);std::memcpy(a.memory.hostPointer(e+0xd,1),&enabled,1);
+            std::memcpy(a.memory.hostPointer(e+0x18,1),&enabled,1);std::memcpy(a.memory.hostPointer(e+0x19,1),&all,1);
+            uint32_t elementBits=0;for(unsigned j=0;j<meshes;++j)if(next()%3)elementBits|=1u<<j;put(bits,elementBits);put(e+0x24,bits);
+            put(e+0x34,descriptorAt);put(e+0x38,descriptorAt);
+            const float scroll[2]={float(int(next()%2001)-1000)/1000.f,float(int(next()%2001)-1000)/4096.f};put(e+0x40,std::bit_cast<uint32_t>(scroll[0]));put(e+0x44,std::bit_cast<uint32_t>(scroll[1]));
+            uint32_t meshSource=base+0x70;
+            for(unsigned j=0;j<meshes;++j){
+                const bool included=flags8d==4 || (maskBits>>j&1);const uint16_t n=uint16_t(get(a,meshSource+0x14)>>16);
+                meshSource+=uint16_t(get(a,meshSource+4));
+                if(!included || !(all || (elementBits>>j&1)))continue;
+                const unsigned listed=1+next()%std::min<unsigned>(n,48);const uint32_t size=0x10+((listed+15)&~15u);
+                put(descriptorAt,listed);put(descriptorAt+4,j);put(descriptorAt+8,size);
+                for(unsigned k=0;k<std::max(listed,1u);++k){const uint8_t index=uint8_t(next()%n);std::memcpy(a.memory.hostPointer(descriptorAt+0x10+k,1),&index,1);}
+                descriptorAt+=size;
+            }
+        }
+        put(object+8,0x206000);
+        std::memcpy(b.memory.flat(),a.memory.flat(),bozo::kFlatBytes);
+        // Original loader.
+        R5900Context x{};x.r[4].ud[0]=object;x.r[5].ud[0]=elements;x.r[29].ud[0]=stack;x.r[31].ud[0]=0x170000;
+        a.functions.generated(0x219620)(a.memory.flat(),&x,&a);check(x.pc==0x170000);
+        // Oracle: the original scratchpad pipeline from the loader's description.
+        const auto mul=[](uint32_t p,uint32_t q){uint32_t f=0;return bozo::ps2f::mul(p,q,f);};(void)mul;
+        const auto add=[](uint32_t p,uint32_t q){uint32_t f=0;return bozo::ps2f::addNearest(p,q,f);};
+        const auto scrolled=[&](uint32_t half,uint32_t scroll){const auto sum=add(std::bit_cast<uint32_t>(float(half)/4096.f),scroll);
+            const double fixed=double(std::bit_cast<float>(sum&0x7f800000?sum:sum&0x80000000))*4096.;
+            return fixed>=2147483647.?0x7fffffff:fixed<=-2147483648.?int32_t(0x80000000u):int32_t(fixed);};
+        const int16_t chunks=int16_t(get(a,object+0x84)&0xffff);check(chunks<16);if(chunks<=0)++uvEmpty;
+        const uint32_t table=get(a,object+0x68+4*mode),groups=get(a,object+0x70);
+        std::vector<uint8_t> spr(16384);unsigned group=0;
+        for(int c=0;c<chunks;++c){
+            const uint32_t count=get(a,table+16*c),chain=get(a,table+16*c+4),sadr=get(a,table+16*c+8);check(sadr>=0x70000000 && sadr<0x70004000);
+            uint32_t at=chain,pos=sadr-0x70000000;
+            for(unsigned guard=0;;++guard){check(guard<512);const auto lo=get(a,at),address=get(a,at+4);const unsigned qwc=lo&0xffff,id=(lo>>28)&7;
+                check(pos+16*qwc<=spr.size());
+                if(id==1){std::memcpy(spr.data()+pos,a.memory.hostPointer(at+16,16*qwc),16*qwc);pos+=16*qwc;at+=16+16*qwc;}
+                else if(id==3){std::memcpy(spr.data()+pos,a.memory.hostPointer(address,16*qwc),16*qwc);pos+=16*qwc;at+=16;}
+                else{check(id==7);std::memcpy(spr.data()+pos,a.memory.hostPointer(at+16,16*qwc),16*qwc);break;}}
+            for(uint32_t g=0;g<count;++g,++group){const uint32_t rec=groups+0x5c*group;if(!get(a,rec))continue;
+                const uint32_t dataAt=get(a,rec+0xc)-0x70000000;
+                for(unsigned i=0;i<elements;++i){const uint32_t e=0x206000+0x100*i;const bool all=a.memory.hostPointer(e+0x19,1)[0]!=0;
+                    if(!all && !(get(a,get(a,e+0x24)+4*(group>>5))>>(group&31)&1))continue;
+                    const uint32_t d=get(a,rec+0x1c+4*i)-0x70000000;uint32_t listed;std::memcpy(&listed,spr.data()+d,4);
+                    for(uint32_t k=0;k<std::max(listed,1u);++k){const auto index=spr[d+0x10+k];uint32_t w;std::memcpy(&w,spr.data()+dataAt+4*index,4);
+                        w=(uint32_t(scrolled(w>>16,get(a,e+0x44)))<<16)|(uint32_t(scrolled(w&0xffff,get(a,e+0x40)))&0xffff);std::memcpy(spr.data()+dataAt+4*index,&w,4);}
+                }
+            }
+            for(uint32_t p=sadr-0x70000000,guard=0;;++guard){check(guard<512);uint32_t lo,address;std::memcpy(&lo,spr.data()+p,4);std::memcpy(&address,spr.data()+p+4,4);
+                const unsigned qwc=lo&0xffff,id=(lo>>28)&7;if(id==7)break;check(id==1);
+                std::memcpy(a.memory.hostPointer(address,16*qwc),spr.data()+p+16,16*qwc);uvWords+=4*qwc;p+=16+16*qwc;}
+            ++uvChunks;
+        }
+        // Native rewrite at 219210 (s7 = object, s5 = elements, SP+e0 list).
+        R5900Context y{};y.r[23].ud[0]=object;y.r[21].ud[0]=elements;y.r[29].ud[0]=stack;
+        std::memcpy(b.memory.hostPointer(object+0x84,2),a.memory.hostPointer(object+0x84,2),2);
+        for(unsigned i=0;i<elements;++i){const uint32_t e=0x206000+0x100*i;std::memcpy(b.memory.hostPointer(stack+0xe0+4*i,4),&e,4);}
+        const auto fp=_mm_getcsr();check(vp2s::nativeMathInstruction(b.memory.flat(),&y,&b,0x219210));check(_mm_getcsr()==fp && y.r[2].sd[0]==chunks);
+        const uint32_t firstPacket=seed%5==4?base+0x70:packets+0x60;
+        if(std::memcmp(a.memory.hostPointer(firstPacket,0x18000),b.memory.hostPointer(firstPacket,0x18000),0x18000)){
+            for(uint32_t at=firstPacket;at<firstPacket+0x18000;at+=4)if(get(a,at)!=get(b,at)){std::fprintf(stderr,"uv seed%u at %x oracle %08x native %08x\n",seed,at,get(a,at),get(b,at));break;}check(false);}
+        ++uvCases;
+    }
+    std::printf("%u animated-UV models (%u loader chunks, %u packet words, %u without chunks) match the original scratchpad pipeline\n",uvCases,uvChunks,uvWords,uvEmpty);
     std::printf("%u matrix/quaternion/Euler ABI cases, %u component products, %u whole CPU/RAM sphere getters,8192 independent scale cases and%u whole CPU/RAM axis-angle cases passed; no VU/device state\n",cases,products,sphereCases,axisCases);return 0;
 }catch(const std::exception &e){std::fprintf(stderr,"%s\n",e.what());return 1;}}

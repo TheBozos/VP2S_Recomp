@@ -686,8 +686,81 @@ bool nativeSegmentContact(R5900Context *c,Runtime *rt,uint32_t pc){
     }
     std::memcpy(record(rt,normalAt,16),normal,12);return true;
 }
+// Animated UVs of a model's VU1 packet, mod001 2188d0. The original builds a
+// scratchpad transfer each frame (loader 219620) and lets UV-scroll elements
+// (class 1591b0, callback 29cfe0 with mode-1 micro program 0xc80) rewrite the
+// copied UV words. Natively the same result is computed from the records the
+// loader reads: the model iterator *(*(o+54)+644) walks source mesh records M
+// and packet records P in step; mesh j (bit j of *(o+48), or all when o+8d
+// bit 2) has N = s16 M+16 UV words at offset u16 M+1c. Destination P+off gets
+// the source M+off quadwords (N rounded up to 4 words), then each element
+// (list at SP+e0, count s5) whose group bit is set (e+19, or bit j of
+// *(e+24)) takes its next descriptor (cursor from e+34, size at +8): for each
+// listed index, uv = ftoi12(itof12(uv) + scroll) per half, scroll at e+40/44.
+uint32_t uvWord(Runtime *rt,uint32_t at){
+    if((at&3) || (at&0x1ffffff)<0x100000 || (at>>28)==7)throw std::runtime_error("native UV animation record outside EE RAM");
+    const auto *p=rt->memory.hostPointer(at,4);if(!p)throw std::runtime_error("native UV animation record unmapped");uint32_t v;std::memcpy(&v,p,4);return v;}
+uint8_t *uvBytes(Runtime *rt,uint32_t at,uint32_t bytes){
+    if((at&15) || (at&0x1ffffff)<0x100000 || (at>>28)==7 || bytes>0x10000)throw std::runtime_error("native UV animation span outside EE RAM");
+    auto *p=rt->memory.hostPointer(at,bytes);if(!p)throw std::runtime_error("native UV animation span unmapped");return p;}
+int32_t uvScrolled(uint32_t half,float scroll){
+    // itof12 (exact), VU add (nearest even, denormals as zero), ftoi12 (truncate, saturate).
+    volatile float value=float(half)*(1.f/4096.f)+pairNormal(scroll);const double fixed=double(pairNormal(value))*4096.;
+    if(fixed>=2147483647.)return 0x7fffffff;if(fixed<=-2147483648.)return int32_t(0x80000000u);return int32_t(fixed);}
+bool nativeUvAnimation(R5900Context *c,Runtime *rt,uint32_t pc){
+    if(pc!=0x219210)return false;
+    if(!c)throw std::runtime_error("native UV animation has no CPU record");
+    const auto object=c->r[23].uw[0];
+    const auto halfAt=object+0x84;const int16_t chunks=int16_t(uvWord(rt,halfAt&~3u)>>((halfAt&2)*8));
+    if(chunks>0){
+        const auto flags=uvWord(rt,object+0x58);
+        if(!(flags&8) || (flags&~0x28u))throw std::runtime_error("unported animated vertex attribute set");
+        const auto iterator=uvWord(rt,uvWord(rt,object+0x54)+0x644),data=uvWord(rt,iterator+8);
+        if(!data)throw std::runtime_error("native UV animation model has no mesh data");
+        const bool unaligned=(uvWord(rt,iterator+0x1c)&0xff)!=0;const uint32_t base=unaligned?data:((data+0x7f)&~0x7fu);
+        const int32_t meshes=int32_t(uvWord(rt,base+0x10+0x34));
+        const auto packets=uvWord(rt,iterator+0x14);uint32_t source=base+0x70,packet=packets?packets+0x60:base+0x70;
+        const bool all=(uvWord(rt,(object+0x8d)&~3u)>>(((object+0x8d)&3)*8)&4)!=0;const auto mask=uvWord(rt,object+0x48);
+        const auto count=c->r[21].uw[0],list=c->r[29].uw[0]+0xe0;
+        if(count>16)throw std::runtime_error("native UV animation element list outside its frame");
+        struct Element{uint32_t at,cursor;float scroll[2];bool all;uint32_t bits;};std::vector<Element> elements;
+        for(unsigned i=0;i<count;++i){const auto e=uvWord(rt,list+4*i);
+            if(uvWord(rt,e)!=0x1591b0)throw std::runtime_error("unported animated vertex element class");
+            Element el{e,uvWord(rt,e+0x34),{std::bit_cast<float>(uvWord(rt,e+0x40)),std::bit_cast<float>(uvWord(rt,e+0x44))},(uvWord(rt,e+0x18)>>8&0xff)!=0,uvWord(rt,e+0x24)};
+            for(float s:el.scroll)if((std::bit_cast<uint32_t>(s)&0x7f800000)==0x7f800000)throw std::runtime_error("unqualified UV scroll");
+            elements.push_back(el);}
+        music::NearestRounding rounding;
+        for(int32_t j=0;j<meshes;++j){
+            const auto sourceStep=int16_t(uvWord(rt,source+4)),packetStep=int16_t(uvWord(rt,packet+4));
+            // 25cb00/25cb30 return 0 for a record whose step is 0: never inside the count.
+            if(!sourceStep || !packetStep)throw std::runtime_error("native UV animation mesh list ends early");
+            const bool included=all || (uvWord(rt,mask+4*(uint32_t(j)>>5))>>(j&31)&1);
+            if(included){
+                const int32_t n=int16_t(uvWord(rt,source+0x14)>>16);const uint32_t offset=uvWord(rt,source+0x1c)&0xffff;
+                if(n<0 || n>0x400)throw std::runtime_error("native UV animation mesh count outside bounds");
+                const uint32_t qwords=(uint32_t(n)+3)>>2;
+                std::vector<uint32_t> words(qwords*4);if(qwords)std::memcpy(words.data(),uvBytes(rt,source+offset,qwords*16),qwords*16);
+                if(n)for(auto &el:elements){
+                    if(!el.all && !(uvWord(rt,el.bits+4*(uint32_t(j)>>5))>>(j&31)&1))continue;
+                    const auto descriptor=el.cursor;el.cursor+=uvWord(rt,descriptor+8);
+                    const auto listed=int32_t(uvWord(rt,descriptor));// A zero count makes 29cfe0 read one index past the descriptor, from
+                    // whatever its scratchpad copy holds there: not reproducible from records.
+                    if(listed<1 || listed>256)throw std::runtime_error("native UV descriptor count outside bounds");
+                    for(int32_t k=0;k<listed;++k){const auto index=(uvWord(rt,(descriptor+0x10+k)&~3u)>>(((descriptor+0x10+k)&3)*8))&0xff;
+                        if(index>=words.size())throw std::runtime_error("native UV descriptor index outside its mesh");
+                        auto &w=words[index];w=(uint32_t(uvScrolled(w>>16,el.scroll[1]))<<16)|(uint32_t(uvScrolled(w&0xffff,el.scroll[0]))&0xffff);}
+                }
+                if(qwords)std::memcpy(uvBytes(rt,packet+offset,qwords*16),words.data(),qwords*16);
+            }
+            source+=sourceStep;packet+=packetStep;
+        }
+    }
+    // The replaced instruction: lh v0,0x84(s7).
+    c->r[2].sd[0]=chunks;return true;
+}
 bool nativeMathInstruction(uint8_t *,R5900Context *c,Runtime *rt,uint32_t pc){
     if(nativeObjectOverlap(c,rt,pc))return true;
+    if(nativeUvAnimation(c,rt,pc))return true;
     if(nativeSegmentContact(c,rt,pc))return true;
     if(nativeObjectCompose(c,rt,pc))return true;
     if(nativeCameraProjection(c,rt,pc))return true;

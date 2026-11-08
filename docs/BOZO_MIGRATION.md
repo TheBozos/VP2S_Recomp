@@ -12,47 +12,61 @@ The earlier VP2S face/shading and general brightness comparisons remain open.
 
 ## Build and evidence
 
+### Native animated packet UVs (2026-11-09)
+
+`2188d0` used to stream each animated model's UVs through the scratchpad
+every frame: loader `219620` describes a chained toSPR transfer (per mesh, a
+`CNT 1` whose inline quadword is the return destination tag, then `REF n` of
+the static UVs), UV-scroll elements (class `1591b0`) rewrite the copied words
+in callback `29cfe0` with mode-1 micro program `0xc80`
+(`uv = ftoi12(itof12(uv) + scroll)` per 16-bit half), and fromSPR scatters
+them back into the model's VU1 packet, right after its `UNPACK V2-16` codes.
+
+The native rewrite at `219210` computes the same packet words from the records
+the loader itself reads, never from its transfer description:
+
+- model iterator `*(*(o+54)+644)`: data `+8` (128-aligned unless byte `+1c`),
+  mesh count at data `+44`, source mesh records from data `+70`, packet records
+  from `*(+14)+60` (or the source list when `+14` is zero), stepped together by
+  `s16 +4`;
+- mesh `j` is included when bit `j` of `*(o+48)` is set, or all when `o+8d`
+  bit 2; it has `N = s16 M+16` UV words at `u16 M+1c`; the destination
+  `P+off` receives the source quadwords (`N` rounded up to four words);
+- elements from the update's own list (`SP+e0`, count `s5`; class `1591b0`
+  only) apply in order when `e+19` is set or bit `j` of `*(e+24)`, each taking
+  its next descriptor (cursor from `e+34`, which `29d130` resets every frame;
+  size at `+8`, count at `+0`, index bytes at `+10`), scroll at `e+40/44`.
+
+The branch at `219214` is patched to always skip the transfer/poll/callback
+section; the DMA-channel interrupt disable/enable around it are idempotent and
+the join keeps the original enables, mode-0 reselection and flags. Only UV
+attribute sets (`o+58` = `0x08`/`0x28`) are admitted; other animated vertex
+attributes, other element classes, zero-count descriptors (whose original
+behaviour reads past the descriptor in the scratchpad copy) and mesh lists that
+end inside the count reject. Source guards: `2188d0`, `219620`, `29cfe0`,
+`29d0d0`, `25cb00`, `25cb30`, `25cc20`, `25cc80`.
+
+Qualification: the math fixture runs the *original* loader (and its cursor and
+element methods) on 96 synthetic models (1-4 meshes up to 1000 words, 1-3
+elements, masks, the all-meshes flag, both iterator alignments, in-place source
+packets, 104 scratchpad chunks); a test-only oracle reproduces the original
+scratchpad pipeline from the loader's description with `ps2f` arithmetic. The
+native packets match byte for byte. Kernel tests flip a byte in each guarded
+function. The protected route now passes the field's animated UVs and stops at
+the native DOF site `2d18a0` (unqualified block mode).
+
 ### Math program mode 1 admission (2026-11-08)
 
 The mod001 `2188d0` update selects VU0 program mode 1 through `29e180`
 (`218d30`), works, waits (`29e080`) and restores mode 0 (`218e8c`). The
 mode table at `314138` points mode 1 at one REFE (`313100`, 206 QW) whose VIF0
 stream holds only two MPGs: a second 410-pair program at VU0 `0x0..0xcd0`, no
-UNPACK and no MSCAL. A static call-graph scan of the window's callees finds no
-`callms`, so the program only serves later VIF0 jobs, which remain unported
-boundaries. Mode 1 is now admitted at the conditional selector exactly like
+UNPACK and no MSCAL. (Correction: a static scan of direct callees found no
+`callms`, but the program *is* used, through the UV-scroll vtable callback
+`29cfe0` and its entry `0xc80`; see the animated-UV section.) Mode 1 is now admitted at the conditional selector exactly like
 mode 0: no job, no busy flag; the game's mode byte (+51) records the
 selection. Resource and table entry are fingerprinted; mode 1 at the
 unconditional selector `29e160`, and modes 2+, still reject.
-
-Next boundary: `21927c` writes `D9_SADR` (`0x1000d480`). Findings from a
-boundary RAM capture (seed 1, first field):
-
-- `2188d0` streams per-object "animated UV" groups. Object `r23` (base type
-  `0x152060`, class not yet named) has one chunk (`+84`); its table (`+68`,
-  mode `+8a`) entry holds a group count (3), a chain at `11a8440` and SPR base
-  `70000180`. The chain is pairs of `CNT 1` whose inline quadword is itself a
-  destination tag (e.g. `1000000b 011a9fb0`: 11 QW back to `11a9fb0`) and
-  `REF n` from the model file's static UVs (`cfda40`, `cfde20`, `cfe1b0`),
-  then an END tag and per-group descriptors (`cfee10..`: count 43/41/6, group
-  index, `0x40`, index bytes).
-- The destinations are the UV words right after `UNPACK V2-16` codes
-  (`752b801f`) inside the object's VU1 packet: the only consumer is that
-  packet's mesh draw, which is not native yet.
-- Group records (`r23+70`, 0x5c bytes) hold the count, the SPR data base
-  (`+0c`) and descriptor pointers (`+1c+4i`).
-- The single element (`0xcbb240`, class `0x1591b0`) callback `29cfe0`
-  pipelines common-math-mode-1 micro program `0xc80` over the listed words:
-  `uv = ftoi12(itof12(uv) + scroll.xy)` with `scroll = element+40`, then packs
-  the halves back (`pinteh`). So mode 1 *is* used, via this vtable callback
-  (the static call-graph scan missed indirect calls).
-- Results return to the packet with fromSPR (destination chain); `D_STAT`
-  bits 8/9 are polled; three 0x14d0-byte SPR buffers rotate.
-
-A native-records port therefore needs the semantic owner of these groups (the
-loader that builds the chain from model data was not found yet; `200840`/
-`200e60` are packet builders, not it) and a native consumer: the scrolled UVs
-only matter to the not-yet-native draw of this object's packets.
 
 ### Object overlap, camera projection, composition, contact (2026-11-08)
 

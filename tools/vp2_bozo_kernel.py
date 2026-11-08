@@ -446,6 +446,16 @@ def overlay_adaptations(name,data):
         (0x1f8aa0,0x1f9128,'6b6f4904da15dc26a04bab0d45b242ed8137e59f6eb8f3a5da5fad53e50e1e91'),
         (0x209aa0,0x20a4bc,'475ada92e212bc095a32fa12a341da89bf20261019a6a7873e42a55a090ca0b6'),
         (0x1fc4b0,0x1fc5a8,'e08fecf06bb52a8de57369b0d98ca938222d1cde05391599aabcc7f54cfe2b75'),
+        # Animated packet UVs: the 2188d0 streaming owner, loader 219620, the
+        # UV-scroll callback 29cfe0/descriptor method 29d0d0 and mesh cursors.
+        (0x2188d0,0x219608,'efe18082ff8f33e4c91a09af3d3cc3e775706b30795ceaae059e845b6b23546e'),
+        (0x219620,0x21a628,'ca46b6666b7ed13428280babbda428ef85fc0a64b86434b7d13c7af7a3b8e416'),
+        (0x29cfe0,0x29d0c4,'2545c35e9aea1a70e55972cccfda34481d33407d8537c001c416c2c00501782d'),
+        (0x29d0d0,0x29d130,'e7ed055bacffa988f4b68f098464d2b32b7f58560d021ea35fb149ec0712a534'),
+        (0x25cb00,0x25cb28,'3be951a0f233c80eba60eb1fab6c26e2ec2b77f1641f26dadc695246e3265c42'),
+        (0x25cb30,0x25cb58,'4e2e95c8fafa12529ef6ca4cd8bf45d14b2d8944295b644900ac88fd3278bd6f'),
+        (0x25cc20,0x25cc80,'efcfa5bb374825bb407a92d0c84d371ab9cb10e65da0191371abfc0f9fa66080'),
+        (0x25cc80,0x25ccf8,'a52053d7f6cadab9bf1ceccc9a5270538b8853ead415d8f4689a1583eee73b4e'),
         (0x3140e0,0x314120,'5b1ac88e48d62e6ae747d08f015c4b4e5a80c15e7ae4e198d6b8386eaf81ccd9'),
         (0x2e74f0,0x2e75bc,'249a16a05dfd11f8b9ee28c571dfc511db7d2b6e9d5b35207a992be32ee2c767'),
         (0x2e7e90,0x2e8678,'6a2e9aae85037a750a67937b87fd1fb9ec416ef0825fd3851a07ea449086d6ab'),
@@ -710,6 +720,9 @@ def overlay_adaptations(name,data):
             # Remove both device polls, without fabricating completion bits.
             '0022ee50 1a600009 10000009\n'
             '0022f048 1a600009 10000009\n'
+            # Animated packet UVs are rewritten natively from their records at
+            # 219210; the scratchpad streaming section (transfers/polls) is skipped.
+            '00219214 184000d2 100000d2\n'
             '0025aa2c 0c0807c8 0c087268\n'
             '002f3710 0c0bbce4 0c087268\n'
             '002ec9e0 0c0bbce4 0c087268\n'
@@ -788,6 +801,7 @@ def overlay_native_sites(name,data):
         *HERMITE_VECTOR_SITES,
         *SQUAD_SITES,
         *PARTICLE_PUBLICATION_SITES,
+        0x219210,
         0x22f160,
         0x247ec0,
         0x247700,0x247a90,0x247ac0,0x24769c,

@@ -30,6 +30,12 @@ overlap_rows+=[(0x209bd0,0x209d54,0x209d4c),(0x20a00c,0x20a090,0x20a088)]
 overlap_rows+=[(0x1fc4f0,0x1fc5a8,None)]
 published=(0x1f8d1c,0x1f8d94,0x1f8e58,0x209c94,0x209d14,0x20a084,0x1fc570);vi_reads=(0x1f8d14,0x1f8d8c,0x209c90,0x209d10,0x20a07c)
 for lo,hi,_ in overlap_rows:rows.append(dict(Name=f'vu_bounded_{lo:x}',Start=hex(lo),End=hex(hi)))
+# Animated packet UVs: the original loader and its callees run unchanged in
+# both variants; the test compares its scratchpad description with the native
+# record rewrite (no VU or DMA execution).
+for name,lo,hi in (('uv_loader',0x219620,0x21a628),('mesh_source_next',0x25cb00,0x25cb28),('mesh_packet_next',0x25cb30,0x25cb58),
+                   ('mesh_source_start',0x25cc20,0x25cc80),('mesh_packet_start',0x25cc80,0x25ccf8),('uv_flags',0x29cfd0,0x29cfd8),('uv_descriptor',0x29d0d0,0x29d130)):
+    rows.append(dict(Name=name,Start=hex(lo),End=hex(hi)))
 if a.variant=='adapted':
     rows.append(dict(Name='component_product',Start='0x211da0',End='0x211dc0'))
     rows.append(dict(Name='inline_light_product',Start='0x23c17c',End='0x23c194'))

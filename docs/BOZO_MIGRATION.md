@@ -8,6 +8,25 @@ target, not a replacement DLL loaded into PS2Recomp.
 
 ## Build and evidence
 
+### Native box-to-sphere builder (2026-11-08)
+
+Mod003 `0x37fa30` keeps its original scalar setup, midpoint/extent stores and
+return ABI. Its vector block now derives the sphere directly from the box's two
+corner records. XYZ midpoint uses the original truncated sum/product; radius
+retains `squaredLength * (1 / sqrt(squaredLength))`, including the zero-size
+case. This differs numerically from replacing the radius with a direct square
+root. Corner W payloads are not consumed. The scalar extent writes after native
+sphere publication remain compiled with their original rounding behavior.
+
+512 complete CPU/RAM builder cases pass an independent integer product/signed-sum,
+root and reciprocal oracle across four modes, signed zeros, identical/reversed
+corners and ordinary/scratch records/stacks. Wrong output/coefficient, NaN and
+overflow reject before CPU/RAM mutation. The overflow negative case found that
+round-toward-zero can return finite `FLT_MAX`; explicit pre-product/sum bounds
+are required, rather than `isfinite` alone. All targeted arithmetic, source-guard
+and startup suites pass after that correction. Actual New Game advances to
+distance block `0x37f994`. Logun and rendered field parity remain open.
+
 ### Setup-object distance caller (2026-11-08)
 
 Mod003 `0x382020..0x382040` now uses the qualified XYZ length arithmetic

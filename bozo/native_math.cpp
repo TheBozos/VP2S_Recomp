@@ -22,6 +22,40 @@ bool nativeMathInstruction(uint8_t *,R5900Context *c,Runtime *rt,uint32_t pc){
     if(nativeTrigInstruction(nullptr,c,rt,pc))return true;
     if(nativeObjectMathInstruction(nullptr,c,rt,pc))return true;
     if(nativeFrustumInstruction(c,rt,pc))return true;
+    if(pc>=0x37faa0 && pc<=0x37fad4 && !(pc&3))return true;
+    if(pc==0x37fad8){
+        const auto box=c->r[4].uw[0];
+        if(c->r[8].uw[0]!=box+0x10 || c->r[7].uw[0]!=box+0x20)
+            throw std::runtime_error("native box sphere escaped its input/output records");
+        float corners[8],half;std::memcpy(corners,record(rt,box,32),32);
+        std::memcpy(&half,record(rt,c->r[9].uw[0],16),4);
+        if(half!=0.5f)throw std::runtime_error("unqualified native box midpoint coefficient");
+        for(unsigned i=0;i<8;++i)if(i%4!=3){const auto b=std::bit_cast<uint32_t>(corners[i]),e=b&0x7f800000;
+            if(e==0x7f800000 || (!e && (b&0x7fffff)))throw std::runtime_error("unqualified native box corner");}
+        const auto normal=[](float v){const auto b=std::bit_cast<uint32_t>(v);return std::bit_cast<float>((b&0x7f800000)?b:(b&0x80000000));};
+        float result[4],squares[3];music::CodecRounding rounding;
+        for(unsigned i=0;i<3;++i){
+            const double bound=std::numeric_limits<float>::max();
+            if(std::abs(double(corners[i+4])+corners[i])>bound || std::abs(double(corners[i+4])-corners[i])>bound)
+                throw std::runtime_error("native box corner reduction overflow");
+            const auto midpoint=normal(music::codecSum(corners[i+4],corners[i]));
+            volatile float center=midpoint*half;result[i]=normal(center);
+            const auto opposite=std::bit_cast<float>(std::bit_cast<uint32_t>(corners[i])^0x80000000u);
+            const auto span=normal(music::codecSum(corners[i+4],opposite));
+            volatile float extent=span*half;const auto reduced=normal(extent);
+            if(double(reduced)*reduced>bound)throw std::runtime_error("native box extent square overflow");
+            volatile float square=reduced*reduced;squares[i]=normal(square);
+        }
+        if(double(squares[0])+squares[1]+squares[2]>std::numeric_limits<float>::max())
+            throw std::runtime_error("native box squared length overflow");
+        const auto squared=normal(music::codecSum(normal(music::codecSum(squares[0],squares[1])),squares[2]));
+        if(!std::isfinite(squared))throw std::runtime_error("native box sphere overflow");
+        volatile float root=std::sqrt(squared);
+        volatile float reciprocal=root==0?std::numeric_limits<float>::max():1.f/root;
+        volatile float radius=squared*reciprocal;result[3]=normal(radius);
+        for(float value:result)if(!std::isfinite(value))throw std::runtime_error("native box sphere result overflow");
+        std::memcpy(record(rt,c->r[7].uw[0],16),result,16);return true;
+    }
     if(pc>=0x1fedd4 && pc<=0x1fedf8 && !(pc&3))return true;
     if(pc==0x1fedfc){
         float first[4],second[4],result[4];

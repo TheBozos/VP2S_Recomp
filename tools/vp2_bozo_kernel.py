@@ -389,6 +389,7 @@ def overlay_adaptations(name,data):
     for lo,hi,expected in ((0x12b4a8+0x1f0,0x12b4a8+0x250,'b79cf2382262fa4251a0e08c8d0b7eb05f051c8a77915bf5863c78d7d6acd784'),
                            (0x12b4a8+0x7f0,0x12b4a8+0x838,'a07e1286b441ee14cfe8b3358b59ee04fed7789bb456988abf6ae5cd936dfa97'),
                            (0x12b4a8+0x8a0,0x12b4a8+0x960,'af7ecfd91505685a1f79a0870924e24d3b79f4c60d583d071090f16df8d183bd'),
+                           (0x12b4a8+0x9f0,0x12b4a8+0xaa8,'1fe7818af2509cd6f7672bf368a5b2059d8f64e0c7b377ea8d9060ae3d790f2d'),
                            (0x12b4a8+0xc90,0x12b4a8+0xd60,'d3023b6ef8dceba14eedcde59ac05de06fccb110e6dbc8dff44b864eb221eb33')):
         if hashlib.sha256(data[lo:hi]).hexdigest()!=expected:raise ValueError('USA native math algorithm mismatch')
     for lo,hi,expected in (
@@ -462,6 +463,7 @@ def overlay_adaptations(name,data):
         (0x213fd0,0x2140f4,'929eb425f5d11c4d38fd2c0d2c18b8bad91718a8fe3845ba40df7e08a9392768'),
         (0x214e40,0x2150f0,'c83bfc3a70b84ef6ccb1de817de8490cc12fe95f428f6519c4f3ed0700c9af5f'),
         (0x2151d0,0x2153a0,'14b0ca18d4340479715e85d75072aa68e5ae9307b54cbcb8e86313628685308a'),
+        (0x2150f0,0x2151d0,'a963b19e1061c2400324b4440cef7d6da40124ddafaad3e84a10ab96b882944b'),
         (0x358490,0x358690,'9a1c658a34ce5474bcf366b3d05296b4eb6de58357684808a64cdcbe12b91b53'),
         (0x216e40,0x216f4c,'422ab7a80ab28b304ccdcd915c85f68fd5077dece21a302982f240d80845ccc8'),
         (0x2371dc,0x2372d0,'8dd9f9b8eebc36de6371dc3273828d44f6ac31eaaba90739ab75948ca85677fc'),

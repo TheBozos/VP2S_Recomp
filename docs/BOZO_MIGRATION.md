@@ -12,6 +12,32 @@ The earlier VP2S face/shading and general brightness comparisons remain open.
 
 ## Build and evidence
 
+### Native three-sine weights and nonlinear interpolation (2026-11-08)
+
+`0x2150f0` retains its complete scalar argument, quadrant, parity and sign work.
+The audited `0x9e8/0xa18/0xa78` game programs are lifted as typed reduction and
+polynomial equations; their leading term uses the pre-reduction scaled argument.
+Coefficients come from the game's initialized EE record and must match these
+guarded instruction literals. No program, vector return bank or status is replayed.
+
+The original scalar arguments survive this helper in FPRs. The nonlinear
+`0x2151d0` consumer derives three sine weights directly from them, applies the
+original sign and division by the third sine, then its inline normalization.
+Quadrant XYZ stores remain; unused control writes and dead temporary W retire.
+Complete caller-operand/coefficient spans reject overlap with the helper frame,
+protecting that narrow liveness proof. Other standalone return contracts stay
+explicitly unsupported. These checks model that retirement, not original bank
+padding or whole-game RAM equivalence.
+
+512 complete nonlinear callers cover both hemispheres, four modes, scratch
+records and input/output/weight-buffer aliases. 384 complete helper cases check
+quadrants/signs, ignored W, unchanged control-read GPRs and full CPU/RAM/FP.
+65,536 triple polynomial comparisons add 196,608 scalar sine outputs in the
+intended small-angle domain. Coefficient/range/frame/return-contract rejections,
+source-word mutation guards and executable-vector completeness pass. All 58
+rebuilt suites pass (`three-sine-all-tests.log`, 171.35 seconds).
+Actual New Game advances to `0x1fe8b0`, the velocity update. Logun remains open.
+
 ### Native near-angle quaternion interpolation (2026-11-08)
 
 The near-angle path in `0x2151d0` now reads the original scalar weight pair and

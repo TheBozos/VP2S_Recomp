@@ -59,7 +59,38 @@ float inverseCosineRatio(float z,const InverseCosineCoefficients &c){
 float inverseCosineSquare(float angle,const InverseCosineCoefficients &c){
     return std::signbit(angle)?sum(c.values[13],product(angle,c.values[13])):difference(c.values[13],product(angle,c.values[13]));
 }
+bool threeSineSite(uint32_t pc){
+    return pc==0x215104 || pc==0x21510c || pc==0x215114 || pc==0x215118 || pc==0x215120 || pc==0x2151b8 || pc==0x2151bc || pc==0x2151c4;
 }
+void qualifiedThreeSines(const TrigCoefficients &c){
+    constexpr std::array<uint32_t,6> expected{0x2f2ec9d3,0xb2d72f34,0x3638ef1b,0xb9500d01,0x3c088889,0xbe2aaaab};
+    if(std::bit_cast<uint32_t>(c.pi)!=0x40490fdb || std::bit_cast<uint32_t>(c.inversePi)!=0x3ea2f983)
+        throw std::runtime_error("three-sine reduction coefficients mismatch");
+    for(unsigned i=0;i<6;++i)if(std::bit_cast<uint32_t>(c.sine[i])!=expected[i])throw std::runtime_error("three-sine polynomial coefficients mismatch");
+}
+}
+ThreeSineReduction reduceThreeSines(const std::array<float,3> &angles,const TrigCoefficients &c){
+    qualifiedThreeSines(c);ThreeSineReduction result;
+    for(unsigned i=0;i<3;++i){qualified(angles[i]);const auto scaled=product(angles[i],c.inversePi);
+        if(!std::isfinite(scaled) || scaled>=2147483648.f || scaled< -2147483648.f)throw std::runtime_error("unqualified three-sine reduction range");
+        const auto quadrant=_mm_cvttss_si32(_mm_set_ss(scaled));const auto integer=_mm_cvtss_f32(_mm_cvtsi32_ss(_mm_setzero_ps(),quadrant));
+        const auto residual=difference(sum(0.f,angles[i]),product(integer,c.pi));
+        if(!std::isfinite(residual) || std::abs(residual)>4.f)throw std::runtime_error("unqualified three-sine residual range");
+        result.quadrants[i]=quadrant;result.scaled[i]=scaled;result.residual[i]=residual;
+    }return result;
+}
+std::array<float,3> threeSines(const std::array<float,3> &angles,const TrigCoefficients &c){
+    const auto reduced=reduceThreeSines(angles,c);std::array<float,3> result;
+    for(unsigned i=0;i<3;++i){const auto square=product(reduced.residual[i],reduced.residual[i]);
+        // The audited game program starts with its pre-reduction scaled
+        // argument here, rather than the usual square of the residual.
+        auto polynomial=sum(product(reduced.scaled[i],c.sine[0]),c.sine[1]);
+        for(unsigned k=2;k<6;++k)polynomial=sum(product(polynomial,square),c.sine[k]);
+        const auto signedResidual=product(reduced.residual[i],(uint32_t(reduced.quadrants[i])&1)?-1.f:1.f);
+        polynomial=sum(product(polynomial,square),1.f);result[i]=product(polynomial,signedResidual);
+    }return result;
+}
+std::array<float,3> nativeThreeSines(Runtime *rt,const std::array<float,3> &angles){return threeSines(angles,coefficients(rt));}
 float inverseCosineRoot(float angle,const InverseCosineCoefficients &c){
     const auto bits=std::bit_cast<uint32_t>(angle);
     if(bits<0x3f000000 || bits>=0x3f800000)throw std::runtime_error("unqualified positive inverse-cosine root input");
@@ -141,6 +172,23 @@ NativeCosine shortSine(float angle,const TrigCoefficients &c){
     return {quadrant,result};
 }
 bool nativeTrigInstruction(uint8_t *,R5900Context *c,Runtime *rt,uint32_t pc){
+    if(threeSineSite(pc)){
+        if(!c || c->pc!=0x2150f0 || (c->r[31].uw[0]!=0x2152ec && c->r[31].uw[0]!=0x215324))
+            throw std::runtime_error("unported independent three-sine return contract");
+        auto *frame=record(rt,c->r[29].uw[0],0x20);
+        const auto separate=[&](uint8_t *p,size_t bytes){const auto a=reinterpret_cast<uintptr_t>(frame),b=reinterpret_cast<uintptr_t>(p);
+            if(a<b+bytes && b<a+0x20)throw std::runtime_error("three-sine frame aliases caller operands/coefficients");};
+        for(unsigned reg:{16u,17u,18u})separate(record(rt,c->r[reg].uw[0],16),16);
+        separate(record(rt,0x35da70,64),64);
+        if(pc==0x215118){const std::array<float,3> angles{c->f[12],c->f[13],c->f[14]};const auto result=reduceThreeSines(angles,coefficients(rt));
+            if(c->r[4].uw[0]!=c->r[29].uw[0])throw std::runtime_error("three-sine quadrant destination mismatch");
+            std::memcpy(frame,result.quadrants.data(),12);
+        }
+        // Preserve original scalar quadrant/parity/sign stores. Their unused
+        // W and control-read writes retire. The caller derives sine weights
+        // directly from the scalar arguments that this helper preserves.
+        return true;
+    }
     if(inverseCosineSite(pc)){
         if(!c || c->pc!=0x214e40)throw std::runtime_error("unported interior inverse-cosine invocation");
         const auto frame=reinterpret_cast<uintptr_t>(record(rt,c->r[29].uw[0],16)),tableAddress=reinterpret_cast<uintptr_t>(record(rt,0x35da30,64));

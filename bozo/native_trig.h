@@ -15,5 +15,9 @@ NativeCosine shortSine(float angle,const TrigCoefficients &);
 struct InverseCosineCoefficients {std::array<float,15> values;};
 float inverseCosineRoot(float angle,const InverseCosineCoefficients &);
 float inverseCosine(float angle,const InverseCosineCoefficients &);
+struct ThreeSineReduction {std::array<int32_t,3> quadrants;std::array<float,3> scaled,residual;};
+ThreeSineReduction reduceThreeSines(const std::array<float,3> &,const TrigCoefficients &);
+std::array<float,3> threeSines(const std::array<float,3> &,const TrigCoefficients &);
+std::array<float,3> nativeThreeSines(Runtime *,const std::array<float,3> &);
 bool nativeTrigInstruction(uint8_t *,R5900Context *,Runtime *,uint32_t pc);
 }

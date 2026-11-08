@@ -306,6 +306,19 @@ std::array<uint32_t,4> NativeMotion::finish(uint32_t frame,uint32_t object){
     const auto result=it->second.position;updates.erase(it);return result;
 }
 bool nativeMathInstruction(uint8_t *,R5900Context *c,Runtime *rt,uint32_t pc){
+    if((pc>=0x2a68d4 && pc<=0x2a68f4 && !(pc&3)) || pc==0x2a68fc){
+        const auto stack=c->r[29].uw[0];
+        if(c->pc!=0x2a68c8 || c->r[4].uw[0]!=0x35dfd0)throw std::runtime_error("native Hermite vector setup mismatch");
+        record(rt,stack,0x40);
+        if(pc==0x2a68fc){
+            if(c->r[3].uw[0]!=stack+0x30)throw std::runtime_error("native Hermite vector destination mismatch");
+            math::Matrix controls;__m128 weights;std::memcpy(controls.data(),record(rt,c->r[16].uw[0],0x50),64);
+            std::memcpy(&weights,record(rt,0x35dfd0,16),16);float inputs[20];std::memcpy(inputs,controls.data(),64);std::memcpy(inputs+16,&weights,16);
+            for(float value:inputs){pairQualified(value);if(std::abs(value)>1.e8f)throw std::runtime_error("unqualified native Hermite vector input");}
+            struct ArithmeticScope {unsigned saved=_mm_getcsr();~ArithmeticScope(){_mm_setcsr(saved);}} arithmetic;
+            const auto result=math::matrixVectorProduct(controls,weights);std::memcpy(record(rt,stack+0x30,16),&result,16);
+        }return true;
+    }
     if((pc>=0x2d7c04 && pc<=0x2d7c70 && !(pc&3)) ||
        (pc>=0x2d7c80 && pc<=0x2d7cec && !(pc&3)) ||
        (pc>=0x2d7cfc && pc<=0x2d7d68 && !(pc&3))){

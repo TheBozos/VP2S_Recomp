@@ -3,6 +3,7 @@
 #include "bozo/port.h"
 #include "dof_matrix_original_functions.h"
 #include "dof_matrix_adapted_functions.h"
+#include "native_float_oracle.h"
 #include <bit>
 #include <cmath>
 #include <cstring>
@@ -13,24 +14,7 @@
 namespace {
 void check(bool v,std::source_location at=std::source_location::current()){if(!v)throw std::runtime_error("DOF matrix assertion at "+std::to_string(at.line()));}
 template<class T>void put(Runtime &rt,uint32_t at,T v){std::memcpy(rt.memory.hostPointer(at,sizeof(T)),&v,sizeof(T));}
-uint64_t rightJam(uint64_t v,unsigned shift){if(!shift)return v;if(shift>=64)return v!=0;return (v>>shift)|((v&((uint64_t(1)<<shift)-1))!=0);}
-uint32_t rounded(uint32_t sign,int e,uint64_t m){
-    if(!m)return sign;while(m>=(uint64_t(1)<<56)){m=rightJam(m,1);++e;}while(m<(uint64_t(1)<<55)){m<<=1;--e;}
-    if(e<=0){m=rightJam(m,unsigned(1-e));e=1;}
-    uint32_t value=uint32_t(m>>32),fraction=uint32_t(m);const auto mode=_mm_getcsr()&_MM_ROUND_MASK;
-    const bool increment=mode==_MM_ROUND_NEAREST?(fraction>0x80000000u || (fraction==0x80000000u && (value&1))):mode==_MM_ROUND_DOWN?(sign && fraction):mode==_MM_ROUND_UP?(!sign && fraction):false;
-    if(increment && ++value==0x1000000){value>>=1;++e;}check(e<255);if(value<0x800000)return sign;return sign|uint32_t(e<<23)|(value&0x7fffff);
-}
-uint32_t product(uint32_t a,uint32_t b){const auto sign=(a^b)&0x80000000u;const int ea=(a>>23)&255,eb=(b>>23)&255;
-    if(!ea || !eb)return sign;return rounded(sign,ea+eb-127,uint64_t((a&0x7fffff)|0x800000)*((b&0x7fffff)|0x800000)<<9);}
-uint32_t sum(uint32_t a,uint32_t b){
-    if((a&0x7fffffff)<(b&0x7fffffff))std::swap(a,b);
-    if(!(b&0x7fffffff)){if(a&0x7fffffff)return a;return ((a&b)&0x80000000u)|((_mm_getcsr()&_MM_ROUND_MASK)==_MM_ROUND_DOWN?((a|b)&0x80000000u):0u);}
-    int e=(a>>23)&255;const auto distance=unsigned(e)-((b>>23)&255);
-    const uint64_t large=uint64_t((a&0x7fffff)|0x800000)<<32,small=rightJam(uint64_t((b&0x7fffff)|0x800000)<<32,distance);
-    const auto magnitude=((a^b)&0x80000000u)?large-small:large+small;
-    if(!magnitude)return (_mm_getcsr()&_MM_ROUND_MASK)==_MM_ROUND_DOWN?0x80000000u:0u;return rounded(a&0x80000000u,e,magnitude);
-}
+using vp2s::test::product;using vp2s::test::sum;
 void reference(Runtime *rt,R5900Context *c){
     uint32_t local[4][4],parent[4][4],out[4][4];std::memcpy(local,rt->memory.hostPointer(c->r[4].uw[0],64),64);std::memcpy(parent,rt->memory.hostPointer(c->r[3].uw[0],64),64);
     for(unsigned column=0;column<4;++column)for(unsigned lane=0;lane<4;++lane){auto v=product(parent[0][lane],local[column][0]);

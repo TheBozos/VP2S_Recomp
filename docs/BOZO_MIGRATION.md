@@ -12,6 +12,26 @@ The earlier VP2S face/shading and general brightness comparisons remain open.
 
 ## Build and evidence
 
+### Complete Hermite vector interpolation (2026-11-08)
+
+The original `0x2a6980` scalar helper still builds all four Hermite weights,
+including extrapolated times. Ten inline vector sites in `0x2a68a0` now blend
+the explicit four control records and those weights, publishing full XYZW to
+the original temporary before its retained MMI output copy and epilogue.
+Caller rounding/flags remain, with no implicit vector bank.
+
+512 complete CPU/RAM/FP callers cover 128 endpoints and 128 extrapolated cases;
+1,024 additional full-vector records cover arbitrary weights, meaningful W,
+scratch/RAM and source/output/weight aliases. Invalid setup/numeric input rejects
+without mutation. An independent integer guard/sticky oracle is now shared with
+the DOF matrix test; both suites were rebuilt and rerun. Four targeted suites
+pass (`hermite-tests.log`, 62.93 seconds), including every-word source guards and
+startup. Actual seed-1 reaches three-stage quaternion interpolation, leaf
+`0x214d10`, vector site `0x214df0`, outer caller `0x214c74`
+(`hermite-route.log`). Its implicit intermediate-return contract needs an
+explicit native quaternion publication. Visible field/Logun remains open;
+engine stays `436d5d8`.
+
 ### Complete DOF coordinate/matrix writer (2026-11-08)
 
 All 84 vector sites in `0x2d7a30` now compose the three explicit stack matrices

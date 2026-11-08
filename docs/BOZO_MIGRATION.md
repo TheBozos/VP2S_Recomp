@@ -12,6 +12,25 @@ The earlier VP2S face/shading and general brightness comparisons remain open.
 
 ## Build and evidence
 
+### Native point/segment distance (2026-11-08)
+
+`0x211fb0` now derives typed projection, direction-length and squared-distance
+values around its original scalar endpoint/interior selection and parameter
+store. All 25 vector sites are bound. Dead temporary YZW words retire only
+with complete 32-byte frame/input/output separation. The original parameter
+store precedes final distance calculation, so parameter/source aliases reject
+explicitly; unchanged inputs can then be read again without a vector bank.
+Only the two audited scalar callers `0x1fc244/0x1fc4f0` qualify.
+
+512 complete CPU/RAM/FP comparisons cover four modes, both return sites,
+point/segment aliases, zero length, tiny products and opaque input W: 291
+start clamps, 114 end clamps and 107 interior results. Exact examples check
+distances 9/13 and fractions 0/0.5/1. Caller/frame/parameter/source/domain
+rejections, per-word source mutation and executable-vector completeness pass.
+All three targeted suites pass (`point-segment-tests.log`, 95.96 seconds).
+Actual New Game advances to `0x1fbfbc`, the plane-contact helper. Engine
+unchanged; visible field and Logun remain unqualified.
+
 ### Native collision position response (2026-11-08)
 
 All 31 vector sites in `0x1fc030` now retire or publish game position records

@@ -41,6 +41,25 @@ void separatePairFrame(uint8_t *frame,uint8_t *data,size_t bytes){
     if(a<b+bytes && b<a+16)throw std::runtime_error("constrained-position temporary aliases live inputs");
 }
 struct SegmentTerms {std::array<float,3> delta;float firstLength,negativeCross,secondLength,firstProjection,separation,determinant,negativeSecondProjection,secondNumerator,firstNumerator;};
+struct PointSegmentTerms {std::array<float,3> delta,direction;float projection,lengthSquared;};
+PointSegmentTerms pointSegmentTerms(Runtime *rt,R5900Context *c){
+    if(c->pc!=0x211fb0 || (c->r[31].uw[0]!=0x1fc244 && c->r[31].uw[0]!=0x1fc4f0))throw std::runtime_error("unqualified point/segment caller");
+    auto *frame=record(rt,c->r[29].uw[0],32),*segment=record(rt,c->r[4].uw[0],32),*point=record(rt,c->r[5].uw[0],16);
+    const auto address=c->r[6].uw[0];auto *parameter=rt->memory.hostPointer(address,4);
+    if((address&3) || !parameter)throw std::runtime_error("invalid point/segment parameter output");
+    const auto separate=[](uint8_t *a,size_t n,uint8_t *b,size_t m){const auto x=reinterpret_cast<uintptr_t>(a),y=reinterpret_cast<uintptr_t>(b);
+        if(x<y+m && y<x+n)throw std::runtime_error("point/segment temporary or parameter aliases live input");};
+    separate(frame,32,segment,32);separate(frame,32,point,16);separate(frame,32,parameter,4);
+    // Original CPU code publishes the parameter before the final distance.
+    // These spans must survive unchanged until that final typed calculation.
+    separate(parameter,4,segment,32);separate(parameter,4,point,16);
+    float s[2][4],p[4];std::memcpy(s,segment,32);std::memcpy(p,point,16);
+    for(unsigned i=0;i<3;++i)for(float value:{s[0][i],s[1][i],p[i]}){pairQualified(value);if(std::abs(value)>1.e8f)throw std::runtime_error("unqualified point/segment magnitude");}
+    PointSegmentTerms result;float products[3],squares[3];
+    for(unsigned i=0;i<3;++i){result.delta[i]=pairSum(p[i],-s[0][i]);result.direction[i]=s[1][i];products[i]=pairProduct(result.delta[i],s[1][i]);squares[i]=pairProduct(s[1][i],s[1][i]);}
+    result.projection=pairSum(pairSum(products[0],products[1]),pairProduct(1.f,products[2]));
+    result.lengthSquared=pairSum(pairSum(squares[0],squares[1]),pairProduct(1.f,squares[2]));return result;
+}
 std::array<float,3> collisionNormal(Runtime *rt,R5900Context *c,uint32_t pc){
     if(c->pc!=0x1fc5f4)throw std::runtime_error("unqualified collision-normal continuation");
     const auto stack=c->r[29].uw[0];auto *frame=record(rt,stack,0x70),*normal=record(rt,c->r[18].uw[0],16);
@@ -206,6 +225,32 @@ bool nativeMathInstruction(uint8_t *,R5900Context *c,Runtime *rt,uint32_t pc){
     if(nativeTrigInstruction(nullptr,c,rt,pc))return true;
     if(nativeObjectMathInstruction(nullptr,c,rt,pc))return true;
     if(nativeFrustumInstruction(c,rt,pc))return true;
+    if(pc==0x211fe8 || pc==0x212020 || pc==0x212064 || pc==0x212084){
+        const auto terms=pointSegmentTerms(rt,c);const auto stack=c->r[29].uw[0];float value;
+        if(c->r[2].uw[0]!=(pc==0x212020?stack:stack+0x10))throw std::runtime_error("point/segment temporary destination mismatch");
+        if(pc==0x211fe8)value=terms.projection;
+        else if(pc==0x212020)value=terms.lengthSquared;
+        else if(pc==0x212064){
+            if(!(terms.projection>0 && terms.projection<terms.lengthSquared))throw std::runtime_error("point/segment interior branch mismatch");
+            volatile float ratio=terms.projection/terms.lengthSquared;value=pairSum(0.f,pairNormal(ratio));
+        }else{
+            auto difference=terms.delta;
+            if(terms.projection>0){
+                if(terms.projection>=terms.lengthSquared){for(unsigned i=0;i<3;++i)difference[i]=pairSum(difference[i],-terms.direction[i]);}
+                else{volatile float ratio=terms.projection/terms.lengthSquared;for(unsigned i=0;i<3;++i)difference[i]=pairSum(pairSum(difference[i],0.f),-pairProduct(terms.direction[i],pairNormal(ratio)));}
+            }
+            float squared[3];for(unsigned i=0;i<3;++i)squared[i]=pairProduct(difference[i],difference[i]);value=pairSum(pairSum(squared[0],squared[1]),pairProduct(1.f,squared[2]));
+        }
+        // Only X is used; complete frame/input/output span checks above guard
+        // retirement of the other three temporary words.
+        std::memcpy(record(rt,c->r[2].uw[0],16),&value,4);return true;
+    }
+    switch(pc){
+    case 0x211fb8:case 0x211fbc:case 0x211fc0:case 0x211fc4:case 0x211fc8:case 0x211fcc:case 0x211fd0:case 0x211fd4:
+    case 0x211fd8:case 0x211fe0:case 0x211fe4:case 0x212010:case 0x21201c:case 0x212048:case 0x212054:case 0x212058:
+    case 0x21205c:case 0x212060:case 0x212068:case 0x21207c:case 0x212080:return true;
+    default:break;
+    }
     if(pc==0x1fc038 || pc==0x1fc0c4 || pc==0x1fc128 || pc==0x1fc174){collisionPositionResponse(rt,c,pc);return true;}
     switch(pc){
     case 0x1fc044:case 0x1fc050:case 0x1fc054:case 0x1fc05c:case 0x1fc080:case 0x1fc084:case 0x1fc0ac:case 0x1fc0b0:

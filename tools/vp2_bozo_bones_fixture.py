@@ -37,7 +37,8 @@ fixture,_=prepare(data,[dict(Name='bone_loop',Start='0x2371dc',End='0x2372d8'),
                        dict(Name='segment_distance',Start='0x2120a0',End='0x21294c'),
                        dict(Name='collision_normal',Start='0x1fc5b0',End='0x1fc6c8'),
                        dict(Name='collision_response',Start='0x1fc030',End='0x1fc180'),
-                       dict(Name='physics_response_fragment',Start='0x1fe008',End='0x1fe030')],{})
+                       dict(Name='physics_response_fragment',Start='0x1fe008',End='0x1fe030'),
+                       dict(Name='point_segment_distance',Start='0x211fb0',End='0x212094')],{})
 fixture=bytearray(fixture);_,segments,_=elf_parts(fixture)
 s=next(s for s in segments if s[0]==1 and s[2]<=0x2371dc<0x2372d8<=s[2]+s[4])
 at=s[1]+0x2372d0-s[2];fixture[at:at+8]=(0x03e00008).to_bytes(4,'little')+bytes(4)
@@ -188,6 +189,14 @@ response_sites=[pc for pc in range(0x1fc030,0x1fc180,4)
 if len(response_sites)!=31:raise ValueError('collision response vector site coverage mismatch')
 for pc in response_sites:
     if a.variant=='reference' and pc not in (0x1fc0c4,0x1fc128,0x1fc174):
+        at=s[1]+pc-s[2];fixture[at:at+4]=bytes(4)
+    else:sites.append(f'native 0x{pc:x}\n')
+s=next(s for s in segments if s[0]==1 and s[2]<=0x211fb0<0x212094<=s[2]+s[4])
+point_segment_sites=[pc for pc in range(0x211fb0,0x212094,4)
+                     if int.from_bytes(data[s[1]+pc-s[2]:s[1]+pc-s[2]+4],'little')>>26 in (0x12,0x36,0x3e)]
+if len(point_segment_sites)!=25:raise ValueError('point/segment vector site coverage mismatch')
+for pc in point_segment_sites:
+    if a.variant=='reference' and pc not in (0x211fe8,0x212020,0x212064,0x212084):
         at=s[1]+pc-s[2];fixture[at:at+4]=bytes(4)
     else:sites.append(f'native 0x{pc:x}\n')
 bound={int(row.split()[1],16) for row in sites if row.startswith('native ')}

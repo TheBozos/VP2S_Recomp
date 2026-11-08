@@ -12,6 +12,21 @@ The earlier VP2S face/shading and general brightness comparisons remain open.
 
 ## Build and evidence
 
+### Field auxiliary overlay coverage (2026-11-08)
+
+The missing `0x48ef80` target is the original `mod004` entry. A private 64-byte
+loaded-header capture matched only that extracted ELF, separating it from the
+other modules sharing `0x48ef00`. Diagnostic capture code was removed. The
+default static compilation set now includes mod004: 46 primary functions,
+95 entries, zero untranslated boundaries, unchanged load bytes and normal
+identity-selected dispatch. No runtime discovery or replacement stub was added.
+
+Preparation/startup suites pass (`overlay004-tests.log`, 11.35 seconds). The
+actual route passes the missing entry and reaches the original `0x4227c8`
+memset of a 512-byte scratch-stack record at `0x70003960`; RAM-only asset
+provenance currently rejects that legitimate scratch write
+(`overlay004-diagnostic-route.log`). Logun remains unqualified.
+
 ### Euler-to-quaternion builder (2026-11-08)
 
 The measured `0x2162c0` builder now publishes four complete normalized quaternion

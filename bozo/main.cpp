@@ -306,8 +306,10 @@ public:
             if(c->r[2].uw[0]==1 && native.libraries().cd.error==0 &&
                uint64_t(native.libraries().cd.readBytes)==uint64_t(a1)*2048)
                 assets.discRead(a2,a1,a0);
-        }else if(target==0x132c88u)assets.copy(a0,a1,a2,assetWorker);
-        else if(target==0x132e40u)assets.overwrite(a0,a2);
+        }else if(target==0x132c88u || target==0x132e40u){
+            try{if(target==0x132c88u)assets.copy(a0,a1,a2,assetWorker);else assets.overwrite(a0,a2);}
+            catch(const std::runtime_error &e){throw std::runtime_error(std::format("{} [asset library={:x} caller={:x} destination={:x} source/fill={:x} bytes={:x}]",e.what(),target,c->r[31].uw[0],a0,a1,a2));}
+        }
     }
     void vu0Microprogram(bozo::ee::Dispatcher &,R5900Context *c,uint32_t address) override {
         throw std::runtime_error(std::format("unported VP2S VU0 algorithm {:x} at pc={:x}",address,c->pc));

@@ -9,6 +9,7 @@
 #include <format>
 #include <iterator>
 #include <set>
+#include <source_location>
 namespace vp2s {
 struct NativeModels::Mesh {
     struct Vertex {float p[4],n[3],uv[2];uint8_t colour[4];};
@@ -32,8 +33,8 @@ struct Reader {
     void read(void *to,size_t n){if(n>data.size()-at)throw std::runtime_error("truncated semantic native mesh pack");std::memcpy(to,data.data()+at,n);at+=n;}
     template<class T>void array(std::vector<T> &v,size_t n){if(n>0x100000 || n> (data.size()-at)/sizeof(T))throw std::runtime_error("native mesh count outside asset");v.resize(n);read(v.data(),n*sizeof(T));}
 };
-template<class T>T value(Runtime *rt,uint32_t at){
-    if(!rt || at<0x100000 || uint64_t(at)+sizeof(T)>0x2000000)throw std::runtime_error("native model record outside EE RAM");
+template<class T>T value(Runtime *rt,uint32_t at,std::source_location source=std::source_location::current()){
+    if(!rt || at<0x100000 || uint64_t(at)+sizeof(T)>0x2000000)throw std::runtime_error(std::format("native model record outside EE RAM: address={:08x}, bytes={}, source_line={}",at,sizeof(T),source.line()));
     const auto *p=rt->memory.hostPointer(at,sizeof(T));if(!p)throw std::runtime_error("unmapped native model record");
     T v;std::memcpy(&v,p,sizeof(T));return v;
 }
@@ -73,7 +74,7 @@ std::shared_ptr<const NativeModels::Pack> NativeModels::load(const AssetOrigin &
     packs[key]=pack;return pack;
 }
 NativeModelSubmission NativeModels::capture(Runtime *rt,NativeAssets &assets,NativeTextures &textures,const NativeScene &scene,uint32_t object){
-    const auto word=[&](uint32_t at){return value<uint32_t>(rt,at);};
+    const auto word=[&](uint32_t at,std::source_location source=std::source_location::current()){return value<uint32_t>(rt,at,source);};
     const auto byte=[&](uint32_t at){return value<uint8_t>(rt,at);};
     const auto real=[&](uint32_t at){const auto v=value<float>(rt,at);finite(v);return v;};
     const auto row=[&](uint32_t n){auto v=value<std::array<float,4>>(rt,object+0x230+16*n);for(auto f:v)finite(f);return v;};
@@ -104,7 +105,13 @@ NativeModelSubmission NativeModels::capture(Runtime *rt,NativeAssets &assets,Nat
     uint32_t boneCount=0,palette=0;const auto skeleton=word(object+0x648);
     if(skeleton){boneCount=word(word(skeleton+0x34)+4);if(boneCount>4096)throw std::runtime_error("native bone count outside bounds");
         palette=word(skeleton+0x4c)+0x40+64*boneCount*(byte(skeleton+0x50)&1);}
-    const auto work=word(object+0x630);const bool working=work>=0x100000 && work!=model && word(work+0x34)==count && word(work+0x60)==word(model+0x60) && word(work+0x64)==word(model+0x64);
+    // This optional working-copy probe inherited a legacy heuristic. The slot
+    // also holds ordinary record data, so qualify a complete RAM header before
+    // dereferencing it; never wrap an arbitrary value into the address space.
+    const auto candidate=word(object+0x630),segment=candidate&0xf0000000u,offset=candidate&0x0fffffffu;
+    const bool ramAlias=segment==0 || segment==0x20000000u || segment==0x30000000u || segment==0x80000000u || segment==0xa0000000u;
+    const auto work=ramAlias && !(offset&15) && offset>=0x100000 && offset<=0x2000000-0x68?NativeAssets::address(candidate):0;
+    const bool working=work && work!=model && word(work+0x34)==count && word(work+0x60)==word(model+0x60) && word(work+0x64)==word(model+0x64);
     const auto manager=word(0x35de38);uint32_t cursor=model+0x60,block=0;
     std::array<uint32_t,11> material{0,1,1,0,0,0,0,0,1,0,1};
     for(unsigned i=0;i<count;++i){uint32_t mesh;
@@ -191,7 +198,9 @@ std::optional<bool> nativeModelInstruction(R5900Context *c,Runtime *rt,uint32_t 
     if(!c || !owner || !scene || !assets || !textures || c->pc!=0x239fd0 || c->r[5].uw[0]<0x100650)
         throw std::runtime_error("native model submission requires its complete scene producer");
     const auto object=c->r[5].uw[0]-0x650;
-    const auto submission=owner->nativeModels().capture(rt,assets->nativeAssets(),textures->nativeTextures(),scene->nativeScene(),object);
+    NativeModelSubmission submission;
+    try{submission=owner->nativeModels().capture(rt,assets->nativeAssets(),textures->nativeTextures(),scene->nativeScene(),object);}
+    catch(const std::runtime_error &e){throw std::runtime_error(std::format("native model object={:08x}: {}",object,e.what()));}
     owner->drawNativeModel(submission);c->r[4].sd[0]=int32_t(object);
     return true; // Original compiled scene completion follows accepted native draws.
 }

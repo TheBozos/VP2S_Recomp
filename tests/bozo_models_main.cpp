@@ -52,9 +52,11 @@ int main(int argc,char **argv){try{
         std::shared_ptr<const bozo::render::Texture> unused;
         for(unsigned seed=0;seed<128;++seed){
             const float alpha=float(seed)/128;put(rt,object+0x30c,alpha);put(rt,object+0x230+16*38,std::array<float,4>{0,0,.125f,.25f});
-            const bool morph=seed&1;if(morph){put(rt,object+0x630,uint32_t(0x1d0000));std::memcpy(rt.memory.hostPointer(0x1d0000,0x260),rt.memory.hostPointer(model,0x260),0x260);
+            const bool morph=seed&1;if(morph){const uint32_t aliases[5]={0,0x20000000u,0x30000000u,0x80000000u,0xa0000000u};
+                put(rt,object+0x630,uint32_t(0x1d0000)|aliases[(seed/2)%5]);std::memcpy(rt.memory.hostPointer(0x1d0000,0x260),rt.memory.hostPointer(model,0x260),0x260);
                 for(unsigned k=0;k<4;++k)put(rt,0x1d0060+0xc0+12*k,std::array<float,3>{(k&1)?.4f:-.4f,(k>>1)?.4f:-.4f,.5f});}
-            else put(rt,object+0x630,uint32_t(0));
+            else {const uint32_t nonModels[10]={0,0x3f7ffffeu,0x10003000u,0xffffffffu,0x01fffff0u,0x00100001u,0x80000000u,model,0x1e0000u,0x01ffff90u};
+                put(rt,object+0x630,nonModels[(seed/2)%10]);put(rt,0x1e0034,uint32_t(2));}
             const auto before=std::vector<uint8_t>(rt.memory.flat(),rt.memory.flat()+bozo::kFlatBytes);
             const auto result=models.capture(&rt,assets,textures,scene,object);check(result.batches.size()==1);
             const auto &batch=result.batches[0];check(batch.vertices.size()==6 && !batch.texture && !batch.material.textured && batch.material.depthWrite);

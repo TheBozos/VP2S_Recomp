@@ -8,6 +8,24 @@ verified in the MIPS or the assets, [I] inferred.
 
 ## Bozo native model submission (2026-11-07)
 
+The optional working-model probe at `object+0x630` first qualifies an aligned,
+complete RAM header through the admitted game RAM aliases (2026-11-08). The
+slot is not uniformly a pointer: original getter `0x22cfb0` also exposes an
+inline record at that offset. The first field capture, object `0x9a2060`, class
+`0x1546d0`, had `0x3f7ffffe` there; the old probe attempted `+0x34` as an address.
+Its actual seven-mesh model has completed part provenance `e405ef34/0+41340`.
+Non-model values now leave the optional probe inactive; valid editable copies
+still require the existing count/first-mesh header match and use direct live
+vertex sources. No arbitrary value is wrapped into RAM.
+
+All 384 native model capture cases retain geometry/skin/colour/RAM checks while
+covering genuine copies through five RAM alias forms, non-pointer values,
+truncated/unaligned headers, original-model identity and mismatched headers.
+Model and startup suites pass. The actual route passes this submission and
+stops at `0x248570`. Its captured partial frame is entirely black (RGB means
+zero), despite 155 queued batches / 4,683 vertices; this is not visible field
+parity or Logun qualification.
+
 The scalar bone-palette loop `0x2371dc..0x2372d0` also builds native matrix
 records directly (2026-11-08). Its root inverse, bone transforms and bind matrices
 feed two ordered compositions and a transpose at the original output stores.

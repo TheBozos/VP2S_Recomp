@@ -12,6 +12,24 @@ The earlier VP2S face/shading and general brightness comparisons remain open.
 
 ## Build and evidence
 
+### Optional editable-model probe admission (2026-11-08)
+
+The first field model submission exposed a legacy heuristic: `object+0x630`
+was probed as a pointer without checking its RAM extent. Original code also
+uses that location as an inline record; actual object `0x9a2060` contains
+float bits `0x3f7ffffe` there. Native capture now admits only an aligned complete
+RAM header through known game RAM aliases, then applies its existing model
+header identity check. This leaves non-model record data inactive while retaining
+real editable geometry. Error diagnostics include the object, address and source
+location; no transport or graphics-address interpretation is introduced.
+
+384 expanded model captures cover valid copy aliases, invalid/non-model values,
+truncated/unaligned and mismatched headers, geometry/skinning/colour, whole RAM
+preservation and snapshot lifetime. Model and startup suites pass. Actual New
+Game advances to `0x248570`. The partial GPU capture has 155 queued batches /
+4,683 vertices but measured RGB means zero: visible field rendering and Logun
+remain unqualified.
+
 ### Native model/global parameter combination (2026-11-08)
 
 The original scalar branch block `0x23c240..0x23c2d0` retains its `+0x518`

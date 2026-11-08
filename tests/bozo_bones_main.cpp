@@ -65,9 +65,10 @@ struct Host:bozo::ee::Host,bozo::port::Host{
     bozo::libs::Libraries &libraries()override{throw std::runtime_error("libraries");}
     bool nativeGraphics()const override{return true;}
     bool nativeInstruction(uint8_t *r,R5900Context *c,Runtime *rt,uint32_t pc)override{
-        if(reference && (pc==0x1fb418 || pc==0x1fb610 || pc==0x1fb8a0)){
-            float matrix[4][4],vector[4];uint32_t out[4];std::memcpy(matrix,rt->memory.hostPointer(c->r[5].uw[0],64),64);
-            std::memcpy(vector,rt->memory.hostPointer(c->r[4].uw[0],16),16);referenceTransform(matrix,vector,4,out);
+        if(reference && (pc==0x1fb418 || pc==0x1fb610 || pc==0x1fb8a0 || pc==0x1fb200 || pc==0x1fb318 || pc==0x1fb448 || pc==0x1fb640)){
+            const bool linear=pc==0x1fb200 || pc==0x1fb318 || pc==0x1fb448 || pc==0x1fb640;
+            float matrix[4][4]{},vector[4];uint32_t out[4];std::memcpy(matrix,rt->memory.hostPointer(c->r[5].uw[0],linear?48:64),linear?48:64);
+            std::memcpy(vector,rt->memory.hostPointer(c->r[4].uw[0],16),16);referenceTransform(matrix,vector,linear?3:4,out);
             std::memcpy(rt->memory.hostPointer(c->r[3].uw[0],16),out,16);return true;
         }
         if(reference && pc==0x1fb79c){
@@ -380,16 +381,18 @@ int main(){try{
         put(r,matrix+12,0x7fc00000u);reject();put(r,matrix+12,0u);put(r,point,1u);reject();
         put(r,point,0x40000000u);put(r,matrix,0x7f7fffffu);reject();
     }
-    unsigned transforms=0;
-    for(uint32_t entry:{0x1fb3f4u,0x1fb5ecu,0x1fb87cu})for(unsigned mode:{_MM_ROUND_NEAREST,_MM_ROUND_DOWN,_MM_ROUND_UP,_MM_ROUND_TOWARD_ZERO})for(unsigned seed=0;seed<128;++seed){
+    unsigned transforms=0,linearTransforms=0;
+    for(uint32_t entry:{0x1fb3f4u,0x1fb5ecu,0x1fb87cu,0x1fb1e4u,0x1fb2fcu,0x1fb42cu,0x1fb624u})for(unsigned mode:{_MM_ROUND_NEAREST,_MM_ROUND_DOWN,_MM_ROUND_UP,_MM_ROUND_TOWARD_ZERO})for(unsigned seed=0;seed<128;++seed){
+        const bool linear=entry==0x1fb1e4 || entry==0x1fb2fc || entry==0x1fb42c || entry==0x1fb624;
         auto &x=a.runtime(),&y=b.runtime();std::memset(x.memory.flat(),0x61,bozo::kFlatBytes);
-        const uint32_t matrix=seed&1?0x70000100:0x180000,vector=0x190000;
-        const uint32_t destination=seed%4==0?matrix+(seed%4)*16:seed%4==1?matrix+16:seed%4==2?vector:0x1a0000;
+        const uint32_t matrix=seed&1?0x70000100:0x180000,vector=seed%8==3?matrix+16:seed%8==5?matrix+32:0x190000;
+        const uint32_t destination=seed%4==0?matrix:seed%4==1?matrix+32:seed%4==2?vector:0x1a0000;
         uint32_t values[20];for(auto &v:values){random=random*1664525u+1013904223u;v=(random&0x807fffff)|((104+random%26)<<23);}
         if(seed%16==8)for(unsigned i=0;i<20;++i)values[i]=i<16?0x00800000u:0x3f000000u;
         if(seed%16==0){std::memset(values,0,sizeof(values));for(unsigned i=0;i<4;++i)values[i*5]=0x3f800000;
             values[3]=0x40000000;values[7]=0xc0400000;values[11]=0x40800000;values[15]=0x40a00000;
             values[16]=0x3f800000;values[17]=0x40000000;values[18]=0x40400000;values[19]=0x40000000;}
+        if(linear && vector==0x190000)values[19]=seed&2?0xff801234u:0x7fc01234u;
         std::memcpy(x.memory.hostPointer(matrix,64),values,64);std::memcpy(x.memory.hostPointer(vector,16),values+16,16);std::memcpy(y.memory.flat(),x.memory.flat(),bozo::kFlatBytes);
         R5900Context p{};for(unsigned i=1;i<32;++i){p.r[i].ud[0]=seed*32+i;p.r[i].ud[1]=~p.r[i].ud[0];}
         std::memset(p.vu0_vf,0x83,sizeof(p.vu0_vf));p.vu0_status=0x1234;p.r[5].ud[0]=matrix;p.r[4].ud[0]=vector;p.r[3].ud[0]=destination;p.r[31].ud[0]=0x170000;auto q=p;
@@ -397,7 +400,7 @@ int main(){try{
         h.reference=true;x.functions.generated(entry)(x.memory.flat(),&p,&x);const auto expectedFp=_mm_getcsr();_mm_setcsr(control);
         h.reference=false;y.functions.generated(entry)(y.memory.flat(),&q,&y);check(_mm_getcsr()==expectedFp);_mm_setcsr(saved);
         p.cycleLimit=q.cycleLimit;check(p.pc==0x170000 && !std::memcmp(&p,&q,sizeof(p)));check(!std::memcmp(x.memory.flat(),y.memory.flat(),bozo::kFlatBytes));
-        if(seed%16==0)check(word(y,destination+12)==0x41900000);++transforms;
+        if(seed%16==0)check(word(y,destination+12)==(linear?0x41000000u:0x41900000u));if(linear)++linearTransforms;else ++transforms;
     }
     {auto &r=b.runtime();constexpr uint32_t matrix=0x180000,vector=0x190000,destination=0x1a0000;R5900Context c{};c.r[5].ud[0]=matrix;c.r[4].ud[0]=vector;c.r[3].ud[0]=destination;
         for(unsigned i=0;i<16;++i)put(r,matrix+i*4,i%5==0?0x3f800000u:0u);for(unsigned i=0;i<4;++i)put(r,vector+i*4,0x3f800000u);
@@ -408,5 +411,14 @@ int main(){try{
         put(r,matrix+12,0x7fc00000u);reject();put(r,matrix+12,0u);put(r,vector,1u);reject();
         put(r,vector,0x40000000u);put(r,matrix,0x7f7fffffu);reject();
     }
-    std::printf("%u bone,%u distance,%u scale,%u parameters,%u selectors (%u rigid/%u general),%u column inverses,%u paired aliases,%u paired callers,%u full transforms: CPU/RAM, four modes, live XYZW; no VU state\n",cases,distances,scales,parameters,selectors,rigid,general,columns,pairs,pairedCallers,transforms);return 0;
+    {auto &r=b.runtime();constexpr uint32_t matrix=0x180000,vector=0x190000,destination=0x1a0000;R5900Context c{};c.r[5].ud[0]=matrix;c.r[4].ud[0]=vector;c.r[3].ud[0]=destination;
+        for(unsigned i=0;i<12;++i)put(r,matrix+i*4,i%5==0?0x3f800000u:0u);for(unsigned i=0;i<4;++i)put(r,vector+i*4,0x3f800000u);
+        auto reject=[&]{const auto saved=c;std::vector<uint8_t> ram(r.memory.flat(),r.memory.flat()+bozo::kFlatBytes);bool bad=false;
+            try{vp2s::nativeMathInstruction(r.memory.flat(),&c,&r,0x1fb640);}catch(const std::runtime_error &){bad=true;}
+            check(bad && !std::memcmp(&saved,&c,sizeof(c)) && !std::memcmp(ram.data(),r.memory.flat(),ram.size()));};
+        c.r[3].ud[0]+=4;reject();c.r[3].ud[0]-=4;put(r,vector,0x7fc00000u);reject();put(r,vector,0x3f800000u);
+        put(r,matrix+12,0x7fc00000u);reject();put(r,matrix+12,0u);put(r,vector,1u);reject();
+        put(r,vector,0x40000000u);put(r,matrix,0x7f7fffffu);reject();
+    }
+    std::printf("%u bone,%u distance,%u scale,%u parameters,%u selectors (%u rigid/%u general),%u column inverses,%u paired aliases,%u paired callers,%u full/%u linear transforms: CPU/RAM, four modes, live XYZW; no VU state\n",cases,distances,scales,parameters,selectors,rigid,general,columns,pairs,pairedCallers,transforms,linearTransforms);return 0;
 }catch(const std::exception &e){std::fprintf(stderr,"%s\n",e.what());return 1;}}

@@ -12,6 +12,23 @@ The earlier VP2S face/shading and general brightness comparisons remain open.
 
 ## Build and evidence
 
+### Native three-weight object transforms (2026-11-08)
+
+Four identical blocks ending at `0x1fb200`, `0x1fb318`, `0x1fb448` and
+`0x1fb640` now call the qualified shared linear-vector operation. XYZ weights
+produce all four output components. Input W is ignored only where it does not
+also alias a consumed basis component. Inputs are captured at this separate
+block, after any preceding four-weight store. Caller rounding, intermediate
+tiny-result reduction and conservative active-domain rejection remain.
+
+2,048 generated-block comparisons cover four copies, four rounding modes,
+scratch records, matrix/vector/output overlaps, non-float ignored W payloads,
+tiny products and a computed output W of eight. The preceding 1,536 full-weight
+cases now also cover matrix/vector input overlaps. Whole CPU/RAM and host FP
+results match independent scalar arithmetic; source guards and startup pass.
+Actual New Game advances to `0x1fca90`, in a branched motion update with a
+virtual callback before position publication. Logun remains open.
+
 ### Native four-weight object transforms (2026-11-08)
 
 Three identical blocks ending at `0x1fb418`, `0x1fb610` and `0x1fb8a0`

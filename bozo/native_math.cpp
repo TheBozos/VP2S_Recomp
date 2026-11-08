@@ -22,6 +22,23 @@ bool nativeMathInstruction(uint8_t *,R5900Context *c,Runtime *rt,uint32_t pc){
     if(nativeTrigInstruction(nullptr,c,rt,pc))return true;
     if(nativeObjectMathInstruction(nullptr,c,rt,pc))return true;
     if(nativeFrustumInstruction(c,rt,pc))return true;
+    if((pc>=0x1fb1e4 && pc<0x1fb200 && !(pc&3)) ||
+       (pc>=0x1fb2fc && pc<0x1fb318 && !(pc&3)) ||
+       (pc>=0x1fb42c && pc<0x1fb448 && !(pc&3)) ||
+       (pc>=0x1fb624 && pc<0x1fb640 && !(pc&3)))return true;
+    if(pc==0x1fb200 || pc==0x1fb318 || pc==0x1fb448 || pc==0x1fb640){
+        math::RigidBasis basis;__m128 vector;
+        std::memcpy(basis.data(),record(rt,c->r[5].uw[0],48),48);std::memcpy(&vector,record(rt,c->r[4].uw[0],16),16);
+        float rows[3][4],point[4];std::memcpy(rows,basis.data(),48);std::memcpy(point,&vector,16);
+        const auto qualified=[](float v){const auto b=std::bit_cast<uint32_t>(v),e=b&0x7f800000;
+            if(e==0x7f800000 || (!e && (b&0x7fffff)))throw std::runtime_error("unqualified native linear transform input");};
+        for(auto &row:rows)for(float v:row)qualified(v);for(unsigned i=0;i<3;++i)qualified(point[i]);
+        {music::CodecRounding validation;
+            for(unsigned lane=0;lane<4;++lane){double bound=0;for(unsigned row=0;row<3;++row)bound+=std::abs(double(rows[row][lane])*point[row]);
+                if(bound>std::numeric_limits<float>::max())throw std::runtime_error("native linear transform overflow");}}
+        const auto result=math::linearVectorProduct(basis,vector);
+        std::memcpy(record(rt,c->r[3].uw[0],16),&result,16);return true;
+    }
     if((pc>=0x1fb3f4 && pc<0x1fb418 && !(pc&3)) ||
        (pc>=0x1fb5ec && pc<0x1fb610 && !(pc&3)) ||
        (pc>=0x1fb87c && pc<0x1fb8a0 && !(pc&3)))return true;

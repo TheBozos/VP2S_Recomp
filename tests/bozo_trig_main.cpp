@@ -1,4 +1,5 @@
 #include "native_trig.h"
+#include "native_math.h"
 #include "bozo/ee/dispatcher.h"
 #include "bozo/port.h"
 #include "trig_original_functions.h"
@@ -62,6 +63,16 @@ vp2s::InverseCosineCoefficients readInverse(Runtime *rt){
     volatile float correction=numeratorCorrection/denominatorCorrection;
     return add(multiply(v[14],truncated),multiply(v[14],add(multiply(s,ratio),flush(correction))));
 }
+std::array<float,4> referenceLinearQuaternion(Runtime *rt,R5900Context *c){
+    float a[4],b[4],weights[2],blend[4],squares[4];std::array<float,4> out;
+    std::memcpy(a,rt->memory.hostPointer(c->r[17].uw[0],16),16);std::memcpy(b,rt->memory.hostPointer(c->r[16].uw[0],16),16);
+    std::memcpy(weights,rt->memory.hostPointer(c->r[29].uw[0]+0x60,8),8);
+    for(unsigned i=0;i<4;++i){const auto first=multiply(a[i],weights[0]),second=multiply(b[i],weights[1]);
+        blend[i]=c->r[19].ud[0]?subtract(second,first):add(second,first);squares[i]=multiply(blend[i],blend[i]);}
+    const auto squared=add(add(add(squares[0],squares[1]),multiply(1.f,squares[2])),multiply(1.f,squares[3]));
+    volatile float root=static_cast<float>(std::sqrt(std::abs(double(squared))));volatile float reciprocal=root==0?std::numeric_limits<float>::max():static_cast<float>(1.0/double(root));
+    for(unsigned i=0;i<4;++i)out[i]=multiply(blend[i],flush(reciprocal));return out;
+}
 [[gnu::noinline,gnu::noclone]] vp2s::NativeCosine referenceShort(float angle,const vp2s::TrigCoefficients &c,bool sine=false){
     const float argument=sine?angle:subtract(c.halfPi,angle);volatile float turns=multiply(argument,c.inversePi);
     const int32_t n=static_cast<int32_t>(turns);volatile float integer=static_cast<float>(n);
@@ -75,7 +86,8 @@ struct Host:bozo::ee::Host,bozo::port::Host {
     bozo::libs::Libraries &libraries()override{throw std::runtime_error("libraries");}
     bool nativeGraphics()const override{return true;}
     bool nativeInstruction(uint8_t *r,R5900Context *c,Runtime *rt,uint32_t pc)override{
-        sites.insert(pc);if(native){check(vp2s::nativeTrigInstruction(r,c,rt,pc));return true;}
+        sites.insert(pc);if(native){check(vp2s::nativeMathInstruction(r,c,rt,pc));return true;}
+        if(pc==0x21536c){const auto result=referenceLinearQuaternion(rt,c);std::memcpy(rt->memory.hostPointer(c->r[18].uw[0],16),result.data(),16);}
         if(pc==0x214f5c || pc==0x214ff8 || pc==0x215050 || pc==0x2150dc){
             const auto table=readInverse(rt);const auto result=pc==0x215050?referenceInverseRoot(c->f[12],table):referenceInverse(c->f[12],table);
             std::memcpy(rt->memory.hostPointer(0x35da6c,4),&result,4);
@@ -92,7 +104,7 @@ struct Host:bozo::ee::Host,bozo::port::Host {
     }
     void frameEnd(Runtime *,R5900Context *)override{throw std::runtime_error("frame");}
     bool callLibrary(Runtime *,R5900Context *,uint32_t)override{return false;}
-    void libraryCall(bozo::ee::Dispatcher &,R5900Context *,uint32_t)override{throw std::runtime_error("library");}
+    void libraryCall(bozo::ee::Dispatcher &,R5900Context *,uint32_t pc)override{throw std::runtime_error(pc==0x2150f0?"unqualified nonlinear quaternion weights":"library");}
     void vu0Microprogram(bozo::ee::Dispatcher &,R5900Context *,uint32_t)override{throw std::runtime_error("VU");}
     void ioRead(bozo::ee::Dispatcher &,R5900Context *,uint32_t,uint32_t,uint64_t[2])override{throw std::runtime_error("device");}
     void ioWrite(bozo::ee::Dispatcher &,R5900Context *,uint32_t,uint32_t,const uint64_t[2])override{throw std::runtime_error("device");}
@@ -103,6 +115,7 @@ int main(){try{
     Host old,now;now.native=true;bozo::ee::Dispatcher a(old),b(now);
     a.setFunctions(trig_original_function_table,trig_original_function_count,trig_original_resume_table,trig_original_resume_count);
     b.setFunctions(trig_adapted_function_table,trig_adapted_function_count,trig_adapted_resume_table,trig_adapted_resume_count);
+    a.bindLibrary(0x2150f0);b.bindLibrary(0x2150f0);
     a.runtime().port=&old;b.runtime().port=&now;
     R5900Context init{};init.r[31].uw[0]=0x170000;
     a.runtime().functions.generated(0x358490)(a.runtime().memory.flat(),&init,&a.runtime());const auto originalCoefficients=read(&a.runtime());
@@ -207,6 +220,68 @@ int main(){try{
         }
     }
     _mm_setcsr(saved);check(old.sites==now.sites && now.sites.size()==180);
+    unsigned linearCallers=0,negativeCallers=0,linearRecords=0;
+    for(unsigned mode:{_MM_ROUND_NEAREST,_MM_ROUND_DOWN,_MM_ROUND_UP,_MM_ROUND_TOWARD_ZERO})for(unsigned seed=0;seed<128;++seed){
+        auto *x=a.runtime().memory.flat(),*y=b.runtime().memory.flat();std::memset(x,0x65,bozo::kFlatBytes);
+        init={};init.r[31].uw[0]=0x170000;a.runtime().functions.generated(0x358490)(x,&init,&a.runtime());
+        const uint32_t stack=seed&1?0x70003e00:0x1fff000,first=seed&2?0x70000100:0x180000,second=0x190000;
+        const uint32_t destination=seed%4==0?first:seed%4==1?second:seed%4==2?stack-0x10:0x1a0000;
+        float aa[4],bb[4];const double offset=double(seed%16)*0.0001;
+        const double aX=seed&8?0.2:0,aY=seed&8?0.1:0,aZ=seed&8?0.05:0;
+        aa[0]=float(aX);aa[1]=float(aY);aa[2]=float(aZ);aa[3]=float(std::sqrt(1-aX*aX-aY*aY-aZ*aZ));
+        const double bX=aX+offset,bY=aY+offset*0.5,bZ=aZ+offset*0.25;
+        bb[0]=float(bX);bb[1]=float(bY);bb[2]=float(bZ);bb[3]=float(std::sqrt(1-bX*bX-bY*bY-bZ*bZ));
+        if(seed&4)for(auto &v:bb)v=-v;
+        std::memcpy(a.runtime().memory.hostPointer(first,16),aa,16);std::memcpy(a.runtime().memory.hostPointer(second,16),bb,16);std::memcpy(y,x,bozo::kFlatBytes);
+        R5900Context p{};for(unsigned i=1;i<32;++i){p.r[i].ud[0]=0x1234000000000000ull+seed*32+i;p.r[i].ud[1]=~p.r[i].ud[0];}
+        std::memset(p.vu0_vf,0x4f,sizeof(p.vu0_vf));std::memset(&p.vu0_acc,0x60,sizeof(p.vu0_acc));p.vu0_status=0x1234;p.r[4].ud[0]=destination;p.r[5].ud[0]=first;p.r[6].ud[0]=second;p.r[29].ud[0]=stack;p.r[31].uw[0]=0x170000;
+        const float parameters[]={0,1,0.5f,0.25f,-0.25f,1.25f,0.1f,0.33333334f};p.f[12]=parameters[seed%8];auto q=p;
+        const auto control=(saved&~(_MM_ROUND_MASK|0x8040|0x3f))|mode|(seed&1?0x8040:0);_mm_setcsr(control);
+        a.runtime().functions.generated(0x2151d0)(x,&p,&a.runtime());const auto after=_mm_getcsr();_mm_setcsr(control);
+        try{b.runtime().functions.generated(0x2151d0)(y,&q,&b.runtime());}
+        catch(const std::exception &e){std::fprintf(stderr,"linear quaternion seed=%u mode=%x: %s\n",seed,mode,e.what());throw;}
+        check(_mm_getcsr()==after && !std::memcmp(&p,&q,sizeof(p)) && !std::memcmp(x,y,bozo::kFlatBytes));
+        if(seed&4)++negativeCallers;++linearCallers;
+    }
+    check(negativeCallers==256 && old.sites==now.sites && now.sites.size()==199);
+    for(auto *d:{&a,&b})for(unsigned negative=0;negative<2;++negative){
+        auto &rt=d->runtime();std::memset(rt.memory.flat(),0x65,bozo::kFlatBytes);init={};init.r[31].uw[0]=0x170000;rt.functions.generated(0x358490)(rt.memory.flat(),&init,&rt);
+        const float first[4]={0,0,0,1},second[4]={negative?-0.6f:0.6f,0,0,negative?-0.8f:0.8f};
+        std::memcpy(rt.memory.hostPointer(0x180000,16),first,16);std::memcpy(rt.memory.hostPointer(0x190000,16),second,16);
+        R5900Context c{};c.r[4].ud[0]=0x1a0000;c.r[5].ud[0]=0x180000;c.r[6].ud[0]=0x190000;c.r[29].ud[0]=0x1fff000;c.r[31].uw[0]=0x170000;c.f[12]=0.5f;
+        bool bounded=false;try{rt.functions.generated(0x2151d0)(rt.memory.flat(),&c,&rt);}catch(const std::runtime_error &e){bounded=std::string(e.what())=="unqualified nonlinear quaternion weights";}
+        check(bounded && c.r[31].uw[0]==(negative?0x2152ec:0x215324) && c.r[19].ud[0]==negative);
+    }
+    for(unsigned mode:{_MM_ROUND_NEAREST,_MM_ROUND_DOWN,_MM_ROUND_UP,_MM_ROUND_TOWARD_ZERO})for(unsigned seed=0;seed<128;++seed){
+        auto *x=a.runtime().memory.flat(),*y=b.runtime().memory.flat();std::memset(x,0x65,bozo::kFlatBytes);
+        const uint32_t stack=seed&1?0x70003000:0x1ffe000,first=seed&2?0x70000100:0x180000,second=seed%8==3?first:0x190000;
+        const uint32_t destination=seed%4==0?first:seed%4==1?second:seed%4==2?stack+0x60:0x1a0000;
+        uint32_t aa[4],bb[4];for(auto *vector:{aa,bb})for(unsigned i=0;i<4;++i){random=random*1664525u+1013904223u;vector[i]=(random&0x807fffff)|((104+random%26)<<23);}
+        if(seed%16==0)for(unsigned i=0;i<4;++i)aa[i]=bb[i]=0;
+        if(seed%16==8)for(unsigned i=0;i<4;++i)aa[i]=bb[i]=0x00800000;
+        std::memcpy(a.runtime().memory.hostPointer(first,16),aa,16);std::memcpy(a.runtime().memory.hostPointer(second,16),bb,16);
+        const float weights[4]={0.5f,0.5f,std::bit_cast<float>(0xff801234u),std::bit_cast<float>(0x7fc05678u)};
+        std::memcpy(a.runtime().memory.hostPointer(stack+0x60,16),weights,16);std::memcpy(y,x,bozo::kFlatBytes);
+        R5900Context p{};std::memset(p.vu0_vf,0x51,sizeof(p.vu0_vf));std::memset(&p.vu0_acc,0x62,sizeof(p.vu0_acc));p.vu0_status=0x1234;
+        p.pc=seed&4?0x215274:0x215260;p.r[16].ud[0]=second;p.r[17].ud[0]=first;p.r[18].ud[0]=destination;p.r[19].ud[0]=seed&4?1:0;p.r[29].ud[0]=stack;p.f[0]=weights[0];p.f[22]=weights[1];auto q=p;
+        const auto control=(saved&~(_MM_ROUND_MASK|0x8040|0x3f))|mode;_mm_setcsr(control);
+        check(old.nativeInstruction(x,&p,&a.runtime(),0x21536c));const auto after=_mm_getcsr();_mm_setcsr(control);
+        check(now.nativeInstruction(y,&q,&b.runtime(),0x21536c));check(_mm_getcsr()==after);check(!std::memcmp(&p,&q,sizeof(p)) && !std::memcmp(x,y,bozo::kFlatBytes));
+        if(seed%16==0)for(unsigned i=0;i<4;++i)check((value<uint32_t>(&b.runtime(),destination+i*4)&0x7fffffff)==0);++linearRecords;
+    }
+    _mm_setcsr(saved);
+    {auto &rt=b.runtime();R5900Context c{};c.pc=0x215324;c.r[29].uw[0]=0x1ffe000;const auto before=c;std::vector<uint8_t> ram(rt.memory.flat(),rt.memory.flat()+bozo::kFlatBytes);bool rejected=false;
+        try{vp2s::nativeMathInstruction(rt.memory.flat(),&c,&rt,0x21536c);}catch(const std::runtime_error &){rejected=true;}
+        check(rejected && !std::memcmp(&before,&c,sizeof(c)) && !std::memcmp(ram.data(),rt.memory.flat(),ram.size()));
+        c.pc=0x215260;c.r[16].ud[0]=0x190000;c.r[17].ud[0]=0x180000;c.r[18].ud[0]=0x1a0000;c.f[0]=c.f[22]=0.5f;
+        float weights[4]={0.5f,0.5f,0,0},point[4]={0,0,0,1};std::memcpy(rt.memory.hostPointer(0x1ffe060,16),weights,16);
+        std::memcpy(rt.memory.hostPointer(0x180000,16),point,16);std::memcpy(rt.memory.hostPointer(0x190000,16),point,16);
+        auto rejectLinear=[&]{const auto savedContext=c;std::vector<uint8_t> savedRam(rt.memory.flat(),rt.memory.flat()+bozo::kFlatBytes);bool bad=false;
+            try{vp2s::nativeMathInstruction(rt.memory.flat(),&c,&rt,0x21536c);}catch(const std::runtime_error &){bad=true;}
+            check(bad && !std::memcmp(&savedContext,&c,sizeof(c)) && !std::memcmp(savedRam.data(),rt.memory.flat(),savedRam.size()));};
+        c.r[19].ud[0]=2;rejectLinear();c.r[19].ud[0]=0;c.f[0]=0.25f;rejectLinear();c.f[0]=0.5f;
+        uint32_t invalid=0x7fc00000;std::memcpy(rt.memory.hostPointer(0x18000c,4),&invalid,4);rejectLinear();invalid=0x7f7fffff;std::memcpy(rt.memory.hostPointer(0x18000c,4),&invalid,4);rejectLinear();
+    }
     {auto bad=inverseTable;bad.values[13]=0.25f;bool rejected=false;try{vp2s::inverseCosine(0.25f,bad);}catch(const std::runtime_error &){rejected=true;}check(rejected);
         bad=inverseTable;bad.values[8]=std::numeric_limits<float>::infinity();rejected=false;try{vp2s::inverseCosine(0.25f,bad);}catch(const std::runtime_error &){rejected=true;}check(rejected);
         bad=inverseTable;for(unsigned i=9;i<13;++i)bad.values[i]=0;bad.values[9]=-4;rejected=false;try{vp2s::inverseCosine(0.5f,bad);}catch(const std::runtime_error &){rejected=true;}check(rejected);
@@ -218,5 +293,5 @@ int main(){try{
     rejected=false;try{vp2s::sineCosine(std::bit_cast<float>(1u),originalCoefficients);}catch(const std::runtime_error &){rejected=true;}check(rejected);
     rejected=false;try{vp2s::shortCosine(std::bit_cast<float>(1u),originalCoefficients);}catch(const std::runtime_error &){rejected=true;}check(rejected);
     rejected=false;try{vp2s::shortSine(std::bit_cast<float>(1u),originalCoefficients);}catch(const std::runtime_error &){rejected=true;}check(rejected);
-    std::printf("%u sine/cosine + %u short cosine/sine + %u inverse-cosine generated CPU/RAM cases;262144 scalar polynomial comparisons,180 sites; inverse-cosine max absolute error %.9g; FP controls, signs, endpoints and split-root stores passed\n",cases,shortCases,inverseCases,inverseError);return 0;
+    std::printf("%u sine/cosine + %u short cosine/sine + %u inverse-cosine + %u linear-quaternion callers (%u negative-dot) + %u blend records;262144 scalar polynomial comparisons,199 sites; inverse-cosine max absolute error %.9g; FP controls, signs, endpoints and split-root stores passed\n",cases,shortCases,inverseCases,linearCallers,negativeCallers,linearRecords,inverseError);return 0;
 }catch(const std::exception &e){std::fprintf(stderr,"%s\n",e.what());return 1;}}

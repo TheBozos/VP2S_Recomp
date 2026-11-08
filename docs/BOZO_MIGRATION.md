@@ -12,6 +12,24 @@ The earlier VP2S face/shading and general brightness comparisons remain open.
 
 ## Build and evidence
 
+### Native near-angle quaternion interpolation (2026-11-08)
+
+The near-angle path in `0x2151d0` now reads the original scalar weight pair and
+both full quaternion records, forms the selected add/subtract blend and applies
+its inline four-component normalization. Caller rounding and ordinary ordered
+sums remain; the common microcode normalizer has a different sum policy and is
+not substituted. Zero-length reciprocal behavior remains original. Saved scalar
+call/weight/sign contracts and conservative active-domain bounds are checked.
+
+512 complete callers execute the real scalar dot product, newly native acos,
+hemisphere/angle selection, weights and epilogue. 256 exercise negative dots.
+Another 512 record cases cover source/output/weight-buffer aliases, scratch
+records, zero blends, tiny products and ignored weight ZW, over four modes.
+Whole CPU/RAM/FP, source/completeness and startup checks pass. Explicit full
+caller tests stop both nonlinear paths at their bounded sine-weight helper;
+unsupported return contexts, sign/weight records and active inputs reject.
+Actual New Game reaches that helper at `0x215104`. Logun remains open.
+
 ### Native inverse-cosine polynomial (2026-11-08)
 
 All 104 vector sites in `0x214e40` now retire or publish typed scalar polynomial

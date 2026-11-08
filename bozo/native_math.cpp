@@ -92,6 +92,21 @@ std::array<float,4> composeConstraintQuaternions(const std::array<float,4> &a,co
         const auto base=pairSum(pairProduct(b[i],a[3]),pairProduct(a[i],b[3]));result[i]=pairSum(base,pairProduct(cross,1.f));}
     result[3]=pairSum(pairSum(pairSum(products[3],-products[2]),-products[1]),-products[0]);return result;
 }
+std::array<float,4> linearQuaternionBlend(const std::array<float,4> &a,const std::array<float,4> &b,float firstWeight,float secondWeight,bool subtract){
+    for(float v:a)pairQualified(v);for(float v:b)pairQualified(v);pairQualified(firstWeight);pairQualified(secondWeight);
+    {music::CodecRounding validation;const double limit=std::sqrt(double(std::numeric_limits<float>::max())/4);
+        for(unsigned i=0;i<4;++i)if(std::abs(double(b[i])*secondWeight)+std::abs(double(a[i])*firstWeight)>limit)
+            throw std::runtime_error("linear quaternion blend/length overflow");}
+    std::array<float,4> value,result;float squares[4];
+    for(unsigned i=0;i<4;++i){const auto first=pairProduct(a[i],firstWeight),second=pairProduct(b[i],secondWeight);
+        value[i]=pairSum(second,subtract?-first:first);squares[i]=pairProduct(value[i],value[i]);}
+    const auto squared=pairSum(pairSum(pairSum(squares[0],squares[1]),pairProduct(1.f,squares[2])),pairProduct(1.f,squares[3]));
+    volatile float root=static_cast<float>(std::sqrt(std::abs(double(squared))));
+    volatile float reciprocal=root==0?std::numeric_limits<float>::max():static_cast<float>(1.0/double(root));
+    {music::CodecRounding validation;for(float v:value)if(std::abs(double(v)*reciprocal)>std::numeric_limits<float>::max())
+        throw std::runtime_error("linear quaternion normalization overflow");}
+    for(unsigned i=0;i<4;++i)result[i]=pairProduct(value[i],pairNormal(reciprocal));return result;
+}
 }
 void NativeMotion::prepare(uint32_t frame,uint32_t object,std::array<uint32_t,4> position){
     if(!updates.emplace(frame,Update{object,position}).second)throw std::runtime_error("native motion update repeats its frame");
@@ -104,6 +119,19 @@ bool nativeMathInstruction(uint8_t *,R5900Context *c,Runtime *rt,uint32_t pc){
     if(nativeTrigInstruction(nullptr,c,rt,pc))return true;
     if(nativeObjectMathInstruction(nullptr,c,rt,pc))return true;
     if(nativeFrustumInstruction(c,rt,pc))return true;
+    if((pc>=0x215298 && pc<=0x2152a4 && !(pc&3)) || pc==0x2152ac ||
+       (pc>=0x2152b4 && pc<=0x2152c0 && !(pc&3)) || pc==0x2152c8 ||
+       (pc>=0x215348 && pc<=0x21535c && !(pc&3)) || pc==0x215364 || pc==0x215368)return true;
+    if(pc==0x21536c){
+        if((c->pc!=0x215260 && c->pc!=0x215274) || c->r[19].ud[0]>1)
+            throw std::runtime_error("unported nonlinear/interior quaternion interpolation");
+        const auto stack=c->r[29].uw[0];float weights[2];std::memcpy(weights,record(rt,stack+0x60,16),8);
+        if(std::bit_cast<uint32_t>(weights[0])!=std::bit_cast<uint32_t>(c->f[0]) || std::bit_cast<uint32_t>(weights[1])!=std::bit_cast<uint32_t>(c->f[22]))
+            throw std::runtime_error("linear quaternion interpolation weight record mismatch");
+        std::array<float,4> a,b;std::memcpy(a.data(),record(rt,c->r[17].uw[0],16),16);std::memcpy(b.data(),record(rt,c->r[16].uw[0],16),16);
+        const auto result=linearQuaternionBlend(a,b,weights[0],weights[1],c->r[19].ud[0]!=0);
+        std::memcpy(record(rt,c->r[18].uw[0],16),result.data(),16);return true;
+    }
     // The angular-constraint algorithm owns a literal half coefficient. Its
     // obsolete vector-register initialization publishes no game data. Remaining
     // unported consumers still fail at their own explicit native boundaries.

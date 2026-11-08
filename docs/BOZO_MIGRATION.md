@@ -12,6 +12,24 @@ The earlier VP2S face/shading and general brightness comparisons remain open.
 
 ## Build and evidence
 
+### Positive-axis Euler quaternion builder (2026-11-08)
+
+The measured `0x2159c0` builder now uses the same qualified normalization
+equation at four explicit stack publications. Its positive axis signs, three
+real sine/cosine calls, full scalar Hamilton products, MMI copies and final
+output copy remain. Sixteen additional vector sites retire; no inherited
+vector bank is reconstructed. Its final normalization consumes/publishes the
+actual `SP+0x110` record before the original output store.
+
+512 new complete callers plus all 512 previous negative-axis callers pass over
+four modes, FTZ/DAZ, identity/single-axis signs, output aliases and complete
+CPU/RAM/FP. Independent rational normalization, mutation-free domain/setup
+rejection and every-word source guards remain. The trig suite covers 311 sites;
+all three targeted suites pass (`positive-euler-tests.log`, 80.72 seconds).
+Actual seed-1 passes this builder and reaches a VIF1 submission in `0x2dbd40`
+(`positive-euler-route.log`). Its native producer/owner must be established;
+visible field/Logun remains unqualified. Engine stays `436d5d8`.
+
 ### Scalar action-update magnitude (2026-11-08)
 
 The measured `0x4126a0` caller now computes magnitude from its explicit

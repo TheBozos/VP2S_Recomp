@@ -5,7 +5,7 @@ import unittest
 from pathlib import Path
 sys.path.insert(0,str(Path(__file__).resolve().parents[1]/'tools'))
 from vp2_bozo_prepare import elf_parts,overlay_entries
-from vp2_bozo_kernel import LEAFLESS_QUERY_SITES,FULL_SINE_SITES,FULL_COSINE_SITES,EULER_QUATERNION_SITES
+from vp2_bozo_kernel import LEAFLESS_QUERY_SITES,FULL_SINE_SITES,FULL_COSINE_SITES,EULER_QUATERNION_SITES,POSITIVE_EULER_SITES
 from vp2_bozo_kernel import bindings, game_adaptations, frame_adaptations, game_entries, native_game_sites, GUARDS, RETIRED_RANGES,bootstrap_adaptations,bootstrap_tables,overlay_adaptations,overlay_native_sites,display_adaptations,DISPLAY_STORES,startup_clear_adaptations,composition_adaptations,composition_sites,reject_performance_counter_reads
 
 IMAGE=Path(sys.argv.pop(1))
@@ -25,6 +25,14 @@ class KernelGuardTests(unittest.TestCase):
         lo,hi=0x1f6f40,0x1f739c;s=next(s for s in segments if s[0]==1 and s[2]<=lo<hi<=s[2]+s[4])
         actual=[pc for pc in range(lo,hi,4) if int.from_bytes(data[s[1]+pc-s[2]:s[1]+pc-s[2]+4],'little')>>26 in (0x12,0x36,0x3e)]
         self.assertEqual(list(LEAFLESS_QUERY_SITES),actual)
+        for pc in range(lo,hi,4):
+            changed=bytearray(data);changed[s[1]+pc-s[2]]^=1
+            with self.subTest(pc=hex(pc)),self.assertRaises(ValueError):overlay_adaptations('mod001',changed)
+    def test_positive_euler_source(self):
+        data=(IMAGE.parent/'mod001.elf').read_bytes();_,segments,_=elf_parts(data)
+        lo,hi=0x2159c0,0x215e40;s=next(s for s in segments if s[0]==1 and s[2]<=lo<hi<=s[2]+s[4])
+        actual=[pc for pc in range(lo,hi,4) if int.from_bytes(data[s[1]+pc-s[2]:s[1]+pc-s[2]+4],'little')>>26 in (0x12,0x36,0x3e)]
+        self.assertEqual(list(POSITIVE_EULER_SITES),actual)
         for pc in range(lo,hi,4):
             changed=bytearray(data);changed[s[1]+pc-s[2]]^=1
             with self.subTest(pc=hex(pc)),self.assertRaises(ValueError):overlay_adaptations('mod001',changed)
@@ -339,6 +347,7 @@ class KernelGuardTests(unittest.TestCase):
         *FULL_SINE_SITES,
         *FULL_COSINE_SITES,
         *EULER_QUATERNION_SITES,
+        *POSITIVE_EULER_SITES,
         *range(0x252ec8,0x252f24,4),0x252fdc,0x252fe0,0x252fe4,0x252fec,0x252ff0,0x252ff8,
         0x2bf040,0x2bf058,
         0x2371e8,0x2371ec,0x2371f0,0x2371f4,0x2371fc,0x237200,0x237204,0x237208,

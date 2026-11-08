@@ -136,6 +136,12 @@ struct Host:bozo::ee::Host,bozo::port::Host {
     bool nativeGraphics()const override{return true;}
     bool nativeInstruction(uint8_t *r,R5900Context *c,Runtime *rt,uint32_t pc)override{
         sites.insert(pc);if(native){check(vp2s::nativeMathInstruction(r,c,rt,pc));return true;}
+        if(pc==0x215a98 || pc==0x215afc || pc==0x215b60 || pc==0x215de4)c->r[9].ud[0]=0;
+        if(pc==0x215aa0 || pc==0x215b04 || pc==0x215b68 || pc==0x215dec){
+            const auto at=c->r[29].uw[0]+(pc==0x215aa0?0x140:pc==0x215b04?0x130:pc==0x215b68?0x120:0x110);
+            uint32_t input[4];auto *p=rt->memory.hostPointer(at,16);std::memcpy(input,p,16);
+            const auto result=referenceUnit(input);std::memcpy(p,result.data(),16);
+        }
         if(pc==0x21639c || pc==0x216400 || pc==0x216464 || pc==0x2166e4)c->r[9].ud[0]=0;
         if(pc==0x2163a4 || pc==0x216408 || pc==0x21646c || pc==0x2166e8){
             const auto stack=c->r[29].uw[0],at=pc==0x2163a4?stack+0x130:pc==0x216408?stack+0x120:pc==0x21646c?stack+0x110:c->r[16].uw[0];
@@ -396,10 +402,12 @@ int main(){try{
     }
     _mm_setcsr(saved);check(old.sites==now.sites && now.sites.size()==279);
     unsigned eulerCallers=0;
+    for(uint32_t entry:{0x2162c0u,0x2159c0u}){
+    const bool positive=entry==0x2159c0;
     for(unsigned mode:{_MM_ROUND_NEAREST,_MM_ROUND_DOWN,_MM_ROUND_UP,_MM_ROUND_TOWARD_ZERO})for(unsigned seed=0;seed<128;++seed){
         auto *x=a.runtime().memory.flat(),*y=b.runtime().memory.flat();std::memset(x,0x65,bozo::kFlatBytes);
         init={};init.r[31].uw[0]=0x170000;a.runtime().functions.generated(0x358490)(x,&init,&a.runtime());
-        const uint32_t top=seed&1?0x70003f00:0x1fff000,frame=top-0x170,source=0x180000;
+        const uint32_t top=seed&1?0x70003f00:0x1fff000,frame=top-(positive?0x180:0x170),source=0x180000;
         const uint32_t destination=seed%4==0?source:seed%4==1?frame+0x130:seed%4==2?frame+0x70:0x190000;
         float angles[4]={0,0,0,0};
         if(seed>=4)for(auto &angle:angles){random=random*1664525u+1013904223u;angle=float(int32_t(random)%32000)/8192;}
@@ -409,23 +417,25 @@ int main(){try{
         std::memset(p.vu0_vf,0x56,sizeof(p.vu0_vf));std::memset(&p.vu0_acc,0x67,sizeof(p.vu0_acc));p.vu0_status=0x1234;
         p.r[4].ud[0]=destination;p.r[5].ud[0]=source;p.r[29].ud[0]=top;p.r[31].ud[0]=0x170000;auto q=p;
         const auto control=(saved&~(_MM_ROUND_MASK|0x8040|0x3f))|mode|(seed&1?0x8040:0);_mm_setcsr(control);
-        a.runtime().functions.generated(0x2162c0)(x,&p,&a.runtime());const auto after=_mm_getcsr();_mm_setcsr(control);
-        try{b.runtime().functions.generated(0x2162c0)(y,&q,&b.runtime());}
-        catch(const std::exception &e){std::fprintf(stderr,"Euler quaternion seed=%u mode=%x: %s\n",seed,mode,e.what());throw;}
+        a.runtime().functions.generated(entry)(x,&p,&a.runtime());const auto after=_mm_getcsr();_mm_setcsr(control);
+        try{b.runtime().functions.generated(entry)(y,&q,&b.runtime());}
+        catch(const std::exception &e){std::fprintf(stderr,"Euler quaternion entry=%x seed=%u mode=%x: %s\n",entry,seed,mode,e.what());throw;}
         check(_mm_getcsr()==after && !std::memcmp(&p,&q,sizeof(p)) && !std::memcmp(x,y,bozo::kFlatBytes));
         const auto result=value<std::array<float,4>>(&b.runtime(),destination);double norm=0;for(auto v:result)norm+=double(v)*v;check(std::abs(norm-1)<0.000002);
         if(seed<4){for(unsigned i=0;i<3;++i)if(i+1!=seed)check(result[i]==0);
-            if(seed)check((seed<3?result[seed-1]<0:result[seed-1]>0));else check(result[3]==1);}
+            if(seed)check((!positive && seed<3?result[seed-1]<0:result[seed-1]>0));else check(result[3]==1);}
         ++eulerCallers;
     }
-    _mm_setcsr(saved);check(old.sites==now.sites && now.sites.size()==295);
-    {auto &rt=b.runtime();R5900Context c{};c.pc=0x21635c;c.r[29].uw[0]=0x1ffe000;c.r[2].uw[0]=0x1ffe130;
-        const uint32_t point[4]={0,0,0,0x3f800000};std::memcpy(rt.memory.hostPointer(0x1ffe130,16),point,16);
+    }
+    _mm_setcsr(saved);check(old.sites==now.sites && now.sites.size()==311);
+    for(bool positive:{false,true}){auto &rt=b.runtime();R5900Context c{};const uint32_t entry=positive?0x215a58:0x21635c,site=positive?0x215aa0:0x2163a4,at=positive?0x1ffe140:0x1ffe130;
+        c.pc=entry;c.r[29].uw[0]=0x1ffe000;c.r[2].uw[0]=at;
+        const uint32_t point[4]={0,0,0,0x3f800000};std::memcpy(rt.memory.hostPointer(at,16),point,16);
         auto reject=[&]{const auto before=c;std::vector<uint8_t> ram(rt.memory.flat(),rt.memory.flat()+bozo::kFlatBytes);bool failure=false;
-            try{vp2s::nativeMathInstruction(rt.memory.flat(),&c,&rt,0x2163a4);}catch(const std::runtime_error &){failure=true;}
+            try{vp2s::nativeMathInstruction(rt.memory.flat(),&c,&rt,site);}catch(const std::runtime_error &){failure=true;}
             check(failure && !std::memcmp(&before,&c,sizeof(c)) && !std::memcmp(ram.data(),rt.memory.flat(),ram.size()));};
-        c.pc=0x170000;reject();c.pc=0x21635c;c.r[2].uw[0]+=16;reject();c.r[2].uw[0]-=16;
-        for(uint32_t bad:{1u,0x7fc01234u,0x7f7fffffu}){std::memcpy(rt.memory.hostPointer(0x1ffe130,4),&bad,4);reject();}
+        c.pc=0x170000;reject();c.pc=entry;c.r[2].uw[0]+=16;reject();c.r[2].uw[0]-=16;
+        for(uint32_t bad:{1u,0x7fc01234u,0x7f7fffffu}){std::memcpy(rt.memory.hostPointer(at,4),&bad,4);reject();}
     }
     {auto bad=originalCoefficients;bad.sine[0]=0;bool rejected=false;try{vp2s::threeSines({0.1f,0.2f,0.3f},bad);}catch(const std::runtime_error &){rejected=true;}check(rejected);
         bad=originalCoefficients;bad.halfPi=std::numeric_limits<float>::quiet_NaN();const auto ignored=vp2s::threeSines({0.1f,0.2f,0.3f},bad),normal=vp2s::threeSines({0.1f,0.2f,0.3f},originalCoefficients);check(!std::memcmp(ignored.data(),normal.data(),12));
@@ -444,5 +454,5 @@ int main(){try{
     rejected=false;try{vp2s::fullCosine(std::bit_cast<float>(1u),originalCoefficients);}catch(const std::runtime_error &){rejected=true;}check(rejected);
     {auto table=originalCoefficients;table.halfPi=std::bit_cast<float>(0x7fc05678u);check(vp2s::fullSine(0.f,table).value==0.f);
         table.sine[0]=std::numeric_limits<float>::infinity();rejected=false;try{vp2s::fullSine(.25f,table);}catch(const std::runtime_error &){rejected=true;}check(rejected);}
-    std::printf("%u sine/cosine + %u scalar cosine/sines + %u inverse-cosine + %u linear-quaternion (%u negative-dot) + %u nonlinear-quaternion callers + %u blend records + %u three-sine + %u Euler-quaternion callers;458752 polynomial record comparisons,295 sites; inverse-cosine max error %.9g,three-sine max error %.9g; CPU/RAM/FP, signs, endpoints and split-root stores passed\n",cases,shortCases,inverseCases,linearCallers,negativeCallers,nonlinearCallers,linearRecords,threeSineCallers,eulerCallers,inverseError,threeSineError);return 0;
+    std::printf("%u sine/cosine + %u scalar cosine/sines + %u inverse-cosine + %u linear-quaternion (%u negative-dot) + %u nonlinear-quaternion callers + %u blend records + %u three-sine + %u Euler-quaternion callers;458752 polynomial record comparisons,311 sites; inverse-cosine max error %.9g,three-sine max error %.9g; CPU/RAM/FP, signs, endpoints and split-root stores passed\n",cases,shortCases,inverseCases,linearCallers,negativeCallers,nonlinearCallers,linearRecords,threeSineCallers,eulerCallers,inverseError,threeSineError);return 0;
 }catch(const std::exception &e){std::fprintf(stderr,"%s\n",e.what());return 1;}}

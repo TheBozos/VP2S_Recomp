@@ -22,7 +22,7 @@ float pairNormal(float v){const auto b=std::bit_cast<uint32_t>(v);return std::bi
 float pairProduct(float a,float b){volatile float value=a*b;return pairNormal(value);}
 float pairSum(float a,float b){volatile float value=a+b;return pairNormal(value);}
 void pairQualified(float v){const auto b=std::bit_cast<uint32_t>(v),e=b&0x7f800000;
-    if(e==0x7f800000 || (!e && (b&0x7fffff)))throw std::runtime_error("unqualified constrained-position input");}
+    if(e==0x7f800000 || (!e && (b&0x7fffff)))throw std::runtime_error("unqualified native geometric input");}
 struct PositionPairGeometry {std::array<float,3> difference;float distance;};
 PositionPairGeometry positionPairGeometry(const float first[4],const float second[4]){
     for(unsigned i=0;i<3;++i){pairQualified(first[i]);pairQualified(second[i]);}
@@ -51,6 +51,28 @@ bool nativeMathInstruction(uint8_t *,R5900Context *c,Runtime *rt,uint32_t pc){
     if(nativeTrigInstruction(nullptr,c,rt,pc))return true;
     if(nativeObjectMathInstruction(nullptr,c,rt,pc))return true;
     if(nativeFrustumInstruction(c,rt,pc))return true;
+    // The angular-constraint algorithm owns a literal half coefficient. Its
+    // obsolete vector-register initialization publishes no game data. Remaining
+    // unported consumers still fail at their own explicit native boundaries.
+    if(pc==0x1fcb7c)return true;
+    if(pc>=0x216da4 && pc<=0x216dbc && !(pc&3))return true;
+    if(pc==0x216e04){
+        const auto matrixAddress=c->r[5].uw[0],frame=c->r[29].uw[0];
+        auto *matrixRecord=record(rt,matrixAddress,64),*translationRecord=record(rt,frame,16);
+        if(c->r[3].uw[0]!=frame)throw std::runtime_error("native transposed inverse translation destination mismatch");
+        const auto a=reinterpret_cast<uintptr_t>(matrixRecord),b=reinterpret_cast<uintptr_t>(translationRecord);
+        if(a<b+16 && b<a+64)throw std::runtime_error("native transposed inverse output aliases its temporary");
+        math::Matrix matrix;__m128 translation;float rows[4][4],point[4];
+        std::memcpy(matrix.data(),matrixRecord,64);std::memcpy(&translation,translationRecord,16);std::memcpy(rows,matrix.data(),64);std::memcpy(point,&translation,16);
+        for(unsigned i=0;i<3;++i){pairQualified(point[i]);for(unsigned j=0;j<3;++j)pairQualified(rows[i][j]);}
+        {music::CodecRounding validation;for(unsigned lane=0;lane<3;++lane){double bound=0;
+            for(unsigned i=0;i<3;++i)bound+=std::abs(double(rows[lane][i])*point[i]);
+            if(bound>std::numeric_limits<float>::max())throw std::runtime_error("native transposed inverse translation overflow");}}
+        // Scalar clear, sequential translation loads and integer transpose have
+        // already executed. Output/frame separation keeps those inputs intact.
+        const auto result=math::transposedRigidInverseTranslation(matrix,translation);
+        std::memcpy(translationRecord,&result,16);return true;
+    }
     switch(pc){
     case 0x1fc86c:case 0x1fc870:case 0x1fc898:case 0x1fc8a0:case 0x1fc8a4:case 0x1fc8a8:case 0x1fc8ac:case 0x1fc8b4:
     case 0x1fc8f8:case 0x1fc8fc:case 0x1fc900:case 0x1fc90c:case 0x1fc948:case 0x1fc950:case 0x1fc970:case 0x1fc974:

@@ -12,6 +12,24 @@ The earlier VP2S face/shading and general brightness comparisons remain open.
 
 ## Build and evidence
 
+### Native transposed rigid-inverse translation (2026-11-08)
+
+`0x216d60` retains its scalar destination clear, sequential translation loads,
+integer transpose, final negations and epilogue. At `0x216e04` its qualified
+shared record operation reads the actual post-alias output matrix and temporary
+translation. Output/temporary overlap rejects because the original arithmetic
+read the temporary before the transpose. Arbitrary temporary W survives exactly;
+only the live 3x3 basis and XYZ translation participate in arithmetic.
+
+512 complete helper CPU/RAM/FP comparisons cover four modes, in-place and
+partial aliases in both directions, ordinary/scratch records, opaque fourth-row
+data and temporary W. A nontrivial exact sample checks the transpose orientation
+and all three final negative translation components. Rejection, complete source
+guards and startup pass. The angular caller's obsolete half-literal vector
+initialization retires without publishing state; its still-unported consumers
+remain explicit boundaries. Actual New Game advances to `0x1fcd08`, its
+transform/normalization/cosine block. Logun remains open.
+
 ### Native box-local point and return transforms (2026-11-08)
 
 Three further full-weight copies (`0x1fbdf0`, `0x1fbe90`, `0x1fbf9c` stores)

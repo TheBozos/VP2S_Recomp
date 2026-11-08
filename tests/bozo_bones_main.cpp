@@ -78,6 +78,14 @@ struct Host:bozo::ee::Host,bozo::port::Host,vp2s::MotionOwner{
     bozo::libs::Libraries &libraries()override{throw std::runtime_error("libraries");}
     bool nativeGraphics()const override{return true;}
     bool nativeInstruction(uint8_t *r,R5900Context *c,Runtime *rt,uint32_t pc)override{
+        if(reference && pc==0x216e04){
+            float matrix[4][4],point[4];uint32_t out[4];std::memcpy(matrix,rt->memory.hostPointer(c->r[5].uw[0],64),64);
+            std::memcpy(point,rt->memory.hostPointer(c->r[29].uw[0],16),16);std::memcpy(out,point,16);
+            const auto normal=[](float v){const auto bits=std::bit_cast<uint32_t>(v);return std::bit_cast<float>((bits&0x7f800000)?bits:(bits&0x80000000));};
+            for(unsigned lane=0;lane<3;++lane){volatile float x=matrix[lane][0]*point[0],y=matrix[lane][1]*point[1],z=matrix[lane][2]*point[2];
+                volatile float xy=normal(x)+normal(y),xyz=normal(xy)+normal(z);out[lane]=std::bit_cast<uint32_t>(normal(xyz));}
+            std::memcpy(rt->memory.hostPointer(c->r[29].uw[0],16),out,16);return true;
+        }
         if(pc==0x1fbf9c)++boxPublications;
         if(pc==0x1fc984)++symmetricPairs;if(pc==0x1fc9cc)++weightedPairs;
         if(reference && (pc==0x1fc908 || pc==0x1fc984 || pc==0x1fc9cc)){
@@ -574,5 +582,30 @@ int main(){try{
         if(seed%32==16)check(q.r[2].ud[0]==0 && word(y,output+12)==0x3f800000);++boxes;
     }
     check(clamped && unclamped && h.boxPublications==clamped*2);
-    std::printf("%u bone,%u distance,%u scale,%u parameters,%u selectors (%u rigid/%u general),%u column inverses,%u paired aliases,%u paired callers,%u full/%u linear transforms,%u motion callers,%u position pairs (%u fixed),%u boxes (%u clamped/%u unchanged): CPU/RAM, four modes, live XYZW; no VU state\n",cases,distances,scales,parameters,selectors,rigid,general,columns,pairs,pairedCallers,transforms,linearTransforms,motions,positionPairs,fixedPairs,boxes,clamped,unclamped);return 0;
+    unsigned transposedInverses=0;
+    for(unsigned mode:{_MM_ROUND_NEAREST,_MM_ROUND_DOWN,_MM_ROUND_UP,_MM_ROUND_TOWARD_ZERO})for(unsigned seed=0;seed<128;++seed){
+        auto &x=a.runtime(),&y=b.runtime();std::memset(x.memory.flat(),0x61,bozo::kFlatBytes);
+        const uint32_t source=seed&1?0x70000100:0x180000,stack=seed&2?0x70003e00:0x1fff000;
+        const uint32_t output=seed%8==0?0x1a0000:seed%8==1?source:seed%8==2?source+16:seed%8==3?source-16:seed%8==4?source+32:seed%8==5?source-32:seed%8==6?source+48:source-48;
+        uint32_t matrix[16];for(auto &v:matrix){random=random*1664525u+1013904223u;v=(random&0x807fffff)|((104+random%26)<<23);}
+        if(seed%16==0)for(unsigned i=0;i<16;++i)matrix[i]=std::bit_cast<uint32_t>(float(i+1));
+        for(unsigned i=12;i<16;++i)matrix[i]=0x7f800001u+i;
+        std::memcpy(x.memory.hostPointer(source,64),matrix,64);put(x,stack-4,0xff801234u);std::memcpy(y.memory.flat(),x.memory.flat(),bozo::kFlatBytes);
+        R5900Context p{};for(unsigned i=1;i<32;++i){p.r[i].ud[0]=seed*32+i;p.r[i].ud[1]=~p.r[i].ud[0];}
+        std::memset(p.vu0_vf,0x41,sizeof(p.vu0_vf));p.vu0_status=0x1234;p.r[4].ud[0]=source;p.r[5].ud[0]=output;p.r[29].ud[0]=stack;p.r[31].ud[0]=0x170000;auto q=p;
+        const auto saved=_mm_getcsr(),control=(saved&~_MM_ROUND_MASK)|mode;_mm_setcsr(control);
+        h.reference=true;x.functions.generated(0x216d60)(x.memory.flat(),&p,&x);const auto expectedFp=_mm_getcsr();_mm_setcsr(control);
+        h.reference=false;y.functions.generated(0x216d60)(y.memory.flat(),&q,&y);check(_mm_getcsr()==expectedFp);_mm_setcsr(saved);
+        p.cycleLimit=q.cycleLimit;check(p.pc==0x170000 && !std::memcmp(&p,&q,sizeof(p)));check(!std::memcmp(x.memory.flat(),y.memory.flat(),bozo::kFlatBytes));
+        check(word(y,stack-4)==0xff801234u);
+        if(seed%16==0)check(word(y,output+12)==0xc3180000 && word(y,output+28)==0xc3300000 && word(y,output+44)==0xc3480000);++transposedInverses;
+    }
+    {auto &r=b.runtime();constexpr uint32_t matrix=0x180000,stack=0x1fff000;R5900Context c{};c.r[5].ud[0]=matrix;c.r[29].ud[0]=stack;c.r[3].ud[0]=stack;
+        for(unsigned i=0;i<16;++i)put(r,matrix+i*4,i%5==0?0x3f800000u:0u);for(unsigned i=0;i<4;++i)put(r,stack+i*4,0x3f800000u);
+        auto reject=[&]{const auto saved=c;std::vector<uint8_t> ram(r.memory.flat(),r.memory.flat()+bozo::kFlatBytes);bool bad=false;
+            try{vp2s::nativeMathInstruction(r.memory.flat(),&c,&r,0x216e04);}catch(const std::runtime_error &){bad=true;}
+            check(bad && !std::memcmp(&saved,&c,sizeof(c)) && !std::memcmp(ram.data(),r.memory.flat(),ram.size()));};
+        c.r[5].ud[0]=stack-16;reject();c.r[5].ud[0]=matrix;put(r,matrix,0x7fc00000u);reject();put(r,matrix,1u);reject();put(r,matrix,0x7f7fffffu);put(r,stack,0x40000000u);reject();
+    }
+    std::printf("%u bone,%u distance,%u scale,%u parameters,%u selectors (%u rigid/%u general),%u column inverses,%u paired aliases,%u paired callers,%u full/%u linear transforms,%u motion callers,%u position pairs (%u fixed),%u boxes (%u clamped/%u unchanged),%u transposed inverses: CPU/RAM, four modes, live XYZW; no VU state\n",cases,distances,scales,parameters,selectors,rigid,general,columns,pairs,pairedCallers,transforms,linearTransforms,motions,positionPairs,fixedPairs,boxes,clamped,unclamped,transposedInverses);return 0;
 }catch(const std::exception &e){std::fprintf(stderr,"%s\n",e.what());return 1;}}

@@ -57,6 +57,14 @@ struct Host:bozo::ee::Host,bozo::port::Host{
     bozo::libs::Libraries &libraries()override{throw std::runtime_error("libraries");}
     bool nativeGraphics()const override{return true;}
     bool nativeInstruction(uint8_t *r,R5900Context *c,Runtime *rt,uint32_t pc)override{
+        if(reference && (pc==0x23c270 || pc==0x23c2a8 || pc==0x23c2c8)){
+            const bool combined=pc!=0x23c2c8;uint32_t first[4],second[4],offset[4]{},out[4];
+            std::memcpy(first,rt->memory.hostPointer(c->r[combined?6:5].uw[0],16),16);
+            std::memcpy(second,rt->memory.hostPointer(c->r[combined?5:4].uw[0],16),16);
+            if(combined)std::memcpy(offset,rt->memory.hostPointer(c->r[3].uw[0],16),16);
+            for(unsigned i=0;i<4;++i){out[i]=product(first[i],second[i]);if(combined)out[i]=sum(out[i],offset[i]);}
+            std::memcpy(rt->memory.hostPointer(c->r[combined?4:3].uw[0],16),out,16);return true;
+        }
         if(reference && (pc==0x20f26c || pc==0x20f2ac)){
             uint32_t matrix[4][4],scale[4],out[4][4];
             std::memcpy(matrix,rt->memory.hostPointer(c->r[4].uw[0],64),64);std::memcpy(scale,rt->memory.hostPointer(c->r[30].uw[0],16),16);
@@ -165,5 +173,37 @@ int main(){try{
         c.r[4].ud[0]+=16;reject();c.r[4].ud[0]-=16;
         put(r,0x190000,0x7fc00000u);reject();put(r,0x190000,1u);reject();put(r,0x190000,0x40000000u);put(r,object+0x150,0x7f7fffffu);reject();
     }
-    std::printf("%u bone loops,%u pair distances,%u camera scales: whole CPU/RAM against integer arithmetic, four modes, aliases, tiny products and rejected input; no VU/device state\n",cases,distances,scales);return 0;
+    unsigned parameters=0;
+    for(unsigned mode:{_MM_ROUND_NEAREST,_MM_ROUND_DOWN,_MM_ROUND_UP,_MM_ROUND_TOWARD_ZERO})for(unsigned seed=0;seed<128;++seed){
+        auto &x=a.runtime(),&y=b.runtime();std::memset(x.memory.flat(),0x71,bozo::kFlatBytes);
+        const uint32_t global=seed&1?0x70000100:0x180000,model=seed&2?0x70001000:0x190000,flags=seed%4;
+        uint32_t values[16];for(auto &v:values){random=random*1664525u+1013904223u;v=(random&0x807fffff)|((104+random%30)<<23);}
+        if(seed%8==0)for(unsigned i=0;i<16;++i)values[i]=i&1?0x80000000u:0;
+        if(seed%8==1)for(unsigned i=0;i<4;++i){values[i]=std::bit_cast<uint32_t>(i&1?-1.f:1.f);values[i+4]=values[i+8]=values[i]^0x80000000u;values[i+12]=0x3f800000;}
+        if(seed%8==2)for(unsigned i=0;i<12;++i){values[i]=0x00800000u|(i&1?0x80000000u:0);values[12+i%4]=0x3f000000;}
+        std::memcpy(x.memory.hostPointer(global+0x310,16),values,16);std::memcpy(x.memory.hostPointer(global+0x390,16),values+4,16);
+        std::memcpy(x.memory.hostPointer(global+0x3c0,16),values+8,16);std::memcpy(x.memory.hostPointer(model+0x7e0,16),values+12,16);
+        *x.memory.hostPointer(global+0x518,1)=flags&1?7:0;*x.memory.hostPointer(global+0x517,1)=flags&2?9:0;
+        const uint32_t coefficient=global+(flags&1?0x3c0:flags&2?0x390:0x310);
+        const uint32_t stack=seed%4==0?global+0x310-0x50:seed%4==1?coefficient-0x50:seed%4==2?model+0x7e0-0x50:seed&4?0x70003e00:0x1fff000;
+        std::memcpy(y.memory.flat(),x.memory.flat(),bozo::kFlatBytes);
+        R5900Context p{};for(unsigned i=1;i<32;++i){p.r[i].ud[0]=seed*32+i;p.r[i].ud[1]=~p.r[i].ud[0];}
+        std::memset(p.vu0_vf,0x61,sizeof(p.vu0_vf));p.vu0_status=0x1254;p.r[18].ud[0]=global;p.r[19].ud[0]=model;p.r[29].ud[0]=stack;p.r[31].ud[0]=0x170000;auto q=p;
+        const auto saved=_mm_getcsr(),control=(saved&~_MM_ROUND_MASK)|mode;_mm_setcsr(control);
+        h.reference=true;x.functions.generated(0x23c240)(x.memory.flat(),&p,&x);const auto expected=_mm_getcsr();_mm_setcsr(control);
+        h.reference=false;y.functions.generated(0x23c240)(y.memory.flat(),&q,&y);check(_mm_getcsr()==expected);_mm_setcsr(saved);
+        p.cycleLimit=q.cycleLimit;check(p.pc==0x170000 && !std::memcmp(&p,&q,sizeof(p)));check(!std::memcmp(x.memory.flat(),y.memory.flat(),bozo::kFlatBytes));++parameters;
+    }
+    {auto &r=b.runtime();constexpr uint32_t global=0x180000,model=0x190000;R5900Context c{};
+        c.r[18].ud[0]=global;c.r[19].ud[0]=model;c.r[29].ud[0]=0x1fff000;c.r[6].ud[0]=global+0x3c0;c.r[5].ud[0]=model+0x7e0;c.r[3].ud[0]=global+0x310;c.r[4].ud[0]=0x1fff050;
+        for(unsigned i=0;i<4;++i){put(r,global+0x310+i*4,0x3f800000u);put(r,global+0x3c0+i*4,0x3f800000u);put(r,model+0x7e0+i*4,0x3f800000u);}
+        auto reject=[&]{const auto saved=c;std::vector<uint8_t> ram(r.memory.flat(),r.memory.flat()+bozo::kFlatBytes);bool bad=false;
+            try{vp2s::nativeMathInstruction(r.memory.flat(),&c,&r,0x23c270);}catch(const std::runtime_error &){bad=true;}
+            check(bad && !std::memcmp(&saved,&c,sizeof(c)) && !std::memcmp(ram.data(),r.memory.flat(),ram.size()));};
+        c.r[4].ud[0]+=16;reject();c.r[4].ud[0]-=16;
+        for(uint32_t bad:{0x7fc00000u,1u}){put(r,global+0x3c0,bad);reject();}
+        put(r,global+0x3c0,0x7f7fffffu);put(r,model+0x7e0,0x40000000u);reject();
+        put(r,model+0x7e0,0x3f800000u);put(r,global+0x310,0x7f7fffffu);reject();
+    }
+    std::printf("%u bone loops,%u pair distances,%u camera scales,%u model parameter branches: whole CPU/RAM, integer arithmetic, four modes, aliasing and rejected input; no VU/device state\n",cases,distances,scales,parameters);return 0;
 }catch(const std::exception &e){std::fprintf(stderr,"%s\n",e.what());return 1;}}

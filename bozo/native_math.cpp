@@ -22,6 +22,32 @@ bool nativeMathInstruction(uint8_t *,R5900Context *c,Runtime *rt,uint32_t pc){
     if(nativeTrigInstruction(nullptr,c,rt,pc))return true;
     if(nativeObjectMathInstruction(nullptr,c,rt,pc))return true;
     if(nativeFrustumInstruction(c,rt,pc))return true;
+    if(pc==0x23c270 || pc==0x23c2a8 || pc==0x23c2c8){
+        const auto global=c->r[18].uw[0],model=c->r[19].uw[0],destination=c->r[29].uw[0]+0x50;
+        record(rt,global,0x520);record(rt,model,0x7f0);
+        const bool combined=pc!=0x23c2c8;
+        const auto coefficient=global+(pc==0x23c270?0x3c0:pc==0x23c2a8?0x390:0x310);
+        if(combined?(c->r[6].uw[0]!=coefficient || c->r[5].uw[0]!=model+0x7e0 || c->r[3].uw[0]!=global+0x310 || c->r[4].uw[0]!=destination):
+                    (c->r[5].uw[0]!=coefficient || c->r[4].uw[0]!=model+0x7e0 || c->r[3].uw[0]!=destination))
+            throw std::runtime_error("native model parameter combination escaped its records");
+        float first[4],second[4],offset[4]{},result[4];
+        std::memcpy(first,record(rt,coefficient,16),16);std::memcpy(second,record(rt,model+0x7e0,16),16);
+        if(combined)std::memcpy(offset,record(rt,global+0x310,16),16);
+        for(unsigned i=0;i<4;++i){for(float v:{first[i],second[i],offset[i]}){const auto b=std::bit_cast<uint32_t>(v),e=b&0x7f800000;
+                if(e==0x7f800000 || (!e && (b&0x7fffff)))throw std::runtime_error("unqualified native model parameter input");}
+            if(std::abs(double(first[i])*second[i])>std::numeric_limits<float>::max())throw std::runtime_error("native model parameter product overflow");}
+        const auto normal=[](float v){const auto b=std::bit_cast<uint32_t>(v);return std::bit_cast<float>((b&0x7f800000)?b:(b&0x80000000));};
+        music::CodecRounding rounding;
+        for(unsigned i=0;i<4;++i){volatile float value=first[i]*second[i];result[i]=normal(value);
+            if(combined){if(std::abs(double(result[i])+offset[i])>std::numeric_limits<float>::max())throw std::runtime_error("native model parameter sum overflow");
+                result[i]=normal(music::codecSum(result[i],offset[i]));}}
+        std::memcpy(record(rt,destination,16),result,16);return true;
+    }
+    switch(pc){
+    case 0x23c258:case 0x23c25c:case 0x23c260:case 0x23c264:case 0x23c268:
+    case 0x23c290:case 0x23c294:case 0x23c298:case 0x23c29c:case 0x23c2a0:
+    case 0x23c2bc:case 0x23c2c0:case 0x23c2c4:return true;
+    }
     if(pc==0x20f26c || pc==0x20f2ac){
         const auto object=c->r[21].uw[0],source=object+(pc==0x20f26c?0xd0:0x150),destination=object+0x1d0;
         record(rt,object,0x210);

@@ -12,6 +12,22 @@ The earlier VP2S face/shading and general brightness comparisons remain open.
 
 ## Build and evidence
 
+### Native model/global parameter combination (2026-11-08)
+
+The original scalar branch block `0x23c240..0x23c2d0` retains its `+0x518`
+priority over `+0x517`. Native operations either multiply `+0x310` by the
+model's `+0x7e0` record, or multiply `+0x3c0` / `+0x390` by that model record
+then add `+0x310` with the original truncated reduction. Inputs are captured
+before the original stack output, including aliases. Producer ABI, numerical
+domain and product/sum bounds remain guarded.
+
+512 whole CPU/RAM cases pass independent integer arithmetic across all flag
+combinations and four modes, including cancellation, tiny products, overlapping
+inputs/output and mutation-free rejection. Bone/record, source-guard and startup
+suites pass. Actual New Game now passes this calculation and reaches native
+model submission, where an optional working-model probe reads a non-RAM value
+as an address. That resource probe is under investigation; Logun remains open.
+
 ### Native camera matrix scale (2026-11-08)
 
 The two `0x20f240` / `0x20f280` blocks read their own ordinary source matrix

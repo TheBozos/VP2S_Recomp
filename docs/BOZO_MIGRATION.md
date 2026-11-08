@@ -12,6 +12,22 @@ The earlier VP2S face/shading and general brightness comparisons remain open.
 
 ## Build and evidence
 
+### Scalar action-update magnitude (2026-11-08)
+
+The measured `0x4126a0` caller now computes magnitude from its explicit
+`object+0x220` vector. Nine inline vector sites publish the complete stack
+record: length X, squared Y/Z, unchanged opaque W. Caller rounding and host
+flags are preserved. Original state exclusions, zero/nonzero action flags,
+callbacks, model/child writes and saved-register restoration remain.
+
+512 complete CPU/RAM/FP callers include 248 active and 40 zero-magnitude paths,
+four modes, FTZ/DAZ, non-exact products and tiny squared terms. Independent
+integer rounding/root equations and bounded callback contracts verify both
+action flag choices and final publication. Setup/domain/frame overlap rejects
+without mutation; every source word is guarded. Three targeted suites pass
+(`action-tests.log`, 75.20 seconds). Actual seed-1 reaches another Euler builder
+at `0x215a8c`, entry/return `0x215a58` (`action-route.log`); Logun remains open.
+
 ### Scratch-stack asset provenance (2026-11-08)
 
 The actual field memset at `0x4227c8` writes 512 bytes to `0x70003960` while

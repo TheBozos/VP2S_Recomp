@@ -57,11 +57,49 @@ uint32_t reciprocal(uint32_t bits){
     while(lo<hi){const auto mid=lo+(hi-lo+1)/2;const double value=std::bit_cast<float>(mid);
         if(value*denominator<=1.)lo=mid;else hi=mid-1;}return lo;
 }
+uint32_t roundedPositive(uint64_t significant,unsigned shift,unsigned exponent,unsigned mode){
+    const auto mask=(1ull<<shift)-1,remainder=significant&mask;auto mantissa=significant>>shift;
+    if((mode==_MM_ROUND_UP && remainder) || (mode==_MM_ROUND_NEAREST &&
+       (remainder>(1ull<<(shift-1)) || (remainder==(1ull<<(shift-1)) && (mantissa&1)))))++mantissa;
+    if(mantissa>=0x1000000){mantissa>>=1;++exponent;}
+    return (exponent<<23)|uint32_t(mantissa&0x7fffff);
+}
+uint32_t roundedSquare(uint32_t bits,unsigned mode){
+    const auto e=(bits>>23)&255;if(!e)return 0;
+    const uint64_t mantissa=(bits&0x7fffff)|0x800000,p=mantissa*mantissa;
+    int exponent=int(e)*2-127;unsigned shift=23;if(p&(1ull<<47)){++exponent;++shift;}
+    if(exponent<=0)return 0;check(exponent<255);return roundedPositive(p,shift,unsigned(exponent),mode);
+}
+uint32_t roundedSum(uint32_t a,uint32_t b,unsigned mode){
+    if(a<b)std::swap(a,b);if(!b)return a;unsigned e=a>>23;const auto delta=e-(b>>23);
+    uint64_t smaller=uint64_t((b&0x7fffff)|0x800000)<<32;
+    if(delta>=64)smaller=1;else if(delta){const auto lost=smaller&((1ull<<delta)-1);smaller=(smaller>>delta)|(lost!=0);}
+    auto total=(uint64_t((a&0x7fffff)|0x800000)<<32)+smaller;
+    if(total&(1ull<<56)){total=(total>>1)|(total&1);++e;}
+    return roundedPositive(total,32,e,mode);
+}
+double positiveValue(uint32_t bits){const auto e=bits>>23,m=(bits&0x7fffff)|(e?0x800000:0);return std::ldexp(double(m),e?int(e)-150:-149);}
+uint32_t roundedRoot(uint32_t bits,unsigned mode){
+    const auto target=positiveValue(bits);uint32_t lo=0,hi=0x7f7fffff;
+    while(lo<hi){const auto mid=lo+(hi-lo+1)/2;const auto v=positiveValue(mid);if(v*v<=target)lo=mid;else hi=mid-1;}
+    const auto v=positiveValue(lo);if(v*v==target)return lo;
+    if(mode==_MM_ROUND_UP)return lo+1;
+    if(mode==_MM_ROUND_NEAREST){const auto mid=(v+positiveValue(lo+1))*0.5;
+        if(target>mid*mid || (target==mid*mid && (lo&1)))return lo+1;}
+    return lo;
+}
 struct Host:bozo::ee::Host,bozo::port::Host {
     bool reference=false;std::vector<uint32_t> nodes;unsigned colourCalls=0;
+    uint32_t actionObject=0,actionFlags=0;unsigned actionCalls=0,actionFinals=0;
     bozo::libs::Libraries &libraries()override{throw std::runtime_error("library");}
     bool nativeGraphics()const override{return true;}
     bool nativeInstruction(uint8_t *r,R5900Context *c,Runtime *rt,uint32_t pc)override{
+        if(reference && pc==0x4127ac){const auto saved=_mm_getcsr(),mode=saved&_MM_ROUND_MASK;uint32_t out[4];
+            std::memcpy(out,rt->memory.hostPointer(c->r[16].uw[0]+0x220,16),16);
+            for(unsigned i=0;i<3;++i)out[i]=roundedSquare(out[i],mode);
+            out[0]=roundedRoot(roundedSum(roundedSum(out[0],out[1],mode),out[2],mode),mode);
+            std::memcpy(rt->memory.hostPointer(c->r[29].uw[0]+0x20,16),out,16);_mm_setcsr(saved);return true;
+        }
         if(reference && pc==0x43d2ac){uint32_t first[4],second[4],out[4];
             std::memcpy(first,rt->memory.hostPointer(c->r[6].uw[0],16),16);std::memcpy(second,rt->memory.hostPointer(c->r[4].uw[0],16),16);
             for(unsigned i=0;i<4;++i)out[i]=product(first[i],second[i]);std::memcpy(rt->memory.hostPointer(c->r[3].uw[0],16),out,16);return true;}
@@ -101,7 +139,11 @@ struct Host:bozo::ee::Host,bozo::port::Host {
     void libraryCall(bozo::ee::Dispatcher &d,R5900Context *c,uint32_t pc)override{
         // Bounded software iterator/setter contracts isolate this original
         // caller. They do not qualify the model manager or renderer itself.
-        if(pc==0x267280){check(c->r[4].uw[0]==0x1e0000 && c->r[5].uw[0]==0);c->r[2].ud[0]=nodes.empty()?0:nodes.front();}
+        if(pc==0x3d0b90){check(c->r[4].uw[0]==0x1e0000 && c->r[5].uw[0]==actionFlags && c->r[6].uw[0]==0);
+            check(c->f[12]==0 && c->f[13]==0 && c->f[14]==8 && c->f[15]==1 && c->f[16]==25);++actionCalls;}
+        else if(pc==0x172020){check(c->r[4].uw[0]==actionObject && c->r[5].uw[0]==255);*d.runtime().memory.hostPointer(actionObject+0x7c9,1)=255;}
+        else if(pc==0x395ec0){check(c->r[4].uw[0]==actionObject);++actionFinals;c->r[2].ud[0]=0x4a;}
+        else if(pc==0x267280){check(c->r[4].uw[0]==0x1e0000 && c->r[5].uw[0]==0);c->r[2].ud[0]=nodes.empty()?0:nodes.front();}
         else if(pc==0x266950){check(c->r[4].uw[0]==0x1e0000);auto i=std::find(nodes.begin(),nodes.end(),c->r[5].uw[0]);check(i!=nodes.end());c->r[2].ud[0]=++i==nodes.end()?0:*i;}
         else if(pc==0x172000){*d.runtime().memory.hostPointer(c->r[4].uw[0]+0x110,1)=uint8_t(c->r[5].uw[0]);c->r[2].ud[0]=0;++colourCalls;}
         else if(pc==0x172010){check(std::find(nodes.begin(),nodes.end(),c->r[4].uw[0])!=nodes.end());c->r[2].ud[0]=0;++colourCalls;}
@@ -119,7 +161,7 @@ int main(){try{
     original.setFunctions(distance_original_function_table,distance_original_function_count,distance_original_resume_table,distance_original_resume_count);
     adapted.setFunctions(distance_adapted_function_table,distance_adapted_function_count,distance_adapted_resume_table,distance_adapted_resume_count);
     original.runtime().port=adapted.runtime().port=&host;unsigned cases=0;
-    for(auto *d:{&original,&adapted})for(uint32_t pc:{0x267280u,0x266950u,0x172000u,0x172010u})d->bindLibrary(pc);
+    for(auto *d:{&original,&adapted})for(uint32_t pc:{0x267280u,0x266950u,0x172000u,0x172010u,0x172020u,0x3d0b90u,0x395ec0u})d->bindLibrary(pc);
     for(unsigned profile=0;profile<5;++profile)for(unsigned mode:{_MM_ROUND_NEAREST,_MM_ROUND_DOWN,_MM_ROUND_UP,_MM_ROUND_TOWARD_ZERO})for(unsigned seed=0;seed<64;++seed){
         const bool movement=profile==1,camera=profile==2,setup=profile==3,enclosing=profile==4;
         auto &a=original.runtime();auto &b=adapted.runtime();std::memset(a.memory.flat(),seed+1,bozo::kFlatBytes);
@@ -150,6 +192,48 @@ int main(){try{
         if(movement)check((b.memory.ram()[object+0xbc]&1)==(seed%8!=0) && (b.memory.ram()[object+0xbc]&254)==((seed*17)&254));
         if(camera)check(!std::memcmp(b.memory.ram()+object+0x33c,b.memory.hostPointer(stack+0x20,4),4));
         if(setup)check(!std::memcmp(b.memory.ram()+object+0x58,b.memory.hostPointer(stack+0x50,4),4));
+    }
+    unsigned actions=0,activeActions=0,zeroActions=0;
+    for(unsigned mode:{_MM_ROUND_NEAREST,_MM_ROUND_DOWN,_MM_ROUND_UP,_MM_ROUND_TOWARD_ZERO})for(unsigned seed=0;seed<128;++seed){
+        auto &a=original.runtime();auto &b=adapted.runtime();std::memset(a.memory.flat(),seed+1,bozo::kFlatBytes);
+        constexpr uint32_t object=0x180000,table=0x1d0000,model=0x1e0000,child=0x1f0000,setter=0x172020;
+        const uint32_t top=seed&1?0x70003f00:0x1fff000,flag=0x1234;
+        const int8_t state=int8_t(seed%40);a.memory.ram()[object+0x7c6]=uint8_t(state);
+        const bool active=!(state>=15 && state<=35) && state!=10;
+        uint32_t point[4]={0,0,0,0x7fc01234};
+        if(seed%5){for(unsigned i=0;i<3;++i)point[i]=((seed+i)&1?0x80000000u:0u)|(0x3a000000u+((seed*77771+i*112345)&0x7fffffu));}
+        if(seed%11==0 && seed%5)point[0]=0x3f800001; // Non-exact square/sum/root rounding.
+        if(seed%17==0 && seed%5){point[0]=0x00800000;point[1]=point[2]=0;} // Squared terms flush to zero.
+        const bool zero=seed%5==0 || seed%17==0;
+        const uint32_t selectedChild=seed&2?child:0;
+        for(auto pair:{std::pair{object,table},std::pair{table+0xac,setter},std::pair{object+0x488,model},std::pair{model+0x7c,selectedChild},std::pair{object+0x100,flag}})
+            std::memcpy(a.memory.ram()+pair.first,&pair.second,4);
+        std::memcpy(a.memory.ram()+object+0x220,point,16);std::memcpy(b.memory.flat(),a.memory.flat(),bozo::kFlatBytes);
+        R5900Context x{};for(unsigned i=1;i<32;++i){x.r[i].ud[0]=seed*32+i;x.r[i].ud[1]=~x.r[i].ud[0];}
+        std::memset(x.vu0_vf,0x8c,sizeof(x.vu0_vf));x.vu0_acc.u[2]=0x9988;x.vu0_status=0x7654;
+        x.r[4].ud[0]=object;x.r[29].ud[0]=top;x.r[31].ud[0]=0x170000;auto y=x;
+        host.actionObject=object;host.actionFlags=flag|(zero?0x310000:0x330000);
+        const auto saved=_mm_getcsr(),control=(saved&~(_MM_ROUND_MASK|0x8040|0x3f))|mode|(seed&1?0x8040:0);_mm_setcsr(control);
+        host.actionCalls=host.actionFinals=0;host.reference=true;a.functions.generated(0x4126a0)(a.memory.flat(),&x,&a);
+        const auto expectedFp=_mm_getcsr();check(host.actionCalls==unsigned(active) && host.actionFinals==1);_mm_setcsr(control);
+        host.actionCalls=host.actionFinals=0;host.reference=false;
+        try{b.functions.generated(0x4126a0)(b.memory.flat(),&y,&b);}catch(const std::exception &e){std::fprintf(stderr,"action seed=%u mode=%x: %s\n",seed,mode,e.what());throw;}
+        check(_mm_getcsr()==expectedFp && host.actionCalls==unsigned(active) && host.actionFinals==1);_mm_setcsr(saved);
+        check(x.pc==0x170000 && !std::memcmp(&x,&y,sizeof(x)) && !std::memcmp(a.memory.flat(),b.memory.flat(),bozo::kFlatBytes));
+        if(active){uint32_t output[4];std::memcpy(output,b.memory.hostPointer(top-0x10,16),16);check(output[3]==point[3]);
+            check((output[0]==0)==zero);check(b.memory.ram()[model+0x90]==1 && b.memory.ram()[model+0x88]==0);
+            if(selectedChild)check(b.memory.ram()[child+0x60]==1 && b.memory.ram()[child+0x48]==0);
+            ++activeActions;if(zero)++zeroActions;}
+        ++actions;
+    }
+    {auto &rt=adapted.runtime();R5900Context c{};c.pc=0x4126a0;c.r[16].uw[0]=0x180000;c.r[3].uw[0]=0x180220;c.r[29].uw[0]=0x1fff000;c.r[2].uw[0]=0x1fff020;
+        const uint32_t point[4]={0,0,0,0x7fc01234};std::memcpy(rt.memory.ram()+0x180220,point,16);
+        auto reject=[&]{const auto before=c;std::vector<uint8_t> ram(rt.memory.flat(),rt.memory.flat()+bozo::kFlatBytes);bool bad=false;
+            try{vp2s::nativeMathInstruction(rt.memory.flat(),&c,&rt,0x4127ac);}catch(const std::runtime_error &){bad=true;}
+            check(bad && !std::memcmp(&before,&c,sizeof(c)) && !std::memcmp(ram.data(),rt.memory.flat(),ram.size()));};
+        c.pc=0x170000;reject();c.pc=0x4126a0;c.r[3].uw[0]+=16;reject();c.r[3].uw[0]-=16;c.r[2].uw[0]+=16;reject();c.r[2].uw[0]-=16;
+        for(uint32_t invalid:{1u,0x7fc05678u,0x7f7fffffu}){std::memcpy(rt.memory.ram()+0x180220,&invalid,4);reject();}
+        c.r[29].uw[0]=0x180200;c.r[2].uw[0]=0x180220;reject();
     }
     unsigned rotations=0;
     for(unsigned mode:{_MM_ROUND_NEAREST,_MM_ROUND_DOWN,_MM_ROUND_UP,_MM_ROUND_TOWARD_ZERO})for(unsigned seed=0;seed<64;++seed){
@@ -248,5 +332,5 @@ int main(){try{
         for(uint32_t bad:{0x7fc00000u,1u}){std::memcpy(r.memory.ram()+object+0xd0,&bad,4);reject();}
         values[0]=0x7f7fffff;values[4]=0x40000000;std::memcpy(r.memory.ram()+object+0xd0,values,32);reject();
     }
-    std::printf("%u distances,%u rotations,%u row dots,%u box/spheres,%u model-colour callers; CPU/RAM, integer arithmetic, four modes, aliasing and rejected input; no VU/device state\n",cases,rotations,dots,boxes,colours);return 0;
+    std::printf("%u distances,%u actions (%u active,%u zero),%u rotations,%u row dots,%u box/spheres,%u model-colour callers; CPU/RAM, integer arithmetic, four modes, aliasing and rejected input; no VU/device state\n",cases,actions,activeActions,zeroActions,rotations,dots,boxes,colours);return 0;
 }catch(const std::exception &e){std::fprintf(stderr,"%s\n",e.what());return 1;}}

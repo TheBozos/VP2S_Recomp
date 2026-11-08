@@ -301,6 +301,23 @@ std::array<uint32_t,4> NativeMotion::finish(uint32_t frame,uint32_t object){
     const auto result=it->second.position;updates.erase(it);return result;
 }
 bool nativeMathInstruction(uint8_t *,R5900Context *c,Runtime *rt,uint32_t pc){
+    if(pc>=0x41278c && pc<=0x4127ac && !(pc&3)){
+        const auto stack=c->r[29].uw[0],object=c->r[16].uw[0];
+        if(c->pc!=0x4126a0 || c->r[3].uw[0]!=object+0x220 || c->r[2].uw[0]!=stack+0x20)
+            throw std::runtime_error("native action magnitude setup mismatch");
+        auto *frame=record(rt,stack,0x30),*owner=record(rt,object,0x7d0);
+        const auto f=reinterpret_cast<uintptr_t>(frame),o=reinterpret_cast<uintptr_t>(owner);
+        if(f<o+0x7d0 && o<f+0x30)throw std::runtime_error("native action magnitude frame overlaps owner");
+        if(pc==0x4127ac){
+            std::array<float,4> out;std::memcpy(out.data(),owner+0x220,16);
+            for(unsigned i=0;i<3;++i){pairQualified(out[i]);if(std::abs(out[i])>1.e8f)throw std::runtime_error("unqualified native action magnitude input");}
+            struct ArithmeticScope {unsigned saved=_mm_getcsr();~ArithmeticScope(){_mm_setcsr(saved);}} arithmetic;
+            for(unsigned i=0;i<3;++i)out[i]=pairProduct(out[i],out[i]);
+            const auto squared=pairSum(pairSum(out[0],out[1]),pairProduct(1.f,out[2]));
+            volatile float length=std::sqrt(squared);out[0]=pairSum(0.f,length);
+            std::memcpy(frame+0x20,out.data(),16);
+        }return true;
+    }
     if(pc==0x216390 || pc==0x216398 || pc==0x21639c || pc==0x2163a4 ||
        pc==0x2163f4 || pc==0x2163fc || pc==0x216400 || pc==0x216408 ||
        pc==0x216458 || pc==0x216460 || pc==0x216464 || pc==0x21646c ||

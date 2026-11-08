@@ -390,6 +390,23 @@ if(VP2S_BOZO_CODE)
     target_link_options(vp2s-bozo-particle-motion-check PRIVATE -static)
   endif()
   add_test(NAME vp2s-bozo-particle-motion COMMAND vp2s-bozo-particle-motion-check)
+  set(PARTICLE_PHYSICS_REF "${CMAKE_CURRENT_BINARY_DIR}/particle-physics-reference")
+  foreach(VARIANT original adapted)
+    set(PARTICLE_PHYSICS_DIR "${PARTICLE_PHYSICS_REF}/${VARIANT}")
+    add_custom_command(OUTPUT "${PARTICLE_PHYSICS_DIR}/particle_physics_${VARIANT}_000.cpp" "${PARTICLE_PHYSICS_DIR}/particle_physics_${VARIANT}_table.cpp" "${PARTICLE_PHYSICS_DIR}/particle_physics_${VARIANT}_functions.h"
+      COMMAND ${Python3_EXECUTABLE} "${VP2S_ROOT}/tools/vp2_bozo_particle_physics_fixture.py" "${VP2S_BOZO_DATA}/images/mod003.elf" "${PARTICLE_PHYSICS_DIR}" --build "${VP2S_BOZO_DATA}/.." --variant ${VARIANT}
+      COMMAND $<TARGET_FILE:bozo-recomp> "${PARTICLE_PHYSICS_DIR}/fixture.elf" "${PARTICLE_PHYSICS_DIR}" --prefix particle_physics_${VARIANT} --symbol-prefix particle_physics_${VARIANT}_
+        --files 1 --externals "${PARTICLE_PHYSICS_DIR}/externals.txt" --no-comments
+      DEPENDS bozo-recomp "${VP2S_ROOT}/tools/vp2_bozo_particle_physics_fixture.py" "${VP2S_ROOT}/tools/vp2_bozo_kernel.py" "${VP2S_BOZO_DATA}/images/mod003.elf")
+    list(APPEND PARTICLE_PHYSICS_SOURCES "${PARTICLE_PHYSICS_DIR}/particle_physics_${VARIANT}_000.cpp" "${PARTICLE_PHYSICS_DIR}/particle_physics_${VARIANT}_table.cpp")
+  endforeach()
+  add_executable(vp2s-bozo-particle-physics-check "${VP2S_ROOT}/tests/bozo_particle_physics_main.cpp" ${PARTICLE_PHYSICS_SOURCES})
+  target_include_directories(vp2s-bozo-particle-physics-check PRIVATE "${PARTICLE_PHYSICS_REF}/original" "${PARTICLE_PHYSICS_REF}/adapted")
+  target_link_libraries(vp2s-bozo-particle-physics-check PRIVATE vp2s_bozo_kernel)
+  if(MINGW)
+    target_link_options(vp2s-bozo-particle-physics-check PRIVATE -static)
+  endif()
+  add_test(NAME vp2s-bozo-particle-physics COMMAND vp2s-bozo-particle-physics-check)
   set(WORLD_REF "${CMAKE_CURRENT_BINARY_DIR}/world-reference")
   foreach(VARIANT original adapted)
     set(WORLD_DIR "${WORLD_REF}/${VARIANT}")

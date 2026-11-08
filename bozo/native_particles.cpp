@@ -1,6 +1,7 @@
 #include "native_particles.h"
 #include "bozo/ee/dispatcher.h"
 #include <cstring>
+#include <bit>
 #include <stdexcept>
 namespace vp2s {
 namespace {
@@ -53,8 +54,11 @@ void NativeParticles::retire(Runtime *rt,R5900Context *c,uint32_t pc){
     if(pc==0x22ec9c || pc==0x22eca0){
         if(build.pending || c->r[21].uw[0]!=build.object || c->r[3].uw[0]!=0x35dbc0 || c->r[2].uw[0]!=0x35dbe0)
             throw std::runtime_error("native particle bounds source mismatch");
-        // These original loads have no RAM publication. Future bounds math
-        // must read the two explicit records; it remains a rejecting boundary.
+        if(pc==0x22ec9c){if(build.boundsReady)throw std::runtime_error("native particle bounds source repeated");ParticleBounds box;std::memcpy(box.minimum.data(),record(rt,0x35dbc0,16),16);std::memcpy(box.maximum.data(),record(rt,0x35dbe0,16),16);
+            for(const auto *v:{&box.minimum,&box.maximum})for(unsigned i=0;i<3;++i){const auto bits=std::bit_cast<uint32_t>((*v)[i]),magnitude=bits&0x7fffffff;
+                if(magnitude>0x7f800000 || (magnitude && magnitude<0x00800000))throw std::runtime_error("unqualified native particle bounds source");}
+            build.bounds=box;build.boundsReady=true;
+        }else if(!build.boundsReady)throw std::runtime_error("native particle bounds source order mismatch");
         return;
     }
     constexpr uint32_t sites[]={0x22ee94,0x22ee9c,0x22eea4,0x22eebc};
@@ -62,6 +66,21 @@ void NativeParticles::retire(Runtime *rt,R5900Context *c,uint32_t pc){
         throw std::runtime_error("native particle publication retirement is out of order");
     if(pc==0x22eebc && word(record(rt,c->r[29].uw[0],0x160),0xe0)!=build.next)throw std::runtime_error("native particle cursor was not committed");
     build.pending=build.pending==4?0:build.pending+1;
+}
+void NativeParticles::validateEmitter(uint32_t frame,uint32_t emitter)const{
+    const auto it=builds.find(frame);if(it==builds.end() || it->second.emitter!=emitter)throw std::runtime_error("native particle bounds have no matching producer");
+}
+void NativeParticles::includePoint(uint32_t frame,uint32_t emitter,const std::array<float,4> &point){
+    validateEmitter(frame,emitter);auto it=builds.find(frame);
+    for(unsigned i=0;i<3;++i){const auto bits=std::bit_cast<uint32_t>(point[i]),magnitude=bits&0x7fffffff;
+        if(magnitude>=0x7f800000 || (magnitude && magnitude<0x00800000))throw std::runtime_error("unqualified native particle bounds point");}
+    // Earlier simulation substeps do not publish bounds. The final substep's
+    // explicit source observation starts the box used by the original caller.
+    auto &build=it->second;if(!build.boundsReady)return;
+    for(unsigned i=0;i<3;++i){if(point[i]<build.bounds.minimum[i])build.bounds.minimum[i]=point[i];if(point[i]>build.bounds.maximum[i])build.bounds.maximum[i]=point[i];}
+}
+const ParticleBounds &NativeParticles::bounds(uint32_t frame,uint32_t emitter)const{
+    const auto it=builds.find(frame);if(it==builds.end() || it->second.emitter!=emitter || !it->second.boundsReady)throw std::runtime_error("native particle bounds have no completed source");return it->second.bounds;
 }
 void NativeParticles::finish(Runtime *rt,R5900Context *c){
     auto it=builds.find(c->r[29].uw[0]);if(it==builds.end())return;const auto &build=it->second;

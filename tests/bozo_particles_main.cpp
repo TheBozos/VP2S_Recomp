@@ -4,6 +4,7 @@
 #include "particles_original_functions.h"
 #include "particles_adapted_functions.h"
 #include <cstdio>
+#include <bit>
 #include <cstring>
 #include <immintrin.h>
 #include <set>
@@ -117,6 +118,18 @@ int main(){try{
         write(rt,0x180aa4,uint32_t(0x200000));reject(0x22eae0);write(rt,0x180aa4,uint32_t(0x220000));
         write(rt,0x1fff0e0,uint32_t(0x200030));reject(0x22eae0);write(rt,0x1fff0e0,uint32_t(0x200020));
         check(invoke(0x22eae0));reject(0x22eae0);reject(0x22f0a0);
+        {const auto context=c;const auto frame=c.r[29].uw[0],fp=_mm_getcsr();const std::array<float,4> earlier{10,20,30,0};
+            now.particles.includePoint(frame,0x190000,earlier);bool missing=false;
+            try{now.particles.bounds(frame,0x190000);}catch(const std::runtime_error &){missing=true;}check(missing && _mm_getcsr()==fp);
+            const std::array<uint32_t,4> minimum{0x7f800000,0x7f800000,0x7f800000,0x3f800000},maximum{0xff800000,0xff800000,0xff800000,0x3f000000};
+            write(rt,0x35dbc0,minimum);write(rt,0x35dbe0,maximum);c.r[3].uw[0]=0x35dbc0;c.r[2].uw[0]=0x35dbe0;
+            reject(0x22eca0);check(invoke(0x22ec9c));reject(0x22ec9c);check(invoke(0x22eca0));
+            now.particles.includePoint(frame,0x190000,{std::bit_cast<float>(0x80000000u),1,2,0});now.particles.includePoint(frame,0x190000,{0,0,3,0});
+            const auto box=now.particles.bounds(frame,0x190000);check(std::bit_cast<uint32_t>(box.minimum[0])==0x80000000 && std::bit_cast<uint32_t>(box.maximum[0])==0x80000000);
+            check(box.minimum[1]==0 && box.maximum[1]==1 && box.minimum[2]==2 && box.maximum[2]==3 && box.minimum[3]==1 && box.maximum[3]==.5f);
+            bool invalid=false;try{now.particles.includePoint(frame,0x190000,{5,std::bit_cast<float>(0x7fc01234u),6,0});}catch(const std::runtime_error &){invalid=true;}
+            const auto unchanged=now.particles.bounds(frame,0x190000);check(invalid && !std::memcmp(&box,&unchanged,sizeof(box)) && _mm_getcsr()==fp);c=context;
+        }
         c.r[16].uw[0]=0x70000000;c.r[2].uw[0]=3;c.r[18].uw[0]=1;c.r[5].uw[0]=11;c.r[4].uw[0]=176;c.r[3].uw[0]=0x200020;c.r[19].uw[0]=1;
         for(unsigned i=0;i<44;++i)write(rt,0x70000000+i*4,uint32_t(0x12340000+i));
         write(rt,0x70000010,uint32_t(3));write(rt,0x70000014,uint32_t(11));write(rt,0x70000018,uint32_t(1));

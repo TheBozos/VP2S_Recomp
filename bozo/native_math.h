@@ -3,6 +3,22 @@
 #include <array>
 #include <map>
 namespace vp2s {
+// One game particle's pending curve integration and ordered record publication.
+// Fields are semantic point data; no VU register, flag or accumulator layout.
+class NativeParticleUpdates {
+    struct Update {uint32_t emitter,point,output,index;std::array<float,4> position,rate,attributes,change,drift;float timestep;unsigned phase=0;};
+    struct Completed {uint32_t emitter,point,index;};
+    std::map<uint32_t,Update> updates;
+    std::map<uint32_t,Completed> completed;
+    friend bool nativeParticlePhysicsInstruction(R5900Context *,Runtime *,uint32_t);
+public:
+    size_t outstanding()const{return updates.size()+completed.size();}
+};
+class ParticleUpdateOwner {
+public:
+    virtual ~ParticleUpdateOwner()=default;
+    virtual NativeParticleUpdates &nativeParticleUpdates()=0;
+};
 // Ownership of three explicit quaternion out-parameter publications. Only
 // addresses and call order survive a helper return; no arithmetic register bank.
 class NativeSquads {

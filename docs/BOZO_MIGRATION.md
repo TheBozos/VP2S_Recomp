@@ -12,6 +12,50 @@ The earlier VP2S face/shading and general brightness comparisons remain open.
 
 ## Build and evidence
 
+### Particle physics integration and enclosing bounds (2026-11-08)
+
+The core of `0x40a8b0` now owns a semantic pending particle update through the
+original curve loop and ordered output/feedback stores. Position, rate,
+attributes, change and drift come from explicit game records; the original
+scalar segment durations and table selection remain. Full W follows each real
+record's contract, including opaque position W and arithmetic lifetime/age W.
+The pending numeric record is released after feedback. Address-only completion
+markers qualify the squared-attribute/matrix temporaries and are released by
+the original cursor-store observation at `0x40b040`.
+
+The outer `0x22e650` producer owns the explicit accumulated box. Its final
+simulation substep captures the two original RAM sources; earlier substeps do
+not publish bounds. Point updates change only that typed box, preserving the
+original source RAM until its future consumer. No vector/flag/coefficient bank
+or device state is introduced. Group shaping and callback internals still
+reject and are outside this increment's qualification.
+
+512 complete bounded CPU/RAM/FP callers cover 1,287 points, 3,219 curve segments
+and all 52 implemented sites (51 vector sites plus the scalar observation).
+Single-point groups with unit group scale exercise lifetime modes 0/1/2/5/6,
+empty/skipped/deleted particles, optional piecewise curves, full matrix W,
+scratch/RAM frames and four rounding modes/FTZ/DAZ. An independent integer
+oracle checks all output/feedback records and the enclosing box; numeric,
+alias, source, return, repeated/incomplete lifetime and publication-order
+rejections preserve RAM/CPU/FP and the box. Callback-enable fields and the mode-6
+external query are inactive in these fixtures. Four targeted suites pass
+(`particle-physics-tests.log`, 49.29 seconds); final rejection assertions pass
+again (`particle-physics-extra-tests.log`, 2.42 seconds).
+The final-substep source order, ignored earlier-substep points, signed-zero
+ties, preserved bounds W and invalid-point atomicity also pass the rebuilt
+producer suite (`particle-physics-bounds-tests.log`, 2.47 seconds). Final
+producer/startup smoke checks pass (`particle-physics-final-tests.log`, 11.23
+seconds).
+
+Actual seed-1 now passes the emitter and stalls in the original scene wait
+`0x221070`, frame 1,568. Its last completed native capture is entirely black;
+visible field/Logun remains unqualified. Bounded queue diagnostics identify
+active copy job `0x604af0`/`0x159f5c` in queue `0x59bee0` (`0x35dde0`), blocking
+DOF composite `0x5f18c0`/`0x159e2c`. The copy's native image and scene completion
+already ran, but its legacy queue ownership remains. Next: move semantic copy
+submission before legacy enqueue, retaining original scene completion, with no
+ISR/status injection (`scene-wait-route.log`). Engine remains `436d5d8`.
+
 ### Particle position and animation emitter (2026-11-08)
 
 All 26 vector sites in `0x408e90` now calculate position XYZ directly from each

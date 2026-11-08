@@ -54,10 +54,17 @@
 #include <set>
 
 namespace {
-class StrictHost final : public bozo::ee::Host, public vp2s::TimerOwner, public vp2s::SettingsOwner,public vp2s::SeedOwner,public vp2s::ModuleOwner,public vp2s::BootstrapOwner,public vp2s::RandomOwner,public vp2s::TextureOwner,public vp2s::SceneOwner,public vp2s::AssetOwner,public vp2s::DebugFontOwner,public vp2s::StateSetupOwner,public vp2s::ScreenRectOwner,public vp2s::UiTextOwner,public vp2s::UiSpriteOwner,public vp2s::MediaBufferOwner,public vp2s::ModelOwner,public vp2s::FrameFilterOwner,public vp2s::MusicOwner,public vp2s::UiWindowOwner,public vp2s::LoadProgressOwner,public vp2s::MotionOwner,public vp2s::FrameCopyOwner,public vp2s::SquadOwner,public vp2s::ParticleOwner {
+class StrictHost final : public bozo::ee::Host,public vp2s::TimerOwner,public vp2s::SettingsOwner,public vp2s::SeedOwner,
+    public vp2s::ModuleOwner,public vp2s::BootstrapOwner,public vp2s::RandomOwner,public vp2s::TextureOwner,public vp2s::SceneOwner,
+    public vp2s::AssetOwner,public vp2s::DebugFontOwner,public vp2s::StateSetupOwner,public vp2s::ScreenRectOwner,public vp2s::UiTextOwner,
+    public vp2s::UiSpriteOwner,public vp2s::MediaBufferOwner,public vp2s::ModelOwner,public vp2s::FrameFilterOwner,public vp2s::MusicOwner,
+    public vp2s::UiWindowOwner,public vp2s::LoadProgressOwner,public vp2s::MotionOwner,public vp2s::FrameCopyOwner,public vp2s::SquadOwner,
+    public vp2s::ParticleOwner,public vp2s::ParticleUpdateOwner {
 public:
     vp2s::NativeParticles particles;
     vp2s::NativeParticles &nativeParticles()override{return particles;}
+    vp2s::NativeParticleUpdates particleUpdates;
+    vp2s::NativeParticleUpdates &nativeParticleUpdates()override{return particleUpdates;}
     vp2s::NativeSquads squads;
     vp2s::NativeSquads &nativeSquads()override{return squads;}
     vp2s::NativeMotion motion;
@@ -460,7 +467,7 @@ bool noNativeInstruction(uint8_t *ram,R5900Context *ctx,Runtime *rt,uint32_t pc)
     if(vp2s::nativeBootSeed(ram,ctx,rt,pc))return true;
     if(vp2s::nativeBootstrapKey(ram,ctx,rt,pc))return true;
     if(vp2s::nativeRandomSeed(ram,ctx,rt,pc))return true;
-    if(pc==0x214c40 || pc==0x214ce8)return vp2s::nativeMathInstruction(ram,ctx,rt,pc);
+    if(pc==0x214c40 || pc==0x214ce8 || pc==0x40b040)return vp2s::nativeMathInstruction(ram,ctx,rt,pc);
     if(vp2s::nativeMathInstruction(ram,ctx,rt,pc))return true;
     if(pc==0x2bf040 || pc==0x2bf058){vp2s::nativeWorkStack(ctx,rt,pc);return false;}
     if(vp2s::nativeFrameInput(ram,ctx,rt,pc))return true;
@@ -533,6 +540,22 @@ int main(int argc,char **argv) {
                 if(!p)throw std::runtime_error("queue diagnostic address outside native RAM");
                 std::memcpy(&value,p,sizeof(value));return value;
             };
+            const auto scene=word(0x35ddf8);
+            if(scene>=0x100000 && scene<=0x2000000-0x40e0){
+                std::fprintf(stderr,"[vp2s:scene-wait] scene=%x flags=%08x control=%x pending=%x/%x/%x\n",scene,word(scene+0x40dc),word(scene+0x40d0),word(scene+0x40a8),word(scene+0x40ac),word(scene+0x40b0));
+                for(unsigned layer=0;layer<3;++layer){const auto object=word(scene+0x40a8+layer*4);
+                    if(object>=0x100000 && object<=0x2000000-0x100){const auto type=word(object);
+                        if(type>=0x100000 && type<=0x2000000-0x40)std::fprintf(stderr,"[vp2s:scene-wait] layer=%u object=%x class=%x method18=%x\n",layer,object,type,word(type+0x18));}
+                }
+            }
+            for(uint32_t global:{0x35ddc8u,0x35ddd0u,0x35dde0u}){const auto queue=word(global);
+                if(queue>=0x100000 && queue<=0x2000000-0x1014){const auto job=word(queue+0x1000),head=word(queue+0x1008),tail=word(queue+0x1004);
+                    std::fprintf(stderr,"[vp2s:job-queue] global=%x queue=%x active=%x head=%u tail=%u controls=%08x\n",global,queue,job,head,tail,word(queue+0x1010));
+                    if(job>=0x100000 && job<=0x2000000-0x10){const auto type=word(job);
+                        if(type>=0x100000 && type<=0x2000000-0x10)std::fprintf(stderr,"[vp2s:job-queue] active class=%x begin=%x complete=%x\n",type,word(type+8),word(type+0xc));}
+                    if(head<1024 && head!=tail){const auto pending=word(queue+head*4);if(pending>=0x100000 && pending<=0x2000000-0x10)std::fprintf(stderr,"[vp2s:job-queue] next=%x class=%x\n",pending,word(pending));}
+                }
+            }
             const uint32_t owner=word(0x35dd78);
             if(owner>=0x100000 && owner<=0x1ffffe8) {
                 const uint32_t slots=word(owner+4), indices=word(owner+8), flags=word(owner+12);

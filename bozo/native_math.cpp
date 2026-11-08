@@ -1,6 +1,7 @@
 #include "native_math.h"
 #include "native_object_math.h"
 #include "native_trig.h"
+#include "native_particles.h"
 #include "native_frustum.h"
 #include "bozo/ee/dispatcher.h"
 #include "../port/vp2s_math.h"
@@ -373,6 +374,91 @@ bool nativeSquadInstruction(R5900Context *c,Runtime *rt,uint32_t pc){
     if(pc==stores[call.phase]){call.published=false;++call.phase;}
     return true;
 }
+bool nativeParticlePhysicsInstruction(R5900Context *c,Runtime *rt,uint32_t pc){
+    const bool recordStore=pc==0x40abb8 || pc==0x40abbc || pc==0x40abc0 || pc==0x40ac2c || pc==0x40ac34 || pc==0x40ac38 ||
+        pc==0x40ace0 || pc==0x40ace4 || pc==0x40ace8 || pc==0x40ad58 || pc==0x40ad5c || pc==0x40ad60 || pc==0x40adf0 || pc==0x40adf4 || pc==0x40adf8;
+    const bool calculation=pc==0x40ab24 || pc==0x40ab28 || pc==0x40ab2c || pc==0x40ab30 || pc==0x40ab34 || pc==0x40ab38 || pc==0x40ab3c || pc==0x40ab40 || pc==0x40ab44 || pc==0x40ab54 || pc==0x40ab58;
+    const bool squaredAttribute=pc==0x40ac28 || pc==0x40ac30 || pc==0x40ac3c || pc==0x40ac40 || pc==0x40ac4c;
+    const bool transformedPoint=(pc>=0x40acbc && pc<=0x40acd8 && !(pc&3)) || pc==0x40acec;
+    if(!recordStore && !calculation && pc!=0x40a950 && pc!=0x40a958 && pc!=0x40aa30 && pc!=0x40aa38 && pc!=0x40aa40 && pc!=0x40aa48 &&
+       pc!=0x40aad8 && pc!=0x40aae4 && pc!=0x40aae8 && pc!=0x40aaec && pc!=0x40ab5c && pc!=0x40b040 && !squaredAttribute && !transformedPoint)return false;
+    auto *d=rt?dynamic_cast<bozo::ee::Dispatcher *>(rt->services):nullptr;
+    auto *updates=d?dynamic_cast<ParticleUpdateOwner *>(&d->host()):nullptr;auto *particles=d?dynamic_cast<ParticleOwner *>(&d->host()):nullptr;
+    if(!c || !updates || !particles)throw std::runtime_error("native particle integration requires game update/bounds owners");
+    const auto stack=c->r[29].uw[0],emitter=c->r[21].uw[0];auto *owner=record(rt,emitter,0xe0),*frame=record(rt,stack,0x150);
+    const auto word=[](const uint8_t *p,unsigned at){uint32_t v;std::memcpy(&v,p+at,4);return v;};
+    if(word(frame,0xa0)!=0x22ed38 && word(frame,0xa0)!=0x22ef50)throw std::runtime_error("native particle integration has no original producer return");
+    particles->nativeParticles().validateEmitter(stack+0x150,emitter);auto &pending=updates->nativeParticleUpdates().updates;
+    auto &completed=updates->nativeParticleUpdates().completed;
+    if(pc==0x40b040){if(pending.contains(stack))throw std::runtime_error("native particle integration exits with an incomplete point");completed.erase(stack);return true;}
+    if(pc==0x40a950){if(c->r[2].uw[0]!=word(record(rt,0x35dee0,16),8))throw std::runtime_error("native particle integration timestep mismatch");return true;}
+    if(pc==0x40a958){if(c->r[2].uw[0]!=emitter+0xc0)throw std::runtime_error("native particle drift source mismatch");return true;}
+    if(squaredAttribute || transformedPoint){
+        const auto index=c->r[19].uw[0],count=word(owner,0xc),pool=word(owner,0x14);
+        if(!count || count>65536 || index>=count || owner[0xd0]!=(squaredAttribute?2:5))throw std::runtime_error("native particle lifetime branch mismatch");
+        record(rt,pool,count*0x90);const auto point=pool+index*0x90;
+        if(pc==0x40ac4c || pc==0x40acec){
+            const auto destination=stack+(squaredAttribute?0x140:0x130);
+            const auto done=completed.find(stack);
+            if(c->r[2].uw[0]!=destination || c->r[17].uw[0]!=point+0x10 || c->r[8].uw[0]!=point+0x50 || pending.contains(stack) ||
+               done==completed.end() || done->second.point!=point || done->second.emitter!=emitter || done->second.index!=index)
+                throw std::runtime_error("native particle lifetime temporary mismatch");
+            struct ArithmeticScope {unsigned saved=_mm_getcsr();~ArithmeticScope(){_mm_setcsr(saved);}} arithmetic;
+            if(squaredAttribute){std::array<float,4> value;std::memcpy(value.data(),record(rt,point+0x50,16),16);
+                for(unsigned i=0;i<3;++i){pairQualified(value[i]);if(std::abs(value[i])>1.e18f)throw std::runtime_error("unqualified native particle attribute square");value[i]=pairProduct(value[i],value[i]);}
+                value[0]=pairSum(pairSum(value[0],value[1]),pairProduct(1.f,value[2]));std::memcpy(record(rt,destination,16),value.data(),16);
+            }else {math::Matrix matrix;std::memcpy(matrix.data(),record(rt,emitter+0x80,64),64);std::array<float,4> pointValue;
+                std::memcpy(pointValue.data(),record(rt,point+0x10,16),16);pointValue[3]=1.f;
+                float values[16];std::memcpy(values,matrix.data(),64);for(float value:values){pairQualified(value);if(std::abs(value)>1.e8f)throw std::runtime_error("unqualified native particle lifetime matrix");}
+                for(unsigned i=0;i<3;++i){pairQualified(pointValue[i]);if(std::abs(pointValue[i])>1.e22f)throw std::runtime_error("unqualified native particle lifetime point");}
+                __m128 input;std::memcpy(&input,pointValue.data(),16);const auto result=math::matrixVectorProduct(matrix,input);std::memcpy(record(rt,destination,16),&result,16);
+            }
+        }return true;
+    }
+    if(pc==0x40aa30){
+        const auto count=word(owner,0xc),index=c->r[19].uw[0],pool=word(owner,0x14),group=word(owner,0x10);
+        if(!count || count>65536 || index>=count || !group || group>16 || c->r[18].uw[0]!=group || pending.contains(stack))throw std::runtime_error("native particle integration repeats/escapes its point");
+        record(rt,pool,count*0x90);const auto point=pool+index*0x90,output=c->r[20].uw[0];auto *source=record(rt,point,0x90),*out=record(rt,output,group*48);
+        if(c->r[6].uw[0]!=point || c->r[17].uw[0]!=point+0x10)throw std::runtime_error("native particle integration position source mismatch");
+        const auto a=reinterpret_cast<uintptr_t>(source),b=reinterpret_cast<uintptr_t>(out),f=reinterpret_cast<uintptr_t>(frame),o=reinterpret_cast<uintptr_t>(owner);
+        if((a<b+group*48 && b<a+0x90) || (b<f+0x150 && f<b+group*48) || (a<f+0x150 && f<a+0x90) || (b<o+0xe0 && o<b+group*48))
+            throw std::runtime_error("native particle integration aliases live source/output/frame");
+        NativeParticleUpdates::Update u{emitter,point,output,index};
+        std::memcpy(u.position.data(),source+0x10,16);std::memcpy(u.rate.data(),source+0x30,16);std::memcpy(u.attributes.data(),source+0x50,16);
+        std::memcpy(u.change.data(),source+0x40,16);std::memcpy(u.drift.data(),owner+0xc0,16);std::memcpy(&u.timestep,record(rt,0x35dee0,16)+8,4);
+        const auto qualify=[](float v){pairQualified(v);if(std::abs(v)>1.e8f)throw std::runtime_error("unqualified native particle integration input");};
+        qualify(u.timestep);for(unsigned i=0;i<3;++i){qualify(u.position[i]);qualify(u.rate[i]);qualify(u.attributes[i]);qualify(u.change[i]);qualify(u.drift[i]);}
+        qualify(u.rate[3]);qualify(u.attributes[3]);pending.emplace(stack,u);completed.erase(stack);return true;
+    }
+    const auto it=pending.find(stack);if(it==pending.end() || it->second.emitter!=emitter || it->second.index!=c->r[19].uw[0])throw std::runtime_error("native particle integration has no matching point");
+    auto &u=it->second;
+    if(pc==0x40aaec){
+        if(u.phase || c->r[3].uw[0]!=word(owner,0x68) || c->r[5].uw[0]>=65536)throw std::runtime_error("native particle curve source mismatch");
+        const auto duration=c->f[1];pairQualified(duration);if(std::abs(duration)>1.e8f)throw std::runtime_error("unqualified native particle curve duration");
+        std::array<float,4> curve;std::memcpy(curve.data(),record(rt,word(owner,0x68)+c->r[5].uw[0]*16,16),16);
+        for(unsigned i=0;i<3;++i){pairQualified(curve[i]);if(std::abs(curve[i])>1.e8f)throw std::runtime_error("unqualified native particle curve value");}
+        struct ArithmeticScope {unsigned saved=_mm_getcsr();~ArithmeticScope(){_mm_setcsr(saved);}} arithmetic;
+        auto position=u.position;for(unsigned i=0;i<3;++i)position[i]=pairSum(pairSum(position[i],0.f),pairProduct(curve[i],duration));u.position=position;
+    }else if(pc==0x40ab5c){
+        if(u.phase || c->r[20].uw[0]!=u.output)throw std::runtime_error("native particle point publication mismatch");
+        struct ArithmeticScope {unsigned saved=_mm_getcsr();~ArithmeticScope(){_mm_setcsr(saved);}} arithmetic;
+        auto result=u;
+        for(unsigned i=0;i<3;++i){result.position[i]=pairSum(pairSum(pairSum(u.position[i],0.f),pairProduct(u.drift[i],1.f)),pairProduct(u.rate[i],u.timestep));
+            result.attributes[i]=pairSum(pairSum(u.attributes[i],0.f),pairProduct(u.rate[i],u.timestep));
+            result.rate[i]=pairSum(pairSum(u.rate[i],0.f),pairProduct(u.change[i],u.timestep));}
+        result.rate[3]=pairSum(u.rate[3],-u.timestep);result.attributes[3]=pairSum(u.attributes[3],u.timestep);
+        particles->nativeParticles().includePoint(stack+0x150,emitter,result.position);
+        std::memcpy(record(rt,u.output,16),result.position.data(),16);result.phase=1;u=result;
+    }else if(recordStore){
+        const unsigned phase=(pc==0x40abb8 || pc==0x40ac2c || pc==0x40ace0 || pc==0x40ad58 || pc==0x40adf0)?1:
+            (pc==0x40abbc || pc==0x40ac34 || pc==0x40ace4 || pc==0x40ad5c || pc==0x40adf4)?2:3;
+        const auto address=u.point+(phase==1?0x50:phase==2?0x10:0x30);const unsigned reg=phase==1?8:phase==2?17:16;
+        if(u.phase!=phase || c->r[reg].uw[0]!=address)throw std::runtime_error("native particle feedback publication order mismatch");
+        const auto &value=phase==1?u.attributes:phase==2?u.position:u.rate;std::memcpy(record(rt,address,16),value.data(),16);
+        if(phase==3){completed[stack]={u.emitter,u.point,u.index};pending.erase(it);}else ++u.phase;
+    }else if(u.phase)throw std::runtime_error("native particle calculation after publication");
+    return true;
+}
 void NativeMotion::prepare(uint32_t frame,uint32_t object,std::array<uint32_t,4> position){
     if(!updates.emplace(frame,Update{object,position}).second)throw std::runtime_error("native motion update repeats its frame");
 }
@@ -381,6 +467,8 @@ std::array<uint32_t,4> NativeMotion::finish(uint32_t frame,uint32_t object){
     const auto result=it->second.position;updates.erase(it);return result;
 }
 bool nativeMathInstruction(uint8_t *,R5900Context *c,Runtime *rt,uint32_t pc){
+    if(pc==0x40b040){nativeParticlePhysicsInstruction(c,rt,pc);return false;}
+    if(pc>=0x40a950 && pc<=0x40adf8 && nativeParticlePhysicsInstruction(c,rt,pc))return true;
     static constexpr std::array<uint32_t,26> particleSites{0x408f10,0x408f84,0x408f88,0x408fa8,0x408fac,0x408fb8,0x408fbc,
         0x409064,0x409068,0x40908c,0x409090,0x40909c,0x4090a0,0x409118,0x4091c0,0x4091c8,0x40931c,0x409320,0x40932c,0x409334,
         0x409400,0x409404,0x40956c,0x409570,0x40957c,0x409584};

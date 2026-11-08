@@ -53,8 +53,10 @@
 #include <set>
 
 namespace {
-class StrictHost final : public bozo::ee::Host, public vp2s::TimerOwner, public vp2s::SettingsOwner,public vp2s::SeedOwner,public vp2s::ModuleOwner,public vp2s::BootstrapOwner,public vp2s::RandomOwner,public vp2s::TextureOwner,public vp2s::SceneOwner,public vp2s::AssetOwner,public vp2s::DebugFontOwner,public vp2s::StateSetupOwner,public vp2s::ScreenRectOwner,public vp2s::UiTextOwner,public vp2s::UiSpriteOwner,public vp2s::MediaBufferOwner,public vp2s::ModelOwner,public vp2s::FrameFilterOwner,public vp2s::MusicOwner,public vp2s::UiWindowOwner,public vp2s::LoadProgressOwner,public vp2s::MotionOwner,public vp2s::FrameCopyOwner {
+class StrictHost final : public bozo::ee::Host, public vp2s::TimerOwner, public vp2s::SettingsOwner,public vp2s::SeedOwner,public vp2s::ModuleOwner,public vp2s::BootstrapOwner,public vp2s::RandomOwner,public vp2s::TextureOwner,public vp2s::SceneOwner,public vp2s::AssetOwner,public vp2s::DebugFontOwner,public vp2s::StateSetupOwner,public vp2s::ScreenRectOwner,public vp2s::UiTextOwner,public vp2s::UiSpriteOwner,public vp2s::MediaBufferOwner,public vp2s::ModelOwner,public vp2s::FrameFilterOwner,public vp2s::MusicOwner,public vp2s::UiWindowOwner,public vp2s::LoadProgressOwner,public vp2s::MotionOwner,public vp2s::FrameCopyOwner,public vp2s::SquadOwner {
 public:
+    vp2s::NativeSquads squads;
+    vp2s::NativeSquads &nativeSquads()override{return squads;}
     vp2s::NativeMotion motion;
     vp2s::NativeMotion &nativeMotion()override{return motion;}
     bool qualifiedMotionCallback(Runtime *rt,uint32_t target)const override{
@@ -454,6 +456,7 @@ bool noNativeInstruction(uint8_t *ram,R5900Context *ctx,Runtime *rt,uint32_t pc)
     if(vp2s::nativeBootSeed(ram,ctx,rt,pc))return true;
     if(vp2s::nativeBootstrapKey(ram,ctx,rt,pc))return true;
     if(vp2s::nativeRandomSeed(ram,ctx,rt,pc))return true;
+    if(pc==0x214c40 || pc==0x214ce8)return vp2s::nativeMathInstruction(ram,ctx,rt,pc);
     if(vp2s::nativeMathInstruction(ram,ctx,rt,pc))return true;
     if(pc==0x2bf040 || pc==0x2bf058){vp2s::nativeWorkStack(ctx,rt,pc);return false;}
     if(vp2s::nativeFrameInput(ram,ctx,rt,pc))return true;

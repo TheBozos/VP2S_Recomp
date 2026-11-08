@@ -113,11 +113,12 @@ std::array<float,4> referenceLinearQuaternion(Runtime *rt,R5900Context *c){
     float a[4],b[4],weights[2],blend[4],squares[4];std::array<float,4> out;
     std::memcpy(a,rt->memory.hostPointer(c->r[17].uw[0],16),16);std::memcpy(b,rt->memory.hostPointer(c->r[16].uw[0],16),16);
     float scale=1.f;
-    if(c->pc==0x2152ec || c->pc==0x215324){const auto sines=referenceThreeSines({c->f[12],c->f[13],c->f[14]},read(rt));weights[0]=sines[0];weights[1]=sines[1];
+    const bool squad=c->pc==0x214d10 || c->pc==0x214db8;
+    if(c->pc==0x2152ec || c->pc==0x215324 || c->pc==0x214db8){const auto sines=referenceThreeSines({c->f[12],c->f[13],c->f[14]},read(rt));weights[0]=sines[0];weights[1]=sines[1];
         volatile float reciprocal=sines[2]==0?std::copysign(std::numeric_limits<float>::max(),sines[2]):1.f/sines[2];scale=flush(reciprocal);
-    }else std::memcpy(weights,rt->memory.hostPointer(c->r[29].uw[0]+0x60,8),8);
+    }else std::memcpy(weights,rt->memory.hostPointer(c->r[29].uw[0]+(squad?0x40:0x60),8),8);
     for(unsigned i=0;i<4;++i){const auto first=multiply(a[i],weights[0]),second=multiply(b[i],weights[1]);
-        blend[i]=multiply(c->r[19].ud[0]?subtract(second,first):add(second,first),scale);squares[i]=multiply(blend[i],blend[i]);}
+        blend[i]=multiply(!squad && c->r[19].ud[0]?subtract(second,first):add(second,first),scale);squares[i]=multiply(blend[i],blend[i]);}
     const auto squared=add(add(add(squares[0],squares[1]),multiply(1.f,squares[2])),multiply(1.f,squares[3]));
     volatile float root=static_cast<float>(std::sqrt(std::abs(double(squared))));volatile float reciprocal=root==0?std::numeric_limits<float>::max():static_cast<float>(1.0/double(root));
     for(unsigned i=0;i<4;++i)out[i]=multiply(blend[i],flush(reciprocal));return out;
@@ -130,12 +131,23 @@ std::array<float,4> referenceLinearQuaternion(Runtime *rt,R5900Context *c){
     for(unsigned i=first+2;i<6;++i)p=add(multiply(p,square),c.sine[i]);
     p=add(multiply(p,square),1);return {n,multiply(p,multiply(r,(uint32_t(n)&1)?-1.f:1.f))};
 }
-struct Host:bozo::ee::Host,bozo::port::Host {
+struct Host:bozo::ee::Host,bozo::port::Host,vp2s::SquadOwner {
     bool native=false;std::set<uint32_t> sites;
+    vp2s::NativeSquads squads;unsigned squadPublications=0,squadLinear=0,squadNonlinear=0;
+    vp2s::NativeSquads &nativeSquads()override{return squads;}
     bozo::libs::Libraries &libraries()override{throw std::runtime_error("libraries");}
     bool nativeGraphics()const override{return true;}
     bool nativeInstruction(uint8_t *r,R5900Context *c,Runtime *rt,uint32_t pc)override{
-        sites.insert(pc);if(native){check(vp2s::nativeMathInstruction(r,c,rt,pc));return true;}
+        sites.insert(pc);
+        if(pc==0x214e1c){++squadPublications;if(c->pc==0x214db8)++squadNonlinear;else ++squadLinear;}
+        if(native){const bool handled=vp2s::nativeMathInstruction(r,c,rt,pc);check(handled || pc==0x214c40 || pc==0x214ce8);return handled;}
+        if(pc==0x214c40 || pc==0x214ce8)return false;
+        if(pc==0x214e1c){const auto saved=_mm_getcsr();const auto result=referenceLinearQuaternion(rt,c);_mm_setcsr(saved);
+            const auto frame=c->r[29].uw[0],ra=value<uint32_t>(rt,frame+0x30);
+            check(ra==0x214c74 || ra==0x214cb8 || ra==0x214cdc);
+            const auto destination=ra==0x214c74?frame+0xb0:ra==0x214cb8?frame+0xa0:c->r[18].uw[0];
+            std::memcpy(rt->memory.hostPointer(destination,16),result.data(),16);
+        }
         if(pc==0x215a98 || pc==0x215afc || pc==0x215b60 || pc==0x215de4)c->r[9].ud[0]=0;
         if(pc==0x215aa0 || pc==0x215b04 || pc==0x215b68 || pc==0x215dec){
             const auto at=c->r[29].uw[0]+(pc==0x215aa0?0x140:pc==0x215b04?0x130:pc==0x215b68?0x120:0x110);
@@ -428,6 +440,63 @@ int main(){try{
     }
     }
     _mm_setcsr(saved);check(old.sites==now.sites && now.sites.size()==311);
+    unsigned squadCallers=0;
+    for(unsigned mode:{_MM_ROUND_NEAREST,_MM_ROUND_DOWN,_MM_ROUND_UP,_MM_ROUND_TOWARD_ZERO})for(unsigned seed=0;seed<128;++seed){
+        auto *x=a.runtime().memory.flat(),*y=b.runtime().memory.flat();std::memset(x,0x65,bozo::kFlatBytes);
+        init={};init.r[31].uw[0]=0x170000;a.runtime().functions.generated(0x358490)(x,&init,&a.runtime());
+        const auto top=seed&1?0x70003f00u:0x1fff000u,frame=top-0x70;
+        const std::array<uint32_t,4> sources{seed&2?0x70000100u:0x180000u,0x190000,0x1a0000,0x1b0000};
+        const auto destination=seed%6<4?sources[seed%6]:frame+(seed%6==4?0x50:0x60);
+        std::array<std::array<float,4>,4> inputs{{{0,0,0,1},{0,0,0,1},{0,0,0,1},{0,0,0,1}}};
+        for(unsigned j=0;j<4;++j){
+            if(seed%8==1)inputs[j]={0.6f,0,0,0.8f};
+            else if(seed%8==2)inputs[j]={0,0,0,j&1?-1.f:1.f};
+            else if(seed%8==3)inputs[j]={j&1?1.f:0.f,j&1?0.f:1.f,0,0};
+            else if(seed%8==4 && (j&1)){inputs[j][3]=std::bit_cast<float>(0x3f733333u+((seed/8)%3)-1);inputs[j][0]=float(std::sqrt(1.-double(inputs[j][3])*inputs[j][3]));if(j==3)inputs[j][3]=-inputs[j][3];}
+            else if(seed%8>=5){double length=0;for(auto &v:inputs[j]){random=random*1664525u+1013904223u;v=float(int32_t(random)%10000)/10000;length+=double(v)*v;}
+                for(auto &v:inputs[j])v=float(double(v)/std::sqrt(length));}
+            std::memcpy(a.runtime().memory.hostPointer(sources[j],16),inputs[j].data(),16);
+        }
+        std::memcpy(y,x,bozo::kFlatBytes);R5900Context p{};
+        for(unsigned i=1;i<32;++i){p.r[i].ud[0]=0x1234000000000000ull+seed*32+i;p.r[i].ud[1]=~p.r[i].ud[0];p.f[i]=float(i)/8;}
+        std::memset(p.vu0_vf,0x58,sizeof(p.vu0_vf));std::memset(&p.vu0_acc,0x69,sizeof(p.vu0_acc));p.vu0_status=0x1234;
+        p.r[4].ud[0]=destination;for(unsigned j=0;j<4;++j)p.r[5+j].ud[0]=sources[j];
+        p.r[29].ud[0]=top;p.r[31].ud[0]=0x170000;
+        const float parameters[]={0,1,0.5f,0.25f,-0.25f,1.25f,0.1f,0.33333334f};p.f[12]=parameters[(seed/8)%8];auto q=p;
+        const auto control=(saved&~(_MM_ROUND_MASK|0x8040|0x3f))|mode|(seed&1?0x8040:0);_mm_setcsr(control);
+        a.runtime().functions.generated(0x214c40)(x,&p,&a.runtime());const auto after=_mm_getcsr();_mm_setcsr(control);
+        try{b.runtime().functions.generated(0x214c40)(y,&q,&b.runtime());}
+        catch(const std::exception &e){std::fprintf(stderr,"squad seed=%u mode=%x: %s\n",seed,mode,e.what());throw;}
+        check(_mm_getcsr()==after && !std::memcmp(&p,&q,sizeof(p)) && !std::memcmp(x,y,bozo::kFlatBytes));
+        check(now.squads.outstanding()==0);
+        const auto result=value<std::array<float,4>>(&b.runtime(),destination);double norm=0;for(auto v:result)norm+=double(v)*v;check(norm==0 || std::abs(norm-1)<0.000003);
+        ++squadCallers;
+    }
+    check(old.squadPublications==squadCallers*3 && now.squadPublications==old.squadPublications && old.squadLinear && old.squadNonlinear);
+    _mm_setcsr(saved);check(old.sites==now.sites && now.sites.size()==341);
+    {auto &rt=b.runtime();R5900Context c{};c.pc=0x214c40;c.r[29].uw[0]=0x1fff000;c.r[4].uw[0]=0x1c0000;
+        for(unsigned j=0;j<4;++j)c.r[5+j].uw[0]=0x180000+j*0x10000;
+        const auto frame=c.r[29].uw[0]-0x70;
+        auto reject=[&](uint32_t pc){const auto before=c;const auto count=now.squads.outstanding();const auto fp=_mm_getcsr();
+            std::vector<uint8_t> ram(rt.memory.flat(),rt.memory.flat()+bozo::kFlatBytes);bool failed=false;
+            try{vp2s::nativeMathInstruction(rt.memory.flat(),&c,&rt,pc);}catch(const std::runtime_error &){failed=true;}
+            check(failed && count==now.squads.outstanding() && _mm_getcsr()==fp && !std::memcmp(&before,&c,sizeof(c)) && !std::memcmp(ram.data(),rt.memory.flat(),ram.size()));};
+        c.pc=0x170000;reject(0x214c40);c.pc=0x214c40;c.r[4].uw[0]=frame;reject(0x214c40);c.r[4].uw[0]=0x1c0000;
+        check(!vp2s::nativeMathInstruction(rt.memory.flat(),&c,&rt,0x214c40));reject(0x214c40);
+        c.r[29].uw[0]=frame;c.pc=0x214cdc;reject(0x214ce8);reject(0x214cdc);
+        c.r[29].uw[0]=frame-0x50;c.pc=0x214d10;c.r[17].uw[0]=0x180000;c.r[16].uw[0]=0x190000;c.r[18].uw[0]=0x1c0000;
+        uint32_t ra=0x170000;std::memcpy(rt.memory.hostPointer(frame-0x20,4),&ra,4);reject(0x214e1c);
+        ra=0x214c74;std::memcpy(rt.memory.hostPointer(frame-0x20,4),&ra,4);
+        c.r[16].uw[0]+=16;reject(0x214e1c);c.r[16].uw[0]-=16;
+        c.f[0]=.5f;c.f[21]=.5f;float weights[2]={.5f,.5f};std::memcpy(rt.memory.hostPointer(frame-0x10,8),weights,8);
+        const std::array<float,4> unit{0,0,0,1};std::memcpy(rt.memory.hostPointer(0x190000,16),unit.data(),16);
+        for(uint32_t bad:{1u,0x7fc01234u,0x7f7fffffu}){std::memcpy(rt.memory.hostPointer(0x180000,16),unit.data(),16);std::memcpy(rt.memory.hostPointer(0x180000,4),&bad,4);reject(0x214e1c);}
+        std::memcpy(rt.memory.hostPointer(0x180000,16),unit.data(),16);check(vp2s::nativeMathInstruction(rt.memory.flat(),&c,&rt,0x214e1c));reject(0x214e1c);
+        c.r[29].uw[0]=frame;c.pc=0x214c74;c.r[3].uw[0]=frame+0x50;reject(0x214ca0);c.r[3].uw[0]=frame+0x60;
+        for(uint32_t pc:{0x214c98u,0x214c9cu,0x214ca0u})check(vp2s::nativeMathInstruction(rt.memory.flat(),&c,&rt,pc));reject(0x214ca0);
+        // A deliberately incomplete call is disposed with its test owner.
+        now.squads=vp2s::NativeSquads{};
+    }
     for(bool positive:{false,true}){auto &rt=b.runtime();R5900Context c{};const uint32_t entry=positive?0x215a58:0x21635c,site=positive?0x215aa0:0x2163a4,at=positive?0x1ffe140:0x1ffe130;
         c.pc=entry;c.r[29].uw[0]=0x1ffe000;c.r[2].uw[0]=at;
         const uint32_t point[4]={0,0,0,0x3f800000};std::memcpy(rt.memory.hostPointer(at,16),point,16);
@@ -444,7 +513,7 @@ int main(){try{
         auto reject=[&]{const auto savedContext=c;std::vector<uint8_t> ram(rt.memory.flat(),rt.memory.flat()+bozo::kFlatBytes);bool failure=false;
             try{vp2s::nativeTrigInstruction(rt.memory.flat(),&c,&rt,0x215104);}catch(const std::runtime_error &){failure=true;}
             check(failure && !std::memcmp(&savedContext,&c,sizeof(c)) && !std::memcmp(ram.data(),rt.memory.flat(),ram.size()));};
-        c.r[18].ud[0]=c.r[29].ud[0]+0x10;reject();c.r[18].ud[0]=0x1a0000;c.r[29].ud[0]=0x35da70;reject();c.r[29].ud[0]=0x1ffe000;c.r[31].uw[0]=0x170000;reject();
+        c.r[18].ud[0]=c.r[29].ud[0]+0x10;reject();c.r[18].ud[0]=0x1a0000;c.r[29].ud[0]=0x35da70;reject();c.r[29].ud[0]=0x1ffe000;c.r[31].uw[0]=0x170000;reject();c.r[31].uw[0]=0x214db8;reject();
     }
     bool rejected=false;try{vp2s::sineCosine(std::numeric_limits<float>::infinity(),originalCoefficients);}catch(const std::runtime_error &){rejected=true;}check(rejected);
     rejected=false;try{vp2s::sineCosine(std::bit_cast<float>(1u),originalCoefficients);}catch(const std::runtime_error &){rejected=true;}check(rejected);
@@ -454,5 +523,5 @@ int main(){try{
     rejected=false;try{vp2s::fullCosine(std::bit_cast<float>(1u),originalCoefficients);}catch(const std::runtime_error &){rejected=true;}check(rejected);
     {auto table=originalCoefficients;table.halfPi=std::bit_cast<float>(0x7fc05678u);check(vp2s::fullSine(0.f,table).value==0.f);
         table.sine[0]=std::numeric_limits<float>::infinity();rejected=false;try{vp2s::fullSine(.25f,table);}catch(const std::runtime_error &){rejected=true;}check(rejected);}
-    std::printf("%u sine/cosine + %u scalar cosine/sines + %u inverse-cosine + %u linear-quaternion (%u negative-dot) + %u nonlinear-quaternion callers + %u blend records + %u three-sine + %u Euler-quaternion callers;458752 polynomial record comparisons,311 sites; inverse-cosine max error %.9g,three-sine max error %.9g; CPU/RAM/FP, signs, endpoints and split-root stores passed\n",cases,shortCases,inverseCases,linearCallers,negativeCallers,nonlinearCallers,linearRecords,threeSineCallers,eulerCallers,inverseError,threeSineError);return 0;
+    std::printf("%u sine/cosine + %u scalar cosine/sines + %u inverse-cosine + %u linear-quaternion (%u negative-dot) + %u nonlinear-quaternion callers + %u blend records + %u three-sine + %u Euler-quaternion + %u SQUAD callers (%u publications: %u linear/%u nonlinear);458752 polynomial record comparisons,341 sites; inverse-cosine max error %.9g,three-sine max error %.9g; CPU/RAM/FP, signs, endpoints and split-root stores passed\n",cases,shortCases,inverseCases,linearCallers,negativeCallers,nonlinearCallers,linearRecords,threeSineCallers,eulerCallers,squadCallers,old.squadPublications,old.squadLinear,old.squadNonlinear,inverseError,threeSineError);return 0;
 }catch(const std::exception &e){std::fprintf(stderr,"%s\n",e.what());return 1;}}

@@ -298,6 +298,72 @@ std::array<float,4> linearQuaternionBlend(const std::array<float,4> &a,const std
     for(unsigned i=0;i<4;++i)result[i]=pairProduct(value[i],pairNormal(reciprocal));return result;
 }
 }
+void qualifySquadSines(Runtime *rt,R5900Context *c,uint32_t leafFrame){
+    auto *dispatcher=rt?dynamic_cast<bozo::ee::Dispatcher *>(rt->services):nullptr;
+    auto *owner=dispatcher?dynamic_cast<SquadOwner *>(&dispatcher->host()):nullptr;
+    if(!owner || !c)throw std::runtime_error("native squad has no publication owner");
+    record(rt,leafFrame,0xc0);auto &calls=owner->nativeSquads().calls;
+    const auto it=calls.find(leafFrame+0x50);
+    if(it==calls.end() || it->second.phase>=3 || it->second.published)throw std::runtime_error("native squad helper has no live phase");
+    const auto &call=it->second;const auto frame=leafFrame+0x50;
+    constexpr uint32_t returns[]={0x214c74,0x214cb8,0x214cdc};uint32_t savedReturn;
+    std::memcpy(&savedReturn,record(rt,leafFrame+0x30,16),4);
+    const auto first=call.phase==2?frame+0x60:call.inputs[call.phase*2];
+    const auto second=call.phase==2?frame+0x50:call.inputs[call.phase*2+1];
+    if(savedReturn!=returns[call.phase] || c->r[17].uw[0]!=first || c->r[16].uw[0]!=second || c->r[18].uw[0]!=call.output)
+        throw std::runtime_error("native squad helper argument/return mismatch");
+}
+bool nativeSquadInstruction(R5900Context *c,Runtime *rt,uint32_t pc){
+    auto *dispatcher=rt?dynamic_cast<bozo::ee::Dispatcher *>(rt->services):nullptr;
+    auto *owner=dispatcher?dynamic_cast<SquadOwner *>(&dispatcher->host()):nullptr;
+    if(!c || !owner)throw std::runtime_error("native squad has no publication owner");
+    auto &calls=owner->nativeSquads().calls;const auto stack=c->r[29].uw[0];
+    if(pc==0x214c40){
+        if(c->pc!=0x214c40 || stack<0x70)throw std::runtime_error("native squad entry mismatch");
+        const auto frame=stack-0x70;auto *saved=record(rt,frame-0x70,0xe0);
+        NativeSquads::Call call{c->r[4].uw[0],{c->r[5].uw[0],c->r[6].uw[0],c->r[7].uw[0],c->r[8].uw[0]}};
+        const auto separate=[&](uint8_t *p){const auto a=reinterpret_cast<uintptr_t>(p),b=reinterpret_cast<uintptr_t>(saved);
+            if(a<b+0xc0 && b<a+16)throw std::runtime_error("native squad operands alias saved/helper frame");};
+        separate(record(rt,call.output,16));for(auto input:call.inputs)separate(record(rt,input,16));
+        for(const auto &[active,unused]:calls){const auto a=reinterpret_cast<uintptr_t>(record(rt,active-0x70,0xe0)),b=reinterpret_cast<uintptr_t>(saved);
+            if(a<b+0xe0 && b<a+0xe0)throw std::runtime_error("native squad repeats/overlaps an active frame");}
+        calls.emplace(frame,call);return false;
+    }
+    if(pc>=0x214db8){
+        if(c->pc!=0x214d10 && c->pc!=0x214db8)throw std::runtime_error("native squad leaf entry mismatch");
+        qualifySquadSines(rt,c,stack);auto &call=calls.at(stack+0x50);
+        if(pc==0x214e1c){
+            struct ArithmeticScope {unsigned saved=_mm_getcsr();~ArithmeticScope(){_mm_setcsr(saved);}} arithmetic;
+            float weights[2],scale=1.f;
+            if(c->pc==0x214db8){
+                const auto sines=nativeThreeSines(rt,{c->f[12],c->f[13],c->f[14]});weights[0]=sines[0];weights[1]=sines[1];
+                volatile float reciprocal=sines[2]==0?std::copysign(std::numeric_limits<float>::max(),sines[2]):1.f/sines[2];scale=pairNormal(reciprocal);
+            }else{
+                std::memcpy(weights,record(rt,stack+0x40,16),8);
+                if(std::bit_cast<uint32_t>(weights[0])!=std::bit_cast<uint32_t>(c->f[0]) || std::bit_cast<uint32_t>(weights[1])!=std::bit_cast<uint32_t>(c->f[21]))
+                    throw std::runtime_error("native squad scalar weight mismatch");
+            }
+            std::array<float,4> a,b;std::memcpy(a.data(),record(rt,c->r[17].uw[0],16),16);std::memcpy(b.data(),record(rt,c->r[16].uw[0],16),16);
+            const auto destination=call.phase==0?stack+0xb0:call.phase==1?stack+0xa0:call.output;
+            auto *out=record(rt,destination,16);const auto result=linearQuaternionBlend(a,b,weights[0],weights[1],false,scale);
+            std::memcpy(out,result.data(),16);call.published=true;
+        }return true;
+    }
+    const auto it=calls.find(stack);
+    if(it==calls.end())throw std::runtime_error("native squad caller has no live publication");
+    auto &call=it->second;
+    if(pc==0x214ce8){
+        if(c->pc!=0x214cdc || call.phase!=3 || call.published)throw std::runtime_error("native squad incomplete exit");
+        calls.erase(it);return false;
+    }
+    constexpr uint32_t entries[]={0x214c74,0x214cb8,0x214cdc},starts[]={0x214c98,0x214cbc,0x214cdc},stores[]={0x214ca0,0x214cc4,0x214ce4};
+    if(call.phase>=3 || !call.published || c->pc!=entries[call.phase] || pc<starts[call.phase] || pc>stores[call.phase])
+        throw std::runtime_error("native squad publication order mismatch");
+    const auto destination=call.phase==0?stack+0x60:call.phase==1?stack+0x50:call.output;
+    if(c->r[call.phase==0?3:call.phase==1?2:18].uw[0]!=destination)throw std::runtime_error("native squad output mismatch");
+    if(pc==stores[call.phase]){call.published=false;++call.phase;}
+    return true;
+}
 void NativeMotion::prepare(uint32_t frame,uint32_t object,std::array<uint32_t,4> position){
     if(!updates.emplace(frame,Update{object,position}).second)throw std::runtime_error("native motion update repeats its frame");
 }
@@ -306,6 +372,12 @@ std::array<uint32_t,4> NativeMotion::finish(uint32_t frame,uint32_t object){
     const auto result=it->second.position;updates.erase(it);return result;
 }
 bool nativeMathInstruction(uint8_t *,R5900Context *c,Runtime *rt,uint32_t pc){
+    if(pc==0x214c40 || pc==0x214ce8 ||
+       (pc>=0x214c98 && pc<=0x214ca0 && !(pc&3)) || (pc>=0x214cbc && pc<=0x214cc4 && !(pc&3)) ||
+       (pc>=0x214cdc && pc<=0x214ce4 && !(pc&3)) ||
+       (pc>=0x214db8 && pc<=0x214dd0 && !(pc&3)) || pc==0x214dd8 ||
+       (pc>=0x214df0 && pc<=0x214e00 && !(pc&3)) || (pc>=0x214e08 && pc<=0x214e1c && !(pc&3)))
+        return nativeSquadInstruction(c,rt,pc);
     if((pc>=0x2a68d4 && pc<=0x2a68f4 && !(pc&3)) || pc==0x2a68fc){
         const auto stack=c->r[29].uw[0];
         if(c->pc!=0x2a68c8 || c->r[4].uw[0]!=0x35dfd0)throw std::runtime_error("native Hermite vector setup mismatch");

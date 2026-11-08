@@ -12,6 +12,29 @@ The earlier VP2S face/shading and general brightness comparisons remain open.
 
 ## Build and evidence
 
+### Three-stage quaternion interpolation (2026-11-08)
+
+`0x214c40` now owns three explicit native quaternion publications from
+`0x214d10`. Its typed lifetime record contains addresses, phase and a publication
+flag only. Each complete normalized quaternion is written directly to its
+original caller temporary or final output; there is no implicit vector/Q return
+bank. Original scalar dot/threshold decisions, inverse-cosine and game three-sine
+helpers, parameter calculations, saved-register stores and epilogues remain.
+Negative dots outside +/-0.95 deliberately take this routine's linear path
+without a sign flip. Frame/argument/return/phase guards reject unsupported entry.
+
+512 complete CPU/RAM/FP callers qualify all three stages: 1,536 publications,
+748 linear and 788 nonlinear. Coverage includes threshold neighbors, antipodal
+and zero cancellation, endpoints/extrapolation, aliased source/final outputs,
+both caller temporaries, scratch/RAM frames, four rounding modes and FTZ/DAZ.
+Missing/reused lifetimes, bad returns/pointers/order and invalid numeric inputs
+reject without mutation. The three-sine helper admits this caller only with a
+live matching lifetime. All 341 fixture sites are reached; every source word in
+both owners is guarded. Three targeted suites pass (`squad-tests.log`); actual
+seed-1 now reaches movement magnitude `0x446724`, owner `0x446620`, continuation
+`0x44665c` (`squad-route.log`). Visible field/Logun remains open; engine unchanged
+at `436d5d8`.
+
 ### Complete Hermite vector interpolation (2026-11-08)
 
 The original `0x2a6980` scalar helper still builds all four Hermite weights,

@@ -18,6 +18,9 @@ POSITIVE_EULER_SITES=(0x215a8c,0x215a94,0x215a98,0x215aa0,0x215af0,0x215af8,0x21
     0x215b54,0x215b5c,0x215b60,0x215b68,0x215dd8,0x215de0,0x215de4,0x215dec)
 DOF_MATRIX_SITES=(*range(0x2d7c04,0x2d7c74,4),*range(0x2d7c80,0x2d7cf0,4),*range(0x2d7cfc,0x2d7d6c,4))
 HERMITE_VECTOR_SITES=(*range(0x2a68d4,0x2a68f8,4),0x2a68fc)
+SQUAD_SITES=(0x214c40,*range(0x214c98,0x214ca4,4),*range(0x214cbc,0x214cc8,4),
+    *range(0x214cdc,0x214cec,4),*range(0x214db8,0x214dd4,4),0x214dd8,
+    *range(0x214df0,0x214e04,4),*range(0x214e08,0x214e20,4))
 
 INSTALLER = (0x141448, 0x141544)
 QUERY = (0x141410, 0x141444)
@@ -493,6 +496,7 @@ def overlay_adaptations(name,data):
         (0x248fc0,0x24926c,'c80605a259562aba190d4009dda4f3f913e461937e47c6e4dca959f8f81624cc'),
         (0x213fd0,0x2140f4,'929eb425f5d11c4d38fd2c0d2c18b8bad91718a8fe3845ba40df7e08a9392768'),
         (0x214e40,0x2150f0,'c83bfc3a70b84ef6ccb1de817de8490cc12fe95f428f6519c4f3ed0700c9af5f'),
+        (0x214c40,0x214e40,'d9106bc728de471b557f7f136424ebe55e3d59a694b9ff7f0ba9e91807180a0e'),
         (0x2151d0,0x2153a0,'14b0ca18d4340479715e85d75072aa68e5ae9307b54cbcb8e86313628685308a'),
         (0x2150f0,0x2151d0,'a963b19e1061c2400324b4440cef7d6da40124ddafaad3e84a10ab96b882944b'),
         (0x1fe8a8,0x1fe95c,'5fc3d4add9925c4b8b5607379880ef718cf0f6e5d45a0c9f180a9ae80ff3b6a8'),
@@ -710,6 +714,7 @@ def overlay_native_sites(name,data):
         *POSITIVE_EULER_SITES,
         *DOF_MATRIX_SITES,
         *HERMITE_VECTOR_SITES,
+        *SQUAD_SITES,
         0x2dbde0,0x2dbeb4,0x2dc6c8,0x2dc9a4,0x2dc700,
         *range(0x252ec8,0x252f24,4),0x252fdc,0x252fe0,0x252fe4,0x252fec,0x252ff0,0x252ff8,
         0x2bf040,0x2bf058,

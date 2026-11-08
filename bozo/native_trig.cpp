@@ -1,4 +1,5 @@
 #include "native_trig.h"
+#include "native_math.h"
 #include <algorithm>
 #include <bit>
 #include <cmath>
@@ -217,8 +218,9 @@ bool nativeTrigInstruction(uint8_t *,R5900Context *c,Runtime *rt,uint32_t pc){
         return true;
     }
     if(threeSineSite(pc)){
-        if(!c || c->pc!=0x2150f0 || (c->r[31].uw[0]!=0x2152ec && c->r[31].uw[0]!=0x215324))
+        if(!c || c->pc!=0x2150f0 || (c->r[31].uw[0]!=0x2152ec && c->r[31].uw[0]!=0x215324 && c->r[31].uw[0]!=0x214db8))
             throw std::runtime_error("unported independent three-sine return contract");
+        if(c->r[31].uw[0]==0x214db8)qualifySquadSines(rt,c,c->r[29].uw[0]+0x20);
         auto *frame=record(rt,c->r[29].uw[0],0x20);
         const auto separate=[&](uint8_t *p,size_t bytes){const auto a=reinterpret_cast<uintptr_t>(frame),b=reinterpret_cast<uintptr_t>(p);
             if(a<b+bytes && b<a+0x20)throw std::runtime_error("three-sine frame aliases caller operands/coefficients");};

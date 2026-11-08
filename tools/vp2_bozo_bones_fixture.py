@@ -38,7 +38,9 @@ fixture,_=prepare(data,[dict(Name='bone_loop',Start='0x2371dc',End='0x2372d8'),
                        dict(Name='collision_normal',Start='0x1fc5b0',End='0x1fc6c8'),
                        dict(Name='collision_response',Start='0x1fc030',End='0x1fc180'),
                        dict(Name='physics_response_fragment',Start='0x1fe008',End='0x1fe030'),
-                       dict(Name='point_segment_distance',Start='0x211fb0',End='0x212094')],{})
+                       dict(Name='point_segment_distance',Start='0x211fb0',End='0x212094'),
+                       dict(Name='plane_contact',Start='0x1fbfb0',End='0x1fc030'),
+                       dict(Name='plane_caller_fragment',Start='0x1fe1e0',End='0x1fe264')],{})
 fixture=bytearray(fixture);_,segments,_=elf_parts(fixture)
 s=next(s for s in segments if s[0]==1 and s[2]<=0x2371dc<0x2372d8<=s[2]+s[4])
 at=s[1]+0x2372d0-s[2];fixture[at:at+8]=(0x03e00008).to_bytes(4,'little')+bytes(4)
@@ -197,6 +199,16 @@ point_segment_sites=[pc for pc in range(0x211fb0,0x212094,4)
 if len(point_segment_sites)!=25:raise ValueError('point/segment vector site coverage mismatch')
 for pc in point_segment_sites:
     if a.variant=='reference' and pc not in (0x211fe8,0x212020,0x212064,0x212084):
+        at=s[1]+pc-s[2];fixture[at:at+4]=bytes(4)
+    else:sites.append(f'native 0x{pc:x}\n')
+s=next(s for s in segments if s[0]==1 and s[2]<=0x1fe1e0<0x1fe264<=s[2]+s[4])
+at=s[1]+0x1fe258-s[2];fixture[at:at+12]=(0x3c1f0017).to_bytes(4,'little')+(0x03e00008).to_bytes(4,'little')+bytes(4)
+s=next(s for s in segments if s[0]==1 and s[2]<=0x1fbfb0<0x1fc030<=s[2]+s[4])
+plane_sites=[pc for pc in range(0x1fbfb0,0x1fc030,4)
+             if int.from_bytes(data[s[1]+pc-s[2]:s[1]+pc-s[2]+4],'little')>>26 in (0x12,0x36,0x3e)]
+if len(plane_sites)!=14:raise ValueError('plane contact vector site coverage mismatch')
+for pc in plane_sites:
+    if a.variant=='reference' and pc not in (0x1fbff0,0x1fc010):
         at=s[1]+pc-s[2];fixture[at:at+4]=bytes(4)
     else:sites.append(f'native 0x{pc:x}\n')
 bound={int(row.split()[1],16) for row in sites if row.startswith('native ')}

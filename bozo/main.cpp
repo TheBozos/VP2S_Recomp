@@ -351,6 +351,7 @@ public:
     void handlerCompleted(bozo::ee::Dispatcher &d,bozo::ee::Thread &t,const bozo::ee::Frame &f) override { native.handlerCompleted(d,t,f); }
 };
 bool noNativeInstruction(uint8_t *ram,R5900Context *ctx,Runtime *rt,uint32_t pc) {
+    try {
     if(auto handled=vp2s::nativeLoadProgressInstruction(ctx,rt,pc))return *handled;
     if(auto handled=vp2s::nativeUiWindowInstruction(ctx,rt,pc))return *handled;
     if(auto handled=vp2s::nativeUiTextInstruction(ctx,rt,pc))return *handled;
@@ -449,6 +450,10 @@ bool noNativeInstruction(uint8_t *ram,R5900Context *ctx,Runtime *rt,uint32_t pc)
     if(vp2s::nativeMathInstruction(ram,ctx,rt,pc))return true;
     if(vp2s::nativeFrameInput(ram,ctx,rt,pc))return true;
     throw std::runtime_error(std::format("unported native VP2S algorithm at pc={:x}",pc));
+    } catch(const std::runtime_error &e) {
+        throw std::runtime_error(std::format("{} [native site={:x} entry={:x} ra={:x} a0={:x} a1={:x} a2={:x} a3={:x} sp={:x}]",
+            e.what(),pc,ctx->pc,ctx->r[31].uw[0],ctx->r[4].uw[0],ctx->r[5].uw[0],ctx->r[6].uw[0],ctx->r[7].uw[0],ctx->r[29].uw[0]));
+    }
 }
 }
 

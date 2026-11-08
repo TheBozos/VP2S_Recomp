@@ -42,6 +42,23 @@ void separatePairFrame(uint8_t *frame,uint8_t *data,size_t bytes){
 }
 struct SegmentTerms {std::array<float,3> delta;float firstLength,negativeCross,secondLength,firstProjection,separation,determinant,negativeSecondProjection,secondNumerator,firstNumerator;};
 struct PointSegmentTerms {std::array<float,3> delta,direction;float projection,lengthSquared;};
+struct PlaneContact {std::array<float,4> point;std::array<float,3> normal;float distance;};
+PlaneContact planeContact(Runtime *rt,R5900Context *c){
+    if(c->pc!=0x1fbfb0 || c->r[31].uw[0]!=0x1fe210)throw std::runtime_error("unqualified plane-contact caller");
+    const auto stack=c->r[29].uw[0],owner=c->r[4].uw[0],pointAddress=c->r[17].uw[0];
+    auto *frame=record(rt,stack,16),*plane=record(rt,owner,0x240),*point=record(rt,pointAddress,0x40),*output=record(rt,c->r[6].uw[0],16);
+    uint32_t attached;std::memcpy(&attached,point+8,4);
+    if(attached!=owner || c->r[5].uw[0]!=pointAddress+0x30 || c->r[6].uw[0]!=stack+0x1f0 || c->r[3].uw[0]!=owner+0x230 || c->r[2].uw[0]!=stack)
+        throw std::runtime_error("plane-contact argument or temporary setup mismatch");
+    separatePairFrame(frame,plane,0x240);separatePairFrame(frame,point,0x40);separatePairFrame(frame,output,16);
+    const float margin=c->f[12];uint32_t marginBits;std::memcpy(&marginBits,point+0x18,4);
+    if(marginBits!=std::bit_cast<uint32_t>(margin))throw std::runtime_error("plane-contact margin argument mismatch");
+    pairQualified(margin);if(std::abs(margin)>1.e8f)throw std::runtime_error("unqualified plane-contact margin");
+    PlaneContact result;float normal[4],origin[4],products[3];std::memcpy(result.point.data(),point+0x30,16);std::memcpy(normal,plane+0x220,16);std::memcpy(origin,plane+0x230,16);
+    for(unsigned i=0;i<3;++i){for(float value:{result.point[i],normal[i],origin[i]}){pairQualified(value);if(std::abs(value)>1.e8f)throw std::runtime_error("unqualified plane-contact magnitude");}
+        result.normal[i]=normal[i];products[i]=pairProduct(pairSum(result.point[i],-origin[i]),normal[i]);}
+    result.distance=pairSum(pairSum(pairSum(products[0],products[1]),pairProduct(1.f,products[2])),-margin);return result;
+}
 PointSegmentTerms pointSegmentTerms(Runtime *rt,R5900Context *c){
     if(c->pc!=0x211fb0 || (c->r[31].uw[0]!=0x1fc244 && c->r[31].uw[0]!=0x1fc4f0))throw std::runtime_error("unqualified point/segment caller");
     auto *frame=record(rt,c->r[29].uw[0],32),*segment=record(rt,c->r[4].uw[0],32),*point=record(rt,c->r[5].uw[0],16);
@@ -225,6 +242,16 @@ bool nativeMathInstruction(uint8_t *,R5900Context *c,Runtime *rt,uint32_t pc){
     if(nativeTrigInstruction(nullptr,c,rt,pc))return true;
     if(nativeObjectMathInstruction(nullptr,c,rt,pc))return true;
     if(nativeFrustumInstruction(c,rt,pc))return true;
+    if(pc==0x1fbff0 || pc==0x1fc010){
+        auto contact=planeContact(rt,c);
+        if(pc==0x1fbff0)std::memcpy(record(rt,c->r[29].uw[0],16),&contact.distance,4);
+        else{
+            if(contact.distance>0 || std::bit_cast<uint32_t>(c->f[1])!=std::bit_cast<uint32_t>(contact.distance))throw std::runtime_error("plane-contact projection branch mismatch");
+            for(unsigned i=0;i<3;++i)contact.point[i]=pairSum(pairSum(contact.point[i],0.f),-pairProduct(contact.normal[i],contact.distance));
+            std::memcpy(record(rt,c->r[6].uw[0],16),contact.point.data(),16);
+        }return true;
+    }
+    if(pc==0x1fbfbc || pc==0x1fbfc0 || pc==0x1fbfc4 || pc==0x1fbfd0 || pc==0x1fbfd8 || pc==0x1fbfdc || pc==0x1fbfe0 || pc==0x1fbfe4 || pc==0x1fbfe8 || pc==0x1fbfec || pc==0x1fc008 || pc==0x1fc00c)return true;
     if(pc==0x211fe8 || pc==0x212020 || pc==0x212064 || pc==0x212084){
         const auto terms=pointSegmentTerms(rt,c);const auto stack=c->r[29].uw[0];float value;
         if(c->r[2].uw[0]!=(pc==0x212020?stack:stack+0x10))throw std::runtime_error("point/segment temporary destination mismatch");

@@ -2,12 +2,13 @@
 #include "bozo/ee/dispatcher.h"
 #include <algorithm>
 #include <cstring>
+#include <format>
 #include <limits>
 #include <stdexcept>
 namespace vp2s {
 namespace {
 uint32_t endOf(uint32_t at,uint32_t bytes){
-    if(at>=0x2000000 || bytes>0x2000000-at)throw std::runtime_error("native asset range outside EE RAM");
+    if(at>=0x2000000 || bytes>0x2000000-at)throw std::runtime_error(std::format("native asset range outside EE RAM: address={:x} bytes={:x}",at,bytes));
     return at+bytes;
 }
 AssetOrigin advance(AssetOrigin origin,uint32_t bytes){

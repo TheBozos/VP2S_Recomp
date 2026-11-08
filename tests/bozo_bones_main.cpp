@@ -71,13 +71,22 @@ struct Host:bozo::ee::Host,bozo::port::Host,vp2s::MotionOwner{
         return target==0x1fcb40 && rt->functions.generated(target)==bones_adapted_motion_setter_0x1fcb40;
     }
     std::map<uint32_t,std::array<uint32_t,4>> referenceMotion;
-    unsigned symmetricPairs=0,weightedPairs=0,boxPublications=0,angularQuaternions=0,angularCompositions=0,velocityPublications=0,collisionNormals=0,responsePairs=0,responseFirsts=0,responseSeconds=0,responseFallbacks=0;
+    unsigned symmetricPairs=0,weightedPairs=0,boxPublications=0,angularQuaternions=0,angularCompositions=0,velocityPublications=0,collisionNormals=0,responsePairs=0,responseFirsts=0,responseSeconds=0,responseFallbacks=0,planeEvaluations=0,planePublications=0;
     bool reference=false;uint32_t selectedInverse=0,translationW=0;
     bool callbackActive=false;uint32_t callbackObject=0;uint8_t callbackFlags=0;unsigned callbacks=0;
     std::array<uint32_t,24> callbackData{};
     bozo::libs::Libraries &libraries()override{throw std::runtime_error("libraries");}
     bool nativeGraphics()const override{return true;}
     bool nativeInstruction(uint8_t *r,R5900Context *c,Runtime *rt,uint32_t pc)override{
+        if(pc==0x1fbff0)++planeEvaluations;if(pc==0x1fc010)++planePublications;
+        if(reference && (pc==0x1fbff0 || pc==0x1fc010)){
+            float point[4],origin[4],normal[4],products[3];std::memcpy(point,rt->memory.hostPointer(c->r[5].uw[0],16),16);std::memcpy(origin,rt->memory.hostPointer(c->r[4].uw[0]+0x230,16),16);std::memcpy(normal,rt->memory.hostPointer(c->r[4].uw[0]+0x220,16),16);
+            const auto reduce=[](float v){const auto bits=std::bit_cast<uint32_t>(v);return std::bit_cast<float>((bits&0x7f800000)?bits:(bits&0x80000000));};
+            for(unsigned i=0;i<3;++i){volatile float difference=point[i]-origin[i],product=reduce(difference)*normal[i];products[i]=reduce(product);}
+            volatile float xy=products[0]+products[1],z=1.f*products[2],dot=reduce(xy)+reduce(z),difference=reduce(dot)-c->f[12];const auto distance=reduce(difference);
+            if(pc==0x1fbff0)put(*rt,c->r[29].uw[0],std::bit_cast<uint32_t>(distance));
+            else{for(unsigned i=0;i<3;++i){volatile float base=point[i]+0.f,product=normal[i]*distance,value=reduce(base)-reduce(product);point[i]=reduce(value);}std::memcpy(rt->memory.hostPointer(c->r[6].uw[0],16),point,16);}return true;
+        }
         if(reference && pc>=0x211fb0 && pc<0x2120a0){
             float segment[2][4],point[4],delta[3],products[3],squares[3];std::memcpy(segment,rt->memory.hostPointer(c->r[4].uw[0],32),32);std::memcpy(point,rt->memory.hostPointer(c->r[5].uw[0],16),16);
             const auto normal=[](float v){const auto bits=std::bit_cast<uint32_t>(v);return std::bit_cast<float>((bits&0x7f800000)?bits:(bits&0x80000000));};
@@ -1010,5 +1019,39 @@ int main(){try{
         c.r[31].ud[0]=0;reject();c.r[31].ud[0]=0x1fc4f0;c.r[6].ud[0]=segment+4;reject();c.r[6].ud[0]=stack+0x10;reject();c.r[6].ud[0]=stack+0x40;c.r[4].ud[0]=stack;reject();c.r[4].ud[0]=segment;
         put(r,point,0x7fc00000u);reject();put(r,point,1u);reject();put(r,point,std::bit_cast<uint32_t>(1.e9f));reject();put(r,point,0u);c.r[2].ud[0]+=4;reject();
     }
-    std::printf("%u bone,%u distance,%u scale,%u parameters,%u selectors (%u rigid/%u general),%u column inverses,%u paired aliases,%u paired callers,%u full/%u linear transforms,%u motion callers,%u position pairs (%u fixed),%u boxes (%u clamped/%u unchanged),%u transposed inverses,%u angular callers (%u rotation/%u aligned),%u quaternion products,%u velocity loops/%u records,%u collision queries,%u segment distances (%u interior/%u clamped samples),%u collision callers (%u hit/%u miss),%u responses/%u real continuations,%u point/segments (%u start/%u end/%u interior): CPU/RAM, four modes, live XYZW; no VU state\n",cases,distances,scales,parameters,selectors,rigid,general,columns,pairs,pairedCallers,transforms,linearTransforms,motions,positionPairs,fixedPairs,boxes,clamped,unclamped,transposedInverses,angularCosines,angularRotations,angularAligned,quaternionProducts,velocityLoops,velocityRecords,collisionQueries,segmentDistances,segmentInterior,segmentClamped,collisionCallers,collisionHits,collisionMisses,positionResponses,responseContinuations,pointSegments,pointStarts,pointEnds,pointInteriors);return 0;
+    unsigned planeCallers=0,planeHits=0,planeMisses=0,planeSkipped=0;h.planeEvaluations=h.planePublications=0;
+    for(unsigned mode:{_MM_ROUND_NEAREST,_MM_ROUND_DOWN,_MM_ROUND_UP,_MM_ROUND_TOWARD_ZERO})for(unsigned seed=0;seed<128;++seed){
+        auto &x=a.runtime(),&y=b.runtime();std::memset(x.memory.flat(),0x61,bozo::kFlatBytes);
+        const uint32_t stack=seed&1?0x70003000:0x1fff000,owner=0x180000,point=seed%5==0?stack+0x1b0:seed%7==0?owner+0x200:0x190000,vtable=0x1c0000,group=0x1d0000,flags=0x1d1000;
+        put(x,owner,vtable);put(x,vtable+0x8c,0x1fbfb0u);put(x,group+0x30,flags);std::memset(x.memory.hostPointer(flags,16),0,16);
+        float normal[4],origin[4],position[4];for(auto *values:{normal,origin,position})for(unsigned i=0;i<3;++i){random=random*1664525u+1013904223u;values[i]=float(int(random%1025)-512)/16;}
+        float margin=float(int(seed%33)-16)/8;
+        if(seed%16<2){for(unsigned i=0;i<3;++i){normal[i]=i==2?1.f:0.f;origin[i]=0;position[i]=i==2?(seed%16==0?-2.f:2.f):0.f;}margin=.5f;}
+        normal[3]=std::bit_cast<float>(0x7f801234u);origin[3]=std::bit_cast<float>(0xffc01234u);position[3]=std::bit_cast<float>(0x7f805678u);
+        std::memcpy(x.memory.hostPointer(owner+0x220,16),normal,16);std::memcpy(x.memory.hostPointer(owner+0x230,16),origin,16);
+        put(x,point,uint8_t(seed%9==0?1:0));put(x,point+2,uint8_t(seed%4==0?0xff:seed%8));put(x,point+8,seed%11==0?0u:owner);put(x,point+0x18,std::bit_cast<uint32_t>(margin));put(x,point+0x1c,0x3e800000u);put(x,owner+0x214,0x3f000000u);
+        std::memcpy(x.memory.hostPointer(point+0x30,16),position,16);
+        const bool skipped=seed%9==0 || seed%11==0;if(skipped)put(x,point+0x18,0x7f801234u);
+        std::memcpy(y.memory.flat(),x.memory.flat(),bozo::kFlatBytes);
+        R5900Context p{};for(unsigned i=1;i<32;++i){p.r[i].ud[0]=seed*32+i;p.r[i].ud[1]=~p.r[i].ud[0];}std::memset(p.vu0_vf,0x47,sizeof(p.vu0_vf));p.vu0_status=0x1234;p.r[17].ud[0]=point;p.r[21].ud[0]=group;p.r[29].ud[0]=stack;auto q=p;
+        const auto beforeEvaluations=h.planeEvaluations,beforePublications=h.planePublications,saved=_mm_getcsr(),control=(saved&~_MM_ROUND_MASK)|mode;_mm_setcsr(control);
+        h.reference=true;x.functions.generated(0x1fe1e0)(x.memory.flat(),&p,&x);const auto expectedFp=_mm_getcsr();_mm_setcsr(control);
+        h.reference=false;y.functions.generated(0x1fe1e0)(y.memory.flat(),&q,&y);check(_mm_getcsr()==expectedFp);_mm_setcsr(saved);
+        p.cycleLimit=q.cycleLimit;check(q.pc==0x170000 && !std::memcmp(&p,&q,sizeof(p)));check(!std::memcmp(x.memory.flat(),y.memory.flat(),bozo::kFlatBytes));check(word(y,point+0x3c)==0x7f805678u);
+        if(skipped){check(h.planeEvaluations==beforeEvaluations && h.planePublications==beforePublications);++planeSkipped;}
+        else{check(h.planeEvaluations==beforeEvaluations+2);if(h.planePublications==beforePublications+2){++planeHits;check(word(y,point+0x1c)==0x3f400000u);if(seed%4)check(*y.memory.hostPointer(flags+seed%8,1)==1);}
+            else{check(h.planePublications==beforePublications);++planeMisses;check(word(y,point+0x1c)==0x3e800000u);}
+            if(seed%16<2 && seed%7){check(word(y,point+0x38)==(seed%16==0?0x3f000000u:0x40000000u));}}
+        ++planeCallers;
+    }
+    check(planeHits && planeMisses && planeSkipped);
+    {auto &r=b.runtime();constexpr uint32_t owner=0x180000,point=0x190000,stack=0x1fff000;R5900Context c{};c.pc=0x1fbfb0;c.r[31].ud[0]=0x1fe210;c.r[29].ud[0]=stack;c.r[4].ud[0]=owner;c.r[5].ud[0]=point+0x30;c.r[6].ud[0]=stack+0x1f0;c.r[17].ud[0]=point;c.r[3].ud[0]=owner+0x230;c.r[2].ud[0]=stack;c.f[12]=.5f;
+        put(r,point+8,owner);put(r,point+0x18,0x3f000000u);for(auto at:{owner+0x220,owner+0x230,point+0x30})for(unsigned i=0;i<4;++i)put(r,at+i*4,0u);
+        const auto reject=[&]{const auto saved=c;std::vector<uint8_t> ram(r.memory.flat(),r.memory.flat()+bozo::kFlatBytes);bool bad=false;
+            try{vp2s::nativeMathInstruction(r.memory.flat(),&c,&r,0x1fbff0);}catch(const std::runtime_error &){bad=true;}check(bad && !std::memcmp(&saved,&c,sizeof(c)) && !std::memcmp(ram.data(),r.memory.flat(),ram.size()));};
+        c.r[31].ud[0]=0;reject();c.r[31].ud[0]=0x1fe210;c.r[6].ud[0]+=16;reject();c.r[6].ud[0]-=16;put(r,point+0x18,0u);reject();put(r,point+0x18,0x3f000000u);
+        put(r,owner+0x220,0x7fc00000u);reject();put(r,owner+0x220,1u);reject();put(r,owner+0x220,std::bit_cast<uint32_t>(1.e9f));reject();put(r,owner+0x220,0u);
+        c.r[17].ud[0]=stack-0x30;c.r[5].ud[0]=stack;put(r,stack-0x28,owner);put(r,stack-0x18,0x3f000000u);reject();
+    }
+    std::printf("%u bone,%u distance,%u scale,%u parameters,%u selectors (%u rigid/%u general),%u column inverses,%u paired aliases,%u paired callers,%u full/%u linear transforms,%u motion callers,%u position pairs (%u fixed),%u boxes (%u clamped/%u unchanged),%u transposed inverses,%u angular callers (%u rotation/%u aligned),%u quaternion products,%u velocity loops/%u records,%u collision queries,%u segment distances (%u interior/%u clamped samples),%u collision callers (%u hit/%u miss),%u responses/%u real continuations,%u point/segments (%u start/%u end/%u interior),%u plane callers (%u hit/%u miss/%u skipped): CPU/RAM, four modes, live XYZW; no VU state\n",cases,distances,scales,parameters,selectors,rigid,general,columns,pairs,pairedCallers,transforms,linearTransforms,motions,positionPairs,fixedPairs,boxes,clamped,unclamped,transposedInverses,angularCosines,angularRotations,angularAligned,quaternionProducts,velocityLoops,velocityRecords,collisionQueries,segmentDistances,segmentInterior,segmentClamped,collisionCallers,collisionHits,collisionMisses,positionResponses,responseContinuations,pointSegments,pointStarts,pointEnds,pointInteriors,planeCallers,planeHits,planeMisses,planeSkipped);return 0;
 }catch(const std::exception &e){std::fprintf(stderr,"%s\n",e.what());return 1;}}

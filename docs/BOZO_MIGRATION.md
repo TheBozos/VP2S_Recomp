@@ -12,6 +12,33 @@ The earlier VP2S face/shading and general brightness comparisons remain open.
 
 ## Build and evidence
 
+### Native plane-contact projection and caller publication (2026-11-08)
+
+The actual indirect call was measured at `0x1fe210` before qualification.
+`0x1fbfb0` now computes its signed plane distance and corrected point from the
+game plane/point records. The original scalar hit/miss branch and full point W
+copy remain. Dead temporary YZW retire with the complete plane, caller point
+record and output spans separated from the temporary frame. The measured
+caller, attached owner, margin and output layout must match; no general caller
+or unit-normal policy is inferred.
+
+512 complete CPU/RAM/FP caller fragments execute the original indirect call,
+point copy, contact-value increment and dirty flag: 224 hits, 188 misses and
+100 fixed/missing-owner skips. Four modes, input/output/plane aliases, opaque
+live W and exact +Z projection/contact examples pass. Skipped paths tolerate
+unused opaque margins. Caller/setup/frame/domain rejection, source-word
+mutation and executable-vector completeness pass. All three targeted suites
+pass (`plane-tests.log`, 99.12 seconds). The fixture exits privately before the
+next enclosing-loop branch; it does not qualify the whole physics loop.
+All 58 rebuilt suites pass (`plane-all-tests.log`, 188.22 seconds).
+
+Boundary errors now include the native hook, entry, caller and argument
+addresses; asset range errors include address/size. Actual New Game reaches
+the native allocation-lifetime hook at `0x118230`, caller `0x100b90`, with
+`0x1fe7f80` and an out-of-range apparent size `0x1ca180`. The range check stays
+strict while its original allocator/caller is investigated. No rendered field
+or Logun qualification follows from this progress; BozoEngine is unchanged.
+
 ### Native point/segment distance (2026-11-08)
 
 `0x211fb0` now derives typed projection, direction-length and squared-distance

@@ -12,6 +12,32 @@ The earlier VP2S face/shading and general brightness comparisons remain open.
 
 ## Build and evidence
 
+### Native collision position response (2026-11-08)
+
+All 31 vector sites in `0x1fc030` now retire or publish game position records
+directly. Original scalar fixed/free selection and 0.01/0.99 branches remain.
+The game RAM coefficients still scale penetration and provide the threshold
+fallback. Both reciprocal paths use the source's `1/parameter`, including the
+first-position branch; no assumed physics correction replaces that equation.
+Zero-division uses its signed finite maximum within the qualified result bound.
+Pair positions snapshot before either store; each output W copies its own
+original position exactly. Both-fixed cases use no numeric inputs.
+
+Only `0x1fdf68/0x1fe024` and their original normal argument qualify. Active
+inputs reject unsupported numeric domains and output bounds before publishing.
+512 complete function comparisons cover four modes, fixed/free/other flags,
+threshold neighbours, zero/negative parameters, position/normal aliases, exact
+pair displacement and opaque live W. Invalid caller/setup/domain checks pass;
+the unused both-fixed path tolerates opaque coefficients and scalar arguments.
+
+The existing complete normal callers also continue successful `0x1fe000`
+returns through the real `0x1fe008..0x1fe024` scalar argument setup and this
+response. A private fixture exit follows that fragment; this does not qualify
+the remainder of the enclosing physics loop. All three targeted suites pass
+(`response-tests.log`, 93.20 seconds), including source-word mutation and vector
+completeness. Actual New Game advances to `0x211fb8`, the point/segment distance
+helper. BozoEngine remains unchanged; Logun remains open.
+
 ### Native collision-normal publication (2026-11-08)
 
 `0x1fc5b0` retains the real segment-distance call, radius comparison, hit/miss

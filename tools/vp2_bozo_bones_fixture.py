@@ -35,7 +35,9 @@ fixture,_=prepare(data,[dict(Name='bone_loop',Start='0x2371dc',End='0x2372d8'),
                        dict(Name='soft_position_pair',Start='0x1fc6d0',End='0x1fc858'),
                        dict(Name='collision_query',Start='0x1fde10',End='0x1fde90'),
                        dict(Name='segment_distance',Start='0x2120a0',End='0x21294c'),
-                       dict(Name='collision_normal',Start='0x1fc5b0',End='0x1fc6c8')],{})
+                       dict(Name='collision_normal',Start='0x1fc5b0',End='0x1fc6c8'),
+                       dict(Name='collision_response',Start='0x1fc030',End='0x1fc180'),
+                       dict(Name='physics_response_fragment',Start='0x1fe008',End='0x1fe030')],{})
 fixture=bytearray(fixture);_,segments,_=elf_parts(fixture)
 s=next(s for s in segments if s[0]==1 and s[2]<=0x2371dc<0x2372d8<=s[2]+s[4])
 at=s[1]+0x2372d0-s[2];fixture[at:at+8]=(0x03e00008).to_bytes(4,'little')+bytes(4)
@@ -176,6 +178,16 @@ normal_sites=[pc for pc in range(0x1fc5b0,0x1fc6c8,4)
 if len(normal_sites)!=18:raise ValueError('collision normal vector site coverage mismatch')
 for pc in normal_sites:
     if a.variant=='reference' and pc!=0x1fc690:
+        at=s[1]+pc-s[2];fixture[at:at+4]=bytes(4)
+    else:sites.append(f'native 0x{pc:x}\n')
+s=next(s for s in segments if s[0]==1 and s[2]<=0x1fe008<0x1fe030<=s[2]+s[4])
+at=s[1]+0x1fe024-s[2];fixture[at:at+12]=(0x3c1f0017).to_bytes(4,'little')+(0x03e00008).to_bytes(4,'little')+bytes(4)
+s=next(s for s in segments if s[0]==1 and s[2]<=0x1fc030<0x1fc180<=s[2]+s[4])
+response_sites=[pc for pc in range(0x1fc030,0x1fc180,4)
+                if int.from_bytes(data[s[1]+pc-s[2]:s[1]+pc-s[2]+4],'little')>>26 in (0x12,0x36,0x3e)]
+if len(response_sites)!=31:raise ValueError('collision response vector site coverage mismatch')
+for pc in response_sites:
+    if a.variant=='reference' and pc not in (0x1fc0c4,0x1fc128,0x1fc174):
         at=s[1]+pc-s[2];fixture[at:at+4]=bytes(4)
     else:sites.append(f'native 0x{pc:x}\n')
 bound={int(row.split()[1],16) for row in sites if row.startswith('native ')}

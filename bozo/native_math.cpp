@@ -91,6 +91,41 @@ SegmentTerms segmentTerms(Runtime *rt,R5900Context *c){
     result.secondNumerator=pairSum(pairProduct(result.negativeCross,result.firstProjection),-pairProduct(result.firstLength,result.negativeSecondProjection));
     result.firstNumerator=pairSum(pairProduct(result.negativeCross,result.negativeSecondProjection),-pairProduct(result.secondLength,result.firstProjection));return result;
 }
+void collisionPositionResponse(Runtime *rt,R5900Context *c,uint32_t pc){
+    if(c->pc!=0x1fc030 || (c->r[31].uw[0]!=0x1fdf68 && c->r[31].uw[0]!=0x1fe024))
+        throw std::runtime_error("unqualified collision position-response caller");
+    const auto normalAddress=c->r[29].uw[0]+0x210;auto *normal=record(rt,normalAddress,16),*coefficients=record(rt,0x359100,16);
+    if(pc==0x1fc038){
+        if(c->r[6].uw[0]!=normalAddress || c->r[3].uw[0]!=0x359100)throw std::runtime_error("collision position-response argument setup mismatch");
+        record(rt,c->r[4].uw[0],0x40);auto *part=record(rt,c->r[5].uw[0],0x40);uint32_t other;std::memcpy(&other,part+0x38,4);record(rt,other,0x40);return;
+    }
+    const bool paired=pc==0x1fc0c4,secondOnly=pc==0x1fc128;
+    auto *first=record(rt,c->r[4].uw[0]+(paired?0:0x30),16),*second=record(rt,c->r[6].uw[0]+0x30,16);
+    auto *destination=secondOnly?second:first;
+    if(c->r[3].uw[0]!=(paired || secondOnly?c->r[6].uw[0]+0x30:c->r[4].uw[0]+0x30))
+        throw std::runtime_error("collision position-response destination mismatch");
+    float n[4],a[4],b[4],scale,fallback=0;std::memcpy(n,normal,16);std::memcpy(a,first,16);std::memcpy(b,second,16);std::memcpy(&scale,coefficients+12,4);
+    const auto parameter=c->f[12],depth=c->f[13];pairQualified(parameter);pairQualified(depth);pairQualified(scale);
+    if(std::abs(parameter)>2 || std::abs(depth)>1.e8f || std::abs(scale)>1.e8f)throw std::runtime_error("unqualified collision response coefficients");
+    for(unsigned i=0;i<3;++i){pairQualified(n[i]);if(std::abs(n[i])>1.e8f)throw std::runtime_error("unqualified collision response normal");}
+    const auto scaledDepth=pairProduct(depth,scale);std::array<float,3> correction;
+    for(unsigned i=0;i<3;++i)correction[i]=pairProduct(n[i],scaledDepth);
+    float weights[2];if(paired){weights[0]=pairSum(1.f,-parameter);weights[1]=parameter;}
+    else{const bool capped=secondOnly?parameter<std::bit_cast<float>(0x3c23d70au):parameter>std::bit_cast<float>(0x3f7d70a4u);
+        if(capped){std::memcpy(&fallback,coefficients+8,4);pairQualified(fallback);weights[0]=fallback;}
+        else{volatile float inverse=parameter==0?std::copysign(std::numeric_limits<float>::max(),parameter):1.f/parameter;weights[0]=pairNormal(inverse);}}
+    std::array<std::array<float,4>,2> results;const unsigned count=paired?2:1;
+    for(unsigned which=0;which<count;++which){const auto *input=paired?(which?b:a):secondOnly?b:a;std::memcpy(results[which].data(),input,16);
+        for(unsigned i=0;i<3;++i){pairQualified(input[i]);}
+        {music::CodecRounding validation;for(unsigned i=0;i<3;++i){const double bound=std::abs(double(input[i]))+std::abs(double(correction[i])*weights[which]);
+            if(bound>double(std::numeric_limits<float>::max())/2)throw std::runtime_error("collision response position overflow");}}
+        for(unsigned i=0;i<3;++i){const auto base=paired?pairSum(input[i],0.f):pairProduct(input[i],1.f);results[which][i]=pairSum(base,pairProduct(correction[i],weights[which]));}
+    }
+    // Pair results are snapshotted before either store; only the already
+    // loaded position's own W survives either source path.
+    if(paired){std::memcpy(first,results[0].data(),16);std::memcpy(second,results[1].data(),16);}
+    else std::memcpy(destination,results[0].data(),16);
+}
 struct AngularDirections {std::array<float,3> first,second;float cosine;};
 AngularDirections angularDirections(Runtime *rt,R5900Context *c){
     const auto stack=c->r[29].uw[0];auto *frame=record(rt,stack,0x1a0);
@@ -171,6 +206,14 @@ bool nativeMathInstruction(uint8_t *,R5900Context *c,Runtime *rt,uint32_t pc){
     if(nativeTrigInstruction(nullptr,c,rt,pc))return true;
     if(nativeObjectMathInstruction(nullptr,c,rt,pc))return true;
     if(nativeFrustumInstruction(c,rt,pc))return true;
+    if(pc==0x1fc038 || pc==0x1fc0c4 || pc==0x1fc128 || pc==0x1fc174){collisionPositionResponse(rt,c,pc);return true;}
+    switch(pc){
+    case 0x1fc044:case 0x1fc050:case 0x1fc054:case 0x1fc05c:case 0x1fc080:case 0x1fc084:case 0x1fc0ac:case 0x1fc0b0:
+    case 0x1fc0b4:case 0x1fc0b8:case 0x1fc0bc:case 0x1fc0c0:case 0x1fc0cc:case 0x1fc0e0:case 0x1fc100:case 0x1fc108:
+    case 0x1fc110:case 0x1fc114:case 0x1fc118:case 0x1fc11c:case 0x1fc134:case 0x1fc154:case 0x1fc15c:case 0x1fc160:
+    case 0x1fc164:case 0x1fc168:case 0x1fc16c:return true;
+    default:break;
+    }
     if(pc==0x1fc628){collisionNormal(rt,c,pc);return true;}
     if(pc==0x1fc690){const auto normal=collisionNormal(rt,c,pc);
         // Both audited physics continuations feed this record to 1fc030,

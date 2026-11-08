@@ -37,6 +37,10 @@ constexpr std::array<uint32_t,22> shortSineSites{
     0x2144d0,0x2144d4,0x2144e0,0x2144e4,0x2144e8,0x2144ec,0x2144f0,0x2144f4,
     0x214518,0x214540,0x214548,0x21454c,0x214550,0x21455c,0x214560,0x214564,
     0x214568,0x21456c,0x214570,0x214574,0x214578,0x21457c};
+constexpr std::array<uint32_t,27> fullSineSites{
+    0x2143f0,0x2143f4,0x2143f8,0x214404,0x214408,0x21440c,0x214410,0x214414,0x214418,
+    0x21443c,0x214460,0x214468,0x21446c,0x214470,0x21447c,0x214480,0x214484,0x214488,
+    0x21448c,0x214490,0x214494,0x214498,0x21449c,0x2144a0,0x2144a4,0x2144a8,0x2144ac};
 bool inverseCosineSite(uint32_t pc){
     return !(pc&3) && ((pc>=0x214ea8 && pc<=0x214eb4) || (pc>=0x214ef0 && pc<=0x214f5c) ||
         (pc>=0x214f7c && pc<=0x214ff8) || (pc>=0x215010 && pc<=0x215060) || pc==0x215074 || pc==0x215078 ||
@@ -171,7 +175,31 @@ NativeCosine shortSine(float angle,const TrigCoefficients &c){
     if(!std::isfinite(result))throw std::runtime_error("unqualified native short sine polynomial overflow");
     return {quadrant,result};
 }
+NativeCosine fullSine(float angle,const TrigCoefficients &c){
+    qualified(angle);qualified(c.pi);qualified(c.inversePi);for(float v:c.sine)qualified(v);
+    const auto scaled=product(angle,c.inversePi);
+    if(!std::isfinite(scaled) || scaled>=2147483648.f || scaled< -2147483648.f)
+        throw std::runtime_error("unqualified native full sine reduction range");
+    const auto quadrant=_mm_cvttss_si32(_mm_set_ss(scaled));
+    const auto integer=_mm_cvtss_f32(_mm_cvtsi32_ss(_mm_setzero_ps(),quadrant));
+    const auto r=difference(angle,product(integer,c.pi)),square=product(r,r);
+    float p=sum(product(square,c.sine[0]),c.sine[1]);
+    for(unsigned i=2;i<6;++i)p=sum(product(p,square),c.sine[i]);
+    p=sum(product(p,square),1.f);
+    const auto result=product(p,product(r,(uint32_t(quadrant)&1)?-1.f:1.f));
+    if(!std::isfinite(result))throw std::runtime_error("unqualified native full sine polynomial overflow");
+    return {quadrant,result};
+}
 bool nativeTrigInstruction(uint8_t *,R5900Context *c,Runtime *rt,uint32_t pc){
+    if(std::binary_search(fullSineSites.begin(),fullSineSites.end(),pc)){
+        if(!c || c->pc!=0x2143e0)throw std::runtime_error("unported interior full sine invocation");
+        if(pc==0x214414 || pc==0x2144ac){const auto result=fullSine(c->f[12],coefficients(rt));
+            if(pc==0x214414)std::memcpy(record(rt,0x35dac0,16)+12,&result.quadrant,4);
+            else std::memcpy(record(rt,0x35da80,16)+12,&result.value,4);}
+        // The temporary scalar sign store is overwritten by the final original
+        // record. Its XYZ coefficients remain untouched; only W is published.
+        return true;
+    }
     if(threeSineSite(pc)){
         if(!c || c->pc!=0x2150f0 || (c->r[31].uw[0]!=0x2152ec && c->r[31].uw[0]!=0x215324))
             throw std::runtime_error("unported independent three-sine return contract");

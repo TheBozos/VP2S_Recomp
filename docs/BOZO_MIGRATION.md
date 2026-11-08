@@ -12,6 +12,23 @@ The earlier VP2S face/shading and general brightness comparisons remain open.
 
 ## Build and evidence
 
+### Full scalar sine polynomial (2026-11-08)
+
+The actual `0x2143e0` caller at `0x396d64` now uses the game's full degree-13
+sine polynomial, pi reduction, quadrant sign and all six original coefficients.
+Its scalar branches and FPR return remain. Only quadrant W at `0x35dacc` and
+result W at `0x35da8c` publish; the temporary sign store retires because the
+original final record restores its old Z. Coefficient/ignored scratch XYZ bytes
+remain, with no vector bank. All 26 vector sites and the sign-store hook qualify.
+
+768 complete CPU/RAM/FP callers and 65,536 polynomial comparisons cover four
+modes, FTZ/DAZ, signed zero and pi-neighbor edges. The active coefficient/angle
+domain rejects; unused half-pi tolerates opaque bits. The combined trig suite
+now covers 393,216 polynomial comparisons and 250 native sites. All three
+targeted suites pass (`full-sine-tests.log`, 62.71 seconds). Actual seed-1
+New Game advances to full scalar cosine `0x214220`, caller `0x396d78`
+(`full-sine-route.log`). Engine `436d5d8`; rendered field/Logun remains open.
+
 ### Measured leafless collision-query root (2026-11-08)
 
 The actual `0x1f6f94` boundary was captured before editing: node `0xc997c0`

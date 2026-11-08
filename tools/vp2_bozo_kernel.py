@@ -8,6 +8,8 @@ import struct
 from vp2_bozo_prepare import elf_parts
 LEAFLESS_QUERY_SITES=(*range(0x1f6f94,0x1f6fa8,4),0x1f7098,0x1f709c,0x1f70a0,0x1f70a8,0x1f70ac,0x1f70b4,
     *range(0x1f70f0,0x1f7178,4),0x1f717c,*range(0x1f7194,0x1f71a8,4),*range(0x1f72cc,0x1f72e0,4),*range(0x1f7334,0x1f7348,4))
+FULL_SINE_SITES=(0x2143f0,0x2143f4,0x2143f8,0x214404,0x214408,0x21440c,0x214410,0x214414,0x214418,0x21443c,0x214460,
+    0x214468,0x21446c,0x214470,0x21447c,0x214480,0x214484,0x214488,0x21448c,0x214490,0x214494,0x214498,0x21449c,0x2144a0,0x2144a4,0x2144a8,0x2144ac)
 
 INSTALLER = (0x141448, 0x141544)
 QUERY = (0x141410, 0x141444)
@@ -446,6 +448,7 @@ def overlay_adaptations(name,data):
         (0x312e10,0x312f38,'b8e931e093c5016b7ef512874a728c050b65b8eff7d00938147abf8993cb21ea'),
         (0x23c17c,0x23c18c,'3290340dd577659aedd5c3dae5aa65654209ed3d2eea6c083ea4d4e2561a7a3b'),
         (0x214300,0x2143d4,'330403e55d0411cbd0a00609cbb5672d93bd532b4a1a076337d2d7b9557d55d3'),
+        (0x2143e0,0x2144bc,'215972741f87f32b518d7c668445cb57c11ce3579448a56bd30bafb4105339c5'),
         (0x2144c0,0x21458c,'829751c1cd99cfd0235237d0754e72e969869a5038b4f62a5204649119a219e0'),
         (0x2f2d70,0x2f2de0,'30a2923a7aa2d9c89d24b8fddcff01006d3ea2774afe0c390c7e215679e472f7'),
         (0x2f2df0,0x2f2fd8,'31595a371060732f2e757e834be15d505f0ff4ed0481120cff61ced5bc0635b1'),
@@ -676,6 +679,7 @@ def overlay_native_sites(name,data):
     overlay_adaptations(name,data)
     return ''.join(f'native 0x{pc:x}\n' for pc in (
         *LEAFLESS_QUERY_SITES,
+        *FULL_SINE_SITES,
         *range(0x252ec8,0x252f24,4),0x252fdc,0x252fe0,0x252fe4,0x252fec,0x252ff0,0x252ff8,
         0x2bf040,0x2bf058,
         0x2371e8,0x2371ec,0x2371f0,0x2371f4,0x2371fc,0x237200,0x237204,0x237208,

@@ -12,6 +12,21 @@ The earlier VP2S face/shading and general brightness comparisons remain open.
 
 ## Build and evidence
 
+### Native four-weight object transforms (2026-11-08)
+
+Three identical blocks ending at `0x1fb418`, `0x1fb610` and `0x1fb8a0`
+now call the qualified shared matrix/vector operation. All four input weights
+and all four output components matter. Inputs are snapshotted before the store;
+caller rounding and intermediate tiny-result reduction are retained. Active
+nonfinite/subnormal inputs and overflowing bounds reject without publication.
+
+1,536 generated-block comparisons cover all three copies, four rounding modes,
+ordinary/scratch records, matrix/output and vector/output aliases, tiny products
+and a nontrivial computed W. Whole CPU/RAM and host FP results agree with
+independent ordered scalar arithmetic; source mutation guards and startup pass.
+Actual New Game advances to the separate three-weight transform `0x1fb624`.
+These are numerical/launch checks; visible field rendering and Logun remain open.
+
 ### Native paired point/direction records (2026-11-08)
 
 `0x1fb768..0x1fb7a0` now calls the qualified shared point/direction record

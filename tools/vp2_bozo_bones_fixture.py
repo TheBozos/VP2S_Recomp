@@ -15,7 +15,10 @@ fixture,_=prepare(data,[dict(Name='bone_loop',Start='0x2371dc',End='0x2372d8'),
                        dict(Name='model_parameters',Start='0x23c240',End='0x23c2d8'),
                        dict(Name='inverse_selector',Start='0x248560',End='0x248624'),
                        dict(Name='column_inverse',Start='0x216cb0',End='0x216d60'),
-                       dict(Name='point_direction',Start='0x1fb6a0',End='0x1fb7b8')],{})
+                       dict(Name='point_direction',Start='0x1fb6a0',End='0x1fb7b8'),
+                       dict(Name='object_transform0',Start='0x1fb3f4',End='0x1fb424'),
+                       dict(Name='object_transform1',Start='0x1fb5ec',End='0x1fb61c'),
+                       dict(Name='object_transform2',Start='0x1fb87c',End='0x1fb8ac')],{})
 fixture=bytearray(fixture);_,segments,_=elf_parts(fixture)
 s=next(s for s in segments if s[0]==1 and s[2]<=0x2371dc<0x2372d8<=s[2]+s[4])
 at=s[1]+0x2372d0-s[2];fixture[at:at+8]=(0x03e00008).to_bytes(4,'little')+bytes(4)
@@ -65,5 +68,12 @@ for pc in range(0x1fb768,0x1fb7a4,4):
         at=s[1]+pc-s[2];fixture[at:at+4]=bytes(4)
     else:sites.append(f'native 0x{pc:x}\n')
 sites.append('stub 0x172000\n')
+for lo,final in ((0x1fb3f4,0x1fb418),(0x1fb5ec,0x1fb610),(0x1fb87c,0x1fb8a0)):
+    s=next(s for s in segments if s[0]==1 and s[2]<=lo<final+12<=s[2]+s[4])
+    at=s[1]+final+4-s[2];fixture[at:at+8]=(0x03e00008).to_bytes(4,'little')+bytes(4)
+    for pc in range(lo,final+4,4):
+        if a.variant=='reference' and pc!=final:
+            at=s[1]+pc-s[2];fixture[at:at+4]=bytes(4)
+        else:sites.append(f'native 0x{pc:x}\n')
 a.out.mkdir(parents=True,exist_ok=True);(a.out/'fixture.elf').write_bytes(fixture)
 (a.out/'externals.txt').write_text(''.join(sites))

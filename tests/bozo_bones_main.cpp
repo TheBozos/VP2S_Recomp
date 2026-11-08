@@ -35,6 +35,12 @@ uint32_t root(uint32_t bits){
 }
 template<class T>void put(Runtime &r,uint32_t p,T v){std::memcpy(r.memory.hostPointer(p,sizeof(v)),&v,sizeof(v));}
 uint32_t word(Runtime &r,uint32_t p){uint32_t v;std::memcpy(&v,r.memory.hostPointer(p,4),4);return v;}
+void referenceTransform(const float matrix[4][4],const float vector[4],unsigned weights,uint32_t out[4]){
+    const auto normal=[](float v){const auto b=std::bit_cast<uint32_t>(v);return std::bit_cast<float>((b&0x7f800000)?b:(b&0x80000000));};
+    for(unsigned lane=0;lane<4;++lane){volatile float p=matrix[0][lane]*vector[0];float total=normal(p);
+        for(unsigned i=1;i<weights;++i){volatile float product=matrix[i][lane]*vector[i];volatile float next=total+normal(product);total=normal(next);}
+        out[lane]=std::bit_cast<uint32_t>(total);}
+}
 void oracle(Runtime &r,R5900Context *c){
     uint32_t base[4][4],bone[4][4],local[4][4],relative[4][4],result[4][4],output[4][4];
     const auto owner=c->r[20].uw[0],i=c->r[6].uw[0]-1;
@@ -59,16 +65,16 @@ struct Host:bozo::ee::Host,bozo::port::Host{
     bozo::libs::Libraries &libraries()override{throw std::runtime_error("libraries");}
     bool nativeGraphics()const override{return true;}
     bool nativeInstruction(uint8_t *r,R5900Context *c,Runtime *rt,uint32_t pc)override{
+        if(reference && (pc==0x1fb418 || pc==0x1fb610 || pc==0x1fb8a0)){
+            float matrix[4][4],vector[4];uint32_t out[4];std::memcpy(matrix,rt->memory.hostPointer(c->r[5].uw[0],64),64);
+            std::memcpy(vector,rt->memory.hostPointer(c->r[4].uw[0],16),16);referenceTransform(matrix,vector,4,out);
+            std::memcpy(rt->memory.hostPointer(c->r[3].uw[0],16),out,16);return true;
+        }
         if(reference && pc==0x1fb79c){
             float matrix[4][4],vectors[2][4];uint32_t out[2][4];
             std::memcpy(matrix,rt->memory.hostPointer(c->r[6].uw[0],64),64);
             std::memcpy(vectors[0],rt->memory.hostPointer(c->r[5].uw[0],16),16);std::memcpy(vectors[1],rt->memory.hostPointer(c->r[4].uw[0],16),16);
-            const auto normal=[](float v){const auto b=std::bit_cast<uint32_t>(v);return std::bit_cast<float>((b&0x7f800000)?b:(b&0x80000000));};
-            for(unsigned which=0;which<2;++which)for(unsigned lane=0;lane<4;++lane){
-                volatile float p=matrix[0][lane]*vectors[which][0];float total=normal(p);
-                for(unsigned i=1;i<(which?3u:4u);++i){volatile float product=matrix[i][lane]*vectors[which][i];volatile float next=total+normal(product);total=normal(next);}
-                out[which][lane]=std::bit_cast<uint32_t>(total);
-            }
+            for(unsigned which=0;which<2;++which)referenceTransform(matrix,vectors[which],which?3:4,out[which]);
             std::memcpy(rt->memory.hostPointer(c->r[5].uw[0],16),out[0],16);std::memcpy(rt->memory.hostPointer(c->r[4].uw[0],16),out[1],16);return true;
         }
         if(pc==0x216cb0){selectedInverse=pc;return false;}
@@ -374,5 +380,33 @@ int main(){try{
         put(r,matrix+12,0x7fc00000u);reject();put(r,matrix+12,0u);put(r,point,1u);reject();
         put(r,point,0x40000000u);put(r,matrix,0x7f7fffffu);reject();
     }
-    std::printf("%u bone,%u distance,%u scale,%u parameters,%u selectors (%u rigid/%u general),%u column inverses,%u paired aliases,%u complete paired callers: CPU/RAM, four modes, live XYZW; no VU state\n",cases,distances,scales,parameters,selectors,rigid,general,columns,pairs,pairedCallers);return 0;
+    unsigned transforms=0;
+    for(uint32_t entry:{0x1fb3f4u,0x1fb5ecu,0x1fb87cu})for(unsigned mode:{_MM_ROUND_NEAREST,_MM_ROUND_DOWN,_MM_ROUND_UP,_MM_ROUND_TOWARD_ZERO})for(unsigned seed=0;seed<128;++seed){
+        auto &x=a.runtime(),&y=b.runtime();std::memset(x.memory.flat(),0x61,bozo::kFlatBytes);
+        const uint32_t matrix=seed&1?0x70000100:0x180000,vector=0x190000;
+        const uint32_t destination=seed%4==0?matrix+(seed%4)*16:seed%4==1?matrix+16:seed%4==2?vector:0x1a0000;
+        uint32_t values[20];for(auto &v:values){random=random*1664525u+1013904223u;v=(random&0x807fffff)|((104+random%26)<<23);}
+        if(seed%16==8)for(unsigned i=0;i<20;++i)values[i]=i<16?0x00800000u:0x3f000000u;
+        if(seed%16==0){std::memset(values,0,sizeof(values));for(unsigned i=0;i<4;++i)values[i*5]=0x3f800000;
+            values[3]=0x40000000;values[7]=0xc0400000;values[11]=0x40800000;values[15]=0x40a00000;
+            values[16]=0x3f800000;values[17]=0x40000000;values[18]=0x40400000;values[19]=0x40000000;}
+        std::memcpy(x.memory.hostPointer(matrix,64),values,64);std::memcpy(x.memory.hostPointer(vector,16),values+16,16);std::memcpy(y.memory.flat(),x.memory.flat(),bozo::kFlatBytes);
+        R5900Context p{};for(unsigned i=1;i<32;++i){p.r[i].ud[0]=seed*32+i;p.r[i].ud[1]=~p.r[i].ud[0];}
+        std::memset(p.vu0_vf,0x83,sizeof(p.vu0_vf));p.vu0_status=0x1234;p.r[5].ud[0]=matrix;p.r[4].ud[0]=vector;p.r[3].ud[0]=destination;p.r[31].ud[0]=0x170000;auto q=p;
+        const auto saved=_mm_getcsr(),control=(saved&~_MM_ROUND_MASK)|mode;_mm_setcsr(control);
+        h.reference=true;x.functions.generated(entry)(x.memory.flat(),&p,&x);const auto expectedFp=_mm_getcsr();_mm_setcsr(control);
+        h.reference=false;y.functions.generated(entry)(y.memory.flat(),&q,&y);check(_mm_getcsr()==expectedFp);_mm_setcsr(saved);
+        p.cycleLimit=q.cycleLimit;check(p.pc==0x170000 && !std::memcmp(&p,&q,sizeof(p)));check(!std::memcmp(x.memory.flat(),y.memory.flat(),bozo::kFlatBytes));
+        if(seed%16==0)check(word(y,destination+12)==0x41900000);++transforms;
+    }
+    {auto &r=b.runtime();constexpr uint32_t matrix=0x180000,vector=0x190000,destination=0x1a0000;R5900Context c{};c.r[5].ud[0]=matrix;c.r[4].ud[0]=vector;c.r[3].ud[0]=destination;
+        for(unsigned i=0;i<16;++i)put(r,matrix+i*4,i%5==0?0x3f800000u:0u);for(unsigned i=0;i<4;++i)put(r,vector+i*4,0x3f800000u);
+        auto reject=[&]{const auto saved=c;std::vector<uint8_t> ram(r.memory.flat(),r.memory.flat()+bozo::kFlatBytes);bool bad=false;
+            try{vp2s::nativeMathInstruction(r.memory.flat(),&c,&r,0x1fb610);}catch(const std::runtime_error &){bad=true;}
+            check(bad && !std::memcmp(&saved,&c,sizeof(c)) && !std::memcmp(ram.data(),r.memory.flat(),ram.size()));};
+        c.r[3].ud[0]+=4;reject();c.r[3].ud[0]-=4;put(r,vector+12,0x7fc00000u);reject();put(r,vector+12,0x3f800000u);
+        put(r,matrix+12,0x7fc00000u);reject();put(r,matrix+12,0u);put(r,vector,1u);reject();
+        put(r,vector,0x40000000u);put(r,matrix,0x7f7fffffu);reject();
+    }
+    std::printf("%u bone,%u distance,%u scale,%u parameters,%u selectors (%u rigid/%u general),%u column inverses,%u paired aliases,%u paired callers,%u full transforms: CPU/RAM, four modes, live XYZW; no VU state\n",cases,distances,scales,parameters,selectors,rigid,general,columns,pairs,pairedCallers,transforms);return 0;
 }catch(const std::exception &e){std::fprintf(stderr,"%s\n",e.what());return 1;}}

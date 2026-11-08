@@ -8,6 +8,17 @@ target, not a replacement DLL loaded into PS2Recomp.
 
 ## Build and evidence
 
+### Setup-object distance caller (2026-11-08)
+
+Mod003 `0x382020..0x382040` now uses the qualified XYZ length arithmetic
+with its own `a0` input / `v1` output record ABI. Its original scalar position
+lookup, subtraction, stack construction and object distance-field store remain.
+256 additional whole CPU/RAM caller comparisons pass across four rounding modes
+and both stack locations; total field-distance coverage is 1,024 cases. Source
+mutations across the new caller reject, and field-distance, signature and startup
+suites pass. Actual New Game advances to bounding-sphere builder `0x37faa0`.
+Logun and rendered field parity remain open.
+
 ### Original bounded string comparison restored (2026-11-08)
 
 The export metadata omitted main `0x134b60..0x134d18`, reached by the field

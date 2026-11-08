@@ -53,10 +53,16 @@ void oracle(Runtime &r,R5900Context *c){
     std::memcpy(r.memory.hostPointer(c->r[19].uw[0],64),output,64);
 }
 struct Host:bozo::ee::Host,bozo::port::Host{
-    bool reference=false;
+    bool reference=false;uint32_t selectedInverse=0;
     bozo::libs::Libraries &libraries()override{throw std::runtime_error("libraries");}
     bool nativeGraphics()const override{return true;}
     bool nativeInstruction(uint8_t *r,R5900Context *c,Runtime *rt,uint32_t pc)override{
+        if(reference && pc==0x2485b4){
+            const auto saved=_mm_getcsr();uint32_t basis[3][4],out[3];std::memcpy(basis,rt->memory.hostPointer(c->r[5].uw[0]+0x90,48),48);
+            for(unsigned axis=0;axis<3;++axis){const auto a=product(basis[0][axis],basis[0][axis]),b=product(basis[1][axis],basis[1][axis]),d=product(basis[2][axis],basis[2][axis]);
+                out[axis]=sum(root(sum(sum(a,b),d)),0xbf800000u)&0x7fffffffu;}
+            std::memcpy(rt->memory.hostPointer(c->r[2].uw[0],12),out,12);_mm_setcsr(saved);return true;
+        }
         if(reference && (pc==0x23c270 || pc==0x23c2a8 || pc==0x23c2c8)){
             const bool combined=pc!=0x23c2c8;uint32_t first[4],second[4],offset[4]{},out[4];
             std::memcpy(first,rt->memory.hostPointer(c->r[combined?6:5].uw[0],16),16);
@@ -83,7 +89,16 @@ struct Host:bozo::ee::Host,bozo::port::Host{
     }
     void frameEnd(Runtime *,R5900Context *)override{throw std::runtime_error("frame");}
     bool callLibrary(Runtime *,R5900Context *,uint32_t)override{return false;}
-    void libraryCall(bozo::ee::Dispatcher &,R5900Context *,uint32_t)override{throw std::runtime_error("library");}
+    void libraryCall(bozo::ee::Dispatcher &d,R5900Context *c,uint32_t pc)override{
+        if(pc!=0x216cb0 && pc!=0x216f50)throw std::runtime_error("library");
+        check(c->r[5].uw[0]==c->r[4].uw[0]+0x40);selectedInverse=pc;
+        // Bounded inverse record contracts qualify this caller's selection
+        // and ABI only. Neither inverse implementation is qualified here.
+        uint32_t marker[16]{};for(unsigned i=0;i<4;++i)marker[i*5]=0x3f800000;
+        marker[0]=pc==0x216cb0?0x3f800000:0x40000000;
+        std::memcpy(d.runtime().memory.hostPointer(c->r[5].uw[0],64),marker,64);
+        c->r[2].sd[0]=int32_t(c->r[5].uw[0]);c->pc=c->r[31].uw[0];
+    }
     void vu0Microprogram(bozo::ee::Dispatcher &,R5900Context *,uint32_t)override{throw std::runtime_error("VU");}
     void ioRead(bozo::ee::Dispatcher &,R5900Context *,uint32_t,uint32_t,uint64_t[2])override{throw std::runtime_error("device");}
     void ioWrite(bozo::ee::Dispatcher &,R5900Context *,uint32_t,uint32_t,const uint64_t[2])override{throw std::runtime_error("device");}
@@ -95,6 +110,7 @@ int main(){try{
     a.setFunctions(bones_reference_function_table,bones_reference_function_count,bones_reference_resume_table,bones_reference_resume_count);
     b.setFunctions(bones_adapted_function_table,bones_adapted_function_count,bones_adapted_resume_table,bones_adapted_resume_count);
     a.runtime().port=&h;b.runtime().port=&h;uint32_t random=51;unsigned cases=0;
+    for(auto *d:{&a,&b})for(uint32_t pc:{0x216cb0u,0x216f50u})d->bindLibrary(pc);
     for(unsigned mode:{_MM_ROUND_NEAREST,_MM_ROUND_DOWN,_MM_ROUND_UP,_MM_ROUND_TOWARD_ZERO})for(unsigned seed=0;seed<128;++seed){
         auto &x=a.runtime(),&y=b.runtime();std::memset(x.memory.flat(),0x61,bozo::kFlatBytes);
         constexpr uint32_t owner=0x180000,list=0x190000,bind=0x1a0000,output=0x1b0000,metadata=0x1c0000;
@@ -205,5 +221,43 @@ int main(){try{
         put(r,global+0x3c0,0x7f7fffffu);put(r,model+0x7e0,0x40000000u);reject();
         put(r,model+0x7e0,0x3f800000u);put(r,global+0x310,0x7f7fffffu);reject();
     }
-    std::printf("%u bone loops,%u pair distances,%u camera scales,%u model parameter branches: whole CPU/RAM, integer arithmetic, four modes, aliasing and rejected input; no VU/device state\n",cases,distances,scales,parameters);return 0;
+    unsigned selectors=0,rigid=0,general=0;
+    for(unsigned mode:{_MM_ROUND_NEAREST,_MM_ROUND_DOWN,_MM_ROUND_UP,_MM_ROUND_TOWARD_ZERO})for(unsigned seed=0;seed<128;++seed){
+        auto &x=a.runtime(),&y=b.runtime();std::memset(x.memory.flat(),0x71,bozo::kFlatBytes);
+        const uint32_t object=seed&1?0x70000100:0x180000,stack=seed&2?0x70003e00:0x1fff000;
+        float basis[3][4]={{1,0,0,0},{0,1,0,0},{0,0,1,0}};
+        switch(seed%10){
+        case 1:std::memset(basis,0,sizeof(basis));break;
+        case 2:basis[0][0]=2;basis[1][1]=.5f;break;
+        case 3:basis[0][0]=std::bit_cast<float>(0x3f800001u);break;
+        case 4:basis[0][0]=std::bit_cast<float>(0x3f800008u);break;
+        case 5:basis[0][0]=std::bit_cast<float>(0x3f80000au);break;
+        case 6:basis[0][0]=-1;basis[2][2]=-1;break;
+        case 7:basis[0][1]=.5f;break;
+        case 8:basis[0][0]=std::bit_cast<float>(0x00800000u);break;
+        case 9:basis[0][0]=basis[0][1]=basis[1][1]=.70710677f;basis[1][0]=-.70710677f;break;
+        }
+        for(unsigned row=0;row<3;++row)basis[row][3]=std::bit_cast<float>(0x7fc01234u+row);
+        std::memcpy(x.memory.hostPointer(object+0x90,48),basis,48);*x.memory.hostPointer(object+0x20e,1)=uint8_t(seed*17);
+        std::memcpy(y.memory.flat(),x.memory.flat(),bozo::kFlatBytes);
+        const auto fourth=word(x,stack-4);R5900Context p{};
+        for(unsigned i=1;i<32;++i){p.r[i].ud[0]=seed*32+i;p.r[i].ud[1]=~p.r[i].ud[0];}
+        std::memset(p.vu0_vf,0x83,sizeof(p.vu0_vf));p.vu0_status=0x1245;p.r[4].ud[0]=object;p.r[29].ud[0]=stack;p.r[31].ud[0]=0x170000;auto q=p;
+        const auto saved=_mm_getcsr(),control=(saved&~_MM_ROUND_MASK)|mode;_mm_setcsr(control);
+        h.reference=true;h.selectedInverse=0;x.functions.generated(0x248560)(x.memory.flat(),&p,&x);const auto expectedFp=_mm_getcsr(),selected=h.selectedInverse;_mm_setcsr(control);
+        h.reference=false;h.selectedInverse=0;y.functions.generated(0x248560)(y.memory.flat(),&q,&y);check(_mm_getcsr()==expectedFp && h.selectedInverse==selected);_mm_setcsr(saved);
+        check(selected==0x216cb0 || selected==0x216f50);rigid+=selected==0x216cb0;general+=selected==0x216f50;
+        p.cycleLimit=q.cycleLimit;check(p.pc==0x170000 && !std::memcmp(&p,&q,sizeof(p)));check(!std::memcmp(x.memory.flat(),y.memory.flat(),bozo::kFlatBytes));
+        check(word(y,stack-4)==fourth && *y.memory.hostPointer(object+0x20e,1)==uint8_t(seed*17|0x20));++selectors;
+    }
+    check(rigid && general);
+    {auto &r=b.runtime();constexpr uint32_t object=0x180000,stack=0x1fff000;R5900Context c{};c.r[5].ud[0]=object;c.r[29].ud[0]=stack;c.r[2].ud[0]=stack+0x10;
+        for(unsigned i=0;i<12;++i)put(r,object+0x90+i*4,i%5==0?0x3f800000u:0u);
+        auto reject=[&]{const auto saved=c;std::vector<uint8_t> ram(r.memory.flat(),r.memory.flat()+bozo::kFlatBytes);bool bad=false;
+            try{vp2s::nativeMathInstruction(r.memory.flat(),&c,&r,0x2485b4);}catch(const std::runtime_error &){bad=true;}
+            check(bad && !std::memcmp(&saved,&c,sizeof(c)) && !std::memcmp(ram.data(),r.memory.flat(),ram.size()));};
+        c.r[2].ud[0]+=16;reject();c.r[2].ud[0]-=16;c.r[5].ud[0]=stack;reject();c.r[5].ud[0]=object;
+        for(uint32_t bad:{0x7fc00000u,1u,0x7f7fffffu}){put(r,object+0x90,bad);reject();}
+    }
+    std::printf("%u bone loops,%u pair distances,%u camera scales,%u parameter branches,%u inverse selectors (%u rigid/%u general): CPU/RAM, integer arithmetic, four modes and no VU state\n",cases,distances,scales,parameters,selectors,rigid,general);return 0;
 }catch(const std::exception &e){std::fprintf(stderr,"%s\n",e.what());return 1;}}

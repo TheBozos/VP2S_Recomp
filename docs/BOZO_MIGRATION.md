@@ -12,6 +12,27 @@ The earlier VP2S face/shading and general brightness comparisons remain open.
 
 ## Build and evidence
 
+### Native inverse-selection axis lengths (2026-11-08)
+
+The `0x248560` caller now computes three basis-column lengths directly from
+its world matrix, then publishes `abs(length-1)` for the original scalar epsilon
+comparisons. Original flag writes and rigid/general inverse calls remain.
+The unused control transfer retires. Only XYZ is live in the temporary record;
+the inherited fourth-lane store retires because no scalar consumer reads it
+before frame release. Object/frame overlap rejects to preserve that liveness
+proof. This is a narrow dead-store retirement, not a destination-W rule for
+published game records or a reconstruction of inherited vector data.
+
+512 complete scalar caller comparisons use independent integer products/sums,
+root and subtraction: 256 choose each inverse contract, across four modes,
+thresholds, degenerate/skewed/unit bases and ordinary/scratch records. The test
+inverse leaves are bounded record contracts, so this qualifies selection/ABI,
+not either inverse implementation. Native vector state and the dead temporary
+word remain untouched. Invalid records, aliases, nonfinite/subnormal basis data
+and overflow reject. Caller and offline numerical source guards plus startup
+pass. Actual New Game takes the rigid inverse and stops at `0x216d34`.
+Logun remains open.
+
 ### Optional editable-model probe admission (2026-11-08)
 
 The first field model submission exposed a legacy heuristic: `object+0x630`

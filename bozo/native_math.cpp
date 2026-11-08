@@ -22,6 +22,33 @@ bool nativeMathInstruction(uint8_t *,R5900Context *c,Runtime *rt,uint32_t pc){
     if(nativeTrigInstruction(nullptr,c,rt,pc))return true;
     if(nativeObjectMathInstruction(nullptr,c,rt,pc))return true;
     if(nativeFrustumInstruction(c,rt,pc))return true;
+    if(pc==0x248570 || pc==0x248574 || pc==0x248578 || pc==0x248580 || pc==0x2485a4 || pc==0x2485a8 || pc==0x2485ac)return true;
+    if(pc==0x2485b4){
+        const auto object=c->r[5].uw[0],stack=c->r[29].uw[0];
+        auto *owner=record(rt,object,0x210),*frame=record(rt,stack,0x20);
+        const auto ownerAddress=reinterpret_cast<uintptr_t>(owner),frameAddress=reinterpret_cast<uintptr_t>(frame);
+        if(c->r[2].uw[0]!=stack+0x10 || (ownerAddress<frameAddress+0x20 && frameAddress<ownerAddress+0x210))
+            throw std::runtime_error("unqualified native inverse-selector record alias");
+        float basis[3][4],result[3];std::memcpy(basis,owner+0x90,48);
+        for(auto &row:basis)for(unsigned i=0;i<3;++i){const auto b=std::bit_cast<uint32_t>(row[i]),e=b&0x7f800000;
+            if(e==0x7f800000 || (!e && (b&0x7fffff)))throw std::runtime_error("unqualified native inverse-selector basis");}
+        const auto normal=[](float v){const auto b=std::bit_cast<uint32_t>(v);return std::bit_cast<float>((b&0x7f800000)?b:(b&0x80000000));};
+        music::CodecRounding rounding;
+        for(unsigned axis=0;axis<3;++axis){float squares[3];
+            for(unsigned row=0;row<3;++row){if(double(basis[row][axis])*basis[row][axis]>std::numeric_limits<float>::max())
+                    throw std::runtime_error("native inverse-selector square overflow");
+                volatile float square=basis[row][axis]*basis[row][axis];squares[row]=normal(square);}
+            if(double(squares[0])+squares[1]+squares[2]>std::numeric_limits<float>::max())throw std::runtime_error("native inverse-selector length overflow");
+            const auto squared=normal(music::codecSum(normal(music::codecSum(squares[0],squares[1])),squares[2]));
+            volatile float length=std::sqrt(squared);volatile float positive=0.f+length;
+            const auto difference=normal(music::codecSum(positive,-1.f));
+            result[axis]=std::bit_cast<float>(std::bit_cast<uint32_t>(difference)&0x7fffffffu);
+        }
+        // Only XYZ is live: the following scalar comparisons consume these
+        // three words before the frame is released. Its inherited fourth lane
+        // and unused control read are retired, without constructing VU state.
+        std::memcpy(frame+0x10,result,12);return true;
+    }
     if(pc==0x23c270 || pc==0x23c2a8 || pc==0x23c2c8){
         const auto global=c->r[18].uw[0],model=c->r[19].uw[0],destination=c->r[29].uw[0]+0x50;
         record(rt,global,0x520);record(rt,model,0x7f0);

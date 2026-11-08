@@ -373,6 +373,23 @@ if(VP2S_BOZO_CODE)
     target_link_options(vp2s-bozo-particles-check PRIVATE -static)
   endif()
   add_test(NAME vp2s-bozo-particle-publications COMMAND vp2s-bozo-particles-check)
+  set(PARTICLE_MOTION_REF "${CMAKE_CURRENT_BINARY_DIR}/particle-motion-reference")
+  foreach(VARIANT original adapted)
+    set(PARTICLE_MOTION_DIR "${PARTICLE_MOTION_REF}/${VARIANT}")
+    add_custom_command(OUTPUT "${PARTICLE_MOTION_DIR}/particle_motion_${VARIANT}_000.cpp" "${PARTICLE_MOTION_DIR}/particle_motion_${VARIANT}_table.cpp" "${PARTICLE_MOTION_DIR}/particle_motion_${VARIANT}_functions.h"
+      COMMAND ${Python3_EXECUTABLE} "${VP2S_ROOT}/tools/vp2_bozo_particle_motion_fixture.py" "${VP2S_BOZO_DATA}/images/mod003.elf" "${PARTICLE_MOTION_DIR}" --build "${VP2S_BOZO_DATA}/.." --variant ${VARIANT}
+      COMMAND $<TARGET_FILE:bozo-recomp> "${PARTICLE_MOTION_DIR}/fixture.elf" "${PARTICLE_MOTION_DIR}" --prefix particle_motion_${VARIANT} --symbol-prefix particle_motion_${VARIANT}_
+        --files 1 --externals "${PARTICLE_MOTION_DIR}/externals.txt" --no-comments
+      DEPENDS bozo-recomp "${VP2S_ROOT}/tools/vp2_bozo_particle_motion_fixture.py" "${VP2S_ROOT}/tools/vp2_bozo_kernel.py" "${VP2S_BOZO_DATA}/images/mod003.elf")
+    list(APPEND PARTICLE_MOTION_SOURCES "${PARTICLE_MOTION_DIR}/particle_motion_${VARIANT}_000.cpp" "${PARTICLE_MOTION_DIR}/particle_motion_${VARIANT}_table.cpp")
+  endforeach()
+  add_executable(vp2s-bozo-particle-motion-check "${VP2S_ROOT}/tests/bozo_particle_motion_main.cpp" ${PARTICLE_MOTION_SOURCES})
+  target_include_directories(vp2s-bozo-particle-motion-check PRIVATE "${PARTICLE_MOTION_REF}/original" "${PARTICLE_MOTION_REF}/adapted")
+  target_link_libraries(vp2s-bozo-particle-motion-check PRIVATE vp2s_bozo_kernel)
+  if(MINGW)
+    target_link_options(vp2s-bozo-particle-motion-check PRIVATE -static)
+  endif()
+  add_test(NAME vp2s-bozo-particle-motion COMMAND vp2s-bozo-particle-motion-check)
   set(WORLD_REF "${CMAKE_CURRENT_BINARY_DIR}/world-reference")
   foreach(VARIANT original adapted)
     set(WORLD_DIR "${WORLD_REF}/${VARIANT}")

@@ -12,6 +12,28 @@ The earlier VP2S face/shading and general brightness comparisons remain open.
 
 ## Build and evidence
 
+### Particle position and animation emitter (2026-11-08)
+
+All 26 vector sites in `0x408e90` now calculate position XYZ directly from each
+canonical particle's position/velocity records and the explicit frame timestep.
+Both the output point and source feedback retain the original position W; the
+original scalar animation-kind store still overwrites output W where required.
+Selection masks, cross-word iteration, history, frame advancement, lifetime and
+deletion branches, scalar/MMI writes and saved-register epilogue are unchanged.
+No vector return, accumulator or coefficient bank survives the native call.
+
+512 complete CPU/RAM/FP callers compare 2,004 paired position publications against
+independent rounded-integer arithmetic. All four simple/animated and single/group
+paths, all 26 sites, bitset boundaries 63/64/127, skipped/deleted particles, history
+choices, opaque W, scratch/RAM frames and four modes/FTZ/DAZ are covered. Exact
+known-position and mutation-free setup/branch/index/alias/numeric rejection checks
+also pass. Three targeted suites pass (`particle-motion-tests.log`, 46.20 seconds);
+the final additional assertions pass the rebuilt fixture again
+(`particle-motion-extra-tests.log`, 2.15 seconds). Actual seed-1 now reaches
+the next emitter `0x40a8b0`, site `0x40a950` (`particle-motion-route.log`). Its
+piecewise physics and bounds still require native publication. Visible field/
+Logun remains open; engine `436d5d8`.
+
 ### Native particle point-chunk publication (2026-11-08)
 
 The measured boundary at frame 1,568 belongs to class `0x154180`, mode 3:

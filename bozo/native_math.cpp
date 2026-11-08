@@ -5,6 +5,7 @@
 #include "bozo/ee/dispatcher.h"
 #include "../port/vp2s_math.h"
 #include <cstring>
+#include <algorithm>
 #include <cmath>
 #include <format>
 #include <stdexcept>
@@ -380,6 +381,51 @@ std::array<uint32_t,4> NativeMotion::finish(uint32_t frame,uint32_t object){
     const auto result=it->second.position;updates.erase(it);return result;
 }
 bool nativeMathInstruction(uint8_t *,R5900Context *c,Runtime *rt,uint32_t pc){
+    static constexpr std::array<uint32_t,26> particleSites{0x408f10,0x408f84,0x408f88,0x408fa8,0x408fac,0x408fb8,0x408fbc,
+        0x409064,0x409068,0x40908c,0x409090,0x40909c,0x4090a0,0x409118,0x4091c0,0x4091c8,0x40931c,0x409320,0x40932c,0x409334,
+        0x409400,0x409404,0x40956c,0x409570,0x40957c,0x409584};
+    if(pc>=particleSites.front() && pc<=particleSites.back() && std::binary_search(particleSites.begin(),particleSites.end(),pc)){
+        const auto object=c->r[4].uw[0],stack=c->r[29].uw[0];auto *owner=record(rt,object,0xf0);record(rt,stack,0x80);
+        const auto readWord=[](const uint8_t *p,unsigned at){uint32_t v;std::memcpy(&v,p+at,4);return v;};
+        const auto group=readWord(owner,0x10),pool=readWord(owner,0x14),count=readWord(owner,0xc);
+        if(!group || group>16 || group!=c->r[25].uw[0] || !count || count>65536 ||
+           (c->pc!=0x408e90 && c->pc!=0x408f30 && c->pc!=0x408fe8 && c->pc!=0x409148 && c->pc!=0x409360 && c->pc!=0x4091d0 && c->pc!=0x409418))
+            throw std::runtime_error("native particle motion owner/continuation mismatch");
+        auto *timeRecord=record(rt,0x35dee0,16);float time;std::memcpy(&time,timeRecord+8,4);
+        if(pc==0x408f10 || pc==0x409118){
+            const bool simple=owner[0xd8]&1;
+            if(simple!=(pc==0x408f10) || c->r[pc==0x408f10?3:16].uw[0]!=std::bit_cast<uint32_t>(time))
+                throw std::runtime_error("native particle timestep source mismatch");
+            return true;
+        }
+        const unsigned path=pc<=0x408fbc?0:pc<=0x4090a0?1:pc<=0x409334?2:3;
+        const bool simple=owner[0xd8]&1;
+        if(simple!=(path<2) || (group==1)!=(path%2==0))throw std::runtime_error("native particle motion branch mismatch");
+        const bool loading=pc==0x408f84 || pc==0x408f88 || pc==0x409064 || pc==0x409068 || pc==0x4091c0 || pc==0x4091c8 || pc==0x409400 || pc==0x409404;
+        const auto cursor=c->r[24].uw[0];if((!loading && !cursor) || (loading?cursor:cursor-1)>=count)throw std::runtime_error("native particle source index outside owner");
+        const auto index=loading?cursor:cursor-1,source=pool+index*0x90+0x60;
+        record(rt,pool,count*0x90);auto *input=record(rt,source,32);
+        constexpr unsigned sourceRegisters[]={10,3,22,21};
+        if(c->r[sourceRegisters[path]].uw[0]!=source)throw std::runtime_error("native particle position source mismatch");
+        const bool publish=pc==0x408fb8 || pc==0x40909c || pc==0x40932c || pc==0x40957c;
+        const bool feedback=pc==0x408fbc || pc==0x4090a0 || pc==0x409334 || pc==0x409584;
+        if(publish || feedback){
+            const auto output=c->r[6].uw[0]+0x20,destination=publish?output:source;
+            constexpr unsigned outputRegisters[]={3,9,16,16};
+            if(publish && c->r[outputRegisters[path]].uw[0]!=output)throw std::runtime_error("native particle output pointer mismatch");
+            auto *out=record(rt,output,16),*frame=record(rt,stack,0x80);
+            const auto a=reinterpret_cast<uintptr_t>(input),b=reinterpret_cast<uintptr_t>(out),f=reinterpret_cast<uintptr_t>(frame),o=reinterpret_cast<uintptr_t>(owner),t=reinterpret_cast<uintptr_t>(timeRecord);
+            if((a<b+16 && b<a+32) || (b<f+0x80 && f<b+16) || (b<o+0xf0 && o<b+16) || (b<t+16 && t<b+16) || (a<t+16 && t<a+32))
+                throw std::runtime_error("native particle position aliases its live operands/frame");
+            std::array<float,4> position,velocity;std::memcpy(position.data(),input,16);std::memcpy(velocity.data(),input+16,16);
+            pairQualified(time);if(std::abs(time)>1.e8f)throw std::runtime_error("unqualified native particle timestep");
+            for(unsigned i=0;i<3;++i){pairQualified(position[i]);pairQualified(velocity[i]);if(std::abs(position[i])>1.e8f || std::abs(velocity[i])>1.e8f)
+                throw std::runtime_error("unqualified native particle position/velocity");}
+            struct ArithmeticScope {unsigned saved=_mm_getcsr();~ArithmeticScope(){_mm_setcsr(saved);}} arithmetic;
+            for(unsigned i=0;i<3;++i)position[i]=pairSum(pairSum(position[i],0.f),pairProduct(velocity[i],time));
+            std::memcpy(record(rt,destination,16),position.data(),16);
+        }return true;
+    }
     if(pc==0x214c40 || pc==0x214ce8 ||
        (pc>=0x214c98 && pc<=0x214ca0 && !(pc&3)) || (pc>=0x214cbc && pc<=0x214cc4 && !(pc&3)) ||
        (pc>=0x214cdc && pc<=0x214ce4 && !(pc&3)) ||

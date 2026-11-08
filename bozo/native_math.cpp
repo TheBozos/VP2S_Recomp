@@ -301,6 +301,22 @@ std::array<uint32_t,4> NativeMotion::finish(uint32_t frame,uint32_t object){
     const auto result=it->second.position;updates.erase(it);return result;
 }
 bool nativeMathInstruction(uint8_t *,R5900Context *c,Runtime *rt,uint32_t pc){
+    if(pc==0x216390 || pc==0x216398 || pc==0x21639c || pc==0x2163a4 ||
+       pc==0x2163f4 || pc==0x2163fc || pc==0x216400 || pc==0x216408 ||
+       pc==0x216458 || pc==0x216460 || pc==0x216464 || pc==0x21646c ||
+       pc==0x2166d8 || pc==0x2166e0 || pc==0x2166e4 || pc==0x2166e8){
+        if(c->pc!=0x2162c0 && c->pc!=0x21635c && c->pc!=0x2163c0 && c->pc!=0x216424)
+            throw std::runtime_error("unqualified native Euler quaternion continuation");
+        record(rt,c->r[29].uw[0],0x170);
+        if(pc==0x21639c || pc==0x216400 || pc==0x216464 || pc==0x2166e4){c->r[9].ud[0]=0;return true;}
+        if(pc==0x2163a4 || pc==0x216408 || pc==0x21646c || pc==0x2166e8){
+            const auto stack=c->r[29].uw[0],at=pc==0x2163a4?stack+0x130:pc==0x216408?stack+0x120:pc==0x21646c?stack+0x110:c->r[16].uw[0];
+            if(pc!=0x2166e8 && c->r[pc==0x21646c?3:2].uw[0]!=at)throw std::runtime_error("native Euler quaternion temporary mismatch");
+            __m128 input;auto *source=record(rt,at,16);std::memcpy(&input,source,16);float values[4];std::memcpy(values,&input,16);
+            for(auto value:values){pairQualified(value);if(std::abs(value)>1.e8f)throw std::runtime_error("unqualified native Euler quaternion input");}
+            const auto result=math::normalizeQuaternion(input);std::memcpy(source,&result,16);
+        }return true;
+    }
     if((pc>=0x1f6f94 && pc<=0x1f6fa4 && !(pc&3)) ||
        (pc>=0x1f7194 && pc<=0x1f71a4 && !(pc&3)) ||
        (pc>=0x1f72cc && pc<=0x1f72dc && !(pc&3)) ||

@@ -12,6 +12,27 @@ The earlier VP2S face/shading and general brightness comparisons remain open.
 
 ## Build and evidence
 
+### Euler-to-quaternion builder (2026-11-08)
+
+The measured `0x2162c0` builder now publishes four complete normalized quaternion
+records from its explicit stack/output arguments. Its original three sine/cosine
+calls, axis signs, scalar Hamilton products, MMI copies and saved-register
+restoration remain. Sixteen vector sites retire without a vector bank; the
+known VI0 reads become their ordinary zero GP clobber.
+
+512 complete CPU/RAM/FP callers pass against independent rational normalization
+equations, including four rounding modes, FTZ/DAZ, identity/single-axis checks,
+RAM/scratch stacks and output aliases. Invalid continuations, temporary pointers
+and numeric domains reject without mutation. Whole-function source guards reject
+every word mutation. The combined trig suite covers 295 sites; all three targeted
+suites pass (`euler-tests.log`, 72.38 seconds).
+
+Actual seed-1 New Game passes this builder and reaches frame 1567, where the
+field module calls missing compiled target `0x48ef80`, return `0x4271b8`
+(`euler-route.log`). That address belongs to a further overlay range absent from
+the current compiled image set. The last completed capture remains black;
+visible field/Logun is still unqualified. Engine remains `436d5d8`.
+
 ### Full scalar cosine polynomial (2026-11-08)
 
 The measured `0x214210` leaf, caller `0x396d78`, now evaluates its original

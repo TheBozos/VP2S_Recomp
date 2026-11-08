@@ -12,6 +12,24 @@ The earlier VP2S face/shading and general brightness comparisons remain open.
 
 ## Build and evidence
 
+### Native angular-constraint cosine (2026-11-08)
+
+The `0x1fcd08..0x1fcdac` block now transforms two points with implicit weight
+one, normalizes their XYZ directions and computes their ordered cosine from
+typed matrix/point records. Its scalar threshold consumer remains original.
+Unconsumed W arithmetic and the temporary cosine record's dead YZW stores
+retire. Complete external object/group/point spans reject overlap with the
+caller frame, protecting that liveness proof. Active numerical overflow and
+unsupported input domains reject without publishing a result.
+
+512 generated-fragment comparisons cover whole CPU/RAM/FP over four modes,
+ordinary/scratch records, arbitrary ignored W data, aligned/opposed/perpendicular
+and zero directions, and tiny vectors. The original zero-length reciprocal
+policy remains: a finite cosine outside the usual geometric range is retained,
+not clamped. Exact axis cases and independent scalar arithmetic pass, as do
+source guards, fixture vector completeness and startup. Actual New Game
+advances to `0x1fcdb0`, the subsequent quaternion construction. Logun remains open.
+
 ### Native transposed rigid-inverse translation (2026-11-08)
 
 `0x216d60` retains its scalar destination clear, sequential translation loads,

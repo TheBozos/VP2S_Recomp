@@ -39,6 +39,45 @@ void separatePairFrame(uint8_t *frame,uint8_t *data,size_t bytes){
     const auto a=reinterpret_cast<uintptr_t>(frame),b=reinterpret_cast<uintptr_t>(data);
     if(a<b+bytes && b<a+16)throw std::runtime_error("constrained-position temporary aliases live inputs");
 }
+struct AngularDirections {std::array<float,3> first,second;float cosine;};
+AngularDirections angularDirections(Runtime *rt,R5900Context *c){
+    const auto stack=c->r[29].uw[0];auto *frame=record(rt,stack,0x1a0);
+    if(c->r[4].uw[0]!=stack+0x190 || c->r[5].uw[0]!=stack+0x150)
+        throw std::runtime_error("angular-constraint source record mismatch");
+    const auto external=[&](uint32_t at,uint32_t bytes){auto *p=record(rt,at,bytes);
+        const auto a=reinterpret_cast<uintptr_t>(p),b=reinterpret_cast<uintptr_t>(frame);
+        if(a<b+0x1a0 && b<a+bytes)throw std::runtime_error("angular-constraint object aliases its caller frame");return p;};
+    auto *part=external(c->r[21].uw[0],0x40);uint32_t pointRecord;std::memcpy(&pointRecord,part+0x38,4);
+    external(c->r[19].uw[0],0xa0);external(c->r[17].uw[0],0x210);external(c->r[16].uw[0],0x210);
+    auto *point=external(pointRecord,0xa0);
+    math::Matrix matrix;float rows[4][4],points[2][4];std::memcpy(matrix.data(),frame+0x150,64);std::memcpy(rows,matrix.data(),64);
+    std::memcpy(points[0],frame+0x190,16);std::memcpy(points[1],point+0x30,16);
+    for(auto &row:rows)for(unsigned i=0;i<3;++i)pairQualified(row[i]);
+    for(auto &v:points)for(unsigned i=0;i<3;++i)pairQualified(v[i]);
+    {music::CodecRounding validation;const double limit=std::sqrt(double(std::numeric_limits<float>::max())/3);
+        for(auto &v:points)for(unsigned lane=0;lane<3;++lane){double bound=std::abs(double(rows[3][lane]));
+            for(unsigned i=0;i<3;++i)bound+=std::abs(double(rows[i][lane])*v[i]);
+            if(bound>limit)throw std::runtime_error("angular-constraint transform/length overflow");}}
+    // Only XYZ survives normalization and the cosine consumer. Discard dead
+    // input/output W work explicitly; all three translation coordinates remain.
+    for(auto &row:matrix)row=_mm_blend_ps(row,_mm_setzero_ps(),8);
+    AngularDirections result;
+    for(unsigned which=0;which<2;++which){__m128 pointVector;std::memcpy(&pointVector,points[which],16);
+        pointVector=_mm_blend_ps(pointVector,_mm_set1_ps(1),8);
+        const auto transformed=math::matrixVectorProduct(matrix,pointVector);float value[4];std::memcpy(value,&transformed,16);
+        const auto squared=pairSum(pairSum(pairProduct(value[0],value[0]),pairProduct(value[1],value[1])),pairProduct(1.f,pairProduct(value[2],value[2])));
+        volatile float length=static_cast<float>(std::sqrt(double(squared)));
+        volatile float reciprocal=length==0?std::numeric_limits<float>::max():static_cast<float>(1.0/double(length));
+        auto &direction=which?result.second:result.first;
+        {music::CodecRounding validation;for(unsigned i=0;i<3;++i)if(std::abs(double(value[i])*reciprocal)>std::numeric_limits<float>::max())
+            throw std::runtime_error("angular-constraint normalization overflow");}
+        for(unsigned i=0;i<3;++i)direction[i]=pairProduct(value[i],pairNormal(reciprocal));
+    }
+    {music::CodecRounding validation;double bound=0;for(unsigned i=0;i<3;++i)bound+=std::abs(double(result.first[i])*result.second[i]);
+        if(bound>std::numeric_limits<float>::max())throw std::runtime_error("angular-constraint cosine overflow");}
+    result.cosine=pairSum(pairSum(pairProduct(result.first[0],result.second[0]),pairProduct(result.first[1],result.second[1])),pairProduct(result.first[2],result.second[2]));
+    return result;
+}
 }
 void NativeMotion::prepare(uint32_t frame,uint32_t object,std::array<uint32_t,4> position){
     if(!updates.emplace(frame,Update{object,position}).second)throw std::runtime_error("native motion update repeats its frame");
@@ -55,6 +94,12 @@ bool nativeMathInstruction(uint8_t *,R5900Context *c,Runtime *rt,uint32_t pc){
     // obsolete vector-register initialization publishes no game data. Remaining
     // unported consumers still fail at their own explicit native boundaries.
     if(pc==0x1fcb7c)return true;
+    if((pc>=0x1fcd08 && pc<=0x1fcd5c && !(pc&3)) ||
+       (pc>=0x1fcd6c && pc<=0x1fcda4 && !(pc&3)))return true;
+    if(pc==0x1fcdac){
+        const auto stack=c->r[29].uw[0];if(c->r[3].uw[0]!=stack+0x140)throw std::runtime_error("angular-constraint cosine destination mismatch");
+        const auto directions=angularDirections(rt,c);std::memcpy(record(rt,stack+0x140,16),&directions.cosine,4);return true;
+    }
     if(pc>=0x216da4 && pc<=0x216dbc && !(pc&3))return true;
     if(pc==0x216e04){
         const auto matrixAddress=c->r[5].uw[0],frame=c->r[29].uw[0];

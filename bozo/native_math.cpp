@@ -22,6 +22,24 @@ bool nativeMathInstruction(uint8_t *,R5900Context *c,Runtime *rt,uint32_t pc){
     if(nativeTrigInstruction(nullptr,c,rt,pc))return true;
     if(nativeObjectMathInstruction(nullptr,c,rt,pc))return true;
     if(nativeFrustumInstruction(c,rt,pc))return true;
+    if((pc>=0x1fb768 && pc<=0x1fb798 && !(pc&3)) || pc==0x1fb7a0)return true;
+    if(pc==0x1fb79c){
+        math::Matrix matrix;math::PointDirection vectors;
+        std::memcpy(matrix.data(),record(rt,c->r[6].uw[0],64),64);
+        std::memcpy(&vectors[0],record(rt,c->r[5].uw[0],16),16);std::memcpy(&vectors[1],record(rt,c->r[4].uw[0],16),16);
+        float rows[4][4],points[2][4];std::memcpy(rows,matrix.data(),64);std::memcpy(points,vectors.data(),32);
+        const auto qualified=[](float v){const auto b=std::bit_cast<uint32_t>(v),e=b&0x7f800000;
+            if(e==0x7f800000 || (!e && (b&0x7fffff)))throw std::runtime_error("unqualified native point/direction input");};
+        for(auto &row:rows)for(float v:row)qualified(v);
+        for(unsigned which=0;which<2;++which)for(unsigned i=0;i<(which?3u:4u);++i)qualified(points[which][i]);
+        {music::CodecRounding validation;
+            for(unsigned which=0;which<2;++which)for(unsigned lane=0;lane<4;++lane){double bound=0;
+                for(unsigned row=0;row<(which?3u:4u);++row)bound+=std::abs(double(rows[row][lane])*points[which][row]);
+                if(bound>std::numeric_limits<float>::max())throw std::runtime_error("native point/direction overflow");}}
+        const auto result=math::transformPointDirection(matrix,vectors);
+        std::memcpy(record(rt,c->r[5].uw[0],16),&result[0],16);
+        std::memcpy(record(rt,c->r[4].uw[0],16),&result[1],16);return true;
+    }
     if(pc>=0x216d34 && pc<=0x216d54 && !(pc&3))return true;
     if(pc==0x216d5c){
         math::RigidBasis basis;__m128 translation;

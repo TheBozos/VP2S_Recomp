@@ -54,9 +54,23 @@ void oracle(Runtime &r,R5900Context *c){
 }
 struct Host:bozo::ee::Host,bozo::port::Host{
     bool reference=false;uint32_t selectedInverse=0,translationW=0;
+    bool callbackActive=false;uint32_t callbackObject=0;uint8_t callbackFlags=0;unsigned callbacks=0;
+    std::array<uint32_t,24> callbackData{};
     bozo::libs::Libraries &libraries()override{throw std::runtime_error("libraries");}
     bool nativeGraphics()const override{return true;}
     bool nativeInstruction(uint8_t *r,R5900Context *c,Runtime *rt,uint32_t pc)override{
+        if(reference && pc==0x1fb79c){
+            float matrix[4][4],vectors[2][4];uint32_t out[2][4];
+            std::memcpy(matrix,rt->memory.hostPointer(c->r[6].uw[0],64),64);
+            std::memcpy(vectors[0],rt->memory.hostPointer(c->r[5].uw[0],16),16);std::memcpy(vectors[1],rt->memory.hostPointer(c->r[4].uw[0],16),16);
+            const auto normal=[](float v){const auto b=std::bit_cast<uint32_t>(v);return std::bit_cast<float>((b&0x7f800000)?b:(b&0x80000000));};
+            for(unsigned which=0;which<2;++which)for(unsigned lane=0;lane<4;++lane){
+                volatile float p=matrix[0][lane]*vectors[which][0];float total=normal(p);
+                for(unsigned i=1;i<(which?3u:4u);++i){volatile float product=matrix[i][lane]*vectors[which][i];volatile float next=total+normal(product);total=normal(next);}
+                out[which][lane]=std::bit_cast<uint32_t>(total);
+            }
+            std::memcpy(rt->memory.hostPointer(c->r[5].uw[0],16),out[0],16);std::memcpy(rt->memory.hostPointer(c->r[4].uw[0],16),out[1],16);return true;
+        }
         if(pc==0x216cb0){selectedInverse=pc;return false;}
         if(reference && pc==0x216d5c){
             float rows[3][4],point[4];uint32_t out[4];std::memcpy(rows,rt->memory.hostPointer(c->r[5].uw[0],48),48);
@@ -100,6 +114,12 @@ struct Host:bozo::ee::Host,bozo::port::Host{
     void frameEnd(Runtime *,R5900Context *)override{throw std::runtime_error("frame");}
     bool callLibrary(Runtime *,R5900Context *,uint32_t)override{return false;}
     void libraryCall(bozo::ee::Dispatcher &d,R5900Context *c,uint32_t pc)override{
+        if(pc==0x172000){
+            check(callbackActive && c->r[4].uw[0]==callbackObject);auto &r=d.runtime();
+            std::memcpy(r.memory.hostPointer(callbackObject+0x90,64),callbackData.data(),64);
+            std::memcpy(r.memory.hostPointer(callbackObject+0x230,32),callbackData.data()+16,32);
+            *r.memory.hostPointer(callbackObject+0x20e,1)=callbackFlags;++callbacks;c->r[2].ud[0]=0;c->pc=c->r[31].uw[0];return;
+        }
         if(pc!=0x216f50)throw std::runtime_error("library");
         check(c->r[5].uw[0]==c->r[4].uw[0]+0x40);selectedInverse=pc;
         // The general inverse remains a bounded record contract. The rigid
@@ -120,7 +140,7 @@ int main(){try{
     a.setFunctions(bones_reference_function_table,bones_reference_function_count,bones_reference_resume_table,bones_reference_resume_count);
     b.setFunctions(bones_adapted_function_table,bones_adapted_function_count,bones_adapted_resume_table,bones_adapted_resume_count);
     a.runtime().port=&h;b.runtime().port=&h;uint32_t random=51;unsigned cases=0;
-    for(auto *d:{&a,&b})d->bindLibrary(0x216f50);
+    for(auto *d:{&a,&b}){d->bindLibrary(0x216f50);d->bindLibrary(0x172000);}
     for(unsigned mode:{_MM_ROUND_NEAREST,_MM_ROUND_DOWN,_MM_ROUND_UP,_MM_ROUND_TOWARD_ZERO})for(unsigned seed=0;seed<128;++seed){
         auto &x=a.runtime(),&y=b.runtime();std::memset(x.memory.flat(),0x61,bozo::kFlatBytes);
         constexpr uint32_t owner=0x180000,list=0x190000,bind=0x1a0000,output=0x1b0000,metadata=0x1c0000;
@@ -300,5 +320,59 @@ int main(){try{
             check(bad && !std::memcmp(&saved,&c,sizeof(c)) && !std::memcmp(ram.data(),r.memory.flat(),ram.size()));};
         for(uint32_t bad:{0x7fc00000u,1u,0x7f7fffffu}){put(r,destination,bad);reject();}
     }
-    std::printf("%u bone loops,%u pair distances,%u scales,%u parameter branches,%u selectors (%u rigid/%u general),%u column inverses: CPU/RAM, four modes, aliases and exact live W; no VU state\n",cases,distances,scales,parameters,selectors,rigid,general,columns);return 0;
+    unsigned pairs=0,pairedCallers=0,calculated=0,cached=0;
+    for(unsigned mode:{_MM_ROUND_NEAREST,_MM_ROUND_DOWN,_MM_ROUND_UP,_MM_ROUND_TOWARD_ZERO})for(unsigned seed=0;seed<128;++seed){
+        auto &x=a.runtime(),&y=b.runtime();std::memset(x.memory.flat(),0x51,bozo::kFlatBytes);
+        const uint32_t matrix=seed&1?0x70000100:0x180000;
+        uint32_t point=0x190000,direction=0x1a0000;
+        switch(seed%8){case 1:point=matrix;direction=matrix+16;break;case 2:point=matrix+16;direction=matrix+48;break;
+            case 3:direction=point;break;case 4:direction=matrix+48;break;case 5:point=matrix+48;break;
+            case 6:direction=point+16;break;case 7:point=direction-16;break;}
+        uint32_t values[24];for(auto &v:values){random=random*1664525u+1013904223u;v=(random&0x807fffff)|((104+random%26)<<23);}
+        if(seed==0){std::memset(values,0,sizeof(values));for(unsigned i=0;i<4;++i)values[i*5]=0x3f800000;
+            values[3]=0x40000000;values[7]=0xc0400000;values[11]=0x40800000;values[15]=0x40a00000;
+            values[16]=values[20]=0x3f800000;values[17]=values[21]=0x40000000;values[18]=values[22]=0x40400000;values[19]=0x40000000;}
+        if(seed%16==8)for(unsigned i=0;i<24;++i)values[i]=i<16?0x00800000u:0x3f000000u;
+        std::memcpy(x.memory.hostPointer(matrix,64),values,64);std::memcpy(x.memory.hostPointer(point,16),values+16,16);std::memcpy(x.memory.hostPointer(direction,16),values+20,16);
+        const auto w=direction+12;const bool activeW=(w>=matrix && w<matrix+64) || (w>=point && w<point+16);
+        if(!activeW)put(x,w,seed&2?0x7f800001u:0x7fc01234u);
+        std::memcpy(y.memory.flat(),x.memory.flat(),bozo::kFlatBytes);
+        R5900Context p{};for(unsigned i=1;i<32;++i){p.r[i].ud[0]=seed*32+i;p.r[i].ud[1]=~p.r[i].ud[0];}
+        std::memset(p.vu0_vf,0x48,sizeof(p.vu0_vf));p.vu0_status=0x1256;p.r[6].ud[0]=matrix;p.r[5].ud[0]=point;p.r[4].ud[0]=direction;auto q=p;
+        const auto saved=_mm_getcsr(),control=(saved&~_MM_ROUND_MASK)|mode;_mm_setcsr(control);
+        h.reference=true;check(h.nativeInstruction(x.memory.flat(),&p,&x,0x1fb79c));const auto expectedFp=_mm_getcsr();_mm_setcsr(control);
+        h.reference=false;check(h.nativeInstruction(y.memory.flat(),&q,&y,0x1fb79c));check(_mm_getcsr()==expectedFp);_mm_setcsr(saved);
+        check(!std::memcmp(&p,&q,sizeof(p)) && !std::memcmp(x.memory.flat(),y.memory.flat(),bozo::kFlatBytes));
+        if(seed==0)check(word(y,point+12)==0x41900000 && word(y,direction+12)==0x41000000);++pairs;
+    }
+    for(unsigned mode:{_MM_ROUND_NEAREST,_MM_ROUND_DOWN,_MM_ROUND_UP,_MM_ROUND_TOWARD_ZERO})for(unsigned seed=0;seed<128;++seed){
+        auto &x=a.runtime(),&y=b.runtime();std::memset(x.memory.flat(),0x61,bozo::kFlatBytes);
+        const uint32_t object=seed&1?0x70000100:0x180000,stack=seed&2?0x70003e00:0x1fff000;
+        constexpr uint32_t vtable=0x1e0000;put(x,object,vtable);put(x,vtable+0x64,0x172000u);
+        h.callbackActive=true;h.callbackObject=object;h.callbackFlags=uint8_t((seed*17&~8u)|(seed&4?8:0));
+        for(auto &v:h.callbackData){random=random*1664525u+1013904223u;v=(random&0x807fffff)|((104+random%26)<<23);}
+        if(seed%8==0){h.callbackData.fill(0);for(unsigned i=0;i<4;++i)h.callbackData[i*5]=0x3f800000;}
+        h.callbackData[23]=0x7fc01234;std::memcpy(y.memory.flat(),x.memory.flat(),bozo::kFlatBytes);
+        R5900Context p{};for(unsigned i=1;i<32;++i){p.r[i].ud[0]=seed*32+i;p.r[i].ud[1]=~p.r[i].ud[0];}
+        std::memset(p.vu0_vf,0x82,sizeof(p.vu0_vf));p.vu0_status=0x4512;p.r[4].ud[0]=object;p.r[29].ud[0]=stack;p.r[31].ud[0]=0x170000;auto q=p;
+        const auto saved=_mm_getcsr(),control=(saved&~_MM_ROUND_MASK)|mode;_mm_setcsr(control);
+        h.reference=true;h.callbacks=0;x.functions.generated(0x1fb6a0)(x.memory.flat(),&p,&x);const auto expectedFp=_mm_getcsr();check(h.callbacks==1);_mm_setcsr(control);
+        h.reference=false;h.callbacks=0;y.functions.generated(0x1fb6a0)(y.memory.flat(),&q,&y);check(_mm_getcsr()==expectedFp && h.callbacks==1);_mm_setcsr(saved);
+        p.cycleLimit=q.cycleLimit;check(p.pc==0x170000 && !std::memcmp(&p,&q,sizeof(p)));check(!std::memcmp(x.memory.flat(),y.memory.flat(),bozo::kFlatBytes));
+        if(h.callbackFlags&8){++cached;check(*y.memory.hostPointer(object+0x20e,1)==h.callbackFlags);}
+        else {++calculated;check(*y.memory.hostPointer(object+0x20e,1)==uint8_t((h.callbackFlags&~0x10)|8));}
+        ++pairedCallers;
+    }
+    h.callbackActive=false;check(calculated && cached);
+    {auto &r=b.runtime();constexpr uint32_t matrix=0x180000,point=0x190000,direction=0x1a0000;R5900Context c{};c.r[6].ud[0]=matrix;c.r[5].ud[0]=point;c.r[4].ud[0]=direction;
+        for(unsigned i=0;i<16;++i)put(r,matrix+i*4,i%5==0?0x3f800000u:0u);
+        for(unsigned i=0;i<4;++i){put(r,point+i*4,0x3f800000u);put(r,direction+i*4,0x3f800000u);}
+        auto reject=[&]{const auto saved=c;std::vector<uint8_t> ram(r.memory.flat(),r.memory.flat()+bozo::kFlatBytes);bool bad=false;
+            try{vp2s::nativeMathInstruction(r.memory.flat(),&c,&r,0x1fb79c);}catch(const std::runtime_error &){bad=true;}
+            check(bad && !std::memcmp(&saved,&c,sizeof(c)) && !std::memcmp(ram.data(),r.memory.flat(),ram.size()));};
+        c.r[6].ud[0]+=4;reject();c.r[6].ud[0]-=4;put(r,point+12,0x7fc00000u);reject();put(r,point+12,0x3f800000u);
+        put(r,matrix+12,0x7fc00000u);reject();put(r,matrix+12,0u);put(r,point,1u);reject();
+        put(r,point,0x40000000u);put(r,matrix,0x7f7fffffu);reject();
+    }
+    std::printf("%u bone,%u distance,%u scale,%u parameters,%u selectors (%u rigid/%u general),%u column inverses,%u paired aliases,%u complete paired callers: CPU/RAM, four modes, live XYZW; no VU state\n",cases,distances,scales,parameters,selectors,rigid,general,columns,pairs,pairedCallers);return 0;
 }catch(const std::exception &e){std::fprintf(stderr,"%s\n",e.what());return 1;}}

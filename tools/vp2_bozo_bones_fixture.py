@@ -14,7 +14,8 @@ fixture,_=prepare(data,[dict(Name='bone_loop',Start='0x2371dc',End='0x2372d8'),
                        dict(Name='camera_scale_second',Start='0x20f280',End='0x20f2c4'),
                        dict(Name='model_parameters',Start='0x23c240',End='0x23c2d8'),
                        dict(Name='inverse_selector',Start='0x248560',End='0x248624'),
-                       dict(Name='column_inverse',Start='0x216cb0',End='0x216d60')],{})
+                       dict(Name='column_inverse',Start='0x216cb0',End='0x216d60'),
+                       dict(Name='point_direction',Start='0x1fb6a0',End='0x1fb7b8')],{})
 fixture=bytearray(fixture);_,segments,_=elf_parts(fixture)
 s=next(s for s in segments if s[0]==1 and s[2]<=0x2371dc<0x2372d8<=s[2]+s[4])
 at=s[1]+0x2372d0-s[2];fixture[at:at+8]=(0x03e00008).to_bytes(4,'little')+bytes(4)
@@ -58,5 +59,11 @@ for pc in (*range(0x216d34,0x216d58,4),0x216d5c):
     if a.variant=='reference' and pc!=0x216d5c:
         at=s[1]+pc-s[2];fixture[at:at+4]=bytes(4)
     else:sites.append(f'native 0x{pc:x}\n')
+s=next(s for s in segments if s[0]==1 and s[2]<=0x1fb6a0<0x1fb7b8<=s[2]+s[4])
+for pc in range(0x1fb768,0x1fb7a4,4):
+    if a.variant=='reference' and pc!=0x1fb79c:
+        at=s[1]+pc-s[2];fixture[at:at+4]=bytes(4)
+    else:sites.append(f'native 0x{pc:x}\n')
+sites.append('stub 0x172000\n')
 a.out.mkdir(parents=True,exist_ok=True);(a.out/'fixture.elf').write_bytes(fixture)
 (a.out/'externals.txt').write_text(''.join(sites))

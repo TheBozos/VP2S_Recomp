@@ -12,6 +12,26 @@ The earlier VP2S face/shading and general brightness comparisons remain open.
 
 ## Build and evidence
 
+### Native paired point/direction records (2026-11-08)
+
+`0x1fb768..0x1fb7a0` now calls the qualified shared point/direction record
+operation: the point uses all four weights, the direction uses XYZ weights,
+and both results calculate all four components. Matrix and both input vectors
+are snapshotted; both results are completed before storing point then direction.
+This preserves overlapping input/output behavior without inherited vector data.
+Original caller rounding and tiny-result reduction remain. Active nonfinite or
+subnormal lanes and overflowing bounds reject; direction W is ignored only
+where it is genuinely not shared with an active matrix/point lane.
+
+512 alias cases compare whole CPU/RAM against independently ordered scalar
+arithmetic over four modes. Another 512 complete generated caller cases retain
+the virtual-call site, dirty/cache flags, integer transpose, cached copies and
+epilogue, including both calculation and cache-hit paths. A bounded update
+contract mutates the input records/flags before those original consumers; it
+does not qualify the independent callback implementation. Rejection, source
+guards and startup pass. Actual New Game advances to four-weight transform
+`0x1fb5ec`. Logun remains open.
+
 ### Native column-layout rigid inverse translation (2026-11-08)
 
 `0x216cb0` retains its complete original scalar clear and transpose. Its final

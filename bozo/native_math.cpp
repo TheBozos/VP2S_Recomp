@@ -467,6 +467,39 @@ std::array<uint32_t,4> NativeMotion::finish(uint32_t frame,uint32_t object){
     const auto result=it->second.position;updates.erase(it);return result;
 }
 bool nativeMathInstruction(uint8_t *,R5900Context *c,Runtime *rt,uint32_t pc){
+    if(pc==0x216f54){
+        if(!c || c->pc!=0x216f50)throw std::runtime_error("inverse pivot weights require complete scalar owner");
+        auto *input=record(rt,c->r[4].uw[0],64),*output=record(rt,c->r[5].uw[0],64),*frame=record(rt,c->r[29].uw[0],0x90);
+        const auto apart=[&](uint8_t *p){const auto a=reinterpret_cast<uintptr_t>(p),b=reinterpret_cast<uintptr_t>(frame);
+            if(a<b+0x90 && b<a+64)throw std::runtime_error("inverse pivot weights alias their scalar frame");};
+        apart(input);apart(output);
+        float matrix[4][4],maxima[4]={},weights[4][4];std::memcpy(matrix,input,64);
+        for(unsigned row=0;row<4;++row)for(unsigned lane=0;lane<4;++lane){
+            pairQualified(matrix[row][lane]);if(std::abs(matrix[row][lane])>1.e8f)throw std::runtime_error("unqualified inverse pivot matrix input");
+            matrix[row][lane]=std::abs(matrix[row][lane]);maxima[lane]=std::max(maxima[lane],matrix[row][lane]);
+        }
+        // Publish only the pivot-selection table the original scalar inverse
+        // consumes. Its raw matrix copy, pivot swaps, elimination, solve and
+        // output writes remain original game code. No implicit numeric state.
+        music::CodecRounding rounding;
+        for(unsigned row=0;row<4;++row){
+            volatile float inverse=maxima[row]==0?std::numeric_limits<float>::max():1.f/maxima[row];
+            const auto scale=pairNormal(inverse);
+            for(unsigned lane=0;lane<4;++lane){
+                if(double(matrix[row][lane])*scale>std::numeric_limits<float>::max())throw std::runtime_error("inverse pivot weight overflow");
+                weights[row][lane]=pairProduct(matrix[row][lane],scale);
+            }
+        }
+        std::memcpy(frame,weights,64);return true;
+    }
+    switch(pc){
+    case 0x216f58:case 0x216f5c:case 0x216f60:case 0x216f64:case 0x216f68:case 0x216f6c:case 0x216f70:case 0x216f74:
+    case 0x216f78:case 0x216f80:case 0x216f8c:case 0x216f98:case 0x216fa4:case 0x216fb0:case 0x216fb4:case 0x216fb8:
+    case 0x216fbc:case 0x216fc0:case 0x216fd0:case 0x216fd4:case 0x216fd8:case 0x216fdc:case 0x216fe0:case 0x216fe8:
+    case 0x216ff8:case 0x216ffc:case 0x217000:case 0x217004:case 0x217008:case 0x217010:case 0x217020:case 0x217024:
+    case 0x21702c:case 0x217030:return true;
+    default:break;
+    }
     if(pc==0x40b040){nativeParticlePhysicsInstruction(c,rt,pc);return false;}
     if(pc>=0x40a950 && pc<=0x40adf8 && nativeParticlePhysicsInstruction(c,rt,pc))return true;
     static constexpr std::array<uint32_t,26> particleSites{0x408f10,0x408f84,0x408f88,0x408fa8,0x408fac,0x408fb8,0x408fbc,

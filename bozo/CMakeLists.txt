@@ -746,6 +746,18 @@ if(VP2S_BOZO_CODE)
     target_link_options(vp2s-bozo-precache-check PRIVATE -static)
   endif()
   add_test(NAME vp2s-bozo-precache COMMAND vp2s-bozo-precache-check)
+  set(INVERSE_PIVOT_DIR "${CMAKE_CURRENT_BINARY_DIR}/inverse-pivot-reference")
+  add_custom_command(OUTPUT "${INVERSE_PIVOT_DIR}/inverse_pivot_000.cpp" "${INVERSE_PIVOT_DIR}/inverse_pivot_table.cpp" "${INVERSE_PIVOT_DIR}/inverse_pivot_functions.h"
+    COMMAND ${Python3_EXECUTABLE} "${VP2S_ROOT}/tools/vp2_bozo_inverse_pivot_fixture.py" "${VP2S_BOZO_DATA}/images/mod001.elf" "${INVERSE_PIVOT_DIR}" --build "${VP2S_BOZO_DATA}/.."
+    COMMAND $<TARGET_FILE:bozo-recomp> "${INVERSE_PIVOT_DIR}/fixture.elf" "${INVERSE_PIVOT_DIR}" --prefix inverse_pivot --symbol-prefix inverse_pivot_ --files 1 --externals "${INVERSE_PIVOT_DIR}/externals.txt" --no-comments
+    DEPENDS bozo-recomp "${VP2S_ROOT}/tools/vp2_bozo_inverse_pivot_fixture.py" "${VP2S_ROOT}/tools/vp2_bozo_kernel.py" "${VP2S_BOZO_DATA}/images/mod001.elf")
+  add_executable(vp2s-bozo-inverse-pivot-check "${VP2S_ROOT}/tests/bozo_inverse_pivot_main.cpp" "${INVERSE_PIVOT_DIR}/inverse_pivot_000.cpp" "${INVERSE_PIVOT_DIR}/inverse_pivot_table.cpp")
+  target_include_directories(vp2s-bozo-inverse-pivot-check PRIVATE "${INVERSE_PIVOT_DIR}")
+  target_link_libraries(vp2s-bozo-inverse-pivot-check PRIVATE vp2s_bozo_kernel)
+  if(MINGW)
+    target_link_options(vp2s-bozo-inverse-pivot-check PRIVATE -static)
+  endif()
+  add_test(NAME vp2s-bozo-inverse-pivot COMMAND vp2s-bozo-inverse-pivot-check)
   foreach(VARIANT original adapted)
     set(HERMITE_DIR "${CMAKE_CURRENT_BINARY_DIR}/hermite-reference/${VARIANT}")
     add_custom_command(OUTPUT "${HERMITE_DIR}/hermite_${VARIANT}_000.cpp" "${HERMITE_DIR}/hermite_${VARIANT}_table.cpp" "${HERMITE_DIR}/hermite_${VARIANT}_functions.h"

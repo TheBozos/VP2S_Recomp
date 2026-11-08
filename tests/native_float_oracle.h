@@ -16,6 +16,15 @@ inline uint32_t rounded(uint32_t sign,int e,uint64_t m){
 }
 inline uint32_t product(uint32_t a,uint32_t b){const auto sign=(a^b)&0x80000000u;const int ea=(a>>23)&255,eb=(b>>23)&255;
     if(!ea || !eb)return sign;return rounded(sign,ea+eb-127,uint64_t((a&0x7fffff)|0x800000)*((b&0x7fffff)|0x800000)<<9);}
+inline uint32_t quotient(uint32_t a,uint32_t b){
+    const auto sign=(a^b)&0x80000000u;const int ea=(a>>23)&255,eb=(b>>23)&255;
+    if(!eb)return sign|0x7f7fffffu;if(!ea)return sign;
+    const uint64_t numerator=(a&0x7fffff)|0x800000,denominator=(b&0x7fffff)|0x800000;
+    const uint64_t first=(numerator<<31)/denominator,remainder=(numerator<<31)%denominator;
+    uint64_t fraction=(first<<24)|((remainder<<24)/denominator);
+    if((remainder<<24)%denominator)fraction|=1;
+    return rounded(sign,ea-eb+127,fraction);
+}
 inline uint32_t sum(uint32_t a,uint32_t b){
     if((a&0x7fffffff)<(b&0x7fffffff))std::swap(a,b);
     if(!(b&0x7fffffff)){if(a&0x7fffffff)return a;return ((a&b)&0x80000000u)|((_mm_getcsr()&_MM_ROUND_MASK)==_MM_ROUND_DOWN?((a|b)&0x80000000u):0u);}

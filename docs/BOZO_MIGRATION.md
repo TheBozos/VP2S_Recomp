@@ -12,6 +12,35 @@ The earlier VP2S face/shading and general brightness comparisons remain open.
 
 ## Build and evidence
 
+### Full inverse pivot weights from explicit matrices (2026-11-08)
+
+The 35 vector sites in `0x216f50` only prepare the 4x4 pivot-selection table.
+Native code snapshots the matrix, takes absolute component maxima across the
+four input records and applies each original reciprocal scale to its record.
+It publishes the 64-byte scalar temporary at the first vector site. Original
+integer matrix copies, pivot indices/swaps, scalar elimination, back-substitution
+and final matrix writes remain compiled game code. All four components matter;
+there is no implicit numeric register, accumulator, quotient or status bank.
+
+Frame/source/output separation and finite normal inputs are validated before
+publication. Source and output may overlap each other because the original
+scalar owner copies the full input before output. Unsupported numeric magnitude,
+overflow, frame aliases, partial entry and invalid records reject without RAM,
+CPU or FP mutation. Descriptive arithmetic agrees with the relevant divide
+behavior in the [PCSX2 reference source](https://github.com/PCSX2/pcsx2/blob/master/pcsx2/VUops.cpp);
+no reference execution machinery is used by the adapter or numerical oracle.
+
+The complete scalar caller fixture qualifies 512 CPU/RAM/FP pairs, all 35 sites,
+384 independent matrix-times-inverse identity checks, finite singular/zero
+cases, integer rational quotient/product weights, four rounding modes, FTZ/DAZ,
+five RAM alias forms, scratch matrices/stacks and exact/partial in-place output.
+Source range and every-word mutation tests protect the binding. Three rebuilt
+suites pass in 46.81 s (`inverse-pivot-final-tests.log`).
+
+The protected actual route now passes the general inverse and reaches inline
+object-update point transformation at `0x227de8` in `0x2262b0`
+(`inverse-pivot-route.log`). Field/Logun remains open.
+
 ### Animation precache without raster pacing (2026-11-08)
 
 Mod003 `0x420ca0` precaches animation samples through the original model and

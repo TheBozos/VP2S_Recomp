@@ -5,7 +5,7 @@ import unittest
 from pathlib import Path
 sys.path.insert(0,str(Path(__file__).resolve().parents[1]/'tools'))
 from vp2_bozo_prepare import elf_parts,overlay_entries
-from vp2_bozo_kernel import LEAFLESS_QUERY_SITES,FULL_SINE_SITES,FULL_COSINE_SITES,EULER_QUATERNION_SITES,POSITIVE_EULER_SITES,DOF_MATRIX_SITES,INVERSE_PIVOT_SITES,HERMITE_VECTOR_SITES,SQUAD_SITES,PARTICLE_PUBLICATION_SITES
+from vp2_bozo_kernel import LEAFLESS_QUERY_SITES,FULL_SINE_SITES,FULL_COSINE_SITES,EULER_QUATERNION_SITES,POSITIVE_EULER_SITES,DOF_MATRIX_SITES,INVERSE_PIVOT_SITES,OBJECT_UPDATE_POINT_SITES,HERMITE_VECTOR_SITES,SQUAD_SITES,PARTICLE_PUBLICATION_SITES
 from vp2_bozo_kernel import bindings, game_adaptations, frame_adaptations, game_entries, native_game_sites, GUARDS, RETIRED_RANGES,bootstrap_adaptations,bootstrap_tables,overlay_adaptations,overlay_native_sites,display_adaptations,DISPLAY_STORES,startup_clear_adaptations,composition_adaptations,composition_sites,reject_performance_counter_reads
 
 IMAGE=Path(sys.argv.pop(1))
@@ -50,6 +50,14 @@ class KernelGuardTests(unittest.TestCase):
         actual=[pc for pc in range(lo,hi,4) if int.from_bytes(data[s[1]+pc-s[2]:s[1]+pc-s[2]+4],'little')>>26 in (0x12,0x36,0x3e)]
         self.assertEqual(list(INVERSE_PIVOT_SITES),actual)
         for pc in range(lo,hi,4):
+            changed=bytearray(data);changed[s[1]+pc-s[2]]^=1
+            with self.subTest(pc=hex(pc)),self.assertRaises(ValueError):overlay_adaptations('mod001',changed)
+    def test_object_update_point_source(self):
+        data=(IMAGE.parent/'mod001.elf').read_bytes();_,segments,_=elf_parts(data)
+        lo,hi=0x227d58,0x227e10;s=next(s for s in segments if s[0]==1 and s[2]<=lo<hi<=s[2]+s[4])
+        actual=[pc for pc in range(lo,hi,4) if int.from_bytes(data[s[1]+pc-s[2]:s[1]+pc-s[2]+4],'little')>>26 in (0x12,0x36,0x3e)]
+        self.assertEqual(list(OBJECT_UPDATE_POINT_SITES),actual)
+        for pc in (*range(lo,hi,4),0x2262b0,0x226568,0x22b87c):
             changed=bytearray(data);changed[s[1]+pc-s[2]]^=1
             with self.subTest(pc=hex(pc)),self.assertRaises(ValueError):overlay_adaptations('mod001',changed)
     def test_euler_quaternion_source(self):
@@ -430,6 +438,7 @@ class KernelGuardTests(unittest.TestCase):
         *POSITIVE_EULER_SITES,
         *DOF_MATRIX_SITES,
         *INVERSE_PIVOT_SITES,
+        *OBJECT_UPDATE_POINT_SITES,
         *HERMITE_VECTOR_SITES,
         *SQUAD_SITES,
         *PARTICLE_PUBLICATION_SITES,

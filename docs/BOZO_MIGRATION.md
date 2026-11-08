@@ -12,6 +12,30 @@ The earlier VP2S face/shading and general brightness comparisons remain open.
 
 ## Build and evidence
 
+### Object-update point branches (2026-11-08)
+
+Both inline point transforms at `0x227d78..0x227d9c` and
+`0x227de8..0x227e0c` now read explicit matrices and the original stack point,
+publishing full XYZW at the original store boundary. The game still writes
+homogeneous W=1 and applies its optional scalar XYZ displacement afterward.
+There is no live vector register, accumulator or coefficient bank. The whole
+`0x2262b0` owner has a signature guard; its other unported vector sites remain
+rejecting boundaries.
+
+The bounded branch fixture retains the original W write, branch and scalar
+offset consumers, with only a fixture return at the next unrelated block. It
+qualifies 512 complete branch pairs, 128 known identities and all 20 sites,
+using integer product/sum outputs, full CPU/RAM/FP comparison, four modes,
+FTZ/DAZ, aliases, scratch frames, matrix/output overlap and mutation-free
+numeric/setup guards. This qualifies these branches, not the entire large
+object update. Four rebuilt suites pass in 53.22 s
+(`update-point-final-tests.log`); final generator coverage and the new source
+mutation assertions also pass (`update-point-coverage-tests.log`,
+`update-point-source-extra.log`).
+
+Actual `update-point-route.log` now reaches the next matrix-to-point product
+at `0x227f08`, still inside the same owner. Field/Logun remains open.
+
 ### Full inverse pivot weights from explicit matrices (2026-11-08)
 
 The 35 vector sites in `0x216f50` only prepare the 4x4 pivot-selection table.

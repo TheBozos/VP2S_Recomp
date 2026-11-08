@@ -758,6 +758,18 @@ if(VP2S_BOZO_CODE)
     target_link_options(vp2s-bozo-inverse-pivot-check PRIVATE -static)
   endif()
   add_test(NAME vp2s-bozo-inverse-pivot COMMAND vp2s-bozo-inverse-pivot-check)
+  set(UPDATE_POINT_DIR "${CMAKE_CURRENT_BINARY_DIR}/update-point-reference")
+  add_custom_command(OUTPUT "${UPDATE_POINT_DIR}/update_point_000.cpp" "${UPDATE_POINT_DIR}/update_point_table.cpp" "${UPDATE_POINT_DIR}/update_point_functions.h"
+    COMMAND ${Python3_EXECUTABLE} "${VP2S_ROOT}/tools/vp2_bozo_update_point_fixture.py" "${VP2S_BOZO_DATA}/images/mod001.elf" "${UPDATE_POINT_DIR}" --build "${VP2S_BOZO_DATA}/.."
+    COMMAND $<TARGET_FILE:bozo-recomp> "${UPDATE_POINT_DIR}/fixture.elf" "${UPDATE_POINT_DIR}" --prefix update_point --symbol-prefix update_point_ --files 1 --externals "${UPDATE_POINT_DIR}/externals.txt" --no-comments
+    DEPENDS bozo-recomp "${VP2S_ROOT}/tools/vp2_bozo_update_point_fixture.py" "${VP2S_ROOT}/tools/vp2_bozo_kernel.py" "${VP2S_BOZO_DATA}/images/mod001.elf")
+  add_executable(vp2s-bozo-update-point-check "${VP2S_ROOT}/tests/bozo_update_point_main.cpp" "${UPDATE_POINT_DIR}/update_point_000.cpp" "${UPDATE_POINT_DIR}/update_point_table.cpp")
+  target_include_directories(vp2s-bozo-update-point-check PRIVATE "${UPDATE_POINT_DIR}")
+  target_link_libraries(vp2s-bozo-update-point-check PRIVATE vp2s_bozo_kernel)
+  if(MINGW)
+    target_link_options(vp2s-bozo-update-point-check PRIVATE -static)
+  endif()
+  add_test(NAME vp2s-bozo-update-point COMMAND vp2s-bozo-update-point-check)
   foreach(VARIANT original adapted)
     set(HERMITE_DIR "${CMAKE_CURRENT_BINARY_DIR}/hermite-reference/${VARIANT}")
     add_custom_command(OUTPUT "${HERMITE_DIR}/hermite_${VARIANT}_000.cpp" "${HERMITE_DIR}/hermite_${VARIANT}_table.cpp" "${HERMITE_DIR}/hermite_${VARIANT}_functions.h"

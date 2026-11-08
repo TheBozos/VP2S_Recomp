@@ -500,6 +500,23 @@ bool nativeMathInstruction(uint8_t *,R5900Context *c,Runtime *rt,uint32_t pc){
     case 0x21702c:case 0x217030:return true;
     default:break;
     }
+    if((pc>=0x227d78 && pc<=0x227d9c && !(pc&3)) || (pc>=0x227de8 && pc<=0x227e0c && !(pc&3))){
+        const bool offset=pc<0x227de0;const auto stack=c->r[29].uw[0],point=stack+0x390,destination=stack+0x440;
+        const auto matrix=offset?stack+0x450:c->r[19].uw[0];
+        if(c->pc<0x2262b0 || c->pc>=0x22b880 || c->r[2].uw[0]!=destination ||
+           (offset?(c->r[4].uw[0]!=point || c->r[3].uw[0]!=matrix):c->r[3].uw[0]!=point))
+            throw std::runtime_error("native object-update point setup mismatch");
+        record(rt,stack,0x490);
+        if(pc==0x227d9c || pc==0x227e0c){
+            math::Matrix basis;__m128 position;std::memcpy(basis.data(),record(rt,matrix,64),64);std::memcpy(&position,record(rt,point,16),16);
+            float values[20];std::memcpy(values,basis.data(),64);std::memcpy(values+16,&position,16);
+            for(float value:values){pairQualified(value);if(std::abs(value)>1.e8f)throw std::runtime_error("unqualified native object-update point input");}
+            if(std::bit_cast<uint32_t>(values[19])!=0x3f800000)throw std::runtime_error("object-update point lacks original scalar homogeneous component");
+            struct ArithmeticScope{unsigned saved=_mm_getcsr();~ArithmeticScope(){_mm_setcsr(saved);}} arithmetic;
+            const auto result=math::matrixVectorProduct(basis,position);std::memcpy(record(rt,destination,16),&result,16);
+        }
+        return true;
+    }
     if(pc==0x40b040){nativeParticlePhysicsInstruction(c,rt,pc);return false;}
     if(pc>=0x40a950 && pc<=0x40adf8 && nativeParticlePhysicsInstruction(c,rt,pc))return true;
     static constexpr std::array<uint32_t,26> particleSites{0x408f10,0x408f84,0x408f88,0x408fa8,0x408fac,0x408fb8,0x408fbc,

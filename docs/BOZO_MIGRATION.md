@@ -12,6 +12,24 @@ The earlier VP2S face/shading and general brightness comparisons remain open.
 
 ## Build and evidence
 
+### Particle colour product (2026-11-08)
+
+The four `0x22f300..0x22f30c` sites now multiply all four object/lighting colour
+components from explicit records into the original stack output. Alpha is live;
+no RGB-only shortcut, implicit vector state or forced rounding mode is used.
+512 bounded CPU/RAM/FP pairs and 64 known RGBA identities qualify integer product
+outputs, signed zero, underflow, four modes/FTZ/DAZ, aliases, input/output overlap
+and mutation-free guards. The fragment stops before later lighting consumers;
+it is not qualification of the complete particle lighting owner. The full
+`0x22f170` source is fingerprinted and every word mutation is checked.
+
+Three rebuilt suites pass in 53.15 s (`particle-lighting-final-tests.log`).
+Actual `particle-lighting-route.log` passes the product and reaches particle
+draw transport `0x22f0e0`, which attempts device write `0x10009020`. The next work
+must publish native particles from their semantic records before enqueue,
+retaining the game's real scene completion; no DMA/VIF replay may be admitted.
+Field/Logun remains open.
+
 ### Qualified empty FPS model submissions (2026-11-08)
 
 The zero-count model rejection was a valid disc record, not a failed decode:

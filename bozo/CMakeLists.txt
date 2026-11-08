@@ -759,6 +759,18 @@ if(VP2S_BOZO_CODE)
   endif()
   add_test(NAME vp2s-bozo-inverse-pivot COMMAND vp2s-bozo-inverse-pivot-check)
   set(UPDATE_POINT_DIR "${CMAKE_CURRENT_BINARY_DIR}/update-point-reference")
+  set(PARTICLE_LIGHTING_DIR "${CMAKE_CURRENT_BINARY_DIR}/particle-lighting-reference")
+  add_custom_command(OUTPUT "${PARTICLE_LIGHTING_DIR}/particle_lighting_000.cpp" "${PARTICLE_LIGHTING_DIR}/particle_lighting_table.cpp" "${PARTICLE_LIGHTING_DIR}/particle_lighting_functions.h"
+    COMMAND ${Python3_EXECUTABLE} "${VP2S_ROOT}/tools/vp2_bozo_particle_lighting_fixture.py" "${VP2S_BOZO_DATA}/images/mod001.elf" "${PARTICLE_LIGHTING_DIR}" --build "${VP2S_BOZO_DATA}/.."
+    COMMAND $<TARGET_FILE:bozo-recomp> "${PARTICLE_LIGHTING_DIR}/fixture.elf" "${PARTICLE_LIGHTING_DIR}" --prefix particle_lighting --symbol-prefix particle_lighting_ --files 1 --externals "${PARTICLE_LIGHTING_DIR}/externals.txt" --no-comments
+    DEPENDS bozo-recomp "${VP2S_ROOT}/tools/vp2_bozo_particle_lighting_fixture.py" "${VP2S_ROOT}/tools/vp2_bozo_kernel.py" "${VP2S_BOZO_DATA}/images/mod001.elf")
+  add_executable(vp2s-bozo-particle-lighting-check "${VP2S_ROOT}/tests/bozo_particle_lighting_main.cpp" "${PARTICLE_LIGHTING_DIR}/particle_lighting_000.cpp" "${PARTICLE_LIGHTING_DIR}/particle_lighting_table.cpp")
+  target_include_directories(vp2s-bozo-particle-lighting-check PRIVATE "${PARTICLE_LIGHTING_DIR}")
+  target_link_libraries(vp2s-bozo-particle-lighting-check PRIVATE vp2s_bozo_kernel)
+  if(MINGW)
+    target_link_options(vp2s-bozo-particle-lighting-check PRIVATE -static)
+  endif()
+  add_test(NAME vp2s-bozo-particle-lighting COMMAND vp2s-bozo-particle-lighting-check)
   set(FACING_DIR "${CMAKE_CURRENT_BINARY_DIR}/facing-reference")
   add_custom_command(OUTPUT "${FACING_DIR}/facing_000.cpp" "${FACING_DIR}/facing_table.cpp" "${FACING_DIR}/facing_functions.h"
     COMMAND ${Python3_EXECUTABLE} "${VP2S_ROOT}/tools/vp2_bozo_facing_fixture.py" "${VP2S_BOZO_DATA}/images/mod001.elf" "${FACING_DIR}" --build "${VP2S_BOZO_DATA}/.."

@@ -523,6 +523,16 @@ std::array<uint32_t,4> NativeMotion::finish(uint32_t frame,uint32_t object){
 }
 bool nativeMathInstruction(uint8_t *,R5900Context *c,Runtime *rt,uint32_t pc){
     if(nativeParticleCallbackInstruction(c,rt,pc))return true;
+    if(pc==0x22f300 || pc==0x22f304 || pc==0x22f308 || pc==0x22f30c){
+        if(!c || c->pc<0x22f170 || c->pc>0x22f2f8 || !c->r[18].uw[0] || c->r[3].uw[0]!=c->r[20].uw[0]+0x580 || c->r[4].uw[0]!=c->r[18].uw[0]+0x340 || c->r[2].uw[0]!=c->r[29].uw[0]+0xb0)
+            throw std::runtime_error("native particle colour product escaped its scalar records");
+        if(pc==0x22f30c){
+            struct ArithmeticScope{unsigned saved=_mm_getcsr();~ArithmeticScope(){_mm_setcsr(saved);}} arithmetic;
+            std::array<float,4> colour,light,result;std::memcpy(colour.data(),record(rt,c->r[3].uw[0],16),16);std::memcpy(light.data(),record(rt,c->r[4].uw[0],16),16);
+            for(const auto *input:{&colour,&light})for(float value:*input){pairQualified(value);if(std::abs(value)>1.e8f)throw std::runtime_error("unqualified native particle colour product");}
+            auto *output=record(rt,c->r[2].uw[0],16);for(unsigned i=0;i<4;++i)result[i]=pairProduct(colour[i],light[i]);std::memcpy(output,result.data(),16);
+        }return true;
+    }
     const bool particleSphere=pc>=0x22f9e0 && pc<=0x22fa38 && !(pc&3),originSphere=pc>=0x2482b4 && pc<=0x24830c && !(pc&3);
     if(particleSphere || originSphere){
         const unsigned pointReg=particleSphere?6:3,basisReg=particleSphere?7:5,outputReg=particleSphere?5:2;

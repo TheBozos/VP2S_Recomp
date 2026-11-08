@@ -52,8 +52,13 @@
 #include <set>
 
 namespace {
-class StrictHost final : public bozo::ee::Host, public vp2s::TimerOwner, public vp2s::SettingsOwner,public vp2s::SeedOwner,public vp2s::ModuleOwner,public vp2s::BootstrapOwner,public vp2s::RandomOwner,public vp2s::TextureOwner,public vp2s::SceneOwner,public vp2s::AssetOwner,public vp2s::DebugFontOwner,public vp2s::StateSetupOwner,public vp2s::ScreenRectOwner,public vp2s::UiTextOwner,public vp2s::UiSpriteOwner,public vp2s::MediaBufferOwner,public vp2s::ModelOwner,public vp2s::FrameFilterOwner,public vp2s::MusicOwner,public vp2s::UiWindowOwner,public vp2s::LoadProgressOwner {
+class StrictHost final : public bozo::ee::Host, public vp2s::TimerOwner, public vp2s::SettingsOwner,public vp2s::SeedOwner,public vp2s::ModuleOwner,public vp2s::BootstrapOwner,public vp2s::RandomOwner,public vp2s::TextureOwner,public vp2s::SceneOwner,public vp2s::AssetOwner,public vp2s::DebugFontOwner,public vp2s::StateSetupOwner,public vp2s::ScreenRectOwner,public vp2s::UiTextOwner,public vp2s::UiSpriteOwner,public vp2s::MediaBufferOwner,public vp2s::ModelOwner,public vp2s::FrameFilterOwner,public vp2s::MusicOwner,public vp2s::UiWindowOwner,public vp2s::LoadProgressOwner,public vp2s::MotionOwner {
 public:
+    vp2s::NativeMotion motion;
+    vp2s::NativeMotion &nativeMotion()override{return motion;}
+    bool qualifiedMotionCallback(Runtime *rt,uint32_t target)const override{
+        return target==0x3749f0 && rt->functions.generated(target)==vp2_mod003_linked_entry_003749f0_0x3749f0;
+    }
     vp2s::NativeLoadProgress loadingProgress;
     vp2s::NativeLoadProgress &nativeLoadProgress()override{return loadingProgress;}
     vp2s::NativeUiWindows windows;

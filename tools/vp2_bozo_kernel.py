@@ -309,7 +309,8 @@ def bootstrap_adaptations(data):
 def overlay_adaptations(name,data):
     if name=='mod003':
         _,segments,_=elf_parts(data)
-        for lo,hi,expected in ((0x3d7708,0x3d77cc,'435926535d852e22f0b20b9027f65fd6674acc7a63b6aaedb31e59c63a1cd1c8'),
+        for lo,hi,expected in ((0x3749f0,0x374a04,'a452358fd505e54aa6c7b852ca05fe160eeddde37d458dd1f515ee4591659823'),
+                               (0x3d7708,0x3d77cc,'435926535d852e22f0b20b9027f65fd6674acc7a63b6aaedb31e59c63a1cd1c8'),
                                (0x3d5670,0x3d57ec,'250a2389769015fbda23859f5082b6f69031a706af85f263b765f34130611ecc'),
                                (0x378908,0x3789c8,'25cee96dbb982fe7f31c806c09286d7d6d1630101851998b42a1431e9cf4fd17'),
                                (0x381fb8,0x38204c,'90b99ee0965ca566fb0e0a98e84ced53026a0170815095589932282d774eb388'),
@@ -468,6 +469,7 @@ def overlay_adaptations(name,data):
         (0x248560,0x248630,'087896e56eac45934cf3164ba2faff490cb51fc343c37c9fc097326605d2f2f8'),
         (0x216cb0,0x216d60,'daa75aec7b1a3f27c1abbdb274643fce6f62c12fdf7fb89df10faaf79e9e8dcf'),
         (0x1fb6a0,0x1fb7b8,'f96d882aa5932820bbfa87dd754afdb0af1880d0103d6620f464121daebddbef'),
+        (0x1fc9e0,0x1fcb3c,'298314148123e9f3b310e7783d7a25276b80e185063f494e2e4f81b6ece2db9c'),
         (0x1fb1e4,0x1fb204,'6d021a981a3d5b2de8da07172b9af49bf894ea3fb32a31bd238e794aadc18074'),
         (0x1fb2fc,0x1fb31c,'6d021a981a3d5b2de8da07172b9af49bf894ea3fb32a31bd238e794aadc18074'),
         (0x1fb42c,0x1fb44c,'6d021a981a3d5b2de8da07172b9af49bf894ea3fb32a31bd238e794aadc18074'),

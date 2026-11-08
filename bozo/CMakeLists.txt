@@ -498,7 +498,7 @@ if(VP2S_BOZO_CODE)
     add_custom_command(OUTPUT "${BONES_DIR}/bones_${VARIANT}_000.cpp" "${BONES_DIR}/bones_${VARIANT}_table.cpp" "${BONES_DIR}/bones_${VARIANT}_functions.h"
       COMMAND ${Python3_EXECUTABLE} "${VP2S_ROOT}/tools/vp2_bozo_bones_fixture.py" "${VP2S_BOZO_DATA}/images/mod001.elf" "${BONES_DIR}" --build "${VP2S_BOZO_DATA}/.." --variant ${VARIANT}
       COMMAND $<TARGET_FILE:bozo-recomp> "${BONES_DIR}/fixture.elf" "${BONES_DIR}" --prefix bones_${VARIANT} --symbol-prefix bones_${VARIANT}_ --files 1 --externals "${BONES_DIR}/externals.txt" --no-comments
-      DEPENDS bozo-recomp "${VP2S_ROOT}/tools/vp2_bozo_bones_fixture.py" "${VP2S_ROOT}/tools/vp2_bozo_kernel.py" "${VP2S_BOZO_DATA}/images/mod001.elf")
+      DEPENDS bozo-recomp "${VP2S_ROOT}/tools/vp2_bozo_bones_fixture.py" "${VP2S_ROOT}/tools/vp2_bozo_kernel.py" "${VP2S_BOZO_DATA}/images/mod001.elf" "${VP2S_BOZO_DATA}/images/mod003.elf")
     list(APPEND BONES_SOURCES "${BONES_DIR}/bones_${VARIANT}_000.cpp" "${BONES_DIR}/bones_${VARIANT}_table.cpp")
   endforeach()
   add_executable(vp2s-bozo-bones-check "${VP2S_ROOT}/tests/bozo_bones_main.cpp" ${BONES_SOURCES})

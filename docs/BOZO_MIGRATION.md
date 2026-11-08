@@ -12,6 +12,32 @@ The earlier VP2S face/shading and general brightness comparisons remain open.
 
 ## Build and evidence
 
+### Native motion update across its scalar setter (2026-11-08)
+
+The computed branch of `0x1fc9e0` now lifts its position/gravity/acceleration/
+damping calculation from the actual game records. Original scalar branches,
+coefficient setup, callback, final store and epilogue remain. A typed position
+result belongs to the caller frame between calculation and publication; there
+is no vector bank, accumulator, control state or microprogram dispatch. Position
+W remains the original input payload. Active unsupported numerical domains reject.
+
+The live callback is gameplay-overlay `0x3749f0`: five unchanged scalar words
+mark its object dirty and copy the supplied position. Admission checks the
+actual selected compiled function, not its numeric address alone. Other
+callbacks remain explicit boundaries until audited. The result snapshot matters:
+the setter can alias and modify the motion record before final publication.
+
+512 complete generated caller comparisons cover all eight optional-force
+combinations over four modes, ordinary/scratch records, ignored W payloads,
+acceleration/velocity aliases and self-aliasing callbacks. The fixture executes
+the unchanged scalar setter, privately relocated without PC-relative words;
+its arithmetic reference uses independently ordered scalar operations. Whole
+CPU/RAM/FP results match. Nested-frame ownership, duplicate/wrong/stale
+publication and active-domain rejection checks pass. Source guards cover the
+whole caller and setter. Actual New Game advances to `0x1fc86c`, a constrained
+position-pair adjustment. Visible field rendering and Logun remain open.
+All 58 rebuilt Bozo suites pass (`motion-all-tests.log`, 155.59 seconds).
+
 ### Native three-weight object transforms (2026-11-08)
 
 Four identical blocks ending at `0x1fb200`, `0x1fb318`, `0x1fb448` and

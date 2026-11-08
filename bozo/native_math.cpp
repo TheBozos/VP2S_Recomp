@@ -2,6 +2,7 @@
 #include "native_object_math.h"
 #include "native_trig.h"
 #include "native_frustum.h"
+#include "bozo/ee/dispatcher.h"
 #include "../port/vp2s_math.h"
 #include <cstring>
 #include <format>
@@ -18,10 +19,61 @@ uint8_t *record(Runtime *rt,uint32_t address,uint32_t bytes){
     return result;
 }
 }
+void NativeMotion::prepare(uint32_t frame,uint32_t object,std::array<uint32_t,4> position){
+    if(!updates.emplace(frame,Update{object,position}).second)throw std::runtime_error("native motion update repeats its frame");
+}
+std::array<uint32_t,4> NativeMotion::finish(uint32_t frame,uint32_t object){
+    auto it=updates.find(frame);if(it==updates.end() || it->second.object!=object)throw std::runtime_error("native motion publication has no matching update");
+    const auto result=it->second.position;updates.erase(it);return result;
+}
 bool nativeMathInstruction(uint8_t *,R5900Context *c,Runtime *rt,uint32_t pc){
     if(nativeTrigInstruction(nullptr,c,rt,pc))return true;
     if(nativeObjectMathInstruction(nullptr,c,rt,pc))return true;
     if(nativeFrustumInstruction(c,rt,pc))return true;
+    if(pc==0x1fca90 || pc==0x1fca9c || pc==0x1fcaa0 || pc==0x1fcaa4 || pc==0x1fcaa8 || pc==0x1fcaac ||
+       pc==0x1fcac4 || pc==0x1fcad8 || pc==0x1fcadc || pc==0x1fcafc || pc==0x1fcb00 || pc==0x1fcb04)return true;
+    if(pc==0x1fcb08 || pc==0x1fcb24){
+        auto *dispatcher=rt?dynamic_cast<bozo::ee::Dispatcher *>(rt->services):nullptr;
+        auto *owner=dispatcher?dynamic_cast<MotionOwner *>(&dispatcher->host()):nullptr;
+        if(!owner)throw std::runtime_error("native motion requires an update owner");
+        const auto object=c->r[16].uw[0],frame=c->r[29].uw[0];auto *source=record(rt,object,0x70);
+        if(pc==0x1fcb24){
+            if(c->r[3].uw[0]!=object+0x30)throw std::runtime_error("native motion publication destination mismatch");
+            const auto result=owner->nativeMotion().finish(frame,object);std::memcpy(source+0x30,result.data(),16);return true;
+        }
+        record(rt,frame,0x30);
+        if(c->r[6].uw[0]!=object+0x30 || c->r[3].uw[0]!=object+0x50 || c->r[4].uw[0]!=0x359100)
+            throw std::runtime_error("native motion input record mismatch");
+        uint32_t targetObject,table,callback;std::memcpy(&targetObject,source+4,4);
+        std::memcpy(&table,record(rt,targetObject,0x60),4);std::memcpy(&callback,record(rt,table+0x30,16)+4,4);
+        if(!owner->qualifiedMotionCallback(rt,callback))throw std::runtime_error("unqualified native motion callback");
+        const auto flags=source[1];float position[4],velocity[4],acceleration[4]{},gravity[4]{};
+        std::array<uint32_t,4> out;std::memcpy(out.data(),source+0x30,16);std::memcpy(position,out.data(),16);std::memcpy(velocity,source+0x50,16);
+        if(flags&1)std::memcpy(gravity,record(rt,0x359100,16),16);
+        if(flags&0x40)std::memcpy(acceleration,record(rt,c->r[5].uw[0],16),16);
+        const float dt=c->f[12],damping=flags&2?c->f[0]:0.f;
+        const auto qualified=[](float v){const auto b=std::bit_cast<uint32_t>(v),e=b&0x7f800000;
+            if(e==0x7f800000 || (!e && (b&0x7fffff)))throw std::runtime_error("unqualified native motion input");};
+        qualified(dt);if(flags&2)qualified(damping);if(flags&1)qualified(gravity[1]);
+        for(unsigned i=0;i<3;++i){qualified(position[i]);qualified(velocity[i]);if(flags&0x40)qualified(acceleration[i]);}
+        {music::CodecRounding validation;const double limit=std::numeric_limits<float>::max(),t=std::abs(double(dt)),d=std::abs(double(damping));
+            if(t*t>limit || d*t>limit)throw std::runtime_error("native motion coefficient overflow");
+            for(unsigned i=0;i<3;++i){double bound=std::abs(double(position[i]))+std::abs(double(velocity[i]))*t;
+                if((flags&1) && i==1)bound+=std::abs(double(gravity[1]))*t*t;
+                if(flags&0x40)bound+=std::abs(double(acceleration[i]))*t;
+                if(flags&2)bound+=std::abs(double(velocity[i]))*d*t;
+                if(bound>limit)throw std::runtime_error("native motion position overflow");}}
+        const auto normal=[](float v){const auto b=std::bit_cast<uint32_t>(v);return std::bit_cast<float>((b&0x7f800000)?b:(b&0x80000000));};
+        const auto product=[&](float a,float b){volatile float v=a*b;return normal(v);};
+        const auto sum=[&](float a,float b){volatile float v=a+b;return normal(v);};
+        const float squared=product(dt,dt),drag=flags&2?product(damping,dt):0.f;
+        for(unsigned i=0;i<3;++i){float value=sum(position[i],0.f);
+            if((flags&1) && i==1)value=sum(value,product(gravity[1],squared));
+            if(flags&0x40)value=sum(value,product(acceleration[i],dt));
+            if(flags&2)value=sum(value,-product(velocity[i],drag));
+            out[i]=std::bit_cast<uint32_t>(sum(value,product(velocity[i],dt)));}
+        owner->nativeMotion().prepare(frame,object,out);return true;
+    }
     if((pc>=0x1fb1e4 && pc<0x1fb200 && !(pc&3)) ||
        (pc>=0x1fb2fc && pc<0x1fb318 && !(pc&3)) ||
        (pc>=0x1fb42c && pc<0x1fb448 && !(pc&3)) ||

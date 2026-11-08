@@ -8,6 +8,17 @@ target, not a replacement DLL loaded into PS2Recomp.
 
 ## Build and evidence
 
+### Enclosing-object distance caller (2026-11-08)
+
+Mod003 `0x37f994..0x37f9b4` uses the qualified XYZ length operation with its
+`t2` input / `t1` output ABI. Original scalar subtraction, temporary copies,
+radius addition and maximum comparison remain. 256 extra whole CPU/RAM cases
+exercise all four rounding modes and both stack locations, including both
+comparison outcomes; total distance coverage is 1,280 cases. The fixture needs
+enough scratch-stack space for its original `SP+0x100` store. Source-guard,
+arithmetic and startup suites pass. Actual New Game now reaches component
+product `0x43d2a0`. Logun and rendered field parity remain open.
+
 ### Native box-to-sphere builder (2026-11-08)
 
 Mod003 `0x37fa30` keeps its original scalar setup, midpoint/extent stores and

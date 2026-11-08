@@ -13,12 +13,13 @@ fixture,_=prepare(data,[dict(Name='field_distance',Start='0x378908',End='0x3789d
                        dict(Name='camera_distance',Start='0x37b500',End='0x37b580'),
                        dict(Name='setup_distance',Start='0x381fb8',End='0x382054'),
                        dict(Name='box_sphere',Start='0x37fa30',End='0x37fb44'),
+                       dict(Name='enclosing_distance',Start='0x37f95c',End='0x37f9e0'),
                        dict(Name='field_rotation',Start='0x379228',End='0x379294'),
                        dict(Name='row_dot',Start='0x410df0',End='0x410e50')],{})
 fixture=bytearray(fixture);_,segments,_=elf_parts(fixture)
 s=next(s for s in segments if s[0]==1 and s[2]<=0x378908<0x3789d0<=s[2]+s[4])
 sites=[]
-for begin,end,result in ((0x378980,0x3789c8,0x3789a0),(0x3c5d58,0x3c5dc8,0x3c5d78),(0x37b548,0x37b578,0x37b568),(0x382020,0x38204c,0x382040)):
+for begin,end,result in ((0x378980,0x3789c8,0x3789a0),(0x3c5d58,0x3c5dc8,0x3c5d78),(0x37b548,0x37b578,0x37b568),(0x382020,0x38204c,0x382040),(0x37f994,0x37f9d8,0x37f9b4)):
     s=next(s for s in segments if s[0]==1 and s[2]<=begin<end+8<=s[2]+s[4])
     at=s[1]+end-s[2];fixture[at:at+8]=(0x03e00008).to_bytes(4,'little')+bytes(4)
     for pc in range(begin,result+4,4):

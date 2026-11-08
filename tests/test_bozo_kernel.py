@@ -45,7 +45,7 @@ class KernelGuardTests(unittest.TestCase):
 
     def test_movement_distance_source(self):
         data=(IMAGE.parent/'mod003.elf').read_bytes();_,segments,_=elf_parts(data)
-        for lo,hi in ((0x3c5d08,0x3c5dc8),(0x379228,0x37928c),(0x410df0,0x410e50),(0x37b500,0x37b578),(0x381fb8,0x38204c),(0x37fa30,0x37fb44)):
+        for lo,hi in ((0x3c5d08,0x3c5dc8),(0x379228,0x37928c),(0x410df0,0x410e50),(0x37b500,0x37b578),(0x381fb8,0x38204c),(0x37fa30,0x37fb44),(0x37f95c,0x37f9d8)):
             s=next(s for s in segments if s[0]==1 and s[2]<=lo<hi<=s[2]+s[4])
             for pc in range(lo,hi,4):
                 changed=bytearray(data);changed[s[1]+pc-s[2]]^=1

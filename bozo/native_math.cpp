@@ -196,11 +196,14 @@ bool nativeMathInstruction(uint8_t *,R5900Context *c,Runtime *rt,uint32_t pc){
     case 0x378980:case 0x378984:case 0x378988:case 0x37898c:
     case 0x378990:case 0x378994:case 0x378998:case 0x37899c:
     case 0x382020:case 0x382024:case 0x382028:case 0x38202c:
-    case 0x382030:case 0x382034:case 0x382038:case 0x38203c:return true;
-    case 0x3789a0:case 0x3c5d78:case 0x37b568:case 0x382040:{
+    case 0x382030:case 0x382034:case 0x382038:case 0x38203c:
+    case 0x37f994:case 0x37f998:case 0x37f99c:case 0x37f9a0:
+    case 0x37f9a4:case 0x37f9a8:case 0x37f9ac:case 0x37f9b0:return true;
+    case 0x3789a0:case 0x3c5d78:case 0x37b568:case 0x382040:case 0x37f9b4:{
         // The original scalar builder subtracts the two game positions.
         // Preserve its full temporary record and publish the consumed length.
-        const auto source=c->r[pc==0x382040?4:5].uw[0],destination=c->r[pc==0x382040?3:4].uw[0];
+        const auto source=c->r[pc==0x382040?4:pc==0x37f9b4?10:5].uw[0];
+        const auto destination=c->r[pc==0x382040?3:pc==0x37f9b4?9:4].uw[0];
         float value[4],result[4];std::memcpy(value,record(rt,source,16),16);std::memcpy(result,value,16);
         const auto normal=[](float v){const auto bits=std::bit_cast<uint32_t>(v);return std::bit_cast<float>((bits&0x7f800000)?bits:(bits&0x80000000));};
         for(unsigned i=0;i<3;++i){const auto bits=std::bit_cast<uint32_t>(value[i]),e=bits&0x7f800000;

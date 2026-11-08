@@ -458,6 +458,13 @@ def overlay_adaptations(name,data):
         (0x214210,0x2142f4,'c74a1b94b812fb97a7cf8fd776138335ca33ed3b500cdc09ea8db23234a2f5d8'),
         (0x2162c0,0x21672c,'b38b09a1be19e77828fe582ad416337a4e6d9673013fd4e8b7637fab54d7fbbe'),
         (0x2159c0,0x215e40,'e36261d96bff047183e5f65428408c24c5e2342cc66382efb2bbd6e6963a00d5'),
+        (0x2dbde0,0x2dc6f4,'32cf1bcb8d09934d7c22d04ae23ef0a48c8dc55f659870f98d099cc3973b97fe'),
+        (0x2dc850,0x2dc96c,'70077e83bc2a99b4e998d47c7985735f23ffabc8c4916b07ba2e47961f001a68'),
+        (0x2dc700,0x2dc848,'dd166dd19de9b2d098d0b4c6dd0fb8f1fa97077e753c693759f15e371ce37eb4'),
+        (0x2dc990,0x2dc9a8,'2514d6567752cea2fb3255856ed41e2cbe5c0e4e276d9f3310a81d895ae012af'),
+        (0x2dbd90,0x2dbdac,'e6e81f90b768228012c77b0ff794a4068ceb0187abc59dc45364159a238dd8ae'),
+        (0x2c76d0,0x2c81c4,'8e35c67b4a3f83e1793832f99d7cf6d43aa4292882c3e182bf72bffd678aa541'),
+        (0x2c81d0,0x2c8320,'1b6a7bd130edea1272195affad652d65c9d8fe9f21a3546fb0c814809c69e364'),
         (0x2143e0,0x2144bc,'215972741f87f32b518d7c668445cb57c11ce3579448a56bd30bafb4105339c5'),
         (0x2144c0,0x21458c,'829751c1cd99cfd0235237d0754e72e969869a5038b4f62a5204649119a219e0'),
         (0x2f2d70,0x2f2de0,'30a2923a7aa2d9c89d24b8fddcff01006d3ea2774afe0c390c7e215679e472f7'),
@@ -624,6 +631,9 @@ def overlay_adaptations(name,data):
             # Native model draws own copied geometry, transforms and textures
             # before the real scalar scene completion; no mesh DMA enqueue.
             '00239fec 0c0807c8 0c087268\n'
+            # The native colour-copy draw publishes before the thunk enters
+            # the original software completion; no physical job is submitted.
+            '002dc9a0 080b6f50 080b6f64\n'
             '0025aa2c 0c0807c8 0c087268\n'
             '002f3710 0c0bbce4 0c087268\n'
             '002ec9e0 0c0bbce4 0c087268\n'
@@ -693,6 +703,7 @@ def overlay_native_sites(name,data):
         *FULL_COSINE_SITES,
         *EULER_QUATERNION_SITES,
         *POSITIVE_EULER_SITES,
+        0x2dbde0,0x2dbeb4,0x2dc6c8,0x2dc9a4,0x2dc700,
         *range(0x252ec8,0x252f24,4),0x252fdc,0x252fe0,0x252fe4,0x252fec,0x252ff0,0x252ff8,
         0x2bf040,0x2bf058,
         0x2371e8,0x2371ec,0x2371f0,0x2371f4,0x2371fc,0x237200,0x237204,0x237208,

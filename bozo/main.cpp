@@ -31,6 +31,7 @@
 #include "native_publication.h"
 #include "native_models.h"
 #include "native_frame_filter.h"
+#include "native_frame_copy.h"
 #include "native_music.h"
 #include "native_ui_windows.h"
 #include "native_load_progress.h"
@@ -52,7 +53,7 @@
 #include <set>
 
 namespace {
-class StrictHost final : public bozo::ee::Host, public vp2s::TimerOwner, public vp2s::SettingsOwner,public vp2s::SeedOwner,public vp2s::ModuleOwner,public vp2s::BootstrapOwner,public vp2s::RandomOwner,public vp2s::TextureOwner,public vp2s::SceneOwner,public vp2s::AssetOwner,public vp2s::DebugFontOwner,public vp2s::StateSetupOwner,public vp2s::ScreenRectOwner,public vp2s::UiTextOwner,public vp2s::UiSpriteOwner,public vp2s::MediaBufferOwner,public vp2s::ModelOwner,public vp2s::FrameFilterOwner,public vp2s::MusicOwner,public vp2s::UiWindowOwner,public vp2s::LoadProgressOwner,public vp2s::MotionOwner {
+class StrictHost final : public bozo::ee::Host, public vp2s::TimerOwner, public vp2s::SettingsOwner,public vp2s::SeedOwner,public vp2s::ModuleOwner,public vp2s::BootstrapOwner,public vp2s::RandomOwner,public vp2s::TextureOwner,public vp2s::SceneOwner,public vp2s::AssetOwner,public vp2s::DebugFontOwner,public vp2s::StateSetupOwner,public vp2s::ScreenRectOwner,public vp2s::UiTextOwner,public vp2s::UiSpriteOwner,public vp2s::MediaBufferOwner,public vp2s::ModelOwner,public vp2s::FrameFilterOwner,public vp2s::MusicOwner,public vp2s::UiWindowOwner,public vp2s::LoadProgressOwner,public vp2s::MotionOwner,public vp2s::FrameCopyOwner {
 public:
     vp2s::NativeMotion motion;
     vp2s::NativeMotion &nativeMotion()override{return motion;}
@@ -89,6 +90,9 @@ public:
         if(std::getenv("VP2S_BOZO_TRACE_QUEUES"))std::fprintf(stderr,"[vp2s:filter] native object=%x levels=%u layers=%zu\n",filter.object,filter.levels,filter.layers.size());
     }
     vp2s::NativeModels models{std::filesystem::path(VP2S_BOZO_IMAGES).parent_path()/"meshes"};
+    vp2s::NativeFrameCopies frameCopies;
+    vp2s::NativeFrameCopies &nativeFrameCopies()override{return frameCopies;}
+    void drawNativeFrameCopy(const vp2s::NativeFrameCopy &copy)override{vp2s::drawFrameCopy(copy);}
     vp2s::NativeModels &nativeModels()override{return models;}
     void drawNativeModel(const vp2s::NativeModelSubmission &submission)override{
         for(const auto &batch:submission.batches)bozo::render::Renderer::instance().draw(batch.material,batch.matrix.data(),batch.vertices.data(),batch.vertices.size(),batch.texture);
@@ -328,7 +332,7 @@ public:
             std::fprintf(stderr,"[vp2s:device] pc=%x a0=%x a1=%x ra=%x frames=%llu\n",
                          c->pc,c->r[4].uw[0],c->r[5].uw[0],c->r[31].uw[0],
                          (unsigned long long)native.framesEnded());
-        throw std::runtime_error(std::format("unported device write {:x} at pc={:x}",address,c->pc));
+        throw std::runtime_error(std::format("unported device write {:x} at pc={:x} a0={:x} a1={:x} a2={:x} ra={:x}",address,c->pc,c->r[4].uw[0],c->r[5].uw[0],c->r[6].uw[0],c->r[31].uw[0]));
     }
     bool cop0Condition(bozo::ee::Dispatcher &,R5900Context *c) override {
         throw std::runtime_error(std::format("unported device completion condition at pc={:x}",c->pc));
@@ -359,6 +363,7 @@ bool noNativeInstruction(uint8_t *ram,R5900Context *ctx,Runtime *rt,uint32_t pc)
     if(auto handled=vp2s::nativeUiTextInstruction(ctx,rt,pc))return *handled;
     if(auto handled=vp2s::nativeModelInstruction(ctx,rt,pc))return *handled;
     if(auto handled=vp2s::nativeFrameFilterInstruction(ctx,rt,pc))return *handled;
+    if(auto handled=vp2s::nativeFrameCopyInstruction(ctx,rt,pc))return *handled;
     if(auto handled=vp2s::nativeUiSpriteInstruction(ctx,rt,pc))return *handled;
     if(auto handled=vp2s::nativeMediaBufferInstruction(ctx,rt,pc))return *handled;
     if(auto handled=vp2s::nativeScreenRectInstruction(ctx,rt,pc))return *handled;

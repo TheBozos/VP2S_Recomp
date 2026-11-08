@@ -324,6 +324,7 @@ class KernelGuardTests(unittest.TestCase):
             '002088ec 0c0807c8 00000000',
             '002cb48c 0c0807c8 0c087268',
             '00239fec 0c0807c8 0c087268',
+            '002dc9a0 080b6f50 080b6f64',
             '0025aa2c 0c0807c8 0c087268',
             '002f3710 0c0bbce4 0c087268',
             '002ec9e0 0c0bbce4 0c087268',
@@ -348,6 +349,7 @@ class KernelGuardTests(unittest.TestCase):
         *FULL_COSINE_SITES,
         *EULER_QUATERNION_SITES,
         *POSITIVE_EULER_SITES,
+        0x2dbde0,0x2dbeb4,0x2dc6c8,0x2dc9a4,0x2dc700,
         *range(0x252ec8,0x252f24,4),0x252fdc,0x252fe0,0x252fe4,0x252fec,0x252ff0,0x252ff8,
         0x2bf040,0x2bf058,
         0x2371e8,0x2371ec,0x2371f0,0x2371f4,0x2371fc,0x237200,0x237204,0x237208,
@@ -407,7 +409,15 @@ class KernelGuardTests(unittest.TestCase):
 
     def test_native_model_filter_source_mutations(self):
         data=(IMAGE.parent/'mod001.elf').read_bytes();_,segments,_=elf_parts(data)
-        for lo,hi in ((0x239fd0,0x23a000),(0x25aa10,0x25aa40),(0x25aa40,0x25be00),(0x214300,0x2143d4),(0x2143e0,0x2144bc),(0x214210,0x2142f4),(0x2f2d70,0x2f2de0),(0x2f2df0,0x2f2fd8)):
+        for lo,hi in ((0x239fd0,0x23a000),(0x25aa10,0x25aa40),(0x25aa40,0x25be00),(0x214300,0x2143d4),(0x2143e0,0x2144bc),(0x214210,0x2142f4),(0x2f2d70,0x2f2de0),(0x2f2df0,0x2f2fd8),(0x2dbde0,0x2dc6f4),(0x2dc850,0x2dc96c),(0x2dc990,0x2dc9a8),(0x2dbd90,0x2dbdac),(0x2c81d0,0x2c8320)):
+            s=next(s for s in segments if s[0]==1 and s[2]<=lo<hi<=s[2]+s[4])
+            for pc in range(lo,hi,4):
+                changed=bytearray(data);changed[s[1]+pc-s[2]]^=1
+                with self.subTest(pc=hex(pc)),self.assertRaises(ValueError):overlay_adaptations('mod001',changed)
+
+    def test_frame_copy_writer_guards(self):
+        data=(IMAGE.parent/'mod001.elf').read_bytes();_,segments,_=elf_parts(data)
+        for lo,hi in ((0x2c76d0,0x2c81c4),(0x2dc700,0x2dc848)):
             s=next(s for s in segments if s[0]==1 and s[2]<=lo<hi<=s[2]+s[4])
             for pc in range(lo,hi,4):
                 changed=bytearray(data);changed[s[1]+pc-s[2]]^=1

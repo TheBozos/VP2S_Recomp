@@ -12,6 +12,32 @@ The earlier VP2S face/shading and general brightness comparisons remain open.
 
 ## Build and evidence
 
+### Native field DOF colour source (2026-11-08)
+
+Class `0x159ee0`, scene `+0x444c`, is now captured from its complete original
+`0x2dbde0` scalar builder. Its dimensions/aspect, allocation failures, writer
+reuse and completed source frame remain game-owned. A native snapshot/bilinear
+reduction publishes the image at its original submission thunk, then the original
+`0x2dbd90/0x21c9a0` software completion runs. Main-frame source sampling first
+uses a one-to-one snapshot to avoid the engine's implicit mip blur. There is no
+packet read, physical job, channel/status response or emulated interrupt.
+
+256 complete builder/writer/completion CPU/RAM/FP callers cover 192 submissions,
+32 disabled and 32 failed allocations, reuse, four modes, FTZ/DAZ and paused
+callbacks. Main-image writer helpers and the original scalar copy writer execute
+as compiled game code in both fixtures. Their discarded transport is excluded.
+128 additional lifetime cases reject stale frames/owners, and 12 hidden GPU cases
+compare 768 interior RGBA samples. Fractional logical size and FP-flag isolation
+are covered. See [DOF source ownership](vp2_dof.md).
+All 62 rebuilt suites pass (`frame-copy-all-tests.log`, 249.72 seconds),
+including both hidden GPU suites and every-word source mutation guards.
+
+Actual seed-1 passes this builder and reaches `0x2d7c04`, DOF inline matrix
+composition, entry/return `0x2d7be0` (`frame-copy-source-route.log`). The actual
+queue has not reached the native copy submission before this math boundary;
+its real completion is covered by the compiled fixture. Visible field/Logun
+remains unqualified. Engine stays `436d5d8`.
+
 ### Positive-axis Euler quaternion builder (2026-11-08)
 
 The measured `0x2159c0` builder now uses the same qualified normalization

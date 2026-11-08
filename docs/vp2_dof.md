@@ -1,5 +1,31 @@
 # VP2 depth of field (field post effect)
 
+## Bozo USA colour-copy source (2026-11-08)
+
+The actual `0x2dbd40` transport boundary belongs to class `0x159ee0`, constructed
+by `0x2dc850`, at scene `+0x444c` (`0x604a60` in the measured run). Its complete
+scalar builder `0x2dbde0` retains activation, aspect/dimension selection,
+allocation failure, writer reuse and all original record writes. Native capture
+observes its source `+0x94`, 128-square capacity `+0x198/+0x19c`, and completed
+image dimensions `+0x1a0/+0x1a4` (mirrored at `+0xec/+0xf0`). No packed output is
+read by the native adapter.
+
+`bozo/native_frame_copy.cpp` holds an immutable native-frame reference and rejects
+changed owners, pending scene mismatches, active/reused builders and stale frames.
+Submission at the original thunk's delay slot publishes a native image; the
+thunk then enters the real `0x2dbd90/0x21c9a0` software completion. No physical
+job, busy-bit substitute, interrupt or channel status is produced.
+
+Native target 6 holds a one-to-one nearest snapshot, then target 7 receives the
+requested bilinear reduction. This avoids the engine's deliberate mip LOD bias
+when linearly sampling the main frame directly. Twelve hidden GPU cases verify
+768 interior RGBA samples. Complete scalar-builder/writer/completion fixtures
+cover 256 CPU/RAM/FP callers (192 submissions, 32 disabled, 32 failed allocation),
+including reuse, four modes, FTZ/DAZ and paused completion callbacks; another 128
+cases qualify image lifetime and ownership. The actual logical source height
+512.95996 maps to its original 512-pixel source fields; validation preserves host
+FP flags. These checks qualify the colour resource, not DOF blur or field parity.
+
 What the game computes for its depth of field, so the native renderer can draw it from the game's own data: the
 packets the game builds for it (Z read as a texture, a T8 + CLUT channel shuffle, blur passes, a CT16 shuffle into
 alpha, a final blend) are not drawn or read (no GS anywhere). Addresses are mod001 unless stated. [V] verified in the

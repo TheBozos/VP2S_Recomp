@@ -12,6 +12,18 @@ The earlier VP2S face/shading and general brightness comparisons remain open.
 
 ## Build and evidence
 
+### DOF block constant opacity (2026-11-09)
+
+Field DOF block 4 (`object+f420`) has opacity byte `+1e` = 102. The block
+writer (`2cd020`) puts it in the composite sprite's RGBAQ A, so it is a
+constant opacity on the textured composite. The native composite now carries
+it as vertex alpha; the shader clamps vertex alpha before multiplying by the
+clamped weight map, which is the rule the earlier implementation documented
+for this term. Opacities 1..128 are admitted; zero, above 1 and `+1f` modes
+still reject, and the rejection now reports the values. Visual parity of the
+partial-opacity composite is not yet compared with PCSX2. The route then stops
+at the glyph font provenance check `2e757c` (entry `2e7520`).
+
 ### Native animated packet UVs (2026-11-09)
 
 `2188d0` used to stream each animated model's UVs through the scratchpad

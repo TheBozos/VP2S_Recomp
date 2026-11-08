@@ -30,8 +30,11 @@ void NativeDofs::block(Runtime *rt,uint32_t object,uint32_t address){
     if(address!=object+0xf45c && (address<object+0xf330 || address>=object+0xf45c || (address-object-0xf330)%0x3c))
         throw std::runtime_error("unqualified DOF parameter owner");
     if(!value<uint32_t>(rt,address))return;
-    if(value<uint8_t>(rt,address+0x1f) || value<uint8_t>(rt,address+0x1e)!=128)
-        throw std::runtime_error("unqualified native DOF block mode");
+    // +1e is the composite sprite's vertex alpha (RGBAQ A): a constant opacity
+    // applied after the clamped weight map. Opacities above 1 are unqualified.
+    if(value<uint8_t>(rt,address+0x1f) || !value<uint8_t>(rt,address+0x1e) || value<uint8_t>(rt,address+0x1e)>128)
+        throw std::runtime_error("unqualified native DOF block mode: block="+std::to_string(address-object)+" mode1f="+
+            std::to_string(value<uint8_t>(rt,address+0x1f))+" alpha1e="+std::to_string(value<uint8_t>(rt,address+0x1e)));
     auto &effect=it->second.effect;
     if(effect.blocks.size()>=6 || std::any_of(effect.blocks.begin(),effect.blocks.end(),[&](const auto &b){return b.address==address;}))
         throw std::runtime_error("DOF block published twice");
@@ -108,10 +111,10 @@ void drawDof(const NativeDof &effect){
     if(!effect.frame)throw std::runtime_error("DOF draw has no frame");
     auto &renderer=bozo::render::Renderer::instance();using Material=bozo::render::Material;
     const float id[16]={1,0,0,0,0,1,0,0,0,0,1,0,0,0,0,1};
-    const auto quad=[&](Material material){
+    const auto quad=[&](Material material,uint32_t rgba=0x80808080){
         bozo::render::Vertex vertices[6];const float xy[6][2]={{0,0},{1,0},{0,1},{1,0},{1,1},{0,1}};
         for(unsigned i=0;i<6;++i){auto &v=vertices[i];v.x=2048-effect.frame->width/2+xy[i][0]*effect.frame->width;
-            v.y=2048-effect.frame->height/2+xy[i][1]*effect.frame->height;v.u=xy[i][0];v.v=xy[i][1];v.rgba=0x80808080;}
+            v.y=2048-effect.frame->height/2+xy[i][1]*effect.frame->height;v.u=xy[i][0];v.v=xy[i][1];v.rgba=rgba;}
         renderer.draw(material,id,vertices,6);
     };
     const auto image=[&](uint8_t source,uint8_t target,uint32_t width,uint32_t height){Material m;m.textured=false;m.depthTest=false;m.depthWrite=false;
@@ -136,14 +139,15 @@ void drawDof(const NativeDof &effect){
         auto composite=image(3,0,0,0);composite.blend=Material::Blend::Alpha;composite.colourMask=7;
         auto alpha=std::make_shared<Material::ImageProcessing>();alpha->alphaSource=2;alpha->alphaScale=block.weightScale;
         composite.imageProcessing=alpha;
-        // Apply the block's independent constant opacity after its clamped map.
-        // Current qualified blocks have unit constant opacity.
+        // The block's constant opacity (+1e, vertex alpha) scales the output
+        // alpha after the clamped map: the shader clamps vertex alpha first.
+        const uint32_t rgba=0x00808080u|(uint32_t(std::lround(block.alpha*128))<<24);
         if(block.depthLimit){composite.depthTest=true; // Screen depth is larger-nearer; sprite at block Z.
             bozo::render::Vertex vertices[6];const float xy[6][2]={{0,0},{1,0},{0,1},{1,0},{1,1},{0,1}};
             for(unsigned i=0;i<6;++i){auto &v=vertices[i];v.x=2048-effect.frame->width/2+xy[i][0]*effect.frame->width;
-                v.y=2048-effect.frame->height/2+xy[i][1]*effect.frame->height;v.z=float(block.z);v.u=xy[i][0];v.v=xy[i][1];v.rgba=0x80808080;}
+                v.y=2048-effect.frame->height/2+xy[i][1]*effect.frame->height;v.z=float(block.z);v.u=xy[i][0];v.v=xy[i][1];v.rgba=rgba;}
             renderer.draw(composite,id,vertices,6);
-        }else quad(composite);
+        }else quad(composite,rgba);
     }
     if(effect.glow && effect.glowAlpha>0){
         auto threshold=image(7,5,128,88);threshold.levels.enabled=true;

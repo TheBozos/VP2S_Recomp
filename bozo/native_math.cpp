@@ -392,6 +392,43 @@ bool nativeSquadInstruction(R5900Context *c,Runtime *rt,uint32_t pc){
     if(pc==stores[call.phase]){call.published=false;++call.phase;}
     return true;
 }
+bool nativeParticleCallbackInstruction(R5900Context *c,Runtime *rt,uint32_t pc){
+    constexpr uint32_t sites[]={0x41074c,0x410750,0x410790,0x410794,0x4107a8,0x4107b0,0x4107b4};
+    const auto site=std::find(std::begin(sites),std::end(sites),pc);if(site==std::end(sites))return false;
+    auto *d=rt?dynamic_cast<bozo::ee::Dispatcher *>(rt->services):nullptr;
+    auto *updates=d?dynamic_cast<ParticleUpdateOwner *>(&d->host()):nullptr;auto *particles=d?dynamic_cast<ParticleOwner *>(&d->host()):nullptr;
+    if(!c || !updates || !particles)throw std::runtime_error("native particle callback requires explicit integration owner");
+    const auto stack=c->r[29].uw[0],parent=stack+0x80;auto &state=updates->nativeParticleUpdates();
+    auto *frame=record(rt,stack,0x80);const auto word=[](const uint8_t *p){uint32_t value;std::memcpy(&value,p,4);return value;};
+    const auto completed=state.completed.find(parent);
+    if(completed==state.completed.end() || state.updates.contains(parent))throw std::runtime_error("native particle callback has no completed point");
+    const auto &point=completed->second;auto *emitter=record(rt,point.emitter,0xe0);
+    particles->nativeParticles().validateEmitter(parent+0x150,point.emitter);
+    if(c->r[21].uw[0]!=point.emitter || c->r[19].uw[0]!=point.index || (word(record(rt,parent,0x150)+0xa0)!=0x22ed38 && word(record(rt,parent,0x150)+0xa0)!=0x22ef50))
+        throw std::runtime_error("native particle callback escaped its integration frame");
+    if(pc==sites[0]){
+        const auto object=word(emitter+0x6c),table=word(record(rt,object,16));auto *method=rt->memory.hostPointer(table+0x98,4);
+        const auto address=c->r[31].uw[0];const unsigned flags=emitter[0xd2];
+        if(c->pc!=0x410640 || state.callbacks.contains(stack) || c->r[4].uw[0]!=point.emitter || !method || word(method)!=0x2262b0 ||
+           (address!=0x40ac20 && address!=0x40acb0 && address!=0x40ad50 && address!=0x40ade4) || word(frame+0x20)!=address ||
+           c->r[10].uw[0]!=(flags&1?stack+0x70:0) || c->r[5].uw[0]!=(flags&2?stack+0x60:0) || c->r[3].uw[0]!=(flags&4?stack+0x50:0) ||
+           c->r[6].uw[0]!=point.point+0x30 || c->r[7].uw[0]!=point.point+0x40 || c->r[8].uw[0] || c->r[9].uw[0])
+            throw std::runtime_error("unqualified native particle object-update callback");
+        // The numeric saves served the old implicit integration registers.
+        // Integration now owns explicit records/timestep/bounds, so only this
+        // semantic call lifetime survives the original compiled callback.
+        state.callbacks.emplace(stack,NativeParticleUpdates::Callback{point.emitter,point.point,point.index,object,address});return true;
+    }
+    auto call=state.callbacks.find(stack);
+    if(call==state.callbacks.end() || call->second.phase!=unsigned(site-std::begin(sites)) || call->second.emitter!=point.emitter || call->second.point!=point.point || call->second.index!=point.index ||
+       word(frame+0x20)!=call->second.returnAddress || word(emitter+0x6c)!=call->second.object || c->pc!=(pc==0x410750?0x410640:0x410790))
+        throw std::runtime_error("native particle callback retirement order mismatch");
+    if(pc==0x410750 && c->r[2].uw[0]!=stack+0x30)throw std::runtime_error("particle callback spill address mismatch");
+    if(pc==0x410790 && c->r[31].uw[0]!=0x410790)throw std::runtime_error("particle callback did not return through original caller");
+    if(pc==0x4107a8 && c->r[3].uw[0]!=word(record(rt,0x35dee0,16)+8))throw std::runtime_error("particle callback timestep source mismatch");
+    if((pc==0x4107b0 || pc==0x4107b4) && c->r[3].uw[0]!=stack+0x30)throw std::runtime_error("particle callback restore address mismatch");
+    if(pc==0x4107b4)state.callbacks.erase(call);else ++call->second.phase;return true;
+}
 bool nativeParticlePhysicsInstruction(R5900Context *c,Runtime *rt,uint32_t pc){
     const bool recordStore=pc==0x40abb8 || pc==0x40abbc || pc==0x40abc0 || pc==0x40ac2c || pc==0x40ac34 || pc==0x40ac38 ||
         pc==0x40ace0 || pc==0x40ace4 || pc==0x40ace8 || pc==0x40ad58 || pc==0x40ad5c || pc==0x40ad60 || pc==0x40adf0 || pc==0x40adf4 || pc==0x40adf8;
@@ -408,7 +445,7 @@ bool nativeParticlePhysicsInstruction(R5900Context *c,Runtime *rt,uint32_t pc){
     if(word(frame,0xa0)!=0x22ed38 && word(frame,0xa0)!=0x22ef50)throw std::runtime_error("native particle integration has no original producer return");
     particles->nativeParticles().validateEmitter(stack+0x150,emitter);auto &pending=updates->nativeParticleUpdates().updates;
     auto &completed=updates->nativeParticleUpdates().completed;
-    if(pc==0x40b040){if(pending.contains(stack))throw std::runtime_error("native particle integration exits with an incomplete point");completed.erase(stack);return true;}
+    if(pc==0x40b040){if(pending.contains(stack) || updates->nativeParticleUpdates().callbacks.contains(stack-0x80))throw std::runtime_error("native particle integration exits with an incomplete point/callback");completed.erase(stack);return true;}
     if(pc==0x40a950){if(c->r[2].uw[0]!=word(record(rt,0x35dee0,16),8))throw std::runtime_error("native particle integration timestep mismatch");return true;}
     if(pc==0x40a958){if(c->r[2].uw[0]!=emitter+0xc0)throw std::runtime_error("native particle drift source mismatch");return true;}
     if(squaredAttribute || transformedPoint){
@@ -435,7 +472,7 @@ bool nativeParticlePhysicsInstruction(R5900Context *c,Runtime *rt,uint32_t pc){
     }
     if(pc==0x40aa30){
         const auto count=word(owner,0xc),index=c->r[19].uw[0],pool=word(owner,0x14),group=word(owner,0x10);
-        if(!count || count>65536 || index>=count || !group || group>16 || c->r[18].uw[0]!=group || pending.contains(stack))throw std::runtime_error("native particle integration repeats/escapes its point");
+        if(!count || count>65536 || index>=count || !group || group>16 || c->r[18].uw[0]!=group || pending.contains(stack) || updates->nativeParticleUpdates().callbacks.contains(stack-0x80))throw std::runtime_error("native particle integration repeats/escapes its point");
         record(rt,pool,count*0x90);const auto point=pool+index*0x90,output=c->r[20].uw[0];auto *source=record(rt,point,0x90),*out=record(rt,output,group*48);
         if(c->r[6].uw[0]!=point || c->r[17].uw[0]!=point+0x10)throw std::runtime_error("native particle integration position source mismatch");
         const auto a=reinterpret_cast<uintptr_t>(source),b=reinterpret_cast<uintptr_t>(out),f=reinterpret_cast<uintptr_t>(frame),o=reinterpret_cast<uintptr_t>(owner);
@@ -485,13 +522,7 @@ std::array<uint32_t,4> NativeMotion::finish(uint32_t frame,uint32_t object){
     const auto result=it->second.position;updates.erase(it);return result;
 }
 bool nativeMathInstruction(uint8_t *,R5900Context *c,Runtime *rt,uint32_t pc){
-    if(pc==0x41074c){
-        const auto word=[](const uint8_t *p){uint32_t value;std::memcpy(&value,p,4);return value;};
-        auto *emitter=record(rt,c->r[4].uw[0],0xe0);const auto callback=word(emitter+0x6c);
-        const auto table=word(record(rt,callback,16));auto *method=rt->memory.hostPointer(table+0x98,4);
-        if(!method)throw std::runtime_error("particle callback method outside owned RAM");
-        throw std::runtime_error(std::format("unported particle callback saved state: object={:x} method={:x}",callback,word(method)));
-    }
+    if(nativeParticleCallbackInstruction(c,rt,pc))return true;
     const bool callbackPoint=pc>=0x410660 && pc<=0x410684 && !(pc&3);
     const bool callbackSecond=pc>=0x4106b0 && pc<=0x4106cc && !(pc&3);
     const bool callbackThird=pc>=0x4106f8 && pc<=0x410714 && !(pc&3);

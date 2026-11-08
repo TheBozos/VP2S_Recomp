@@ -8,11 +8,14 @@ namespace vp2s {
 class NativeParticleUpdates {
     struct Update {uint32_t emitter,point,output,index;std::array<float,4> position,rate,attributes,change,drift;float timestep;unsigned phase=0;};
     struct Completed {uint32_t emitter,point,index;};
+    struct Callback {uint32_t emitter,point,index,object,returnAddress;unsigned phase=1;};
     std::map<uint32_t,Update> updates;
     std::map<uint32_t,Completed> completed;
+    std::map<uint32_t,Callback> callbacks;
     friend bool nativeParticlePhysicsInstruction(R5900Context *,Runtime *,uint32_t);
+    friend bool nativeParticleCallbackInstruction(R5900Context *,Runtime *,uint32_t);
 public:
-    size_t outstanding()const{return updates.size()+completed.size();}
+    size_t outstanding()const{return updates.size()+completed.size()+callbacks.size();}
 };
 class ParticleUpdateOwner {
 public:

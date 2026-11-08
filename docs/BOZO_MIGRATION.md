@@ -12,6 +12,27 @@ The earlier VP2S face/shading and general brightness comparisons remain open.
 
 ## Build and evidence
 
+### Particle object-update callback lifetime (2026-11-08)
+
+The seven old save/reset/restore sites around the real `0x2262b0` callback now
+retire through an explicit checked call lifetime. It stores only emitter,
+point/index, callback object, return address and call order. Native integration
+already owns its numeric inputs, timestep and enclosing bounds; no numeric bank
+or substitute spill records are introduced. Unknown methods/callers, repeated
+calls, out-of-order returns, source changes, early next points and early owner
+completion reject before mutation. The actual compiled callback remains intact.
+
+The complete physics fixture now includes the original callback helper rather
+than stubbing it out: 512 caller pairs, 1,287 points, 3,219 curve segments,
+175 bounded object-update callbacks and 85 reached sites. Independent callback
+argument products, original pointer selection and stack arguments, a checked
+callback side effect, unchanged obsolete spill bytes and full CPU/RAM/FP pass.
+The bounded callback qualifies the interface, not all object-update interiors.
+Four rebuilt suites pass in 51.78 s (`particle-callback-state-final-tests.log`);
+additional early-owner/point guards pass in 2.48 s. Actual protected
+`particle-callback-state-route.log` passes the real callback and next stops at
+`0x377d8c`, a camera-distance calculation. Field/Logun remains open.
+
 ### Particle callback argument transforms (2026-11-08)
 
 The 26 inline sites in `0x410640` now publish the selected callback argument

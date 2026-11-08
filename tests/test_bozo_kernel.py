@@ -5,13 +5,19 @@ import unittest
 from pathlib import Path
 sys.path.insert(0,str(Path(__file__).resolve().parents[1]/'tools'))
 from vp2_bozo_prepare import elf_parts,overlay_entries
-from vp2_bozo_kernel import LEAFLESS_QUERY_SITES,FULL_SINE_SITES,FULL_COSINE_SITES,EULER_QUATERNION_SITES,POSITIVE_EULER_SITES,DOF_MATRIX_SITES,HERMITE_VECTOR_SITES,SQUAD_SITES
+from vp2_bozo_kernel import LEAFLESS_QUERY_SITES,FULL_SINE_SITES,FULL_COSINE_SITES,EULER_QUATERNION_SITES,POSITIVE_EULER_SITES,DOF_MATRIX_SITES,HERMITE_VECTOR_SITES,SQUAD_SITES,PARTICLE_PUBLICATION_SITES
 from vp2_bozo_kernel import bindings, game_adaptations, frame_adaptations, game_entries, native_game_sites, GUARDS, RETIRED_RANGES,bootstrap_adaptations,bootstrap_tables,overlay_adaptations,overlay_native_sites,display_adaptations,DISPLAY_STORES,startup_clear_adaptations,composition_adaptations,composition_sites,reject_performance_counter_reads
 
 IMAGE=Path(sys.argv.pop(1))
 
 
 class KernelGuardTests(unittest.TestCase):
+    def test_particle_publication_source(self):
+        data=(IMAGE.parent/'mod001.elf').read_bytes();_,segments,_=elf_parts(data)
+        lo,hi=0x22e650,0x22f0d4;s=next(s for s in segments if s[0]==1 and s[2]<=lo<hi<=s[2]+s[4])
+        for pc in range(lo,hi,4):
+            changed=bytearray(data);changed[s[1]+pc-s[2]]^=1
+            with self.subTest(pc=hex(pc)),self.assertRaises(ValueError):overlay_adaptations('mod001',changed)
     def test_squad_source(self):
         data=(IMAGE.parent/'mod001.elf').read_bytes();_,segments,_=elf_parts(data)
         lo,hi=0x214c40,0x214e40;s=next(s for s in segments if s[0]==1 and s[2]<=lo<hi<=s[2]+s[4])
@@ -360,6 +366,8 @@ class KernelGuardTests(unittest.TestCase):
             '002cb48c 0c0807c8 0c087268',
             '00239fec 0c0807c8 0c087268',
             '002dc9a0 080b6f50 080b6f64',
+            '0022ee50 1a600009 10000009',
+            '0022f048 1a600009 10000009',
             '0025aa2c 0c0807c8 0c087268',
             '002f3710 0c0bbce4 0c087268',
             '002ec9e0 0c0bbce4 0c087268',
@@ -387,6 +395,7 @@ class KernelGuardTests(unittest.TestCase):
         *DOF_MATRIX_SITES,
         *HERMITE_VECTOR_SITES,
         *SQUAD_SITES,
+        *PARTICLE_PUBLICATION_SITES,
         0x2dbde0,0x2dbeb4,0x2dc6c8,0x2dc9a4,0x2dc700,
         *range(0x252ec8,0x252f24,4),0x252fdc,0x252fe0,0x252fe4,0x252fec,0x252ff0,0x252ff8,
         0x2bf040,0x2bf058,

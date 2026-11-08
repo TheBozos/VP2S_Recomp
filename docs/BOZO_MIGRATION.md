@@ -12,6 +12,38 @@ The earlier VP2S face/shading and general brightness comparisons remain open.
 
 ## Build and evidence
 
+### Native particle point-chunk publication (2026-11-08)
+
+The measured boundary at frame 1,568 belongs to class `0x154180`, mode 3:
+object `0x120e470`, emitter `0x120efa0`/table `0x162ff0`, output halves
+`0x1210100`/`0x12105a0`. `0x22e650` now publishes the emitter's complete point
+records directly from its alternating scratch chunks into the selected RAM
+buffer. Bounds derive from the two contiguous halves allocated by `0x22ff10`;
+count/group/size, selected buffer, emitter, original cursor, aggregate point and
+chunk counts are checked through the complete invocation. Stale asset provenance
+is invalidated before publication. Neither device registers nor transfer commands
+are read to derive any data, and no interrupt/status completion is synthesized.
+
+The original scalar emitter/compactor, buffer cursor, counters, finish callback,
+selector toggle and epilogue remain. Both obsolete device polling loops branch
+directly to their scalar continuations. Two implicit bounds loads retire without
+a numerical bank; their later unported arithmetic still rejects. Other particle
+modes are explicitly unsupported by this publication adapter.
+
+512 complete CPU/RAM/FP producer fixtures compare 748 chunks/9,336 points across
+both buffers, multiple point groups, scratch/RAM frames and four modes/FTZ/DAZ;
+64 early/disabled/clean callers retain zero outstanding lifetime. Direct rejection
+checks cover missing/reused lifetimes, changed buffers, bad size/count/source,
+publication/retirement order, exhausted capacity and incomplete cursor/counters;
+the provenance and full copied records are independently checked. Emitter/pose
+callbacks are bounded software contracts: these fixtures qualify the complete
+scalar writer, not emitter physics, optional bounds or rendering. Every source
+word in the owner is guarded. The actual route now enters emitter `0x408e90`
+and rejects at `0x408f10` (`particles-route.log`); it has not yet reached a real
+point publication or visible field/Logun. All 65 rebuilt suites pass, including
+two hidden GPU suites (`particles-all-tests.log`, 298.11 seconds). Engine remains
+`436d5d8`.
+
 ### Animation movement magnitude (2026-11-08)
 
 Nine sites in `0x446620` now publish length X, squared Y/Z and the unchanged W

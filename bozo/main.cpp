@@ -32,6 +32,7 @@
 #include "native_models.h"
 #include "native_frame_filter.h"
 #include "native_frame_copy.h"
+#include "native_particles.h"
 #include "native_music.h"
 #include "native_ui_windows.h"
 #include "native_load_progress.h"
@@ -53,8 +54,10 @@
 #include <set>
 
 namespace {
-class StrictHost final : public bozo::ee::Host, public vp2s::TimerOwner, public vp2s::SettingsOwner,public vp2s::SeedOwner,public vp2s::ModuleOwner,public vp2s::BootstrapOwner,public vp2s::RandomOwner,public vp2s::TextureOwner,public vp2s::SceneOwner,public vp2s::AssetOwner,public vp2s::DebugFontOwner,public vp2s::StateSetupOwner,public vp2s::ScreenRectOwner,public vp2s::UiTextOwner,public vp2s::UiSpriteOwner,public vp2s::MediaBufferOwner,public vp2s::ModelOwner,public vp2s::FrameFilterOwner,public vp2s::MusicOwner,public vp2s::UiWindowOwner,public vp2s::LoadProgressOwner,public vp2s::MotionOwner,public vp2s::FrameCopyOwner,public vp2s::SquadOwner {
+class StrictHost final : public bozo::ee::Host, public vp2s::TimerOwner, public vp2s::SettingsOwner,public vp2s::SeedOwner,public vp2s::ModuleOwner,public vp2s::BootstrapOwner,public vp2s::RandomOwner,public vp2s::TextureOwner,public vp2s::SceneOwner,public vp2s::AssetOwner,public vp2s::DebugFontOwner,public vp2s::StateSetupOwner,public vp2s::ScreenRectOwner,public vp2s::UiTextOwner,public vp2s::UiSpriteOwner,public vp2s::MediaBufferOwner,public vp2s::ModelOwner,public vp2s::FrameFilterOwner,public vp2s::MusicOwner,public vp2s::UiWindowOwner,public vp2s::LoadProgressOwner,public vp2s::MotionOwner,public vp2s::FrameCopyOwner,public vp2s::SquadOwner,public vp2s::ParticleOwner {
 public:
+    vp2s::NativeParticles particles;
+    vp2s::NativeParticles &nativeParticles()override{return particles;}
     vp2s::NativeSquads squads;
     vp2s::NativeSquads &nativeSquads()override{return squads;}
     vp2s::NativeMotion motion;
@@ -366,6 +369,7 @@ bool noNativeInstruction(uint8_t *ram,R5900Context *ctx,Runtime *rt,uint32_t pc)
     if(auto handled=vp2s::nativeModelInstruction(ctx,rt,pc))return *handled;
     if(auto handled=vp2s::nativeFrameFilterInstruction(ctx,rt,pc))return *handled;
     if(auto handled=vp2s::nativeFrameCopyInstruction(ctx,rt,pc))return *handled;
+    if(auto handled=vp2s::nativeParticleInstruction(ctx,rt,pc))return *handled;
     if(auto handled=vp2s::nativeUiSpriteInstruction(ctx,rt,pc))return *handled;
     if(auto handled=vp2s::nativeMediaBufferInstruction(ctx,rt,pc))return *handled;
     if(auto handled=vp2s::nativeScreenRectInstruction(ctx,rt,pc))return *handled;

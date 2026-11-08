@@ -21,6 +21,7 @@ HERMITE_VECTOR_SITES=(*range(0x2a68d4,0x2a68f8,4),0x2a68fc)
 SQUAD_SITES=(0x214c40,*range(0x214c98,0x214ca4,4),*range(0x214cbc,0x214cc8,4),
     *range(0x214cdc,0x214cec,4),*range(0x214db8,0x214dd4,4),0x214dd8,
     *range(0x214df0,0x214e04,4),*range(0x214e08,0x214e20,4))
+PARTICLE_PUBLICATION_SITES=(0x22eae0,0x22ec9c,0x22eca0,0x22ee88,0x22ee94,0x22ee9c,0x22eea4,0x22eebc,0x22f0a0)
 
 INSTALLER = (0x141448, 0x141544)
 QUERY = (0x141410, 0x141444)
@@ -498,6 +499,7 @@ def overlay_adaptations(name,data):
         (0x213fd0,0x2140f4,'929eb425f5d11c4d38fd2c0d2c18b8bad91718a8fe3845ba40df7e08a9392768'),
         (0x214e40,0x2150f0,'c83bfc3a70b84ef6ccb1de817de8490cc12fe95f428f6519c4f3ed0700c9af5f'),
         (0x214c40,0x214e40,'d9106bc728de471b557f7f136424ebe55e3d59a694b9ff7f0ba9e91807180a0e'),
+        (0x22e650,0x22f0d4,'4b641be6f4d9b2450646a7b89b06f0b1446d290c4e91ccbd192fbb16a76bd9d9'),
         (0x2151d0,0x2153a0,'14b0ca18d4340479715e85d75072aa68e5ae9307b54cbcb8e86313628685308a'),
         (0x2150f0,0x2151d0,'a963b19e1061c2400324b4440cef7d6da40124ddafaad3e84a10ab96b882944b'),
         (0x1fe8a8,0x1fe95c,'5fc3d4add9925c4b8b5607379880ef718cf0f6e5d45a0c9f180a9ae80ff3b6a8'),
@@ -644,6 +646,10 @@ def overlay_adaptations(name,data):
             # The native colour-copy draw publishes before the thunk enters
             # the original software completion; no physical job is submitted.
             '002dc9a0 080b6f50 080b6f64\n'
+            # Explicit particle records are already published synchronously.
+            # Remove both device polls, without fabricating completion bits.
+            '0022ee50 1a600009 10000009\n'
+            '0022f048 1a600009 10000009\n'
             '0025aa2c 0c0807c8 0c087268\n'
             '002f3710 0c0bbce4 0c087268\n'
             '002ec9e0 0c0bbce4 0c087268\n'
@@ -716,6 +722,7 @@ def overlay_native_sites(name,data):
         *DOF_MATRIX_SITES,
         *HERMITE_VECTOR_SITES,
         *SQUAD_SITES,
+        *PARTICLE_PUBLICATION_SITES,
         0x2dbde0,0x2dbeb4,0x2dc6c8,0x2dc9a4,0x2dc700,
         *range(0x252ec8,0x252f24,4),0x252fdc,0x252fe0,0x252fe4,0x252fec,0x252ff0,0x252ff8,
         0x2bf040,0x2bf058,

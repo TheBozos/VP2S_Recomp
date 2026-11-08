@@ -12,6 +12,32 @@ The earlier VP2S face/shading and general brightness comparisons remain open.
 
 ## Build and evidence
 
+### Visibility object-facing cosine (2026-11-08)
+
+The ten `0x220a20..0x220a94` sites now use the existing visibility view snapshot,
+a retained explicit object matrix and original scalar-built position/direction
+records. Native equations transform/normalize the eye direction and object
+normal, publishing the full result at the original store. Only object matrix
+and semantic result survive between read/compute/publication; no vector or
+quotient bank exists. The original VI0 read publishes its constant zero without
+reading or changing any bank. Incomplete/repeated/wrong-object publication and
+early visibility completion reject. Original scalar consumers stay compiled.
+
+512 bounded original/native CPU/RAM/FP callers, 64 known axis results and all ten
+sites pass independent integer products/sums/quotients plus binary-search square
+roots. Four modes/FTZ/DAZ, opaque unused W, RAM/scratch frames, matrix/frame aliases,
+source mutation after snapshot and numeric/lifetime rejection pass. The alias
+fixture initially placed an opaque marker over live matrix translation; that
+case now retains the live translation and keeps the overlapping-storage check.
+The square-root-then-reciprocal order was checked against the primary
+[PCSX2 numeric reference](https://github.com/PCSX2/pcsx2/blob/master/pcsx2/VUops.cpp);
+the runtime contains only these explicit game equations. This bounded fragment
+does not qualify every branch of the complete visibility owner.
+
+Four rebuilt suites pass in 56.47 s (`facing-final-tests.log`). Actual
+`facing-route.log` passes facing and next stops at particle sphere getter
+`0x22f9e0`, called by visibility. Field/Logun remains open.
+
 ### Automatic camera-distance owner (2026-11-08)
 
 The nine remaining sites in `0x377d20` now compute length from the original

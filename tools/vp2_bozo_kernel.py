@@ -427,6 +427,7 @@ def overlay_adaptations(name,data):
     if name!='mod001':return ''
     _,segments,_=elf_parts(data)
     for lo,hi,expected in ((0x12b4a8+0x1f0,0x12b4a8+0x250,'b79cf2382262fa4251a0e08c8d0b7eb05f051c8a77915bf5863c78d7d6acd784'),
+                           (0x12b4a8+0xd0,0x12b4a8+0x188,'de5d48299b40b3a851768c7895cbdb4449ecc08c3a585ca79a9d03d973a1c7e7'),
                            (0x12b4a8+0x7f0,0x12b4a8+0x838,'a07e1286b441ee14cfe8b3358b59ee04fed7789bb456988abf6ae5cd936dfa97'),
                            (0x12b4a8+0x8a0,0x12b4a8+0x960,'af7ecfd91505685a1f79a0870924e24d3b79f4c60d583d071090f16df8d183bd'),
                            (0x12b4a8+0x9f0,0x12b4a8+0xaa8,'1fe7818af2509cd6f7672bf368a5b2059d8f64e0c7b377ea8d9060ae3d790f2d'),

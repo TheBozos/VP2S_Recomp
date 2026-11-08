@@ -759,6 +759,18 @@ if(VP2S_BOZO_CODE)
   endif()
   add_test(NAME vp2s-bozo-inverse-pivot COMMAND vp2s-bozo-inverse-pivot-check)
   set(UPDATE_POINT_DIR "${CMAKE_CURRENT_BINARY_DIR}/update-point-reference")
+  set(FACING_DIR "${CMAKE_CURRENT_BINARY_DIR}/facing-reference")
+  add_custom_command(OUTPUT "${FACING_DIR}/facing_000.cpp" "${FACING_DIR}/facing_table.cpp" "${FACING_DIR}/facing_functions.h"
+    COMMAND ${Python3_EXECUTABLE} "${VP2S_ROOT}/tools/vp2_bozo_facing_fixture.py" "${VP2S_BOZO_DATA}/images/mod001.elf" "${FACING_DIR}" --build "${VP2S_BOZO_DATA}/.."
+    COMMAND $<TARGET_FILE:bozo-recomp> "${FACING_DIR}/fixture.elf" "${FACING_DIR}" --prefix facing --symbol-prefix facing_ --files 1 --externals "${FACING_DIR}/externals.txt" --no-comments
+    DEPENDS bozo-recomp "${VP2S_ROOT}/tools/vp2_bozo_facing_fixture.py" "${VP2S_ROOT}/tools/vp2_bozo_kernel.py" "${VP2S_BOZO_DATA}/images/mod001.elf")
+  add_executable(vp2s-bozo-facing-check "${VP2S_ROOT}/tests/bozo_facing_main.cpp" "${FACING_DIR}/facing_000.cpp" "${FACING_DIR}/facing_table.cpp")
+  target_include_directories(vp2s-bozo-facing-check PRIVATE "${FACING_DIR}")
+  target_link_libraries(vp2s-bozo-facing-check PRIVATE vp2s_bozo_kernel)
+  if(MINGW)
+    target_link_options(vp2s-bozo-facing-check PRIVATE -static)
+  endif()
+  add_test(NAME vp2s-bozo-facing COMMAND vp2s-bozo-facing-check)
   set(PARTICLE_CALLBACK_DIR "${CMAKE_CURRENT_BINARY_DIR}/particle-callback-reference")
   add_custom_command(OUTPUT "${PARTICLE_CALLBACK_DIR}/particle_callback_000.cpp" "${PARTICLE_CALLBACK_DIR}/particle_callback_table.cpp" "${PARTICLE_CALLBACK_DIR}/particle_callback_functions.h"
     COMMAND ${Python3_EXECUTABLE} "${VP2S_ROOT}/tools/vp2_bozo_particle_callback_fixture.py" "${VP2S_BOZO_DATA}/images/mod003.elf" "${PARTICLE_CALLBACK_DIR}" --build "${VP2S_BOZO_DATA}/.."

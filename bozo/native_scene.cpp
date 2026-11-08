@@ -254,15 +254,36 @@ void NativeScene::visibilityAngle(uint32_t stack,uint32_t object,uint32_t source
     const auto result=sphereAngleVisibility(planes,input);visibilityInputs.at(stack).sphere->angle=result;
 }
 void NativeScene::finishVisibility(uint32_t stack,uint32_t object){
-    if(visibility(stack).scene!=object)throw std::runtime_error("native visibility scene changed during invocation");
+    const auto &inputs=visibility(stack);
+    if(inputs.scene!=object || (inputs.facing && !inputs.facing->published))throw std::runtime_error("native visibility scene changed or has incomplete facing output");
     visibilityInputs.erase(stack);
+}
+void NativeScene::beginFacing(Runtime *rt,uint32_t stack,uint32_t object,uint32_t source){
+    const auto &inputs=visibility(stack);
+    if(!inputs.viewReady || (inputs.facing && !inputs.facing->published) || !object || (source&15))throw std::runtime_error("native object-facing has no completed camera/call lifetime");
+    NativeFacingVisibility next;next.object=object;next.source=source;std::memcpy(next.world.data(),record(rt,source,64),64);visibilityInputs.at(stack).facing=next;
+}
+const NativeFacingVisibility &NativeScene::facing(uint32_t stack,uint32_t object)const{
+    const auto &inputs=visibility(stack);if(!inputs.facing || inputs.facing->object!=object)throw std::runtime_error("native object-facing has no matching object snapshot");return *inputs.facing;
+}
+void NativeScene::calculateFacing(Runtime *rt,uint32_t stack,uint32_t object){
+    const auto &state=facing(stack,object);if(state.ready || state.published)throw std::runtime_error("native object-facing calculation repeats");
+    std::array<float,4> position,direction;auto *frame=rt->memory.hostPointer(stack,0x130);if(!frame)throw std::runtime_error("native object-facing frame outside owned memory");
+    std::memcpy(position.data(),frame+0x100,16);std::memcpy(direction.data(),frame+0x110,16);
+    const auto result=objectFacing(visibility(stack).view,state.world,position,direction);auto &next=*visibilityInputs.at(stack).facing;next.result=result;next.ready=true;
+}
+void NativeScene::publishFacing(Runtime *rt,uint32_t stack,uint32_t object){
+    const auto &state=facing(stack,object);auto *output=rt->memory.hostPointer(stack+0xd0,16);
+    if(!state.ready || state.published || !output)throw std::runtime_error("native object-facing publication lacks completed calculation");
+    std::memcpy(output,state.result.data(),16);visibilityInputs.at(stack).facing->published=true;
 }
 std::optional<bool> nativeVisibilityInstruction(R5900Context *c,Runtime *rt,uint32_t pc){
     const bool clip=pc==0x220624 || pc==0x220628 || pc==0x22062c || pc==0x220630;
     const bool view=pc==0x2206b8 || pc==0x2206bc || pc==0x2206c0 || pc==0x2206c4 ||
                     pc==0x2206d0 || pc==0x2206d4 || pc==0x2206d8 || pc==0x2206dc || pc==0x2206e0;
     const bool sphere=pc==0x220b74 || pc==0x220b80 || pc==0x220ba4 || pc==0x220ba8 || pc==0x220bb4 || pc==0x220bdc || pc==0x220ca0 || pc==0x220c30 || pc==0x220c74;
-    if(pc!=0x2205c0 && pc!=0x220ce0 && !clip && !view && !sphere)return std::nullopt;
+    const bool facing=pc==0x220a20 || pc==0x220a24 || pc==0x220a28 || pc==0x220a2c || pc==0x220a38 || pc==0x220a60 || pc==0x220a68 || pc==0x220a74 || pc==0x220a8c || pc==0x220a94;
+    if(pc!=0x2205c0 && pc!=0x220ce0 && !clip && !view && !sphere && !facing)return std::nullopt;
     auto *d=rt?dynamic_cast<bozo::ee::Dispatcher *>(rt->services):nullptr;
     auto *owner=d?dynamic_cast<SceneOwner *>(&d->host()):nullptr;
     if(!owner || !c)throw std::runtime_error("native visibility requires a scene owner");
@@ -273,6 +294,17 @@ std::optional<bool> nativeVisibilityInstruction(R5900Context *c,Runtime *rt,uint
     }
     if(pc==0x220ce0){scene.finishVisibility(sp,c->r[21].uw[0]);return false;}
     if(scene.visibility(sp).scene!=c->r[21].uw[0])throw std::runtime_error("native visibility scene changed before capture");
+    if(facing){
+        const auto object=c->r[17].uw[0];if(pc==0x220a20)scene.beginFacing(rt,sp,object,c->r[2].uw[0]);
+        const auto &state=scene.facing(sp,object);
+        if((pc==0x220a24 || pc==0x220a28 || pc==0x220a2c || pc==0x220a38) && c->r[2].uw[0]!=state.source)throw std::runtime_error("native object-facing matrix pointer changed");
+        if(pc==0x220a60 && c->r[5].uw[0]!=sp+0x100)throw std::runtime_error("native object-facing position pointer mismatch");
+        if(pc==0x220a68 && c->r[3].uw[0]!=sp+0x110)throw std::runtime_error("native object-facing direction pointer mismatch");
+        if(pc==0x220a74)scene.calculateFacing(rt,sp,object);
+        if(pc==0x220a8c){if(!state.ready || state.published)throw std::runtime_error("native object-facing constant has no completed calculation");c->r[9].ud[0]=0;} // Original VI0 is constant zero.
+        if(pc==0x220a94){if(c->r[3].uw[0]!=sp+0xd0)throw std::runtime_error("native object-facing output pointer mismatch");scene.publishFacing(rt,sp,object);}
+        return true;
+    }
     if(sphere){
         const auto object=c->r[17].uw[0],source=c->r[22].uw[0];
         if(pc==0x220b74)scene.visibilitySphere(rt,sp,object,source);

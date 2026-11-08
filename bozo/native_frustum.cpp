@@ -85,6 +85,37 @@ uint8_t sphereAngleVisibility(const FrustumResult &planes,__m128 sphere){
     // This is the original caller's classification byte, not a status bank.
     return intersects?0x80:0;
 }
+std::array<float,4> objectFacing(const std::array<float,16> &view,const std::array<float,16> &world,const std::array<float,4> &position,const std::array<float,4> &direction){
+    music::CodecRounding rounding;
+    const auto sum=[](float a,float b){volatile float value=a+b;const auto bits=std::bit_cast<uint32_t>(float(value));return std::bit_cast<float>((bits&0x7f800000)?bits:bits&0x80000000);};
+    const auto product=[](float a,float b){volatile float value=a*b;const auto bits=std::bit_cast<uint32_t>(float(value));return std::bit_cast<float>((bits&0x7f800000)?bits:bits&0x80000000);};
+    const auto qualify=[](float v){const auto bits=std::bit_cast<uint32_t>(v),m=bits&0x7fffffff;if(m>=0x7f800000 || (m && m<0x00800000) || std::abs(v)>1.e8f)throw std::runtime_error("unqualified native object-facing input");};
+    float camera[4][4],object[4][4];
+    for(unsigned column=0;column<4;++column)for(unsigned lane=0;lane<4;++lane){
+        if(column==3 && lane==3){camera[column][lane]=object[column][lane]=1;continue;}
+        const auto index=lane*4+column;qualify(view[index]);qualify(world[index]);
+        camera[column][lane]=column==lane?view[index]:lane==3?product(1.f,view[index]):sum(0.f,view[index]);
+        object[column][lane]=column==lane?world[index]:lane==3?product(1.f,world[index]):sum(0.f,world[index]);
+    }
+    for(unsigned i=0;i<3;++i)qualify(position[i]);for(float v:direction)qualify(v);
+    std::array<float,4> eye,normalValue,transformed;
+    for(unsigned lane=0;lane<4;++lane){
+        eye[lane]=product(camera[0][lane],position[0]);normalValue[lane]=product(object[0][lane],direction[0]);
+        for(unsigned i=1;i<3;++i){eye[lane]=sum(eye[lane],product(camera[i][lane],position[i]));normalValue[lane]=sum(normalValue[lane],product(object[i][lane],direction[i]));}
+        eye[lane]=sum(eye[lane],product(camera[3][lane],1.f));normalValue[lane]=sum(normalValue[lane],product(lane==3?1.f:0.f,direction[3]));
+    }
+    for(unsigned lane=0;lane<4;++lane){transformed[lane]=product(camera[0][lane],normalValue[0]);
+        for(unsigned i=1;i<3;++i)transformed[lane]=sum(transformed[lane],product(camera[i][lane],normalValue[i]));
+        transformed[lane]=sum(transformed[lane],product(lane==3?1.f:0.f,normalValue[3]));}
+    const auto inverseLength=[&](const std::array<float,4> &v){float squares[3];for(unsigned i=0;i<3;++i)squares[i]=product(v[i],v[i]);
+        const auto squared=sum(sum(squares[0],squares[1]),product(1.f,squares[2]));
+        if(!std::isfinite(squared))throw std::runtime_error("native object-facing length overflow");
+        volatile float length=static_cast<float>(std::sqrt(double(squared)));volatile float inverse=length==0?std::numeric_limits<float>::max():1.f/length;return float(inverse);};
+    const float eyeScale=inverseLength(eye),normalScale=inverseLength(transformed);
+    for(unsigned i=0;i<3;++i)transformed[i]=product(product(transformed[i],product(eye[i],eyeScale)),normalScale);
+    transformed[0]=sum(sum(transformed[0],transformed[1]),product(1.f,transformed[2]));
+    for(float value:transformed)if(!std::isfinite(value))throw std::runtime_error("native object-facing result overflow");return transformed;
+}
 NativeSphereVisibility sphereVisibility(math::Matrix clip,const FrustumResult &planes,__m128 sphere){
     qualified(sphere);const auto radius=music::laneValue(sphere,3);
     if(radius<0)throw std::runtime_error("negative native visibility sphere radius");

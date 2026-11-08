@@ -12,6 +12,29 @@ The earlier VP2S face/shading and general brightness comparisons remain open.
 
 ## Build and evidence
 
+### Qualified empty FPS model submissions (2026-11-08)
+
+The zero-count model rejection was a valid disc record, not a failed decode:
+live `0x100de90` maps to decoded part `a94b8b44/0+348010`; its original FPS chunk
+at `+348000` also has zero meshes. Original `0x23a950` mesh loops test count > 0
+before all four paths, converging at `0x23bfe0` without a mesh for count zero.
+The adapter now returns an empty submission only with existing scene/camera
+ownership, aligned FPS signature and complete decoded-part header provenance.
+Original scene completion remains compiled. Unused geometry/light/skeleton
+inputs are not inspected and no substitute geometry is drawn.
+
+The provenance API can now qualify a complete contiguous span: every covered
+interval must continue the same source, and any hole, mixed source or unfinished
+write rejects. It does not merely check first/last bytes. Tests retain 384 real
+model captures and add 96 empty-model cases with poisoned unused inputs, complete
+RAM/FP preservation and negative ownership/header/partial/mixed/unpublished cases.
+The 33,554,432 per-byte asset oracle comparisons also qualify 4,096 independent
+span queries, adjacent interval joins and pending writes inside a span.
+
+Four rebuilt suites pass in 50.41 s (`empty-model-final-tests.log`). Actual
+`empty-model-route.log` passes the empty model and next stops at particle-light
+product `0x22f300`. Field/Logun remains open.
+
 ### Origin sphere getter (2026-11-08)
 
 The 23 sites at `0x2482b4..0x24830c` now share the explicit three-row centre

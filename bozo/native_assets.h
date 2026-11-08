@@ -28,6 +28,7 @@ public:
     void discRead(uint32_t at,uint32_t sectors,uint32_t lbn);
     void copy(uint32_t destination,uint32_t source,uint32_t bytes,uint32_t worker=0);
     std::optional<AssetOrigin> origin(uint32_t at)const;
+    std::optional<AssetOrigin> origin(uint32_t at,uint32_t bytes)const;
     void begin(uint32_t stack,uint32_t chain,uint32_t destination,uint32_t part,uint32_t job=0);
     void finish(uint32_t stack,bool success,uint32_t size);
     void beginStep(uint32_t stack,uint32_t job);

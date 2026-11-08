@@ -84,7 +84,16 @@ NativeModelSubmission NativeModels::capture(Runtime *rt,NativeAssets &assets,Nat
     if(layer>1 || word(current+0x40a8+4*layer)!=object || byte(current+0x40dc+layer)!=1)
         throw std::runtime_error("native model has no pending scene ownership");
     const auto model=word(object+0x7bc),count=word(model+0x34),list=word(object+0x77c);
-    if(!count || count>4096)throw std::runtime_error("native model mesh count outside bounds");
+    if(count>4096)throw std::runtime_error(std::format("native model mesh count outside bounds: model={:08x} count={}",model,count));
+    if(!count){
+        if((model&15) || model<0x100010)throw std::runtime_error("empty native model lacks aligned FPS header");
+        const auto header=assets.origin(model-0x10,0x70);
+        if(!header || header->kind!=AssetOrigin::Kind::Part || word(model-0x10)!=0x00535046)
+            throw std::runtime_error("empty native model lacks complete decoded FPS header");
+        // All four original mesh loops test count > 0 before reading a mesh.
+        // No vertex, material, skeleton or lighting input is consumed here.
+        return NativeModelSubmission{object,camera->object};
+    }
     const auto world=value<Mat>(rt,object+0x90);for(auto f:world)finite(f);
     const auto viewObject=product(camera->view,world),screen=product(camera->screen,viewObject),guard=product(camera->guard,viewObject);
     NativeModelSubmission out{object,camera->object};

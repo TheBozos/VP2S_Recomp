@@ -80,6 +80,18 @@ std::optional<AssetOrigin> NativeAssets::origin(uint32_t at)const{
     for(const auto &r:ranges)if(at>=r.begin && at<r.end)return advance(r.origin,at-r.begin);
     return std::nullopt;
 }
+std::optional<AssetOrigin> NativeAssets::origin(uint32_t at,uint32_t bytes)const{
+    at=storageAddress(at);const auto end=endOf(at,bytes);if(!bytes)return std::nullopt;
+    for(const auto &[job,d]:jobs)if(at<d.destination+d.size && d.destination<end)return std::nullopt;
+    std::optional<AssetOrigin> first;auto cursor=at;
+    for(const auto &r:ranges){
+        if(r.end<=cursor)continue;if(r.begin>cursor)return std::nullopt;
+        const auto value=advance(r.origin,cursor-r.begin);
+        if(!first)first=value;else if(value!=advance(*first,cursor-at))return std::nullopt;
+        cursor=std::min(end,r.end);if(cursor==end)return first;
+    }
+    return std::nullopt;
+}
 void NativeAssets::begin(uint32_t stack,uint32_t chain,uint32_t destination,uint32_t part,uint32_t job){
     if(calls.contains(stack))throw std::runtime_error("active asset invocation stack reused");
     auto source=origin(chain);if(source && source->kind!=AssetOrigin::Kind::Disc)source.reset();

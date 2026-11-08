@@ -4,6 +4,7 @@
 #include <source_location>
 #include <cstdio>
 #include <cmath>
+#include <immintrin.h>
 namespace {
 void check(bool yes,std::source_location at=std::source_location::current()){if(!yes)throw std::runtime_error("native model assertion at "+std::to_string(at.line()));}
 template<class T>void put(Runtime &rt,uint32_t at,T v){std::memcpy(rt.memory.hostPointer(at,sizeof(T)),&v,sizeof(T));}
@@ -26,7 +27,7 @@ void fixture(const std::filesystem::path &dir,int algorithm){
 }
 int main(int argc,char **argv){try{
     check(argc==2);const std::filesystem::path dir=argv[1];
-    unsigned cases=0;
+    unsigned cases=0,emptyCases=0;
     for(int algorithm:{0,2,4}){
         fixture(dir,algorithm);vp2s::NativeModels models(dir);Runtime rt;vp2s::NativeScene scene;vp2s::NativeAssets assets;vp2s::NativeTextures textures;
         std::memset(rt.memory.flat(),0,bozo::kFlatBytes);
@@ -75,8 +76,28 @@ int main(int argc,char **argv){try{
             put(rt,current+0x40dc,uint8_t(0));rejects([&]{models.capture(&rt,assets,textures,scene,object);});put(rt,current+0x40dc,uint8_t(1));
             ++cases;
         }
+        {constexpr uint32_t empty=0x1e1000;std::vector<uint8_t> saved(rt.memory.flat()+object,rt.memory.flat()+object+0x800);
+            std::memset(rt.memory.hostPointer(empty-0x10,0x70),0x7f,0x70);put(rt,empty-0x10,uint32_t(0x00535046));put(rt,empty+0x34,uint32_t(0));put(rt,object+0x7bc,empty);
+            const auto provenance=[&]{assets.begin(0x1f2000,0x140000,empty-0x10,1);assets.finish(0x1f2000,true,0x70);};provenance();
+            for(unsigned seed=0;seed<32;++seed){
+                std::array<uint32_t,16> unused;unused.fill(seed&1?0x7fa01234:0xffffffff);put(rt,object+0x90,unused);
+                put(rt,object+0x648,uint32_t(0xdeadbeef));put(rt,object+0x77c,uint32_t(0xdeadbeef));put(rt,object+0x630,uint32_t(seed*0x1020304));
+                put(rt,object+0x230,unused);const auto fp=_mm_getcsr();const auto before=std::vector<uint8_t>(rt.memory.flat(),rt.memory.flat()+bozo::kFlatBytes);
+                const auto result=models.capture(&rt,assets,textures,scene,object);check(result.object==object && result.camera==camera && result.batches.empty());
+                check(_mm_getcsr()==fp && !std::memcmp(before.data(),rt.memory.flat(),before.size()));++emptyCases;
+            }
+            put(rt,current+0x40dc,uint8_t(0));rejects([&]{models.capture(&rt,assets,textures,scene,object);});put(rt,current+0x40dc,uint8_t(1));
+            put(rt,empty-0x10,uint32_t(0));rejects([&]{models.capture(&rt,assets,textures,scene,object);});put(rt,empty-0x10,uint32_t(0x00535046));
+            assets.overwrite(empty+0x5f,1);rejects([&]{models.capture(&rt,assets,textures,scene,object);});provenance();
+            assets.overwrite(empty+0x10,1);rejects([&]{models.capture(&rt,assets,textures,scene,object);});provenance();
+            assets.begin(0x1f2000,0x140000,empty+0x5f,2);assets.finish(0x1f2000,true,1);rejects([&]{models.capture(&rt,assets,textures,scene,object);});provenance();
+            assets.discRead(empty-0x10,1,8);rejects([&]{models.capture(&rt,assets,textures,scene,object);});provenance();
+            put(rt,empty+0x34,uint32_t(4097));rejects([&]{models.capture(&rt,assets,textures,scene,object);});put(rt,empty+0x34,uint32_t(0));
+            assets.overwrite(empty-0x10,0x70);rejects([&]{models.capture(&rt,assets,textures,scene,object);});
+            std::memcpy(rt.memory.flat()+object,saved.data(),saved.size());
+        }
         assets.overwrite(model,0x1000);rejects([&]{models.capture(&rt,assets,textures,scene,object);});
     }
-    std::printf("%u native model captures: independent positions/skinning/UV/colour/strip ordering, whole RAM preservation and snapshot/asset lifetime\n",cases);
+    std::printf("%u native model captures +%u qualified empty FPS models: independent positions/skinning/UV/colour/strip ordering, unused-input isolation, whole RAM/FP preservation and snapshot/asset lifetime\n",cases,emptyCases);
     return 0;
 }catch(const std::exception &e){std::fprintf(stderr,"%s\n",e.what());return 1;}}

@@ -8,6 +8,19 @@ verified in the MIPS or the assets, [I] inferred.
 
 ## Bozo native model submission (2026-11-07)
 
+Zero-mesh FPS models are now admitted as empty native submissions (2026-11-08).
+The live object `0x12a6d50`, class `0x1546d0`, uses model `0x100de90`, with decoded
+part provenance `a94b8b44/0+348010`. The disc's FPS chunk at `+348000` independently
+has mesh count zero. The four original mesh-loop branches in `0x23a950` test
+count > 0 and converge at `0x23bfe0` without reading a mesh for that count.
+Admission requires scene/camera ownership, an aligned FPS signature and complete,
+contiguous decoded-part provenance across the entire 0x70-byte chunk/model header.
+Unknown holes, mixed origins and unfinished writes reject. No geometry, material,
+skeleton or lighting state is consumed for an empty submission; the original
+scene completion still follows. 384 existing captures plus 96 empty cases and
+33,554,432 per-byte provenance comparisons remain green. This advances the actual
+route to particle lighting at `0x22f300`; field/Logun is still unqualified.
+
 The optional working-model probe at `object+0x630` first qualifies an aligned,
 complete RAM header through the admitted game RAM aliases (2026-11-08). The
 slot is not uniformly a pointer: original getter `0x22cfb0` also exposes an

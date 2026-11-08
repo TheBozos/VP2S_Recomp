@@ -67,6 +67,17 @@ int main(){try{
     rejects([&]{a.overwrite(0x70003fff,2);});rejects([&]{a.origin(0x70004000);});
     rejects([&]{a.copy(0x180000,0x70003ff0,32);});rejects([&]{a.copy(0x70003ff0,0x180000,32);});
     check(a.origin(0x180000)->offset==0 && a.origin(0x70003fff)->offset==2047);
+    {vp2s::NativeAssets span;span.discRead(0x100000,1,7);
+        span.copy(0x120000,0x100010,16);span.copy(0x120010,0x100020,16);
+        check(span.origin(0x30120000,32)==Origin{Kind::Disc,7*2048,0,16});
+        span.copy(0x120010,0x100030,16);check(!span.origin(0x120000,32));span.copy(0x120010,0x100020,16);
+        span.overwrite(0x12000f,1);check(!span.origin(0x120000,32));check(!span.origin(0x120000,0));
+        span.begin(0x1f0000,0x100000,0x100080,3,0x180000);span.finish(0x1f0000,true,16);
+        check(span.origin(0x100000).has_value() && span.origin(0x1000ff).has_value() && !span.origin(0x100000,256));
+        span.beginStep(0x1e0000,0x180000);span.finishStep(0x1e0000,true);
+        check(span.origin(0x100080,16)==Origin{Kind::Part,7*2048,3,0});check(!span.origin(0x100000,256));
+        rejects([&]{span.origin(0x70003fff,2);});
+    }
     // An independent per-byte oracle catches interval splitting, multi-source
     // copies, unknown overwrites and source/destination overlap in every step.
     vp2s::NativeAssets fuzz;
@@ -83,6 +94,9 @@ int main(){try{
             for(unsigned i=0;i<length;++i)bytes[start+i]=snapshot[source+i];
         }
         for(unsigned i=0;i<bytes.size();++i){check(fuzz.origin(0x100000+i)==bytes[i]);++checked;}
+        const auto begin=rng()%4096,extent=rng()%256;auto expected=extent?bytes[begin]:std::nullopt;
+        if(expected)for(unsigned i=0;i<extent;++i){auto wanted=*expected;wanted.offset+=i;if(bytes[begin+i]!=wanted){expected.reset();break;}}
+        check(fuzz.origin(0x100000+begin,extent)==expected);
     }
     std::printf("native asset provenance: %u byte comparisons, split/alias/unknown writes and resumed ownership passed\n",checked);
     return 0;

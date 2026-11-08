@@ -306,6 +306,21 @@ std::array<uint32_t,4> NativeMotion::finish(uint32_t frame,uint32_t object){
     const auto result=it->second.position;updates.erase(it);return result;
 }
 bool nativeMathInstruction(uint8_t *,R5900Context *c,Runtime *rt,uint32_t pc){
+    if((pc>=0x2d7c04 && pc<=0x2d7c70 && !(pc&3)) ||
+       (pc>=0x2d7c80 && pc<=0x2d7cec && !(pc&3)) ||
+       (pc>=0x2d7cfc && pc<=0x2d7d68 && !(pc&3))){
+        const auto stack=c->r[29].uw[0],local=stack+(pc<=0x2d7c70?0x140:pc<=0x2d7cec?0x180:0xc0);
+        if(c->pc!=0x2d7be0 || c->r[4].uw[0]!=local || c->r[3].uw[0]!=stack+0x100 || c->r[5].uw[0]!=stack+0x100)
+            throw std::runtime_error("native DOF matrix setup mismatch");
+        record(rt,stack,0x240);
+        if(pc==0x2d7c64 || pc==0x2d7ce0 || pc==0x2d7d5c){
+            math::Matrix first,parent;std::memcpy(first.data(),record(rt,local,64),64);std::memcpy(parent.data(),record(rt,stack+0x100,64),64);
+            for(const auto *matrix:{&first,&parent}){float values[16];std::memcpy(values,matrix->data(),64);
+                for(float value:values){pairQualified(value);if(std::abs(value)>1.e8f)throw std::runtime_error("unqualified native DOF matrix input");}}
+            struct ArithmeticScope {unsigned saved=_mm_getcsr();~ArithmeticScope(){_mm_setcsr(saved);}} arithmetic;
+            const auto result=math::projectionProduct(first,parent);std::memcpy(record(rt,stack+0x100,64),result.data(),64);
+        }return true;
+    }
     if(pc==0x215a8c || pc==0x215a94 || pc==0x215a98 || pc==0x215aa0 ||
        pc==0x215af0 || pc==0x215af8 || pc==0x215afc || pc==0x215b04 ||
        pc==0x215b54 || pc==0x215b5c || pc==0x215b60 || pc==0x215b68 ||

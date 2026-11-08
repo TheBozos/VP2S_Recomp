@@ -2,6 +2,13 @@
 
 ## Bozo USA colour-copy source (2026-11-08)
 
+The complete coordinate/copy writer `0x2d7a30` also retains its original identity
+and rotation setup, scalar coordinate loops, record writes and cursor publication.
+Its three inline matrix products (84 sites) now consume explicit stack matrices
+and publish full XYZW natively. 512 complete CPU/RAM/FP callers plus 1,536 full
+matrix records qualify all stages and caller rounding; this does not yet qualify
+the later blur/composite submission.
+
 The actual `0x2dbd40` transport boundary belongs to class `0x159ee0`, constructed
 by `0x2dc850`, at scene `+0x444c` (`0x604a60` in the measured run). Its complete
 scalar builder `0x2dbde0` retains activation, aspect/dimension selection,

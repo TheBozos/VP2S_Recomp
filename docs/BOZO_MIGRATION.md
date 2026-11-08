@@ -12,6 +12,24 @@ The earlier VP2S face/shading and general brightness comparisons remain open.
 
 ## Build and evidence
 
+### Complete DOF coordinate/matrix writer (2026-11-08)
+
+All 84 vector sites in `0x2d7a30` now compose the three explicit stack matrices
+through the qualified native projection-product equation. Source matrices and
+in-place destination are snapshotted, full XYZW is retained, caller rounding
+and host flags are preserved, and setup/numeric domains reject without mutation.
+The original identity/rotation builders, scalar coordinate consumers, complete
+record-writing loops, saved registers and final cursor publication still run.
+
+512 complete CPU/RAM/FP callers and 1,536 full matrix records pass across four
+modes and FTZ/DAZ; all three stages, non-affine W, identity and arbitrary finite
+matrices are checked against independent guard/sticky integer arithmetic. The
+original sine/cosine SDK leaves are bounded fixture contracts; no vector code
+executes in either comparison. Three suites pass (`dof-matrix-tests.log`, 54.15
+seconds), including every-word owner guards. Actual seed-1 proceeds to Hermite
+vector interpolation `0x2a68d4`, entry/return `0x2a68c8`
+(`dof-matrix-route.log`). Visible field/Logun remains open; engine `436d5d8`.
+
 ### Native field DOF colour source (2026-11-08)
 
 Class `0x159ee0`, scene `+0x444c`, is now captured from its complete original

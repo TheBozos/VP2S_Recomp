@@ -29,7 +29,7 @@ fixture,_=prepare(data,[dict(Name='bone_loop',Start='0x2371dc',End='0x2372d8'),
                        dict(Name='box_local_fragment',Start='0x1fbdcc',End='0x1fbdfc'),
                        dict(Name='box_clamp',Start='0x1fbe60',End='0x1fbfa8'),
                        dict(Name='transposed_inverse',Start='0x216d60',End='0x216e3c'),
-                       dict(Name='angular_cosine',Start='0x1fccf8',End='0x1fcdfc'),
+                       dict(Name='angular_cosine',Start='0x1fccf8',End='0x1fce3c'),
                        dict(Name='angular_aligned_exit',Start='0x1fce48',End='0x1fce50')],{})
 fixture=bytearray(fixture);_,segments,_=elf_parts(fixture)
 s=next(s for s in segments if s[0]==1 and s[2]<=0x2371dc<0x2372d8<=s[2]+s[4])
@@ -123,13 +123,13 @@ for pc in (*range(0x216da4,0x216dc0,4),0x216e04):
         at=s[1]+pc-s[2];fixture[at:at+4]=bytes(4)
     else:sites.append(f'native 0x{pc:x}\n')
 s=next(s for s in segments if s[0]==1 and s[2]<=0x1fccf8<0x1fce50<=s[2]+s[4])
-for exit in (0x1fcdf4,0x1fce48):
+for exit in (0x1fce34,0x1fce48):
     at=s[1]+exit-s[2];fixture[at:at+8]=(0x03e00008).to_bytes(4,'little')+bytes(4)
-angular_sites=[pc for pc in range(0x1fcd08,0x1fcdf4,4)
+angular_sites=[pc for pc in range(0x1fcd08,0x1fce34,4)
                if int.from_bytes(data[s[1]+pc-s[2]:s[1]+pc-s[2]+4],'little')>>26 in (0x12,0x36,0x3e)]
-if len(angular_sites)!=50:raise ValueError('angular cosine/quaternion vector site coverage mismatch')
+if len(angular_sites)!=63:raise ValueError('angular cosine/quaternion/composition vector site coverage mismatch')
 for pc in angular_sites:
-    if a.variant=='reference' and pc not in (0x1fcdac,0x1fcdf0):
+    if a.variant=='reference' and pc not in (0x1fcdac,0x1fcdf0,0x1fce30):
         at=s[1]+pc-s[2];fixture[at:at+4]=bytes(4)
     else:sites.append(f'native 0x{pc:x}\n')
 bound={int(row.split()[1],16) for row in sites if row.startswith('native ')}

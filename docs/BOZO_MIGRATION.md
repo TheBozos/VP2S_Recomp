@@ -12,6 +12,24 @@ The earlier VP2S face/shading and general brightness comparisons remain open.
 
 ## Build and evidence
 
+### Native constraint/joint quaternion composition (2026-11-08)
+
+`0x1fcdfc..0x1fce30` now snapshots both full quaternion records and computes
+correction times joint, retaining the original XYZ cross/sum ordering and
+W subtraction order Z, Y, X. All four components participate; no normalization
+or inherited component is introduced. Original publication/callback code stays.
+Unqualified inputs, ABI mismatches and conservative overflowing bounds reject.
+
+512 direct CPU/RAM/FP alias cases cover four modes, ordinary/scratch records,
+identical inputs and RAM aliases, tiny products and signed zeros. The exact
+noncommuting sample `(1,2,3,4)*(5,6,7,8)=(24,48,48,-6)` checks orientation and
+computed W. The 512 angular caller fixtures now continue through composition
+when their original scalar branch selects rotation; both construction and
+composition reach assertions pass. Private exits bound these fixtures before
+the callback, so its independent behavior remains outside this increment.
+All 58 rebuilt suites pass (`joint-quaternion-all-tests.log`, 195.98 seconds).
+Actual New Game advances to `0x214ea8`, the inverse-cosine helper. Logun is open.
+
 ### Native angular-constraint quaternion construction (2026-11-08)
 
 The following `0x1fcdb0..0x1fcdf0` operation now constructs its full quaternion

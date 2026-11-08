@@ -78,6 +78,20 @@ AngularDirections angularDirections(Runtime *rt,R5900Context *c){
     result.cosine=pairSum(pairSum(pairProduct(result.first[0],result.second[0]),pairProduct(result.first[1],result.second[1])),pairProduct(result.first[2],result.second[2]));
     return result;
 }
+std::array<float,4> composeConstraintQuaternions(const std::array<float,4> &a,const std::array<float,4> &b){
+    for(float v:a)pairQualified(v);for(float v:b)pairQualified(v);
+    {music::CodecRounding validation;const double limit=std::numeric_limits<float>::max();double scalarBound=0;
+        for(unsigned i=0;i<4;++i)scalarBound+=std::abs(double(a[i])*b[i]);
+        if(scalarBound>limit)throw std::runtime_error("joint quaternion scalar overflow");
+        for(unsigned i=0;i<3;++i){const auto j=(i+1)%3,k=(i+2)%3;
+            const double bound=std::abs(double(b[i])*a[3])+std::abs(double(a[i])*b[3])+std::abs(double(a[j])*b[k])+std::abs(double(b[j])*a[k]);
+            if(bound>limit)throw std::runtime_error("joint quaternion vector overflow");}}
+    float products[4];for(unsigned i=0;i<4;++i)products[i]=pairProduct(a[i],b[i]);std::array<float,4> result;
+    for(unsigned i=0;i<3;++i){const auto j=(i+1)%3,k=(i+2)%3;
+        const auto cross=pairSum(pairProduct(a[j],b[k]),-pairProduct(b[j],a[k]));
+        const auto base=pairSum(pairProduct(b[i],a[3]),pairProduct(a[i],b[3]));result[i]=pairSum(base,pairProduct(cross,1.f));}
+    result[3]=pairSum(pairSum(pairSum(products[3],-products[2]),-products[1]),-products[0]);return result;
+}
 }
 void NativeMotion::prepare(uint32_t frame,uint32_t object,std::array<uint32_t,4> position){
     if(!updates.emplace(frame,Update{object,position}).second)throw std::runtime_error("native motion update repeats its frame");
@@ -94,6 +108,13 @@ bool nativeMathInstruction(uint8_t *,R5900Context *c,Runtime *rt,uint32_t pc){
     // obsolete vector-register initialization publishes no game data. Remaining
     // unported consumers still fail at their own explicit native boundaries.
     if(pc==0x1fcb7c)return true;
+    if(pc==0x1fcdfc || pc==0x1fce00 || pc==0x1fce04 || (pc>=0x1fce0c && pc<=0x1fce2c && !(pc&3)))return true;
+    if(pc==0x1fce30){
+        const auto destination=c->r[29].uw[0]+0x130,source=c->r[17].uw[0]+0x30;
+        if(c->r[2].uw[0]!=destination || c->r[3].uw[0]!=source)throw std::runtime_error("joint quaternion composition record mismatch");
+        auto *out=record(rt,destination,16);std::array<float,4> a,b;std::memcpy(a.data(),out,16);std::memcpy(b.data(),record(rt,source,16),16);
+        const auto result=composeConstraintQuaternions(a,b);std::memcpy(out,result.data(),16);return true;
+    }
     if((pc>=0x1fcd08 && pc<=0x1fcd5c && !(pc&3)) ||
        (pc>=0x1fcd6c && pc<=0x1fcda4 && !(pc&3)))return true;
     if(pc==0x1fcdac){

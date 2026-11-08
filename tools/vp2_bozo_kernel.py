@@ -331,6 +331,7 @@ def overlay_adaptations(name,data):
                                (0x446520,0x446b8c,'c8c6018c966aec266f7ece12732d59dc2d5d132e3fc71fd4361046033ee154b1'),
                                (0x408e90,0x4095d8,'65e31072aaf7deec4ca8c5bde663e26b8e000e79f634d8a321bd254404d7b0f0'),
                                (0x40a8b0,0x40b07c,'cd09fe7920018dacc97ec1192c1ee41b355a7e3afdb5d025f439d0a77c1676c3'),
+                               (0x420ca0,0x4210c4,'b92572ee6121f449ec4445f9874096b68fbda868dee7bcbdf08a28c7d1664037'),
                                (0x3e7e94,0x3e80f0,'9d7958bae8751020c5857db7a226947e203b17a7434cd0b937267dd3da47bed2'),
                                (0x3d7708,0x3d77cc,'435926535d852e22f0b20b9027f65fd6674acc7a63b6aaedb31e59c63a1cd1c8'),
                                (0x3d5670,0x3d57ec,'250a2389769015fbda23859f5082b6f69031a706af85f263b765f34130611ecc'),
@@ -363,6 +364,12 @@ def overlay_adaptations(name,data):
         # in the update loop. Its old timer0 HBLANK setup/reset owns no native
         # counter; neither write produces a result or completion to replace.
         return ('003d9238 ac220010 00000000\n'
+                # Animation precaching keeps its original 128-sample bound,
+                # model callbacks and completion. Its raster-time yield has
+                # no native clock or hardware value to substitute.
+                '00420ed8 0c04343c 00000000\n'
+                '00420ee0 3c010001 10000013\n'
+                '00420ee4 24060002 00000000\n'
                 '003d95b0 ac200000 00000000\n'
                 '003d5694 0c04896e 00000000\n'
                 '003d5794 0c048afe 00000000\n'

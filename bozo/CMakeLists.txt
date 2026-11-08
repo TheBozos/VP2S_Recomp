@@ -734,6 +734,18 @@ if(VP2S_BOZO_CODE)
     target_link_options(vp2s-bozo-dof-matrix-check PRIVATE -static)
   endif()
   add_test(NAME vp2s-bozo-dof-matrix COMMAND vp2s-bozo-dof-matrix-check)
+  set(PRECACHE_DIR "${CMAKE_CURRENT_BINARY_DIR}/precache-reference")
+  add_custom_command(OUTPUT "${PRECACHE_DIR}/precache_000.cpp" "${PRECACHE_DIR}/precache_table.cpp" "${PRECACHE_DIR}/precache_functions.h"
+    COMMAND ${Python3_EXECUTABLE} "${VP2S_ROOT}/tools/vp2_bozo_precache_fixture.py" "${VP2S_BOZO_DATA}/images/mod003.elf" "${PRECACHE_DIR}" --build "${VP2S_BOZO_DATA}/.."
+    COMMAND $<TARGET_FILE:bozo-recomp> "${PRECACHE_DIR}/fixture.elf" "${PRECACHE_DIR}" --prefix precache --symbol-prefix precache_ --files 1 --externals "${PRECACHE_DIR}/externals.txt" --patches "${PRECACHE_DIR}/patches.txt" --no-comments
+    DEPENDS bozo-recomp "${VP2S_ROOT}/tools/vp2_bozo_precache_fixture.py" "${VP2S_ROOT}/tools/vp2_bozo_kernel.py" "${VP2S_BOZO_DATA}/images/mod003.elf")
+  add_executable(vp2s-bozo-precache-check "${VP2S_ROOT}/tests/bozo_precache_main.cpp" "${PRECACHE_DIR}/precache_000.cpp" "${PRECACHE_DIR}/precache_table.cpp")
+  target_include_directories(vp2s-bozo-precache-check PRIVATE "${PRECACHE_DIR}")
+  target_link_libraries(vp2s-bozo-precache-check PRIVATE vp2s_bozo_kernel)
+  if(MINGW)
+    target_link_options(vp2s-bozo-precache-check PRIVATE -static)
+  endif()
+  add_test(NAME vp2s-bozo-precache COMMAND vp2s-bozo-precache-check)
   foreach(VARIANT original adapted)
     set(HERMITE_DIR "${CMAKE_CURRENT_BINARY_DIR}/hermite-reference/${VARIANT}")
     add_custom_command(OUTPUT "${HERMITE_DIR}/hermite_${VARIANT}_000.cpp" "${HERMITE_DIR}/hermite_${VARIANT}_table.cpp" "${HERMITE_DIR}/hermite_${VARIANT}_functions.h"

@@ -12,6 +12,29 @@ The earlier VP2S face/shading and general brightness comparisons remain open.
 
 ## Build and evidence
 
+### Animation precache without raster pacing (2026-11-08)
+
+Mod003 `0x420ca0` precaches animation samples through the original model and
+child callbacks. Its hardware timer read at `0x420efc`, reached after each sample,
+only limits work to a raster deadline. The native route bypasses that obsolete
+yield and its unused graphics-parameter lookup, retaining the original software
+bound of 128 samples, eligibility checks, per-four-sample scene callback, cursor
+start, completion flags, UI predicate and teardown. No counter value or device
+completion is fabricated. A complete source-range guard protects the change.
+
+The complete generated owner fixture rejects all device access. It qualifies
+256 callers, 5,184 animation samples and 15,864 ordered callbacks against an
+independent expected sequence and whole-RAM result, including exact original
+stack spills, four rounding modes, scratch/ordinary stacks, paused callbacks,
+delayed/missing inputs, precompleted state and both child-update branches.
+`precache-tests.log` passes in 2.10 s. Source/word-mutation checks pass in
+36.96 s (`precache-source-tests.log`); protected startup also passes.
+
+The actual route passes the raster boundary and reaches the full inverse-matrix
+owner `0x216f50`, first unported site `0x216f54` (`precache-route.log`). Its
+remaining vector work builds pivot-selection weights before original scalar
+elimination. Field/Logun remains open.
+
 ### Native screen-feedback image (2026-11-08)
 
 Class `0x152e80` retains its full original `0x205ab0` scalar builder, dimension

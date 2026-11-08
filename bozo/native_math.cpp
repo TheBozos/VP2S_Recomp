@@ -523,15 +523,18 @@ std::array<uint32_t,4> NativeMotion::finish(uint32_t frame,uint32_t object){
 }
 bool nativeMathInstruction(uint8_t *,R5900Context *c,Runtime *rt,uint32_t pc){
     if(nativeParticleCallbackInstruction(c,rt,pc))return true;
-    if(pc>=0x22f9e0 && pc<=0x22fa38 && !(pc&3)){
-        if(!c || c->pc!=0x22f9c0 || c->r[6].uw[0]!=c->r[29].uw[0] || c->r[7].uw[0]!=c->r[4].uw[0]+0x90 || c->r[5].uw[0]!=c->r[4].uw[0]+0xa70)
-            throw std::runtime_error("native particle sphere getter escaped its scalar records");
-        if(pc==0x22fa38){
-            float rows[3][4],point[4];std::memcpy(rows,record(rt,c->r[7].uw[0],48),48);std::memcpy(point,record(rt,c->r[6].uw[0],16),16);
+    const bool particleSphere=pc>=0x22f9e0 && pc<=0x22fa38 && !(pc&3),originSphere=pc>=0x2482b4 && pc<=0x24830c && !(pc&3);
+    if(particleSphere || originSphere){
+        const unsigned pointReg=particleSphere?6:3,basisReg=particleSphere?7:5,outputReg=particleSphere?5:2;
+        if(!c || c->pc!=(particleSphere?0x22f9c0:0x248290) || c->r[pointReg].uw[0]!=c->r[29].uw[0] || c->r[basisReg].uw[0]!=c->r[4].uw[0]+0x90 || c->r[outputReg].uw[0]!=c->r[4].uw[0]+(particleSphere?0xa70:0x220))
+            throw std::runtime_error("native sphere getter escaped its scalar records");
+        if(pc==0x22fa38 || pc==0x24830c){
+            float rows[3][4],point[4];std::memcpy(rows,record(rt,c->r[basisReg].uw[0],48),48);std::memcpy(point,record(rt,c->r[pointReg].uw[0],16),16);
             for(auto &row:rows)for(float value:row){pairQualified(value);if(std::abs(value)>1.e8f)throw std::runtime_error("unqualified particle sphere basis");}
             for(unsigned i=0;i<3;++i){pairQualified(point[i]);if(std::abs(point[i])>1.e8f)throw std::runtime_error("unqualified particle sphere centre");}
             if(std::bit_cast<uint32_t>(point[3])!=0x3f800000)throw std::runtime_error("particle sphere getter lacks scalar homogeneous component");
-            auto *output=record(rt,c->r[5].uw[0],16);music::CodecRounding rounding;std::array<float,3> result;
+            if(originSphere)for(unsigned i=0;i<3;++i)if(std::bit_cast<uint32_t>(point[i]))throw std::runtime_error("origin sphere getter lacks original scalar zero centre");
+            auto *output=record(rt,c->r[outputReg].uw[0],16);music::CodecRounding rounding;std::array<float,3> result;
             constexpr unsigned order[3][4]={{0,1,2,3},{1,0,2,3},{2,1,0,3}};
             for(unsigned row=0;row<3;++row){float terms[4];for(unsigned i=0;i<4;++i)terms[i]=pairProduct(rows[row][i],point[i]);
                 result[row]=pairSum(pairSum(pairSum(terms[order[row][0]],terms[order[row][1]]),pairProduct(1.f,terms[order[row][2]])),pairProduct(1.f,terms[order[row][3]]));}

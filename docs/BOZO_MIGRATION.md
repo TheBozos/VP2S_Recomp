@@ -12,6 +12,23 @@ The earlier VP2S face/shading and general brightness comparisons remain open.
 
 ## Build and evidence
 
+### Origin sphere getter (2026-11-08)
+
+The 23 sites at `0x2482b4..0x24830c` now share the explicit three-row centre
+product with the particle getter. Its own scalar prologue must supply exactly
+`(0,0,0,1)`; its distinct output and following scalar radius copy remain intact.
+The unused fourth matrix row is not read numerically.
+
+The extended suite now covers 1,024 complete particle/origin getter CPU/RAM/FP
+pairs, 64 known identities and the earlier 512 bounded point branches: 66 total
+sites. Both getters retain independent integer products/sums, opaque unused
+rows/radius bit copies, four modes/FTZ/DAZ, RAM aliases, scratch and overlapping
+frames, plus mutation-free source/address/origin guards. Four rebuilt suites
+pass in 62.73 s (`origin-sphere-final-tests.log`). Actual protected
+`origin-sphere-route.log` passes both getters and next rejects a model with zero
+meshes at `0x239ff0`. Its precise record/provenance needs separating evidence;
+this is not yet admission of an empty model. Field/Logun remains open.
+
 ### Particle sphere getter (2026-11-08)
 
 The 23 `0x22f9e0..0x22fa38` sites now transform the original scalar-built centre

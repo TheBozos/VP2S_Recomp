@@ -16,13 +16,14 @@ struct Host:bozo::ee::Host,bozo::port::Host {
     bool nativeGraphics()const override{return true;}
     bool nativeInstruction(uint8_t *r,R5900Context *c,Runtime *rt,uint32_t pc)override{
         sites.insert(pc);if(!reference){check(vp2s::nativeMathInstruction(r,c,rt,pc));return true;}
-        if(pc==0x22fa38){
+        if(pc==0x22fa38 || pc==0x24830c){
+            const bool origin=pc==0x24830c;
             const auto fp=_mm_getcsr();_mm_setcsr((fp&~_MM_ROUND_MASK)|_MM_ROUND_TOWARD_ZERO);
-            uint32_t rows[3][4],point[4],out[3];std::memcpy(rows,rt->memory.hostPointer(c->r[7].uw[0],48),48);std::memcpy(point,rt->memory.hostPointer(c->r[6].uw[0],16),16);
+            uint32_t rows[3][4],point[4],out[3];std::memcpy(rows,rt->memory.hostPointer(c->r[origin?5:7].uw[0],48),48);std::memcpy(point,rt->memory.hostPointer(c->r[origin?3:6].uw[0],16),16);
             constexpr unsigned order[3][4]={{0,1,2,3},{1,0,2,3},{2,1,0,3}};
             for(unsigned row=0;row<3;++row){uint32_t terms[4];for(unsigned i=0;i<4;++i)terms[i]=vp2s::test::product(rows[row][i],point[i]);
                 out[row]=vp2s::test::sum(vp2s::test::sum(vp2s::test::sum(terms[order[row][0]],terms[order[row][1]]),vp2s::test::product(0x3f800000,terms[order[row][2]])),vp2s::test::product(0x3f800000,terms[order[row][3]]));}
-            std::memcpy(rt->memory.hostPointer(c->r[5].uw[0],12),out,12);_mm_setcsr(fp);
+            std::memcpy(rt->memory.hostPointer(c->r[origin?2:5].uw[0],12),out,12);_mm_setcsr(fp);
         }
         if(pc==0x227d9c || pc==0x227e0c){
             const auto stack=c->r[29].uw[0],matrix=pc==0x227d9c?stack+0x450:c->r[19].uw[0];
@@ -71,25 +72,27 @@ int main(){try{
             for(unsigned i=0;i<3;++i)check(out[i]==point[i]+(offset?displacement[i]:0));check(out[3]==1);++known;}
     }
     unsigned spheres=0,knownSpheres=0;
-    for(unsigned mode:{_MM_ROUND_NEAREST,_MM_ROUND_DOWN,_MM_ROUND_UP,_MM_ROUND_TOWARD_ZERO})for(unsigned seed=0;seed<128;++seed){
+    for(bool origin:{false,true})for(unsigned mode:{_MM_ROUND_NEAREST,_MM_ROUND_DOWN,_MM_ROUND_UP,_MM_ROUND_TOWARD_ZERO})for(unsigned seed=0;seed<128;++seed){
         auto &x=a.runtime(),&y=b.runtime();std::memset(x.memory.flat(),0x51,bozo::kFlatBytes);
         const uint32_t aliases[]={0,0x20000000,0x30000000,0x80000000,0xa0000000},object=aliases[(seed/8)%5]|0x180000;
-        uint32_t frame=seed&2?0x70003e00:0x1ffe000;if(seed&32)frame=object+0x90;if(seed&64)frame=object+0xa60;
+        uint32_t frame=seed&2?0x70003e00:0x1ffe000;if(seed&32)frame=object+0x90;if(seed&64)frame=object+(origin?0x220:0xa60);
         const bool identity=seed%8==0;float basis[4][4],centre[4];const uint32_t opaque[]={0x7fc01234,0x7fa01234,0x7f800000,1};
         for(unsigned row=0;row<3;++row)for(unsigned i=0;i<4;++i)basis[row][i]=identity?float(row==i):float(int((seed+row*17+i*11)%41)-20)/16;
         for(unsigned i=0;i<4;++i)basis[3][i]=std::bit_cast<float>(opaque[(seed+i)%4]);
         for(unsigned i=0;i<3;++i)centre[i]=float(int((seed+i*7)%23)-11)/8;centre[3]=std::bit_cast<float>(opaque[(seed/8)%4]);
         std::memcpy(x.memory.hostPointer(object+0x90,64),basis,64);std::memcpy(x.memory.hostPointer(object+0xa60,16),centre,16);
+        if(origin)std::memcpy(x.memory.hostPointer(object+0x248,4),opaque+(seed/8)%4,4);
         std::memcpy(y.memory.flat(),x.memory.flat(),bozo::kFlatBytes);R5900Context p{};
         for(unsigned i=1;i<32;++i){p.r[i].ud[0]=seed*32+i;p.r[i].ud[1]=~p.r[i].ud[0];p.f[i]=float(i)/8;}
         p.r[4].ud[0]=object;p.r[29].ud[0]=frame+16;p.r[31].ud[0]=0x170000;
         std::memset(p.vu0_vf,0x6a,sizeof(p.vu0_vf));std::memset(&p.vu0_acc,0x65,sizeof(p.vu0_acc));p.vu0_status=0x1234;auto q=p;
         const auto control=(saved&~(_MM_ROUND_MASK|0x8040|0x3f))|mode|(seed&2?0x8040:0);_mm_setcsr(control);
-        x.functions.generated(0x22f9c0)(x.memory.flat(),&p,&x);const auto fp=_mm_getcsr();_mm_setcsr(control);
-        y.functions.generated(0x22f9c0)(y.memory.flat(),&q,&y);check(_mm_getcsr()==fp);_mm_setcsr(saved);p.cycleLimit=q.cycleLimit;
-        check(p.pc==0x170000 && q.r[2].uw[0]==object+0xa70 && !std::memcmp(&p,&q,sizeof(p)) && !std::memcmp(x.memory.flat(),y.memory.flat(),bozo::kFlatBytes));
-        uint32_t radius;std::memcpy(&radius,y.memory.hostPointer(object+0xa7c,4),4);check(radius==(seed&64?0x3f800000:opaque[(seed/8)%4]));
-        if(identity && !(seed&32)){float actual[3];std::memcpy(actual,y.memory.hostPointer(object+0xa70,12),12);for(unsigned i=0;i<3;++i)check(actual[i]==centre[i]);++knownSpheres;}++spheres;
+        const uint32_t entry=origin?0x248290:0x22f9c0,output=object+(origin?0x220:0xa70);
+        x.functions.generated(entry)(x.memory.flat(),&p,&x);const auto fp=_mm_getcsr();_mm_setcsr(control);
+        y.functions.generated(entry)(y.memory.flat(),&q,&y);check(_mm_getcsr()==fp);_mm_setcsr(saved);p.cycleLimit=q.cycleLimit;
+        check(p.pc==0x170000 && q.r[2].uw[0]==output && !std::memcmp(&p,&q,sizeof(p)) && !std::memcmp(x.memory.flat(),y.memory.flat(),bozo::kFlatBytes));
+        uint32_t radius;std::memcpy(&radius,y.memory.hostPointer(output+12,4),4);check(radius==(!origin && (seed&64)?0x3f800000:opaque[(seed/8)%4]));
+        if(identity && !(seed&32)){float actual[3];std::memcpy(actual,y.memory.hostPointer(output,12),12);for(unsigned i=0;i<3;++i)check(actual[i]==(origin?0:centre[i]));++knownSpheres;}++spheres;
     }
     auto &rt=b.runtime();constexpr uint32_t stack=0x1ffe000,matrix=0x180000;float identity[16]={1,0,0,0,0,1,0,0,0,0,1,0,0,0,0,1},point[4]={1,2,3,1};
     for(unsigned which=0;which<8;++which){std::memset(rt.memory.flat(),0,bozo::kFlatBytes);std::memcpy(rt.memory.hostPointer(matrix,64),identity,64);std::memcpy(rt.memory.hostPointer(stack+0x390,16),point,16);
@@ -101,14 +104,16 @@ int main(){try{
         const auto fp=_mm_getcsr();try{vp2s::nativeMathInstruction(rt.memory.flat(),&c,&rt,0x227e0c);}catch(const std::runtime_error &){rejected=true;}
         check(rejected && _mm_getcsr()==fp && !std::memcmp(&c,&before,sizeof(c)) && !std::memcmp(bytes.data(),rt.memory.flat(),bytes.size()));
     }
-    for(unsigned which=0;which<8;++which){std::memset(rt.memory.flat(),0,bozo::kFlatBytes);std::memcpy(rt.memory.hostPointer(matrix+0x90,64),identity,64);std::memcpy(rt.memory.hostPointer(stack,16),point,16);
-        R5900Context c{};c.pc=0x22f9c0;c.r[4].uw[0]=matrix;c.r[5].uw[0]=matrix+0xa70;c.r[6].uw[0]=stack;c.r[7].uw[0]=matrix+0x90;c.r[29].uw[0]=stack;
+    for(bool origin:{false,true})for(unsigned which=0;which<(origin?9u:8u);++which){std::memset(rt.memory.flat(),0,bozo::kFlatBytes);std::memcpy(rt.memory.hostPointer(matrix+0x90,64),identity,64);std::memcpy(rt.memory.hostPointer(stack,16),point,16);
+        if(origin)std::memset(rt.memory.hostPointer(stack,12),0,12);
+        const unsigned outputReg=origin?2:5,pointReg=origin?3:6,basisReg=origin?5:7;
+        R5900Context c{};c.pc=origin?0x248290:0x22f9c0;c.r[4].uw[0]=matrix;c.r[outputReg].uw[0]=matrix+(origin?0x220:0xa70);c.r[pointReg].uw[0]=stack;c.r[basisReg].uw[0]=matrix+0x90;c.r[29].uw[0]=stack;
         if(which<3){const uint32_t bad[]={1,0x7fa01234,0x71800000};std::memcpy(rt.memory.hostPointer(matrix+0x90,4),bad+which,4);}
-        else if(which==3)c.pc=0x170000;else if(which==4)c.r[5].uw[0]+=16;else if(which==5)c.r[6].uw[0]+=16;else if(which==6)c.r[7].uw[0]+=16;else {const float bad=2;std::memcpy(rt.memory.hostPointer(stack+12,4),&bad,4);}
+        else if(which==3)c.pc=0x170000;else if(which==4)c.r[outputReg].uw[0]+=16;else if(which==5)c.r[pointReg].uw[0]+=16;else if(which==6)c.r[basisReg].uw[0]+=16;else {const float bad=2;std::memcpy(rt.memory.hostPointer(stack+(which==7?12:0),4),&bad,4);}
         const auto before=c;const auto fp=_mm_getcsr();std::vector<uint8_t> ram(rt.memory.flat(),rt.memory.flat()+bozo::kFlatBytes);bool rejected=false;
-        try{vp2s::nativeMathInstruction(rt.memory.flat(),&c,&rt,0x22fa38);}catch(const std::runtime_error &){rejected=true;}
+        try{vp2s::nativeMathInstruction(rt.memory.flat(),&c,&rt,origin?0x24830c:0x22fa38);}catch(const std::runtime_error &){rejected=true;}
         check(rejected && _mm_getcsr()==fp && !std::memcmp(&c,&before,sizeof(c)) && !std::memcmp(ram.data(),rt.memory.flat(),ram.size()));
     }
-    _mm_setcsr(saved);check(old.sites==now.sites && now.sites.size()==43);
-    std::printf("%u bounded point-transform branches (%u known), %u complete particle sphere getters (%u known),43 sites; scalar consumers/radius copy, integer oracle, CPU/RAM/FP, opaque unused row, four modes, aliases and mutation-free guards passed\n",callers,known,spheres,knownSpheres);return 0;
+    _mm_setcsr(saved);check(old.sites==now.sites && now.sites.size()==66);
+    std::printf("%u bounded point-transform branches (%u known), %u complete particle/origin sphere getters (%u known),66 sites; scalar consumers/radius copy, integer oracle, CPU/RAM/FP, opaque unused row, four modes, aliases and mutation-free guards passed\n",callers,known,spheres,knownSpheres);return 0;
 }catch(const std::exception &e){std::fprintf(stderr,"%s\n",e.what());return 1;}}

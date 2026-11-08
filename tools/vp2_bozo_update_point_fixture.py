@@ -15,6 +15,6 @@ s=next(s for s in segments if s[0]==1 and s[2]<=0x227d58<0x227e18<=s[2]+s[4]);at
 actual=[pc for pc in range(0x227d58,0x227e10,4) if int.from_bytes(data[s[1]+pc-s[2]:s[1]+pc-s[2]+4],'little')>>26 in (0x12,0x36,0x3e)]
 if actual!=list(OBJECT_UPDATE_POINT_SITES):raise ValueError('object update point site coverage mismatch')
 changed=bytearray(data);struct.pack_into('<2I',changed,at,0x03e00008,0)
-fixture,_=prepare(changed,[dict(Name='object_update_point',Start='0x227d58',End='0x227e18'),dict(Name='particle_sphere_getter',Start='0x22f9c0',End='0x22fa50')],{})
+fixture,_=prepare(changed,[dict(Name='object_update_point',Start='0x227d58',End='0x227e18'),dict(Name='particle_sphere_getter',Start='0x22f9c0',End='0x22fa50'),dict(Name='origin_sphere_getter',Start='0x248290',End='0x248324')],{})
 a.out.mkdir(parents=True,exist_ok=True);(a.out/'fixture.elf').write_bytes(fixture)
-(a.out/'externals.txt').write_text(''.join(f'native 0x{pc:x}\n' for pc in (*OBJECT_UPDATE_POINT_SITES,*range(0x22f9e0,0x22fa3c,4))))
+(a.out/'externals.txt').write_text(''.join(f'native 0x{pc:x}\n' for pc in (*OBJECT_UPDATE_POINT_SITES,*range(0x22f9e0,0x22fa3c,4),*range(0x2482b4,0x248310,4))))

@@ -25,12 +25,34 @@ mode 0: no job, no busy flag; the game's mode byte (+51) records the
 selection. Resource and table entry are fingerprinted; mode 1 at the
 unconditional selector `29e160`, and modes 2+, still reject.
 
-Next boundary: `21927c` writes `D9_SADR` (`0x1000d480`). `2188d0` streams
-model data into three 0x14d0-byte scratchpad buffers at `70000180` with a
-chained toSPR transfer (TADR/SADR from the model's `+68` table), polls
-`D_STAT` bits 8/9, runs per-element callbacks (vtable `+10`) on each buffer
-and streams results back with fromSPR. Porting it needs native ownership of
-those records (callbacks reading/writing ordinary memory), not a DMA engine.
+Next boundary: `21927c` writes `D9_SADR` (`0x1000d480`). Findings from a
+boundary RAM capture (seed 1, first field):
+
+- `2188d0` streams per-object "animated UV" groups. Object `r23` (base type
+  `0x152060`, class not yet named) has one chunk (`+84`); its table (`+68`,
+  mode `+8a`) entry holds a group count (3), a chain at `11a8440` and SPR base
+  `70000180`. The chain is pairs of `CNT 1` whose inline quadword is itself a
+  destination tag (e.g. `1000000b 011a9fb0`: 11 QW back to `11a9fb0`) and
+  `REF n` from the model file's static UVs (`cfda40`, `cfde20`, `cfe1b0`),
+  then an END tag and per-group descriptors (`cfee10..`: count 43/41/6, group
+  index, `0x40`, index bytes).
+- The destinations are the UV words right after `UNPACK V2-16` codes
+  (`752b801f`) inside the object's VU1 packet: the only consumer is that
+  packet's mesh draw, which is not native yet.
+- Group records (`r23+70`, 0x5c bytes) hold the count, the SPR data base
+  (`+0c`) and descriptor pointers (`+1c+4i`).
+- The single element (`0xcbb240`, class `0x1591b0`) callback `29cfe0`
+  pipelines common-math-mode-1 micro program `0xc80` over the listed words:
+  `uv = ftoi12(itof12(uv) + scroll.xy)` with `scroll = element+40`, then packs
+  the halves back (`pinteh`). So mode 1 *is* used, via this vtable callback
+  (the static call-graph scan missed indirect calls).
+- Results return to the packet with fromSPR (destination chain); `D_STAT`
+  bits 8/9 are polled; three 0x14d0-byte SPR buffers rotate.
+
+A native-records port therefore needs the semantic owner of these groups (the
+loader that builds the chain from model data was not found yet; `200840`/
+`200e60` are packet builders, not it) and a native consumer: the scrolled UVs
+only matter to the not-yet-native draw of this object's packets.
 
 ### Object overlap, camera projection, composition, contact (2026-11-08)
 

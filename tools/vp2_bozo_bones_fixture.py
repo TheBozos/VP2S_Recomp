@@ -31,7 +31,8 @@ fixture,_=prepare(data,[dict(Name='bone_loop',Start='0x2371dc',End='0x2372d8'),
                        dict(Name='transposed_inverse',Start='0x216d60',End='0x216e3c'),
                        dict(Name='angular_cosine',Start='0x1fccf8',End='0x1fce3c'),
                        dict(Name='angular_aligned_exit',Start='0x1fce48',End='0x1fce50'),
-                       dict(Name='velocity_loop',Start='0x1fe8a8',End='0x1fe964')],{})
+                       dict(Name='velocity_loop',Start='0x1fe8a8',End='0x1fe964'),
+                       dict(Name='soft_position_pair',Start='0x1fc6d0',End='0x1fc858')],{})
 fixture=bytearray(fixture);_,segments,_=elf_parts(fixture)
 s=next(s for s in segments if s[0]==1 and s[2]<=0x2371dc<0x2372d8<=s[2]+s[4])
 at=s[1]+0x2372d0-s[2];fixture[at:at+8]=(0x03e00008).to_bytes(4,'little')+bytes(4)
@@ -110,6 +111,13 @@ actual={pc for pc in range(0x1fc860,0x1fc9e0,4)
 if actual!=set(pair_sites):raise ValueError('position-pair vector site coverage mismatch')
 for pc in pair_sites:
     if a.variant=='reference' and pc not in (0x1fc908,0x1fc984,0x1fc9cc):
+        at=s[1]+pc-s[2];fixture[at:at+4]=bytes(4)
+    else:sites.append(f'native 0x{pc:x}\n')
+soft_sites=[pc for pc in range(0x1fc6d0,0x1fc858,4)
+            if int.from_bytes(data[s[1]+pc-s[2]:s[1]+pc-s[2]+4],'little')>>26 in (0x12,0x36,0x3e)]
+if len(soft_sites)!=30:raise ValueError('soft position-pair vector site coverage mismatch')
+for pc in soft_sites:
+    if a.variant=='reference' and pc not in (0x1fc79c,0x1fc7f8,0x1fc844):
         at=s[1]+pc-s[2];fixture[at:at+4]=bytes(4)
     else:sites.append(f'native 0x{pc:x}\n')
 for lo,final in ((0x1fbe6c,0x1fbe90),(0x1fbf78,0x1fbf9c)):

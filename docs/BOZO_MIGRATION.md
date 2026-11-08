@@ -12,6 +12,22 @@ The earlier VP2S face/shading and general brightness comparisons remain open.
 
 ## Build and evidence
 
+### Native stiffness/timestep position-pair response (2026-11-08)
+
+`0x1fc6d0` now shares the qualified typed pair geometry and simultaneous
+position publication with the hard-pair response. Its original scalar CPU
+code still reads target length, multiplies gain by timestep and selects the
+fixed, symmetric or weighted correction. XYZ arithmetic consumes those actual
+scalar weights; both position W words remain exact. Dead distance YZW stores
+retire only with the same frame/position/constraint overlap rejection.
+
+512 complete soft-pair CPU/RAM/FP cases join the 512 hard-pair cases across
+four modes, fixed/weighted paths, aliases, zero distance and zero/negative
+gain/timestep. Source-word mutation, executable-vector completeness and startup
+checks pass (three suites, 130.54 seconds, `soft-pair-tests.log`). Actual New
+Game advances to `0x1fde1c`, the collision-query geometry preparation in the
+physics caller. Engine unchanged; Logun remains open.
+
 ### Native velocity record update (2026-11-08)
 
 The `0x1fe8a8..0x1fe958` loop now computes its XYZ velocity from the two

@@ -218,13 +218,17 @@ bool nativeMathInstruction(uint8_t *,R5900Context *c,Runtime *rt,uint32_t pc){
         std::memcpy(translationRecord,&result,16);return true;
     }
     switch(pc){
+    case 0x1fc6dc:case 0x1fc6e0:case 0x1fc708:case 0x1fc70c:case 0x1fc714:case 0x1fc71c:case 0x1fc720:case 0x1fc760:
+    case 0x1fc78c:case 0x1fc790:case 0x1fc794:case 0x1fc7a0:case 0x1fc7bc:case 0x1fc7c4:case 0x1fc7e4:case 0x1fc7e8:
+    case 0x1fc7ec:case 0x1fc7f0:case 0x1fc7f4:case 0x1fc800:case 0x1fc824:case 0x1fc830:case 0x1fc834:case 0x1fc838:
+    case 0x1fc83c:case 0x1fc840:case 0x1fc848:return true;
     case 0x1fc86c:case 0x1fc870:case 0x1fc898:case 0x1fc8a0:case 0x1fc8a4:case 0x1fc8a8:case 0x1fc8ac:case 0x1fc8b4:
     case 0x1fc8f8:case 0x1fc8fc:case 0x1fc900:case 0x1fc90c:case 0x1fc948:case 0x1fc950:case 0x1fc970:case 0x1fc974:
     case 0x1fc978:case 0x1fc97c:case 0x1fc980:case 0x1fc98c:case 0x1fc9ac:case 0x1fc9b8:case 0x1fc9bc:case 0x1fc9c0:
     case 0x1fc9c4:case 0x1fc9c8:case 0x1fc9d0:return true;
     default:break;
     }
-    if(pc==0x1fc908){
+    if(pc==0x1fc908 || pc==0x1fc79c){
         const auto frame=c->r[29].uw[0];auto *stack=record(rt,frame,16);
         if(c->r[3].uw[0]!=frame)throw std::runtime_error("constrained-position distance destination mismatch");
         auto *first=record(rt,c->r[4].uw[0]+0x30,16),*second=record(rt,c->r[6].uw[0]+0x30,16),*constraint=record(rt,c->r[5].uw[0],0x30);
@@ -234,12 +238,12 @@ bool nativeMathInstruction(uint8_t *,R5900Context *c,Runtime *rt,uint32_t pc){
         // aliases that could make those retired stores observable reject above.
         std::memcpy(stack,&geometry.distance,4);return true;
     }
-    if(pc==0x1fc984 || pc==0x1fc9cc){
+    if(pc==0x1fc984 || pc==0x1fc9cc || pc==0x1fc7f8 || pc==0x1fc844){
         auto *first=record(rt,c->r[5].uw[0],16),*second=record(rt,c->r[4].uw[0],16),*frame=record(rt,c->r[29].uw[0],16);
         if(c->r[4].uw[0]!=c->r[6].uw[0]+0x30)throw std::runtime_error("constrained-position output record mismatch");
         separatePairFrame(frame,first,16);separatePairFrame(frame,second,16);
         float a[4],b[4];std::memcpy(a,first,16);std::memcpy(b,second,16);const auto geometry=positionPairGeometry(a,b);
-        const float firstWeight=pc==0x1fc984?c->f[0]:c->f[1],secondWeight=c->f[0];pairQualified(firstWeight);pairQualified(secondWeight);
+        const float firstWeight=pc==0x1fc984 || pc==0x1fc7f8?c->f[0]:c->f[1],secondWeight=c->f[0];pairQualified(firstWeight);pairQualified(secondWeight);
         volatile float inverse=geometry.distance==0?std::numeric_limits<float>::max():1.f/geometry.distance;
         float direction[3];for(unsigned i=0;i<3;++i)direction[i]=pairProduct(geometry.difference[i],pairNormal(inverse));
         {music::CodecRounding validation;const double limit=std::numeric_limits<float>::max();

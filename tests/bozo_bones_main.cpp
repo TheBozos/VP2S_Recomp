@@ -135,15 +135,16 @@ struct Host:bozo::ee::Host,bozo::port::Host,vp2s::MotionOwner{
             std::memcpy(rt->memory.hostPointer(c->r[29].uw[0],16),out,16);return true;
         }
         if(pc==0x1fbf9c)++boxPublications;
-        if(pc==0x1fc984)++symmetricPairs;if(pc==0x1fc9cc)++weightedPairs;
-        if(reference && (pc==0x1fc908 || pc==0x1fc984 || pc==0x1fc9cc)){
-            float a[4],b[4],delta[3];const auto first=pc==0x1fc908?c->r[4].uw[0]+0x30:c->r[5].uw[0],second=pc==0x1fc908?c->r[6].uw[0]+0x30:c->r[4].uw[0];
+        if(pc==0x1fc984 || pc==0x1fc7f8)++symmetricPairs;if(pc==0x1fc9cc || pc==0x1fc844)++weightedPairs;
+        if(reference && (pc==0x1fc908 || pc==0x1fc984 || pc==0x1fc9cc || pc==0x1fc79c || pc==0x1fc7f8 || pc==0x1fc844)){
+            const bool isDistance=pc==0x1fc908 || pc==0x1fc79c,symmetric=pc==0x1fc984 || pc==0x1fc7f8;
+            float a[4],b[4],delta[3];const auto first=isDistance?c->r[4].uw[0]+0x30:c->r[5].uw[0],second=isDistance?c->r[6].uw[0]+0x30:c->r[4].uw[0];
             std::memcpy(a,rt->memory.hostPointer(first,16),16);std::memcpy(b,rt->memory.hostPointer(second,16),16);const float distance=referencePairDistance(a,b,delta);
-            if(pc==0x1fc908){std::memcpy(rt->memory.hostPointer(c->r[29].uw[0],4),&distance,4);return true;}
+            if(pc==0x1fc908 || pc==0x1fc79c){std::memcpy(rt->memory.hostPointer(c->r[29].uw[0],4),&distance,4);return true;}
             const auto normal=[](float v){const auto bits=std::bit_cast<uint32_t>(v);return std::bit_cast<float>((bits&0x7f800000)?bits:(bits&0x80000000));};
             volatile float reciprocal=distance==0?std::numeric_limits<float>::max():1.f/distance;
             uint32_t out[2][4];std::memcpy(out[0],a,16);std::memcpy(out[1],b,16);
-            for(unsigned i=0;i<3;++i){volatile float direction=delta[i]*normal(reciprocal);volatile float firstDelta=normal(direction)*(pc==0x1fc984?c->f[0]:c->f[1]);
+            for(unsigned i=0;i<3;++i){volatile float direction=delta[i]*normal(reciprocal);volatile float firstDelta=normal(direction)*(symmetric?c->f[0]:c->f[1]);
                 volatile float secondDelta=normal(direction)*c->f[0];volatile float baseA=a[i]*1.f,baseB=b[i]*1.f;
                 volatile float resultA=normal(baseA)+normal(firstDelta),resultB=normal(baseB)-normal(secondDelta);
                 out[0][i]=std::bit_cast<uint32_t>(normal(resultA));out[1][i]=std::bit_cast<uint32_t>(normal(resultB));}
@@ -570,7 +571,7 @@ int main(){try{
         try{updates.finish(0x1fff000,0x180000);}catch(const std::runtime_error &){stale=true;}check(duplicate && wrong && stale && updates.outstanding()==0);
     }
     unsigned positionPairs=0,fixedPairs=0;h.symmetricPairs=h.weightedPairs=0;
-    for(unsigned mode:{_MM_ROUND_NEAREST,_MM_ROUND_DOWN,_MM_ROUND_UP,_MM_ROUND_TOWARD_ZERO})for(unsigned seed=0;seed<128;++seed){
+    for(uint32_t entry:{0x1fc860u,0x1fc6d0u})for(unsigned mode:{_MM_ROUND_NEAREST,_MM_ROUND_DOWN,_MM_ROUND_UP,_MM_ROUND_TOWARD_ZERO})for(unsigned seed=0;seed<128;++seed){
         auto &x=a.runtime(),&y=b.runtime();std::memset(x.memory.flat(),0x61,bozo::kFlatBytes);
         const uint32_t first=seed&1?0x70000100:0x180000,second=seed%8==4?first+16:seed%8==6?first:0x190000;
         const uint32_t constraint=(seed&32) && seed%16?first+16:0x1a0000,stack=seed&2?0x70003e00:0x1fff000;
@@ -581,13 +582,17 @@ int main(){try{
         put(x,constraint+0x28,std::bit_cast<uint32_t>(float(seed%9+1)));put(x,first+0x3c,0x7fc01234u);put(x,second+0x3c,0xff801234u);
         if(seed%16==0){for(unsigned i=0;i<3;++i){put(x,first+0x30+i*4,0u);put(x,second+0x30+i*4,i==0?0x41000000u:0u);}put(x,constraint+0x28,0x40800000u);}
         if(seed%16==8){for(unsigned i=0;i<3;++i){put(x,first+0x30+i*4,0u);put(x,second+0x30+i*4,0u);}}
+        if(entry==0x1fc6d0){const float gain=seed%16==0?1.f:seed%5==0?0.f:seed%5==1?.25f:seed%5==2?.5f:seed%5==3?1.5f:-.25f;
+            // This field can alias a point's otherwise inactive W. It is an
+            // active gain in this caller and must then contain a valid float.
+            put(x,constraint+0x2c,std::bit_cast<uint32_t>(gain));}
         const bool fixed=*x.memory.hostPointer(first,1)==1 && *x.memory.hostPointer(second,1)==1;
         std::memcpy(y.memory.flat(),x.memory.flat(),bozo::kFlatBytes);
         R5900Context p{};for(unsigned i=1;i<32;++i){p.r[i].ud[0]=seed*32+i;p.r[i].ud[1]=~p.r[i].ud[0];}
-        std::memset(p.vu0_vf,0x37,sizeof(p.vu0_vf));p.vu0_status=0x1234;p.r[4].ud[0]=first;p.r[5].ud[0]=constraint;p.r[6].ud[0]=second;p.r[29].ud[0]=stack;p.r[31].ud[0]=0x170000;auto q=p;
+        std::memset(p.vu0_vf,0x37,sizeof(p.vu0_vf));p.vu0_status=0x1234;p.r[4].ud[0]=first;p.r[5].ud[0]=constraint;p.r[6].ud[0]=second;p.r[29].ud[0]=stack;p.r[31].ud[0]=0x170000;p.f[12]=seed%16==0?1.f:seed&16?0.5f:seed&8?0.f:1.25f;auto q=p;
         const auto saved=_mm_getcsr(),control=(saved&~_MM_ROUND_MASK)|mode;_mm_setcsr(control);
-        h.reference=true;x.functions.generated(0x1fc860)(x.memory.flat(),&p,&x);const auto expectedFp=_mm_getcsr();_mm_setcsr(control);
-        h.reference=false;y.functions.generated(0x1fc860)(y.memory.flat(),&q,&y);check(_mm_getcsr()==expectedFp);_mm_setcsr(saved);
+        h.reference=true;x.functions.generated(entry)(x.memory.flat(),&p,&x);const auto expectedFp=_mm_getcsr();_mm_setcsr(control);
+        h.reference=false;y.functions.generated(entry)(y.memory.flat(),&q,&y);check(_mm_getcsr()==expectedFp);_mm_setcsr(saved);
         p.cycleLimit=q.cycleLimit;check(p.pc==0x170000 && !std::memcmp(&p,&q,sizeof(p)));check(!std::memcmp(x.memory.flat(),y.memory.flat(),bozo::kFlatBytes));
         if(seed%16==0)check(word(y,first+0x30)==0x40000000 && word(y,second+0x30)==0x40c00000);
         if(fixed)++fixedPairs;else for(unsigned i=1;i<4;++i)check(word(y,stack-16+i*4)==0x61616161);

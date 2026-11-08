@@ -22,6 +22,30 @@ bool nativeMathInstruction(uint8_t *,R5900Context *c,Runtime *rt,uint32_t pc){
     if(nativeTrigInstruction(nullptr,c,rt,pc))return true;
     if(nativeObjectMathInstruction(nullptr,c,rt,pc))return true;
     if(nativeFrustumInstruction(c,rt,pc))return true;
+    if(pc==0x20f26c || pc==0x20f2ac){
+        const auto object=c->r[21].uw[0],source=object+(pc==0x20f26c?0xd0:0x150),destination=object+0x1d0;
+        record(rt,object,0x210);
+        if(c->r[4].uw[0]!=source || c->r[3].uw[0]!=destination)
+            throw std::runtime_error("native camera scale escaped its matrix records");
+        float matrix[4][4],scale[4],result[4][4];
+        std::memcpy(matrix,record(rt,source,64),64);std::memcpy(scale,record(rt,c->r[30].uw[0],16),16);
+        const auto qualified=[](float v){const auto b=std::bit_cast<uint32_t>(v),e=b&0x7f800000;
+            if(e==0x7f800000 || (!e && (b&0x7fffff)))throw std::runtime_error("unqualified native camera scale input");};
+        for(unsigned row=0;row<4;++row){qualified(scale[row]);for(float v:matrix[row]){
+            qualified(v);if(std::abs(double(v)*scale[row])>std::numeric_limits<float>::max())throw std::runtime_error("native camera scale overflow");}}
+        music::CodecRounding rounding;
+        for(unsigned row=0;row<4;++row)for(unsigned lane=0;lane<4;++lane){volatile float value=matrix[row][lane]*scale[row];
+            const auto b=std::bit_cast<uint32_t>(float(value));result[row][lane]=std::bit_cast<float>((b&0x7f800000)?b:(b&0x80000000));}
+        std::memcpy(record(rt,destination,64),result,64);return true;
+    }
+    switch(pc){
+    case 0x20f248:case 0x20f24c:case 0x20f250:case 0x20f254:case 0x20f258:
+    case 0x20f25c:case 0x20f260:case 0x20f264:case 0x20f268:
+    case 0x20f270:case 0x20f274:case 0x20f27c:
+    case 0x20f288:case 0x20f28c:case 0x20f290:case 0x20f294:case 0x20f298:
+    case 0x20f29c:case 0x20f2a0:case 0x20f2a4:case 0x20f2a8:
+    case 0x20f2b0:case 0x20f2b4:case 0x20f2b8:return true;
+    }
     if(pc==0x43d2a0 || pc==0x43d2a4 || pc==0x43d2a8)return true;
     if(pc==0x43d2ac){
         const auto object=c->r[16].uw[0];

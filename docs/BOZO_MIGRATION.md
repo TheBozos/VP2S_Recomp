@@ -8,6 +8,23 @@ target, not a replacement DLL loaded into PS2Recomp.
 
 ## Build and evidence
 
+### Native camera matrix scale (2026-11-08)
+
+The two `0x20f240` / `0x20f280` blocks read their own ordinary source matrix
+(`+0xd0` or `+0x150`) and scale record through `fp`. Native arithmetic scales
+each complete column by its corresponding coefficient into `+0x1d0`.
+All 16 source components and four coefficients are captured before publication,
+including scale/source/output aliases; no inherited vector state supplies data.
+Original scalar source selection, branches and continuations remain compiled.
+
+1,024 whole CPU/RAM block comparisons pass independent integer products, both
+branches, all four modes, signed zeros, tiny products, ordinary/scratch records
+and overlapping coefficients. Invalid producer pointers, NaN/subnormal inputs
+and overflow reject without mutation. Actual New Game advances to model/global
+parameter composition at `0x23c2bc`. All 58 rebuilt Bozo suites pass, including
+the expanded visibility snapshot and all downstream consumers. Logun and
+rendered field parity remain open.
+
 ### Native four-plane angle classification (2026-11-08)
 
 The remaining `0x220c30` branch consumes four further frustum origins/normals

@@ -9,7 +9,9 @@ p.add_argument('--variant',choices=('reference','adapted'),required=True);a=p.pa
 if not a.out.resolve().is_relative_to(a.build.resolve()):raise ValueError('private build directory required')
 data=a.source.read_bytes();overlay_adaptations('mod001',data)
 fixture,_=prepare(data,[dict(Name='bone_loop',Start='0x2371dc',End='0x2372d8'),
-                       dict(Name='pair_distance',Start='0x1fedc0',End='0x1fee18')],{})
+                       dict(Name='pair_distance',Start='0x1fedc0',End='0x1fee18'),
+                       dict(Name='camera_scale_first',Start='0x20f240',End='0x20f280'),
+                       dict(Name='camera_scale_second',Start='0x20f280',End='0x20f2c4')],{})
 fixture=bytearray(fixture);_,segments,_=elf_parts(fixture)
 s=next(s for s in segments if s[0]==1 and s[2]<=0x2371dc<0x2372d8<=s[2]+s[4])
 at=s[1]+0x2372d0-s[2];fixture[at:at+8]=(0x03e00008).to_bytes(4,'little')+bytes(4)
@@ -26,5 +28,14 @@ for pc in range(0x1fedd4,0x1fee00,4):
     if a.variant=='reference' and pc!=0x1fedfc:
         at=s[1]+pc-s[2];fixture[at:at+4]=bytes(4)
     else:sites.append(f'native 0x{pc:x}\n')
+for lo,hi,final,exit in ((0x20f240,0x20f280,0x20f26c,0x20f278),(0x20f280,0x20f2c4,0x20f2ac,0x20f2bc)):
+    s=next(s for s in segments if s[0]==1 and s[2]<=lo<hi<=s[2]+s[4])
+    at=s[1]+exit-s[2];fixture[at:at+4]=(0x03e00008).to_bytes(4,'little')
+    if exit==0x20f2bc:fixture[at+4:at+8]=bytes(4)
+    for pc in range(lo+8,exit if exit==0x20f2bc else hi,4):
+        if pc==exit:continue
+        if a.variant=='reference' and pc!=final:
+            at=s[1]+pc-s[2];fixture[at:at+4]=bytes(4)
+        else:sites.append(f'native 0x{pc:x}\n')
 a.out.mkdir(parents=True,exist_ok=True);(a.out/'fixture.elf').write_bytes(fixture)
 (a.out/'externals.txt').write_text(''.join(sites))

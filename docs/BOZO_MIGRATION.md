@@ -12,6 +12,25 @@ The earlier VP2S face/shading and general brightness comparisons remain open.
 
 ## Build and evidence
 
+### Native angular-constraint quaternion construction (2026-11-08)
+
+The following `0x1fcdb0..0x1fcdf0` operation now constructs its full quaternion
+from the typed normalized directions and cosine. Cross-product order, the
+original absolute square root/zero-divisor policy and literal half coefficient
+are retained. The cosine/threshold/temporary ABI is checked. No inherited
+register component supplies any output; unsupported cross/coefficient/axis
+overflow rejects before publication.
+
+The 512 angular fixtures now retain the actual scalar aligned/rotation branch
+and continue through quaternion publication when selected. Independent scalar
+math compares all four components, whole CPU/RAM and host FP over four modes,
+including opposite, perpendicular, zero and tiny positive/negative-cosine cases.
+Explicit branch/publication reach, cross orientation, stale cosine/ABI and
+overflow rejection checks pass. Source/completeness/startup checks pass too.
+Private exits bound the fixture before joint composition/after the aligned
+branch; neither later callback nor the whole solver is claimed qualified.
+Actual New Game advances to `0x1fcdfc`, joint quaternion composition. Logun is open.
+
 ### Native angular-constraint cosine (2026-11-08)
 
 The `0x1fcd08..0x1fcdac` block now transforms two points with implicit weight

@@ -100,6 +100,30 @@ bool nativeMathInstruction(uint8_t *,R5900Context *c,Runtime *rt,uint32_t pc){
         const auto stack=c->r[29].uw[0];if(c->r[3].uw[0]!=stack+0x140)throw std::runtime_error("angular-constraint cosine destination mismatch");
         const auto directions=angularDirections(rt,c);std::memcpy(record(rt,stack+0x140,16),&directions.cosine,4);return true;
     }
+    if(pc==0x1fcdb0 || pc==0x1fcdb4 || pc==0x1fcdc8 || pc==0x1fcdd0 || pc==0x1fcdd4 || pc==0x1fcdd8 ||
+       pc==0x1fcddc || pc==0x1fcde0 || pc==0x1fcde4 || pc==0x1fcde8 || pc==0x1fcdec)return true;
+    if(pc==0x1fcdf0){
+        const auto stack=c->r[29].uw[0];auto *result=record(rt,stack+0x130,16);
+        if(c->r[2].uw[0]!=stack+0x130 || c->r[3].uw[0]!=stack+0x140 || std::bit_cast<uint32_t>(c->f[1])!=0x3f7ffffe)
+            throw std::runtime_error("angular-constraint quaternion record mismatch");
+        uint32_t cosineBits;std::memcpy(&cosineBits,record(rt,stack+0x140,16),4);
+        const auto directions=angularDirections(rt,c);
+        if(std::bit_cast<uint32_t>(directions.cosine)!=cosineBits || std::bit_cast<uint32_t>(c->f[0])!=cosineBits || !(c->f[0]<c->f[1]))
+            throw std::runtime_error("angular-constraint quaternion has stale cosine/branch inputs");
+        const auto &a=directions.first,&b=directions.second;
+        {music::CodecRounding validation;const double limit=std::numeric_limits<float>::max();
+            if(2+2*std::abs(double(directions.cosine))>limit)throw std::runtime_error("angular-constraint quaternion coefficient overflow");
+            for(unsigned i=0;i<3;++i){const auto j=(i+1)%3,k=(i+2)%3;
+                if(std::abs(double(b[j])*a[k])+std::abs(double(a[j])*b[k])>limit)throw std::runtime_error("angular-constraint cross product overflow");}}
+        const auto squared=pairSum(2.f,pairProduct(directions.cosine,2.f));
+        volatile float root=static_cast<float>(std::sqrt(std::abs(double(squared))));
+        volatile float reciprocal=root==0?std::numeric_limits<float>::max():1.f/root;
+        float cross[3];for(unsigned i=0;i<3;++i){const auto j=(i+1)%3,k=(i+2)%3;cross[i]=pairSum(pairProduct(b[j],a[k]),-pairProduct(a[j],b[k]));}
+        {music::CodecRounding validation;for(float v:cross)if(std::abs(double(v)*reciprocal)>std::numeric_limits<float>::max())
+            throw std::runtime_error("angular-constraint quaternion axis overflow");}
+        std::array<float,4> quaternion;for(unsigned i=0;i<3;++i)quaternion[i]=pairProduct(cross[i],pairNormal(reciprocal));quaternion[3]=pairProduct(root,0.5f);
+        std::memcpy(result,quaternion.data(),16);return true;
+    }
     if(pc>=0x216da4 && pc<=0x216dbc && !(pc&3))return true;
     if(pc==0x216e04){
         const auto matrixAddress=c->r[5].uw[0],frame=c->r[29].uw[0];

@@ -120,6 +120,31 @@ bool nativeMathInstruction(uint8_t *,R5900Context *c,Runtime *rt,uint32_t pc){
     if(nativeTrigInstruction(nullptr,c,rt,pc))return true;
     if(nativeObjectMathInstruction(nullptr,c,rt,pc))return true;
     if(nativeFrustumInstruction(c,rt,pc))return true;
+    if(pc==0x1fde1c || pc==0x1fde20 || (pc>=0x1fde40 && pc<=0x1fde60 && !(pc&3)) || pc==0x1fde70 || pc==0x1fde78)return true;
+    if(pc==0x1fde6c){
+        const auto stack=c->r[29].uw[0];auto *origin=record(rt,stack+0x460,16),*direction=record(rt,stack+0x220,16);
+        if(c->r[2].uw[0]!=stack+0x460)throw std::runtime_error("collision query origin destination mismatch");
+        auto *part=record(rt,c->r[17].uw[0],0x40),*current=record(rt,c->r[18].uw[0],0x40);
+        uint32_t otherAddress;std::memcpy(&otherAddress,part+0x38,4);auto *other=record(rt,otherAddress+0x30,16);
+        float a[4],b[4];std::memcpy(a,other,16);std::memcpy(b,current+0x30,16);
+        for(unsigned i=0;i<3;++i){pairQualified(a[i]);pairQualified(b[i]);}
+        float offset[3]{};const bool shifted=part[0x20]&4;
+        if(shifted){
+            uint32_t owner;std::memcpy(&owner,current+4,4);auto *basis=record(rt,owner+0x150,48);
+            float matrix[3][4],local[4];std::memcpy(matrix,basis,48);std::memcpy(local,part,16);
+            for(unsigned i=0;i<3;++i){pairQualified(local[i]);for(unsigned j=0;j<3;++j)pairQualified(matrix[i][j]);}
+            {music::CodecRounding validation;for(unsigned lane=0;lane<3;++lane){double bound=0;
+                for(unsigned i=0;i<3;++i)bound+=std::abs(double(matrix[i][lane])*local[i]);
+                if(bound>std::numeric_limits<float>::max())throw std::runtime_error("collision query offset overflow");}}
+            for(unsigned lane=0;lane<3;++lane)offset[lane]=pairSum(pairSum(pairProduct(matrix[0][lane],local[0]),pairProduct(matrix[1][lane],local[1])),pairProduct(matrix[2][lane],local[2]));
+        }
+        {music::CodecRounding validation;for(unsigned i=0;i<3;++i){const double bound=std::abs(double(a[i]))+std::abs(double(b[i]))+2*std::abs(double(offset[i]));
+            if(bound>std::numeric_limits<float>::max())throw std::runtime_error("collision query endpoint/direction overflow");}}
+        for(unsigned i=0;i<3;++i){if(shifted){a[i]=pairSum(a[i],offset[i]);b[i]=pairSum(b[i],offset[i]);}a[i]=pairSum(a[i],-b[i]);}
+        // Both results precede the first original store. Preserve source W
+        // words, including opaque payloads, and snapshot all aliases first.
+        std::memcpy(origin,b,16);std::memcpy(direction,a,16);return true;
+    }
     if(pc==0x1fe8b0 || pc==0x1fe8f0 || pc==0x1fe8f4 || pc==0x1fe8f8 || pc==0x1fe8fc || pc==0x1fe924 || pc==0x1fe928)return true;
     if(pc==0x1fe934){
         const auto object=c->r[5].uw[0];auto *source=record(rt,object,0x70);

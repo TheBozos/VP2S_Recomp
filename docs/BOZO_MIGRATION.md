@@ -12,6 +12,31 @@ The earlier VP2S face/shading and general brightness comparisons remain open.
 
 ## Build and evidence
 
+### Native collision-query endpoint preparation (2026-11-08)
+
+`0x1fde10..0x1fde88` now prepares an origin and XYZ direction directly from
+the two game position records. Flag 4 optionally transforms the part's local
+offset by its owner's three basis rows and adds it separately to each endpoint
+before subtraction. Both source W words survive exactly. All inputs are
+snapshotted before the two original stores, retaining position/output aliases;
+the following original integer copy remains compiled. No vector bank survives.
+
+The fixture executes the original scalar branch, address setup and final copy
+around the typed publication. 512 complete CPU/RAM/FP cases cover four modes,
+optional offsets, scratch frames, source/output and basis/output aliases,
+opaque W and a binary-exact direction sample. Invalid active inputs, overflowing
+offset/direction bounds and destination mismatches reject without publication.
+An initial fixture layout was invalid: seed 35 placed its pointer field and an
+active matrix coefficient at `0x70003478`, overwriting that coefficient with
+`0x001a0000`. This rejected correctly; the valid-domain cases now keep that
+pointer outside the basis while retaining the intended output aliases.
+All three targeted suites pass (`query-verified-tests.log`, 85.99 seconds),
+including per-word source mutation and executable-vector completeness checks.
+
+Actual New Game now reaches `0x2120ac`, inside the segment-distance routine
+`0x2120a0`. This is runtime progress, not visible-field or Logun qualification.
+BozoEngine remains unchanged.
+
 ### Native stiffness/timestep position-pair response (2026-11-08)
 
 `0x1fc6d0` now shares the qualified typed pair geometry and simultaneous
@@ -23,7 +48,7 @@ retire only with the same frame/position/constraint overlap rejection.
 
 512 complete soft-pair CPU/RAM/FP cases join the 512 hard-pair cases across
 four modes, fixed/weighted paths, aliases, zero distance and zero/negative
-gain/timestep. Source-word mutation, executable-vector completeness and startup
+gain and zero/positive timesteps. Source-word mutation, executable-vector completeness and startup
 checks pass (three suites, 130.54 seconds, `soft-pair-tests.log`). Actual New
 Game advances to `0x1fde1c`, the collision-query geometry preparation in the
 physics caller. Engine unchanged; Logun remains open.

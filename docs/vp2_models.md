@@ -14,7 +14,7 @@ feed two ordered compositions and a transpose at the original output stores.
 The original loop and both buffer selections remain. Pipelined source/output
 overlaps reject; 512 whole CPU/RAM loop comparisons against independent integer
 arithmetic plus mutation-free rejection cases pass. This advances actual New Game
-to `0x1fedd4`; it does not yet qualify rendered field lighting or sky behavior.
+to `0x1fedd4`; it does not yet qualify rendered field lighting.
 
 The Bozo runner replaces the model enqueue at `0x239fec` with native batch
 submission followed by the original scene completion. `bozo/native_models.cpp`

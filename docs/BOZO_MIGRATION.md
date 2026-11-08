@@ -6,6 +6,10 @@ playable: it renders native movies, title models and the skip dialogue, but its
 gameplay and Logun route remain unqualified.** It is an independent compiled
 target, not a replacement DLL loaded into PS2Recomp.
 
+User clarification (2026-11-08): the recent unstable-sky and camera-dependent
+lighting reports concern DC, not VP2S. They are not VP2S migration follow-ups.
+The earlier VP2S face/shading and general brightness comparisons remain open.
+
 ## Build and evidence
 
 ### Native camera matrix scale (2026-11-08)
@@ -45,7 +49,7 @@ four modes. All 256 original scalar CPU/RAM comparisons now complete, including
 150 angle branches previously stopped before the unported call. Existing 5,488
 sphere geometry cases remain. Lifetime, source mutation, arithmetic and startup
 checks pass. Actual New Game advances to camera matrix scale `0x20f288`.
-Logun and rendered field/sky parity remain open.
+Logun and rendered field parity remain open.
 
 ### Native model colour/alpha product (2026-11-08)
 
@@ -64,7 +68,7 @@ and four host modes. Iterator and virtual methods are bounded software test
 contracts; this does not qualify their independent implementations or rendering.
 The real route retains those original methods and advances to the separate
 four-plane visibility test at `0x220c30`. Arithmetic, source-guard and startup
-suites pass. Logun and rendered field/sky parity remain open.
+suites pass. Logun and rendered field parity remain open.
 
 ### Enclosing-object distance caller (2026-11-08)
 

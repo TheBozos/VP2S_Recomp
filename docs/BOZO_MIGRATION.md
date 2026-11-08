@@ -12,6 +12,24 @@ The earlier VP2S face/shading and general brightness comparisons remain open.
 
 ## Build and evidence
 
+### Native column-layout rigid inverse translation (2026-11-08)
+
+`0x216cb0` retains its complete original scalar clear and transpose. Its final
+native operation reads the resulting output basis and the source translation
+as they exist after those writes, then uses the already-qualified shared
+`rigidInverseColumnTranslation` calculation. This preserves overlapping-record
+behavior and copies the live source W payload exactly; it does not preserve an
+arbitrary destination W or use inherited vector data. Original caller rounding
+is retained. Invalid active numerical lanes and unrepresentable bounds reject.
+
+512 complete CPU/RAM helper comparisons cover in-place/partial aliases, four
+modes, ordinary/scratch records and arbitrary W payloads, including NaN-shaped
+bits. The inverse-selector fixture now executes this actual compiled helper in
+its 256 rigid cases; only its general-inverse alternative remains a bounded
+test contract. Arithmetic, full source-mutation guards and startup pass.
+Actual New Game advances to paired point/direction transform `0x1fb768`.
+Logun remains open.
+
 ### Native inverse-selection axis lengths (2026-11-08)
 
 The `0x248560` caller now computes three basis-column lengths directly from

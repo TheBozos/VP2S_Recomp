@@ -22,6 +22,23 @@ bool nativeMathInstruction(uint8_t *,R5900Context *c,Runtime *rt,uint32_t pc){
     if(nativeTrigInstruction(nullptr,c,rt,pc))return true;
     if(nativeObjectMathInstruction(nullptr,c,rt,pc))return true;
     if(nativeFrustumInstruction(c,rt,pc))return true;
+    if(pc>=0x216d34 && pc<=0x216d54 && !(pc&3))return true;
+    if(pc==0x216d5c){
+        math::RigidBasis basis;__m128 translation;
+        std::memcpy(basis.data(),record(rt,c->r[5].uw[0],48),48);
+        std::memcpy(&translation,record(rt,c->r[4].uw[0]+0x30,16),16);
+        float rows[3][4],point[4];std::memcpy(rows,basis.data(),48);std::memcpy(point,&translation,16);
+        const auto qualified=[](float v){const auto b=std::bit_cast<uint32_t>(v),e=b&0x7f800000;
+            if(e==0x7f800000 || (!e && (b&0x7fffff)))throw std::runtime_error("unqualified native column inverse input");};
+        for(unsigned i=0;i<3;++i){qualified(point[i]);for(unsigned row=0;row<3;++row)qualified(rows[row][i]);}
+        {music::CodecRounding validation;
+            for(unsigned lane=0;lane<3;++lane){double bound=0;for(unsigned row=0;row<3;++row)bound+=std::abs(double(rows[row][lane])*point[row]);
+                if(bound>std::numeric_limits<float>::max())throw std::runtime_error("native column inverse translation overflow");}}
+        // Scalar clear/transpose has already run, including all alias effects.
+        // This shared game operation retains caller rounding and source W.
+        const auto result=math::rigidInverseColumnTranslation(basis,translation);
+        std::memcpy(record(rt,c->r[5].uw[0]+0x30,16),&result,16);return true;
+    }
     if(pc==0x248570 || pc==0x248574 || pc==0x248578 || pc==0x248580 || pc==0x2485a4 || pc==0x2485a8 || pc==0x2485ac)return true;
     if(pc==0x2485b4){
         const auto object=c->r[5].uw[0],stack=c->r[29].uw[0];

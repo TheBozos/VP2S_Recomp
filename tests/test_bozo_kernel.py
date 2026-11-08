@@ -117,6 +117,13 @@ class KernelGuardTests(unittest.TestCase):
             changed=bytearray(data);changed[at]^=1
             with self.subTest(at=hex(at)),self.assertRaises(ValueError):overlay_adaptations('mod001',changed)
 
+    def test_column_inverse_source(self):
+        data=(IMAGE.parent/'mod001.elf').read_bytes();_,segments,_=elf_parts(data);lo,hi=0x216cb0,0x216d60
+        s=next(s for s in segments if s[0]==1 and s[2]<=lo<hi<=s[2]+s[4])
+        for pc in range(lo,hi,4):
+            changed=bytearray(data);changed[s[1]+pc-s[2]]^=1
+            with self.subTest(pc=hex(pc)),self.assertRaises(ValueError):overlay_adaptations('mod001',changed)
+
     def test_angle_visibility_program(self):
         data=(IMAGE.parent/'mod001.elf').read_bytes()
         for at in (0x12b4a8+0xc90,0x12b4a8+0xd20,0x12b4a8+0xd5c):

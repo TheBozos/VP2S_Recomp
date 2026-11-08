@@ -427,6 +427,7 @@ def overlay_adaptations(name,data):
     if name!='mod001':return ''
     _,segments,_=elf_parts(data)
     for lo,hi,expected in ((0x12b4a8+0x1f0,0x12b4a8+0x250,'b79cf2382262fa4251a0e08c8d0b7eb05f051c8a77915bf5863c78d7d6acd784'),
+                           (0x12be08,0x12be48,'8bb8d21ec22cf7d97121ba65944b1a398b87bb09879e3b1cfb74f46550d28342'),
                            (0x12b4a8+0xd0,0x12b4a8+0x188,'de5d48299b40b3a851768c7895cbdb4449ecc08c3a585ca79a9d03d973a1c7e7'),
                            (0x12b4a8+0x7f0,0x12b4a8+0x838,'a07e1286b441ee14cfe8b3358b59ee04fed7789bb456988abf6ae5cd936dfa97'),
                            (0x12b4a8+0x8a0,0x12b4a8+0x960,'af7ecfd91505685a1f79a0870924e24d3b79f4c60d583d071090f16df8d183bd'),
@@ -542,6 +543,7 @@ def overlay_adaptations(name,data):
         (0x22f170,0x22f8f8,'d28eba3b2b21e88ad0fd553a8008ac0486e2b8d90dd163d3a5d1ebc40532d14d'),
         (0x22f140,0x22f170,'b14ea2dd33db827c45cf9ac361606325a10e5c467c73a3901a3e5bfc33f491ed'),
         (0x247f90,0x248284,'da53050cf4ec8fca89e763dba6a935eeb0cb7964b76c859d636a847ddf743dbb'),
+        (0x2476b0,0x247ae8,'f00f556c4ad7f0cd1d210a74870318cbb59d4533b0c484f9fa774fe01f43aee8'),
         (0x247ec0,0x247f88,'9e9bb6a71cea9384182083a2f88a391f0c2720f6825b6f91b85612d58acc3fda'),
         (0x248290,0x248324,'bfef5d5d6cdacb1b7602f2307178d03e47bd011efd79c9afb4f8208af13d56a5'),
         (0x2371dc,0x2372d0,'8dd9f9b8eebc36de6371dc3273828d44f6ac31eaaba90739ab75948ca85677fc'),

@@ -12,6 +12,37 @@ The earlier VP2S face/shading and general brightness comparisons remain open.
 
 ## Build and evidence
 
+### Paired procedural point projection (2026-11-08)
+
+The twelve numeric sites in `0x2476b0` now consume the owned procedural
+projection and two explicit CPU position arrays. The first normalized position
+is published at `SP+90` for the original scalar coordinate calculations; the
+second is projected and converted to signed fixed-point coordinates at `SP+80`
+for the original clipping checks. The short conversion source at disc-image
+offset `12be08..12be48` was audited offline: it transforms the **second position**,
+divides by W and converts all components with scale 16. It is not colour work.
+Runtime executes direct geometry equations, with no microprogram feed or bank.
+
+Both source reads occur at their original sites; an input can overlap the first
+publication. An ordered point record exists only until its fixed destination
+is published. Original scalar coordinate calculations, depth/viewport clipping,
+packed colour copy, cursor commit and loop remain compiled. Numeric processor
+state is opaque, including unused position W and the old constant-control
+register; its literal zero result is supplied without changing that register.
+
+512 complete builders (64 identity-projection cases) match an independent
+integer product/sum/quotient/fixed-coordinate oracle across whole CPU/RAM/FP.
+Coverage includes zero/multiple points, aliases, scratch storage, overlapping
+second read, signed underflow, both saturation limits and four FP modes/FTZ/DAZ.
+Seventeen point-input/order/lifetime rejections preserve CPU/RAM/FP and owner
+state. The full scalar owner and conversion bytes have every-word guards.
+The protected `procedural-point-route.log` passes the builder and stops at the
+procedural DMA worker `0x2475e0`, writing `0x10009020`. Native procedural draw
+submission remains to implement from source records, without packet replay.
+Field/Logun and visual parity remain open; BozoEngine is unchanged.
+Six rebuilt projection/particle/GPU/graphics/source/startup suites pass in
+77.62 s (`procedural-point-final-tests.log`).
+
 ### Procedural projection publication (2026-11-08)
 
 The four `0x248260..0x24826c` loads are replaced with a typed local-to-screen

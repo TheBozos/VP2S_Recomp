@@ -12,6 +12,15 @@ IMAGE=Path(sys.argv.pop(1))
 
 
 class KernelGuardTests(unittest.TestCase):
+    def test_procedural_point_source(self):
+        data=(IMAGE.parent/'mod001.elf').read_bytes();_,segments,_=elf_parts(data)
+        lo,hi=0x2476b0,0x247ae8;s=next(s for s in segments if s[0]==1 and s[2]<=lo<hi<=s[2]+s[4])
+        for pc in range(lo,hi,4):
+            changed=bytearray(data);changed[s[1]+pc-s[2]]^=1
+            with self.subTest(pc=hex(pc)),self.assertRaises(ValueError):overlay_adaptations('mod001',changed)
+        for at in range(0x12be08,0x12be48,4):
+            changed=bytearray(data);changed[at]^=1
+            with self.subTest(at=hex(at)),self.assertRaises(ValueError):overlay_adaptations('mod001',changed)
     def test_procedural_projection_source(self):
         data=(IMAGE.parent/'mod001.elf').read_bytes();_,segments,_=elf_parts(data)
         for lo,hi in ((0x247f90,0x248284),(0x247ec0,0x247f88)):

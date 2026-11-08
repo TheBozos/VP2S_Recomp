@@ -8,12 +8,16 @@ struct NativeProceduralProjection {
     std::array<float,16> screenFromLocal{};
 };
 class NativeProceduralTransforms {
+    struct Point {uint32_t index,first,second;std::array<float,4> projected{},destination{};std::array<int32_t,4> fixed{};unsigned phase=0;};
     std::map<uint32_t,NativeProceduralProjection> draws;
+    std::map<uint32_t,Point> points;
 public:
     void publish(Runtime *,const R5900Context *,const NativeScene &);
     const NativeProceduralProjection &projection(uint32_t frame,uint32_t object)const;
     void finish(uint32_t frame,uint32_t object);
+    void point(Runtime *,R5900Context *,uint32_t pc);
     size_t pending()const{return draws.size();}
+    size_t pendingPoints()const{return points.size();}
 };
 class ProceduralOwner {
 public:

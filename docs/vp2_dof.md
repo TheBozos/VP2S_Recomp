@@ -19,9 +19,14 @@ read by the native adapter.
 
 `bozo/native_frame_copy.cpp` holds an immutable native-frame reference and rejects
 changed owners, pending scene mismatches, active/reused builders and stale frames.
-Submission at the original thunk's delay slot publishes a native image; the
-thunk then enters the real `0x2dbd90/0x21c9a0` software completion. No physical
-job, busy-bit substitute, interrupt or channel status is produced.
+Submission at `0x2dbdd0` in the outer producer `0x2dbdb0` publishes a native
+image before the original enqueue can create a transport job. Its patched call
+enters the real `0x2dbd90/0x21c9a0` software completion with the owning object.
+The previous thunk boundary was too late: it left an active legacy queue entry
+after scene completion. No busy-bit substitute, interrupt or channel status is
+produced. Complete producer fixtures make the legacy queue unavailable and
+exercise paused completion callbacks. The actual route now passes the former
+scene wait and reaches the next unported DOF composite at `0x2d92d0`.
 
 Native target 6 holds a one-to-one nearest snapshot, then target 7 receives the
 requested bilinear reduction. This avoids the engine's deliberate mip LOD bias

@@ -25,7 +25,7 @@ struct Host:bozo::ee::Host,bozo::port::Host,vp2s::SceneOwner,vp2s::FrameCopyOwne
     bozo::libs::Libraries &libraries()override{throw std::runtime_error("library");}
     bool nativeGraphics()const override{return true;}
     bool nativeInstruction(uint8_t *r,R5900Context *c,Runtime *rt,uint32_t pc)override{
-        if(reference && pc==0x2dc9a4){check(c->r[4].uw[0]==object+0x90);++draws;return false;}
+        if(reference && pc==0x2dbdd0){check(c->r[4].uw[0]==object && c->r[5].uw[0]==object+0x90);++draws;c->r[4].sd[0]=object;return true;}
         if(auto handled=vp2s::nativeFrameCopyInstruction(c,rt,pc))return *handled;
         if(vp2s::nativeSceneInstruction(r,c,rt,pc))return true;
         throw std::runtime_error("unexpected frame-copy hook");
@@ -93,12 +93,16 @@ int main(){try{
             const bool built=get<uint8_t>(x,object+0x63);check(built==(enabled && !old.fail));
             if(built){
                 const uint8_t layer=seed&1;for(auto *d:{&a,&b}){auto &rt=d->runtime();put(rt,object+0x65,layer);put(rt,current+0x40a8+4*layer,object);put(rt,current+0x40dc+layer,uint8_t(1));}
-                p={};p.r[4].ud[0]=object+0x90;p.r[29].ud[0]=top;p.r[31].ud[0]=0x170000;q=p;
-                run(a,p,0x2dc9a0);run(b,q,0x2dc9a0);
+                // No queue exists: an accidental enqueue must fault, rather than
+                // being hidden by a permissive completion fixture.
+                for(auto *d:{&a,&b})put(d->runtime(),0x35dde0,uint32_t(0xdead0000));
+                p={};p.r[4].ud[0]=object;p.r[29].ud[0]=top;p.r[31].ud[0]=0x170000;q=p;
+                run(a,p,0x2dbdb0);run(b,q,0x2dbdb0);
                 check(!std::memcmp(&p,&q,sizeof(p)) && !std::memcmp(x.memory.flat(),y.memory.flat(),bozo::kFlatBytes));
                 check(now.submitted && now.submitted->width==get<uint32_t>(x,object+0x1a0) && now.submitted->height==get<uint32_t>(x,object+0x1a4));
                 check(get<uint8_t>(y,object+0x62)==1 && get<uint8_t>(y,object+0x64)==0 && get<uint8_t>(y,current+0x40dc+layer)==0);
                 check(old.draws==now.draws && old.callbacks==now.callbacks);++submissions;
+                check(get<uint32_t>(y,0x35dde0)==0xdead0000);
             }else if(!enabled)++disabled;else ++failed;
             old.scene.finishComposition(top);now.scene.finishComposition(top);
         }

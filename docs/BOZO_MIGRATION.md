@@ -12,6 +12,24 @@ The earlier VP2S face/shading and general brightness comparisons remain open.
 
 ## Build and evidence
 
+### Colour copy publishes before transport ownership (2026-11-08)
+
+The scene wait after particle physics was caused by colour-copy publication
+inside the legacy job thunk, after `0x201f20` had already made that job active.
+The native producer now publishes at `0x2dbdd0` and calls the real
+`0x2dbd90/0x21c9a0` scene completion directly. No queue entry is created and no
+interrupt, status bit or synthetic transport completion is supplied.
+
+The complete source producer has a whole-range signature guard. Updated
+CPU/RAM/FP fixtures cover 256 builders and 192 complete submissions, including
+paused callbacks, with the legacy queue unavailable. Five rebuilt suites pass
+in 47.52 s: ownership/lifetime, complete CPU callers, hidden GPU, source guards
+and startup. Evidence: `build_usa/bozo/copy-producer-tests.log`.
+
+The protected actual route passes the old scene wait and now fails closed at
+the DOF composite's device producer `0x2d92d0`, object `0x5f1830`.
+Evidence: `build_usa/bozo/copy-producer-route.log`. Field/Logun remains open.
+
 ### Particle physics integration and enclosing bounds (2026-11-08)
 
 The core of `0x40a8b0` now owns a semantic pending particle update through the

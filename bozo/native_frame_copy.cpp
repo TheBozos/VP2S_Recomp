@@ -89,7 +89,7 @@ void drawFrameCopy(const NativeFrameCopy &copy){
     material.source=6;material.target=7;material.nearest=false;renderer.draw(material,identity,vertices,6);
 }
 std::optional<bool> nativeFrameCopyInstruction(R5900Context *c,Runtime *rt,uint32_t pc){
-    if(pc!=0x2dbde0 && pc!=0x2dbeb4 && pc!=0x2dc6c8 && pc!=0x2dc9a4 && pc!=0x2dc700)return std::nullopt;
+    if(pc!=0x2dbde0 && pc!=0x2dbeb4 && pc!=0x2dc6c8 && pc!=0x2dbdd0 && pc!=0x2dc700)return std::nullopt;
     auto *d=rt?dynamic_cast<bozo::ee::Dispatcher *>(rt->services):nullptr;
     auto *copies=d?dynamic_cast<FrameCopyOwner *>(&d->host()):nullptr;auto *scene=d?dynamic_cast<SceneOwner *>(&d->host()):nullptr;
     if(!c || !copies || !scene)throw std::runtime_error("native field frame copy requires scene/renderer owner");
@@ -99,9 +99,12 @@ std::optional<bool> nativeFrameCopyInstruction(R5900Context *c,Runtime *rt,uint3
     else if(pc==0x2dc6c8)manager.finish(rt,scene->nativeScene(),stack,c->r[18].uw[0]);
     else if(pc==0x2dc700)manager.release(c->r[4].uw[0]);
     else{
-        if(c->pc!=0x2dc9a0 || c->r[4].uw[0]<0x100090)throw std::runtime_error("frame copy requires original submission thunk");
-        const auto object=c->r[4].uw[0]-0x90;const auto copy=manager.submit(rt,scene->nativeScene(),object);
+        if(c->pc!=0x2dbdb0 || c->r[5].uw[0]<0x100090 || c->r[4].uw[0]!=c->r[5].uw[0]-0x90)
+            throw std::runtime_error("frame copy requires original pre-enqueue producer");
+        const auto object=c->r[5].uw[0]-0x90;const auto copy=manager.submit(rt,scene->nativeScene(),object);
         copies->drawNativeFrameCopy(copy);manager.published(object);
+        c->r[4].sd[0]=int32_t(object);
+        return true; // Retire the queue-pointer load; real scalar scene completion follows.
     }
     return false; // Original scalar producer and real software completion execute.
 }

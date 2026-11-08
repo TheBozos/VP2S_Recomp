@@ -1,6 +1,7 @@
 #include "native_ui_text.h"
 #include "native_ui_windows.h"
 #include "bozo/ee/dispatcher.h"
+#include "bozo/ops_fpu.h"
 #include <bit>
 #include <cstring>
 #include <stdexcept>
@@ -107,6 +108,50 @@ void NativeUiTexts::spriteElement(uint32_t element,std::vector<NativeUiSprite> i
     auto result=std::make_shared<NativeUiText>();result->element=element;result->icons=std::move(icons);result->iconsCaptured=true;
     texts[element]=std::move(result);
 }
+// Chapter title bar, element class 168940: the arithmetic of its packet builder
+// mod004 48fa00 (FPU definitions from the engine spec), emitted as native
+// vertices instead of a GS packet. Title record T = element+54: shown when
+// T+392 bit 0; centre x = T+40 + T+340 + 0.5*T+348, width T+348 * T+38c,
+// both scaled 512/640 around 0x800 - screenW/2; rows T+44 + T+344 (+ T+34c)
+// scaled 512.96/480 around 0x800 - screenH/2; opacity T+e0 * T+350 / 128.
+// A 4x3 Gouraud grid: the last tenth at each end fades to 0.65 on the middle
+// row and to colour 0 on the edge rows; colour f0f0f0; depth T+c4.
+std::vector<bozo::render::Vertex> nativeChapterBar(Runtime *rt,uint32_t element){
+    namespace F=bozo::ps2f;uint32_t flags=0;
+    const auto add=[&](uint32_t a,uint32_t b){return F::add(a,b,flags);};const auto sub=[&](uint32_t a,uint32_t b){return F::sub(a,b,flags);};
+    const auto mul=[&](uint32_t a,uint32_t b){return F::mul(a,b,flags);};const auto div=[&](uint32_t a,uint32_t b){return F::div(a,b,flags);};
+    const auto title=value<uint32_t>(rt,element+0x54);if(title<0x100000)throw std::runtime_error("native chapter bar has no title record");
+    record(rt,title,0x3a0);
+    if(!(value<uint8_t>(rt,title+0x392)&1))return {};
+    const auto display=value<uint32_t>(rt,0x35de60);if(display<0x100000)throw std::runtime_error("native chapter bar has no display record");
+    const int32_t screenWidth=value<int16_t>(rt,display+0x3c6c),screenHeight=value<int16_t>(rt,display+0x3c6e);
+    const auto at=[&](uint32_t offset){const auto bits=value<uint32_t>(rt,title+offset);
+        if((bits&0x7f800000)==0x7f800000)throw std::runtime_error("unqualified native chapter bar parameter");return bits;};
+    constexpr uint32_t half=0x3f000000,f512=0x44000000,f640=0x44200000,f480=0x43f00000,f128=0x43000000,f16=0x41800000,
+                       yScale=0x44003d70,tenth=0x3dcccccd,endShade=0x3f266666;
+    const auto width=mul(at(0x348),at(0x38c));
+    const auto left=div(mul(f512,sub(add(mul(half,at(0x348)),add(at(0x40),at(0x340))),mul(half,width))),f640);
+    const auto x0=add(F::fromInt(uint32_t(0x800-screenWidth/2)),left),x1=add(x0,div(mul(f512,width),f640));
+    const auto top=add(at(0x44),at(0x344)),originY=F::fromInt(uint32_t(0x800-screenHeight/2));
+    const auto y0=add(originY,div(mul(yScale,top),f480)),y1=add(originY,div(mul(yScale,add(at(0x34c),top)),f480));
+    const auto opacity=div(mul(at(0xe0),at(0x350)),f128);
+    // cvt.w.s and the >= 2^31 path both keep the low byte in bits 24..31.
+    const auto alphaByte=[&](uint32_t v){const float f=std::bit_cast<float>(v);
+        const uint32_t i=f>=2147483648.f?(F::toInt(F::sub(v,0x4f000000,flags))|0x80000000u):F::toInt(v);return i<<24;};
+    const uint32_t full=alphaByte(opacity)|0xf0f0f0,end=alphaByte(mul(opacity,endShade))|0xf0f0f0;
+    const auto fade=mul(tenth,sub(x1,x0));
+    const uint32_t xs[4]={x0,add(x0,fade),sub(x1,fade),x1},ys[3]={y0,add(y0,mul(half,sub(y1,y0))),y1};
+    const uint32_t colours[3][4]={{0,full,full,0},{end,full,full,end},{0,full,full,0}};
+    const auto fixed=[&](uint32_t v){return float(int32_t(F::toInt(mul(f16,v))))/16;};
+    const float depth=float(value<uint32_t>(rt,title+0xc4));
+    std::vector<bozo::render::Vertex> triangles;
+    const auto vertex=[&](unsigned col,unsigned row){bozo::render::Vertex v{};v.x=fixed(xs[col]);v.y=fixed(ys[row]);v.z=depth;v.rgba=colours[row][col];return v;};
+    for(unsigned row=0;row<2;++row)for(unsigned col=0;col<3;++col){
+        const auto a=vertex(col,row),b=vertex(col+1,row),c=vertex(col,row+1),d=vertex(col+1,row+1);
+        triangles.insert(triangles.end(),{a,b,c,b,d,c});
+    }
+    return triangles;
+}
 std::array<bozo::render::Vertex,6> nativeUiSpriteVertices(const NativeUiSprite &sprite){
     const unsigned corners[6]={0,1,2,1,3,2};std::array<bozo::render::Vertex,6> vertices;
     for(unsigned i=0;i<6;++i){const auto corner=corners[i];auto &v=vertices[i];
@@ -122,7 +167,11 @@ NativeUiLayer NativeUiTexts::layer(Runtime *rt,uint32_t layer)const{
     // methods, via the mod002 adjustment thunks. Child admission is unchanged.
     const bool base=layerType==0x15ba00 && objectType==0x15ba1c && jobType==0x15ba98;
     const bool story=layerType==0x15bca0 && objectType==0x15bcbc && jobType==0x15bd38;
-    if(value<uint32_t>(rt,layer)!=0x152060 || (!base && !story) ||
+    // The mod004 field layer (168970) also forwards to the same mod002-resident
+    // methods; its object +10 method only adds a resource release after the
+    // base one (teardown), which the native draw/completion does not use.
+    const bool field=layerType==0x168970 && objectType==0x16898c && jobType==0x168a08;
+    if(value<uint32_t>(rt,layer)!=0x152060 || (!base && !story && !field) ||
        value<uint8_t>(rt,layer+0x83)!=1 || value<uint8_t>(rt,layer+0xca)!=2)
         throw std::runtime_error(std::format("unported native UI layer type/build mode: layer={:x} types={:x}/{:x}/{:x}/{:x} mode83={} modeca={}",
             layer,value<uint32_t>(rt,layer),value<uint32_t>(rt,layer+0x10),value<uint32_t>(rt,layer+0x20),value<uint32_t>(rt,layer+0xb0),
@@ -141,6 +190,10 @@ NativeUiLayer NativeUiTexts::layer(Runtime *rt,uint32_t layer)const{
             const auto captured=o?o->nativeUiWindows().window(element):nullptr;
             if(!captured)throw std::runtime_error("native window has no finished scalar snapshot");
             auto item=std::make_shared<NativeUiText>();item->element=element;item->window=captured;result.texts.push_back(std::move(item));continue;
+        }
+        if(value<uint32_t>(rt,element)==0x168940){
+            auto item=std::make_shared<NativeUiText>();item->element=element;item->additiveTriangles=nativeChapterBar(rt,element);
+            result.texts.push_back(std::move(item));continue;
         }
         if(value<uint32_t>(rt,element)==0x15a690){
             auto captured=text(element);if(!captured || !captured->iconsCaptured || !captured->glyphs.empty())throw std::runtime_error("native image element has no finished sprite snapshot");

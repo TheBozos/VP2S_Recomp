@@ -20,7 +20,9 @@ struct NativeUiGlyph {
     NativeUiGlyphPlacement placement;
     bool placed=false;
 };
-struct NativeUiText {uint32_t element=0;bool inlineImages=false;std::vector<NativeUiGlyph> glyphs;std::vector<NativeUiSprite> icons;bool iconsCaptured=false;std::shared_ptr<const NativeUiWindow> window;};
+struct NativeUiText {uint32_t element=0;bool inlineImages=false;std::vector<NativeUiGlyph> glyphs;std::vector<NativeUiSprite> icons;bool iconsCaptured=false;std::shared_ptr<const NativeUiWindow> window;
+    std::vector<bozo::render::Vertex> additiveTriangles;};  // untextured Cs*As+Cd geometry (chapter title bar)
+std::vector<bozo::render::Vertex> nativeChapterBar(Runtime *,uint32_t element);
 struct NativeUiLayer {uint32_t layer=0,object=0;std::vector<std::shared_ptr<const NativeUiText>> texts;};
 class NativeUiTexts {
     struct Build {

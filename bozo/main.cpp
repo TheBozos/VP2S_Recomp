@@ -167,6 +167,10 @@ public:
             material.textured=true;
             for(const auto &sprite:text->window->border){const auto vertices=vp2s::nativeUiSpriteVertices(sprite);bozo::render::Renderer::instance().draw(material,identity,vertices.data(),vertices.size(),sprite.picture);}
         }
+        if(!text->additiveTriangles.empty()){
+            auto additive=material;additive.textured=false;additive.alphaTest=false;additive.blend=bozo::render::Material::Blend::Additive;
+            bozo::render::Renderer::instance().draw(additive,identity,text->additiveTriangles.data(),text->additiveTriangles.size());
+        }
         for(const auto &icon:text->icons){
             material.blend=icon.additive?bozo::render::Material::Blend::Additive:bozo::render::Material::Blend::Alpha;
             const auto vertices=vp2s::nativeUiSpriteVertices(icon);

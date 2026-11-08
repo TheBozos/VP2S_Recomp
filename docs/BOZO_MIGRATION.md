@@ -12,6 +12,23 @@ The earlier VP2S face/shading and general brightness comparisons remain open.
 
 ## Build and evidence
 
+### Chapter title layer and bar (2026-11-09)
+
+The field's chapter layer (`168970`/`16898c`/`168a08`, mod004) forwards to the
+same mod002-resident layer methods as the base layer; only its object `+10`
+method adds a resource release after the base one (teardown), unused by the
+native draw/completion. It is admitted with the existing child rules.
+
+Its bar element (class `168940`) is drawn from the arithmetic of its packet
+builder mod004 `48fa00`, computed with the engine's FPU definitions instead
+of building a GS packet: centre/width from the title record (`+40`, `+340`,
+`+348`, `+38c`) scaled 512/640, rows `+44`, `+344`, `+34c` scaled
+512.96/480, opacity `+e0 * +350 / 128`, a 4x3 Gouraud grid whose end tenths
+fade to 0.65 (middle row) and to colour 0 (edge rows), colour `f0f0f0`, depth
+`+c4`, additive `Cs*As + Cd` as in the earlier PCSX2-compared port. No
+dedicated fixture yet; the visual is not yet compared in Bozo. The route then
+stops at mod003 `439258` (entry `439180`).
+
 ### Embedded glyph fonts (2026-11-09)
 
 The field's text uses a 16-glyph (32x28) mcps font embedded at `0x1800` in a

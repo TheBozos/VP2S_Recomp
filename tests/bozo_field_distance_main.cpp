@@ -96,6 +96,14 @@ struct Host:bozo::ee::Host,bozo::port::Host {
     bozo::libs::Libraries &libraries()override{throw std::runtime_error("library");}
     bool nativeGraphics()const override{return true;}
     bool nativeInstruction(uint8_t *r,R5900Context *c,Runtime *rt,uint32_t pc)override{
+        if(pc>=0x377d8c && pc<=0x377dac){
+            if(!reference)return vp2s::nativeMathInstruction(r,c,rt,pc);
+            if(pc==0x377dac){const auto saved=_mm_getcsr(),mode=saved&_MM_ROUND_MASK;uint32_t out[4];std::memcpy(out,rt->memory.hostPointer(c->r[7].uw[0],16),16);
+                for(unsigned i=0;i<3;++i)out[i]=roundedSquare(out[i],mode);
+                out[0]=roundedRoot(roundedSum(roundedSum(out[0],out[1],mode),out[2],mode),mode);
+                std::memcpy(rt->memory.hostPointer(c->r[6].uw[0],16),out,16);_mm_setcsr(saved);
+            }return true;
+        }
         if(pc>=0x446724 && pc<=0x446744){
             if(pc==0x446744)++movementPublications;
             if(!reference)return vp2s::nativeMathInstruction(r,c,rt,pc);
@@ -209,6 +217,40 @@ int main(){try{
         if(movement)check((b.memory.ram()[object+0xbc]&1)==(seed%8!=0) && (b.memory.ram()[object+0xbc]&254)==((seed*17)&254));
         if(camera)check(!std::memcmp(b.memory.ram()+object+0x33c,b.memory.hostPointer(stack+0x20,4),4));
         if(setup)check(!std::memcmp(b.memory.ram()+object+0x58,b.memory.hostPointer(stack+0x50,4),4));
+    }
+    unsigned automaticDistances=0,knownCameraDistances=0;
+    for(unsigned mode:{_MM_ROUND_NEAREST,_MM_ROUND_DOWN,_MM_ROUND_UP,_MM_ROUND_TOWARD_ZERO})for(unsigned seed=0;seed<128;++seed){
+        auto &a=original.runtime(),&b=adapted.runtime();std::memset(a.memory.flat(),0x51,bozo::kFlatBytes);
+        constexpr uint32_t object=0x180000,manager=0x190000,camera=0x1a0000,flags=0x1b0000;
+        const uint32_t top=seed&4?0x70003f00:0x1fff000,frame=top-0x30;
+        std::memcpy(a.memory.ram()+object,&flags,4);std::memcpy(a.memory.ram()+0x48e048,&manager,4);std::memcpy(a.memory.ram()+manager+0x14,&camera,4);
+        const uint32_t opaque[]={0x7fc01234,0x7fa01234,0x7f800000,1};
+        float point[4]={float(int(seed%17)-8)/8,float(seed%11)/4,-float(seed%7)/2,std::bit_cast<float>(opaque[(seed/8)%4])};
+        float other[3]={float(seed%3)/2,-float(seed%5)/4,float(seed%7)/8};
+        if(seed%8==0){point[0]=3;point[1]=4;point[2]=0;other[0]=other[1]=other[2]=0;}
+        std::memcpy(a.memory.ram()+object+0x10,point,16);std::memcpy(a.memory.ram()+camera+0x250,other,12);
+        const float initial=8;std::memcpy(a.memory.ram()+object+0x1a8,&initial,4);
+        std::memcpy(b.memory.flat(),a.memory.flat(),bozo::kFlatBytes);R5900Context x{};
+        for(unsigned i=1;i<32;++i){x.r[i].ud[0]=seed*32+i;x.r[i].ud[1]=~x.r[i].ud[0];x.f[i]=float(i)/8;}
+        x.r[4].ud[0]=object;x.r[29].ud[0]=top;x.r[31].ud[0]=0x170000;x.f[12]=seed&1?1+float(seed%7)/4:0;x.f[13]=seed&2?1.5f:0;
+        std::memset(x.vu0_vf,0x54,sizeof(x.vu0_vf));std::memset(&x.vu0_acc,0x65,sizeof(x.vu0_acc));x.vu0_status=0x1234;auto y=x;
+        const auto saved=_mm_getcsr(),control=(saved&~(_MM_ROUND_MASK|0x8040|0x3f))|mode|(seed&4?0x8040:0);_mm_setcsr(control);
+        host.reference=true;a.functions.generated(0x377d20)(a.memory.flat(),&x,&a);const auto fp=_mm_getcsr();_mm_setcsr(control);
+        host.reference=false;b.functions.generated(0x377d20)(b.memory.flat(),&y,&b);check(_mm_getcsr()==fp);_mm_setcsr(saved);x.cycleLimit=y.cycleLimit;
+        check(x.pc==0x170000 && !std::memcmp(&x,&y,sizeof(x)) && !std::memcmp(a.memory.flat(),b.memory.flat(),bozo::kFlatBytes));
+        check(b.memory.ram()[flags+0x446]==(seed&1?0:1));
+        if(seed%8==0){float value;std::memcpy(&value,b.memory.ram()+object+0x1ac,4);check(value==5);std::memcpy(&value,b.memory.ram()+object+0x1a8,4);check(value==5);++knownCameraDistances;}
+        if(!(seed&1)){uint32_t tag;std::memcpy(&tag,b.memory.hostPointer(frame+0xc,4),4);check(tag==opaque[(seed/8)%4]);}
+        ++automaticDistances;
+    }
+    {auto &rt=adapted.runtime();constexpr uint32_t frame=0x1fff000;const float input[4]={3,4,0,std::bit_cast<float>(0x7fa01234u)};
+        for(unsigned which=0;which<7;++which){std::memcpy(rt.memory.hostPointer(frame+0x20,16),input,16);R5900Context c{};c.pc=0x377d20;c.r[29].uw[0]=frame;c.r[7].uw[0]=frame+0x20;c.r[6].uw[0]=frame;
+            if(which<3){const uint32_t bad[]={1,0x7fa01234,0x7f7fffff};std::memcpy(rt.memory.hostPointer(frame+0x20,4),bad+which,4);}
+            else if(which==3)c.pc=0x377dd0;else if(which==4)c.r[7].uw[0]+=16;else if(which==5)c.r[6].uw[0]+=16;else c.r[29].uw[0]+=4;
+            const auto before=c;const auto fp=_mm_getcsr();std::vector<uint8_t> ram(rt.memory.flat(),rt.memory.flat()+bozo::kFlatBytes);bool rejected=false;
+            try{vp2s::nativeMathInstruction(rt.memory.flat(),&c,&rt,0x377dac);}catch(const std::runtime_error &){rejected=true;}
+            check(rejected && _mm_getcsr()==fp && !std::memcmp(&c,&before,sizeof(c)) && !std::memcmp(ram.data(),rt.memory.flat(),ram.size()));
+        }
     }
     unsigned animationMoves=0,animationNodeCalls=0;
     for(unsigned mode:{_MM_ROUND_NEAREST,_MM_ROUND_DOWN,_MM_ROUND_UP,_MM_ROUND_TOWARD_ZERO})for(unsigned seed=0;seed<128;++seed){
@@ -397,5 +439,5 @@ int main(){try{
         for(uint32_t bad:{0x7fc00000u,1u}){std::memcpy(r.memory.ram()+object+0xd0,&bad,4);reject();}
         values[0]=0x7f7fffff;values[4]=0x40000000;std::memcpy(r.memory.ram()+object+0xd0,values,32);reject();
     }
-    std::printf("%u distances,%u animation movements (%u node callbacks),%u actions (%u active,%u zero),%u rotations,%u row dots,%u box/spheres,%u model-colour callers; CPU/RAM, integer arithmetic, four modes, aliasing and rejected input; no VU/device state\n",cases,animationMoves,animationNodeCalls,actions,activeActions,zeroActions,rotations,dots,boxes,colours);return 0;
+    std::printf("%u distances,%u automatic camera callers (%u known),%u animation movements (%u node callbacks),%u actions (%u active,%u zero),%u rotations,%u row dots,%u box/spheres,%u model-colour callers; CPU/RAM, integer arithmetic, four modes, aliasing and rejected input; no VU/device state\n",cases,automaticDistances,knownCameraDistances,animationMoves,animationNodeCalls,actions,activeActions,zeroActions,rotations,dots,boxes,colours);return 0;
 }catch(const std::exception &e){std::fprintf(stderr,"%s\n",e.what());return 1;}}

@@ -342,6 +342,7 @@ def overlay_adaptations(name,data):
                                (0x40a8b0,0x40b07c,'cd09fe7920018dacc97ec1192c1ee41b355a7e3afdb5d025f439d0a77c1676c3'),
                                (0x420ca0,0x4210c4,'b92572ee6121f449ec4445f9874096b68fbda868dee7bcbdf08a28c7d1664037'),
                                (0x410640,0x4107c4,'ff6bd98076903b5882e141046754b6f8e303f5b1863a79a584fc40c8b6e668e8'),
+                               (0x377d20,0x377e20,'399b8a22edce4516229aea8a3721ede1f3316ac126f13c89c13ef3c40d49507b'),
                                (0x3e7e94,0x3e80f0,'9d7958bae8751020c5857db7a226947e203b17a7434cd0b937267dd3da47bed2'),
                                (0x3d7708,0x3d77cc,'435926535d852e22f0b20b9027f65fd6674acc7a63b6aaedb31e59c63a1cd1c8'),
                                (0x3d5670,0x3d57ec,'250a2389769015fbda23859f5082b6f69031a706af85f263b765f34130611ecc'),

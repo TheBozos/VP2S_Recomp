@@ -523,6 +523,18 @@ std::array<uint32_t,4> NativeMotion::finish(uint32_t frame,uint32_t object){
 }
 bool nativeMathInstruction(uint8_t *,R5900Context *c,Runtime *rt,uint32_t pc){
     if(nativeParticleCallbackInstruction(c,rt,pc))return true;
+    if(pc>=0x377d8c && pc<=0x377dac && !(pc&3)){
+        if(!c || c->pc!=0x377d20 || c->r[7].uw[0]!=c->r[29].uw[0]+0x20 || c->r[6].uw[0]!=c->r[29].uw[0])
+            throw std::runtime_error("automatic camera distance escaped its scalar frame");
+        if(pc==0x377dac){
+            struct ArithmeticScope{unsigned saved=_mm_getcsr();~ArithmeticScope(){_mm_setcsr(saved);}} arithmetic;
+            std::array<float,4> result;std::memcpy(result.data(),record(rt,c->r[7].uw[0],16),16);
+            for(unsigned i=0;i<3;++i){pairQualified(result[i]);if(std::abs(result[i])>1.e18f)throw std::runtime_error("unqualified automatic camera distance");result[i]=pairProduct(result[i],result[i]);}
+            const auto squared=pairSum(pairSum(result[0],result[1]),pairProduct(1.f,result[2]));
+            volatile float root=static_cast<float>(std::sqrt(double(squared)));result[0]=pairSum(0.f,root);
+            std::memcpy(record(rt,c->r[6].uw[0],16),result.data(),16);
+        }return true;
+    }
     const bool callbackPoint=pc>=0x410660 && pc<=0x410684 && !(pc&3);
     const bool callbackSecond=pc>=0x4106b0 && pc<=0x4106cc && !(pc&3);
     const bool callbackThird=pc>=0x4106f8 && pc<=0x410714 && !(pc&3);

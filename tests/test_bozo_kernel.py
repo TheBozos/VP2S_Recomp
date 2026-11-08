@@ -12,6 +12,14 @@ IMAGE=Path(sys.argv.pop(1))
 
 
 class KernelGuardTests(unittest.TestCase):
+    def test_automatic_camera_distance_source(self):
+        data=(IMAGE.parent/'mod003.elf').read_bytes();_,segments,_=elf_parts(data)
+        lo,hi=0x377d20,0x377e20;s=next(s for s in segments if s[0]==1 and s[2]<=lo<hi<=s[2]+s[4])
+        actual=[pc for pc in range(lo,hi,4) if int.from_bytes(data[s[1]+pc-s[2]:s[1]+pc-s[2]+4],'little')>>26 in (0x12,0x36,0x3e)]
+        self.assertEqual(list(range(0x377d8c,0x377db0,4)),actual)
+        for pc in range(lo,hi,4):
+            changed=bytearray(data);changed[s[1]+pc-s[2]]^=1
+            with self.subTest(pc=hex(pc)),self.assertRaises(ValueError):overlay_adaptations('mod003',changed)
     def test_particle_callback_transform_source(self):
         from vp2_bozo_kernel import PARTICLE_CALLBACK_TRANSFORM_SITES
         data=(IMAGE.parent/'mod003.elf').read_bytes();_,segments,_=elf_parts(data)

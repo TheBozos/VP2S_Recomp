@@ -12,6 +12,22 @@ The earlier VP2S face/shading and general brightness comparisons remain open.
 
 ## Build and evidence
 
+### Automatic camera-distance owner (2026-11-08)
+
+The nine remaining sites in `0x377d20` now compute length from the original
+scalar XYZ difference record and publish its complete result. Y/Z retain their
+squares and unused W retains its exact bits. Original explicit-distance bypass,
+object flag, target distance and interpolation stores stay compiled game code.
+
+The existing field-distance suite adds 512 complete original/native caller
+pairs, 64 exact 3-4-5 results, automatic/explicit distance and immediate/timed
+interpolation, four modes/FTZ/DAZ, RAM/scratch frames and opaque unused W.
+Integer products/sums and an independent binary-search root oracle qualify
+the numeric output; seven invalid numeric/frame cases reject without mutation.
+Three rebuilt suites pass in 67.59 s (`automatic-camera-final-tests.log`).
+Actual `automatic-camera-route.log` passes this owner and reaches `0x220a20`,
+the visibility owner's object-facing branch. Field/Logun remains open.
+
 ### Particle object-update callback lifetime (2026-11-08)
 
 The seven old save/reset/restore sites around the real `0x2262b0` callback now

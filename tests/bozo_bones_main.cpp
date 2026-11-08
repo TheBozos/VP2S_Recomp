@@ -71,13 +71,22 @@ struct Host:bozo::ee::Host,bozo::port::Host,vp2s::MotionOwner{
         return target==0x1fcb40 && rt->functions.generated(target)==bones_adapted_motion_setter_0x1fcb40;
     }
     std::map<uint32_t,std::array<uint32_t,4>> referenceMotion;
-    unsigned symmetricPairs=0,weightedPairs=0,boxPublications=0,angularQuaternions=0,angularCompositions=0;
+    unsigned symmetricPairs=0,weightedPairs=0,boxPublications=0,angularQuaternions=0,angularCompositions=0,velocityPublications=0;
     bool reference=false;uint32_t selectedInverse=0,translationW=0;
     bool callbackActive=false;uint32_t callbackObject=0;uint8_t callbackFlags=0;unsigned callbacks=0;
     std::array<uint32_t,24> callbackData{};
     bozo::libs::Libraries &libraries()override{throw std::runtime_error("libraries");}
     bool nativeGraphics()const override{return true;}
     bool nativeInstruction(uint8_t *r,R5900Context *c,Runtime *rt,uint32_t pc)override{
+        if(pc==0x1fe934)++velocityPublications;
+        if(reference && pc==0x1fe934){
+            const auto object=c->r[5].uw[0];float current[4],previous[4],contact;uint32_t out[4];
+            std::memcpy(current,rt->memory.hostPointer(object+0x30,16),16);std::memcpy(previous,rt->memory.hostPointer(object+0x40,16),16);std::memcpy(out,current,16);std::memcpy(&contact,rt->memory.hostPointer(object+0x1c,4),4);
+            const auto normal=[](float v){const auto bits=std::bit_cast<uint32_t>(v);return std::bit_cast<float>((bits&0x7f800000)?bits:(bits&0x80000000));};
+            for(unsigned i=0;i<3;++i){volatile float a=current[i]*c->f[20],b=previous[i]*c->f[20],difference=normal(a)-normal(b);float result=normal(difference);
+                if(contact>0){volatile float scaled=result*c->f[0];result=normal(scaled);}out[i]=std::bit_cast<uint32_t>(result);}
+            std::memcpy(rt->memory.hostPointer(object+0x50,16),out,16);return true;
+        }
         if(pc==0x1fce30)++angularCompositions;
         if(reference && pc==0x1fce30){
             float a[4],b[4],products[4],out[4];std::memcpy(a,rt->memory.hostPointer(c->r[29].uw[0]+0x130,16),16);std::memcpy(b,rt->memory.hostPointer(c->r[17].uw[0]+0x30,16),16);
@@ -725,5 +734,42 @@ int main(){try{
             check(bad && !std::memcmp(&saved,&c,sizeof(c)) && !std::memcmp(ram.data(),r.memory.flat(),ram.size()));};
         c.r[2].ud[0]+=4;reject();c.r[2].ud[0]-=4;put(r,first+12,0x7fc00000u);reject();put(r,first+12,1u);reject();put(r,first+12,0x7f7fffffu);put(r,second+12,0x40000000u);reject();
     }
-    std::printf("%u bone,%u distance,%u scale,%u parameters,%u selectors (%u rigid/%u general),%u column inverses,%u paired aliases,%u paired callers,%u full/%u linear transforms,%u motion callers,%u position pairs (%u fixed),%u boxes (%u clamped/%u unchanged),%u transposed inverses,%u angular callers (%u rotation/%u aligned),%u quaternion products: CPU/RAM, four modes, live XYZW; no VU state\n",cases,distances,scales,parameters,selectors,rigid,general,columns,pairs,pairedCallers,transforms,linearTransforms,motions,positionPairs,fixedPairs,boxes,clamped,unclamped,transposedInverses,angularCosines,angularRotations,angularAligned,quaternionProducts);return 0;
+    unsigned velocityLoops=0,velocityRecords=0;h.velocityPublications=0;
+    for(unsigned mode:{_MM_ROUND_NEAREST,_MM_ROUND_DOWN,_MM_ROUND_UP,_MM_ROUND_TOWARD_ZERO})for(unsigned seed=0;seed<128;++seed){
+        auto &x=a.runtime(),&y=b.runtime();std::memset(x.memory.flat(),0x61,bozo::kFlatBytes);const unsigned count=seed%8;
+        const uint32_t records=seed&1?0x70000100:0x180000;
+        for(unsigned index=0;index<count;++index){const auto entry=records+index*0xa0;
+            const auto object=index%3==0?entry+0x20:index%3==1?entry+0x30:0x200000+index*0x100;
+            put(x,entry+4,object);const float contacts[]={-1.f,-0.f,0.f,.25f,.5f,1.f,1.5f,2.5f};put(x,entry+0x1c,std::bit_cast<uint32_t>(contacts[(seed+index)%8]));
+            uint32_t current[4],previous[4],quaternion[4];for(auto *vector:{current,previous,quaternion})for(unsigned i=0;i<4;++i){random=random*1664525u+1013904223u;vector[i]=(random&0x807fffff)|((104+random%27)<<23);}
+            if(seed%16==1 || seed%16==4 || seed%16==6)for(unsigned i=0;i<3;++i){current[i]=std::bit_cast<uint32_t>(float(i+5));previous[i]=std::bit_cast<uint32_t>(float(i+1));}
+            if(seed%16==5)for(unsigned i=0;i<3;++i){current[i]=0x00800000;previous[i]=0;}
+            current[3]=0x7f801234u+index;previous[3]=0xffc05678u+index;
+            std::memcpy(x.memory.hostPointer(entry+0x30,16),current,16);std::memcpy(x.memory.hostPointer(entry+0x40,16),previous,16);std::memcpy(x.memory.hostPointer(object+0x30,16),quaternion,16);
+        }
+        std::memcpy(y.memory.flat(),x.memory.flat(),bozo::kFlatBytes);
+        R5900Context p{};for(unsigned i=1;i<32;++i){p.r[i].ud[0]=seed*32+i;p.r[i].ud[1]=~p.r[i].ud[0];}
+        std::memset(p.vu0_vf,0x47,sizeof(p.vu0_vf));p.vu0_status=0x1234;p.r[19].ud[0]=records;p.r[20].ud[0]=count;p.r[29].ud[0]=0x1fff000;p.r[31].ud[0]=0x170000;
+        p.f[20]=float(seed%17+1)/8;if(seed&32)p.f[20]=-p.f[20];if(seed%16==1 || seed%16==4 || seed%16==6)p.f[20]=2;
+        if(seed%16==3)p.f[20]=0;if(seed%16==5)p.f[20]=0.5f;if(!count)p.f[20]=std::bit_cast<float>(0x7f801234u);auto q=p;
+        const auto saved=_mm_getcsr(),control=(saved&~_MM_ROUND_MASK)|mode;_mm_setcsr(control);
+        h.reference=true;x.functions.generated(0x1fe8a8)(x.memory.flat(),&p,&x);const auto expectedFp=_mm_getcsr();_mm_setcsr(control);
+        h.reference=false;y.functions.generated(0x1fe8a8)(y.memory.flat(),&q,&y);check(_mm_getcsr()==expectedFp);_mm_setcsr(saved);
+        p.cycleLimit=q.cycleLimit;check(p.pc==0x170000 && !std::memcmp(&p,&q,sizeof(p)));check(!std::memcmp(x.memory.flat(),y.memory.flat(),bozo::kFlatBytes));
+        for(unsigned i=0;i<count;++i){const auto entry=records+i*0xa0;check(word(y,entry+0x5c)==0x7f801234u+i);
+            if(i%3==0)check(!std::memcmp(y.memory.hostPointer(entry+0x50,16),y.memory.hostPointer(entry+0x60,16),16));}
+        if(count && (seed%16==1 || seed%16==4 || seed%16==6)){const uint32_t expected=seed%16==1?0x41000000:seed%16==4?0x40800000:0xc0800000;
+            for(unsigned i=0;i<3;++i)check(word(y,records+0x50+i*4)==expected);}
+        ++velocityLoops;velocityRecords+=count;
+    }
+    check(velocityRecords==1792 && h.velocityPublications==velocityRecords*2);
+    {auto &r=b.runtime();constexpr uint32_t object=0x180000;R5900Context c{};c.r[5].ud[0]=object;c.r[3].ud[0]=object+0x50;c.r[4].ud[0]=object+0x30;c.f[20]=2;c.f[0]=0.5f;
+        put(r,object+0x1c,0x3f000000u);for(unsigned i=0;i<4;++i){put(r,object+0x30+i*4,0x3f800000u);put(r,object+0x40+i*4,0u);}
+        auto reject=[&]{const auto saved=c;std::vector<uint8_t> ram(r.memory.flat(),r.memory.flat()+bozo::kFlatBytes);bool bad=false;
+            try{vp2s::nativeMathInstruction(r.memory.flat(),&c,&r,0x1fe934);}catch(const std::runtime_error &){bad=true;}
+            check(bad && !std::memcmp(&saved,&c,sizeof(c)) && !std::memcmp(ram.data(),r.memory.flat(),ram.size()));};
+        c.r[3].ud[0]+=4;reject();c.r[3].ud[0]-=4;put(r,object+0x1c,0x7fc00000u);reject();put(r,object+0x1c,0x3f000000u);put(r,object+0x48,1u);reject();put(r,object+0x48,0u);
+        c.f[0]=std::bit_cast<float>(0x7fc00000u);reject();c.f[0]=0.5f;c.f[20]=std::numeric_limits<float>::max();put(r,object+0x30,0x40000000u);reject();
+    }
+    std::printf("%u bone,%u distance,%u scale,%u parameters,%u selectors (%u rigid/%u general),%u column inverses,%u paired aliases,%u paired callers,%u full/%u linear transforms,%u motion callers,%u position pairs (%u fixed),%u boxes (%u clamped/%u unchanged),%u transposed inverses,%u angular callers (%u rotation/%u aligned),%u quaternion products,%u velocity loops/%u records: CPU/RAM, four modes, live XYZW; no VU state\n",cases,distances,scales,parameters,selectors,rigid,general,columns,pairs,pairedCallers,transforms,linearTransforms,motions,positionPairs,fixedPairs,boxes,clamped,unclamped,transposedInverses,angularCosines,angularRotations,angularAligned,quaternionProducts,velocityLoops,velocityRecords);return 0;
 }catch(const std::exception &e){std::fprintf(stderr,"%s\n",e.what());return 1;}}

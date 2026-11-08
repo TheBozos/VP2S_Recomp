@@ -12,6 +12,24 @@ The earlier VP2S face/shading and general brightness comparisons remain open.
 
 ## Build and evidence
 
+### Native velocity record update (2026-11-08)
+
+The `0x1fe8a8..0x1fe958` loop now computes its XYZ velocity from the two
+separately scaled position products, then applies the original optional scalar
+damping factor. W comes from the current-position record exactly; previous W
+does not participate. The original scalar clamp/branch and post-store quaternion
+cache copy stay compiled, including aliases that make the copy read the newly
+published velocity. The coefficient's obsolete vector initialization retires;
+empty loops require no numerical coefficient. Active unsupported inputs and
+overflowing product/sum bounds reject before publication.
+
+512 complete loop CPU/RAM/FP comparisons cover 1,792 records over four modes,
+zero through seven entries, scratch records, positive/nonpositive/clamped damping,
+zero/negative multipliers, tiny products, opaque live W and cache aliases.
+Exact positive/negative damped samples and invalid-record/domain rejection pass.
+Source/completeness and startup checks pass. Actual New Game advances to
+`0x1fc6dc`, the stiffness-weighted position-pair response. Logun remains open.
+
 ### Native three-sine weights and nonlinear interpolation (2026-11-08)
 
 `0x2150f0` retains its complete scalar argument, quadrant, parity and sign work.

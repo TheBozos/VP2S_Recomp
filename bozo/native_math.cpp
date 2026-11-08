@@ -120,6 +120,21 @@ bool nativeMathInstruction(uint8_t *,R5900Context *c,Runtime *rt,uint32_t pc){
     if(nativeTrigInstruction(nullptr,c,rt,pc))return true;
     if(nativeObjectMathInstruction(nullptr,c,rt,pc))return true;
     if(nativeFrustumInstruction(c,rt,pc))return true;
+    if(pc==0x1fe8b0 || pc==0x1fe8f0 || pc==0x1fe8f4 || pc==0x1fe8f8 || pc==0x1fe8fc || pc==0x1fe924 || pc==0x1fe928)return true;
+    if(pc==0x1fe934){
+        const auto object=c->r[5].uw[0];auto *source=record(rt,object,0x70);
+        if(c->r[3].uw[0]!=object+0x50 || c->r[4].uw[0]!=object+0x30)throw std::runtime_error("velocity update record mismatch");
+        float current[4],previous[4],contact;std::array<uint32_t,4> result;
+        std::memcpy(current,source+0x30,16);std::memcpy(previous,source+0x40,16);std::memcpy(&contact,source+0x1c,4);std::memcpy(result.data(),current,16);
+        pairQualified(contact);const bool damped=contact>0;const auto coefficient=c->f[20],factor=c->f[0];pairQualified(coefficient);if(damped)pairQualified(factor);
+        for(unsigned i=0;i<3;++i){pairQualified(current[i]);pairQualified(previous[i]);}
+        {music::CodecRounding validation;const double limit=std::numeric_limits<float>::max();
+            for(unsigned i=0;i<3;++i){const double bound=std::abs(double(current[i])*coefficient)+std::abs(double(previous[i])*coefficient);
+                if(bound>limit || (damped && bound*std::abs(double(factor))>limit))throw std::runtime_error("velocity update arithmetic overflow");}}
+        for(unsigned i=0;i<3;++i){auto value=pairSum(pairProduct(current[i],coefficient),-pairProduct(previous[i],coefficient));
+            if(damped)value=pairProduct(value,factor);result[i]=std::bit_cast<uint32_t>(value);}
+        std::memcpy(source+0x50,result.data(),16);return true;
+    }
     if((pc>=0x215298 && pc<=0x2152a4 && !(pc&3)) || pc==0x2152ac ||
        (pc>=0x2152b4 && pc<=0x2152c0 && !(pc&3)) || pc==0x2152c8 ||
        (pc>=0x215348 && pc<=0x21535c && !(pc&3)) || pc==0x215364 || pc==0x215368)return true;

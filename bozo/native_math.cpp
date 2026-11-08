@@ -239,6 +239,24 @@ std::array<uint32_t,4> NativeMotion::finish(uint32_t frame,uint32_t object){
     const auto result=it->second.position;updates.erase(it);return result;
 }
 bool nativeMathInstruction(uint8_t *,R5900Context *c,Runtime *rt,uint32_t pc){
+    if(((pc>=0x3e7edc && pc<=0x3e7f34) || (pc>=0x3e7fa0 && pc<=0x3e7ff8)) && !(pc&3)){
+        if(pc==0x3e7f34 || pc==0x3e7ff8){
+            const auto destination=c->r[29].uw[0]+0x70;
+            if(c->r[3].uw[0]!=destination)throw std::runtime_error("native corner transform destination mismatch");
+            float matrix[4][4],point[4],result[4];
+            std::memcpy(matrix,record(rt,c->r[2].uw[0],64),64);std::memcpy(point,record(rt,destination,16),16);
+            for(auto &row:matrix)for(float value:row){pairQualified(value);if(std::abs(value)>1.e8f)throw std::runtime_error("unqualified native corner matrix");}
+            for(float value:point){pairQualified(value);if(std::abs(value)>1.e8f)throw std::runtime_error("unqualified native corner point");}
+            music::CodecRounding rounding;
+            // Each row has its own original reduction order. All four output
+            // words are known from these records; retain the complete store.
+            constexpr unsigned order[4][4]={{0,1,2,3},{1,0,2,3},{2,1,0,3},{3,1,2,0}};
+            for(unsigned row=0;row<4;++row){float terms[4];for(unsigned i=0;i<4;++i)terms[i]=pairProduct(matrix[row][i],point[i]);
+                result[row]=pairSum(pairSum(pairSum(terms[order[row][0]],terms[order[row][1]]),pairProduct(1.f,terms[order[row][2]])),pairProduct(1.f,terms[order[row][3]]));}
+            std::memcpy(record(rt,destination,16),result,16);
+        }
+        return true;
+    }
     if(pc==0x3e5ca4 || pc==0x3e5ca8 || pc==0x3e5cac || pc==0x3e5cb4 || pc==0x3e5cb8 || pc==0x3e5cc0){
         const auto object=c->r[18].uw[0],stack=c->r[29].uw[0],output=c->r[19].uw[0];
         if(c->r[4].uw[0]!=object+0x90 || (pc==0x3e5cc0 && c->r[3].uw[0]!=stack+0x50))

@@ -311,6 +311,7 @@ def overlay_adaptations(name,data):
         _,segments,_=elf_parts(data)
         for lo,hi,expected in ((0x3749f0,0x374a04,'a452358fd505e54aa6c7b852ca05fe160eeddde37d458dd1f515ee4591659823'),
                                (0x3e5bc0,0x3e5d34,'91249dbfeb8a6b82139f1ccc84edcbf38621ad5262ef54652ac17ae0969e8b31'),
+                               (0x3e7e94,0x3e80f0,'9d7958bae8751020c5857db7a226947e203b17a7434cd0b937267dd3da47bed2'),
                                (0x3d7708,0x3d77cc,'435926535d852e22f0b20b9027f65fd6674acc7a63b6aaedb31e59c63a1cd1c8'),
                                (0x3d5670,0x3d57ec,'250a2389769015fbda23859f5082b6f69031a706af85f263b765f34130611ecc'),
                                (0x378908,0x3789c8,'25cee96dbb982fe7f31c806c09286d7d6d1630101851998b42a1431e9cf4fd17'),
@@ -660,7 +661,7 @@ def overlay_adaptations(name,data):
 def overlay_native_sites(name,data):
     if name=='mod003':
         overlay_adaptations(name,data)
-        return 'native 0x3d93f4\nnative 0x3d38d4\nnative 0x3d363c\nnative 0x3d364c\nnative 0x3d49b0\nnative 0x447af0\nnative 0x447b84\nnative 0x447d60\nnative 0x447a48\nnative 0x447f50\n'+''.join(f'native 0x{pc:x}\n' for pc in (0x3e5ca4,0x3e5ca8,0x3e5cac,0x3e5cb4,0x3e5cb8,0x3e5cc0))
+        return 'native 0x3d93f4\nnative 0x3d38d4\nnative 0x3d363c\nnative 0x3d364c\nnative 0x3d49b0\nnative 0x447af0\nnative 0x447b84\nnative 0x447d60\nnative 0x447a48\nnative 0x447f50\n'+''.join(f'native 0x{pc:x}\n' for pc in (0x3e5ca4,0x3e5ca8,0x3e5cac,0x3e5cb4,0x3e5cb8,0x3e5cc0,*range(0x3e7edc,0x3e7f38,4),*range(0x3e7fa0,0x3e7ffc,4)))
     if name=='mod002':
         _,segments,_=elf_parts(data);lo,hi=0x3622e8,0x362338
         s=next(s for s in segments if s[0]==1 and s[2]<=lo<hi<=s[2]+s[4]);at=s[1]+lo-s[2]

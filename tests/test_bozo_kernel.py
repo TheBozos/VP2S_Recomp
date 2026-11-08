@@ -17,6 +17,12 @@ class KernelGuardTests(unittest.TestCase):
         for pc in range(lo,hi,4):
             changed=bytearray(data);changed[s[1]+pc-s[2]]^=1
             with self.subTest(pc=hex(pc)),self.assertRaises(ValueError):overlay_adaptations('mod003',changed)
+    def test_corner_bound_source(self):
+        data=(IMAGE.parent/'mod003.elf').read_bytes();_,segments,_=elf_parts(data)
+        lo,hi=0x3e7e94,0x3e80f0;s=next(s for s in segments if s[0]==1 and s[2]<=lo<hi<=s[2]+s[4])
+        for pc in range(lo,hi,4):
+            changed=bytearray(data);changed[s[1]+pc-s[2]]^=1
+            with self.subTest(pc=hex(pc)),self.assertRaises(ValueError):overlay_adaptations('mod003',changed)
     def test_record_initialization_delay(self):
         data=(IMAGE.parent/'mod003.elf').read_bytes()
         words={0x3d7718:0x3c011000,0x3d771c:0x8c360000,0x3d7740:0x3c011000,0x3d7744:0x8c220000,
@@ -59,7 +65,7 @@ class KernelGuardTests(unittest.TestCase):
 
     def test_field_debug_font_owner(self):
         data=(IMAGE.parent/'mod003.elf').read_bytes();_,segments,_=elf_parts(data)
-        self.assertEqual(overlay_native_sites('mod003',data),'native 0x3d93f4\nnative 0x3d38d4\nnative 0x3d363c\nnative 0x3d364c\nnative 0x3d49b0\nnative 0x447af0\nnative 0x447b84\nnative 0x447d60\nnative 0x447a48\nnative 0x447f50\n'+''.join(f'native 0x{pc:x}\n' for pc in (0x3e5ca4,0x3e5ca8,0x3e5cac,0x3e5cb4,0x3e5cb8,0x3e5cc0)))
+        self.assertEqual(overlay_native_sites('mod003',data),'native 0x3d93f4\nnative 0x3d38d4\nnative 0x3d363c\nnative 0x3d364c\nnative 0x3d49b0\nnative 0x447af0\nnative 0x447b84\nnative 0x447d60\nnative 0x447a48\nnative 0x447f50\n'+''.join(f'native 0x{pc:x}\n' for pc in (0x3e5ca4,0x3e5ca8,0x3e5cac,0x3e5cb4,0x3e5cb8,0x3e5cc0,*range(0x3e7edc,0x3e7f38,4),*range(0x3e7fa0,0x3e7ffc,4))))
         lo,hi=0x3d93dc,0x3d9400;s=next(s for s in segments if s[0]==1 and s[2]<=lo<hi<=s[2]+s[4])
         for pc in range(lo,hi,4):
             changed=bytearray(data);changed[s[1]+pc-s[2]]^=1

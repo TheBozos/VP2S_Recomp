@@ -12,6 +12,29 @@ The earlier VP2S face/shading and general brightness comparisons remain open.
 
 ## Build and evidence
 
+### Native two-corner bounds transform (2026-11-08)
+
+The actual `0x3e7edc` boundary now derives all four result words from the explicit
+matrix and point records, preserving each row's original reduction order. Both
+23-site transforms in mod003 `0x3e7e94..0x3e80e4` retain their full stores. Original
+indirect matrix getters, X/Z ordering, global bounds and dirty/table publication
+remain compiled. No inherited vector state is needed, and source/destination
+aliases work by snapshotting both inputs before publication.
+
+512 complete consumer fragments compare full CPU/RAM/FP with an independent
+integer-product/sum oracle over four modes and FTZ/DAZ. Both actual indirect getter
+calls execute with bounded matrix-return contracts. Matrix/point/frame/output
+aliases, changed second matrices, zero bases, exact `(7,-7,14,2)` bounds and
+mutation-free invalid-domain rejection pass. The exact example was separated
+from the frame/source-alias fixture after that alias correctly changed its result;
+production arithmetic did not change. The private fixture exits after original
+dirty publication, before the enclosing iterator, so it does not qualify the
+whole enclosing method or either getter implementation.
+
+All three targeted suites pass (`corner-tests.log`, 39.94 seconds). Actual
+seed-1 New Game advances to `0x252ec8`, the terrain height-query point transform
+(`corner-route.log`). Engine stays `436d5d8`; visible field/Logun remains open.
+
 ### Native height-table bounds (2026-11-08)
 
 Mod003 `0x3e5bc0` retains the complete signed-height sample loop, `0x7fff`

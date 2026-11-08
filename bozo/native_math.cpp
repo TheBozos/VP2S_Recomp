@@ -18,6 +18,27 @@ uint8_t *record(Runtime *rt,uint32_t address,uint32_t bytes){
     if(!result)throw std::runtime_error("native math record extends outside owned memory");
     return result;
 }
+float pairNormal(float v){const auto b=std::bit_cast<uint32_t>(v);return std::bit_cast<float>((b&0x7f800000)?b:(b&0x80000000));}
+float pairProduct(float a,float b){volatile float value=a*b;return pairNormal(value);}
+float pairSum(float a,float b){volatile float value=a+b;return pairNormal(value);}
+void pairQualified(float v){const auto b=std::bit_cast<uint32_t>(v),e=b&0x7f800000;
+    if(e==0x7f800000 || (!e && (b&0x7fffff)))throw std::runtime_error("unqualified constrained-position input");}
+struct PositionPairGeometry {std::array<float,3> difference;float distance;};
+PositionPairGeometry positionPairGeometry(const float first[4],const float second[4]){
+    for(unsigned i=0;i<3;++i){pairQualified(first[i]);pairQualified(second[i]);}
+    {music::CodecRounding validation;const double limit=std::sqrt(double(std::numeric_limits<float>::max())/3);
+        for(unsigned i=0;i<3;++i)if(std::abs(double(first[i]))+std::abs(double(second[i]))>limit)
+            throw std::runtime_error("constrained-position distance overflow");}
+    PositionPairGeometry out;float squares[3];
+    for(unsigned i=0;i<3;++i){out.difference[i]=pairSum(second[i],-first[i]);squares[i]=pairProduct(out.difference[i],out.difference[i]);}
+    const float squared=pairSum(pairSum(squares[0],squares[1]),pairProduct(1.f,squares[2]));
+    volatile float root=static_cast<float>(std::sqrt(double(squared)));
+    out.distance=pairSum(0.f,root);return out;
+}
+void separatePairFrame(uint8_t *frame,uint8_t *data,size_t bytes){
+    const auto a=reinterpret_cast<uintptr_t>(frame),b=reinterpret_cast<uintptr_t>(data);
+    if(a<b+bytes && b<a+16)throw std::runtime_error("constrained-position temporary aliases live inputs");
+}
 }
 void NativeMotion::prepare(uint32_t frame,uint32_t object,std::array<uint32_t,4> position){
     if(!updates.emplace(frame,Update{object,position}).second)throw std::runtime_error("native motion update repeats its frame");
@@ -30,6 +51,41 @@ bool nativeMathInstruction(uint8_t *,R5900Context *c,Runtime *rt,uint32_t pc){
     if(nativeTrigInstruction(nullptr,c,rt,pc))return true;
     if(nativeObjectMathInstruction(nullptr,c,rt,pc))return true;
     if(nativeFrustumInstruction(c,rt,pc))return true;
+    switch(pc){
+    case 0x1fc86c:case 0x1fc870:case 0x1fc898:case 0x1fc8a0:case 0x1fc8a4:case 0x1fc8a8:case 0x1fc8ac:case 0x1fc8b4:
+    case 0x1fc8f8:case 0x1fc8fc:case 0x1fc900:case 0x1fc90c:case 0x1fc948:case 0x1fc950:case 0x1fc970:case 0x1fc974:
+    case 0x1fc978:case 0x1fc97c:case 0x1fc980:case 0x1fc98c:case 0x1fc9ac:case 0x1fc9b8:case 0x1fc9bc:case 0x1fc9c0:
+    case 0x1fc9c4:case 0x1fc9c8:case 0x1fc9d0:return true;
+    default:break;
+    }
+    if(pc==0x1fc908){
+        const auto frame=c->r[29].uw[0];auto *stack=record(rt,frame,16);
+        if(c->r[3].uw[0]!=frame)throw std::runtime_error("constrained-position distance destination mismatch");
+        auto *first=record(rt,c->r[4].uw[0]+0x30,16),*second=record(rt,c->r[6].uw[0]+0x30,16),*constraint=record(rt,c->r[5].uw[0],0x30);
+        separatePairFrame(stack,first,16);separatePairFrame(stack,second,16);separatePairFrame(stack,constraint,0x30);
+        float a[4],b[4];std::memcpy(a,first,16);std::memcpy(b,second,16);const auto geometry=positionPairGeometry(a,b);
+        // The scalar tail reads only this distance. YZW die at frame release;
+        // aliases that could make those retired stores observable reject above.
+        std::memcpy(stack,&geometry.distance,4);return true;
+    }
+    if(pc==0x1fc984 || pc==0x1fc9cc){
+        auto *first=record(rt,c->r[5].uw[0],16),*second=record(rt,c->r[4].uw[0],16),*frame=record(rt,c->r[29].uw[0],16);
+        if(c->r[4].uw[0]!=c->r[6].uw[0]+0x30)throw std::runtime_error("constrained-position output record mismatch");
+        separatePairFrame(frame,first,16);separatePairFrame(frame,second,16);
+        float a[4],b[4];std::memcpy(a,first,16);std::memcpy(b,second,16);const auto geometry=positionPairGeometry(a,b);
+        const float firstWeight=pc==0x1fc984?c->f[0]:c->f[1],secondWeight=c->f[0];pairQualified(firstWeight);pairQualified(secondWeight);
+        volatile float inverse=geometry.distance==0?std::numeric_limits<float>::max():1.f/geometry.distance;
+        float direction[3];for(unsigned i=0;i<3;++i)direction[i]=pairProduct(geometry.difference[i],pairNormal(inverse));
+        {music::CodecRounding validation;const double limit=std::numeric_limits<float>::max();
+            for(unsigned i=0;i<3;++i)if(std::abs(double(a[i]))+std::abs(double(direction[i])*firstWeight)>limit ||
+                std::abs(double(b[i]))+std::abs(double(direction[i])*secondWeight)>limit)throw std::runtime_error("constrained-position correction overflow");}
+        std::array<uint32_t,4> outA,outB;std::memcpy(outA.data(),a,16);std::memcpy(outB.data(),b,16);
+        for(unsigned i=0;i<3;++i){outA[i]=std::bit_cast<uint32_t>(pairSum(pairProduct(a[i],1.f),pairProduct(direction[i],firstWeight)));
+            outB[i]=std::bit_cast<uint32_t>(pairSum(pairProduct(b[i],1.f),-pairProduct(direction[i],secondWeight)));}
+        // Both original stores precede the next dispatch checkpoint, including
+        // the symmetric branch's delay slot. Capture both before either write.
+        std::memcpy(first,outA.data(),16);std::memcpy(second,outB.data(),16);return true;
+    }
     if(pc==0x1fca90 || pc==0x1fca9c || pc==0x1fcaa0 || pc==0x1fcaa4 || pc==0x1fcaa8 || pc==0x1fcaac ||
        pc==0x1fcac4 || pc==0x1fcad8 || pc==0x1fcadc || pc==0x1fcafc || pc==0x1fcb00 || pc==0x1fcb04)return true;
     if(pc==0x1fcb08 || pc==0x1fcb24){

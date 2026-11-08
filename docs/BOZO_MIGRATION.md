@@ -12,6 +12,29 @@ The earlier VP2S face/shading and general brightness comparisons remain open.
 
 ## Build and evidence
 
+### Native constrained position-pair adjustment (2026-11-08)
+
+`0x1fc860` retains its fixed-object branches, scalar weight setup, separation
+and correction coefficients. Native record operations compute distance and
+both corrected positions, snapshotting both before their ordered stores. These
+stores precede the next dispatch checkpoint, including the symmetric delay slot.
+Live position W payloads are retained exactly. Only the distance X word is live
+in the temporary frame; its dead YZW stores retire. Position/constraint/frame
+aliases that would invalidate that proof reject. No inherited vector data or
+control state is reconstructed. Unqualified active inputs and bounds reject.
+
+512 complete caller cases compare whole CPU/RAM/host FP with independent scalar
+arithmetic over four modes, symmetric/weighted/fixed branches, zero distance,
+overlapping positions/constraint records, scratch memory and opaque W payloads.
+The scalar reference models the explicit dead temporary-store retirement too;
+this does not claim equality to the original discarded YZW stack bytes.
+An exact binary sample moves positions zero/eight to two/six at separation four.
+The first fixture attempt had no native bindings for this span and is invalid;
+its results were discarded. Explicit audited bindings and a generator-wide
+executable-vector completeness check now prevent that fallback test path.
+Native numerical, source and startup checks pass. Actual New Game advances to
+`0x1fbe6c`, a box-local point/clamp transform. Logun remains open.
+
 ### Native motion update across its scalar setter (2026-11-08)
 
 The computed branch of `0x1fc9e0` now lifts its position/gravity/acceleration/

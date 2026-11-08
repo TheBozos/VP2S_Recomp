@@ -41,6 +41,12 @@ void referenceTransform(const float matrix[4][4],const float vector[4],unsigned 
         for(unsigned i=1;i<weights;++i){volatile float product=matrix[i][lane]*vector[i];volatile float next=total+normal(product);total=normal(next);}
         out[lane]=std::bit_cast<uint32_t>(total);}
 }
+float referencePairDistance(const float a[4],const float b[4],float direction[3]){
+    const auto normal=[](float v){const auto bits=std::bit_cast<uint32_t>(v);return std::bit_cast<float>((bits&0x7f800000)?bits:(bits&0x80000000));};
+    float squares[3];for(unsigned i=0;i<3;++i){volatile float difference=b[i]-a[i];direction[i]=normal(difference);volatile float square=direction[i]*direction[i];squares[i]=normal(square);}
+    volatile float xy=squares[0]+squares[1];volatile float z=1.f*squares[2];volatile float squared=normal(xy)+normal(z);
+    volatile float distance=static_cast<float>(std::sqrt(double(normal(squared))));volatile float positive=0.f+distance;return normal(positive);
+}
 void oracle(Runtime &r,R5900Context *c){
     uint32_t base[4][4],bone[4][4],local[4][4],relative[4][4],result[4][4],output[4][4];
     const auto owner=c->r[20].uw[0],i=c->r[6].uw[0]-1;
@@ -65,12 +71,27 @@ struct Host:bozo::ee::Host,bozo::port::Host,vp2s::MotionOwner{
         return target==0x1fcb40 && rt->functions.generated(target)==bones_adapted_motion_setter_0x1fcb40;
     }
     std::map<uint32_t,std::array<uint32_t,4>> referenceMotion;
+    unsigned symmetricPairs=0,weightedPairs=0;
     bool reference=false;uint32_t selectedInverse=0,translationW=0;
     bool callbackActive=false;uint32_t callbackObject=0;uint8_t callbackFlags=0;unsigned callbacks=0;
     std::array<uint32_t,24> callbackData{};
     bozo::libs::Libraries &libraries()override{throw std::runtime_error("libraries");}
     bool nativeGraphics()const override{return true;}
     bool nativeInstruction(uint8_t *r,R5900Context *c,Runtime *rt,uint32_t pc)override{
+        if(pc==0x1fc984)++symmetricPairs;if(pc==0x1fc9cc)++weightedPairs;
+        if(reference && (pc==0x1fc908 || pc==0x1fc984 || pc==0x1fc9cc)){
+            float a[4],b[4],delta[3];const auto first=pc==0x1fc908?c->r[4].uw[0]+0x30:c->r[5].uw[0],second=pc==0x1fc908?c->r[6].uw[0]+0x30:c->r[4].uw[0];
+            std::memcpy(a,rt->memory.hostPointer(first,16),16);std::memcpy(b,rt->memory.hostPointer(second,16),16);const float distance=referencePairDistance(a,b,delta);
+            if(pc==0x1fc908){std::memcpy(rt->memory.hostPointer(c->r[29].uw[0],4),&distance,4);return true;}
+            const auto normal=[](float v){const auto bits=std::bit_cast<uint32_t>(v);return std::bit_cast<float>((bits&0x7f800000)?bits:(bits&0x80000000));};
+            volatile float reciprocal=distance==0?std::numeric_limits<float>::max():1.f/distance;
+            uint32_t out[2][4];std::memcpy(out[0],a,16);std::memcpy(out[1],b,16);
+            for(unsigned i=0;i<3;++i){volatile float direction=delta[i]*normal(reciprocal);volatile float firstDelta=normal(direction)*(pc==0x1fc984?c->f[0]:c->f[1]);
+                volatile float secondDelta=normal(direction)*c->f[0];volatile float baseA=a[i]*1.f,baseB=b[i]*1.f;
+                volatile float resultA=normal(baseA)+normal(firstDelta),resultB=normal(baseB)-normal(secondDelta);
+                out[0][i]=std::bit_cast<uint32_t>(normal(resultA));out[1][i]=std::bit_cast<uint32_t>(normal(resultB));}
+            std::memcpy(rt->memory.hostPointer(first,16),out[0],16);std::memcpy(rt->memory.hostPointer(second,16),out[1],16);return true;
+        }
         if(reference && pc==0x1fcb08){
             const auto object=c->r[16].uw[0];const auto flags=*rt->memory.hostPointer(object+1,1);
             float position[4],velocity[4],acceleration[4]{},gravity[4]{};std::array<uint32_t,4> out;
@@ -489,5 +510,39 @@ int main(){try{
         check(updates.outstanding()==2 && updates.finish(0x1ffef00,0x190000)==second && updates.finish(0x1fff000,0x180000)==first);
         try{updates.finish(0x1fff000,0x180000);}catch(const std::runtime_error &){stale=true;}check(duplicate && wrong && stale && updates.outstanding()==0);
     }
-    std::printf("%u bone,%u distance,%u scale,%u parameters,%u selectors (%u rigid/%u general),%u column inverses,%u paired aliases,%u paired callers,%u full/%u linear transforms,%u motion callers: CPU/RAM, four modes, live XYZW; no VU state\n",cases,distances,scales,parameters,selectors,rigid,general,columns,pairs,pairedCallers,transforms,linearTransforms,motions);return 0;
+    unsigned positionPairs=0,fixedPairs=0;h.symmetricPairs=h.weightedPairs=0;
+    for(unsigned mode:{_MM_ROUND_NEAREST,_MM_ROUND_DOWN,_MM_ROUND_UP,_MM_ROUND_TOWARD_ZERO})for(unsigned seed=0;seed<128;++seed){
+        auto &x=a.runtime(),&y=b.runtime();std::memset(x.memory.flat(),0x61,bozo::kFlatBytes);
+        const uint32_t first=seed&1?0x70000100:0x180000,second=seed%8==4?first+16:seed%8==6?first:0x190000;
+        const uint32_t constraint=(seed&32) && seed%16?first+16:0x1a0000,stack=seed&2?0x70003e00:0x1fff000;
+        for(auto at:{first+0x30,second+0x30}){uint32_t values[4];for(auto &v:values){random=random*1664525u+1013904223u;v=(random&0x807fffff)|((120+random%10)<<23);}
+            std::memcpy(x.memory.hostPointer(at,16),values,16);}
+        *x.memory.hostPointer(first,1)=seed&1?1:0;*x.memory.hostPointer(second,1)=seed&2?1:0;
+        put(x,first+0x24,std::bit_cast<uint32_t>(seed%8==0?0.f:float(seed%7+1)));put(x,second+0x24,std::bit_cast<uint32_t>(seed%8==0?0.f:float(seed%5+1)));
+        put(x,constraint+0x28,std::bit_cast<uint32_t>(float(seed%9+1)));put(x,first+0x3c,0x7fc01234u);put(x,second+0x3c,0xff801234u);
+        if(seed%16==0){for(unsigned i=0;i<3;++i){put(x,first+0x30+i*4,0u);put(x,second+0x30+i*4,i==0?0x41000000u:0u);}put(x,constraint+0x28,0x40800000u);}
+        if(seed%16==8){for(unsigned i=0;i<3;++i){put(x,first+0x30+i*4,0u);put(x,second+0x30+i*4,0u);}}
+        const bool fixed=*x.memory.hostPointer(first,1)==1 && *x.memory.hostPointer(second,1)==1;
+        std::memcpy(y.memory.flat(),x.memory.flat(),bozo::kFlatBytes);
+        R5900Context p{};for(unsigned i=1;i<32;++i){p.r[i].ud[0]=seed*32+i;p.r[i].ud[1]=~p.r[i].ud[0];}
+        std::memset(p.vu0_vf,0x37,sizeof(p.vu0_vf));p.vu0_status=0x1234;p.r[4].ud[0]=first;p.r[5].ud[0]=constraint;p.r[6].ud[0]=second;p.r[29].ud[0]=stack;p.r[31].ud[0]=0x170000;auto q=p;
+        const auto saved=_mm_getcsr(),control=(saved&~_MM_ROUND_MASK)|mode;_mm_setcsr(control);
+        h.reference=true;x.functions.generated(0x1fc860)(x.memory.flat(),&p,&x);const auto expectedFp=_mm_getcsr();_mm_setcsr(control);
+        h.reference=false;y.functions.generated(0x1fc860)(y.memory.flat(),&q,&y);check(_mm_getcsr()==expectedFp);_mm_setcsr(saved);
+        p.cycleLimit=q.cycleLimit;check(p.pc==0x170000 && !std::memcmp(&p,&q,sizeof(p)));check(!std::memcmp(x.memory.flat(),y.memory.flat(),bozo::kFlatBytes));
+        if(seed%16==0)check(word(y,first+0x30)==0x40000000 && word(y,second+0x30)==0x40c00000);
+        if(fixed)++fixedPairs;else for(unsigned i=1;i<4;++i)check(word(y,stack-16+i*4)==0x61616161);
+        ++positionPairs;
+    }
+    check(h.symmetricPairs && h.weightedPairs && fixedPairs);
+    {auto &r=b.runtime();constexpr uint32_t first=0x180000,second=0x190000,constraint=0x1a0000,stack=0x1fff000;R5900Context c{};
+        c.r[4].ud[0]=first;c.r[5].ud[0]=constraint;c.r[6].ud[0]=second;c.r[29].ud[0]=stack;c.r[3].ud[0]=stack;
+        for(unsigned i=0;i<4;++i){put(r,first+0x30+i*4,0u);put(r,second+0x30+i*4,0x3f800000u);}
+        auto reject=[&]{const auto saved=c;std::vector<uint8_t> ram(r.memory.flat(),r.memory.flat()+bozo::kFlatBytes);bool bad=false;
+            try{vp2s::nativeMathInstruction(r.memory.flat(),&c,&r,0x1fc908);}catch(const std::runtime_error &){bad=true;}
+            check(bad && !std::memcmp(&saved,&c,sizeof(c)) && !std::memcmp(ram.data(),r.memory.flat(),ram.size()));};
+        c.r[5].ud[0]=stack;reject();c.r[5].ud[0]=constraint;c.r[4].ud[0]=stack-0x30;reject();c.r[4].ud[0]=first;
+        put(r,first+0x30,0x7fc00000u);reject();put(r,first+0x30,1u);reject();put(r,first+0x30,0x7f7fffffu);reject();
+    }
+    std::printf("%u bone,%u distance,%u scale,%u parameters,%u selectors (%u rigid/%u general),%u column inverses,%u paired aliases,%u paired callers,%u full/%u linear transforms,%u motion callers,%u position pairs (%u fixed): CPU/RAM, four modes, live XYZW; no VU state\n",cases,distances,scales,parameters,selectors,rigid,general,columns,pairs,pairedCallers,transforms,linearTransforms,motions,positionPairs,fixedPairs);return 0;
 }catch(const std::exception &e){std::fprintf(stderr,"%s\n",e.what());return 1;}}

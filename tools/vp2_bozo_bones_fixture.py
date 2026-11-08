@@ -24,7 +24,8 @@ fixture,_=prepare(data,[dict(Name='bone_loop',Start='0x2371dc',End='0x2372d8'),
                        dict(Name='linear_transform2',Start='0x1fb42c',End='0x1fb454'),
                        dict(Name='linear_transform3',Start='0x1fb624',End='0x1fb64c'),
                        dict(Name='motion_update',Start='0x1fc9e0',End='0x1fcb3c'),
-                       dict(Name='motion_setter',Start='0x1fcb40',End='0x1fcb54')],{})
+                       dict(Name='motion_setter',Start='0x1fcb40',End='0x1fcb54'),
+                       dict(Name='position_pair',Start='0x1fc860',End='0x1fc9e0')],{})
 fixture=bytearray(fixture);_,segments,_=elf_parts(fixture)
 s=next(s for s in segments if s[0]==1 and s[2]<=0x2371dc<0x2372d8<=s[2]+s[4])
 at=s[1]+0x2372d0-s[2];fixture[at:at+8]=(0x03e00008).to_bytes(4,'little')+bytes(4)
@@ -93,5 +94,25 @@ for pc in (0x1fca90,0x1fca9c,0x1fcaa0,0x1fcaa4,0x1fcaa8,0x1fcaac,0x1fcac4,0x1fca
     if a.variant=='reference' and pc not in (0x1fcb08,0x1fcb24):
         at=s[1]+pc-s[2];fixture[at:at+4]=bytes(4)
     else:sites.append(f'native 0x{pc:x}\n')
+pair_sites=(0x1fc86c,0x1fc870,0x1fc898,0x1fc8a0,0x1fc8a4,0x1fc8a8,0x1fc8ac,0x1fc8b4,
+            0x1fc8f8,0x1fc8fc,0x1fc900,0x1fc908,0x1fc90c,0x1fc948,0x1fc950,0x1fc970,0x1fc974,
+            0x1fc978,0x1fc97c,0x1fc980,0x1fc984,0x1fc98c,0x1fc9ac,0x1fc9b8,0x1fc9bc,0x1fc9c0,
+            0x1fc9c4,0x1fc9c8,0x1fc9cc,0x1fc9d0)
+# Fail closed if any vector arithmetic/transfer escaped the audited bindings.
+actual={pc for pc in range(0x1fc860,0x1fc9e0,4)
+        if int.from_bytes(data[s[1]+pc-s[2]:s[1]+pc-s[2]+4],'little')>>26 in (0x12,0x36,0x3e)}
+if actual!=set(pair_sites):raise ValueError('position-pair vector site coverage mismatch')
+for pc in pair_sites:
+    if a.variant=='reference' and pc not in (0x1fc908,0x1fc984,0x1fc9cc):
+        at=s[1]+pc-s[2];fixture[at:at+4]=bytes(4)
+    else:sites.append(f'native 0x{pc:x}\n')
+bound={int(row.split()[1],16) for row in sites if row.startswith('native ')}
+_,_,code_sections=elf_parts(fixture)
+for section in code_sections:
+    if section[2]&6!=6:continue
+    for offset in range(0,section[5],4):
+        word=int.from_bytes(fixture[section[4]+offset:section[4]+offset+4],'little')
+        if word>>26 in (0x12,0x36,0x3e) and section[3]+offset not in bound:
+            raise ValueError(f'unbound fixture vector operation at {section[3]+offset:x}')
 a.out.mkdir(parents=True,exist_ok=True);(a.out/'fixture.elf').write_bytes(fixture)
 (a.out/'externals.txt').write_text(''.join(sites))

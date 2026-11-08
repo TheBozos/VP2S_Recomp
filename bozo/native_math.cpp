@@ -41,6 +41,36 @@ void separatePairFrame(uint8_t *frame,uint8_t *data,size_t bytes){
     if(a<b+bytes && b<a+16)throw std::runtime_error("constrained-position temporary aliases live inputs");
 }
 struct SegmentTerms {std::array<float,3> delta;float firstLength,negativeCross,secondLength,firstProjection,separation,determinant,negativeSecondProjection,secondNumerator,firstNumerator;};
+std::array<float,3> collisionNormal(Runtime *rt,R5900Context *c,uint32_t pc){
+    if(c->pc!=0x1fc5f4)throw std::runtime_error("unqualified collision-normal continuation");
+    const auto stack=c->r[29].uw[0];auto *frame=record(rt,stack,0x70),*normal=record(rt,c->r[18].uw[0],16);
+    uint32_t caller;std::memcpy(&caller,frame+0x50,4);
+    if(caller!=0x1fdf24 && caller!=0x1fe000)throw std::runtime_error("unqualified collision-normal consumer");
+    if(c->r[18].uw[0]!=stack+0x280 || c->r[17].uw[0]!=stack+0x52c || c->r[16].uw[0]!=stack+0x528)
+        throw std::runtime_error("collision-normal consumer output setup mismatch");
+    auto *first=record(rt,c->r[19].uw[0]+0x250,32),*second=record(rt,c->r[20].uw[0]+0x230,32);
+    const auto separate=[](uint8_t *a,size_t n,uint8_t *b,size_t m){const auto x=reinterpret_cast<uintptr_t>(a),y=reinterpret_cast<uintptr_t>(b);
+        if(x<y+m && y<x+n)throw std::runtime_error("collision-normal live span alias");};
+    separate(normal,16,frame,0x70);
+    for(unsigned reg:{16u,17u}){const auto address=c->r[reg].uw[0];auto *p=rt->memory.hostPointer(address,4);
+        if((address&3) || !p)throw std::runtime_error("invalid collision-normal scalar output");
+        separate(p,4,first,32);separate(p,4,second,32);separate(p,4,normal,16);}
+    if(pc==0x1fc628 && (c->r[3].uw[0]!=c->r[20].uw[0]+0x230 || c->r[2].uw[0]!=c->r[20].uw[0]+0x240 ||
+        c->r[5].uw[0]!=c->r[19].uw[0]+0x250 || c->r[4].uw[0]!=c->r[19].uw[0]+0x260))
+        throw std::runtime_error("collision-normal operand setup mismatch");
+    const float firstWeight=c->f[2],secondWeight=c->f[1];pairQualified(firstWeight);pairQualified(secondWeight);
+    if(std::abs(firstWeight)>2 || std::abs(secondWeight)>2)throw std::runtime_error("unqualified collision-normal parameters");
+    float a[2][4],b[2][4];std::memcpy(a,first,32);std::memcpy(b,second,32);
+    for(auto *vectors:{a,b})for(unsigned row=0;row<2;++row)for(unsigned i=0;i<3;++i){pairQualified(vectors[row][i]);
+        if(std::abs(vectors[row][i])>1.e8f)throw std::runtime_error("unqualified collision-normal magnitude");}
+    std::array<float,3> delta,result;float squared[3];
+    for(unsigned i=0;i<3;++i){auto value=pairSum(b[0][i],0.f);value=pairSum(value,pairProduct(b[1][i],secondWeight));
+        value=pairSum(value,-pairProduct(a[0][i],1.f));delta[i]=pairSum(value,-pairProduct(a[1][i],firstWeight));squared[i]=pairProduct(delta[i],delta[i]);}
+    const auto lengthSquared=pairSum(pairSum(squared[0],squared[1]),pairProduct(1.f,squared[2]));
+    volatile float root=static_cast<float>(std::sqrt(std::abs(double(lengthSquared))));
+    volatile float reciprocal=root==0?std::numeric_limits<float>::max():static_cast<float>(1.0/double(root));
+    for(unsigned i=0;i<3;++i)result[i]=pairProduct(delta[i],pairNormal(reciprocal));return result;
+}
 SegmentTerms segmentTerms(Runtime *rt,R5900Context *c){
     if(c->pc!=0x2120a0 || (c->r[31].uw[0]!=0x1fc3dc && c->r[31].uw[0]!=0x1fc5f4))
         throw std::runtime_error("unqualified segment-distance caller");
@@ -141,6 +171,13 @@ bool nativeMathInstruction(uint8_t *,R5900Context *c,Runtime *rt,uint32_t pc){
     if(nativeTrigInstruction(nullptr,c,rt,pc))return true;
     if(nativeObjectMathInstruction(nullptr,c,rt,pc))return true;
     if(nativeFrustumInstruction(c,rt,pc))return true;
+    if(pc==0x1fc628){collisionNormal(rt,c,pc);return true;}
+    if(pc==0x1fc690){const auto normal=collisionNormal(rt,c,pc);
+        // Both audited physics continuations feed this record to 1fc030,
+        // which consumes XYZ only. No stale normal W is synthesized.
+        std::memcpy(record(rt,c->r[18].uw[0],16),normal.data(),12);return true;}
+    if(pc==0x1fc62c || pc==0x1fc638 || pc==0x1fc63c || pc==0x1fc640 || pc==0x1fc64c ||
+       (pc>=0x1fc650 && pc<=0x1fc670 && !(pc&3)) || pc==0x1fc688 || pc==0x1fc68c)return true;
     if((pc>=0x2120ac && pc<=0x212110 && !(pc&3)) || pc==0x212118 || pc==0x212138 ||
        (pc>=0x212170 && pc<=0x212184 && !(pc&3)))return true;
     if(pc==0x21211c || pc==0x212120 || pc==0x212128 || pc==0x212130 || pc==0x21213c || pc==0x212144 || pc==0x21214c || pc==0x212188 || pc==0x212190 || pc==0x212198){

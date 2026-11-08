@@ -180,7 +180,7 @@ class KernelGuardTests(unittest.TestCase):
                 with self.subTest(pc=hex(pc)),self.assertRaises(ValueError):overlay_adaptations('mod001',changed)
 
     def test_motion_source(self):
-        for name,lo,hi in (('mod001',0x1fc9e0,0x1fcb3c),('mod001',0x1fc860,0x1fc9e0),('mod001',0x1fc6d0,0x1fc860),('mod001',0x1fde10,0x1fde88),('mod001',0x2120a0,0x212950),('mod001',0x1fc3dc,0x1fc488),('mod001',0x1fc5f4,0x1fc6b0),('mod003',0x3749f0,0x374a04)):
+        for name,lo,hi in (('mod001',0x1fc9e0,0x1fcb3c),('mod001',0x1fc860,0x1fc9e0),('mod001',0x1fc6d0,0x1fc860),('mod001',0x1fde10,0x1fde88),('mod001',0x2120a0,0x212950),('mod001',0x1fc3dc,0x1fc488),('mod001',0x1fc5b0,0x1fc6d0),('mod001',0x1fc030,0x1fc180),('mod001',0x1fde88,0x1fe024),('mod003',0x3749f0,0x374a04)):
             data=(IMAGE.parent/(name+'.elf')).read_bytes();_,segments,_=elf_parts(data)
             s=next(s for s in segments if s[0]==1 and s[2]<=lo<hi<=s[2]+s[4])
             for pc in range(lo,hi,4):

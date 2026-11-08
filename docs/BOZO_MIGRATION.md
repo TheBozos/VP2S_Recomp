@@ -12,6 +12,29 @@ The earlier VP2S face/shading and general brightness comparisons remain open.
 
 ## Build and evidence
 
+### Native collision-normal publication (2026-11-08)
+
+`0x1fc5b0` retains the real segment-distance call, radius comparison, hit/miss
+branch and scalar parameter/penetration stores. Its inline closest-point
+difference and normalization now use typed XYZ records and the actual scalar
+parameters. Validation runs at the first vector boundary, before scalar output
+stores; the final publication recomputes from protected unchanged sources.
+Scalar outputs overlapping those sources reject explicitly.
+
+Only the two audited physics callers `0x1fdf24/0x1fe000` and their exact output
+layout qualify. They feed the result to `0x1fc030`, whose source is guarded and
+uses XYZ only. Unknown vector W retires without reconstruction; normal output
+overlapping saved-frame or scalar-output spans rejects. This is a qualified
+XYZ/preserved-memory-W contract, not original stale-bank padding equivalence.
+
+512 complete CPU/RAM/FP caller comparisons over four modes exercise the real
+segment helper, 223 hits and 289 misses, both return sites, zero/antiparallel
+geometry, source/normal aliases and opaque input W. Exact samples check +Z
+normal, parameter 0.5 and penetration 1. Caller/output/alias/domain rejection,
+per-word source mutation and vector completeness pass; all three targeted
+suites pass (`normal-tests.log`, 90.59 seconds). Actual New Game advances to
+`0x1fc038`, the position-response consumer. Engine unchanged; Logun remains open.
+
 ### Native segment-distance terms (2026-11-08)
 
 `0x2120a0` now derives ordered dot products, negative cross/projection terms,

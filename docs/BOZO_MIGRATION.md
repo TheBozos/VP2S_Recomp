@@ -12,6 +12,37 @@ The earlier VP2S face/shading and general brightness comparisons remain open.
 
 ## Build and evidence
 
+### Native procedural feedback draw (2026-11-08)
+
+Class `152d50` now collects native geometry at original scalar builder sites
+`247700`, `247a90` and `247ac0`, before any output packet is read. Inputs are
+the published CPU fixed destination, scalar UVs/clipping result and packed
+colour array. X/Y become pixels by division by 16; Z remains raw depth.
+Triangle strips/fans retain the scalar ADC rejection for each produced
+triangle. Per-object batches survive source-array reuse and the original
+`247ec0` finish, then submit at `24769c` before enqueue. The patched call runs
+the real `247630` / `21c9a0` completion; `2475e0` remains unsupported.
+
+The admitted texture is compact key `4674404c/1`, the native screen-feedback
+image. It must have been successfully published in the current native frame;
+unpublished, released and stale-frame images reject. The allocation at
+`23de88..23dec8` establishes modulate with texture alpha disabled, from the
+feedback builder's compact dimension record. Runtime never reads its texture
+register words. Original scalar flags supply depth testing/writing and vertex
+alpha blending. Other classes/keys/variants reject.
+
+128 known captures check strips/fans, ADC rejection, UV/colour/depth units,
+immutable CPU/RAM/FP and poisoned unused packet/material words. Twenty-one
+readonly failures cover ownership, order, variant and feedback lifetime.
+Twelve hidden GPU cases measure 576 RGB samples for coverage, both primitive
+types, vertex alpha with a zero-alpha source image, and depth occlusion.
+Feedback publication/release tests also pass. The live protected route
+`procedural-native-draw-route.log` passes submission and original completion,
+then rejects the next numeric boundary `38011c`. No completed field/Logun or
+PCSX2 visual-parity claim; sampler-edge parity remains unqualified.
+Ten rebuilt feedback/draw/projection/particle/GPU/graphics/source/startup suites
+pass in 79.70 s (`procedural-draw-final-tests.log`).
+
 ### Paired procedural point projection (2026-11-08)
 
 The twelve numeric sites in `0x2476b0` now consume the owned procedural

@@ -9,11 +9,16 @@ struct NativeFeedbackCopy {
 };
 class NativeFeedbackCopies {
     std::map<uint32_t,NativeFeedbackCopy> builds,ready;
+    std::optional<NativeFeedbackCopy> lastPublished;
 public:
     void begin(Runtime *,const NativeScene &,uint32_t stack,uint32_t object);
     void finish(Runtime *,uint32_t stack,uint32_t object);
     NativeFeedbackCopy submit(Runtime *,const NativeScene &,uint32_t object);
     void release(uint32_t object);
+    void published(const NativeFeedbackCopy &copy){lastPublished=copy;}
+    std::optional<NativeFeedbackCopy> image(const NativeScene &scene)const{
+        return lastPublished && lastPublished->frame==scene.frameTarget()?lastPublished:std::nullopt;
+    }
 };
 class FeedbackOwner {
 public:

@@ -8,6 +8,18 @@ verified in the MIPS or the assets, [I] inferred.
 
 ## Bozo native model submission (2026-11-07)
 
+Bozo procedural feedback geometry (2026-11-08) is captured from scalar CPU
+records in `0x2476b0`: fixed destination, UV, packed colour and scalar triangle
+rejection. `native_procedural_draws.cpp` supports class `152d50`, strips/fans and
+compact texture key `4674404c/1`, backed by the successfully published native
+feedback image of the current frame. It reads no output packet or live texture
+register words. The original allocation establishes modulate with texture alpha
+disabled; original scalar flags provide depth/alpha behavior. Immutable batches
+submit before enqueue, followed by actual compiled scene completion. X/Y fixed
+units divide by 16; Z retains raw depth units. Twelve hidden GPU cases measure
+576 colour/coverage/depth samples. Completed field/Logun and matched PCSX2
+parity, including sampler edges, remain unqualified.
+
 Bozo particle quads (2026-11-08) use `native_particle_draws.cpp`, independently
 of model mesh conversion. CPU points (48 bytes) and template kinds (80 bytes)
 supply geometry, UVs and colour; camera/view/object records supply transforms.

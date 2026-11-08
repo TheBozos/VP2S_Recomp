@@ -28,7 +28,8 @@ int main(){try{
         if(seed&2){scene.finishComposition(stack);scene.beginComposition(&rt,stack,target);rejects([&]{copies.submit(&rt,scene,object);});
             copies.begin(&rt,scene,stack,object);copies.finish(&rt,stack,object);}
         const auto copy=copies.submit(&rt,scene,object);check(copy.object==object && copy.source==target && copy.width==512 && copy.height==512 && copy.frame==scene.frameTarget());
-        rejects([&]{copies.submit(&rt,scene,object);});copies.release(object);
+        check(!copies.image(scene));copies.published(copy);const auto published=copies.image(scene);check(published && published->object==object && published->frame==copy.frame && published->mode==copy.mode);
+        check(!copies.image(vp2s::NativeScene{}));rejects([&]{copies.submit(&rt,scene,object);});copies.release(object);check(!copies.image(scene));
         put(rt,object+0x99,uint8_t(2));rejects([&]{copies.begin(&rt,scene,stack,object);});put(rt,object+0x99,uint8_t((seed>>2)&1));
         copies.begin(&rt,scene,stack,object);put(rt,object+0x63,uint8_t(0));copies.finish(&rt,stack,object);rejects([&]{copies.submit(&rt,scene,object);});put(rt,object+0x63,uint8_t(1));
         check(!std::memcmp(before.data(),rt.memory.flat(),before.size()));scene.finishComposition(stack);

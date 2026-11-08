@@ -44,6 +44,7 @@ NativeFeedbackCopy NativeFeedbackCopies::submit(Runtime *rt,const NativeScene &s
 void NativeFeedbackCopies::release(uint32_t object){
     for(const auto &[stack,copy]:builds)if(copy.object==object)throw std::runtime_error("screen feedback destroyed during builder");
     ready.erase(object);
+    if(lastPublished && lastPublished->object==object)lastPublished.reset();
 }
 void drawFeedbackCopy(const NativeFeedbackCopy &copy){
     const auto fp=_mm_getcsr();struct Restore{unsigned fp;~Restore(){_mm_setcsr(fp);}} restore{fp};
@@ -90,7 +91,7 @@ std::optional<bool> nativeFeedbackInstruction(R5900Context *c,Runtime *rt,uint32
         if(c->pc!=0x205a80 || c->r[5].uw[0]<0x100090 || c->r[4].uw[0]!=c->r[5].uw[0]-0x90)
             throw std::runtime_error("screen feedback requires original pre-enqueue producer");
         const auto object=c->r[4].uw[0];const auto copy=copies.submit(rt,scene->nativeScene(),object);
-        owner->drawNativeFeedbackCopy(copy);c->r[4].sd[0]=int32_t(object);return true;
+        owner->drawNativeFeedbackCopy(copy);copies.published(copy);c->r[4].sd[0]=int32_t(object);return true;
     }
     return false;
 }

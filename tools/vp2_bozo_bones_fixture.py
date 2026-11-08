@@ -25,7 +25,9 @@ fixture,_=prepare(data,[dict(Name='bone_loop',Start='0x2371dc',End='0x2372d8'),
                        dict(Name='linear_transform3',Start='0x1fb624',End='0x1fb64c'),
                        dict(Name='motion_update',Start='0x1fc9e0',End='0x1fcb3c'),
                        dict(Name='motion_setter',Start='0x1fcb40',End='0x1fcb54'),
-                       dict(Name='position_pair',Start='0x1fc860',End='0x1fc9e0')],{})
+                       dict(Name='position_pair',Start='0x1fc860',End='0x1fc9e0'),
+                       dict(Name='box_local_fragment',Start='0x1fbdcc',End='0x1fbdfc'),
+                       dict(Name='box_clamp',Start='0x1fbe60',End='0x1fbfa8')],{})
 fixture=bytearray(fixture);_,segments,_=elf_parts(fixture)
 s=next(s for s in segments if s[0]==1 and s[2]<=0x2371dc<0x2372d8<=s[2]+s[4])
 at=s[1]+0x2372d0-s[2];fixture[at:at+8]=(0x03e00008).to_bytes(4,'little')+bytes(4)
@@ -75,7 +77,7 @@ for pc in range(0x1fb768,0x1fb7a4,4):
         at=s[1]+pc-s[2];fixture[at:at+4]=bytes(4)
     else:sites.append(f'native 0x{pc:x}\n')
 sites.append('stub 0x172000\n')
-for lo,final in ((0x1fb3f4,0x1fb418),(0x1fb5ec,0x1fb610),(0x1fb87c,0x1fb8a0),
+for lo,final in ((0x1fb3f4,0x1fb418),(0x1fb5ec,0x1fb610),(0x1fb87c,0x1fb8a0),(0x1fbdcc,0x1fbdf0),
                  (0x1fb1e4,0x1fb200),(0x1fb2fc,0x1fb318),(0x1fb42c,0x1fb448),(0x1fb624,0x1fb640)):
     s=next(s for s in segments if s[0]==1 and s[2]<=lo<final+12<=s[2]+s[4])
     at=s[1]+final+4-s[2];fixture[at:at+8]=(0x03e00008).to_bytes(4,'little')+bytes(4)
@@ -106,6 +108,12 @@ for pc in pair_sites:
     if a.variant=='reference' and pc not in (0x1fc908,0x1fc984,0x1fc9cc):
         at=s[1]+pc-s[2];fixture[at:at+4]=bytes(4)
     else:sites.append(f'native 0x{pc:x}\n')
+for lo,final in ((0x1fbe6c,0x1fbe90),(0x1fbf78,0x1fbf9c)):
+    s=next(s for s in segments if s[0]==1 and s[2]<=lo<final+4<=s[2]+s[4])
+    for pc in range(lo,final+4,4):
+        if a.variant=='reference' and pc!=final:
+            at=s[1]+pc-s[2];fixture[at:at+4]=bytes(4)
+        else:sites.append(f'native 0x{pc:x}\n')
 bound={int(row.split()[1],16) for row in sites if row.startswith('native ')}
 _,_,code_sections=elf_parts(fixture)
 for section in code_sections:

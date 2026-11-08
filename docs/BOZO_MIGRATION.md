@@ -12,6 +12,23 @@ The earlier VP2S face/shading and general brightness comparisons remain open.
 
 ## Build and evidence
 
+### Native box-local point and return transforms (2026-11-08)
+
+Three further full-weight copies (`0x1fbdf0`, `0x1fbe90`, `0x1fbf9c` stores)
+now use the qualified matrix/vector operation with their audited scalar ABIs.
+All input weights and output components remain live. Inputs snapshot before
+each store; the return transform reads the actual matrix after preceding
+clamp/output alias effects. Original scalar XYZ clamping, margin comparisons,
+conditional return transform, full output copy and epilogue remain unchanged.
+
+512 fragment cases extend full-transform overlap/rounding qualification, and
+512 complete clamp callers compare whole CPU/RAM/FP with independent scalar
+arithmetic. These cover source/output/matrix aliases, four modes, computed W,
+both clamped and unchanged branches and exact identity-matrix boundary cases.
+The fixture-wide vector binding completeness check, source guards and startup
+pass. Actual New Game advances to `0x1fcb7c`, the angular-constraint caller's
+half-coefficient setup. Logun remains open.
+
 ### Native constrained position-pair adjustment (2026-11-08)
 
 `0x1fc860` retains its fixed-object branches, scalar weight setup, separation

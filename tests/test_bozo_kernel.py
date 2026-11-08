@@ -133,7 +133,8 @@ class KernelGuardTests(unittest.TestCase):
 
     def test_full_transform_sources(self):
         data=(IMAGE.parent/'mod001.elf').read_bytes();_,segments,_=elf_parts(data)
-        for lo,hi in ((0x1fb3f4,0x1fb41c),(0x1fb5ec,0x1fb614),(0x1fb87c,0x1fb8a4)):
+        for lo,hi in ((0x1fb3f4,0x1fb41c),(0x1fb5ec,0x1fb614),(0x1fb87c,0x1fb8a4),
+                      (0x1fbdcc,0x1fbdf4),(0x1fbe60,0x1fbfa8)):
             s=next(s for s in segments if s[0]==1 and s[2]<=lo<hi<=s[2]+s[4])
             for pc in range(lo,hi,4):
                 changed=bytearray(data);changed[s[1]+pc-s[2]]^=1

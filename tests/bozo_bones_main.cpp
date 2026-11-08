@@ -71,13 +71,14 @@ struct Host:bozo::ee::Host,bozo::port::Host,vp2s::MotionOwner{
         return target==0x1fcb40 && rt->functions.generated(target)==bones_adapted_motion_setter_0x1fcb40;
     }
     std::map<uint32_t,std::array<uint32_t,4>> referenceMotion;
-    unsigned symmetricPairs=0,weightedPairs=0;
+    unsigned symmetricPairs=0,weightedPairs=0,boxPublications=0;
     bool reference=false;uint32_t selectedInverse=0,translationW=0;
     bool callbackActive=false;uint32_t callbackObject=0;uint8_t callbackFlags=0;unsigned callbacks=0;
     std::array<uint32_t,24> callbackData{};
     bozo::libs::Libraries &libraries()override{throw std::runtime_error("libraries");}
     bool nativeGraphics()const override{return true;}
     bool nativeInstruction(uint8_t *r,R5900Context *c,Runtime *rt,uint32_t pc)override{
+        if(pc==0x1fbf9c)++boxPublications;
         if(pc==0x1fc984)++symmetricPairs;if(pc==0x1fc9cc)++weightedPairs;
         if(reference && (pc==0x1fc908 || pc==0x1fc984 || pc==0x1fc9cc)){
             float a[4],b[4],delta[3];const auto first=pc==0x1fc908?c->r[4].uw[0]+0x30:c->r[5].uw[0],second=pc==0x1fc908?c->r[6].uw[0]+0x30:c->r[4].uw[0];
@@ -113,11 +114,12 @@ struct Host:bozo::ee::Host,bozo::port::Host,vp2s::MotionOwner{
             const auto it=referenceMotion.find(c->r[29].uw[0]);check(it!=referenceMotion.end());
             std::memcpy(rt->memory.hostPointer(c->r[16].uw[0]+0x30,16),it->second.data(),16);referenceMotion.erase(it);return true;
         }
-        if(reference && (pc==0x1fb418 || pc==0x1fb610 || pc==0x1fb8a0 || pc==0x1fb200 || pc==0x1fb318 || pc==0x1fb448 || pc==0x1fb640)){
+        if(reference && (pc==0x1fb418 || pc==0x1fb610 || pc==0x1fb8a0 || pc==0x1fb200 || pc==0x1fb318 || pc==0x1fb448 || pc==0x1fb640 || pc==0x1fbdf0 || pc==0x1fbe90 || pc==0x1fbf9c)){
             const bool linear=pc==0x1fb200 || pc==0x1fb318 || pc==0x1fb448 || pc==0x1fb640;
-            float matrix[4][4]{},vector[4];uint32_t out[4];std::memcpy(matrix,rt->memory.hostPointer(c->r[5].uw[0],linear?48:64),linear?48:64);
-            std::memcpy(vector,rt->memory.hostPointer(c->r[4].uw[0],16),16);referenceTransform(matrix,vector,linear?3:4,out);
-            std::memcpy(rt->memory.hostPointer(c->r[3].uw[0],16),out,16);return true;
+            const bool local=pc==0x1fbdf0 || pc==0x1fbe90,world=pc==0x1fbf9c;
+            float matrix[4][4]{},vector[4];uint32_t out[4];std::memcpy(matrix,rt->memory.hostPointer(c->r[local || world?3:5].uw[0],linear?48:64),linear?48:64);
+            std::memcpy(vector,rt->memory.hostPointer(c->r[local?5:world?6:4].uw[0],16),16);referenceTransform(matrix,vector,linear?3:4,out);
+            std::memcpy(rt->memory.hostPointer(c->r[local?2:world?6:3].uw[0],16),out,16);return true;
         }
         if(reference && pc==0x1fb79c){
             float matrix[4][4],vectors[2][4];uint32_t out[2][4];
@@ -430,7 +432,7 @@ int main(){try{
         put(r,point,0x40000000u);put(r,matrix,0x7f7fffffu);reject();
     }
     unsigned transforms=0,linearTransforms=0;
-    for(uint32_t entry:{0x1fb3f4u,0x1fb5ecu,0x1fb87cu,0x1fb1e4u,0x1fb2fcu,0x1fb42cu,0x1fb624u})for(unsigned mode:{_MM_ROUND_NEAREST,_MM_ROUND_DOWN,_MM_ROUND_UP,_MM_ROUND_TOWARD_ZERO})for(unsigned seed=0;seed<128;++seed){
+    for(uint32_t entry:{0x1fb3f4u,0x1fb5ecu,0x1fb87cu,0x1fb1e4u,0x1fb2fcu,0x1fb42cu,0x1fb624u,0x1fbdccu})for(unsigned mode:{_MM_ROUND_NEAREST,_MM_ROUND_DOWN,_MM_ROUND_UP,_MM_ROUND_TOWARD_ZERO})for(unsigned seed=0;seed<128;++seed){
         const bool linear=entry==0x1fb1e4 || entry==0x1fb2fc || entry==0x1fb42c || entry==0x1fb624;
         auto &x=a.runtime(),&y=b.runtime();std::memset(x.memory.flat(),0x61,bozo::kFlatBytes);
         const uint32_t matrix=seed&1?0x70000100:0x180000,vector=seed%8==3?matrix+16:seed%8==5?matrix+32:0x190000;
@@ -443,7 +445,8 @@ int main(){try{
         if(linear && vector==0x190000)values[19]=seed&2?0xff801234u:0x7fc01234u;
         std::memcpy(x.memory.hostPointer(matrix,64),values,64);std::memcpy(x.memory.hostPointer(vector,16),values+16,16);std::memcpy(y.memory.flat(),x.memory.flat(),bozo::kFlatBytes);
         R5900Context p{};for(unsigned i=1;i<32;++i){p.r[i].ud[0]=seed*32+i;p.r[i].ud[1]=~p.r[i].ud[0];}
-        std::memset(p.vu0_vf,0x83,sizeof(p.vu0_vf));p.vu0_status=0x1234;p.r[5].ud[0]=matrix;p.r[4].ud[0]=vector;p.r[3].ud[0]=destination;p.r[31].ud[0]=0x170000;auto q=p;
+        std::memset(p.vu0_vf,0x83,sizeof(p.vu0_vf));p.vu0_status=0x1234;
+        p.r[entry==0x1fbdcc?3:5].ud[0]=matrix;p.r[entry==0x1fbdcc?5:4].ud[0]=vector;p.r[entry==0x1fbdcc?2:3].ud[0]=destination;p.r[31].ud[0]=0x170000;auto q=p;
         const auto saved=_mm_getcsr(),control=(saved&~_MM_ROUND_MASK)|mode;_mm_setcsr(control);
         h.reference=true;x.functions.generated(entry)(x.memory.flat(),&p,&x);const auto expectedFp=_mm_getcsr();_mm_setcsr(control);
         h.reference=false;y.functions.generated(entry)(y.memory.flat(),&q,&y);check(_mm_getcsr()==expectedFp);_mm_setcsr(saved);
@@ -544,5 +547,32 @@ int main(){try{
         c.r[5].ud[0]=stack;reject();c.r[5].ud[0]=constraint;c.r[4].ud[0]=stack-0x30;reject();c.r[4].ud[0]=first;
         put(r,first+0x30,0x7fc00000u);reject();put(r,first+0x30,1u);reject();put(r,first+0x30,0x7f7fffffu);reject();
     }
-    std::printf("%u bone,%u distance,%u scale,%u parameters,%u selectors (%u rigid/%u general),%u column inverses,%u paired aliases,%u paired callers,%u full/%u linear transforms,%u motion callers,%u position pairs (%u fixed): CPU/RAM, four modes, live XYZW; no VU state\n",cases,distances,scales,parameters,selectors,rigid,general,columns,pairs,pairedCallers,transforms,linearTransforms,motions,positionPairs,fixedPairs);return 0;
+    unsigned boxes=0,clamped=0,unclamped=0;h.boxPublications=0;
+    for(unsigned mode:{_MM_ROUND_NEAREST,_MM_ROUND_DOWN,_MM_ROUND_UP,_MM_ROUND_TOWARD_ZERO})for(unsigned seed=0;seed<128;++seed){
+        auto &x=a.runtime(),&y=b.runtime();std::memset(x.memory.flat(),0x61,bozo::kFlatBytes);
+        const uint32_t object=seed&1?0x70000100:0x180000,stack=seed&2?0x70003e00:0x1fff000;
+        const uint32_t input=(seed&16) && seed%16?object+0x150:0x190000;
+        const uint32_t output=seed%4==0?input:seed%4==1?object+0x150:seed%4==2?object+0x190:0x1a0000;
+        for(auto at:{object+0x150,object+0x190}){
+            uint32_t values[16];for(auto &v:values){random=random*1664525u+1013904223u;v=(random&0x807fffff)|((120+random%10)<<23);}
+            if(seed%16==0)for(unsigned i=0;i<16;++i)values[i]=i%5==0?0x3f800000u:0u;
+            std::memcpy(x.memory.hostPointer(at,64),values,64);
+        }
+        uint32_t point[4];for(auto &v:point){random=random*1664525u+1013904223u;v=(random&0x807fffff)|((120+random%10)<<23);}
+        if(seed%16==0){point[0]=seed%32==0?0xc1200000u:0u;point[1]=0;point[2]=seed%32==0?0x41200000u:0u;point[3]=0x3f800000;}
+        std::memcpy(x.memory.hostPointer(input,16),point,16);
+        for(unsigned i=0;i<3;++i)put(x,object+0x220+i*4,std::bit_cast<uint32_t>(float(5+i)));
+        std::memcpy(y.memory.flat(),x.memory.flat(),bozo::kFlatBytes);
+        R5900Context p{};for(unsigned i=1;i<32;++i){p.r[i].ud[0]=seed*32+i;p.r[i].ud[1]=~p.r[i].ud[0];}
+        std::memset(p.vu0_vf,0x39,sizeof(p.vu0_vf));p.vu0_status=0x1234;p.r[4].ud[0]=object;p.r[5].ud[0]=input;p.r[6].ud[0]=output;p.r[29].ud[0]=stack;p.r[31].ud[0]=0x170000;p.f[12]=1.f;auto q=p;
+        const auto saved=_mm_getcsr(),control=(saved&~_MM_ROUND_MASK)|mode;_mm_setcsr(control);
+        h.reference=true;x.functions.generated(0x1fbe60)(x.memory.flat(),&p,&x);const auto expectedFp=_mm_getcsr();_mm_setcsr(control);
+        h.reference=false;y.functions.generated(0x1fbe60)(y.memory.flat(),&q,&y);check(_mm_getcsr()==expectedFp);_mm_setcsr(saved);
+        p.cycleLimit=q.cycleLimit;check(p.pc==0x170000 && !std::memcmp(&p,&q,sizeof(p)));check(!std::memcmp(x.memory.flat(),y.memory.flat(),bozo::kFlatBytes));
+        if(q.r[2].ud[0])++clamped;else ++unclamped;
+        if(seed%32==0)check(word(y,output)==0xc0800000 && word(y,output+8)==0x40c00000 && word(y,output+12)==0x3f800000);
+        if(seed%32==16)check(q.r[2].ud[0]==0 && word(y,output+12)==0x3f800000);++boxes;
+    }
+    check(clamped && unclamped && h.boxPublications==clamped*2);
+    std::printf("%u bone,%u distance,%u scale,%u parameters,%u selectors (%u rigid/%u general),%u column inverses,%u paired aliases,%u paired callers,%u full/%u linear transforms,%u motion callers,%u position pairs (%u fixed),%u boxes (%u clamped/%u unchanged): CPU/RAM, four modes, live XYZW; no VU state\n",cases,distances,scales,parameters,selectors,rigid,general,columns,pairs,pairedCallers,transforms,linearTransforms,motions,positionPairs,fixedPairs,boxes,clamped,unclamped);return 0;
 }catch(const std::exception &e){std::fprintf(stderr,"%s\n",e.what());return 1;}}

@@ -149,10 +149,15 @@ bool nativeMathInstruction(uint8_t *,R5900Context *c,Runtime *rt,uint32_t pc){
     }
     if((pc>=0x1fb3f4 && pc<0x1fb418 && !(pc&3)) ||
        (pc>=0x1fb5ec && pc<0x1fb610 && !(pc&3)) ||
-       (pc>=0x1fb87c && pc<0x1fb8a0 && !(pc&3)))return true;
-    if(pc==0x1fb418 || pc==0x1fb610 || pc==0x1fb8a0){
+       (pc>=0x1fb87c && pc<0x1fb8a0 && !(pc&3)) ||
+       (pc>=0x1fbdcc && pc<0x1fbdf0 && !(pc&3)) ||
+       (pc>=0x1fbe6c && pc<0x1fbe90 && !(pc&3)) ||
+       (pc>=0x1fbf78 && pc<0x1fbf9c && !(pc&3)))return true;
+    if(pc==0x1fb418 || pc==0x1fb610 || pc==0x1fb8a0 || pc==0x1fbdf0 || pc==0x1fbe90 || pc==0x1fbf9c){
+        const bool local=pc==0x1fbdf0 || pc==0x1fbe90,world=pc==0x1fbf9c;
+        const unsigned matrixRegister=local || world?3:5,vectorRegister=local?5:world?6:4,destinationRegister=local?2:world?6:3;
         math::Matrix matrix;__m128 vector;
-        std::memcpy(matrix.data(),record(rt,c->r[5].uw[0],64),64);std::memcpy(&vector,record(rt,c->r[4].uw[0],16),16);
+        std::memcpy(matrix.data(),record(rt,c->r[matrixRegister].uw[0],64),64);std::memcpy(&vector,record(rt,c->r[vectorRegister].uw[0],16),16);
         float rows[4][4],point[4];std::memcpy(rows,matrix.data(),64);std::memcpy(point,&vector,16);
         const auto qualified=[](float v){const auto b=std::bit_cast<uint32_t>(v),e=b&0x7f800000;
             if(e==0x7f800000 || (!e && (b&0x7fffff)))throw std::runtime_error("unqualified native full transform input");};
@@ -161,7 +166,7 @@ bool nativeMathInstruction(uint8_t *,R5900Context *c,Runtime *rt,uint32_t pc){
             for(unsigned lane=0;lane<4;++lane){double bound=0;for(unsigned row=0;row<4;++row)bound+=std::abs(double(rows[row][lane])*point[row]);
                 if(bound>std::numeric_limits<float>::max())throw std::runtime_error("native full transform overflow");}}
         const auto result=math::matrixVectorProduct(matrix,vector);
-        std::memcpy(record(rt,c->r[3].uw[0],16),&result,16);return true;
+        std::memcpy(record(rt,c->r[destinationRegister].uw[0],16),&result,16);return true;
     }
     if((pc>=0x1fb768 && pc<=0x1fb798 && !(pc&3)) || pc==0x1fb7a0)return true;
     if(pc==0x1fb79c){

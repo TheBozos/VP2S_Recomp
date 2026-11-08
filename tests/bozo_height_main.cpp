@@ -6,6 +6,8 @@
 #include "height_adapted_functions.h"
 #include "terrain_reference_functions.h"
 #include "terrain_adapted_functions.h"
+#include "query_reference_functions.h"
+#include "query_adapted_functions.h"
 #include <bit>
 #include <cmath>
 #include <cstring>
@@ -24,7 +26,7 @@ uint32_t product(uint32_t a){unsigned e=(a>>23)&255;if(!e)return 0;uint64_t m=ui
     if(m&(1ull<<47)){++exponent;++shift;}return exponent<=0?0:uint32_t(exponent<<23)|uint32_t((m>>shift)&0x7fffff);}
 uint32_t add(uint32_t a,uint32_t b){if(a<b)std::swap(a,b);if(!b)return a;int e=(a>>23)&255;unsigned d=unsigned(e)-((b>>23)&255);
     uint64_t m=((a&0x7fffff)|0x800000)+(d<=23?(((b&0x7fffff)|0x800000)>>d):0);if(m>=0x1000000){m>>=1;++e;}return uint32_t(e<<23)|uint32_t(m&0x7fffff);}
-uint32_t scale(Runtime &r,uint32_t object){uint32_t sum=0;for(unsigned i=0;i<3;++i)sum=add(sum,product(word(r,object+0x94+i*16)));
+uint32_t scale(Runtime &r,uint32_t object,unsigned axis=1){uint32_t sum=0;for(unsigned i=0;i<3;++i)sum=add(sum,product(word(r,object+0x90+axis*4+i*16)));
     if(!sum)return 0; // DAZ must not turn subnormal search candidates into zero roots.
     const double squared=std::bit_cast<float>(sum);uint32_t lo=0,hi=0x7f7fffff;
     while(lo<hi){auto mid=lo+(hi-lo+1)/2;const double v=std::bit_cast<float>(mid);if(v*v<=squared)lo=mid;else hi=mid-1;}return lo;}
@@ -41,11 +43,59 @@ void rowPointOracle(Runtime &r,uint32_t matrixAt,uint32_t pointAt,uint32_t desti
         out[row]=signedSum(signedSum(signedSum(terms[order[row][0]],terms[order[row][1]]),signedProduct(0x3f800000u,terms[order[row][2]])),signedProduct(0x3f800000u,terms[order[row][3]]));}
     std::memcpy(r.memory.hostPointer(destination,16),out,16);
 }
+// Independent finite float32 arithmetic for the inline query's caller rounding.
+// Integer guard/sticky bits distinguish a tiny cancellation residual from zero.
+uint64_t rightJam(uint64_t v,unsigned shift){if(!shift)return v;if(shift>=64)return v!=0;return (v>>shift)|((v&((uint64_t(1)<<shift)-1))!=0);}
+uint32_t roundedValue(uint32_t sign,int e,uint64_t m){
+    if(!m)return sign;
+    while(m>=(uint64_t(1)<<56)){m=rightJam(m,1);++e;}
+    while(m<(uint64_t(1)<<55)){m<<=1;--e;}
+    if(e<=0)return sign;
+    uint32_t value=uint32_t(m>>32),fraction=uint32_t(m);const auto mode=_mm_getcsr()&_MM_ROUND_MASK;
+    const bool increment=mode==_MM_ROUND_NEAREST?(fraction>0x80000000u || (fraction==0x80000000u && (value&1))):
+        mode==_MM_ROUND_DOWN?(sign && fraction):mode==_MM_ROUND_UP?(!sign && fraction):false;
+    if(increment && ++value==0x1000000){value>>=1;++e;}check(e<255);return sign|uint32_t(e<<23)|(value&0x7fffff);
+}
+uint32_t roundedProduct(uint32_t a,uint32_t b){const auto sign=(a^b)&0x80000000u;const int ea=(a>>23)&255,eb=(b>>23)&255;
+    if(!ea || !eb)return sign;return roundedValue(sign,ea+eb-127,uint64_t((a&0x7fffff)|0x800000)*((b&0x7fffff)|0x800000)<<9);}
+uint32_t roundedSum(uint32_t a,uint32_t b){
+    if((a&0x7fffffff)<(b&0x7fffffff))std::swap(a,b);
+    if(!(b&0x7fffffff)){if(a&0x7fffffff)return a;return ((a&b)&0x80000000u)|((_mm_getcsr()&_MM_ROUND_MASK)==_MM_ROUND_DOWN?((a|b)&0x80000000u):0u);}
+    int e=(a>>23)&255;const unsigned distance=unsigned(e)-((b>>23)&255);
+    const uint64_t large=uint64_t((a&0x7fffff)|0x800000)<<32,small=rightJam(uint64_t((b&0x7fffff)|0x800000)<<32,distance);
+    const auto magnitude=((a^b)&0x80000000u)?large-small:large+small;
+    if(!magnitude)return (_mm_getcsr()&_MM_ROUND_MASK)==_MM_ROUND_DOWN?0x80000000u:0u;
+    return roundedValue(a&0x80000000u,e,magnitude);
+}
+uint32_t roundedReciprocal(uint32_t denominator){if(!denominator)return 0x7f7fffff;uint32_t lo=0,hi=0x7f7fffff;const double d=std::bit_cast<float>(denominator);
+    while(lo<hi){const auto mid=lo+(hi-lo+1)/2;const double v=std::bit_cast<float>(mid);if(v*d<=1.0)lo=mid;else hi=mid-1;}
+    const auto mode=_mm_getcsr()&_MM_ROUND_MASK;const double lower=std::bit_cast<float>(lo);
+    if(lower*d==1.0 || mode==_MM_ROUND_TOWARD_ZERO || mode==_MM_ROUND_DOWN)return lo;
+    if(mode==_MM_ROUND_UP)return lo+1;
+    const double middle=(lower+double(std::bit_cast<float>(lo+1)))*.5,comparison=middle*d;
+    return lo+unsigned(comparison<1.0 || (comparison==1.0 && (lo&1)));
+}
+void queryDistanceOracle(Runtime &r,R5900Context *c){
+    const auto object=c->r[16].uw[0],node=c->r[18].uw[0],query=c->r[17].uw[0];
+    uint32_t center[4],origin[4],direction[4],matrix[4][4],difference[3],squares[3],dot[3];
+    std::memcpy(center,r.memory.hostPointer(node+16,16),16);std::memcpy(origin,r.memory.hostPointer(query,16),16);
+    std::memcpy(direction,r.memory.hostPointer(query+16,16),16);std::memcpy(matrix,r.memory.hostPointer(object+0x150,64),64);
+    const auto sum3=[](const uint32_t v[3]){return roundedSum(roundedSum(roundedProduct(0x3f800000,v[0]),roundedProduct(0x3f800000,v[1])),roundedProduct(0x3f800000,v[2]));};
+    for(unsigned i=0;i<3;++i){auto value=roundedProduct(matrix[0][i],center[0]);for(unsigned j=1;j<4;++j)value=roundedSum(value,roundedProduct(matrix[j][i],j==3?0x3f800000:center[j]));
+        difference[i]=roundedSum(value,origin[i]^0x80000000u);squares[i]=roundedProduct(direction[i],direction[i]);dot[i]=roundedProduct(difference[i],direction[i]);}
+    const auto denominator=sum3(squares),reciprocal=roundedReciprocal(denominator);
+    const auto projection=sum3(dot),parameter=roundedProduct((projection&0x80000000u)?0u:projection,reciprocal);
+    for(unsigned i=0;i<3;++i){const auto v=roundedSum(difference[i],roundedProduct(direction[i],parameter)^0x80000000u);squares[i]=roundedProduct(v,v);}
+    const auto radius=roundedProduct(center[3],word(r,object+0x204));center[3]=roundedSum(sum3(squares),roundedProduct(radius,radius)^0x80000000u);
+    std::memcpy(r.memory.hostPointer(c->r[29].uw[0]+0x50,16),center,16);
+}
 struct Host final:bozo::ee::Host,bozo::port::Host{
     bozo::libs::Libraries &libraries()override{throw std::runtime_error("unexpected native library ownership");}
     bool reference=false;unsigned callbacks=0,getters=0;uint32_t matrices[2]{};
     bool nativeInstruction(uint8_t *ram,R5900Context *c,Runtime *rt,uint32_t pc)override{
         if(reference){if(pc==0x252f20){rowPointOracle(*rt,c->r[3].uw[0],c->r[17].uw[0],c->r[2].uw[0]);return true;}
+            if(pc==0x1f717c){queryDistanceOracle(*rt,c);return true;}
+            if(pc==0x1f70b4){for(unsigned axis=0;axis<3;++axis)put(*rt,c->r[29].uw[0]+0x40+axis*4,scale(*rt,c->r[16].uw[0],axis));return true;}
             if(pc==0x252ff8){put(*rt,c->r[29].uw[0]+0xb4,scale(*rt,c->r[16].uw[0]));return true;}
             if(pc==0x3e7f34 || pc==0x3e7ff8){rowPointOracle(*rt,c->r[2].uw[0],c->r[29].uw[0]+0x70,c->r[29].uw[0]+0x70);return true;}
             check(pc==0x3e5cc0);put(*rt,c->r[29].uw[0]+0x54,scale(*rt,c->r[18].uw[0]));return true;}
@@ -54,6 +104,7 @@ struct Host final:bozo::ee::Host,bozo::port::Host{
     void frameEnd(Runtime *,R5900Context *)override{throw std::runtime_error("frame");}
     bool callLibrary(Runtime *,R5900Context *,uint32_t)override{return false;}
     void libraryCall(bozo::ee::Dispatcher &d,R5900Context *c,uint32_t pc)override{
+        if(pc==0x174000){put<uint8_t>(d.runtime(),c->r[4].uw[0]+0x61,1);++callbacks;c->pc=c->r[31].uw[0];return;}
         if(pc==0x173000){check(c->r[31].uw[0]==(getters%2?0x3e7f98u:0x3e7ed8u));c->r[2].sd[0]=int32_t(matrices[getters++%2]);c->pc=c->r[31].uw[0];return;}
         check(pc==0x172000);const auto object=c->r[4].uw[0];
         // Real indirect update ABI, with a bounded matrix/translation producer.
@@ -186,5 +237,54 @@ int main(){try{
         for(auto bits:{0x7fc00000u,1u,0x7f000000u}){put(r,0x180094,bits);reject();}put(r,0x180094,0u);
         c.r[17].ud[0]=0x1fff0b0;reject();c.r[17].ud[0]=0x1a0000;put(r,0x180250,0x1fff090u);put(r,0x1fff098,4u);put(r,0x1fff09c,4u);reject();
     }
-    std::printf("%u height-bound callers/%u update calls, %u two-corner consumers, %u terrain callers (%u out-of-bounds/%u missing/%u interpolated): four modes, CPU/RAM/FP, aliases and exact results\n",cases,host.callbacks,corners,terrains,rejectedBounds,missingHeights,heights);return 0;
+    a.setFunctions(query_reference_function_table,query_reference_function_count,query_reference_resume_table,query_reference_resume_count);
+    b.setFunctions(query_adapted_function_table,query_adapted_function_count,query_adapted_resume_table,query_adapted_resume_count);
+    for(auto *d:{&a,&b})d->bindLibrary(0x174000);
+    unsigned queries=0,queryHits=0,queryMisses=0,querySkipped=0;
+    for(unsigned mode:{_MM_ROUND_NEAREST,_MM_ROUND_DOWN,_MM_ROUND_UP,_MM_ROUND_TOWARD_ZERO})for(unsigned seed=0;seed<128;++seed){
+        auto &x=a.runtime(),&y=b.runtime();std::memset(x.memory.flat(),0x53,bozo::kFlatBytes);
+        const uint32_t header=0x180000,node=header+0x30,object=0x1a0000,query=0x1c0000,argument=0x170100,stack=seed&1?0x70003e00:0x1fff000,frame=stack-0x100;
+        put(x,argument,header);put(x,header+12,0x190000u);put(x,node,0u);put(x,node+4,seed%13==12?0u:object);
+        put<uint8_t>(x,node+9,seed%13==11?0:1);put<uint8_t>(x,0x314020,1);put<int16_t>(x,node+14,-1);
+        put(x,object,0x1b0000u);put(x,0x1b0064,0x174000u);put<uint8_t>(x,object+0x61,seed%3?1:0);put<uint8_t>(x,object+0x20e,(seed%4)*0x10+(seed%4>=2?0x20:0));
+        for(unsigned i=0;i<16;++i){const auto value=std::bit_cast<uint32_t>(i%5?0.f:1.f);put(x,object+0xd0+i*4,value);put(x,object+0x150+i*4,value);if(i<12)put(x,object+0x90+i*4,value);}
+        put(x,object+0x204,0x3f800000u);
+        float sphere[4]={0,0,0,1},origin[4]={-5,0,0,std::bit_cast<float>(0x7f805678u)},direction[4]={10,0,0,std::bit_cast<float>(0x7fc01234u)};
+        switch(seed%7){case 1:sphere[1]=3;break;case 2:sphere[0]=20;break;case 3:sphere[0]=-20;break;case 4:direction[0]=0;break;case 5:direction[0]=.125f;sphere[1]=.5f;break;case 6:sphere[3]=0;break;}
+        if(seed%7<3){origin[0]=-4;direction[0]=8;} // exactly representable projection examples
+        std::memcpy(x.memory.hostPointer(node+16,16),sphere,16);std::memcpy(x.memory.hostPointer(query,16),origin,16);std::memcpy(x.memory.hostPointer(query+16,16),direction,16);
+        std::memcpy(y.memory.flat(),x.memory.flat(),bozo::kFlatBytes);
+        R5900Context p{};for(unsigned i=1;i<32;++i){p.r[i].ud[0]=seed*32+i;p.r[i].ud[1]=~p.r[i].ud[0];}std::memset(p.vu0_vf,0x47,sizeof(p.vu0_vf));
+        const uint32_t caller=seed&1?0x3e753c:0x3e70bc;p.r[4].ud[0]=argument;p.r[5].ud[0]=query;p.r[29].ud[0]=stack;p.r[31].ud[0]=caller;auto q=p;
+        const auto saved=_mm_getcsr(),control=(saved&~(_MM_ROUND_MASK|0x8040u))|mode|(seed&1?0x8040u:0u);_mm_setcsr(control);
+        host.reference=true;x.functions.generated(0x1f7370)(x.memory.flat(),&p,&x);const auto expected=_mm_getcsr();_mm_setcsr(control);
+        host.reference=false;y.functions.generated(0x1f7370)(y.memory.flat(),&q,&y);check(_mm_getcsr()==expected);_mm_setcsr(saved);
+        p.cycleLimit=q.cycleLimit;
+        if(std::memcmp(&p,&q,sizeof(p))){const auto *u=reinterpret_cast<const uint8_t *>(&p),*v=reinterpret_cast<const uint8_t *>(&q);for(unsigned i=0;i<sizeof(p);++i)if(u[i]!=v[i]){std::fprintf(stderr,"query seed=%u mode=%x CPU byte=%u old=%02x new=%02x pc=%x/%x\n",seed,mode,i,u[i],v[i],p.pc,q.pc);break;}}
+        if(std::memcmp(x.memory.flat(),y.memory.flat(),bozo::kFlatBytes))for(unsigned i=0;i<bozo::kFlatBytes;++i)if(x.memory.flat()[i]!=y.memory.flat()[i]){std::fprintf(stderr,"query seed=%u RAM=%x old=%02x new=%02x\n",seed,i,x.memory.flat()[i],y.memory.flat()[i]);break;}
+        check(p.pc==caller && !std::memcmp(&p,&q,sizeof(p)));check(!std::memcmp(x.memory.flat(),y.memory.flat(),bozo::kFlatBytes));check(q.r[2].uw[0]==0);
+        if(seed%13>=11)++querySkipped;else{const auto distance=std::bit_cast<float>(word(y,frame+0x5c));if(distance<=0)++queryHits;else ++queryMisses;
+            if(seed%7==0 || seed%7==2)check(distance==-1.f);if(seed%7==1)check(distance==8.f);}
+        ++queries;
+    }
+    check(queryHits && queryMisses && querySkipped);
+    {auto &r=b.runtime();constexpr uint32_t node=0x180030,object=0x1a0000,query=0x1c0000,stack=0x1fff000;R5900Context c{};
+        c.r[18].ud[0]=node;c.r[17].ud[0]=query;c.r[29].ud[0]=stack;c.r[31].ud[0]=0x1f7390;
+        put(r,node,0u);put(r,node+4,object);put<int16_t>(r,node+14,-1);put(r,stack+0xf0,0x3e70bcu);
+        const auto reject=[&]{const auto before=c;std::vector<uint8_t> memory(r.memory.flat(),r.memory.flat()+bozo::kFlatBytes);bool bad=false;
+            try{vp2s::nativeMathInstruction(r.memory.flat(),&c,&r,0x1f6f94);}catch(const std::runtime_error &){bad=true;}
+            check(bad && !std::memcmp(&before,&c,sizeof(c)) && !std::memcmp(memory.data(),r.memory.flat(),memory.size()));};
+        put(r,node,0x180050u);reject();put(r,node,0u);put<int16_t>(r,node+14,0);reject();put<int16_t>(r,node+14,-1);
+        put(r,stack+0xf0,0x123456u);reject();put(r,stack+0xf0,0x3e70bcu);c.r[17].ud[0]=stack+0x70;reject();
+        c.r[17].ud[0]=query;c.r[2].ud[0]=stack+0x50;
+        for(unsigned i=0;i<16;++i)put(r,object+0x150+i*4,std::bit_cast<uint32_t>(i%5?0.f:1.f));
+        put(r,object+0x204,0x3f800000u);for(unsigned i=0;i<4;++i)put(r,node+16+i*4,i==3?0x3f800000u:0u);
+        for(unsigned i=0;i<8;++i)put(r,query+i*4,i==4?0x3f800000u:0u);
+        const auto rejectDistance=[&]{const auto before=c;std::vector<uint8_t> memory(r.memory.flat(),r.memory.flat()+bozo::kFlatBytes);bool bad=false;
+            try{vp2s::nativeMathInstruction(r.memory.flat(),&c,&r,0x1f717c);}catch(const std::runtime_error &){bad=true;}
+            check(bad && !std::memcmp(&before,&c,sizeof(c)) && !std::memcmp(memory.data(),r.memory.flat(),memory.size()));};
+        c.r[2].ud[0]+=16;rejectDistance();c.r[2].ud[0]-=16;
+        for(auto at:{query,object+0x150,object+0x204}){const auto saved=word(r,at);for(auto bits:{0x7fc00000u,1u,0x7f000000u}){put(r,at,bits);rejectDistance();}put(r,at,saved);}
+    }
+    std::printf("%u height/%u corner/%u terrain/%u leafless queries (%u broad hits/%u misses/%u skipped): complete CPU/RAM/FP callers, four modes, exact results and guarded populated trees\n",cases,corners,terrains,queries,queryHits,queryMisses,querySkipped);return 0;
 }catch(const std::exception &e){std::fprintf(stderr,"%s\n",e.what());return 1;}}

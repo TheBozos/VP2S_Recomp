@@ -58,6 +58,50 @@ void separatePairFrame(uint8_t *frame,uint8_t *data,size_t bytes){
     const auto a=reinterpret_cast<uintptr_t>(frame),b=reinterpret_cast<uintptr_t>(data);
     if(a<b+bytes && b<a+16)throw std::runtime_error("constrained-position temporary aliases live inputs");
 }
+struct LeaflessQuery {uint8_t *node,*object,*query,*frame;};
+LeaflessQuery leaflessQuery(Runtime *rt,R5900Context *c,bool entry=false){
+    const auto stack=c->r[29].uw[0],nodeAt=c->r[18].uw[0],queryAt=c->r[17].uw[0];
+    auto *node=record(rt,nodeAt,32),*query=record(rt,queryAt,32),*frame=record(rt,stack,0xf0);
+    uint32_t child,objectAt;int16_t first;std::memcpy(&child,node,4);std::memcpy(&objectAt,node+4,4);std::memcpy(&first,node+14,2);
+    if(child || first>=0)throw std::runtime_error("populated native collision-tree owner required");
+    auto *object=record(rt,objectAt,0x210);
+    const auto apart=[](uint8_t *a,size_t an,uint8_t *b,size_t bn){const auto x=reinterpret_cast<uintptr_t>(a),y=reinterpret_cast<uintptr_t>(b);
+        if(x<y+bn && y<x+an)throw std::runtime_error("native collision-query live records overlap");};
+    apart(frame,0xf0,node,32);apart(frame,0xf0,query,32);apart(frame,0xf0,object,0x210);
+    apart(node,32,object,0x210);apart(query,32,object,0x210);apart(node,32,query,32);
+    if(entry){uint32_t caller=0;auto *saved=rt->memory.hostPointer(stack+0xf0,4);if(saved)std::memcpy(&caller,saved,4);
+        if(c->r[31].uw[0]!=0x1f7390 || (caller!=0x3e70bc && caller!=0x3e753c))
+            throw std::runtime_error("unqualified native leafless-query caller");}
+    return {node,object,query,frame};
+}
+std::array<float,3> queryBasisScales(uint8_t *basis){
+    float rows[3][4];std::memcpy(rows,basis,48);std::array<float,3> scales;
+    music::CodecRounding rounding;
+    for(unsigned axis=0;axis<3;++axis){float squares[3];for(unsigned row=0;row<3;++row){const auto value=rows[row][axis];pairQualified(value);
+            if(std::abs(value)>1.e8f)throw std::runtime_error("unqualified native query basis");squares[row]=pairProduct(value,value);}
+        const auto squared=pairSum(pairSum(squares[0],squares[1]),squares[2]);volatile float length=std::sqrt(squared);scales[axis]=pairSum(0.f,length);}
+    return scales;
+}
+std::array<float,4> leaflessDistance(const LeaflessQuery &data){
+    float columns[4][4],sphere[4],query[8],scale;std::memcpy(columns,data.object+0x150,64);std::memcpy(sphere,data.node+16,16);
+    std::memcpy(query,data.query,32);std::memcpy(&scale,data.object+0x204,4);
+    const auto qualified=[](float v){pairQualified(v);if(std::abs(v)>1.e8f)throw std::runtime_error("unqualified native query magnitude");};
+    for(auto &column:columns)for(unsigned i=0;i<3;++i)qualified(column[i]);for(auto value:sphere)qualified(value);qualified(scale);
+    for(unsigned i=0;i<3;++i){qualified(query[i]);qualified(query[4+i]);}
+    // This is inline geometry, unlike the scale microprogram. Keep the caller's
+    // rounding mode while leaving the host exception flags as they arrived.
+    struct ArithmeticScope {unsigned saved=_mm_getcsr();~ArithmeticScope(){_mm_setcsr(saved);}} arithmetic;
+    float difference[3],squared[3],dot[3];
+    for(unsigned i=0;i<3;++i){auto center=pairProduct(columns[0][i],sphere[0]);
+        for(unsigned column=1;column<4;++column)center=pairSum(center,pairProduct(columns[column][i],column==3?1.f:sphere[column]));
+        difference[i]=pairSum(center,-query[i]);squared[i]=pairProduct(query[4+i],query[4+i]);dot[i]=pairProduct(difference[i],query[4+i]);}
+    const auto sum3=[](const float values[3]){return pairSum(pairSum(pairProduct(1.f,values[0]),pairProduct(1.f,values[1])),pairProduct(1.f,values[2]));};
+    const auto denominator=sum3(squared);volatile float reciprocal=denominator==0?std::numeric_limits<float>::max():1.f/denominator;
+    const auto projection=sum3(dot),parameter=pairProduct(projection>0?projection:0.f,pairNormal(reciprocal));
+    for(unsigned i=0;i<3;++i){const auto residual=pairSum(difference[i],-pairProduct(query[4+i],parameter));squared[i]=pairProduct(residual,residual);}
+    const auto radius=pairProduct(sphere[3],scale),distance=pairSum(sum3(squared),-pairProduct(radius,radius));pairQualified(distance);
+    return {sphere[0],sphere[1],sphere[2],distance};
+}
 struct SegmentTerms {std::array<float,3> delta;float firstLength,negativeCross,secondLength,firstProjection,separation,determinant,negativeSecondProjection,secondNumerator,firstNumerator;};
 struct PointSegmentTerms {std::array<float,3> delta,direction;float projection,lengthSquared;};
 struct PlaneContact {std::array<float,4> point;std::array<float,3> normal;float distance;};
@@ -257,6 +301,24 @@ std::array<uint32_t,4> NativeMotion::finish(uint32_t frame,uint32_t object){
     const auto result=it->second.position;updates.erase(it);return result;
 }
 bool nativeMathInstruction(uint8_t *,R5900Context *c,Runtime *rt,uint32_t pc){
+    if((pc>=0x1f6f94 && pc<=0x1f6fa4 && !(pc&3)) ||
+       (pc>=0x1f7194 && pc<=0x1f71a4 && !(pc&3)) ||
+       (pc>=0x1f72cc && pc<=0x1f72dc && !(pc&3)) ||
+       (pc>=0x1f7334 && pc<=0x1f7344 && !(pc&3))){
+        // This measured root has no leaves/children. These stores are consumed
+        // only by the matching old intermediate restores, never scalar code.
+        leaflessQuery(rt,c,pc==0x1f6f94);return true;
+    }
+    if(pc==0x1f7098 || pc==0x1f709c || pc==0x1f70a0 || pc==0x1f70a8 || pc==0x1f70ac || pc==0x1f70b4){
+        const auto data=leaflessQuery(rt,c);
+        if(pc==0x1f70b4){if(c->r[2].uw[0]!=c->r[29].uw[0]+0x40)throw std::runtime_error("native query scale destination mismatch");
+            const auto scales=queryBasisScales(data.object+0x90);std::memcpy(data.frame+0x40,scales.data(),12);}return true;
+    }
+    if(pc>=0x1f70f0 && pc<=0x1f717c && !(pc&3)){
+        const auto data=leaflessQuery(rt,c);
+        if(pc==0x1f717c){if(c->r[2].uw[0]!=c->r[29].uw[0]+0x50)throw std::runtime_error("native query distance destination mismatch");
+            const auto result=leaflessDistance(data);std::memcpy(data.frame+0x50,result.data(),16);}return true;
+    }
     if(pc>=0x252ec8 && pc<=0x252f20 && !(pc&3)){
         if(pc==0x252f20){const auto destination=c->r[29].uw[0]+0xd0;
             if(c->r[2].uw[0]!=destination || c->r[3].uw[0]!=c->r[16].uw[0]+0x210)

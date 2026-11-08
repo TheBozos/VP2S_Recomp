@@ -6,6 +6,8 @@ declarations, deliberately separate from general SetSyscall support.
 import hashlib
 import struct
 from vp2_bozo_prepare import elf_parts
+LEAFLESS_QUERY_SITES=(*range(0x1f6f94,0x1f6fa8,4),0x1f7098,0x1f709c,0x1f70a0,0x1f70a8,0x1f70ac,0x1f70b4,
+    *range(0x1f70f0,0x1f7178,4),0x1f717c,*range(0x1f7194,0x1f71a8,4),*range(0x1f72cc,0x1f72e0,4),*range(0x1f7334,0x1f7348,4))
 
 INSTALLER = (0x141448, 0x141544)
 QUERY = (0x141410, 0x141444)
@@ -396,6 +398,7 @@ def overlay_adaptations(name,data):
         if hashlib.sha256(data[lo:hi]).hexdigest()!=expected:raise ValueError('USA native math algorithm mismatch')
     for lo,hi,expected in (
         (0x252e30,0x253344,'0aa2f411a373a9d07357735229c7599e0d2f7ec1dbec3a6371e03c683b5bd448'),
+        (0x1f6f40,0x1f739c,'64aa600e45325da65e5dbde01bf3d555bfcf683fd446955177b2c987b40246ee'),
         (0x3140e0,0x314120,'5b1ac88e48d62e6ae747d08f015c4b4e5a80c15e7ae4e198d6b8386eaf81ccd9'),
         (0x2e74f0,0x2e75bc,'249a16a05dfd11f8b9ee28c571dfc511db7d2b6e9d5b35207a992be32ee2c767'),
         (0x2e7e90,0x2e8678,'6a2e9aae85037a750a67937b87fd1fb9ec416ef0825fd3851a07ea449086d6ab'),
@@ -672,6 +675,7 @@ def overlay_native_sites(name,data):
     if name!='mod001':return ''
     overlay_adaptations(name,data)
     return ''.join(f'native 0x{pc:x}\n' for pc in (
+        *LEAFLESS_QUERY_SITES,
         *range(0x252ec8,0x252f24,4),0x252fdc,0x252fe0,0x252fe4,0x252fec,0x252ff0,0x252ff8,
         0x2bf040,0x2bf058,
         0x2371e8,0x2371ec,0x2371f0,0x2371f4,0x2371fc,0x237200,0x237204,0x237208,

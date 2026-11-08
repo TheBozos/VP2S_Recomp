@@ -12,6 +12,39 @@ The earlier VP2S face/shading and general brightness comparisons remain open.
 
 ## Build and evidence
 
+### Measured leafless collision-query root (2026-11-08)
+
+The actual `0x1f6f94` boundary was captured before editing: node `0xc997c0`
+has no children and a negative first-primitive index; owner `0xc9b7d0` has
+ordinary identity world/inverse records. Its outer caller is `0x3e70bc`, query
+`0x1fff4e0`. A private RAM snapshot separated this case from populated tree
+traversal. Temporary snapshot instrumentation was removed before final runs.
+
+The original `0x1f6f40/0x1f7370` scalar code still performs mask/owner skips,
+optional update, cache transposition, scale publication, forward-ray broad phase
+and return. Native equations read the node sphere, explicit object basis/scale
+and 32-byte query. The forward parameter has no upper clamp, matching the source.
+Only for a guarded leafless node and the two audited field callers do old
+intermediate saves/restores retire. Complete frame/node/object/query separation
+keeps that scratch dead; all 61 vector sites are bound. Populated nodes reject
+explicitly, so no hierarchy or primitive geometry is skipped as a boot fix.
+
+512 complete root/scalar CPU/RAM/FP cases cover 208 broad-phase hits, 232 misses
+and 72 mask/null-owner skips; all leafless roots correctly return false after
+their original cache and branch effects. Both caller contracts, optional bounded
+update calls, cached/uncached transpose/scale, zero direction, points beyond the
+direction endpoint, ignored query W, ordinary/work stacks and populated/caller/
+alias/domain rejection pass. The broad phase retains caller rounding, distinct
+from the scale microprogram's policy. A tiny cancellation exposed a mistakenly
+forced rounding mode; independent finite arithmetic with guard/sticky bits now
+checks all four modes, including the non-exact projection case. No runtime
+processor arithmetic core or intermediate bank was introduced.
+
+Three targeted suites pass (`query-tests.log`, 51.79 seconds). Actual final
+seed-1 New Game reaches scalar sine `0x2143f0`, caller `0x396d64`
+(`query-final-route.log`). This qualifies the measured leafless path only.
+Engine remains `436d5d8`; rendered field/Logun is still unqualified.
+
 ### Native terrain-height query math (2026-11-08)
 
 `0x252e30` now transforms its query point from explicit inverse/point records

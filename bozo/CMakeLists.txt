@@ -527,6 +527,15 @@ if(VP2S_BOZO_CODE)
     list(APPEND HEIGHT_SOURCES "${TERRAIN_DIR}/terrain_${VARIANT}_000.cpp" "${TERRAIN_DIR}/terrain_${VARIANT}_table.cpp")
     list(APPEND HEIGHT_INCLUDE "${TERRAIN_DIR}")
   endforeach()
+  foreach(VARIANT reference adapted)
+    set(QUERY_DIR "${HEIGHT_REF}/query/${VARIANT}")
+    add_custom_command(OUTPUT "${QUERY_DIR}/query_${VARIANT}_000.cpp" "${QUERY_DIR}/query_${VARIANT}_table.cpp" "${QUERY_DIR}/query_${VARIANT}_functions.h"
+      COMMAND ${Python3_EXECUTABLE} "${VP2S_ROOT}/tools/vp2_bozo_query_fixture.py" "${VP2S_BOZO_DATA}/images/mod001.elf" "${QUERY_DIR}" --build "${VP2S_BOZO_DATA}/.." --variant ${VARIANT}
+      COMMAND $<TARGET_FILE:bozo-recomp> "${QUERY_DIR}/fixture.elf" "${QUERY_DIR}" --prefix query_${VARIANT} --symbol-prefix query_${VARIANT}_ --files 1 --externals "${QUERY_DIR}/externals.txt" --no-comments
+      DEPENDS bozo-recomp "${VP2S_ROOT}/tools/vp2_bozo_query_fixture.py" "${VP2S_ROOT}/tools/vp2_bozo_kernel.py" "${VP2S_BOZO_DATA}/images/mod001.elf")
+    list(APPEND HEIGHT_SOURCES "${QUERY_DIR}/query_${VARIANT}_000.cpp" "${QUERY_DIR}/query_${VARIANT}_table.cpp")
+    list(APPEND HEIGHT_INCLUDE "${QUERY_DIR}")
+  endforeach()
   add_executable(vp2s-bozo-height-check "${VP2S_ROOT}/tests/bozo_height_main.cpp" ${HEIGHT_SOURCES})
   target_include_directories(vp2s-bozo-height-check PRIVATE "${HEIGHT_REF}/reference" "${HEIGHT_REF}/adapted")
   target_include_directories(vp2s-bozo-height-check PRIVATE ${HEIGHT_INCLUDE})

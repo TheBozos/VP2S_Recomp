@@ -12,6 +12,25 @@ The earlier VP2S face/shading and general brightness comparisons remain open.
 
 ## Build and evidence
 
+### Particle sphere getter (2026-11-08)
+
+The 23 `0x22f9e0..0x22fa38` sites now transform the original scalar-built centre
+through the object's first three matrix rows. The original following scalar
+radius copy remains intact. The unused fourth row's temporary dot product has
+no consumer before that overwrite and is omitted; no intermediate W bank or
+substitute temporary is introduced.
+
+512 complete getter CPU/RAM/FP pairs and 32 known identities pass alongside the
+earlier 512 bounded point branches (43 total reached sites). Integer products/
+sums, original radius bit copies, opaque fourth rows, four modes/FTZ/DAZ, RAM
+aliases, scratch frames, frame/basis and frame/source overlap, and eight
+mutation-free numeric/address rejections pass. Four rebuilt suites pass in
+57.48 s (`particle-sphere-getter-final-tests.log`). Actual protected
+`particle-sphere-getter-route.log` passes it and next rejects `0x2482b4`, an
+origin-based sphere getter. Its diagnostic partial frame is entirely black:
+all measured RGB means are 0; it is not a completed gameplay image. Field/Logun
+remains open.
+
 ### Visibility object-facing cosine (2026-11-08)
 
 The ten `0x220a20..0x220a94` sites now use the existing visibility view snapshot,

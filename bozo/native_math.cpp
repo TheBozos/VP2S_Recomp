@@ -523,6 +523,23 @@ std::array<uint32_t,4> NativeMotion::finish(uint32_t frame,uint32_t object){
 }
 bool nativeMathInstruction(uint8_t *,R5900Context *c,Runtime *rt,uint32_t pc){
     if(nativeParticleCallbackInstruction(c,rt,pc))return true;
+    if(pc>=0x22f9e0 && pc<=0x22fa38 && !(pc&3)){
+        if(!c || c->pc!=0x22f9c0 || c->r[6].uw[0]!=c->r[29].uw[0] || c->r[7].uw[0]!=c->r[4].uw[0]+0x90 || c->r[5].uw[0]!=c->r[4].uw[0]+0xa70)
+            throw std::runtime_error("native particle sphere getter escaped its scalar records");
+        if(pc==0x22fa38){
+            float rows[3][4],point[4];std::memcpy(rows,record(rt,c->r[7].uw[0],48),48);std::memcpy(point,record(rt,c->r[6].uw[0],16),16);
+            for(auto &row:rows)for(float value:row){pairQualified(value);if(std::abs(value)>1.e8f)throw std::runtime_error("unqualified particle sphere basis");}
+            for(unsigned i=0;i<3;++i){pairQualified(point[i]);if(std::abs(point[i])>1.e8f)throw std::runtime_error("unqualified particle sphere centre");}
+            if(std::bit_cast<uint32_t>(point[3])!=0x3f800000)throw std::runtime_error("particle sphere getter lacks scalar homogeneous component");
+            auto *output=record(rt,c->r[5].uw[0],16);music::CodecRounding rounding;std::array<float,3> result;
+            constexpr unsigned order[3][4]={{0,1,2,3},{1,0,2,3},{2,1,0,3}};
+            for(unsigned row=0;row<3;++row){float terms[4];for(unsigned i=0;i<4;++i)terms[i]=pairProduct(rows[row][i],point[i]);
+                result[row]=pairSum(pairSum(pairSum(terms[order[row][0]],terms[order[row][1]]),pairProduct(1.f,terms[order[row][2]])),pairProduct(1.f,terms[order[row][3]]));}
+            // The original following scalar store supplies the radius. The
+            // fourth basis row's temporary dot product has no consumer.
+            std::memcpy(output,result.data(),12);
+        }return true;
+    }
     if(pc>=0x377d8c && pc<=0x377dac && !(pc&3)){
         if(!c || c->pc!=0x377d20 || c->r[7].uw[0]!=c->r[29].uw[0]+0x20 || c->r[6].uw[0]!=c->r[29].uw[0])
             throw std::runtime_error("automatic camera distance escaped its scalar frame");

@@ -12,6 +12,14 @@ IMAGE=Path(sys.argv.pop(1))
 
 
 class KernelGuardTests(unittest.TestCase):
+    def test_particle_sphere_getter_source(self):
+        data=(IMAGE.parent/'mod001.elf').read_bytes();_,segments,_=elf_parts(data)
+        lo,hi=0x22f9c0,0x22fa50;s=next(s for s in segments if s[0]==1 and s[2]<=lo<hi<=s[2]+s[4])
+        actual=[pc for pc in range(lo,hi,4) if int.from_bytes(data[s[1]+pc-s[2]:s[1]+pc-s[2]+4],'little')>>26 in (0x12,0x36,0x3e)]
+        self.assertEqual(list(range(0x22f9e0,0x22fa3c,4)),actual)
+        for pc in range(lo,hi,4):
+            changed=bytearray(data);changed[s[1]+pc-s[2]]^=1
+            with self.subTest(pc=hex(pc)),self.assertRaises(ValueError):overlay_adaptations('mod001',changed)
     def test_object_facing_source(self):
         data=(IMAGE.parent/'mod001.elf').read_bytes();_,segments,_=elf_parts(data)
         lo,hi=0x220a20,0x220a98;s=next(s for s in segments if s[0]==1 and s[2]<=lo<hi<=s[2]+s[4])

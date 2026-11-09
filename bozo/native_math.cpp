@@ -1534,8 +1534,36 @@ bool nativeRootLength(R5900Context *c,Runtime *rt,uint32_t pc){
     const auto saved=_mm_getcsr();uint32_t f=0;const auto root=bozo::ps2f::sqrt(sum,f);_mm_setcsr(saved);
     out[0]=vuAdd(0,root);std::memcpy(record(rt,target,16),out.data(),16);return true;
 }
+// mod001 220d20 visibility loop. Per object (s5) the sphere getter (virtual
+// +5c) returns v0; VCALLMS 0xb60 tests it against the frustum that 207cc0
+// last wrote to VU0 data qwords 8..19 (points camera+460, normals camera+500),
+// and CFC2 reads VI2 = status & 0x80 (sticky sign). The loop keeps that camera
+// in s0 ? s1 : s2 (s0 set after 207cc0(s4 = s1), cleared after 207cc0(s2)).
+// 0xb60's FSSET (pair c50) lands after every earlier flag write; the two
+// ADDW.xyz (d+r) at c58/c60 land before FSAND at c80 (>= 4 cycles); the
+// SUBW.yz at c68 does not (3 cycles, no stall in between). So VI2 = 0x80 iff
+// a sign bit is set among d_i + r, with d_i the program's lane sums of
+// (s - P_i) * N_i: rows 0/3 (x+y)+z, 1/4 (y+x)+z, 2/5 (z+y)+x. The camera
+// matrices (0x1f0 into vf1..4, +3f0 into vf24..27) feed only 0xb60's
+// projected outputs (vf6/vf8/vf9), which nothing reads: those loads are no-ops.
+bool nativeVisibilityLoop(R5900Context *c,Runtime *rt,uint32_t pc){
+    const bool load=(pc>=0x220d70 && pc<=0x220d7c) || (pc>=0x220dd8 && pc<=0x220e00) || (pc>=0x220f04 && pc<=0x220f40) ||
+                    (pc>=0x220f64 && pc<=0x220fa0) || pc==0x220fb8 || pc==0x220fc4;
+    if(!(load || pc==0x220fd0) || (pc&3))return false;
+    if(load)return true;
+    if(!c)throw std::runtime_error("native visibility test has no CPU record");
+    const auto sphere=c->r[2].uw[0],camera=(c->r[16].uw[0]&0xff)?c->r[17].uw[0]:c->r[18].uw[0];
+    if((sphere&15) || !camera || (camera&15))throw std::runtime_error("native visibility test records misaligned");
+    const auto s=vuWords(rt,sphere);bool negative=false;
+    constexpr unsigned order[6][3]={{0,1,2},{1,0,2},{2,1,0},{0,1,2},{1,0,2},{2,1,0}};
+    for(unsigned i=0;i<6;++i){const auto p=vuWords(rt,camera+0x460+16*i),n=vuWords(rt,camera+0x500+16*i);uint32_t m[3];
+        for(unsigned k=0;k<3;++k)m[k]=vuMul(vuSub(s[k],p[k]),n[k]);
+        const auto d=vuAdd(vuAdd(m[order[i][0]],m[order[i][1]]),vuMul(0x3f800000u,m[order[i][2]]));
+        negative=negative || (vuAdd(d,s[3])&0x80000000u);}
+    c->r[3].ud[0]=negative?0x80:0;return true;
+}
 bool nativeMathInstruction(uint8_t *,R5900Context *c,Runtime *rt,uint32_t pc){
-    if(nativeProjectionBlocks(c,rt,pc) || nativeBoneAim(c,rt,pc) || nativeChainBlocks(c,rt,pc) || nativeCapsulePair(c,rt,pc) || nativePlaneContact(c,rt,pc) || nativeRangeTest(c,rt,pc) || nativeMatrixBuild(c,rt,pc) || nativeListBoxQuery(c,rt,pc) || nativeHitFrame(c,rt,pc) || nativePlaneDistance(c,rt,pc) || nativeSphereSweep(c,rt,pc) || nativeSegmentApproach(c,rt,pc) || nativeWorldPosition(c,rt,pc) || nativeCameraTarget(c,rt,pc) || nativeRootLength(c,rt,pc))return true;
+    if(nativeProjectionBlocks(c,rt,pc) || nativeBoneAim(c,rt,pc) || nativeChainBlocks(c,rt,pc) || nativeCapsulePair(c,rt,pc) || nativePlaneContact(c,rt,pc) || nativeRangeTest(c,rt,pc) || nativeMatrixBuild(c,rt,pc) || nativeListBoxQuery(c,rt,pc) || nativeHitFrame(c,rt,pc) || nativePlaneDistance(c,rt,pc) || nativeSphereSweep(c,rt,pc) || nativeSegmentApproach(c,rt,pc) || nativeWorldPosition(c,rt,pc) || nativeCameraTarget(c,rt,pc) || nativeRootLength(c,rt,pc) || nativeVisibilityLoop(c,rt,pc))return true;
     if(nativeLeafSphere(c,rt,pc) || nativeLeafBox(c,rt,pc) || nativeSegmentBox(c,rt,pc))return true;
     if(nativeLengthSite(c,rt,pc) || nativeRecordDot(c,rt,pc) || nativePackedQuaternion(c,rt,pc))return true;
     if(nativeObjectOverlap(c,rt,pc))return true;

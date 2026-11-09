@@ -12,6 +12,33 @@ The earlier VP2S face/shading and general brightness comparisons remain open.
 
 ## Build and evidence
 
+### mod001 220d20 visibility loop (2026-11-09)
+
+For each object, `220d20` fetches the bounding sphere (virtual `+5c`, v0) and
+runs VU0 program 0xb60. It then reads VI2 with CFC2 and keeps or clears flag
+`0x10` at `+6a`.
+
+0xb60 tests the sphere against the six planes that 207cc0 last wrote to VU0
+data qwords 8..19: points at camera `+460`, normals at camera `+500`.
+FSAND sets VI2 = status & 0x80, the sticky-sign bit. Flag writes land 4 cycles
+after issue, in issue order (the PS2Recomp VU interpreter's model):
+- The FSSET at pair c50 clears the sticky bits after every earlier write has landed.
+- The two ADDW.xyz (`d+r`) at c58 and c60 land before the FSAND at c80.
+- The SUBW.yz at c68 doesn't land in time: it issues 3 cycles before, and no
+  stall comes in between.
+
+So VI2 = 0x80 exactly when a sign bit is set among `d_i + r`. `d_i` is the
+program's lane sum of `(s - P_i) * N_i`: rows 0 and 3 add `(x+y)+z`, rows 1
+and 4 `(y+x)+z`, rows 2 and 5 `(z+y)+x`.
+
+The loop keeps the last published camera in `s0 ? s1 : s2`. The camera matrix
+loads (program 0x1f0 into vf1..4, `+3f0` into vf24..27) feed only 0xb60's
+projected outputs (vf6/vf8/vf9), which nothing reads. They are no-op native
+sites. The test computes VI2 from a transcription of the 0xb60 listing (in
+`ps2f`) in 512 stepped cases, including the stale-cache pattern, and checks
+that the load sites change no RAM, CPU state or MXCSR. Guard `220d20..221030`.
+The route then reaches mod001 `2156d0`.
+
 ### mod003 42d280 stack length (2026-11-09)
 
 `42d280`'s only VU0 block is the recurring stack-length pattern:

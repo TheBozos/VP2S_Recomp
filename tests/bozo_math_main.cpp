@@ -1196,6 +1196,45 @@ int main(){try{
         ++targetCases;
     }
     std::printf("%u main 10da70 camera-target block pairs match the engine VU0 oracle\n",targetCases);
+    // mod001 220d20 visibility: VI2 after program 0xb60 transcribed from its
+    // listing (VU0 data qwords 8..19 = camera+460 points, camera+500 normals),
+    // sticky sign from the flag writes landed by the FSAND; load sites change nothing.
+    unsigned visibilityCases=0,visible=0;
+    for(unsigned seed=0;seed<512;++seed){
+        auto &r=native.runtime();std::memset(r.memory.flat(),0x3c+seed,bozo::kFlatBytes);
+        const uint32_t sphere=seed&1?0x1e47f0:0x35db40,s1cam=0x1e5000,s2cam=0x1e6000;
+        uint32_t state=seed*2246822507u;const auto next=[&](int lo,int span){state=state*1664525u+1013904223u;return ((state>>8)&0x807fffffu)|uint32_t((lo+int((state>>4)%unsigned(span)))<<23);};
+        const auto put=[&](uint32_t at,uint32_t v){std::memcpy(r.memory.hostPointer(at,4),&v,4);};
+        for(uint32_t cam:{s1cam,s2cam})for(unsigned i=0;i<12;++i)for(unsigned k=0;k<4;++k)put(cam+(i<6?0x460+16*i:0x500+16*(i-6))+4*k,i<6?next(118,8):next(120,7));
+        for(unsigned k=0;k<4;++k)put(sphere+4*k,k==3?(next(118,10)&0x7fffffff):next(116,10));
+        if(seed%32==7){put(sphere,0xbfa12848);put(sphere+4,0xe3b96faf);put(sphere+8,0xb5bac313);put(sphere+12,0x9c5ce0e7);}
+        R5900Context x{};for(unsigned i=1;i<32;++i){x.r[i].ud[0]=0xe5f6000000000000ull+seed*32+i;x.r[i].ud[1]=~x.r[i].ud[0];}
+        x.r[2].ud[0]=sphere;x.r[17].ud[0]=s1cam;x.r[18].ud[0]=s2cam;x.r[16].ud[0]=seed&2?1:0x100;   // s0 is andi'd to a byte
+        const auto cam=(seed&2)?s1cam:s2cam;
+        const auto M=[](uint32_t a,uint32_t b){uint32_t f=0;return bozo::ps2f::mul(a,b,f);};
+        const auto A=[](uint32_t a,uint32_t b){uint32_t f=0;return bozo::ps2f::addNearest(a,b,f);};
+        const auto S=[](uint32_t a,uint32_t b){uint32_t f=0;return bozo::ps2f::subNearest(a,b,f);};
+        using V=std::array<uint32_t,4>;const auto load=[&](uint32_t at){V v;std::memcpy(v.data(),r.memory.hostPointer(at,16),16);return v;};
+        V vf[32]{},mem[20];vf[5]=load(sphere);vf[31]={0x3f800000,0x3f800000,0x3f800000,0x3f800000};
+        for(unsigned i=0;i<6;++i){mem[8+i]=load(cam+0x460+16*i);mem[14+i]=load(cam+0x500+16*i);}
+        const unsigned rows[6]={17,18,19,28,29,30};
+        for(unsigned i=0;i<6;++i)for(unsigned k=0;k<3;++k)vf[rows[i]][k]=M(S(vf[5][k],mem[8+i][k]),mem[14+i][k]);
+        V d17{},d18{};
+        d17[0]=A(A(vf[17][0],vf[17][1]),M(vf[31][0],vf[17][2]));d17[1]=A(A(vf[18][1],vf[18][0]),M(vf[31][1],vf[18][2]));
+        d17[2]=A(A(vf[19][2],vf[19][1]),M(vf[31][2],vf[19][0]));d18[0]=A(A(vf[28][0],vf[28][1]),M(vf[31][0],vf[28][2]));
+        d18[1]=A(A(vf[29][1],vf[29][0]),M(vf[31][1],vf[29][2]));d18[2]=A(A(vf[30][2],vf[30][1]),M(vf[31][2],vf[30][0]));
+        uint32_t sticky=0;     // FSSET clears; the ADDW.xyz writes at c58/c60 land before FSAND
+        for(unsigned k=0;k<3;++k){if(A(d17[k],vf[5][3])>>31)sticky|=2;if(A(d18[k],vf[5][3])>>31)sticky|=2;}
+        const uint32_t vi2=(sticky<<6)&0x80;
+        const std::vector<uint8_t> before(r.memory.flat(),r.memory.flat()+bozo::kFlatBytes);auto y=x;const auto fp=_mm_getcsr();
+        for(uint32_t pc:{0x220d70u,0x220dd8u,0x220df0u,0x220df4u,0x220f04u,0x220f1cu,0x220f40u,0x220f64u,0x220fa0u,0x220fb8u,0x220fc4u})check(vp2s::nativeMathInstruction(r.memory.flat(),&y,&r,pc));
+        check(!std::memcmp(&x,&y,sizeof(x)));
+        check(vp2s::nativeMathInstruction(r.memory.flat(),&y,&r,0x220fd0));
+        if(y.r[3].ud[0]!=vi2){std::fprintf(stderr,"visibility seed%u vi2 %llx/%x\n",seed,(unsigned long long)y.r[3].ud[0],vi2);check(false);}
+        y.r[3]=x.r[3];check(!std::memcmp(&x,&y,sizeof(x)) && _mm_getcsr()==fp && !std::memcmp(before.data(),r.memory.flat(),before.size()));
+        visible+=vi2==0;++visibilityCases;
+    }
+    std::printf("%u mod001 220d20 visibility tests (%u inside) match the 0xb60 listing\n",visibilityCases,visible);
     // Animated packet UVs. The original loader 219620 (with its mesh cursors
     // and element methods) builds the scratchpad description; a test-only
     // oracle reproduces the original pipeline from it (toSPR chain, callback

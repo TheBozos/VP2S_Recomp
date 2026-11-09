@@ -28,6 +28,7 @@ fixture,_=prepare(data,[dict(Name='field_distance',Start='0x378908',End='0x3789d
                        dict(Name='vector_439bd8',Start='0x439bd8',End='0x439c04'),
                        dict(Name='vector_439c54',Start='0x439c54',End='0x439c74'),
                        dict(Name='vector_3cdc84',Start='0x3cdc84',End='0x3cdcb0'),
+                       dict(Name='record_length_3d0514',Start='0x3d0514',End='0x3d0540'),
                        dict(Name='stack_length_42d390',Start='0x42d390',End='0x42d3bc'),
                        dict(Name='approach_length',Start='0x3ef07c',End='0x3ef0a8'),
                        dict(Name='approach_clamp',Start='0x3ef0c8',End='0x3ef100'),
@@ -69,7 +70,7 @@ for lo,stop,result in ((0x439258,0x43927c,0x439278),(0x439880,0x4398a4,0x4398a0)
         else:movement_sites.append(f'native 0x{pc:x}'+chr(10))
 # mod003 3ef010 segment approach: five blocks, each returns after its last store
 # (the reference runs an oracle at the listed stores).
-for lo,stop,results in ((0x42d390,0x42d3b4,(0x42d3b0,)),(0x3ef07c,0x3ef0a0,(0x3ef09c,)),(0x3ef0c8,0x3ef0f4,(0x3ef0f0,)),(0x3ef100,0x3ef164,(0x3ef154,0x3ef158,0x3ef15c,0x3ef160)),
+for lo,stop,results in ((0x3d0514,0x3d0538,(0x3d0534,)),(0x42d390,0x42d3b4,(0x42d3b0,)),(0x3ef07c,0x3ef0a0,(0x3ef09c,)),(0x3ef0c8,0x3ef0f4,(0x3ef0f0,)),(0x3ef100,0x3ef164,(0x3ef154,0x3ef158,0x3ef15c,0x3ef160)),
                         (0x3ef170,0x3ef188,(0x3ef184,)),(0x3ef1b4,0x3ef1cc,(0x3ef1c8,))):
     s=next(s for s in segments if s[0]==1 and s[2]<=lo<stop+8<=s[2]+s[4])
     at=s[1]+stop-s[2];fixture[at:at+8]=(0x03e00008).to_bytes(4,'little')+bytes(4)

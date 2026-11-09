@@ -17,8 +17,18 @@ The earlier VP2S face/shading and general brightness comparisons remain open.
 `42d280`'s only VU0 block is the recurring stack-length pattern:
 `(sqrt((x^2+y^2)+1*z^2), y^2, z^2, raw W)` of SP+100 to SP+70. Every lane is
 defined. A table of such sites (`rootLengthSites`) now ports it in `ps2f`.
-Guard `42d280..42d670`; 256 field-distance fixture cases match the oracle.
-The route then reaches mod003 `3d0514`.
+Guard `42d280..42d670`.
+
+The table now names a base register for each side. Its second entry is mod003
+`3cfde0`'s `3d0514`, which takes the length of `s4+20` into SP+a0. Guard
+`3cfde0..3d0b88`; 512 fixture cases cover both sites.
+
+`3cfde0` has a second, unported path at `3d077c..3d0908`. It runs VCALLMS
+0x728 on three quaternions, stores the rows, calls `217550` and then program
+0x2d0. Its 0x728 rows take their W column from VF16, which nothing on that path
+loads, so it is inherited VU state. Porting it first needs proof that those
+lanes don't reach anything the program uses. The route did not take that path;
+it reaches mod001 `220d70`.
 
 ### main 10da70 camera target (2026-11-09)
 

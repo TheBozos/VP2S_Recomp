@@ -12,6 +12,35 @@ The earlier VP2S face/shading and general brightness comparisons remain open.
 
 ## Build and evidence
 
+### Harbour post effects: the glow is 2d6ea0/2d71e0, not FUN_002CC570 (2026-11-09)
+
+The previous commit gated the native glow on `post+eee4`. That commit has been
+reverted, because the analysis behind it was incomplete.
+
+The post caller `2d9360` runs two effects of its own (`2da110..2da27c`):
+- **Effect A**, when `+dfbc` is set: `2d90c0` (count `+dfc9`), then
+  **`2d6ea0`**, which calls `2d4ca0`/`2d5e80`.
+- **Effect B**, when `+130e0` is set: `2d90c0` (count `+130e1`), then
+  **`2d71e0`** -> **`2d7a30`**. That draws rotated passes, using a Z rotation
+  from `217c60` (sine/cosine) and `217cd0` (identity).
+
+Their order follows the counts. FUN_002CC570 and `2ccb20` are separate
+routines, gated by `+eee4`, which is 0 on the harbour. That is why PCSX2 with
+FUN_002CC570 patched out, or with its only call removed, was unchanged. The old
+port's "glow" and "cross glare" (e096c07/ae34de7) match effects A and B but
+were attributed to FUN_002CC570.
+
+On the harbour both flags are set (`dfbc` 1, `130e0` 1), so both effects run.
+In the dump, B is the chain from primitive 14182 on: rotated triangles textured
+from FBP 445 into 396, additive triangles into 428 at vertex alpha 0x98, and
+428 added to the frame at 14254.
+
+Native drops the post packet at its enqueue (`2d9350`) and draws only its DOF
+plus the old fitted glow and glare. Those add +6 to the sea and +24 to the sky,
+where PCSX2 is +34/+76 above native without them. Next: derive A and B from
+`2d6ea0` and `2d71e0`/`2d7a30` and the dump's passes, and draw them natively.
+`tools/pcsx2_vram.py` reads PSMCT32 buffers from a dump's state.
+
 ### Harbour sea: PCSX2 GS dump analysis (2026-11-09)
 
 A PCSX2 GS dump (Shift+F8) of the matching harbour frame was taken with the

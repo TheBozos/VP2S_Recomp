@@ -85,8 +85,13 @@ void NativeDofs::finish(Runtime *rt,const NativeScene &scene,uint32_t stack,uint
             if(shift<0 || shift>7)throw std::runtime_error("unqualified DOF depth shift "+std::to_string(shift));
             effect.depthScale=256.f*float(1u<<shift);
         }
-        effect.glow=(value<uint8_t>(rt,object+0xdfbc) && value<uint8_t>(rt,object+0xef09)) ||
-                    (value<uint8_t>(rt,object+0x130e0) && value<uint8_t>(rt,object+0xef0a));
+        // The post caller 2d9360 runs the glow/glare FUN_002CC570 (and its
+        // neighbour 2ccb20) only when +eee4 is non-zero (2da288/2da0fc); the
+        // enable flags are tested inside it. The Logun harbour has eee4 = 0:
+        // no glow there (PCSX2: removing the call changes nothing).
+        effect.glow=value<uint32_t>(rt,object+0xeee4)!=0 &&
+                    ((value<uint8_t>(rt,object+0xdfbc) && value<uint8_t>(rt,object+0xef09)) ||
+                     (value<uint8_t>(rt,object+0x130e0) && value<uint8_t>(rt,object+0xef0a)));
         effect.glowAlpha=value<uint8_t>(rt,object+0xef08)/128.f;
         ready[object]=std::move(effect);
     }

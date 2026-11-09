@@ -12,6 +12,32 @@ The earlier VP2S face/shading and general brightness comparisons remain open.
 
 ## Build and evidence
 
+### Native glow gated like the game; the harbour has none (2026-11-09)
+
+The post caller `2d9360` calls the glow/glare function FUN_002CC570 (`jal` at
+`2da294`) and its neighbour `2ccb20` (at `2da108`) only when `post+eee4` is
+non-zero. The function then tests the enable flags `+dfbc`/`+ef09` and
+`+130e0`/`+ef0a`. Native tested only the flags.
+
+On the Logun harbour `eee4` is 0 on every frame, while the flags are set
+(`dfbc` 1, `ef09` 114), so native drew a glow and glare that the game does not.
+
+Evidence from PCSX2 (the harbour frame, with a temporary pnach that was
+removed afterwards):
+- Disabling FUN_002CC570 changes nothing.
+- Removing its only call also changes nothing: every zone stays within 0.5 luma.
+
+`effect.glow` now also requires `eee4 != 0`.
+
+Harbour luma, native/PCSX2: buildings 1.02, dock 0.95, sea 0.69, sky 0.67,
+haze 0.70. The far-zone gap is an effect native lacks. In the dump it is the
+chain from primitive 14194 on: rotated triangles textured from TBP 14240 into
+FBP 396, sprites into 396, additive triangles into FBP 428 at vertex alpha
+0x98, then the whole 428 buffer added to the frame (14254). It comes from
+another callee of `2d9360`, which is not yet identified. Leftover VRAM can't
+show it: the dump's state is taken after the frame clear, and 428 is reused.
+`tools/pcsx2_vram.py` reads PSMCT32 buffers from a dump's state.
+
 ### Harbour sea: PCSX2 GS dump analysis (2026-11-09)
 
 A PCSX2 GS dump (Shift+F8) of the matching harbour frame was taken with the

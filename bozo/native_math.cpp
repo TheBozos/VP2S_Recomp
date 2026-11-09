@@ -768,6 +768,8 @@ bool nativeUvAnimation(R5900Context *c,Runtime *rt,uint32_t pc){
 // VSQRT, VADD.x 0+Q) publishing {|xyz|, y*y, z*z, w} from a scalar-built
 // record. Each block's source/destination registers are checked against the
 // record they must hold. mul, add and sqrt round to nearest even.
+// sourceStack: source = SP+offset; else source = s0+offset, or (argument
+// records, offset ~0u) whatever the source register points to.
 struct LengthSite{uint32_t first;unsigned sourceReg;bool sourceStack;uint32_t sourceOffset;unsigned destinationReg;uint32_t destinationOffset;uint32_t returnAddress;};
 constexpr LengthSite lengthSites[]={
     {0x380664,4,true,0x270,3,0xa0,0x3805f0},   // movement step, first pass
@@ -775,18 +777,21 @@ constexpr LengthSite lengthSites[]={
     {0x439258,5,true,0x100,4,0x90,0},          // mod003 439180 update
     {0x439880,5,true,0x100,4,0x80,0},
     {0x439ba8,4,false,0x1f0,3,0x70,0},         // s0 records
-    {0x439bd8,3,false,0x230,2,0x60,0}};
+    {0x439bd8,3,false,0x230,2,0x60,0},
+    {0x3cdc84,19,false,~0u,2,0xa0,0}};         // mod003 3cdb60: argument record (s3)
 bool nativeLengthSite(R5900Context *c,Runtime *rt,uint32_t pc){
     const LengthSite *site=nullptr;
     for(const auto &s:lengthSites)if(pc>=s.first && pc<=s.first+0x20 && !(pc&3)){site=&s;break;}
     if(!site)return false;
     if(!c)throw std::runtime_error("native vector length has no CPU record");
-    const auto stack=c->r[29].uw[0],base=site->sourceStack?stack:c->r[17].uw[0];
+    const bool argument=!site->sourceStack && site->sourceOffset==~0u;
+    const auto stack=c->r[29].uw[0],base=site->sourceStack?stack:argument?c->r[site->sourceReg].uw[0]:c->r[17].uw[0];
+    const auto sourceAt=argument?base:base+site->sourceOffset;
     if((!site->sourceStack && base<0x100000) || (site->returnAddress && c->r[31].uw[0]!=site->returnAddress) ||
-       c->r[site->sourceReg].uw[0]!=base+site->sourceOffset || c->r[site->destinationReg].uw[0]!=stack+site->destinationOffset)
+       c->r[site->sourceReg].uw[0]!=sourceAt || c->r[site->destinationReg].uw[0]!=stack+site->destinationOffset)
         throw std::runtime_error("native vector length escaped its scalar records");
     if(pc!=site->first+0x20)return true;
-    float value[4],result[4];std::memcpy(value,record(rt,base+site->sourceOffset,16),16);std::memcpy(result,value,16);
+    float value[4],result[4];std::memcpy(value,record(rt,sourceAt,16),16);std::memcpy(result,value,16);
     for(unsigned i=0;i<3;++i){if((std::bit_cast<uint32_t>(value[i])&0x7f800000)==0x7f800000 || beyondRange(value[i]))
         throw std::runtime_error("unqualified native vector length");value[i]=pairNormal(value[i]);}
     {music::NearestRounding rounding;

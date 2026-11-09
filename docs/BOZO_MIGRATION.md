@@ -32,8 +32,12 @@ Both read the object from `358cd8` and check their caller and registers.
 `1f6f40`'s sites now admit populated nodes and recursive entry. Guards
 `1f6be0..1f6e10`, `1f6e10..1f6ea8`. 1536 bounded math-fixture cases (189 box
 and 337 sphere hits, four modes) match an independent engine-`ps2f` oracle;
-the height test now asserts populated nodes are admitted. The route then stops
-at mod003 `3cdc84` (entry `3cdb60`).
+the height test now asserts populated nodes are admitted.
+
+The length table gained an argument-record mode for mod003 `3cdb60`
+(`3cdc84`: the record s3 points to, into SP+a0; guard `3cdb60..3ce85c`;
+256 more fixture cases). The route then stops at mod001 `1f6770` (entry
+`1f6740`).
 
 ### Packed unit-quaternion keys (2026-11-09)
 

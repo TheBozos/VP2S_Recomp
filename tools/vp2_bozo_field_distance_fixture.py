@@ -27,6 +27,7 @@ fixture,_=prepare(data,[dict(Name='field_distance',Start='0x378908',End='0x3789d
                        dict(Name='vector_439ba8',Start='0x439ba8',End='0x439bd4'),
                        dict(Name='vector_439bd8',Start='0x439bd8',End='0x439c04'),
                        dict(Name='vector_439c54',Start='0x439c54',End='0x439c74'),
+                       dict(Name='vector_3cdc84',Start='0x3cdc84',End='0x3cdcb0'),
                        dict(Name='row_dot',Start='0x410df0',End='0x410e50'),
                        dict(Name='action_update',Start='0x4126a0',End='0x412868'),
                        dict(Name='animation_parameter',Start='0x446520',End='0x446618'),
@@ -53,7 +54,7 @@ for pc in range(0x39f0ec,0x39f2f4,4):
     if a.variant=='original' and pc not in (0x39f17c,0x39f1e0,0x39f268,0x39f2cc):fixture[at:at+4]=bytes(4)
     else:movement_sites.append(f'native 0x{pc:x}\n')
 # mod003 439180 vector blocks: each span returns right after its store.
-for lo,stop,result in ((0x439258,0x43927c,0x439278),(0x439880,0x4398a4,0x4398a0),(0x439ba8,0x439bcc,0x439bc8),(0x439bd8,0x439bfc,0x439bf8),(0x439c54,0x439c6c,0x439c68)):
+for lo,stop,result in ((0x439258,0x43927c,0x439278),(0x439880,0x4398a4,0x4398a0),(0x439ba8,0x439bcc,0x439bc8),(0x439bd8,0x439bfc,0x439bf8),(0x439c54,0x439c6c,0x439c68),(0x3cdc84,0x3cdca8,0x3cdca4)):
     s=next(s for s in segments if s[0]==1 and s[2]<=lo<stop+8<=s[2]+s[4])
     at=s[1]+stop-s[2];fixture[at:at+8]=(0x03e00008).to_bytes(4,'little')+bytes(4)
     for pc in range(lo,stop,4):

@@ -12,6 +12,26 @@ The earlier VP2S face/shading and general brightness comparisons remain open.
 
 ## Build and evidence
 
+### mod001 248e40 world position (2026-11-09)
+
+`248e40` runs three resident mode-0 common-math programs through VCALLMS and
+reads VI0 with an interlocking CFC2. All lanes come from the object's records:
+- **0x728:** quaternion `+30` to rows R0..R2, with the W column `t = +20` and
+  R3 = (0,0,0,1). The scale `+40` gets W = 1.
+- **0xae8:** composes the parent rows `*(+208)+d0` (when set) with R, then
+  applies the scale.
+- **0x830:** when `+20c & 1c0` is clear, normalizes each lane over the three
+  rows with RSQRT, then the scale is applied again.
+
+The `+110` rows times those rows give SP+0..20, and SP+30 = `+140`. EE code
+copies the W lanes to a1. The port computes everything at the first store of
+either path in `ps2f`, in the listings' order. Like the earlier common-math
+sites, it assumes the default mode-0 program is resident (mode 1 is only
+selected around the `2188d0` UV update).
+
+Guard `248e40..248fc0`. 768 cases match the oracle: unparented, normalized and
+unnormalized. The route then reaches main `10dc44`.
+
 ### mod003 3ef010 segment approach (2026-11-09)
 
 Five VU0 blocks, ported natively with `ps2f` arithmetic:

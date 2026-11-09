@@ -1437,8 +1437,60 @@ bool nativeSegmentApproach(R5900Context *c,Runtime *rt,uint32_t pc){
     uint32_t m[3];for(unsigned i=0;i<3;++i)m[i]=vuMul(out[i],v[i]);out[0]=vuAdd(vuAdd(m[0],m[1]),m[2]);
     std::memcpy(record(rt,target,16),out.data(),16);return true;
 }
+// mod001 248e40 world position (a0 = object, a1 = output), with the resident
+// mode-0 common-math programs (ps2f, in their instruction order):
+//  0x728  rows R0..R2 from the quaternion q = a0+30 (2q products), W column
+//         t = a0+20 (1*t), R3 = (0,0,0,1); the scale s = a0+40 gets W = 1.
+//  parent P = *(a0+208)+d0 (when set): 0xae8 rows k = ((R0*P_k.x + R1*P_k.y)
+//         + R2*P_k.z) + R3*P_k.w, then * s; when (a0+20c & 1c0) == 0, 0x830
+//         normalizes each lane over the three rows (RSQRT of the lane sums of
+//         squares) and EE code scales by s again. No parent: rows R_k * s.
+//  rows M = a0+110..140: SP+k = ((M0*v.x + M1*v.y) + M2*v.z) + M3*v.w for the
+//  three rows, SP+30 = M3. EE code then copies the W lanes to a1 (W = 1).
+bool nativeWorldPosition(R5900Context *c,Runtime *rt,uint32_t pc){
+    if(pc<0x248e64 || pc>0x248f90 || (pc&3))return false;
+    if(!c)throw std::runtime_error("native world position has no CPU record");
+    if(pc==0x248e64){
+        const auto object=c->r[4].uw[0];uint32_t parent;std::memcpy(&parent,rt->memory.hostPointer(object+0x208,4),4);
+        if(c->r[3].uw[0]!=object+0x40 || c->r[6].uw[0]!=(parent?parent+0xd0:0))throw std::runtime_error("native world position sources mismatch");
+        return true;
+    }
+    if(pc==0x248eb4){c->r[9].ud[0]=0;return true;}     // CFC2 of VI0 after the 0xae8 program
+    if(pc!=0x248f18 && pc!=0x248f84)return true;
+    const auto stack=c->r[29].uw[0],object=c->r[3].uw[0]-0x110;const bool parented=pc==0x248f18;
+    if(c->r[4].uw[0]!=stack || (parented && !c->r[6].uw[0]))throw std::runtime_error("native world position destination mismatch");
+    const auto q=vuWords(rt,object+0x30),t=vuWords(rt,object+0x20);auto s=vuWords(rt,object+0x40);s[3]=0x3f800000u;
+    const uint32_t one=0x3f800000u;
+    // 0x728, upper instructions in order (lower moves: vf11 = vf0, vf17.w = 1).
+    VuWords v6,v7,v12,v13,v14,v15,r8{},r9{},r10{};
+    for(unsigned i=0;i<4;++i){v6[i]=vuMul(q[i],q[i]);v7[i]=vuAdd(q[i],q[i]);}
+    r8[0]=vuAdd(0,one);r9[1]=vuAdd(0,one);for(unsigned i=0;i<4;++i)v6[i]=vuAdd(v6[i],v6[i]);
+    for(unsigned i=0;i<4;++i){v12[i]=vuMul(q[i],v7[0]);v13[i]=vuMul(q[i],v7[3]);v14[i]=vuMul(q[i],v7[1]);}
+    r8[0]=vuSub(r8[0],v6[1]);for(unsigned i=0;i<4;++i)v15[i]=vuMul(q[i],v7[2]);
+    r8[1]=vuAdd(v12[1],v13[2]);r8[2]=vuSub(v12[2],v13[1]);r8[0]=vuSub(r8[0],v6[2]);r9[1]=vuSub(r9[1],v6[0]);r10[2]=vuAdd(0,one);
+    r9[0]=vuSub(v14[0],v13[2]);r9[2]=vuAdd(v14[2],v12[3]);r9[1]=vuSub(r9[1],v6[2]);r10[2]=vuSub(r10[2],v6[0]);
+    r10[0]=vuAdd(v15[0],v13[1]);r10[1]=vuSub(v15[1],v12[3]);r8[3]=vuMul(one,t[0]);r10[2]=vuSub(r10[2],v6[1]);r9[3]=vuMul(one,t[1]);r10[3]=vuMul(one,t[2]);
+    const VuWords r11{0,0,0,one};VuWords rows[3];
+    if(parented){
+        const auto parent=c->r[6].uw[0];
+        for(unsigned k=0;k<3;++k){const auto p=vuWords(rt,parent+16*k);
+            for(unsigned i=0;i<4;++i)rows[k][i]=vuMul(s[i],vuAdd(vuAdd(vuAdd(vuMul(r8[i],p[0]),vuMul(r9[i],p[1])),vuMul(r10[i],p[2])),vuMul(r11[i],p[3])));}
+        uint16_t flags;std::memcpy(&flags,rt->memory.hostPointer(object+0x20c,2),2);
+        if(!(flags&0x1c0)){
+            VuWords sum;for(unsigned i=0;i<4;++i)sum[i]=vuAdd(vuAdd(vuMul(rows[0][i],rows[0][i]),vuMul(rows[1][i],rows[1][i])),vuMul(rows[2][i],rows[2][i]));
+            const auto saved=_mm_getcsr();
+            for(unsigned i=0;i<3;++i){uint32_t f=0;const auto inv=bozo::ps2f::rsqrt(one,sum[i],f);for(auto &row:rows)row[i]=vuMul(row[i],inv);}
+            _mm_setcsr(saved);
+            for(auto &row:rows)for(unsigned i=0;i<4;++i)row[i]=vuMul(row[i],s[i]);
+        }
+    }else{const VuWords *r[3]={&r8,&r9,&r10};for(unsigned k=0;k<3;++k)for(unsigned i=0;i<4;++i)rows[k][i]=vuMul(s[i],(*r[k])[i]);}
+    VuWords m[4];for(unsigned k=0;k<4;++k)m[k]=vuWords(rt,object+0x110+16*k);
+    VuWords out[4];for(unsigned k=0;k<3;++k)for(unsigned i=0;i<4;++i)
+        out[k][i]=vuAdd(vuAdd(vuAdd(vuMul(m[0][i],rows[k][0]),vuMul(m[1][i],rows[k][1])),vuMul(m[2][i],rows[k][2])),vuMul(m[3][i],rows[k][3]));
+    out[3]=m[3];std::memcpy(record(rt,stack,64),out,64);return true;
+}
 bool nativeMathInstruction(uint8_t *,R5900Context *c,Runtime *rt,uint32_t pc){
-    if(nativeProjectionBlocks(c,rt,pc) || nativeBoneAim(c,rt,pc) || nativeChainBlocks(c,rt,pc) || nativeCapsulePair(c,rt,pc) || nativePlaneContact(c,rt,pc) || nativeRangeTest(c,rt,pc) || nativeMatrixBuild(c,rt,pc) || nativeListBoxQuery(c,rt,pc) || nativeHitFrame(c,rt,pc) || nativePlaneDistance(c,rt,pc) || nativeSphereSweep(c,rt,pc) || nativeSegmentApproach(c,rt,pc))return true;
+    if(nativeProjectionBlocks(c,rt,pc) || nativeBoneAim(c,rt,pc) || nativeChainBlocks(c,rt,pc) || nativeCapsulePair(c,rt,pc) || nativePlaneContact(c,rt,pc) || nativeRangeTest(c,rt,pc) || nativeMatrixBuild(c,rt,pc) || nativeListBoxQuery(c,rt,pc) || nativeHitFrame(c,rt,pc) || nativePlaneDistance(c,rt,pc) || nativeSphereSweep(c,rt,pc) || nativeSegmentApproach(c,rt,pc) || nativeWorldPosition(c,rt,pc))return true;
     if(nativeLeafSphere(c,rt,pc) || nativeLeafBox(c,rt,pc) || nativeSegmentBox(c,rt,pc))return true;
     if(nativeLengthSite(c,rt,pc) || nativeRecordDot(c,rt,pc) || nativePackedQuaternion(c,rt,pc))return true;
     if(nativeObjectOverlap(c,rt,pc))return true;

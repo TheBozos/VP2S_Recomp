@@ -478,6 +478,8 @@ def overlay_adaptations(name,data):
         (0x214590,0x2145c8,'22b9460cec064b34c979b925efe1cb77bf12fe1f6d1d830dcb63f1e64def09ee'),
         # Sphere sweep 20d9d0 (called from 23c0d0 with the +7f0 cache).
         (0x20d9d0,0x20e508,'2cad482dd0dc6c905742c07a95d7cfd468cafc555d8556f38c7285b2bd78e518'),
+        # World position 248e40 (mode-0 programs 728/ae8/830).
+        (0x248e40,0x248fc0,'beb105776fa4eb87c255431a399b257c92f18bccaae51c4d9fa174660ea3e589'),
         # Animated packet UVs: the 2188d0 streaming owner, loader 219620, the
         # UV-scroll callback 29cfe0/descriptor method 29d0d0 and mesh cursors.
         (0x2188d0,0x219608,'efe18082ff8f33e4c91a09af3d3cc3e775706b30795ceaae059e845b6b23546e'),

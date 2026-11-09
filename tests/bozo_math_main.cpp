@@ -118,6 +118,42 @@ struct Host:bozo::ee::Host,bozo::port::Host {
                     result[k]=add(add(add(p[order[k][0]],p[order[k][1]]),mul(one,p[order[k][2]])),mul(one,p[order[k][3]]));}}
             std::memcpy(t->memory.hostPointer(stack+out,16),result,16);return true;
         }
+        if(referenceOverlap && (pc==0x248f18 || pc==0x248f84)){
+            // mod001 248e40 world position from the mode-0 programs' listings (ps2f).
+            const auto M=[](uint32_t a,uint32_t b){uint32_t f=0;return bozo::ps2f::mul(a,b,f);};
+            const auto A=[](uint32_t a,uint32_t b){uint32_t f=0;return bozo::ps2f::addNearest(a,b,f);};
+            const auto S=[](uint32_t a,uint32_t b){uint32_t f=0;return bozo::ps2f::subNearest(a,b,f);};
+            using V=std::array<uint32_t,4>;const auto load=[&](uint32_t at){V v;std::memcpy(v.data(),t->memory.hostPointer(at,16),16);return v;};
+            const uint32_t one=0x3f800000;const auto obj=c->r[3].uw[0]-0x110;V vf[32]{};
+            vf[0]={0,0,0,one};vf[5]=load(obj+0x30);vf[16]=load(obj+0x20);vf[17]=load(obj+0x40);
+            // 0x728
+            for(unsigned i=0;i<4;++i){vf[6][i]=M(vf[5][i],vf[5][i]);vf[7][i]=A(vf[5][i],vf[5][i]);}vf[11]=vf[0];
+            vf[8][0]=A(vf[0][0],vf[0][3]);vf[9][1]=A(vf[0][1],vf[0][3]);vf[17][3]=vf[0][3];
+            for(unsigned i=0;i<4;++i)vf[6][i]=A(vf[6][i],vf[6][i]);
+            for(unsigned i=0;i<4;++i){vf[12][i]=M(vf[5][i],vf[7][0]);vf[13][i]=M(vf[5][i],vf[7][3]);vf[14][i]=M(vf[5][i],vf[7][1]);}
+            vf[8][0]=S(vf[8][0],vf[6][1]);for(unsigned i=0;i<4;++i)vf[15][i]=M(vf[5][i],vf[7][2]);
+            vf[8][1]=A(vf[12][1],vf[13][2]);vf[8][2]=S(vf[12][2],vf[13][1]);vf[8][0]=S(vf[8][0],vf[6][2]);vf[9][1]=S(vf[9][1],vf[6][0]);
+            vf[10][2]=A(vf[0][2],vf[0][3]);vf[9][0]=S(vf[14][0],vf[13][2]);vf[9][2]=A(vf[14][2],vf[12][3]);vf[9][1]=S(vf[9][1],vf[6][2]);
+            vf[10][2]=S(vf[10][2],vf[6][0]);vf[10][0]=A(vf[15][0],vf[13][1]);vf[10][1]=S(vf[15][1],vf[12][3]);vf[8][3]=M(vf[0][3],vf[16][0]);
+            vf[10][2]=S(vf[10][2],vf[6][1]);vf[9][3]=M(vf[0][3],vf[16][1]);vf[10][3]=M(vf[0][3],vf[16][2]);
+            const auto rowsTimes=[&](const V &x,const V &y,const V &z,const V &w,const V &v){V o;for(unsigned i=0;i<4;++i)o[i]=A(A(A(M(x[i],v[0]),M(y[i],v[1])),M(z[i],v[2])),M(w[i],v[3]));return o;};
+            if(pc==0x248f18){const auto par=c->r[6].uw[0];for(unsigned k=0;k<3;++k)vf[1+k]=load(par+16*k);
+                // 0xae8
+                for(unsigned k=1;k<=3;++k)vf[k]=rowsTimes(vf[8],vf[9],vf[10],vf[11],vf[k]);
+                for(unsigned k=1;k<=3;++k)for(unsigned i=0;i<4;++i)vf[k][i]=M(vf[17][i],vf[k][i]);
+                uint16_t fl;std::memcpy(&fl,t->memory.hostPointer(obj+0x20c,2),2);
+                if(!(fl&0x1c0)){
+                    // 0x830
+                    for(unsigned i=0;i<4;++i)vf[5][i]=A(A(M(vf[1][i],vf[1][i]),M(vf[2][i],vf[2][i])),M(vf[3][i],vf[3][i]));
+                    for(unsigned i=0;i<3;++i){uint32_t f=0;const auto saved=_mm_getcsr();const auto q=bozo::ps2f::rsqrt(one,vf[5][i],f);_mm_setcsr(saved);
+                        for(unsigned k=1;k<=3;++k)vf[k][i]=M(vf[k][i],q);}
+                    for(unsigned k=1;k<=3;++k)for(unsigned i=0;i<4;++i)vf[k][i]=M(vf[k][i],vf[17][i]);}
+                vf[4]=load(obj+0x140);
+            }else{for(unsigned k=0;k<3;++k)for(unsigned i=0;i<4;++i)vf[1+k][i]=M(vf[17][i],vf[8+k][i]);vf[4]=load(obj+0x140);}
+            const auto r0=load(obj+0x110),r1=load(obj+0x120),r2=load(obj+0x130);V out[4];
+            for(unsigned k=0;k<3;++k)out[k]=rowsTimes(r0,r1,r2,vf[4],vf[1+k]);out[3]=vf[4];
+            std::memcpy(t->memory.hostPointer(c->r[29].uw[0],64),out,64);return true;
+        }
         if(referenceOverlap && (pc==0x20dc34 || pc==0x20dd48 || (pc>=0x20e4c0 && pc<=0x20e4cc))){
             // mod001 20d9d0 sphere sweep, engine ps2f arithmetic.
             const auto mul=[](uint32_t a,uint32_t b){uint32_t f=0;return bozo::ps2f::mul(a,b,f);};
@@ -1100,6 +1136,33 @@ int main(){try{
         ++sweepCases;
     }
     std::printf("%u mod001 20d9d0 sphere sweep blocks match the engine VU0 oracle\n",sweepCases);
+    unsigned worldCases=0,worldPaths[3]{};
+    for(unsigned rounding:{_MM_ROUND_NEAREST,_MM_ROUND_DOWN,_MM_ROUND_UP,_MM_ROUND_TOWARD_ZERO})for(unsigned seed=0;seed<192;++seed){
+        auto &a=old.runtime();auto &b=native.runtime();std::memset(a.memory.flat(),0xa7+seed,bozo::kFlatBytes);
+        const uint32_t stack=seed&1?0x70003000:0x1ffd000|(seed&2?0x20000000u:0u),object=0x1e4000,parent=0x1e5000,out=0x1e6000;
+        uint32_t state=seed*3735928559u+rounding;const auto next=[&](int lo,int span){state=state*1664525u+1013904223u;return ((state>>8)&0x807fffffu)|uint32_t((lo+int((state>>4)%unsigned(span)))<<23);};
+        const auto put=[&](uint32_t at,uint32_t v){std::memcpy(a.memory.hostPointer(at,4),&v,4);};
+        for(unsigned i=0;i<4;++i){put(object+0x20+4*i,next(118,12));put(object+0x30+4*i,next(122,5));put(object+0x40+4*i,next(124,4)&0x7fffffff);put(out+4*i,next(118,12));}
+        for(unsigned i=0;i<16;++i){put(object+0x110+4*i,next(116,14));put(parent+0xd0+4*i,next(116,14));put(stack+4*i,next(118,12));}
+        const unsigned path=seed%3;put(object+0x208,path?parent:0);
+        {uint16_t fl=path==2?0x0040:0x8001;std::memcpy(a.memory.hostPointer(object+0x20c,2),&fl,2);}
+        std::memcpy(b.memory.flat(),a.memory.flat(),bozo::kFlatBytes);
+        R5900Context x{};for(unsigned i=1;i<32;++i){x.r[i].ud[0]=0xa1b2000000000000ull+seed*32+i;x.r[i].ud[1]=~x.r[i].ud[0];x.f[i]=float(i)/8;}
+        std::memset(x.vu0_vf,0xd5,sizeof(x.vu0_vf));std::memset(&x.vu0_acc,0x5d,sizeof(x.vu0_acc));x.vu0_status=0x0505;x.vu0_q_bits=0x3f00001f;x.vi[0]=0x0505;
+        x.r[29].ud[0]=stack+0x40;x.r[31].ud[0]=0x170000;x.r[4].ud[0]=object;x.r[5].ud[0]=out;
+        auto y=x;
+        const auto saved=_mm_getcsr(),control=(saved&~(_MM_ROUND_MASK|0x8040|0x3f))|rounding|(seed&8?0x8040:0);_mm_setcsr(control);
+        host.referenceOverlap=true;a.functions.generated(0x248e40)(a.memory.flat(),&x,&a);const auto expectedFp=_mm_getcsr();_mm_setcsr(control);
+        host.referenceOverlap=false;b.functions.generated(0x248e40)(b.memory.flat(),&y,&b);const auto actualFp=_mm_getcsr();_mm_setcsr(saved);
+        x.cycleLimit=y.cycleLimit;
+        if(actualFp!=expectedFp || x.pc!=0x170000 || std::memcmp(&x,&y,sizeof(x)) || std::memcmp(a.memory.flat(),b.memory.flat(),bozo::kFlatBytes)){
+            std::fprintf(stderr,"world position path%u rounding%x seed%u pc%x/%x fp%08x/%08x\n",path,rounding,seed,x.pc,y.pc,expectedFp,actualFp);
+            for(unsigned i=0;i<sizeof(x);++i)if(reinterpret_cast<const uint8_t *>(&x)[i]!=reinterpret_cast<const uint8_t *>(&y)[i]){std::fprintf(stderr,"CPU byte%x old%02x native%02x\n",i,reinterpret_cast<const uint8_t *>(&x)[i],reinterpret_cast<const uint8_t *>(&y)[i]);break;}
+            for(unsigned i=0;i<bozo::kFlatBytes;++i)if(a.memory.flat()[i]!=b.memory.flat()[i]){std::fprintf(stderr,"RAM byte%x old%02x native%02x\n",i,a.memory.flat()[i],b.memory.flat()[i]);break;}check(false);
+        }
+        ++worldPaths[path];++worldCases;
+    }
+    std::printf("%u mod001 248e40 world positions (%u unparented, %u normalized, %u unnormalized) match the engine VU0 oracle\n",worldCases,worldPaths[0],worldPaths[1],worldPaths[2]);
     // Animated packet UVs. The original loader 219620 (with its mesh cursors
     // and element methods) builds the scratchpad description; a test-only
     // oracle reproduces the original pipeline from it (toSPR chain, callback

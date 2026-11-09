@@ -1,6 +1,7 @@
 // Native mesh assets, game object records and scalar rendering mathematics.
 // No runtime packet decoding, transport replay or vector-machine state.
 #include "native_models.h"
+#include "native_math.h"
 #include "bozo/ee/dispatcher.h"
 #include <algorithm>
 #include <cmath>
@@ -205,14 +206,24 @@ NativeModelSubmission NativeModels::capture(Runtime *rt,NativeAssets &assets,Nat
             if(material[4]==0){factor=objectColour;if(!tableA && !plain)factor[0]=factor[1]=factor[2]=0;}
             else if(material[4]==1){for(unsigned c=0;c<3;++c){factor[c]=ambient[c];for(unsigned l=0;l<4;++l)factor[c]+=colours[l][c]*std::max(0.0f,dot(directions[l],n));}}
             else if(material[4]==3){
-                if(!block || colours[3][0]!=0 || colours[3][1]!=0 || colours[3][2]!=0)
-                    throw std::runtime_error(std::format("unported native specular light table (block {:x} fourth light {} {} {})",block,colours[3][0],colours[3][1],colours[3][2]));
+                if(!block)throw std::runtime_error("native specular light table without a mesh block");
+                // The fourth light depends on the VU1 program set that builder 23a950
+                // installs: with the global light byte +517 (sets b-d, 11-13) it is
+                // weighted by header 12.x, not clamped and has no specular; without
+                // it (sets 0-2, e-10) it is lit like the other three. The byte is
+                // recorded per model by its setup 23c0d0 (vp2s_vu1_hle mode 3).
+                const bool fourth=colours[3][0]!=0 || colours[3][1]!=0 || colours[3][2]!=0;
+                bool plainFourth=false;
+                if(fourth){const auto variant=nativeModelLightVariant(rt,object);
+                    if(!variant)throw std::runtime_error(std::format("native specular fourth light without its model setup (block {:x})",block));plainFourth=*variant;}
                 const auto wa=real(block+0x60),wd=real(block+0x64),ws=real(block+0x68);const auto power=value<int32_t>(rt,block+0x3c);
                 if(power<0 || power>16)throw std::runtime_error("native specular power outside bounds");
-                float diffuse[3],specular[3];for(unsigned l=0;l<3;++l){diffuse[l]=std::max(0.0f,wd*dot(directions[l],n));
+                float diffuse[4],specular[4];for(unsigned l=0;l<4;++l){const bool plain=l==3 && plainFourth;
+                    diffuse[l]=plain?wa*dot(directions[l],n):std::max(0.0f,wd*dot(directions[l],n));
                     std::array<float,3> h{};for(unsigned c=0;c<3;++c)h[c]=directions[l][c]*ws+e[c]*ws*(length?1/length:0);
-                    specular[l]=dot(h,n);for(int j=0;j<power;++j)specular[l]*=specular[l];}
-                for(unsigned c=0;c<3;++c){factor[c]=ambient[c]*wa;for(unsigned l=0;l<3;++l)factor[c]+=colours[l][c]*diffuse[l];for(unsigned l=0;l<3;++l)factor[c]+=colours[l][c]*specular[l];}}
+                    specular[l]=dot(h,n);for(int j=0;j<power;++j)specular[l]*=specular[l];if(plain)specular[l]=0;}
+                for(unsigned c=0;c<3;++c){factor[c]=ambient[c]*wa;for(unsigned l=0;l<4;++l)factor[c]+=colours[l][c]*diffuse[l];
+                    factor[c]+=colours[0][c]*specular[0];factor[c]+=colours[3][c]*specular[3];factor[c]+=colours[1][c]*specular[1];factor[c]+=colours[2][c]*specular[2];}}
             if(pointLights || !spots.empty()){
                 int32_t power=0;std::array<float,4> weights{};
                 if(material[4]==3 || pointLights){if(!block)throw std::runtime_error("native point/spot lights without a mesh block");

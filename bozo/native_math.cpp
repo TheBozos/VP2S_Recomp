@@ -14,6 +14,7 @@
 #include <stdexcept>
 namespace vp2s {
 namespace {
+std::map<std::pair<const Runtime *,uint32_t>,bool> &modelLightVariants(){static std::map<std::pair<const Runtime *,uint32_t>,bool> variants;return variants;}
 uint8_t *record(Runtime *rt,uint32_t address,uint32_t bytes){
     const bool scratch=address>=bozo::kScratchpadBase && address<bozo::kScratchpadBase+bozo::kScratchpadBytes;
     const auto offset=address&0x1ffffffu;
@@ -1867,6 +1868,76 @@ void morphMesh(Runtime *rt,uint32_t element,unsigned vertices,uint8_t *positions
     // 218720: the cursor advances by the table's size.
     const auto advanced=table+skinWord(rt,table+8);std::memcpy(rt->memory.hostPointer(element+0x38,4),&advanced,4);
 }
+// Three more inlined VU0 macro idioms (mod001 20e5b8 has 16 of them):
+//  negate:  LQC2 vf1; SUB.xyz vf1 = vf0 - vf1; SQC2 vf1        -> {-x,-y,-z,w}
+//  dot:     LQC2 vf20,vf21,vf22; SUB vf23 = vf21 - vf20; ADDw.x vf24 = 1;
+//           MUL vf23 = vf22*vf23; ADDAy; MADDz; SQC2 vf23     -> {(px+py)+1*pz, py, pz, pw}
+//  square:  LQC2 vf20,vf21; SUB vf22 = vf21 - vf20; MUL vf22 = vf22*vf22; SQC2 vf22
+//  normalize (mod001 258230), see the table.
+// Plain EE instructions may sit between the COP2 words, and they may reuse a
+// load's base register as the store's, so each load captures its quadword at
+// its own PC; the store computes the fixed formula. Recognised only from the
+// exact COP2 words of a straight block (no branch in between).
+struct MacroIdiom{const char *name;std::array<int32_t,9> words;unsigned size;};
+// >=0: exact word; -1-n: LQC2 into vf n; -100-n: SQC2 from vf n.
+constexpr MacroIdiom macroIdioms[]={
+    {"negate",{-2,0x4bc1006c,-101},3},
+    {"dot",{-21,-22,-23,0x4bf4adec,0x4b000603,0x4bf7b5ea,0x4b17b83d,0x4b17c5ca,-123},9},
+    {"square",{-21,-22,0x4bf4adac,0x4bf6b5aa,-122},5},
+    // normalize: LQC2 vf20; MUL.xyz vf22 = vf20^2; ADDw.x vf21 = 1; ADDAy; MADDz;
+    // RSQRT Q = 1/sqrt(vf22.x); WAITQ; MULq.xyz vf20; SQC2 vf20 -> {xyz*Q, w}
+    {"normalize",{-21,0x4bd4a5aa,0x4b000543,0x4b16b03d,0x4b16ad8a,0x4a7603be,0x4a0003bf,0x4bc0a51c,-120},9}};
+struct MacroCapture{std::array<VuWords,32> vf{};uint32_t valid=0,block=0;};
+MacroCapture &macroCapture(const Runtime *rt){static std::map<const Runtime *,MacroCapture> captures;return captures[rt];}
+bool nativeMacroIdiom(R5900Context *c,Runtime *rt,uint32_t pc){
+    if(!rt || (pc&3))return false;
+    const auto word=[&](uint32_t at,uint32_t &out){const auto *p=rt->memory.hostPointer(at,4);if(!p)return false;std::memcpy(&out,p,4);return true;};
+    const auto cop2=[](uint32_t w){const auto op=w>>26;return op==0x12 || op==0x36 || op==0x3e;};
+    const auto control=[](uint32_t w){const auto op=w>>26;return (op>=1 && op<=7) || (op>=0x14 && op<=0x17) || (op==0 && ((w&63)==8 || (w&63)==9)) || (op==0x11 && ((w>>21)&31)==8);};
+    const auto matches=[](int32_t want,uint32_t w){
+        if(want>=0)return w==uint32_t(want);
+        if(want<=-100)return w>>26==0x3e && int32_t((w>>16)&31)==-100-want;
+        return w>>26==0x36 && int32_t((w>>16)&31)==-1-want;};
+    uint32_t self;if(!word(pc,self) || !cop2(self))return false;
+    for(const auto &idiom:macroIdioms){
+        // Try every position this PC could hold in the idiom.
+        for(unsigned k=0;k<idiom.size;++k){
+            if(!matches(idiom.words[k],self))continue;
+            // Walk back k COP2 words (at most 6 plain EE words between them), then forward.
+            uint32_t at=pc,addresses[9];bool ok=true;addresses[k]=pc;
+            for(unsigned b=k;b>0 && ok;--b){unsigned gap=0;uint32_t w;
+                do{at-=4;if(!word(at,w) || control(w) || ++gap>7){ok=false;break;}}while(!cop2(w));
+                if(ok && !matches(idiom.words[b-1],w))ok=false;else addresses[b-1]=at;}
+            at=pc;
+            for(unsigned f=k+1;f<idiom.size && ok;++f){unsigned gap=0;uint32_t w;
+                do{at+=4;if(!word(at,w) || control(w) || ++gap>7){ok=false;break;}}while(!cop2(w));
+                if(ok && !matches(idiom.words[f],w))ok=false;else addresses[f]=at;}
+            if(!ok)continue;
+            if(!c)throw std::runtime_error("native macro idiom has no CPU record");
+            auto &capture=macroCapture(rt);const auto first=addresses[0];
+            const int32_t want=idiom.words[k];
+            const auto address=[&](uint32_t w){return c->r[(w>>21)&31].uw[0]+uint32_t(int32_t(int16_t(w&0xffff)));};
+            if(want<0 && want>-100){   // load: capture
+                if(k==0 || capture.block!=first){capture.valid=0;capture.block=first;}
+                const unsigned n=unsigned(-1-want);capture.vf[n]=vuWords(rt,address(self));capture.valid|=1u<<n;return true;}
+            if(want>=0)return true;     // arithmetic: folded into the store
+            // store
+            const auto need=[&](unsigned n){if(capture.block!=first || !(capture.valid>>n&1))throw std::runtime_error(std::format("native {} idiom at {:x} stored without its loads",idiom.name,first));return capture.vf[n];};
+            const uint32_t one=0x3f800000u,savedCsr=_mm_getcsr();VuWords out{};
+            const std::string_view kind=idiom.name;
+            if(kind=="normalize"){const auto v=need(20);uint32_t sq[3];for(unsigned i=0;i<3;++i)sq[i]=vuMul(v[i],v[i]);
+                uint32_t f=0;const auto q=bozo::ps2f::rsqrt(one,vuAdd(vuAdd(sq[0],sq[1]),vuMul(one,sq[2])),f);_mm_setcsr(savedCsr);
+                for(unsigned i=0;i<3;++i)out[i]=vuMul(v[i],q);out[3]=v[3];}
+            else if(kind=="negate"){const auto v=need(1);for(unsigned i=0;i<3;++i)out[i]=vuSub(0,v[i]);out[3]=v[3];}
+            else if(kind=="dot"){const auto a=need(20),b=need(21),m=need(22);
+                for(unsigned i=0;i<4;++i)out[i]=vuMul(m[i],vuSub(b[i],a[i]));out[0]=vuAdd(vuAdd(out[0],out[1]),vuMul(one,out[2]));}
+            else{const auto a=need(20),b=need(21);for(unsigned i=0;i<4;++i){const auto d=vuSub(b[i],a[i]);out[i]=vuMul(d,d);}}
+            _mm_setcsr(savedCsr);
+            std::memcpy(record(rt,address(self),16),out.data(),16);capture.valid=0;return true;
+        }
+    }
+    return false;
+}
 bool nativeSoftSkin(R5900Context *c,Runtime *rt,uint32_t pc){
     if(pc!=0x21822c)return false;
     if(!c)throw std::runtime_error("native skinning has no CPU record");
@@ -1884,12 +1955,15 @@ bool nativeSoftSkin(R5900Context *c,Runtime *rt,uint32_t pc){
     if(packedAt)std::memcpy(rt->memory.hostPointer(packedAt,t.size()),t.data(),t.size());
     return true;
 }
+std::optional<bool> nativeModelLightVariant(const Runtime *rt,uint32_t model){
+    const auto &map=modelLightVariants();const auto it=map.find({rt,model});return it==map.end()?std::nullopt:std::optional(it->second);}
 bool nativeMathInstruction(uint8_t *,R5900Context *c,Runtime *rt,uint32_t pc){
     if(nativeSkinUpload(c,rt,pc) || nativeSoftSkin(c,rt,pc))return true;
     if(nativeProjectionBlocks(c,rt,pc) || nativeBoneAim(c,rt,pc) || nativeChainBlocks(c,rt,pc) || nativeCapsulePair(c,rt,pc) || nativePlaneContact(c,rt,pc) || nativeRangeTest(c,rt,pc) || nativeMatrixBuild(c,rt,pc) || nativeListBoxQuery(c,rt,pc) || nativeHitFrame(c,rt,pc) || nativePlaneDistance(c,rt,pc) || nativeSphereSweep(c,rt,pc) || nativeSegmentApproach(c,rt,pc) || nativeWorldPosition(c,rt,pc) || nativeCameraTarget(c,rt,pc) || nativeRootLength(c,rt,pc) || nativeVisibilityLoop(c,rt,pc) || nativeQuaternionLeaf(c,rt,pc) || nativeBonePalette(c,rt,pc))return true;
     if(nativeLeafSphere(c,rt,pc) || nativeLeafBox(c,rt,pc) || nativeSegmentBox(c,rt,pc))return true;
     if(nativeLengthSite(c,rt,pc) || nativeRecordDot(c,rt,pc) || nativePackedQuaternion(c,rt,pc))return true;
     if(nativeLengthIdiom(c,rt,pc))return true;
+    if(nativeMacroIdiom(c,rt,pc))return true;
     if(nativeObjectOverlap(c,rt,pc))return true;
     if(nativeUvAnimation(c,rt,pc))return true;
     if(nativeSegmentContact(c,rt,pc))return true;
@@ -2635,6 +2709,7 @@ bool nativeMathInstruction(uint8_t *,R5900Context *c,Runtime *rt,uint32_t pc){
     if(pc==0x23c270 || pc==0x23c2a8 || pc==0x23c2c8){
         const auto global=c->r[18].uw[0],model=c->r[19].uw[0],destination=c->r[29].uw[0]+0x50;
         record(rt,global,0x520);record(rt,model,0x7f0);
+        modelLightVariants()[{rt,model}]=*rt->memory.hostPointer(global+0x517,1)!=0;
         const bool combined=pc!=0x23c2c8;
         const auto coefficient=global+(pc==0x23c270?0x3c0:pc==0x23c2a8?0x390:0x310);
         if(combined?(c->r[6].uw[0]!=coefficient || c->r[5].uw[0]!=model+0x7e0 || c->r[3].uw[0]!=global+0x310 || c->r[4].uw[0]!=destination):

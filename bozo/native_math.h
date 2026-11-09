@@ -1,4 +1,5 @@
 #pragma once
+#include <optional>
 #include "bozo/runtime.h"
 #include <array>
 #include <map>
@@ -57,4 +58,7 @@ public:
 // Game record algorithms shared with the existing native port, through Bozo's
 // memory/CPU ABI. No vector bank, microprogram or transport is provided.
 bool nativeMathInstruction(uint8_t *,R5900Context *,Runtime *,uint32_t pc);
+// The global light byte +517 seen by model setup 23c0d0 for this model in
+// this frame (the VU1 program set choice in builder 23a950). nullopt: unseen.
+std::optional<bool> nativeModelLightVariant(const Runtime *,uint32_t model);
 }

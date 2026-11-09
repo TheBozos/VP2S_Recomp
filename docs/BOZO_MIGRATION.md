@@ -12,6 +12,43 @@ The earlier VP2S face/shading and general brightness comparisons remain open.
 
 ## Build and evidence
 
+### More inlined VU0 idioms; the mode-3 fourth light (2026-11-09)
+
+**Idioms.** `nativeMacroIdiom` recognises four more inlined macro blocks by
+their exact COP2 words:
+
+| Idiom | Result |
+|---|---|
+| negate | `{-x, -y, -z, w}` |
+| offset dot | `{(px+py)+1*pz, py, pz, pw}` with `p = c*(b - a)` |
+| squared difference | `(b - a)^2` per lane |
+| normalize | `xyz * rsqrt((x^2+y^2)+1*z^2)`, `w` kept |
+
+- Plain non-branch EE instructions may sit between the COP2 words. They may
+  rewrite a load's base register before the store, as in `20e5b8`, so each
+  load captures its quadword at its own PC and the store applies the fixed
+  formula. A store reached without its loads rejects.
+- `20e5b8` (16 blocks) and `258230` pass.
+- Test: 384 synthetic blocks, including a base register reused before the
+  store, match the ps2f oracle.
+
+**Mode-3 fourth light.** The VU1 mesh program set is chosen per object by
+builder `23a950`, via selector `29e2a0` (`manager+5`, table `0x314138` entry
+`index + 2`). The fourth light's treatment depends only on the global light
+byte `+517`:
+- With `+517` set (sets `b..d`, `11..13`), the fourth light is weighted by
+  header 12.x, not clamped, and has no specular.
+- Without it (sets `0..2`, `e..10`), it is lit like the other three.
+
+The six program copies of each kind confirm the split: `MULy vf16` with dest
+`xyz` or `xyzw`. The builder never runs natively (`239ff0` retires the job),
+so the native site in setup `23c0d0` records `global+517` per model, and the
+renderer uses it. The specular sums follow `vp2s_vu1_hle`'s order. There is
+no unit oracle; the case is a renderer path.
+
+**Route:** the run reaches serial 2487. It stops at an unported UI text class,
+`165ae0` (`2e74f0`).
+
 ### Morph element 218600 in the native streamer (2026-11-09)
 
 Animated models with attribute set `0x143` carry elements of class `1536a0`.

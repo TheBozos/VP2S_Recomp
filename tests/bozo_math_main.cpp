@@ -1256,6 +1256,41 @@ int main(){try{
         ++quaternionLeafCases;
     }
     std::printf("%u mod001 2156d0 quaternion normalizations match the 0x670 listing\n",quaternionLeafCases);
+    // mod001 237320 bone palette: programs 0x898 + 0x1f8.. run instruction by
+    // instruction on a VF register file (the B to 0x1f8 skips the 0x1f0 pair).
+    unsigned paletteCases=0;
+    for(unsigned seed=0;seed<256;++seed){
+        auto &r=native.runtime();std::memset(r.memory.flat(),0x6f+seed,bozo::kFlatBytes);
+        const uint32_t stack=0x1ffd000,list=0x1e4000,skeleton=0x1e5000,counts=0x1e5800,binds=0x1e6000,bones=0x1e8000;const unsigned n=1+seed%5;
+        uint32_t state=seed*69069u+7;const auto next=[&](int lo,int span){state=state*1664525u+1013904223u;return ((state>>8)&0x807fffffu)|uint32_t((lo+int((state>>4)%unsigned(span)))<<23);};
+        const auto put=[&](uint32_t at,uint32_t v){std::memcpy(r.memory.hostPointer(at,4),&v,4);};
+        put(skeleton+0x34,counts);put(counts+4,n);put(skeleton+0x40,binds);
+        for(unsigned j=0;j<n;++j){put(list+4*j,bones+0x100*j);for(unsigned i=0;i<16;++i){put(bones+0x100*j+0x90+4*i,seed%16==3 && i==5?0x80000000u:next(116,14));put(binds+64*j+4*i,next(116,14));}}
+        for(unsigned i=0;i<16;++i)put(stack+0x60+4*i,next(116,14));
+        using V=std::array<uint32_t,4>;const auto load=[&](uint32_t at){V v;std::memcpy(v.data(),r.memory.hostPointer(at,16),16);return v;};
+        const auto M=[](uint32_t a,uint32_t b){uint32_t f=0;return bozo::ps2f::mul(a,b,f);};
+        const auto A=[](uint32_t a,uint32_t b){uint32_t f=0;return bozo::ps2f::addNearest(a,b,f);};
+        for(unsigned j=0;j<n;++j){
+            V vf[32]{};vf[0]={0,0,0,0x3f800000};for(unsigned k=0;k<4;++k){vf[9+k]=load(bones+0x100*j+0x90+16*k);vf[13+k]=load(binds+64*j+16*k);vf[28+k]=load(stack+0x60+16*k);}
+            vf[1]=vf[2]=vf[3]=V{0x11111111,0x22222222,0x33333333,0x44444444};   // garbage before the program
+            V acc{};const auto chain=[&](unsigned d,const V &a,const V &b,const V &c2,const V &e,const V &s){
+                for(unsigned i=0;i<4;++i){acc[i]=M(a[i],s[0]);acc[i]=A(acc[i],M(b[i],s[1]));acc[i]=A(acc[i],M(c2[i],s[2]));vf[d][i]=A(acc[i],M(e[i],s[3]));}};
+            chain(1,vf[13],vf[14],vf[15],vf[16],vf[9]);chain(2,vf[13],vf[14],vf[15],vf[16],vf[10]);chain(3,vf[13],vf[14],vf[15],vf[16],vf[11]);vf[4]=vf[12];
+            chain(5,vf[1],vf[2],vf[3],vf[4],vf[28]);chain(6,vf[1],vf[2],vf[3],vf[4],vf[29]);vf[8]=vf[4];chain(7,vf[1],vf[2],vf[3],vf[4],vf[30]);
+            // 0x1f8 .. 0x248
+            vf[1][2]=A(vf[0][2],vf[7][0]);vf[4][3]=vf[8][3];vf[1][3]=M(vf[0][3],vf[8][0]);vf[2][0]=A(vf[0][0],vf[5][1]);
+            vf[2][2]=A(vf[0][2],vf[7][1]);vf[1][0]=vf[5][0];vf[2][3]=M(vf[0][3],vf[8][1]);vf[3][0]=A(vf[0][0],vf[5][2]);
+            vf[3][1]=A(vf[0][1],vf[6][2]);vf[2][1]=vf[6][1];vf[3][3]=M(vf[0][3],vf[8][2]);vf[4][0]=A(vf[0][0],vf[5][3]);
+            vf[4][1]=A(vf[0][1],vf[6][3]);vf[4][2]=A(vf[0][2],vf[7][3]);
+            R5900Context x{};for(unsigned i=1;i<32;++i)x.r[i].ud[0]=0x1357000000000000ull+i;
+            x.r[17].ud[0]=0x70000010+64*j;x.r[18].ud[0]=list;x.r[20].ud[0]=skeleton;x.r[29].ud[0]=stack;auto y=x;
+            const uint32_t pc=j+1<n || seed&1?0x2374ec:0x237584;
+            check(vp2s::nativeMathInstruction(r.memory.flat(),&y,&r,pc));check(!std::memcmp(&x,&y,sizeof(x)));
+            for(unsigned k=0;k<4;++k){const auto got=load(0x70000010+64*j+16*k);
+                if(got!=vf[1+k]){std::fprintf(stderr,"palette seed%u bone%u row%u %08x %08x %08x %08x / %08x %08x %08x %08x\n",seed,j,k,got[0],got[1],got[2],got[3],vf[1+k][0],vf[1+k][1],vf[1+k][2],vf[1+k][3]);check(false);}}
+            ++paletteCases;}
+    }
+    std::printf("%u mod001 237320 bone palette entries match the 0x898/0x1f8 listing\n",paletteCases);
     // Animated packet UVs. The original loader 219620 (with its mesh cursors
     // and element methods) builds the scratchpad description; a test-only
     // oracle reproduces the original pipeline from it (toSPR chain, callback

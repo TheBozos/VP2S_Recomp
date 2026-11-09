@@ -1578,8 +1578,41 @@ bool nativeQuaternionLeaf(R5900Context *c,Runtime *rt,uint32_t pc){
     for(auto &x:q)x=vuMul(x,inv);
     std::memcpy(record(rt,at,16),q.data(),16);return true;
 }
+// mod001 237320 bone palette. Bone j (j-th record *(s2+4j), inverse bind
+// *(s4+40)+64j, object rows O = SP+60 from 216e40) through program 0x898:
+//  M_k = ((IB0*B_k.x + IB1*B_k.y) + IB2*B_k.z) + IB3*B_k.w (k<3), M_3 = B_3;
+//  N_k = ((M0*O_k.x + M1*O_k.y) + M2*O_k.z) + M3*O_k.w (k<3), N_3 = M_3;
+// then B 0x1f8 enters the 0x1f0 transpose after its first pair, so P0.y and
+// P2.z keep M0.y / M2.z. Transposed lanes: MOVE (raw), ADD 0+x, MUL 1*x as
+// listed. EE stores P to the scratchpad palette s1 = 70000010 + 64j after the
+// interlocked CFC2 (the next bone's input loads overlap the run, by design).
+bool nativeBonePalette(R5900Context *c,Runtime *rt,uint32_t pc){
+    const bool load=(pc>=0x237450 && pc<=0x23748c) || (pc>=0x2374c8 && pc<=0x2374e4) || pc==0x237504 || pc==0x2374e8;
+    const bool store=(pc>=0x2374ec && pc<=0x2374f8) || (pc>=0x237580 && pc<=0x237590);
+    if(!(load || store) || (pc&3))return false;
+    if(!c)throw std::runtime_error("native bone palette has no CPU record");
+    if(pc==0x237580){c->r[9].ud[0]=0;return true;}
+    if(load || (pc!=0x2374ec && pc!=0x237584))return true;
+    const auto s1=c->r[17].uw[0];if(s1<0x70000010u || ((s1-0x70000010u)&63) || s1>=0x70004000u)throw std::runtime_error("native bone palette outside the scratchpad palette");
+    const auto j=(s1-0x70000010u)/64;
+    uint32_t bone,binds,count;std::memcpy(&bone,rt->memory.hostPointer(c->r[18].uw[0]+4*j,4),4);std::memcpy(&binds,rt->memory.hostPointer(c->r[20].uw[0]+0x40,4),4);
+    {uint32_t list;std::memcpy(&list,rt->memory.hostPointer(c->r[20].uw[0]+0x34,4),4);std::memcpy(&count,rt->memory.hostPointer(list+4,4),4);}
+    if(int32_t(count)<=0 || j>=count)throw std::runtime_error("native bone palette index outside the skeleton");
+    VuWords B[4],IB[4],O[3],M[4],N[4];const auto stack=c->r[29].uw[0];
+    for(unsigned k=0;k<4;++k){B[k]=vuWords(rt,bone+0x90+16*k);IB[k]=vuWords(rt,binds+64*j+16*k);}
+    for(unsigned k=0;k<3;++k)O[k]=vuWords(rt,stack+0x60+16*k);
+    const auto rows=[](const VuWords *R,const VuWords &v){VuWords o;for(unsigned i=0;i<4;++i)o[i]=vuAdd(vuAdd(vuAdd(vuMul(R[0][i],v[0]),vuMul(R[1][i],v[1])),vuMul(R[2][i],v[2])),vuMul(R[3][i],v[3]));return o;};
+    for(unsigned k=0;k<3;++k)M[k]=rows(IB,B[k]);M[3]=B[3];
+    for(unsigned k=0;k<3;++k)N[k]=rows(M,O[k]);N[3]=M[3];
+    const uint32_t one=0x3f800000u;VuWords P[4];
+    P[0]={N[0][0],M[0][1],vuAdd(0,N[2][0]),vuMul(one,N[3][0])};
+    P[1]={vuAdd(0,N[0][1]),N[1][1],vuAdd(0,N[2][1]),vuMul(one,N[3][1])};
+    P[2]={vuAdd(0,N[0][2]),vuAdd(0,N[1][2]),M[2][2],vuMul(one,N[3][2])};
+    P[3]={vuAdd(0,N[0][3]),vuAdd(0,N[1][3]),vuAdd(0,N[2][3]),N[3][3]};
+    std::memcpy(record(rt,s1,64),P,64);return true;
+}
 bool nativeMathInstruction(uint8_t *,R5900Context *c,Runtime *rt,uint32_t pc){
-    if(nativeProjectionBlocks(c,rt,pc) || nativeBoneAim(c,rt,pc) || nativeChainBlocks(c,rt,pc) || nativeCapsulePair(c,rt,pc) || nativePlaneContact(c,rt,pc) || nativeRangeTest(c,rt,pc) || nativeMatrixBuild(c,rt,pc) || nativeListBoxQuery(c,rt,pc) || nativeHitFrame(c,rt,pc) || nativePlaneDistance(c,rt,pc) || nativeSphereSweep(c,rt,pc) || nativeSegmentApproach(c,rt,pc) || nativeWorldPosition(c,rt,pc) || nativeCameraTarget(c,rt,pc) || nativeRootLength(c,rt,pc) || nativeVisibilityLoop(c,rt,pc) || nativeQuaternionLeaf(c,rt,pc))return true;
+    if(nativeProjectionBlocks(c,rt,pc) || nativeBoneAim(c,rt,pc) || nativeChainBlocks(c,rt,pc) || nativeCapsulePair(c,rt,pc) || nativePlaneContact(c,rt,pc) || nativeRangeTest(c,rt,pc) || nativeMatrixBuild(c,rt,pc) || nativeListBoxQuery(c,rt,pc) || nativeHitFrame(c,rt,pc) || nativePlaneDistance(c,rt,pc) || nativeSphereSweep(c,rt,pc) || nativeSegmentApproach(c,rt,pc) || nativeWorldPosition(c,rt,pc) || nativeCameraTarget(c,rt,pc) || nativeRootLength(c,rt,pc) || nativeVisibilityLoop(c,rt,pc) || nativeQuaternionLeaf(c,rt,pc) || nativeBonePalette(c,rt,pc))return true;
     if(nativeLeafSphere(c,rt,pc) || nativeLeafBox(c,rt,pc) || nativeSegmentBox(c,rt,pc))return true;
     if(nativeLengthSite(c,rt,pc) || nativeRecordDot(c,rt,pc) || nativePackedQuaternion(c,rt,pc))return true;
     if(nativeObjectOverlap(c,rt,pc))return true;

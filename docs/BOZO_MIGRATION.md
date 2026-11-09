@@ -12,6 +12,32 @@ The earlier VP2S face/shading and general brightness comparisons remain open.
 
 ## Build and evidence
 
+### mod001 237320 bone palette (2026-11-09)
+
+`237320` builds one palette entry per bone with VU0 program 0x898. The inputs
+are bone j's rows `*(s2+4j)+90`, its inverse bind `*(s4+40)+64j`, and the
+object rows at SP+60 (from `216e40`). The program:
+- computes `M_k = IB . B_k` for k < 3 and sets `M_3 = B_3`;
+- computes `N_k = M . O_k` for k < 3 and sets `N_3 = M_3`;
+- then executes `B 0x1f8`, entering the 0x1f0 transpose after its first pair.
+
+So the palette keeps two stale lanes, `P0.y = M0.y` and `P2.z = M2.z`. The PS2
+computes exactly this, and the port reproduces it.
+
+The loop is software-pipelined: the next bone's input loads overlap the
+program run, and the interlocked CFC2 precedes the stores. Each entry is
+therefore computed from its own bone's records, at the store, into the
+scratchpad palette `s1 = 70000010 + 64j`. The test runs the 0x898/0x1f8
+listing instruction by instruction on a VF register file: 766 entries match.
+Guard `237320..2375c8`.
+
+**Next boundary:** the function then writes a VIF UNPACK tag (V4-32, `4n`
+qwords to VU0 data qword 16) in front of the palette and starts DMA channel 0
+(VIF0, device write `10008020`). The readers are VU0 programs from 0xe70 on,
+which load four-row matrices at `vi + 16` and look like VU0 skinning; later
+VIF0 jobs start them. The native port has to replace that upload and its
+consumers together, with no VIF/DMA emulation.
+
 ### Quaternion leaf 2156d0; the route reaches Logun (2026-11-09)
 
 `2156d0` normalizes `*a0` in place through program 0x670. The sum is

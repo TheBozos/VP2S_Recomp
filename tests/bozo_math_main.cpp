@@ -1163,6 +1163,39 @@ int main(){try{
         ++worldPaths[path];++worldCases;
     }
     std::printf("%u mod001 248e40 world positions (%u unparented, %u normalized, %u unnormalized) match the engine VU0 oracle\n",worldCases,worldPaths[0],worldPaths[1],worldPaths[2]);
+    // main 10da70 camera target: the native site stepped through its COP2 words
+    // (EE code between the blocks adjusts SP+88), against a ps2f oracle; no
+    // other RAM, CPU state or MXCSR changes.
+    unsigned targetCases=0;
+    for(unsigned rounding:{_MM_ROUND_NEAREST,_MM_ROUND_DOWN,_MM_ROUND_UP,_MM_ROUND_TOWARD_ZERO})for(unsigned seed=0;seed<128;++seed){
+        auto &r=native.runtime();std::memset(r.memory.flat(),0xb9+seed,bozo::kFlatBytes);
+        const uint32_t stack=seed&1?0x70003000:0x1ffd000|(seed&2?0x20000000u:0u),owner=0x1e4000,target=0x1e5000,camera=0x1e6000;
+        uint32_t state=seed*2166136261u+rounding;const auto next=[&](int lo,int span){state=state*1664525u+1013904223u;return ((state>>8)&0x807fffffu)|uint32_t((lo+int((state>>4)%unsigned(span)))<<23);};
+        const auto put=[&](uint32_t at,uint32_t v){std::memcpy(r.memory.hostPointer(at,4),&v,4);};
+        const auto get=[&](uint32_t at){uint32_t v;std::memcpy(&v,r.memory.hostPointer(at,4),4);return v;};
+        put(camera+0x1390,owner);for(unsigned i=0;i<16;++i)put(owner+0x190+4*i,next(116,14));for(unsigned i=0;i<4;++i)put(target+4*i,next(118,12));
+        R5900Context x{};for(unsigned i=1;i<32;++i){x.r[i].ud[0]=0xc3d4000000000000ull+seed*32+i;x.r[i].ud[1]=~x.r[i].ud[0];}
+        x.r[29].ud[0]=stack;x.r[17].ud[0]=camera;x.r[16].ud[0]=target;x.r[3].ud[0]=owner+0x190;x.r[2].ud[0]=stack+0x80;
+        const auto saved=_mm_getcsr(),control=(saved&~(_MM_ROUND_MASK|0x8040|0x3f))|rounding|(seed&8?0x8040:0);_mm_setcsr(control);
+        const auto mul=[](uint32_t a,uint32_t b){uint32_t f=0;return bozo::ps2f::mul(a,b,f);};
+        const auto add=[](uint32_t a,uint32_t b){uint32_t f=0;return bozo::ps2f::addNearest(a,b,f);};
+        uint32_t expect[4],m[4][4],p[4];std::memcpy(m,r.memory.hostPointer(owner+0x190,64),64);std::memcpy(p,r.memory.hostPointer(target,16),16);
+        for(unsigned i=0;i<4;++i)expect[i]=add(add(add(mul(m[0][i],p[0]),mul(m[1][i],p[1])),mul(m[2][i],p[2])),mul(m[3][i],0x3f800000));
+        const std::vector<uint8_t> before(r.memory.flat(),r.memory.flat()+bozo::kFlatBytes);const auto cpu=x;
+        for(uint32_t pc=0x10dc44;pc<=0x10dc68;pc+=4)check(vp2s::nativeMathInstruction(r.memory.flat(),&x,&r,pc));
+        bool same=!std::memcmp(&cpu,&x,sizeof(x));for(unsigned i=0;i<4;++i)same=same && get(stack+0x80+4*i)==expect[i];
+        const auto z=next(118,12);put(stack+0x88,z);expect[2]=z;x.r[3].ud[0]=stack+0x80;x.r[2].ud[0]=stack+0x50;
+        for(uint32_t pc=0x10dc84;pc<=0x10dc98;pc+=4)check(vp2s::nativeMathInstruction(r.memory.flat(),&x,&r,pc));
+        uint32_t sq[3];for(unsigned i=0;i<3;++i)sq[i]=mul(expect[i],expect[i]);
+        const uint32_t length[4]={add(add(sq[0],sq[1]),mul(0x3f800000,sq[2])),sq[1],sq[2],expect[3]};
+        for(unsigned i=0;i<4;++i)same=same && get(stack+0x50+4*i)==length[i];
+        const auto fp=_mm_getcsr();_mm_setcsr(saved);same=same && fp==control;
+        for(size_t i=0;i<bozo::kFlatBytes && same;++i){const auto at=r.memory.flat()+i;const bool written=at>=r.memory.hostPointer(stack+0x50,16) && at<r.memory.hostPointer(stack+0x50,16)+16;
+            const bool row=at>=r.memory.hostPointer(stack+0x80,16) && at<r.memory.hostPointer(stack+0x80,16)+16;if(!written && !row)same=r.memory.flat()[i]==before[i];}
+        if(!same){std::fprintf(stderr,"camera target rounding%x seed%u\n",rounding,seed);check(false);}
+        ++targetCases;
+    }
+    std::printf("%u main 10da70 camera-target block pairs match the engine VU0 oracle\n",targetCases);
     // Animated packet UVs. The original loader 219620 (with its mesh cursors
     // and element methods) builds the scratchpad description; a test-only
     // oracle reproduces the original pipeline from it (toSPR chain, callback

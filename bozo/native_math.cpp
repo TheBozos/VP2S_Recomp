@@ -1489,8 +1489,32 @@ bool nativeWorldPosition(R5900Context *c,Runtime *rt,uint32_t pc){
         out[k][i]=vuAdd(vuAdd(vuAdd(vuMul(m[0][i],rows[k][0]),vuMul(m[1][i],rows[k][1])),vuMul(m[2][i],rows[k][2])),vuMul(m[3][i],rows[k][3]));
     out[3]=m[3];std::memcpy(record(rt,stack,64),out,64);return true;
 }
+// main 10da70 camera target (s1 = camera owner, s0 = target point), ps2f:
+//  10dc44..10dc68  ((R0*p.x + R1*p.y) + R2*p.z) + R3*1, R = *(s1+1390)+190,
+//                  all lanes to SP+80 (the point's own W is not a weight).
+//  10dc84..10dc98  (((x2+y2)+1*z2), y2, z2, raw W) of SP+80 (Z adjusted by
+//                  EE code in between) to SP+50.
+bool nativeCameraTarget(R5900Context *c,Runtime *rt,uint32_t pc){
+    const bool transform=pc>=0x10dc44 && pc<=0x10dc68,length=pc>=0x10dc84 && pc<=0x10dc98;
+    if(!(transform || length) || (pc&3))return false;
+    if(!c)throw std::runtime_error("native camera target has no CPU record");
+    const auto stack=c->r[29].uw[0];
+    if(transform){
+        uint32_t owner;std::memcpy(&owner,rt->memory.hostPointer(c->r[17].uw[0]+0x1390,4),4);
+        if(c->r[3].uw[0]!=owner+0x190 || c->r[2].uw[0]!=stack+0x80)throw std::runtime_error("native camera target transform escaped its records");
+        if(pc!=0x10dc68)return true;
+        VuWords m[4];for(unsigned k=0;k<4;++k)m[k]=vuWords(rt,owner+0x190+16*k);const auto p=vuWords(rt,c->r[16].uw[0]);VuWords out;
+        for(unsigned i=0;i<4;++i)out[i]=vuAdd(vuAdd(vuAdd(vuMul(m[0][i],p[0]),vuMul(m[1][i],p[1])),vuMul(m[2][i],p[2])),vuMul(m[3][i],0x3f800000u));
+        std::memcpy(record(rt,stack+0x80,16),out.data(),16);return true;
+    }
+    if(c->r[3].uw[0]!=stack+0x80 || c->r[2].uw[0]!=stack+0x50)throw std::runtime_error("native camera target length escaped its records");
+    if(pc!=0x10dc98)return true;
+    auto out=vuWords(rt,stack+0x80);for(unsigned i=0;i<3;++i)out[i]=vuMul(out[i],out[i]);
+    out[0]=vuAdd(vuAdd(out[0],out[1]),vuMul(0x3f800000u,out[2]));
+    std::memcpy(record(rt,stack+0x50,16),out.data(),16);return true;
+}
 bool nativeMathInstruction(uint8_t *,R5900Context *c,Runtime *rt,uint32_t pc){
-    if(nativeProjectionBlocks(c,rt,pc) || nativeBoneAim(c,rt,pc) || nativeChainBlocks(c,rt,pc) || nativeCapsulePair(c,rt,pc) || nativePlaneContact(c,rt,pc) || nativeRangeTest(c,rt,pc) || nativeMatrixBuild(c,rt,pc) || nativeListBoxQuery(c,rt,pc) || nativeHitFrame(c,rt,pc) || nativePlaneDistance(c,rt,pc) || nativeSphereSweep(c,rt,pc) || nativeSegmentApproach(c,rt,pc) || nativeWorldPosition(c,rt,pc))return true;
+    if(nativeProjectionBlocks(c,rt,pc) || nativeBoneAim(c,rt,pc) || nativeChainBlocks(c,rt,pc) || nativeCapsulePair(c,rt,pc) || nativePlaneContact(c,rt,pc) || nativeRangeTest(c,rt,pc) || nativeMatrixBuild(c,rt,pc) || nativeListBoxQuery(c,rt,pc) || nativeHitFrame(c,rt,pc) || nativePlaneDistance(c,rt,pc) || nativeSphereSweep(c,rt,pc) || nativeSegmentApproach(c,rt,pc) || nativeWorldPosition(c,rt,pc) || nativeCameraTarget(c,rt,pc))return true;
     if(nativeLeafSphere(c,rt,pc) || nativeLeafBox(c,rt,pc) || nativeSegmentBox(c,rt,pc))return true;
     if(nativeLengthSite(c,rt,pc) || nativeRecordDot(c,rt,pc) || nativePackedQuaternion(c,rt,pc))return true;
     if(nativeObjectOverlap(c,rt,pc))return true;

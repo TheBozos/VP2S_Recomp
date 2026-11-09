@@ -12,6 +12,18 @@ The earlier VP2S face/shading and general brightness comparisons remain open.
 
 ## Build and evidence
 
+### main 10da70 camera target (2026-11-09)
+
+Two self-contained VU0 blocks, ported natively with `ps2f`:
+- **10dc44:** the target point `*s0` through the rows `*(s1+1390)+190`, with
+  VF0.w (1) as the weight rather than the point's own W, to SP+80.
+- **10dc84:** after EE code adjusts Z, `((x^2+y^2)+1*z^2, y^2, z^2, raw W)` of
+  SP+80 to SP+50.
+
+Main guard `10da70..10e030`. The math suite steps the native site through its
+COP2 words against a `ps2f` oracle in 512 cases, checking that no other RAM,
+CPU state or MXCSR changes. The route then reaches mod003 `42d390`.
+
 ### mod001 248e40 world position (2026-11-09)
 
 `248e40` runs three resident mode-0 common-math programs through VCALLMS and

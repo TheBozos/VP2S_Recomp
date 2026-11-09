@@ -1362,7 +1362,7 @@ int main(){try{
     // oracle reproduces the original pipeline from it (toSPR chain, callback
     // 29cfe0 + micro 0xc80 with ps2f arithmetic, fromSPR destination chain).
     // The native rewrite reads only the records and must produce the same packets.
-    unsigned uvCases=0,uvChunks=0,uvWords=0,uvEmpty=0;
+    unsigned uvCases=0,uvChunks=0,uvWords=0,uvEmpty=0,skinMeshes=0;
     for(unsigned seed=0;seed<96;++seed){
         auto &a=old.runtime(),&b=native.runtime();std::memset(a.memory.flat(),0,bozo::kFlatBytes);
         uint32_t state=seed*747796405u+2891336453u;const auto next=[&](){state=state*1664525u+1013904223u;return state>>8;};
@@ -1371,10 +1371,13 @@ int main(){try{
         const auto get=[&](Runtime &r,uint32_t at){uint32_t v;std::memcpy(&v,r.memory.hostPointer(at,4),4);return v;};
         constexpr uint32_t object=0x200000,model=0x201000,iterator=0x201800,maskAt=0x200800,vtable=0x1591b0,data=0x210000,packets=0x240000,stack=0x1ffc000;
         const unsigned meshes=1+seed%4,elements=1+seed%3;const bool unaligned=seed&1;
+        // Skinned seeds: element 0 is a skeleton interface (attributes eb:
+        // positions, normals, UVs, packed vectors, element data).
+        const bool skinned=seed%3==2;const unsigned bones=1+seed%8;
         const uint32_t base=data;  // 128-aligned, so both iterator modes agree
         put(object+0x54,model);put(model+0x644,iterator);put(iterator+8,data);put(iterator+0x14,seed%5==4?0:packets);
         std::memcpy(a.memory.hostPointer(iterator+0x1c,1),&unaligned,1);
-        put(base+0x10+0x34,meshes);put(object+0x48,maskAt);put(object+0x58,0x28);
+        put(base+0x10+0x34,meshes);put(object+0x48,maskAt);put(object+0x58,skinned?0xeb:0x28);
         put(object+0x5c,0x202000);put(object+0x60,0x203000);put(object+0x68,0x204000);put(object+0x6c,0x204400);put(object+0x70,0x205000);
         const uint8_t mode=uint8_t(seed%2),rebuild=2,flags8d=uint8_t(seed%7==3?4:0);
         std::memcpy(a.memory.hostPointer(object+0x8a,1),&mode,1);std::memcpy(a.memory.hostPointer(object+0x8c,1),&rebuild,1);std::memcpy(a.memory.hostPointer(object+0x8d,1),&flags8d,1);
@@ -1382,8 +1385,13 @@ int main(){try{
         const uint32_t packetStart=seed%5==4?base+0x70:packets+0x60;
         uint32_t source=base+0x70,packet=packetStart;
         for(unsigned j=0;j<meshes;++j){
-            const uint16_t n=uint16_t(seed%9==8?1+next()%3:4+next()%(seed%3==0?1000:120));const uint16_t offset=0x40;
-            const uint32_t span=(0x40+((n+3)/4)*16+0x2f)&~0xfu;
+            const uint16_t n=uint16_t(skinned?1+next()%40:seed%9==8?1+next()%3:4+next()%(seed%3==0?1000:120));const uint16_t offset=0x40;
+            uint32_t span=(0x40+((n+3)/4)*16+0x2f)&~0xfu;
+            if(skinned){const uint32_t at=0x40+((n+3)/4)*16,normalsAt=at+16*n,packedAt=normalsAt+16*n;const bool packed=next()%4!=0;
+                put16(source+0x18,uint16_t(at));put16(source+0x1a,uint16_t(normalsAt));put16(source+0x34,packed?uint16_t(packedAt):0);
+                span=(packedAt+16*((n+1u)/2)+0x2f)&~0xfu;
+                for(uint32_t w=at;w<packedAt+16*((n+1u)/2);w+=4){
+                    const uint32_t v=w<packedAt?(next()&0x807fffffu)|((120+next()%10)<<23):next()*13u;put(source+w,v);if(packet!=source)put(packet+w,0xdeadbeef);}}
             put16(source+0x16,n);put16(source+0x1c,offset);put16(source+4,uint16_t(span));
             if(packet!=source){put16(packet+4,uint16_t(span));}
             for(unsigned w=0;w<((n+3u)&~3u);++w){put(source+offset+4*w,next()*7u);if(packet!=source)put(packet+offset+4*w,0xdeadbeef);}
@@ -1392,8 +1400,29 @@ int main(){try{
         put16(source+4,0);if(packet!=source)put16(packet+4,0);  // terminators (never inside the count)
         put(vtable+0x10,0x29cfe0);put(vtable+0x14,0x29cfd0);put(vtable+0x18,0x29d0d0);
         uint32_t descriptorAt=0x230000;
+        const uint32_t skeletonVtable=0x154690;put(skeletonVtable+0x10,0x218220);put(skeletonVtable+0x14,0x236ba0);put(skeletonVtable+0x18,0x2372f0);
         for(unsigned i=0;i<elements;++i){
             const uint32_t e=0x206000+0x100*i,bits=0x206800+0x10*i;put(e,vtable);put(e+8,i+1<elements?e+0x100:object);
+            if(skinned && i==0){
+                // Skeleton: tables for every included mesh from the +44 cursor.
+                put(e,skeletonVtable);const uint8_t enabled=1,all=uint8_t(seed%4==1);
+                std::memcpy(a.memory.hostPointer(e+0xd,1),&enabled,1);std::memcpy(a.memory.hostPointer(e+0x18,1),&enabled,1);std::memcpy(a.memory.hostPointer(e+0x19,1),&all,1);
+                uint32_t elementBits=0;for(unsigned j=0;j<meshes;++j)if(next()%3)elementBits|=1u<<j;put(bits,elementBits);put(e+0x24,bits);
+                uint32_t tableAt=0x238000;put(e+0x44,tableAt);put(e+0x48,tableAt);
+                uint32_t meshSource=base+0x70;
+                for(unsigned j=0;j<meshes;++j){
+                    const bool included=flags8d==4 || (maskBits>>j&1);const uint16_t n=uint16_t(get(a,meshSource+0x14)>>16);
+                    meshSource+=uint16_t(get(a,meshSource+4));if(!included)continue;
+                    const bool rigid=next()%4==0;const uint32_t bonesAt=0x10+n,weightsAt=(bonesAt+4*n+3)&~3u,size=(weightsAt+16*n+1)&~1u;
+                    put16(tableAt,uint16_t(size));std::memcpy(a.memory.hostPointer(tableAt+6,1),&rigid,1);put(tableAt+8,bonesAt);put(tableAt+0xc,weightsAt);
+                    uint32_t boneAt=tableAt+bonesAt,w=tableAt+weightsAt;
+                    for(unsigned k=0;k<n;++k){const uint8_t extra=uint8_t(next()%5);if(!rigid)std::memcpy(a.memory.hostPointer(tableAt+0x10+k,1),&extra,1);
+                        const uint8_t first=uint8_t(16+4*(next()%bones));std::memcpy(a.memory.hostPointer(boneAt++,1),&first,1);
+                        if(rigid)continue;const unsigned extras=extra==0?0:extra>=3?3:extra;
+                        for(unsigned m=0;m<extras;++m){const uint8_t bone=uint8_t(next()%bones);std::memcpy(a.memory.hostPointer(boneAt++,1),&bone,1);}
+                        for(unsigned m=0;m<=extras;++m){put(w,(next()&0x807fffffu)|((122+next()%5)<<23));w+=4;}}
+                    tableAt+=size;}
+                continue;}
             const uint8_t enabled=1,all=uint8_t(seed%4==1 && i==0);std::memcpy(a.memory.hostPointer(e+0xd,1),&enabled,1);
             std::memcpy(a.memory.hostPointer(e+0x18,1),&enabled,1);std::memcpy(a.memory.hostPointer(e+0x19,1),&all,1);
             uint32_t elementBits=0;for(unsigned j=0;j<meshes;++j)if(next()%3)elementBits|=1u<<j;put(bits,elementBits);put(e+0x24,bits);
@@ -1411,7 +1440,14 @@ int main(){try{
             }
         }
         put(object+8,0x206000);
+        constexpr uint32_t manager=0x207000,skeleton=0x207400,boneCounts=0x207800;
+        if(skinned){put(0x35ddb8,manager);std::memcpy(a.memory.hostPointer(manager+0x51,1),"\1",1);put(skeleton+0x34,boneCounts);put(boneCounts+4,bones);}
         std::memcpy(b.memory.flat(),a.memory.flat(),bozo::kFlatBytes);
+        if(skinned)for(auto *r:{&a,&b}){
+            // The same palette uploaded through the native 237320 kick in each runtime.
+            uint32_t rs=seed*97u+5;for(unsigned q=0;q<16*bones;++q){rs=rs*1664525u+1013904223u;const uint32_t v=(rs&0x807fffffu)|((118+(rs>>9)%12)<<23);std::memcpy(r->memory.hostPointer(0x70000010+4*q,4),&v,4);}
+            const uint32_t tag=0x6c000010u|(4*bones)<<16;std::memcpy(r->memory.hostPointer(0x7000000c,4),&tag,4);
+            R5900Context u{};u.r[20].ud[0]=skeleton;u.r[6].ud[0]=4*bones+1;check(vp2s::nativeMathInstruction(r->memory.flat(),&u,r,0x2375a4));}
         // Original loader.
         R5900Context x{};x.r[4].ud[0]=object;x.r[5].ud[0]=elements;x.r[29].ud[0]=stack;x.r[31].ud[0]=0x170000;
         a.functions.generated(0x219620)(a.memory.flat(),&x,&a);check(x.pc==0x170000);
@@ -1436,6 +1472,11 @@ int main(){try{
                 const uint32_t dataAt=get(a,rec+0xc)-0x70000000;
                 for(unsigned i=0;i<elements;++i){const uint32_t e=0x206000+0x100*i;const bool all=a.memory.hostPointer(e+0x19,1)[0]!=0;
                     if(!all && !(get(a,get(a,e+0x24)+4*(group>>5))>>(group&31)&1))continue;
+                    if(skinned && i==0){
+                        // 218220 on the scratchpad copy the loader described (desc = rec, index i).
+                        std::memcpy(a.memory.hostPointer(0x70000000,spr.size()),spr.data(),spr.size());
+                        R5900Context k{};k.r[5].ud[0]=rec;k.r[6].ud[0]=i;check(vp2s::nativeMathInstruction(a.memory.flat(),&k,&a,0x21822c));
+                        std::memcpy(spr.data(),a.memory.hostPointer(0x70000000,spr.size()),spr.size());++skinMeshes;continue;}
                     const uint32_t d=get(a,rec+0x1c+4*i)-0x70000000;uint32_t listed;std::memcpy(&listed,spr.data()+d,4);
                     for(uint32_t k=0;k<std::max(listed,1u);++k){const auto index=spr[d+0x10+k];uint32_t w;std::memcpy(&w,spr.data()+dataAt+4*index,4);
                         w=(uint32_t(scrolled(w>>16,get(a,e+0x44)))<<16)|(uint32_t(scrolled(w&0xffff,get(a,e+0x40)))&0xffff);std::memcpy(spr.data()+dataAt+4*index,&w,4);}
@@ -1456,6 +1497,6 @@ int main(){try{
             for(uint32_t at=firstPacket;at<firstPacket+0x18000;at+=4)if(get(a,at)!=get(b,at)){std::fprintf(stderr,"uv seed%u at %x oracle %08x native %08x\n",seed,at,get(a,at),get(b,at));break;}check(false);}
         ++uvCases;
     }
-    std::printf("%u animated-UV models (%u loader chunks, %u packet words, %u without chunks) match the original scratchpad pipeline\n",uvCases,uvChunks,uvWords,uvEmpty);
+    std::printf("%u animated-UV models (%u loader chunks, %u packet words, %u without chunks) match the original scratchpad pipeline (%u skinned meshes)\n",uvCases,uvChunks,uvWords,uvEmpty,skinMeshes);
     std::printf("%u matrix/quaternion/Euler ABI cases, %u component products, %u whole CPU/RAM sphere getters,8192 independent scale cases and%u whole CPU/RAM axis-angle cases passed; no VU/device state\n",cases,products,sphereCases,axisCases);return 0;
 }catch(const std::exception &e){std::fprintf(stderr,"%s\n",e.what());return 1;}}

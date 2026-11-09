@@ -7,6 +7,7 @@
 #include "bozo/ops_fpu.h"
 #include "../port/vp2s_math.h"
 #include <cstring>
+#include <map>
 #include <algorithm>
 #include <cmath>
 #include <format>
@@ -717,6 +718,7 @@ int32_t uvScrolled(uint32_t half,float scroll){
     // itof12 (exact), VU add (nearest even, denormals as zero), ftoi12 (truncate, saturate).
     volatile float value=float(half)*(1.f/4096.f)+pairNormal(scroll);const double fixed=double(pairNormal(value))*4096.;
     if(fixed>=2147483647.)return 0x7fffffff;if(fixed<=-2147483648.)return int32_t(0x80000000u);return int32_t(fixed);}
+void skinMesh(Runtime *rt,uint32_t table,unsigned vertices,uint8_t *positions,uint8_t *normals,uint8_t *packed);
 bool nativeUvAnimation(R5900Context *c,Runtime *rt,uint32_t pc){
     if(pc!=0x219210)return false;
     if(!c)throw std::runtime_error("native UV animation has no CPU record");
@@ -724,7 +726,9 @@ bool nativeUvAnimation(R5900Context *c,Runtime *rt,uint32_t pc){
     const auto halfAt=object+0x84;const int16_t chunks=int16_t(uvWord(rt,halfAt&~3u)>>((halfAt&2)*8));
     if(chunks>0){
         const auto flags=uvWord(rt,object+0x58);
-        if(!(flags&8) || (flags&~0x28u)){
+        // 1 positions, 2 normals, 8 UVs, 80 packed vectors, 20 element data;
+        // 40 is only part of the skeleton's flag word (e3). 4, 10, 100 reject.
+        if(!(flags&0x20) || (flags&~0xebu)){
             // Report the element classes: the next port step depends on them.
             std::string list;const auto n=c->r[21].uw[0],at=c->r[29].uw[0]+0xe0;
             for(unsigned i=0;i<n && i<16;++i){const auto e=uvWord(rt,at+4*i),vt=uvWord(rt,e);list+=std::format(" e{:x}:vt{:x}/+10={:x}",e,vt,uvWord(rt,vt+0x10));}
@@ -737,12 +741,28 @@ bool nativeUvAnimation(R5900Context *c,Runtime *rt,uint32_t pc){
         const bool all=(uvWord(rt,(object+0x8d)&~3u)>>(((object+0x8d)&3)*8)&4)!=0;const auto mask=uvWord(rt,object+0x48);
         const auto count=c->r[21].uw[0],list=c->r[29].uw[0]+0xe0;
         if(count>16)throw std::runtime_error("native UV animation element list outside its frame");
-        struct Element{uint32_t at,cursor;float scroll[2];bool all;uint32_t bits;};std::vector<Element> elements;
-        for(unsigned i=0;i<count;++i){const auto e=uvWord(rt,list+4*i);
-            if(uvWord(rt,e)!=0x1591b0)throw std::runtime_error("unported animated vertex element class");
-            Element el{e,uvWord(rt,e+0x34),{std::bit_cast<float>(uvWord(rt,e+0x40)),std::bit_cast<float>(uvWord(rt,e+0x44))},(uvWord(rt,e+0x18)>>8&0xff)!=0,uvWord(rt,e+0x24)};
+        // Skeleton elements (interface 154690: +10 is 218220, +18 is 2372f0)
+        // skin positions/normals/packed vectors; their table for each included
+        // mesh is the +18 cursor, which 237320 resets to +44 and each included
+        // mesh advances by its leading halfword.
+        struct Element{uint32_t at,cursor;float scroll[2];bool all;uint32_t bits;bool skeleton;};std::vector<Element> elements;
+        for(unsigned i=0;i<count;++i){const auto e=uvWord(rt,list+4*i);const auto vt=uvWord(rt,e);
+            if(vt==0x154690){
+                if(uvWord(rt,vt+0x10)!=0x218220 || uvWord(rt,vt+0x18)!=0x2372f0)throw std::runtime_error("unqualified skeleton element methods");
+                if((flags&3)!=3)throw std::runtime_error("skeleton element without streamed positions and normals");
+                elements.push_back({e,uvWord(rt,e+0x44),{0,0},(uvWord(rt,e+0x18)>>8&0xff)!=0,uvWord(rt,e+0x24),true});continue;}
+            if(vt!=0x1591b0)throw std::runtime_error("unported animated vertex element class");
+            Element el{e,uvWord(rt,e+0x34),{std::bit_cast<float>(uvWord(rt,e+0x40)),std::bit_cast<float>(uvWord(rt,e+0x44))},(uvWord(rt,e+0x18)>>8&0xff)!=0,uvWord(rt,e+0x24),false};
             for(float s:el.scroll)if((std::bit_cast<uint32_t>(s)&0x7f800000)==0x7f800000)throw std::runtime_error("unqualified UV scroll");
             elements.push_back(el);}
+        // The loader numbers element data by the object's element chain
+        // (+d or +18 set); 218220 indexes it by this list. They must agree.
+        {unsigned i=0;for(auto e=uvWord(rt,object+8);e!=object;e=uvWord(rt,e+8)){
+            const auto bytes=uvWord(rt,e+0xc),flagWord=uvWord(rt,e+0x18);
+            if(!((bytes>>8)&0xff) && !(flagWord&0xff))continue;
+            if(i>=elements.size() || elements[i].at!=e)throw std::runtime_error("animated element list differs from the object's chain");
+            if(++i>16)throw std::runtime_error("animated element chain outside bounds");}
+         if(i!=elements.size())throw std::runtime_error("animated element list differs from the object's chain");}
         music::NearestRounding rounding;
         for(int32_t j=0;j<meshes;++j){
             const auto sourceStep=int16_t(uvWord(rt,source+4)),packetStep=int16_t(uvWord(rt,packet+4));
@@ -752,9 +772,28 @@ bool nativeUvAnimation(R5900Context *c,Runtime *rt,uint32_t pc){
             if(included){
                 const int32_t n=int16_t(uvWord(rt,source+0x14)>>16);const uint32_t offset=uvWord(rt,source+0x1c)&0xffff;
                 if(n<0 || n>0x400)throw std::runtime_error("native UV animation mesh count outside bounds");
-                const uint32_t qwords=(uint32_t(n)+3)>>2;
+                const uint32_t qwords=flags&8?(uint32_t(n)+3)>>2:0;
                 std::vector<uint32_t> words(qwords*4);if(qwords)std::memcpy(words.data(),uvBytes(rt,source+offset,qwords*16),qwords*16);
+                // Streamed positions/normals (N qwords at u16 +18/+1a) and packed
+                // vectors (N*8 bytes, rounded to qwords, at +34 & 3fff when its mode
+                // bits 14-15 are 0), returned to the same packet offsets.
+                const uint32_t positionAt=uvWord(rt,source+0x18)&0xffff,normalAt=uvWord(rt,source+0x18)>>16,packedHalf=uvWord(rt,source+0x34)&0xffff;
+                const bool hasPacked=(flags&0x80) && packedHalf && !(packedHalf>>14);const uint32_t packedAt=packedHalf&0x3fff,packedBytes=((uint32_t(n)+1)>>1)*16;
+                std::vector<uint8_t> positions(flags&1?16*n:0),normals(flags&2?16*n:0),packedData(hasPacked?packedBytes:0);
+                if(n && (flags&1))std::memcpy(positions.data(),uvBytes(rt,source+positionAt,16*n),16*n);
+                if(n && (flags&2))std::memcpy(normals.data(),uvBytes(rt,source+normalAt,16*n),16*n);
+                if(n && hasPacked)std::memcpy(packedData.data(),uvBytes(rt,source+packedAt,packedBytes),packedBytes);
+                for(auto &el:elements){
+                    if(!el.skeleton)continue;
+                    const auto table=el.cursor;if(table&1)throw std::runtime_error("skeleton element table misaligned");el.cursor+=uvWord(rt,table&~3u)>>((table&2)*8)&0xffff;
+                    if(!n || (!el.all && !(uvWord(rt,el.bits+4*(uint32_t(j)>>5))>>(j&31)&1)))continue;
+                    skinMesh(rt,table,unsigned(n),positions.data(),normals.data(),hasPacked?packedData.data():nullptr);
+                }
+                if(n && (flags&1))std::memcpy(uvBytes(rt,packet+positionAt,16*n),positions.data(),16*n);
+                if(n && (flags&2))std::memcpy(uvBytes(rt,packet+normalAt,16*n),normals.data(),16*n);
+                if(n && hasPacked)std::memcpy(uvBytes(rt,packet+packedAt,packedBytes),packedData.data(),packedBytes);
                 if(n)for(auto &el:elements){
+                    if(el.skeleton)continue;
                     if(!el.all && !(uvWord(rt,el.bits+4*(uint32_t(j)>>5))>>(j&31)&1))continue;
                     const auto descriptor=el.cursor;el.cursor+=uvWord(rt,descriptor+8);
                     const auto listed=int32_t(uvWord(rt,descriptor));// A zero count makes 29cfe0 read one index past the descriptor, from
@@ -1620,13 +1659,16 @@ bool nativeBonePalette(R5900Context *c,Runtime *rt,uint32_t pc){
 // only readers are the mode-1 skinning programs that 218220 runs. Natively the
 // palette is kept at that kick; no VIF/DMA transfer or completion exists.
 struct SkinPalette{const Runtime *owner=nullptr;uint32_t bones=0;std::vector<VuWords> rows;};
-SkinPalette &skinPalette(){static SkinPalette palette;return palette;}
+// One VU0 per runtime (tests run an original and a native runtime side by side).
+SkinPalette &skinPalette(const Runtime *rt){static std::map<const Runtime *,SkinPalette> palettes;return palettes[rt];}
 uint32_t skinWord(Runtime *rt,uint32_t at){
     if(at&3)throw std::runtime_error("native skinning word misaligned");
-    const auto *p=rt->memory.hostPointer(at,4);if(!p || (at&0x1ffffffu)<0x100000)throw std::runtime_error("native skinning record outside EE RAM");
+    const bool scratch=at>=0x70000000u && at<0x70004000u;
+    const auto *p=rt->memory.hostPointer(at,4);if(!p || (!scratch && (at&0x1ffffffu)<0x100000))throw std::runtime_error("native skinning record outside EE RAM");
     uint32_t v;std::memcpy(&v,p,4);return v;}
 uint8_t skinByte(Runtime *rt,uint32_t at){
-    const auto *p=rt->memory.hostPointer(at,1);if(!p || (at&0x1ffffffu)<0x100000)throw std::runtime_error("native skinning stream outside EE RAM");return *p;}
+    const bool scratch=at>=0x70000000u && at<0x70004000u;
+    const auto *p=rt->memory.hostPointer(at,1);if(!p || (!scratch && (at&0x1ffffffu)<0x100000))throw std::runtime_error("native skinning stream outside EE RAM");return *p;}
 bool nativeSkinUpload(R5900Context *c,Runtime *rt,uint32_t pc){
     if(pc!=0x237568 && pc!=0x23756c && pc!=0x237574 && pc!=0x23757c && pc!=0x2375a4)return false;
     if(!c)throw std::runtime_error("native skin palette upload has no CPU record");
@@ -1637,7 +1679,7 @@ bool nativeSkinUpload(R5900Context *c,Runtime *rt,uint32_t pc){
     if(int32_t(bones)<1 || bones>60)throw std::runtime_error("native skin palette outside VU0 data memory");
     uint32_t tag;std::memcpy(&tag,record(rt,0x70000000,16)+12,4);
     if(c->r[6].uw[0]!=4*bones+1 || tag!=(0x6c000010u|(4*bones)<<16))throw std::runtime_error("native skin palette upload escaped its original tag");
-    auto &palette=skinPalette();palette.owner=rt;palette.bones=bones;palette.rows.resize(4*bones);
+    auto &palette=skinPalette(rt);palette.owner=rt;palette.bones=bones;palette.rows.resize(4*bones);
     for(uint32_t i=0;i<4*bones;++i)palette.rows[i]=vuWords(rt,0x70000010+16*i);
     return true;
 }
@@ -1667,8 +1709,8 @@ uint32_t skinFtoi12(uint32_t v){
     if((v&0x7f800000)==0x7f800000)return v&0x80000000?0x80000000u:0x7fffffffu;
     const auto b=(v&0x7f800000)?v:(v&0x80000000);const double fixed=double(std::bit_cast<float>(b))*4096.;
     if(fixed>=2147483647.)return 0x7fffffffu;if(fixed<=-2147483648.)return 0x80000000u;return uint32_t(int32_t(fixed));}
-void skinVertex(const SkinVertex &v,VuWords &position,VuWords &normal,VuWords &packed){
-    const auto &palette=skinPalette();const uint32_t one=0x3f800000u;
+void skinVertex(const SkinPalette &palette,const SkinVertex &v,VuWords &position,VuWords &normal,VuWords &packed){
+    const uint32_t one=0x3f800000u;
     VuWords B[4][4];for(unsigned k=0;k<v.count;++k)for(unsigned r=0;r<4;++r)B[k][r]=palette.rows[4*v.bone[k]+r];
     VuWords P,N,T{};for(unsigned i=0;i<4;++i){P[i]=vuMul(v.p[i],one);N[i]=vuMul(v.n[i],one);if(v.packed)T[i]=skinItof12(v.t[i]);}
     const auto *A=B[0];
@@ -1698,27 +1740,23 @@ void skinVertex(const SkinVertex &v,VuWords &position,VuWords &normal,VuWords &p
     }
     tangent[3]=T[3];for(unsigned i=0;i<4;++i)packed[i]=skinFtoi12(tangent[i]);
 }
-bool nativeSoftSkin(R5900Context *c,Runtime *rt,uint32_t pc){
-    if(pc!=0x21822c)return false;
-    if(!c)throw std::runtime_error("native skinning has no CPU record");
+// One mesh in place: `vertices` 16-byte positions and normals and, when
+// `packed` is set, 8-byte s16x4 vectors, with the element table at `table`
+// (guest RAM). Requires VU0 mode 1 and an uploaded palette, as the programs do.
+void skinMesh(Runtime *rt,uint32_t table,unsigned vertices,uint8_t *positions,uint8_t *normals,uint8_t *packed){
     const auto manager=skinWord(rt,0x35ddb8);
     if(skinByte(rt,manager+0x51)!=1)throw std::runtime_error("native skinning outside VU0 mode 1");
-    const auto &palette=skinPalette();if(palette.owner!=rt || !palette.bones)throw std::runtime_error("native skinning without an uploaded palette");
-    const auto desc=c->r[5].uw[0];const auto index=c->r[6].uw[0];
-    const auto packedAt=skinWord(rt,desc+0x14);c->r[3].sd[0]=int32_t(packedAt);   // the replaced lw v1,14(a1)
-    const int32_t count=int32_t(skinWord(rt,desc));const unsigned vertices=count<1?1u:unsigned(count);
-    if(vertices>0x10000)throw std::runtime_error("native skinning vertex count outside bounds");
-    uint32_t positions=skinWord(rt,desc+4),normals=skinWord(rt,desc+8),packed=packedAt;
-    const auto table=skinWord(rt,desc+0x1c+4*index);
+    const auto &palette=skinPalette(rt);if(palette.owner!=rt || !palette.bones)throw std::runtime_error("native skinning without an uploaded palette");
+    if(!vertices || vertices>0x10000)throw std::runtime_error("native skinning vertex count outside bounds");
     uint32_t bones=table+skinWord(rt,table+8),weights=table+skinWord(rt,table+0xc),counts=table+0x10;
     const bool rigid=skinByte(rt,table+6)!=0;
     const auto address=[&](uint32_t qword){if(qword<16 || (qword-16)%4 || (qword-16)/4>=palette.bones)throw std::runtime_error("native skinning bone outside the palette");return (qword-16)/4;};
     const auto extra=[&](uint8_t b){const int32_t j=int8_t(b);if(j<0 || uint32_t(j)>=palette.bones)throw std::runtime_error("native skinning bone outside the palette");return uint32_t(j);};
     const uint32_t savedCsr=_mm_getcsr();
     for(unsigned k=0;k<vertices;++k){
-        SkinVertex v{};v.packed=packed!=0;
-        v.p=vuWords(rt,positions);v.n=vuWords(rt,normals);
-        if(v.packed){uint8_t h[8];std::memcpy(h,rt->memory.hostPointer(packed,8),8);for(unsigned i=0;i<4;++i)v.t[i]=uint32_t(int32_t(int16_t(h[2*i]|h[2*i+1]<<8)));}
+        SkinVertex v{};v.packed=packed!=nullptr;
+        std::memcpy(v.p.data(),positions+16*k,16);std::memcpy(v.n.data(),normals+16*k,16);
+        if(v.packed){const auto *h=packed+8*k;for(unsigned i=0;i<4;++i)v.t[i]=uint32_t(int32_t(int16_t(h[2*i]|h[2*i+1]<<8)));}
         if(rigid){v.count=1;v.bone[0]=address(skinByte(rt,bones++));}
         else{
             const unsigned n=skinByte(rt,counts++);v.bone[0]=address(skinByte(rt,bones++));
@@ -1727,12 +1765,27 @@ bool nativeSoftSkin(R5900Context *c,Runtime *rt,uint32_t pc){
             for(unsigned j=0;j<v.count;++j)v.w[j]=skinWord(rt,weights+4*j);
             weights+=4*v.count;
         }
-        VuWords position,normal,out{};skinVertex(v,position,normal,out);
-        std::memcpy(record(rt,positions,16),position.data(),16);std::memcpy(record(rt,normals,16),normal.data(),16);
-        if(v.packed){uint8_t h[8];for(unsigned i=0;i<4;++i){h[2*i]=uint8_t(out[i]);h[2*i+1]=uint8_t(out[i]>>8);}std::memcpy(rt->memory.hostPointer(packed,8),h,8);packed+=8;}
-        positions+=16;normals+=16;
+        VuWords position,normal,out{};skinVertex(palette,v,position,normal,out);
+        std::memcpy(positions+16*k,position.data(),16);std::memcpy(normals+16*k,normal.data(),16);
+        if(v.packed){auto *h=packed+8*k;for(unsigned i=0;i<4;++i){h[2*i]=uint8_t(out[i]);h[2*i+1]=uint8_t(out[i]>>8);}}
     }
     _mm_setcsr(savedCsr);
+}
+bool nativeSoftSkin(R5900Context *c,Runtime *rt,uint32_t pc){
+    if(pc!=0x21822c)return false;
+    if(!c)throw std::runtime_error("native skinning has no CPU record");
+    const auto desc=c->r[5].uw[0];const auto index=c->r[6].uw[0];
+    const auto packedAt=skinWord(rt,desc+0x14);c->r[3].sd[0]=int32_t(packedAt);   // the replaced lw v1,14(a1)
+    const int32_t count=int32_t(skinWord(rt,desc));const unsigned vertices=count<1?1u:unsigned(count);
+    if(vertices>0x10000)throw std::runtime_error("native skinning vertex count outside bounds");
+    const uint32_t positions=skinWord(rt,desc+4),normals=skinWord(rt,desc+8);
+    // Work on copies so a rejected vertex leaves the records untouched.
+    std::vector<uint8_t> p(16*vertices),n(16*vertices),t(packedAt?8*vertices:0);
+    std::memcpy(p.data(),record(rt,positions,16*vertices),p.size());std::memcpy(n.data(),record(rt,normals,16*vertices),n.size());
+    if(packedAt)std::memcpy(t.data(),rt->memory.hostPointer(packedAt,t.size()),t.size());
+    skinMesh(rt,skinWord(rt,desc+0x1c+4*index),vertices,p.data(),n.data(),packedAt?t.data():nullptr);
+    std::memcpy(record(rt,positions,16*vertices),p.data(),p.size());std::memcpy(record(rt,normals,16*vertices),n.data(),n.size());
+    if(packedAt)std::memcpy(rt->memory.hostPointer(packedAt,t.size()),t.data(),t.size());
     return true;
 }
 bool nativeMathInstruction(uint8_t *,R5900Context *c,Runtime *rt,uint32_t pc){

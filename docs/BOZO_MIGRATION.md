@@ -12,6 +12,53 @@ The earlier VP2S face/shading and general brightness comparisons remain open.
 
 ## Build and evidence
 
+### Streamed skinned models through the native 219210 (2026-11-09)
+
+The loader `219620` streams one object's attributes through the scratchpad
+for each mesh `M`, with packet record `P`, when `o+58` carries the bit:
+
+| Bit | Attribute | Source | Size |
+|---|---|---|---|
+| 1 | positions | `u16 M+18` | N qwords |
+| 2 | normals | `u16 M+1a` | N qwords |
+| 8 | UVs | `u16 M+1c` | ceil(N/4) qwords |
+| 4 | second word set | `M+1e` | ceil(N/4) qwords |
+| 10 | data | `M+20` | `s16 M+22` / 16 qwords |
+| 80 | packed s16x4 vectors | `M+34 & 3fff` (mode bits 14-15 = 0) | ceil(N/2) qwords |
+| 100 | the other `M+34` modes | | 8/18/32/24 bytes per vertex |
+
+- N is `s16 M+16`. Every returned attribute goes back to the same offset in
+  `P`. Bit 20 sends each element's data: element `+14` flags, with `+18`
+  giving the data pointer and size.
+- `o+58` is the OR of the element flags. The skeleton interface (vtable
+  `154690`) gives `e3`; bit 40 moves no data. Its `+18` (`2372f0`) is a
+  cursor at `e+48`, which `237320` resets to `e+44`. Each included mesh
+  advances it by the table's leading halfword.
+- The chunk loop calls element `+10` (for the skeleton, `218220` with
+  `desc = *(o+70) + 0x5c*j` and the element's list index), for meshes with
+  N != 0, when `e+19` or bit `j` of `*(e+24)` is set.
+
+**Native.** `219210` now admits attribute sets within `eb` and skeleton
+elements next to the UV-scroll ones:
+1. It copies N positions, normals and packed vectors from `M`.
+2. It skins them with the same core as `218220`. The table is the cursor walk
+   from `e+44`, over included meshes in order.
+3. It writes them to `P` at the same offsets.
+
+The element list must match the object's chain (`+d` or `+18` set), because
+the loader numbers element data by that chain and `218220` indexes it by the
+list. Bits 4, 10 and 100 still reject. The skin palette is now kept per
+runtime.
+
+**Test.** The animated-UV fixture also builds skinned models (attribute set
+`eb`, rigid and weighted tables, with and without packed vectors), runs the
+original loader with the skeleton's own `236ba0`/`2372f0`, and calls
+`218220` on the scratchpad copy that the description produces. 96 models,
+48 of them skinned meshes, match the native packets byte for byte.
+
+**Next boundary:** native model lights. The light tables B/C (point/spot)
+reject at `239ff0`.
+
 ### VU0 skin palette and software skinning 218220 (2026-11-09)
 
 The route stopped at `237320`'s VIF0 kick (device write `10008020`). The old

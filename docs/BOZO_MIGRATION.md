@@ -37,10 +37,25 @@ null. `23c888` assigns the model in the same frame, before `23e0d0` runs. So on
 an object's first frame the point is whatever the allocation held. The route
 showed `(bfa12848, e3b96faf, b5bac313)`, with a Y of about -6.8e21.
 
-The VU takes any finite value through this product, and the scalar box test
-then rejects it. So this site admits finite lanes of any magnitude. Only
-exponent-255 patterns (ordinary numbers on the VU, Inf/NaN on the host) and host
-overflow reject. The test includes the route's pattern and huge Y values.
+The VU computes with any bit pattern. It has no Inf/NaN, exponent 255 is an
+ordinary number, and overflow saturates to ±max. Host floats cannot hold those
+values. So the sites that read this cache (`29f5e0`, `214590`, `20d9d0`)
+compute with the engine's PS2 float definitions (`bozo::ps2f`, as the chapter
+bar already does). These are pure functions with no MXCSR or VU state, and
+nothing is rejected. The tests include the route's pattern; in `20d9d0` it
+saturates.
+
+`214590` computes the plane distance `((m.x+m.y)+1·m.z)`, with
+`m = (a0 - a2) * a1`, and stores it to SP+0 followed by the point's raw Y/Z/W.
+`20d9d0` passes it the same `+7f0` cache, so it uses the same `ps2f` arithmetic.
+Guard `214590..2145c8`.
+
+`20d9d0` has three VU blocks:
+- `(node+240 - cache)²` on all lanes, stored to SP+d0.
+- The same, stored to SP+c0.
+- Row k of `s5+240` scaled by lane k of `self+7e0`, in place.
+
+Guard `20d9d0..20e508`.
 
 Its caller, `23e0d0`, has two blocks:
 - It composes the hit node's rows `s0+270` with `s3+90` into SP+e0.

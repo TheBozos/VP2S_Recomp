@@ -4,6 +4,7 @@
 #include "native_particles.h"
 #include "native_frustum.h"
 #include "bozo/ee/dispatcher.h"
+#include "bozo/ops_fpu.h"
 #include "../port/vp2s_math.h"
 #include <cstring>
 #include <algorithm>
@@ -857,6 +858,15 @@ struct LeafInputs{Lanes rows[4];float scale;};
 float leafLane(float v){const auto bits=std::bit_cast<uint32_t>(v);
     if((bits&0x7f800000)==0x7f800000 || beyondRange(v))throw std::runtime_error("unqualified native collision leaf input");return pairNormal(v);}
 Lanes leafRecord(Runtime *rt,uint32_t at){Lanes v;std::memcpy(v.data(),record(rt,at,16),16);for(float &x:v)x=leafLane(x);return v;}
+// VU arithmetic on raw words with the engine's PS2 float definitions (ps2f:
+// nearest-even, no Inf/NaN, exponent 255 is a number, saturation to +/-max,
+// denormals read as zero); used where inputs may be arbitrary bit patterns
+// (e.g. a stale sphere cache). Pure functions: no MXCSR or VU state.
+using VuWords=std::array<uint32_t,4>;
+VuWords vuWords(Runtime *rt,uint32_t at){VuWords v;std::memcpy(v.data(),record(rt,at,16),16);return v;}
+uint32_t vuMul(uint32_t a,uint32_t b){uint32_t f=0;return bozo::ps2f::mul(a,b,f);}
+uint32_t vuAdd(uint32_t a,uint32_t b){uint32_t f=0;return bozo::ps2f::addNearest(a,b,f);}
+uint32_t vuSub(uint32_t a,uint32_t b){uint32_t f=0;return bozo::ps2f::subNearest(a,b,f);}
 LeafInputs leafInputs(Runtime *rt,bool withScale=true){
     uint32_t object;std::memcpy(&object,record(rt,0x358cd0,16)+8,4);
     if(object<0x100000)throw std::runtime_error("native collision leaf has no current object");
@@ -1294,16 +1304,10 @@ bool nativeListBoxQuery(R5900Context *c,Runtime *rt,uint32_t pc){
     // The query point is the self+7f0 sphere cache. The getter (virtual +5c)
     // returns before writing it while the model at +7bc is still null, and
     // 23c888 assigns the model in the same frame, so on an object's first
-    // frame the point is whatever the allocation held. The VU takes any
-    // finite value through this product (the box test then rejects it), so
-    // finite lanes of any magnitude are admitted; only exponent-255 patterns
-    // (VU numbers, host Inf/NaN) and host overflow reject.
-    const auto finite=[&](uint32_t at){Lanes v;std::memcpy(v.data(),record(rt,at,16),16);
-        for(float &x:v){if((std::bit_cast<uint32_t>(x)&0x7f800000)==0x7f800000)throw std::runtime_error("native list box query exponent-255 input");x=pairNormal(x);}return v;};
-    Lanes m[4];for(unsigned i=0;i<4;++i)m[i]=finite(rows+16*i);
-    const auto p=finite(stack+0x30);Lanes out;
-    {music::NearestRounding rounding;for(unsigned i=0;i<4;++i)out[i]=pairSum(pairSum(pairSum(pairProduct(m[0][i],p[0]),pairProduct(m[1][i],p[1])),pairProduct(m[2][i],p[2])),pairProduct(m[3][i],p[3]));}
-    for(float x:out)if(!std::isfinite(x))throw std::runtime_error("native list box query overflow");
+    // frame the point is whatever the allocation held (any bit pattern, VU
+    // saturation possible): the engine's PS2 float arithmetic (ps2f) computes it.
+    VuWords m[4];for(unsigned k=0;k<4;++k)m[k]=vuWords(rt,rows+16*k);const auto p=vuWords(rt,stack+0x30);VuWords out;
+    for(unsigned i=0;i<4;++i)out[i]=vuAdd(vuAdd(vuAdd(vuMul(m[0][i],p[0]),vuMul(m[1][i],p[1])),vuMul(m[2][i],p[2])),vuMul(m[3][i],p[3]));
     std::memcpy(record(rt,stack+0x20,16),out.data(),16);return true;
 }
 // mod001 23e0d0 (after the 29f5e0 query; s0 = hit node, s2 = owner, s3 = self):
@@ -1337,8 +1341,48 @@ bool nativeHitFrame(R5900Context *c,Runtime *rt,uint32_t pc){
     for(float x:out)if(!std::isfinite(x))throw std::runtime_error("native hit frame product overflow");
     std::memcpy(record(rt,target,16),out.data(),16);return true;
 }
+// mod001 214590 plane distance (a0 = point, a1 = normal, a2 = origin; 20d9d0
+// passes the self+7f0 sphere cache as a0, so it computes in ps2f):
+// SP+0 = (((p-o)*n).x + ((p-o)*n).y) + 1*((p-o)*n).z, then the point's raw Y/Z/W
+// (VF16 is only written in X); the caller reads X as the return value.
+bool nativePlaneDistance(R5900Context *c,Runtime *rt,uint32_t pc){
+    if(pc<0x214598 || pc>0x2145b8 || (pc&3))return false;
+    if(!c)throw std::runtime_error("native plane distance has no CPU record");
+    if(pc!=0x2145b8)return true;
+    const auto stack=c->r[29].uw[0];if(c->r[2].uw[0]!=stack)throw std::runtime_error("native plane distance destination mismatch");
+    auto out=vuWords(rt,c->r[4].uw[0]);const auto n=vuWords(rt,c->r[5].uw[0]),o=vuWords(rt,c->r[6].uw[0]);uint32_t m[3];
+    for(unsigned i=0;i<3;++i)m[i]=vuMul(vuSub(out[i],o[i]),n[i]);
+    out[0]=vuAdd(vuAdd(m[0],m[1]),vuMul(0x3f800000u,m[2]));
+    std::memcpy(record(rt,stack,16),out.data(),16);return true;
+}
+// mod001 20d9d0 sphere sweep (s6 = self+7f0 sphere cache, s2 = list node,
+// s5 = owner, s4 = self+7e0 scale); ps2f arithmetic (stale cache inputs):
+//  20dc20..20dc34  (node+240 - cache)^2 on all lanes to SP+d0.
+//  20dd34..20dd48  the same to SP+c0.
+//  20e49c..20e4cc  row k of s5+240 scaled by lane k of *s4, in place.
+bool nativeSphereSweep(R5900Context *c,Runtime *rt,uint32_t pc){
+    const bool first=pc>=0x20dc20 && pc<=0x20dc34,second=pc>=0x20dd34 && pc<=0x20dd48,scale=pc>=0x20e49c && pc<=0x20e4cc;
+    if(!(first || second || scale) || (pc&3))return false;
+    if(!c)throw std::runtime_error("native sphere sweep has no CPU record");
+    const auto stack=c->r[29].uw[0];
+    if(scale){
+        const auto rows=c->r[21].uw[0]+0x240;
+        if(c->r[4].uw[0]!=rows || (pc>=0x20e4c0 && c->r[3].uw[0]!=rows))throw std::runtime_error("native sphere sweep scale escaped its records");
+        if(pc!=0x20e4c0)return true;
+        const auto s=vuWords(rt,c->r[20].uw[0]);VuWords m[4];for(unsigned k=0;k<4;++k)m[k]=vuWords(rt,rows+16*k);
+        for(unsigned k=0;k<4;++k)for(unsigned i=0;i<4;++i)m[k][i]=vuMul(m[k][i],s[k]);
+        std::memcpy(record(rt,rows,64),m,64);return true;
+    }
+    const auto node=c->r[18].uw[0]+0x240,target=first?stack+0xd0:stack+0xc0;
+    if((first && c->r[30].uw[0]!=node) || (second && pc<=0x20dd38 && c->r[3].uw[0]!=node))throw std::runtime_error("native sphere sweep source mismatch");
+    if(pc!=0x20dc34 && pc!=0x20dd48)return true;
+    if(c->r[3].uw[0]!=target)throw std::runtime_error("native sphere sweep destination mismatch");
+    const auto a=vuWords(rt,c->r[22].uw[0]),b=vuWords(rt,node);VuWords out;
+    for(unsigned i=0;i<4;++i){const auto d=vuSub(b[i],a[i]);out[i]=vuMul(d,d);}
+    std::memcpy(record(rt,target,16),out.data(),16);return true;
+}
 bool nativeMathInstruction(uint8_t *,R5900Context *c,Runtime *rt,uint32_t pc){
-    if(nativeProjectionBlocks(c,rt,pc) || nativeBoneAim(c,rt,pc) || nativeChainBlocks(c,rt,pc) || nativeCapsulePair(c,rt,pc) || nativePlaneContact(c,rt,pc) || nativeRangeTest(c,rt,pc) || nativeMatrixBuild(c,rt,pc) || nativeListBoxQuery(c,rt,pc) || nativeHitFrame(c,rt,pc))return true;
+    if(nativeProjectionBlocks(c,rt,pc) || nativeBoneAim(c,rt,pc) || nativeChainBlocks(c,rt,pc) || nativeCapsulePair(c,rt,pc) || nativePlaneContact(c,rt,pc) || nativeRangeTest(c,rt,pc) || nativeMatrixBuild(c,rt,pc) || nativeListBoxQuery(c,rt,pc) || nativeHitFrame(c,rt,pc) || nativePlaneDistance(c,rt,pc) || nativeSphereSweep(c,rt,pc))return true;
     if(nativeLeafSphere(c,rt,pc) || nativeLeafBox(c,rt,pc) || nativeSegmentBox(c,rt,pc))return true;
     if(nativeLengthSite(c,rt,pc) || nativeRecordDot(c,rt,pc) || nativePackedQuaternion(c,rt,pc))return true;
     if(nativeObjectOverlap(c,rt,pc))return true;

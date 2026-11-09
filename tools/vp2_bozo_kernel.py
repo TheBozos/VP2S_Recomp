@@ -473,6 +473,10 @@ def overlay_adaptations(name,data):
         (0x29f5e0,0x29f760,'cc19d75139ab6ece72d006b5460694f94c19ae26f5da1af7eb4c003ce84ba757'),
         # Hit frame 23e0d0 (composition and row product after the 29f5e0 query).
         (0x23e0d0,0x23e498,'3244dcc3409474944a9641bf4e07a1f415ed75583db0480b586a2a81994c883f'),
+        # Plane distance 214590 (called from 20d9d0 with the +7f0 sphere cache).
+        (0x214590,0x2145c8,'22b9460cec064b34c979b925efe1cb77bf12fe1f6d1d830dcb63f1e64def09ee'),
+        # Sphere sweep 20d9d0 (called from 23c0d0 with the +7f0 cache).
+        (0x20d9d0,0x20e508,'2cad482dd0dc6c905742c07a95d7cfd468cafc555d8556f38c7285b2bd78e518'),
         # Animated packet UVs: the 2188d0 streaming owner, loader 219620, the
         # UV-scroll callback 29cfe0/descriptor method 29d0d0 and mesh cursors.
         (0x2188d0,0x219608,'efe18082ff8f33e4c91a09af3d3cc3e775706b30795ceaae059e845b6b23546e'),

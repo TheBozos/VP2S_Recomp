@@ -57,8 +57,9 @@ void oracle(Runtime &r,R5900Context *c){
         for(unsigned lane=0;lane<4;++lane){auto s=product(m[0][lane],v[0]);
             for(unsigned j=1;j<4;++j)s=sum(s,product(m[j][lane],v[j]));out[lane]=s;}
     };
-    for(unsigned j=0;j<3;++j)transform(relative[j],bone,base[j]);std::memcpy(relative[3],bone[3],16);
-    for(unsigned j=0;j<3;++j)transform(result[j],relative,local[j]);std::memcpy(result[3],relative[3],16);
+    // The 0x898 listing: M_k = local . bone_k, N_k = M . base_k (k < 3), row 3 = bone_3.
+    for(unsigned j=0;j<3;++j)transform(relative[j],local,bone[j]);std::memcpy(relative[3],bone[3],16);
+    for(unsigned j=0;j<3;++j)transform(result[j],relative,base[j]);std::memcpy(result[3],relative[3],16);
     for(unsigned row=0;row<4;++row)for(unsigned col=0;col<4;++col){
         const auto value=result[col][row];output[row][col]=col==row?value:col==3?product(value,0x3f800000):sum(0,value);
     }

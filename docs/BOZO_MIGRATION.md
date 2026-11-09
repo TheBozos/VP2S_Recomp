@@ -12,6 +12,26 @@ The earlier VP2S face/shading and general brightness comparisons remain open.
 
 ## Build and evidence
 
+### RAM bone palette 2370a0: operand order of program 0x898 (2026-11-10)
+
+`2370a0`, the RAM-palette twin of `237320` used by most skinned characters,
+runs the same program `0x898`, with vf9-12 = bone rows, vf13-16 = local
+(bind) rows and vf28-31 = base rows (SP+60). The listing computes:
+- `M_k = sum_j local_j * bone_k[j]`;
+- `N_k = sum_j M_j * base_k[j]` (k < 3), with `M_3 = N_3 = bone_3`;
+- then the full transpose.
+
+The native port and its bones-test oracle both had the bone and base roles
+swapped. The transpose was right. Small, mostly rigid poses hid the error: the
+harbour looked fine. The town close-up of Alicia showed it, with adjacent bind
+vertices 2 units apart landing about 70 apart.
+
+A temporary per-mesh edge-stretch diagnostic found the stretched triangles in
+two-bone and rigid meshes with sane weights, which pointed at the palette.
+With the listing's order, the close-up renders cleanly and the harbour is
+unchanged. The `237320` port already used the listing's order, through its own
+code: the same program now gives the same formula in both ports.
+
 ### Town message text: text class 165ae0 and layer 15fe10 (2026-11-09)
 
 **Text class `165ae0` (mod003)** derives from `15a450`. Shared with the base:
@@ -37,10 +57,9 @@ field layers.
 close-up. The run reaches serial 2601 and stops at mod003 `3d077c` (entry
 `3d075c`).
 
-**Open (not caused by this step):** in that close-up, Alicia's face and hair
-show long spikes. Skipping the morph element leaves them unchanged, so the
-cause is in the native model renderer's skinning of this model, not in the
-streamer.
+**Fixed (2026-11-10):** in that close-up, Alicia's face and hair showed long
+spikes. Skipping the morph element left them unchanged; the RAM palette was
+the cause (see the next section).
 
 ### More inlined VU0 idioms; the mode-3 fourth light (2026-11-09)
 

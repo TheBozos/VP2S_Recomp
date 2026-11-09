@@ -2862,8 +2862,12 @@ bool nativeMathInstruction(uint8_t *,R5900Context *c,Runtime *rt,uint32_t pc){
             return normal(music::codecSum(total,normal(_mm_mul_ps(m[3],music::broadcast<3>(v)))));};
         music::CodecRounding rounding;
         math::Matrix relative;
-        for(unsigned i=0;i<3;++i)relative[i]=transform(bone,base[i]);relative[3]=bone[3];
-        for(unsigned i=0;i<3;++i)result[i]=transform(relative,local[i]);result[3]=relative[3];
+        // Program 0x898 (vf9-12 bone rows, vf13-16 local rows, vf28-31 base
+        // rows): M_k = sum_j local_j * bone_k[j], N_k = sum_j M_j * base_k[j]
+        // (k < 3), M_3 = N_3 = bone_3. (Fixed 2026-11-10: the bone/base roles
+        // were swapped, which spiked close-up characters.)
+        for(unsigned i=0;i<3;++i)relative[i]=transform(local,bone[i]);relative[3]=bone[3];
+        for(unsigned i=0;i<3;++i)result[i]=transform(relative,base[i]);result[3]=relative[3];
         _MM_TRANSPOSE4_PS(result[0],result[1],result[2],result[3]);
         // The original transpose adds zero off the diagonal and scales each
         // translation component by one; preserve the moved diagonal payloads.

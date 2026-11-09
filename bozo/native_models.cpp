@@ -110,6 +110,13 @@ NativeModelSubmission NativeModels::capture(Runtime *rt,NativeAssets &assets,Nat
     for(unsigned i=0;i<4;++i){const auto d=row(i+1);colours[i]=row(i+5);for(unsigned c=0;c<3;++c)directions[i][c]=rotation[0][c]*d[0]+rotation[1][c]*d[1]+rotation[2][c]*d[2];}
     const auto ambient=row(19),objectColour=row(13),limit=row(0);
     const bool tableA=word(object+0x31c)!=0,plain=word(object+0x310)!=0;
+    // The light-table word mem[14] is object+310: x plain, y table B (point
+    // lights), z table C (spot lights), w table A. With table A, B and C add
+    // point/spot lights after the factor (vp2s_vu1_hle runLighting); those are
+    // not ported, so they reject explicitly. Without B and C, table A changes
+    // only mode 0 (the object colour is kept).
+    if(tableA && (word(object+0x314) || word(object+0x318)))
+        throw std::runtime_error(std::format("unported native point/spot light tables (B {:x} C {:x})",word(object+0x314),word(object+0x318)));
     std::array<float,3> eye{};for(unsigned c=0;c<3;++c)eye[c]=-(viewObject[c]*viewObject[3]+viewObject[4+c]*viewObject[7]+viewObject[8+c]*viewObject[11]);
     uint32_t boneCount=0,palette=0;const auto skeleton=word(object+0x648);
     if(skeleton){boneCount=word(word(skeleton+0x34)+4);if(boneCount>4096)throw std::runtime_error("native bone count outside bounds");
@@ -178,7 +185,8 @@ NativeModelSubmission NativeModels::capture(Runtime *rt,NativeAssets &assets,Nat
             if(material[4]==0){factor=objectColour;if(!tableA && !plain)factor[0]=factor[1]=factor[2]=0;}
             else if(material[4]==1){for(unsigned c=0;c<3;++c){factor[c]=ambient[c];for(unsigned l=0;l<4;++l)factor[c]+=colours[l][c]*std::max(0.0f,dot(directions[l],n));}}
             else if(material[4]==3){
-                if(tableA || !block || colours[3][0]!=0 || colours[3][1]!=0 || colours[3][2]!=0)throw std::runtime_error("unported native specular light table");
+                if(!block || colours[3][0]!=0 || colours[3][1]!=0 || colours[3][2]!=0)
+                    throw std::runtime_error(std::format("unported native specular light table (block {:x} fourth light {} {} {})",block,colours[3][0],colours[3][1],colours[3][2]));
                 const auto wa=real(block+0x60),wd=real(block+0x64),ws=real(block+0x68);const auto power=value<int32_t>(rt,block+0x3c);
                 if(power<0 || power>16)throw std::runtime_error("native specular power outside bounds");
                 float diffuse[3],specular[3];for(unsigned l=0;l<3;++l){diffuse[l]=std::max(0.0f,wd*dot(directions[l],n));

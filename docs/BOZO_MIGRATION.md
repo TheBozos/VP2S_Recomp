@@ -12,6 +12,22 @@ The earlier VP2S face/shading and general brightness comparisons remain open.
 
 ## Build and evidence
 
+### Native model light table A (2026-11-09)
+
+The light-table word `mem[14]` is `object+310`: x plain, y table B (point
+lights), z table C (spot lights), w table A. The row layout confirms this: rows
+start at `object+230`, so row 13, the object colour, is at `+300`.
+
+In the decoded microprogram (`port/vp2s_vu1_hle.cpp`, `runLighting`), table A
+leaves the factor of modes 1 and 3 unchanged. It keeps mode 0's object colour,
+and it gates tables B and C, which add point and spot lights afterwards.
+
+The native specular path (mode 3) rejected every object with table A. It now
+renders table A when B and C are clear, which is the route's case: object
+`132cef0`, B 0, C 0. Tables B and C were silently ignored in every mode. They
+now reject explicitly, because they are not ported. The models suite pins
+table-A neutrality and both rejections. The route then reaches mod003 `3ef07c`.
+
 ### Range test 1fbad0 and matrix build 2178c0 (2026-11-09)
 
 mod001 `1fbad0` (a0 = object, a1 = point, called from mod003 `4466c0`):

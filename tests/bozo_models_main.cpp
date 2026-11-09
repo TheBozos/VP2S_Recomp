@@ -71,6 +71,13 @@ int main(int argc,char **argv){try{
                 check(v.rgba==((seed<<24)|0x402010));}
             check(!std::memcmp(before.data(),rt.memory.flat(),before.size()));
             put(rt,object+0x30c,0.f);check(batch.vertices[0].rgba==((seed<<24)|0x402010)); // immutable captured data
+            // Light table A (mem[14].w = +31c) alone keeps the factor; its point (B, +314)
+            // and spot (C, +318) tables are not ported and reject explicitly.
+            if(seed%8==3){put(rt,object+0x31c,uint32_t(1));
+                {const auto lit=models.capture(&rt,assets,textures,scene,object);check(lit.batches.size()==1 && lit.batches[0].vertices[0].rgba==0x402010u);} // alpha cleared above
+                put(rt,object+0x314,uint32_t(1));rejects([&]{models.capture(&rt,assets,textures,scene,object);});put(rt,object+0x314,uint32_t(0));
+                put(rt,object+0x318,uint32_t(2));rejects([&]{models.capture(&rt,assets,textures,scene,object);});put(rt,object+0x318,uint32_t(0));
+                put(rt,object+0x31c,uint32_t(0));}
             put(rt,model+0x59,uint8_t(1));put(rt,model+0x96,uint16_t(1));put(rt,object+0x7a4,uint16_t(1));
             check(models.capture(&rt,assets,textures,scene,object).batches.empty());put(rt,object+0x7a4,uint16_t(0));
             put(rt,current+0x40dc,uint8_t(0));rejects([&]{models.capture(&rt,assets,textures,scene,object);});put(rt,current+0x40dc,uint8_t(1));

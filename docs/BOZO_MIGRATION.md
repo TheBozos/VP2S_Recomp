@@ -12,6 +12,36 @@ The earlier VP2S face/shading and general brightness comparisons remain open.
 
 ## Build and evidence
 
+### Town message text: text class 165ae0 and layer 15fe10 (2026-11-09)
+
+**Text class `165ae0` (mod003)** derives from `15a450`. Shared with the base:
+- the emitter `2e74f0`;
+- the item callbacks `+2c 2e7e90` and `+30 2e76a0`, already checked per item;
+- placement, and draw `+10 2f32d0`.
+
+Its own `+1c`/`+20` (`2ed050`/`2ecfa0`) only decide when to rebuild the
+0x30-byte item array at `+70..+74` (a reveal state machine), then hand it to
+the same emitter and the same icon capture `2efe40`. Native text and button
+capture now admit both classes.
+
+**UI layer `15fe10`/`15fe2c`/`15fea8` (mod003)** builds through thunks to the
+base methods, both checked by their instruction words:
+- object `+18` is `3b3150`, `j 2ec9c0`, `a0 -= 20`;
+- job `+c` is `3b31c0`, `j 2ec9a0`, `a0 -= b0`.
+
+Its completion (job `+10`, `447680`) calls the base `2eca00` and then runs its
+own flags as ordinary game code. It is admitted next to the base, story and
+field layers.
+
+**Route:** the subtitle "Is this the harbor of Solde?" renders over the
+close-up. The run reaches serial 2601 and stops at mod003 `3d077c` (entry
+`3d075c`).
+
+**Open (not caused by this step):** in that close-up, Alicia's face and hair
+show long spikes. Skipping the morph element leaves them unchanged, so the
+cause is in the native model renderer's skinning of this model, not in the
+streamer.
+
 ### More inlined VU0 idioms; the mode-3 fourth light (2026-11-09)
 
 **Idioms.** `nativeMacroIdiom` recognises four more inlined macro blocks by

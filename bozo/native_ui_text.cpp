@@ -16,7 +16,11 @@ const uint8_t *record(Runtime *rt,uint32_t at,uint32_t size){
     return rt->memory.hostPointer(at,size);
 }
 template<class T>T value(Runtime *rt,uint32_t at){T result;std::memcpy(&result,record(rt,at,sizeof(T)),sizeof(T));return result;}
-void type(Runtime *rt,uint32_t element){const auto actual=value<uint32_t>(rt,element);if(actual!=0x15a450)throw std::runtime_error(std::format("unported native UI text class {:x} at {:x}",actual,element));}
+// 165ae0 (mod003) derives from 15a450: it keeps the emitter 2e74f0, the item
+// callbacks (+2c 2e7e90, +30 2e76a0, checked per item), placement and draw
+// (+10 2f32d0); its own +1c/+20 (2ed050/2ecfa0) only decide when to rebuild
+// the 0x30-byte item array at +70..+74 and hand it to the same emitter.
+void type(Runtime *rt,uint32_t element){const auto actual=value<uint32_t>(rt,element);if(actual!=0x15a450 && actual!=0x165ae0)throw std::runtime_error(std::format("unported native UI text class {:x} at {:x}",actual,element));}
 }
 void NativeUiTexts::enter(Runtime *rt,uint32_t stack,uint32_t element,uint32_t items,int32_t count){
     type(rt,element);
@@ -171,7 +175,16 @@ NativeUiLayer NativeUiTexts::layer(Runtime *rt,uint32_t layer)const{
     // methods; its object +10 method only adds a resource release after the
     // base one (teardown), which the native draw/completion does not use.
     const bool field=layerType==0x168970 && objectType==0x16898c && jobType==0x168a08;
-    if(value<uint32_t>(rt,layer)!=0x152060 || (!base && !story && !field) ||
+    // The mod003 town/message layer (15fe10/15fe2c/15fea8): its object +18 and
+    // job +c are thunks 3b3150 (j 2ec9c0) and 3b31c0 (j 2ec9a0), the base
+    // producer/build; its completion (job +10, 447680) calls the base 2eca00
+    // and then runs its own scalar flags, unchanged. Thunk words are checked.
+    const auto thunk=[&](uint32_t at,uint32_t target,uint16_t adjust){
+        return value<uint32_t>(rt,at)==(0x08000000u|(target>>2)) && value<uint32_t>(rt,at+4)==(0x24840000u|adjust);};
+    const bool message=layerType==0x15fe10 && objectType==0x15fe2c && jobType==0x15fea8 &&
+        value<uint32_t>(rt,objectType+0x18)==0x3b3150 && value<uint32_t>(rt,jobType+0x0c)==0x3b31c0 &&
+        thunk(0x3b3150,0x2ec9c0,0xffe0) && thunk(0x3b31c0,0x2ec9a0,0xff50);
+    if(value<uint32_t>(rt,layer)!=0x152060 || (!base && !story && !field && !message) ||
        value<uint8_t>(rt,layer+0x83)!=1 || value<uint8_t>(rt,layer+0xca)!=2)
         throw std::runtime_error(std::format("unported native UI layer type/build mode: layer={:x} types={:x}/{:x}/{:x}/{:x} mode83={} modeca={}",
             layer,value<uint32_t>(rt,layer),value<uint32_t>(rt,layer+0x10),value<uint32_t>(rt,layer+0x20),value<uint32_t>(rt,layer+0xb0),

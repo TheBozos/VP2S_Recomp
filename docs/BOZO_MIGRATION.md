@@ -12,6 +12,24 @@ The earlier VP2S face/shading and general brightness comparisons remain open.
 
 ## Build and evidence
 
+### Segment against the hit box; omitted adjustment thunks (2026-11-09)
+
+mod003 `3e6d30` follows a collision-tree hit with mod001 `1f6740`. On a hit,
+`1f6f40` returns without restoring VF1..VF5, so `1f6740`'s VU inputs VF1..VF4
+are the hit object's matrix (object in global `358cd8`); the caller passes
+the query segment from global `358d54`. Native block A stores the segment in
+box space (start `R.(P - M*C)` at SP+90, direction `R.D` at SP+80, XYZ only);
+the scalar helper `1f6670` clips [tmin, tmax]; block B stores `P + D*t`
+entry/exit points to a3. Guards `1f6740..1f6a38`, `1f6670..1f6740`; 1024
+bounded math-fixture cases (815 misses, 126 one-point, 83 two-point clips)
+match the engine `ps2f` oracle. Leaf inputs now read the scale only where a
+test uses it.
+
+The route then jumped through a vtable to `42a940`, the first of four
+this-adjustment thunks (`j method; addiu a0,a0,-k`) the analysis export
+omitted. Preparation exposes the fingerprinted run `42a940..42a980` as four
+explicit entries. The route now stops at mod001 `246944` (entry `24692c`).
+
 ### Populated collision-tree queries (2026-11-09)
 
 `1f6f40` (collision-tree query) used to admit only leafless nodes. Its

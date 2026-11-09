@@ -99,6 +99,13 @@ def overlay_entries(name,data):
         if hashlib.sha256(span(0x3d3620,0x3d3660)).hexdigest()!='fb483410366f6db0a0a09b4d1b6a178331a6e6be6ab08fb8083b3ecf01a2e150':
             raise ValueError('USA native fade publication epilogue mismatch')
         entries.append(dict(Name='native_flat_fade_draw',Start='0x3d3620',End='0x3d3660'))
+        # Four this-adjustment thunks (j method; addiu a0,a0,-k) reached through
+        # a vtable from mod001 246760; the analysis export omitted them.
+        # Original bytes only; each is exposed as its own tiny entry.
+        if hashlib.sha256(span(0x42a940,0x42a980)).hexdigest()!='717990ebc08151de598c6dca7f17f01b66abc95b54faddd0f534772b94a9cc23':
+            raise ValueError('USA adjustment thunk run mismatch')
+        for lo in range(0x42a940,0x42a980,16):
+            entries.append(dict(Name=f'adjustment_thunk_{lo:08x}',Start=hex(lo),End=hex(lo+16)))
     return entries
 
 

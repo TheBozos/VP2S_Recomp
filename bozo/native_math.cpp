@@ -854,11 +854,11 @@ struct LeafInputs{Lanes rows[4];float scale;};
 float leafLane(float v){const auto bits=std::bit_cast<uint32_t>(v);
     if((bits&0x7f800000)==0x7f800000 || beyondRange(v))throw std::runtime_error("unqualified native collision leaf input");return pairNormal(v);}
 Lanes leafRecord(Runtime *rt,uint32_t at){Lanes v;std::memcpy(v.data(),record(rt,at,16),16);for(float &x:v)x=leafLane(x);return v;}
-LeafInputs leafInputs(Runtime *rt){
+LeafInputs leafInputs(Runtime *rt,bool withScale=true){
     uint32_t object;std::memcpy(&object,record(rt,0x358cd0,16)+8,4);
     if(object<0x100000)throw std::runtime_error("native collision leaf has no current object");
     LeafInputs in;for(unsigned i=0;i<4;++i)in.rows[i]=leafRecord(rt,object+0x150+16*i);
-    float scale;std::memcpy(&scale,record(rt,object+0x200,16)+4,4);in.scale=leafLane(scale);return in;
+    in.scale=0;if(withScale){float scale;std::memcpy(&scale,record(rt,object+0x200,16)+4,4);in.scale=leafLane(scale);}return in;
 }
 // acc = R1*v.x + R2*v.y + R3*v.z + R4*1, all lanes.
 Lanes leafTransform(const LeafInputs &in,const Lanes &v){Lanes out;
@@ -933,8 +933,45 @@ bool nativeLeafBox(R5900Context *c,Runtime *rt,uint32_t pc){
     for(unsigned i=0;i<4;++i){if(!second && d24[i])std::memcpy(frame+4*i,&v24[i],4);if(second && d25[i])std::memcpy(frame+0x10+4*i,&v25[i],4);}
     return true;
 }
+// mod001 1f6740: segment against the hit box after a collision-tree query.
+// The query (1f6f40) returns on a hit without restoring VF1..VF4, so they hold
+// the hit object's matrix; that object is in the global 358cd8 and the query
+// segment (+0 start P, +10 direction D) in 358d54, which the caller passes as
+// a2. Block A stores the segment in box space: start R.(P - M*C) at SP+90 and
+// direction R.D at SP+80 (C = a0, the box centre). The scalar helper 1f6670
+// clips [tmin, tmax] at SP+a0/a4; block B stores P + D*t points to a3 (s4).
+bool nativeSegmentBox(R5900Context *c,Runtime *rt,uint32_t pc){
+    const bool blockA=pc>=0x1f6770 && pc<=0x1f6800,blockB=pc>=0x1f6964 && pc<=0x1f69f4;
+    if(!(blockA || blockB) || (pc&3))return false;
+    if(!c)throw std::runtime_error("native segment box has no CPU record");
+    uint32_t queryAt;std::memcpy(&queryAt,record(rt,0x358d50,16)+4,4);
+    if(queryAt<0x100000)throw std::runtime_error("native segment box has no query segment");
+    const auto stack=c->r[29].uw[0];
+    if(blockA){
+        if(c->r[6].uw[0]!=queryAt)throw std::runtime_error("native segment box query mismatch");
+        if(pc!=0x1f67fc && pc!=0x1f6800)return true;
+        if(c->r[3].uw[0]!=stack+0x90 || c->r[2].uw[0]!=stack+0x80)throw std::runtime_error("native segment box frame mismatch");
+        const auto in=leafInputs(rt,false);const auto centre=leafRecord(rt,c->r[4].uw[0]),point=leafRecord(rt,queryAt),direction=leafRecord(rt,queryAt+0x10);
+        Lanes start,along;
+        {music::NearestRounding rounding;
+            const auto world=leafTransform(in,centre);Lanes delta;for(unsigned i=0;i<3;++i)delta[i]=pairSum(point[i],-world[i]);
+            const auto &R1=in.rows[0],&R2=in.rows[1],&R3=in.rows[2];
+            const auto dot=[&](const Lanes &a,const Lanes &r,unsigned i,unsigned j,unsigned k){return pairSum(pairSum(pairProduct(a[i],r[i]),pairProduct(a[j],r[j])),pairProduct(1.f,pairProduct(a[k],r[k])));};
+            start={dot(delta,R1,0,1,2),dot(delta,R2,1,0,2),dot(delta,R3,2,0,1),0};
+            along={dot(direction,R1,0,1,2),dot(direction,R2,1,0,2),dot(direction,R3,2,0,1),0};}
+        // W of both registers is inherited state; only XYZ is written.
+        std::memcpy(record(rt,pc==0x1f67fc?stack+0x90:stack+0x80,16),pc==0x1f67fc?start.data():along.data(),12);return true;
+    }
+    if(pc!=0x1f69ac && pc!=0x1f69b0 && pc!=0x1f69c0 && pc!=0x1f69f4)return true;
+    if(c->r[2].uw[0]!=stack+0xa0 && pc==0x1f6964)throw std::runtime_error("native segment box clip mismatch");
+    float clip[4];std::memcpy(clip,record(rt,stack+0xa0,16),16);
+    const float t=leafLane(pc==0x1f69b0 || pc==0x1f69f4?clip[1]:clip[0]);
+    const auto point=leafRecord(rt,queryAt),direction=leafRecord(rt,queryAt+0x10);
+    float out[3];{music::NearestRounding rounding;for(unsigned i=0;i<3;++i)out[i]=pairSum(pairProduct(point[i],1.f),pairProduct(direction[i],t));}
+    std::memcpy(record(rt,c->r[20].uw[0]+(pc==0x1f69b0?0x10:0),16),out,12);return true;
+}
 bool nativeMathInstruction(uint8_t *,R5900Context *c,Runtime *rt,uint32_t pc){
-    if(nativeLeafSphere(c,rt,pc) || nativeLeafBox(c,rt,pc))return true;
+    if(nativeLeafSphere(c,rt,pc) || nativeLeafBox(c,rt,pc) || nativeSegmentBox(c,rt,pc))return true;
     if(nativeLengthSite(c,rt,pc) || nativeRecordDot(c,rt,pc) || nativePackedQuaternion(c,rt,pc))return true;
     if(nativeObjectOverlap(c,rt,pc))return true;
     if(nativeUvAnimation(c,rt,pc))return true;

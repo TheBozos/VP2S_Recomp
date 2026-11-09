@@ -454,6 +454,9 @@ def overlay_adaptations(name,data):
         # Collision-tree leaf tests (box SAT, sphere) called from 1f6f40.
         (0x1f6be0,0x1f6e10,'7ce5532ba5ba3597a21e26234650d7a9918f4479a355d888728c815be9d2728c'),
         (0x1f6e10,0x1f6ea8,'5da5a14092064e896a3dcf3ec7ab5488240a7f3bd634b284473d41a49834922d'),
+        # Segment against the hit box and its scalar clip helper.
+        (0x1f6740,0x1f6a38,'8f1a0059234b0a2a618cda8a7256f38c0d24c2c607e9084f830997710e4231cd'),
+        (0x1f6670,0x1f6740,'92c9dc03014f3b4f3e397b26c1fbd1a159d01833f9ef6334666c662975fab1c8'),
         # Animated packet UVs: the 2188d0 streaming owner, loader 219620, the
         # UV-scroll callback 29cfe0/descriptor method 29d0d0 and mesh cursors.
         (0x2188d0,0x219608,'efe18082ff8f33e4c91a09af3d3cc3e775706b30795ceaae059e845b6b23546e'),

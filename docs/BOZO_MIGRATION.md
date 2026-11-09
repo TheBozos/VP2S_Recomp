@@ -12,6 +12,26 @@ The earlier VP2S face/shading and general brightness comparisons remain open.
 
 ## Build and evidence
 
+### Logun harbour vs PCSX2 (2026-11-09)
+
+To get a reference, PCSX2 replayed the route's pad script in real time (frame =
+1/59.94 s, +250 frames for its slower boot), with F8 snapshots every 30 frames.
+It shows the same harbour pan. Box averages, native frame 2200 against PCSX2
+snapshots 13/15/17 (320x240 grid), as luma ratios native/PCSX2:
+
+| Zone | Ratio |
+|---|---|
+| Buildings (left) | 1.06 |
+| Dock path | 0.97-0.98 |
+| Sky | 0.81 |
+| Far ships / haze | 0.75 |
+| Sea | **0.31** |
+
+Near geometry matches. The sea is much too dark: PCSX2 shows a bright, hazy
+teal surface, while native shows dark navy with sparkles. Distant haze and the
+sky are also too dark. These are the first visual items for the native renderer
+on this screen.
+
 ### mod001 237320 bone palette (2026-11-09)
 
 `237320` builds one palette entry per bone with VU0 program 0x898. The inputs

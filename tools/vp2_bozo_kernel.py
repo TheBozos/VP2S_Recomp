@@ -471,6 +471,8 @@ def overlay_adaptations(name,data):
         (0x2178b0,0x2179e0,'b5461480644eaf81f1f1b135c124af2de68bbb0f2f49ef3ae9eaae4441e253cc'),
         # List box query 29f5e0 (called from 23e1a4).
         (0x29f5e0,0x29f760,'cc19d75139ab6ece72d006b5460694f94c19ae26f5da1af7eb4c003ce84ba757'),
+        # Hit frame 23e0d0 (composition and row product after the 29f5e0 query).
+        (0x23e0d0,0x23e498,'3244dcc3409474944a9641bf4e07a1f415ed75583db0480b586a2a81994c883f'),
         # Animated packet UVs: the 2188d0 streaming owner, loader 219620, the
         # UV-scroll callback 29cfe0/descriptor method 29d0d0 and mesh cursors.
         (0x2188d0,0x219608,'efe18082ff8f33e4c91a09af3d3cc3e775706b30795ceaae059e845b6b23546e'),

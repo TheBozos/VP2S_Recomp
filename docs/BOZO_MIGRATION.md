@@ -31,6 +31,24 @@ query point (copied to SP+30 with W set to 1) through `*(node+230)+190`, and the
 four lanes go to SP+20; the box test itself is scalar EE code. Guard
 `29f5e0..29f760`; 512 cases match the oracle.
 
+The query point is the object's `+7f0` sphere cache. The getter (virtual `+5c`,
+`239ce0`) returns before writing that cache while the model at `+7bc` is still
+null. `23c888` assigns the model in the same frame, before `23e0d0` runs. So on
+an object's first frame the point is whatever the allocation held. The route
+showed `(bfa12848, e3b96faf, b5bac313)`, with a Y of about -6.8e21.
+
+The VU takes any finite value through this product, and the scalar box test
+then rejects it. So this site admits finite lanes of any magnitude. Only
+exponent-255 patterns (ordinary numbers on the VU, Inf/NaN on the host) and host
+overflow reject. The test includes the route's pattern and huge Y values.
+
+Its caller, `23e0d0`, has two blocks:
+- It composes the hit node's rows `s0+270` with `s3+90` into SP+e0.
+- After `216e40`, it multiplies the swapped-in SP+e0 rows by the point SP+d0
+  into `s2+2b0`, using the `1fe790` row-sum orders.
+
+Guard `23e0d0..23e498`; 1024 cases match the oracle.
+
 ### Capsule pair 1fc300, third response caller, plane contact 1fbd60 (2026-11-09)
 
 The 1fd110 owner reaches 1fc300 (`a0`=A, `a1`=B, `a2`=weights, `a3`=separation)

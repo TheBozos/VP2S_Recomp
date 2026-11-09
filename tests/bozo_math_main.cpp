@@ -118,6 +118,21 @@ struct Host:bozo::ee::Host,bozo::port::Host {
                     result[k]=add(add(add(p[order[k][0]],p[order[k][1]]),mul(one,p[order[k][2]])),mul(one,p[order[k][3]]));}}
             std::memcpy(t->memory.hostPointer(stack+out,16),result,16);return true;
         }
+        if(referenceOverlap && ((pc>=0x23e21c && pc<=0x23e228) || pc==0x23e358)){
+            // mod001 23e0d0 hit frame, engine ps2f arithmetic.
+            const auto mul=[](uint32_t a,uint32_t b){uint32_t f=0;return bozo::ps2f::mul(a,b,f);};
+            const auto add=[](uint32_t a,uint32_t b){uint32_t f=0;return bozo::ps2f::addNearest(a,b,f);};
+            const auto stack=c->r[29].uw[0];uint32_t o[4];
+            if(pc!=0x23e358){const unsigned k=(pc-0x23e21c)/4;uint32_t a[4],b[4][4];
+                std::memcpy(a,t->memory.hostPointer(c->r[16].uw[0]+0x270+16*k,16),16);std::memcpy(b,t->memory.hostPointer(c->r[19].uw[0]+0x90,64),64);
+                for(unsigned i=0;i<4;++i)o[i]=add(add(add(mul(b[0][i],a[0]),mul(b[1][i],a[1])),mul(b[2][i],a[2])),mul(b[3][i],a[3]));
+                std::memcpy(t->memory.hostPointer(stack+0xe0+16*k,16),o,16);return true;}
+            uint32_t R[4][4],v[4];std::memcpy(R,t->memory.hostPointer(stack+0xe0,64),64);std::memcpy(v,t->memory.hostPointer(stack+0xd0,16),16);
+            constexpr unsigned order[4][4]={{0,1,2,3},{1,0,2,3},{2,1,0,3},{3,1,2,0}};
+            for(unsigned k=0;k<4;++k){uint32_t p[4];for(unsigned i=0;i<4;++i)p[i]=mul(R[k][i],v[i]);
+                o[k]=add(add(add(p[order[k][0]],p[order[k][1]]),mul(0x3f800000,p[order[k][2]])),mul(0x3f800000,p[order[k][3]]));}
+            std::memcpy(t->memory.hostPointer(c->r[18].uw[0]+0x2b0,16),o,16);return true;
+        }
         if(referenceOverlap && pc==0x29f698){
             // mod001 29f5e0 node transform, engine ps2f arithmetic.
             const auto mul=[](uint32_t a,uint32_t b){uint32_t f=0;return bozo::ps2f::mul(a,b,f);};
@@ -967,6 +982,9 @@ int main(){try{
         const auto put=[&](uint32_t at,uint32_t v){std::memcpy(a.memory.hostPointer(at,4),&v,4);};
         put(node+0x230,object);for(unsigned i=0;i<16;++i)put(object+0x190+4*i,next(118,12));
         for(unsigned i=0;i<4;++i){put(stack+0x30+4*i,i==3?0x3f800000u:next(118,12));put(stack+0x20+4*i,next(118,12));}
+        // Stale sphere cache seen on the route (first frame of an object): finite, huge Y.
+        if(seed%16==11){put(stack+0x30,0xbfa12848);put(stack+0x34,0xe3b96faf);put(stack+0x38,0xb5bac313);}
+        if(seed%16==13)put(stack+0x34,next(200,40));
         std::memcpy(b.memory.flat(),a.memory.flat(),bozo::kFlatBytes);
         R5900Context x{};for(unsigned i=1;i<32;++i){x.r[i].ud[0]=0xce68000000000000ull+seed*32+i;x.r[i].ud[1]=~x.r[i].ud[0];x.f[i]=float(i)/8;}
         std::memset(x.vu0_vf,0x91,sizeof(x.vu0_vf));std::memset(&x.vu0_acc,0x19,sizeof(x.vu0_acc));x.vu0_status=0x0101;x.vu0_q_bits=0x3f000017;x.vi[0]=0x0101;
@@ -983,6 +1001,32 @@ int main(){try{
         ++listCases;
     }
     std::printf("%u mod001 29f5e0 list box node transforms match the engine VU0 oracle\n",listCases);
+    unsigned hitFrameCases=0;
+    for(unsigned block=0;block<2;++block)for(unsigned rounding:{_MM_ROUND_NEAREST,_MM_ROUND_DOWN,_MM_ROUND_UP,_MM_ROUND_TOWARD_ZERO})for(unsigned seed=0;seed<128;++seed){
+        auto &a=old.runtime();auto &b=native.runtime();std::memset(a.memory.flat(),0x79+seed,bozo::kFlatBytes);
+        const uint32_t stack=seed&1?0x70003000:0x1ffd000|(seed&2?0x20000000u:0u),node=0x1e4000,owner=0x1e5000,self=0x1e6000;
+        uint32_t state=seed*1597334677u+block*1013+rounding;const auto next=[&](int lo,int span){state=state*1664525u+1013904223u;return ((state>>8)&0x807fffffu)|uint32_t((lo+int((state>>4)%unsigned(span)))<<23);};
+        const auto put=[&](uint32_t at,uint32_t v){std::memcpy(a.memory.hostPointer(at,4),&v,4);};
+        for(unsigned i=0;i<16;++i){put(node+0x270+4*i,next(116,14));put(self+0x90+4*i,next(116,14));put(stack+0xe0+4*i,next(116,14));}
+        for(unsigned i=0;i<4;++i){put(stack+0xd0+4*i,next(118,12));put(owner+0x2b0+4*i,next(118,12));}
+        std::memcpy(b.memory.flat(),a.memory.flat(),bozo::kFlatBytes);
+        R5900Context x{};for(unsigned i=1;i<32;++i){x.r[i].ud[0]=0xdf79000000000000ull+seed*32+i;x.r[i].ud[1]=~x.r[i].ud[0];x.f[i]=float(i)/8;}
+        std::memset(x.vu0_vf,0xa2,sizeof(x.vu0_vf));std::memset(&x.vu0_acc,0x2a,sizeof(x.vu0_acc));x.vu0_status=0x0202;x.vu0_q_bits=0x3f000019;x.vi[0]=0x0202;
+        x.r[29].ud[0]=stack;x.r[31].ud[0]=0x170000;x.r[16].ud[0]=node;x.r[18].ud[0]=owner;x.r[19].ud[0]=self;
+        if(block==0){x.r[4].ud[0]=node+0x270;x.r[3].ud[0]=self+0x90;x.r[2].ud[0]=stack+0xe0;}
+        else{x.r[7].ud[0]=stack+0xd0;x.r[8].ud[0]=stack+0xe0;x.r[6].ud[0]=owner+0x2b0;}
+        auto y=x;const uint32_t entry=block?0x23e300:0x23e1bc;
+        const auto saved=_mm_getcsr(),control=(saved&~(_MM_ROUND_MASK|0x8040|0x3f))|rounding|(seed&8?0x8040:0);_mm_setcsr(control);
+        host.referenceOverlap=true;a.functions.generated(entry)(a.memory.flat(),&x,&a);const auto expectedFp=_mm_getcsr();_mm_setcsr(control);
+        host.referenceOverlap=false;b.functions.generated(entry)(b.memory.flat(),&y,&b);const auto actualFp=_mm_getcsr();_mm_setcsr(saved);
+        x.cycleLimit=y.cycleLimit;
+        if(actualFp!=expectedFp || x.pc!=0x170000 || std::memcmp(&x,&y,sizeof(x)) || std::memcmp(a.memory.flat(),b.memory.flat(),bozo::kFlatBytes)){
+            std::fprintf(stderr,"hit frame block%u rounding%x seed%u pc%x/%x fp%08x/%08x\n",block,rounding,seed,x.pc,y.pc,expectedFp,actualFp);
+            for(unsigned i=0;i<bozo::kFlatBytes;++i)if(a.memory.flat()[i]!=b.memory.flat()[i]){std::fprintf(stderr,"RAM byte%x old%02x native%02x\n",i,a.memory.flat()[i],b.memory.flat()[i]);break;}check(false);
+        }
+        ++hitFrameCases;
+    }
+    std::printf("%u mod001 23e0d0 hit frame composition/product blocks match the engine VU0 oracle\n",hitFrameCases);
     // Animated packet UVs. The original loader 219620 (with its mesh cursors
     // and element methods) builds the scratchpad description; a test-only
     // oracle reproduces the original pipeline from it (toSPR chain, callback

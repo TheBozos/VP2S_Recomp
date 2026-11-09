@@ -1291,14 +1291,54 @@ bool nativeListBoxQuery(R5900Context *c,Runtime *rt,uint32_t pc){
     if(pc==0x29f674 && (c->r[9].uw[0]!=stack+0x30 || c->r[10].uw[0]!=rows || c->r[8].uw[0]!=stack+0x20))throw std::runtime_error("native list box query source mismatch");
     if(pc!=0x29f698)return true;
     if(c->r[8].uw[0]!=stack+0x20)throw std::runtime_error("native list box query destination mismatch");
-    LeafInputs m;for(unsigned i=0;i<4;++i)m.rows[i]=leafRecord(rt,rows+16*i);
-    const auto p=leafRecord(rt,stack+0x30);Lanes out;
-    {music::NearestRounding rounding;for(unsigned i=0;i<4;++i)out[i]=pairSum(pairSum(pairSum(pairProduct(m.rows[0][i],p[0]),pairProduct(m.rows[1][i],p[1])),pairProduct(m.rows[2][i],p[2])),pairProduct(m.rows[3][i],p[3]));}
+    // The query point is the self+7f0 sphere cache. The getter (virtual +5c)
+    // returns before writing it while the model at +7bc is still null, and
+    // 23c888 assigns the model in the same frame, so on an object's first
+    // frame the point is whatever the allocation held. The VU takes any
+    // finite value through this product (the box test then rejects it), so
+    // finite lanes of any magnitude are admitted; only exponent-255 patterns
+    // (VU numbers, host Inf/NaN) and host overflow reject.
+    const auto finite=[&](uint32_t at){Lanes v;std::memcpy(v.data(),record(rt,at,16),16);
+        for(float &x:v){if((std::bit_cast<uint32_t>(x)&0x7f800000)==0x7f800000)throw std::runtime_error("native list box query exponent-255 input");x=pairNormal(x);}return v;};
+    Lanes m[4];for(unsigned i=0;i<4;++i)m[i]=finite(rows+16*i);
+    const auto p=finite(stack+0x30);Lanes out;
+    {music::NearestRounding rounding;for(unsigned i=0;i<4;++i)out[i]=pairSum(pairSum(pairSum(pairProduct(m[0][i],p[0]),pairProduct(m[1][i],p[1])),pairProduct(m[2][i],p[2])),pairProduct(m[3][i],p[3]));}
     for(float x:out)if(!std::isfinite(x))throw std::runtime_error("native list box query overflow");
     std::memcpy(record(rt,stack+0x20,16),out.data(),16);return true;
 }
+// mod001 23e0d0 (after the 29f5e0 query; s0 = hit node, s2 = owner, s3 = self):
+//  23e1bc..23e228  rows A = s0+270 composed with B = s3+90 into SP+e0:
+//                  row k = ((B0*a.x + B1*a.y) + B2*a.z) + B3*a.w.
+//  23e300..23e358  the rows at SP+e0 (216e40 result, swapped in by EE copies)
+//                  . the point SP+d0 into s2+2b0, row sums in the 1fe790 orders.
+bool nativeHitFrame(R5900Context *c,Runtime *rt,uint32_t pc){
+    const bool compose=pc>=0x23e1bc && pc<=0x23e228,product=pc>=0x23e300 && pc<=0x23e358;
+    if(!(compose || product) || (pc&3))return false;
+    if(!c)throw std::runtime_error("native hit frame has no CPU record");
+    const auto stack=c->r[29].uw[0];
+    if(compose){
+        const auto a=c->r[16].uw[0]+0x270,b=c->r[19].uw[0]+0x90;
+        if(c->r[4].uw[0]!=a || c->r[3].uw[0]!=b || c->r[2].uw[0]!=stack+0xe0)throw std::runtime_error("native hit frame composition escaped its records");
+        if(pc!=0x23e21c)return true;
+        Lanes A[4],B[4],out[4];for(unsigned k=0;k<4;++k){A[k]=leafRecord(rt,a+16*k);B[k]=leafRecord(rt,b+16*k);}
+        {music::NearestRounding rounding;
+            for(unsigned k=0;k<4;++k)for(unsigned i=0;i<4;++i)
+                out[k][i]=pairSum(pairSum(pairSum(pairProduct(B[0][i],A[k][0]),pairProduct(B[1][i],A[k][1])),pairProduct(B[2][i],A[k][2])),pairProduct(B[3][i],A[k][3]));}
+        for(const auto &row:out)for(float x:row)if(!std::isfinite(x))throw std::runtime_error("native hit frame composition overflow");
+        std::memcpy(record(rt,stack+0xe0,64),out,64);return true;
+    }
+    const auto target=c->r[18].uw[0]+0x2b0;
+    if(c->r[7].uw[0]!=stack+0xd0 || c->r[8].uw[0]!=stack+0xe0 || c->r[6].uw[0]!=target)throw std::runtime_error("native hit frame product escaped its records");
+    if(pc!=0x23e358)return true;
+    Lanes m[4],out;for(unsigned k=0;k<4;++k)m[k]=leafRecord(rt,stack+0xe0+16*k);const auto v=leafRecord(rt,stack+0xd0);
+    {music::NearestRounding rounding;Lanes p[4];for(unsigned k=0;k<4;++k)for(unsigned i=0;i<4;++i)p[k][i]=pairProduct(m[k][i],v[i]);
+        constexpr unsigned order[4][4]={{0,1,2,3},{1,0,2,3},{2,1,0,3},{3,1,2,0}};
+        for(unsigned k=0;k<4;++k)out[k]=pairSum(pairSum(pairSum(p[k][order[k][0]],p[k][order[k][1]]),pairProduct(1.f,p[k][order[k][2]])),pairProduct(1.f,p[k][order[k][3]]));}
+    for(float x:out)if(!std::isfinite(x))throw std::runtime_error("native hit frame product overflow");
+    std::memcpy(record(rt,target,16),out.data(),16);return true;
+}
 bool nativeMathInstruction(uint8_t *,R5900Context *c,Runtime *rt,uint32_t pc){
-    if(nativeProjectionBlocks(c,rt,pc) || nativeBoneAim(c,rt,pc) || nativeChainBlocks(c,rt,pc) || nativeCapsulePair(c,rt,pc) || nativePlaneContact(c,rt,pc) || nativeRangeTest(c,rt,pc) || nativeMatrixBuild(c,rt,pc) || nativeListBoxQuery(c,rt,pc))return true;
+    if(nativeProjectionBlocks(c,rt,pc) || nativeBoneAim(c,rt,pc) || nativeChainBlocks(c,rt,pc) || nativeCapsulePair(c,rt,pc) || nativePlaneContact(c,rt,pc) || nativeRangeTest(c,rt,pc) || nativeMatrixBuild(c,rt,pc) || nativeListBoxQuery(c,rt,pc) || nativeHitFrame(c,rt,pc))return true;
     if(nativeLeafSphere(c,rt,pc) || nativeLeafBox(c,rt,pc) || nativeSegmentBox(c,rt,pc))return true;
     if(nativeLengthSite(c,rt,pc) || nativeRecordDot(c,rt,pc) || nativePackedQuaternion(c,rt,pc))return true;
     if(nativeObjectOverlap(c,rt,pc))return true;

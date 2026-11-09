@@ -870,6 +870,8 @@ struct PackedKeySite{uint32_t first,last,store;unsigned laneReg,destinationReg;u
 constexpr PackedKeySite packedKeySites[]={
     {0x1f9d74,0x1f9da4,0x1f9da4,10,3,0x10},{0x1f9df8,0x1f9e28,0x1f9e28,10,3,0x0},
     {0x2a492c,0x2a49a0,0x2a4994,10,4,0x110},{0x2a492c,0x2a49a0,0x2a49a0,13,3,0x100},
+    // 2a44e0's three single-key paths (first, last and interpolated keys).
+    {0x2a45d8,0x2a4608,0x2a4608,10,3,0x80},{0x2a46d8,0x2a4708,0x2a4708,10,3,0x70},{0x2a4798,0x2a47c8,0x2a47c8,10,3,0x60},
     // mod001 2a40e0: two single keys, then an interleaved pair.
     {0x2a415c,0x2a418c,0x2a418c,10,3,0x30},{0x2a4228,0x2a4258,0x2a4258,10,3,0x20},
     {0x2a440c,0x2a44a8,0x2a4478,10,3,0x50},{0x2a440c,0x2a44a8,0x2a44a8,13,2,0x40}};
@@ -1822,6 +1824,21 @@ bool nativeMathInstruction(uint8_t *,R5900Context *c,Runtime *rt,uint32_t pc){
             __m128 input;std::memcpy(&input,record(rt,stack+0x20,16),16);float values[4];std::memcpy(values,&input,16);
             for(float v:values){const auto magnitude=std::bit_cast<uint32_t>(v)&0x7fffffff;if(magnitude>=0x7f800000 || magnitude>std::bit_cast<uint32_t>(1.e8f))throw std::runtime_error("unqualified object quaternion");}
             const auto result=math::quaternionMatrix(input);const auto row=(pc-0x39f368)/4;std::memcpy(record(rt,object+0x250+16*row,16),&result[row],16);
+        }return true;
+    }
+    if(pc==0x396c24 || pc==0x396c2c || pc==0x396c5c || pc==0x396c64 || pc==0x396c68 || pc==0x396c6c){
+        // mod003 396c00: the quaternion its caller passed is stored at s0+250;
+        // program 0x720 turns it into three rows at SP+40, which the scalar
+        // code then hands to 410df0 (native) with its own (0,0,1,1) vector.
+        if(!c)throw std::runtime_error("native facing rotation has no CPU record");
+        const auto stack=c->r[29].uw[0],object=c->r[16].uw[0];
+        if(pc==0x396c24 && c->r[3].uw[0]!=object+0x250)throw std::runtime_error("facing quaternion source mismatch");
+        if(pc==0x396c5c)c->r[9].ud[0]=0;
+        else if(pc>=0x396c64){
+            if(c->r[2].uw[0]!=stack+0x40)throw std::runtime_error("facing rotation destination mismatch");
+            __m128 input;std::memcpy(&input,record(rt,object+0x250,16),16);float values[4];std::memcpy(values,&input,16);
+            for(float v:values){const auto magnitude=std::bit_cast<uint32_t>(v)&0x7fffffff;if(magnitude>=0x7f800000 || magnitude>std::bit_cast<uint32_t>(1.e8f))throw std::runtime_error("unqualified facing quaternion");}
+            const auto result=math::quaternionMatrix(input);const auto row=(pc-0x396c64)/4;std::memcpy(record(rt,stack+0x40+16*row,16),&result[row],16);
         }return true;
     }
     if(nativeParticleCallbackInstruction(c,rt,pc))return true;

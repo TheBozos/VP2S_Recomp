@@ -600,6 +600,31 @@ int main(){try{
         try{vp2s::nativeMathInstruction(rt.memory.flat(),&c,&rt,pc);}catch(const std::runtime_error &){rejected=true;}check(rejected && _mm_getcsr()==fp && !std::memcmp(&before,&c,sizeof(c)) && !std::memcmp(ram.data(),rt.memory.flat(),ram.size()));
     }}
     std::printf("%u object rotations (quaternion getter output), engine VU0 oracle and7 readonly rejections passed\n",objectRotations);
+    // mod003 396c00: quaternion at s0+250, program 0x720, rows to SP+40.
+    unsigned facingRotations=0,facingRejects=0;
+    for(unsigned seed=0;seed<256;++seed){
+        auto &rt=adapted.runtime();std::memset(rt.memory.flat(),0x41+seed,bozo::kFlatBytes);const uint32_t aliases[]={0,0x20000000,0x30000000,0x80000000,0xa0000000};
+        const uint32_t object=0x190000|aliases[(seed/4)%5],stack=seed&1?0x70002d60u:0x1ffd100u|aliases[(seed/8)%5];
+        uint32_t q[4];for(unsigned i=0;i<4;++i)q[i]=((seed*7919+i*2741)&0x807fffff)|((117+(seed+i)%10)<<23);
+        if(seed%8==0){q[0]=q[1]=q[2]=0;q[3]=0x3f800000;}
+        std::memcpy(rt.memory.hostPointer(object+0x250,16),q,16);
+        const auto ram=std::vector<uint8_t>(rt.memory.flat(),rt.memory.flat()+bozo::kFlatBytes);
+        R5900Context c{};for(unsigned i=1;i<32;++i)c.r[i].ud[0]=0x6789000000000000ull+seed*32+i;c.r[16].ud[0]=object;c.r[29].ud[0]=stack;c.r[3].ud[0]=object+0x250;c.r[2].ud[0]=stack+0x40;
+        const auto before=c;const auto fp=_mm_getcsr();
+        for(uint32_t pc:{0x396c24u,0x396c2cu,0x396c5cu,0x396c64u,0x396c68u,0x396c6cu})check(vp2s::nativeMathInstruction(rt.memory.flat(),&c,&rt,pc));
+        check(_mm_getcsr()==fp);auto expect=before;expect.r[9].ud[0]=0;check(!std::memcmp(&expect,&c,sizeof(c)));
+        const auto rows=movementRotationOracle(q);check(!std::memcmp(rows.data(),rt.memory.hostPointer(stack+0x40,48),48));
+        if(stack<0x70000000){std::memcpy(rt.memory.hostPointer(stack+0x40,48),ram.data()+((stack+0x40)&0x1ffffff),48);check(!std::memcmp(ram.data(),rt.memory.flat(),ram.size()));}
+        ++facingRotations;
+        // Rejections leave everything unchanged.
+        R5900Context bad=before;uint32_t pc=0x396c64;
+        if(seed%3==0)bad.r[2].uw[0]+=16;else if(seed%3==1){pc=0x396c24;bad.r[3].uw[0]+=16;}
+        else{const uint32_t inf=0x7f800000;std::memcpy(rt.memory.hostPointer(object+0x254,4),&inf,4);}
+        const auto snapshot=std::vector<uint8_t>(rt.memory.flat(),rt.memory.flat()+bozo::kFlatBytes);const auto bad0=bad;bool rejected=false;
+        try{vp2s::nativeMathInstruction(rt.memory.flat(),&bad,&rt,pc);}catch(const std::runtime_error &){rejected=true;}
+        check(rejected && !std::memcmp(&bad,&bad0,sizeof(bad)) && !std::memcmp(snapshot.data(),rt.memory.flat(),snapshot.size()));++facingRejects;
+    }
+    std::printf("%u mod003 396c00 facing rotations match the engine VU0 oracle (%u rejections)\n",facingRotations,facingRejects);
     unsigned steps=0,skippedSteps=0;
     for(unsigned pass=0;pass<2;++pass)for(unsigned mode:{_MM_ROUND_NEAREST,_MM_ROUND_DOWN,_MM_ROUND_UP,_MM_ROUND_TOWARD_ZERO})for(unsigned seed=0;seed<128;++seed){
         auto &a=original.runtime(),&b=adapted.runtime();std::memset(a.memory.flat(),0x37+seed,bozo::kFlatBytes);const uint32_t aliases[]={0,0x20000000,0x30000000,0x80000000,0xa0000000};

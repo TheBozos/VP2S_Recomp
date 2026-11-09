@@ -12,6 +12,23 @@ The earlier VP2S face/shading and general brightness comparisons remain open.
 
 ## Build and evidence
 
+### Town street: facing rotation 396c00 and more packed keys (2026-11-09)
+
+- **mod003 `396c00`** stores its quaternion argument at `s0+250` and runs
+  program `0x720`, the same quaternion-to-matrix program as `38011c`/`39f31c`.
+  The three rows go to SP+40, and the scalar code passes them to the native
+  `410df0`. The native site uses `math::quaternionMatrix`. Guard
+  `396c00..396d40`.
+  - Test: 256 cases match the engine VU0 oracle used for the object-rotation
+    reference, with read-only rejections.
+- **mod001 `2a44e0`** has three more single packed-key blocks: `2a45d8`,
+  `2a46d8` and `2a4798`. They are word-for-word the `2a415c` block, with
+  destinations SP+80/70/60. A scan finds one more instance outside guarded
+  code (`1faa4c`), which is not reached yet.
+  - Test: the existing packed-key fixture now runs 9 blocks.
+- **Route:** the run reaches serial 2231. The next site is mod003 `42c6c8`
+  (entry `42c684`).
+
 ### Native model point and spot lights (2026-11-09)
 
 With lighting table A (`object+31c`), table B (`+314`, point lights) and C

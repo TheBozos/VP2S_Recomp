@@ -12,6 +12,35 @@ The earlier VP2S face/shading and general brightness comparisons remain open.
 
 ## Build and evidence
 
+### Capsule pair 1fc300, third response caller, plane contact 1fbd60 (2026-11-09)
+
+The 1fd110 owner reaches 1fc300 (`a0`=A, `a1`=B, `a2`=weights, `a3`=separation)
+through virtual call +94. That call is at 1fdc24 and is its only call site. The
+only path to it passes 1fda1c (flag 2 clear), and nothing on that path writes
+VF24..27 or the matrix memory. So the inherited VF24..27 are the object matrix
+`*(s2+4)+190`. Natively, the caller's s2 is read from 1fc300's save slot at
+SP+20, and the site requires ra 1fdc2c. The two blocks:
+- **Placement:** `P = M*(A+250)`, each lane scaled by `(rA+rB)/(rA + w_i*rB)`
+  (VU DIV per lane; a zero denominator rejects). P goes to SP+60, and
+  `D = rows*(A+260)` to SP+70.
+- **Separation:** `delta = (B+230 + B+240*tB) - P - D*tA`, normalized with RSQRT.
+  XYZ goes to a3. a3's W lane was inherited VU state; its only reader, the
+  1fdc48 rotation, ignores input W.
+
+The 1fc030 position response now also admits ra 1fdc84. That caller passes the
+same a0/a1/a2/f12/f13 contract as the admitted 1fe024 caller. The bones test
+exercises all three return addresses.
+
+1fbd60 (virtual +8c, called from 1fe208) has only explicit inputs:
+- The signed distance `((m.x+m.y)+1*m.z) - r`, with `m = (p - a0+230) * a0+220`,
+  goes to SP+10. Only X is read back; the rest of that local register is dead.
+- The projection `(p+0) - n*d` goes to a2, with the point's raw W.
+- The point, using its own W, goes through the rows a0+190 to SP+0. That is the shared fragment
+  `1fbdcc`, already native and qualified in the bones suite.
+
+Guards `1fc300..1fc4b0`, `1fbd60..1fbe60`. The bounded math-fixture cases match the
+engine `ps2f` oracle: 1024 for the capsule and 1024 for the plane.
+
 ### 1fd110 chain constraint blocks and bone aim (2026-11-09)
 
 mod001 `1fd110` (chain owner s2, part s1, owner object `*(s2+4)`) has eight

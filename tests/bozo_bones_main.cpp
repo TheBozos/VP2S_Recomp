@@ -973,7 +973,7 @@ int main(){try{
         R5900Context p{};for(unsigned i=1;i<32;++i){p.r[i].ud[0]=seed*32+i;p.r[i].ud[1]=~p.r[i].ud[0];}p.f[12]=parameters[seed%13];p.f[13]=float(seed%5+1)/128;
         if(seed%16==0 && seed%5 && seed%7 && first!=second){put(x,first,uint8_t(0));put(x,second,uint8_t(0));for(unsigned i=0;i<3;++i){put(x,normal+i*4,i==2?0x3f800000u:0u);put(x,first+0x30+i*4,0u);put(x,second+0x30+i*4,i==2?0x41000000u:0u);}put(x,0x35910c,0x3f800000u);p.f[12]=.5f;p.f[13]=2;}
         const auto firstW=word(x,first+0x3c),secondW=word(x,second+0x3c);std::memcpy(y.memory.flat(),x.memory.flat(),bozo::kFlatBytes);
-        std::memset(p.vu0_vf,0x47,sizeof(p.vu0_vf));p.vu0_status=0x1234;p.r[4].ud[0]=first;p.r[5].ud[0]=part;p.r[6].ud[0]=normal;p.r[29].ud[0]=stack;p.r[31].ud[0]=seed&1?0x1fdf68:0x1fe024;auto q=p;
+        std::memset(p.vu0_vf,0x47,sizeof(p.vu0_vf));p.vu0_status=0x1234;p.r[4].ud[0]=first;p.r[5].ud[0]=part;p.r[6].ud[0]=normal;p.r[29].ud[0]=stack;p.r[31].ud[0]=seed%6==5?0x1fdc84:seed&1?0x1fdf68:0x1fe024;auto q=p;
         const auto saved=_mm_getcsr(),control=(saved&~_MM_ROUND_MASK)|mode;_mm_setcsr(control);
         h.reference=true;x.functions.generated(0x1fc030)(x.memory.flat(),&p,&x);const auto expectedFp=_mm_getcsr();_mm_setcsr(control);
         h.reference=false;y.functions.generated(0x1fc030)(y.memory.flat(),&q,&y);check(_mm_getcsr()==expectedFp);_mm_setcsr(saved);

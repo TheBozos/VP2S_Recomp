@@ -220,8 +220,11 @@ SegmentTerms segmentTerms(Runtime *rt,R5900Context *c){
     result.secondNumerator=pairSum(pairProduct(result.negativeCross,result.firstProjection),-pairProduct(result.firstLength,result.negativeSecondProjection));
     result.firstNumerator=pairSum(pairProduct(result.negativeCross,result.negativeSecondProjection),-pairProduct(result.secondLength,result.firstProjection));return result;
 }
+// Callers in 1fd110: 1fdf68, 1fe024 (after the +90 virtual test) and 1fdc84
+// (after the 1fc300 capsule pair); all pass a0=s2, a1=s1, a2=SP+210 and the
+// parameter/depth that the test wrote to SP+4bc/4b8.
 void collisionPositionResponse(Runtime *rt,R5900Context *c,uint32_t pc){
-    if(c->pc!=0x1fc030 || (c->r[31].uw[0]!=0x1fdf68 && c->r[31].uw[0]!=0x1fe024))
+    if(c->pc!=0x1fc030 || (c->r[31].uw[0]!=0x1fdf68 && c->r[31].uw[0]!=0x1fe024 && c->r[31].uw[0]!=0x1fdc84))
         throw std::runtime_error("unqualified collision position-response caller");
     const auto normalAddress=c->r[29].uw[0]+0x210;auto *normal=record(rt,normalAddress,16),*coefficients=record(rt,0x359100,16);
     if(pc==0x1fc038){
@@ -1143,8 +1146,91 @@ bool nativeChainBlocks(R5900Context *c,Runtime *rt,uint32_t pc){
     for(float x:out)if(!std::isfinite(x))throw std::runtime_error("native chain product overflow");
     std::memcpy(record(rt,stack+0x110,16),out.data(),16);return true;
 }
+// mod001 1fc300 capsule pair (virtual +94 of the chain part, called only from
+// 1fdc24 with ra 1fdc2c). a0 = capsule A, a1 = capsule B, a2 = per-axis
+// weights, a3 = separation output. Its VF24..27 are the chain owner's object
+// matrix +190, loaded at 1fda1c on the only path to that call; the caller's s2
+// is in 1fc300's frame at SP+20.
+//  1fc334..1fc3c4  P = M*(A+250) (with translation) scaled per lane by
+//                  (rA+rB)/(rA + w*rB), to SP+60; D = rows*(A+260) to SP+70.
+//  1fc410..1fc478  delta = (B+230 + B+240*tB) - P - D*tA, normalized with
+//                  RSQRT; XYZ to a3 (W of that register is inherited).
+bool nativeCapsulePair(R5900Context *c,Runtime *rt,uint32_t pc){
+    const bool place=pc>=0x1fc334 && pc<=0x1fc3c4,separate=pc>=0x1fc410 && pc<=0x1fc478;
+    if(!(place || separate) || (pc&3))return false;
+    if(!c)throw std::runtime_error("native capsule pair has no CPU record");
+    const auto stack=c->r[29].uw[0],a=c->r[20].uw[0],b=c->r[19].uw[0];
+    const auto word=[&](uint32_t at){if(at&3)throw std::runtime_error("native capsule word misaligned");
+        uint32_t v;std::memcpy(&v,rt->memory.hostPointer(at,4),4);return v;};
+    const auto lane=[&](uint32_t at){return leafLane(std::bit_cast<float>(word(at)));};
+    if(place){
+        if(pc==0x1fc334 && (c->r[2].uw[0]!=a+0x250 || c->r[31].uw[0]!=0x1fdc2c))throw std::runtime_error("native capsule pair caller mismatch");
+        if(pc!=0x1fc3c0 && pc!=0x1fc3c4)return true;
+        if(c->r[2].uw[0]!=stack+0x60)throw std::runtime_error("native capsule pair destination mismatch");
+        LeafInputs m;const auto matrix=word(word(stack+0x20)+4)+0x190;for(unsigned i=0;i<4;++i)m.rows[i]=leafRecord(rt,matrix+16*i);m.scale=0;
+        Lanes out;
+        if(pc==0x1fc3c4){
+            const auto d=leafRecord(rt,a+0x260);
+            {music::NearestRounding rounding;for(unsigned i=0;i<4;++i)out[i]=pairSum(pairSum(pairProduct(m.rows[0][i],d[0]),pairProduct(m.rows[1][i],d[1])),pairProduct(m.rows[2][i],d[2]));}
+            for(float x:out)if(!std::isfinite(x))throw std::runtime_error("native capsule direction overflow");
+            std::memcpy(record(rt,stack+0x70,16),out.data(),16);return true;
+        }
+        const auto weights=leafRecord(rt,c->r[6].uw[0]);const float ra=lane(a+0x220),rb=lane(b+0x220);
+        {music::NearestRounding rounding;out=leafTransform(m,leafRecord(rt,a+0x250));const auto sum=pairSum(rb,ra);
+            for(unsigned i=0;i<3;++i){const auto den=pairSum(pairSum(0.f,ra),pairProduct(weights[i],rb));
+                if(!(std::bit_cast<uint32_t>(den)&0x7fffffffu))throw std::runtime_error("native capsule pair has a zero weight");
+                volatile float q=sum/den;out[i]=pairProduct(out[i],pairNormal(q));}}
+        for(float x:out)if(!std::isfinite(x))throw std::runtime_error("native capsule point overflow");
+        std::memcpy(record(rt,stack+0x60,16),out.data(),16);return true;
+    }
+    if(pc==0x1fc410 && (c->r[3].uw[0]!=b+0x230 || c->r[2].uw[0]!=b+0x240 || c->r[5].uw[0]!=stack+0x60 || c->r[4].uw[0]!=stack+0x70))
+        throw std::runtime_error("native capsule separation sources mismatch");
+    if(pc!=0x1fc478)return true;
+    const auto target=c->r[18].uw[0];if(target&15)throw std::runtime_error("native capsule separation destination misaligned");
+    const auto p0=leafRecord(rt,b+0x230),p1=leafRecord(rt,b+0x240),p=leafRecord(rt,stack+0x60),d=leafRecord(rt,stack+0x70);
+    const float tb=lane(stack+0x88),ta=lane(stack+0x8c);Lanes out;
+    {music::NearestRounding rounding;Lanes delta;
+        for(unsigned i=0;i<3;++i)delta[i]=pairSum(pairSum(pairSum(pairSum(p0[i],0.f),pairProduct(p1[i],tb)),-pairProduct(p[i],1.f)),-pairProduct(d[i],ta));
+        const auto squared=pairSum(pairSum(pairProduct(delta[0],delta[0]),pairProduct(delta[1],delta[1])),pairProduct(1.f,pairProduct(delta[2],delta[2])));
+        if(!(std::bit_cast<uint32_t>(squared)&0x7fffffffu))throw std::runtime_error("native capsule separation is zero");
+        volatile float root=std::sqrt(std::abs(squared));volatile float reciprocal=1.f/pairNormal(root);
+        for(unsigned i=0;i<3;++i)out[i]=pairProduct(delta[i],pairNormal(reciprocal));}
+    std::memcpy(record(rt,target,16),out.data(),12);return true;
+}
+// mod001 1fbd60 plane contact (virtual +8c, a0 = plane object, a1 = point,
+// a2 = output, f12 = radius); all inputs are explicit:
+//  1fbd6c..1fbda0  d = ((m.x + m.y) + 1*m.z) - r, m = (p - a0+230) * a0+220,
+//                  to SP+10 (only X is read back; the rest of that local
+//                  register is dead after return).
+//  1fbdb8..1fbdc0  (p + 0) - n*d to a2, W = the point's raw W.
+// The local transform 1fbdcc..1fbdf0 stays with the shared full-transform
+// fragment below (qualified in the bones suite).
+bool nativePlaneContact(R5900Context *c,Runtime *rt,uint32_t pc){
+    const bool distance=pc>=0x1fbd6c && pc<=0x1fbda0,project=pc>=0x1fbdb8 && pc<=0x1fbdc0;
+    if(!(distance || project) || (pc&3))return false;
+    if(!c)throw std::runtime_error("native plane contact has no CPU record");
+    const auto stack=c->r[29].uw[0],plane=c->r[4].uw[0],point=c->r[5].uw[0];
+    if(distance){
+        if(pc==0x1fbd6c && (c->r[3].uw[0]!=plane+0x230 || c->r[2].uw[0]!=plane+0x220))throw std::runtime_error("native plane contact source mismatch");
+        if(pc!=0x1fbda0)return true;
+        if(c->r[2].uw[0]!=stack+0x10)throw std::runtime_error("native plane contact destination mismatch");
+        const auto p=leafRecord(rt,point),o=leafRecord(rt,plane+0x230),n=leafRecord(rt,plane+0x220);const float r=leafLane(c->f[12]);float d;
+        {music::NearestRounding rounding;Lanes m;for(unsigned i=0;i<3;++i)m[i]=pairProduct(pairSum(p[i],-o[i]),n[i]);
+            d=pairSum(pairSum(pairSum(m[0],m[1]),pairProduct(1.f,m[2])),-r);}
+        std::memcpy(record(rt,stack+0x10,16),&d,4);return true;
+    }
+    {
+        if(pc!=0x1fbdc0)return true;
+        const auto target=c->r[6].uw[0];if(target&15)throw std::runtime_error("native plane contact output misaligned");
+        const auto p=leafRecord(rt,point),n=leafRecord(rt,plane+0x220);float d;std::memcpy(&d,record(rt,stack+0x10,16),4);d=leafLane(d);
+        Lanes out;std::memcpy(out.data(),record(rt,point,16),16);
+        {music::NearestRounding rounding;for(unsigned i=0;i<3;++i)out[i]=pairSum(pairSum(p[i],0.f),-pairProduct(n[i],d));}
+        std::memcpy(record(rt,target,16),out.data(),16);return true;
+    }
+    return true;
+}
 bool nativeMathInstruction(uint8_t *,R5900Context *c,Runtime *rt,uint32_t pc){
-    if(nativeProjectionBlocks(c,rt,pc) || nativeBoneAim(c,rt,pc) || nativeChainBlocks(c,rt,pc))return true;
+    if(nativeProjectionBlocks(c,rt,pc) || nativeBoneAim(c,rt,pc) || nativeChainBlocks(c,rt,pc) || nativeCapsulePair(c,rt,pc) || nativePlaneContact(c,rt,pc))return true;
     if(nativeLeafSphere(c,rt,pc) || nativeLeafBox(c,rt,pc) || nativeSegmentBox(c,rt,pc))return true;
     if(nativeLengthSite(c,rt,pc) || nativeRecordDot(c,rt,pc) || nativePackedQuaternion(c,rt,pc))return true;
     if(nativeObjectOverlap(c,rt,pc))return true;

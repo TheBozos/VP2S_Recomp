@@ -118,6 +118,38 @@ struct Host:bozo::ee::Host,bozo::port::Host {
                     result[k]=add(add(add(p[order[k][0]],p[order[k][1]]),mul(one,p[order[k][2]])),mul(one,p[order[k][3]]));}}
             std::memcpy(t->memory.hostPointer(stack+out,16),result,16);return true;
         }
+        if(referenceOverlap && pc==0x29f698){
+            // mod001 29f5e0 node transform, engine ps2f arithmetic.
+            const auto mul=[](uint32_t a,uint32_t b){uint32_t f=0;return bozo::ps2f::mul(a,b,f);};
+            const auto add=[](uint32_t a,uint32_t b){uint32_t f=0;return bozo::ps2f::addNearest(a,b,f);};
+            const auto stack=c->r[29].uw[0];uint32_t object,R[4][4],p[4],o[4];std::memcpy(&object,t->memory.hostPointer(c->r[16].uw[0]+0x230,4),4);
+            std::memcpy(R,t->memory.hostPointer(object+0x190,64),64);std::memcpy(p,t->memory.hostPointer(stack+0x30,16),16);
+            for(unsigned i=0;i<4;++i)o[i]=add(add(add(mul(R[0][i],p[0]),mul(R[1][i],p[1])),mul(R[2][i],p[2])),mul(R[3][i],p[3]));
+            std::memcpy(t->memory.hostPointer(stack+0x20,16),o,16);return true;
+        }
+        if(referenceOverlap && pc>=0x2179a8 && pc<=0x2179b4){
+            // mod001 2178c0 composition: row k at its own store, engine ps2f arithmetic.
+            const auto mul=[](uint32_t a,uint32_t b){uint32_t f=0;return bozo::ps2f::mul(a,b,f);};
+            const auto add=[](uint32_t a,uint32_t b){uint32_t f=0;return bozo::ps2f::addNearest(a,b,f);};
+            const auto stack=c->r[29].uw[0];const unsigned k=(pc-0x2179a8)/4;uint32_t a[4],b[4][4],o[4];
+            std::memcpy(a,t->memory.hostPointer(stack+0x40+16*k,16),16);std::memcpy(b,t->memory.hostPointer(stack+0x80,64),64);
+            for(unsigned i=0;i<4;++i)o[i]=add(add(add(mul(b[0][i],a[0]),mul(b[1][i],a[1])),mul(b[2][i],a[2])),mul(b[3][i],a[3]));
+            std::memcpy(t->memory.hostPointer(c->r[16].uw[0]+16*k,16),o,16);return true;
+        }
+        if(referenceOverlap && (pc==0x1fbb24 || pc==0x1fbb54 || pc==0x1fbb9c)){
+            // mod001 1fbad0 range test, engine ps2f arithmetic.
+            const auto mul=[](uint32_t a,uint32_t b){uint32_t f=0;return bozo::ps2f::mul(a,b,f);};
+            const auto add=[](uint32_t a,uint32_t b){uint32_t f=0;return bozo::ps2f::addNearest(a,b,f);};
+            using V=std::array<uint32_t,4>;
+            const auto load=[&](uint32_t at){V v;std::memcpy(v.data(),t->memory.hostPointer(at,16),16);return v;};
+            const auto stack=c->r[29].uw[0];V o;
+            if(pc==0x1fbb24){V R[4];for(unsigned k=0;k<4;++k)R[k]=load(c->r[4].uw[0]+0x220+16*k);const auto p=load(c->r[5].uw[0]);
+                for(unsigned i=0;i<4;++i)o[i]=add(add(add(mul(R[0][i],p[0]),mul(R[1][i],p[1])),mul(R[2][i],p[2])),mul(R[3][i],p[3]));
+                std::memcpy(t->memory.hostPointer(stack+0x30,16),o.data(),16);return true;}
+            const auto v=load(pc==0x1fbb54?stack+0x20:stack+0x30);o=v;uint32_t sq[3];for(unsigned i=0;i<3;++i)sq[i]=mul(v[i],v[i]);
+            o[0]=add(add(sq[0],sq[1]),mul(0x3f800000,sq[2]));o[1]=sq[1];o[2]=sq[2];
+            std::memcpy(t->memory.hostPointer(pc==0x1fbb54?stack+0x10:stack,16),o.data(),16);return true;
+        }
         if(referenceOverlap && (pc==0x1fbda0 || pc==0x1fbdc0)){
             // mod001 1fbd60 plane contact, engine ps2f arithmetic.
             const auto mul=[](uint32_t a,uint32_t b){uint32_t f=0;return bozo::ps2f::mul(a,b,f);};
@@ -878,6 +910,79 @@ int main(){try{
         if(!block){float d;std::memcpy(&d,a.memory.hostPointer(stack+0x10,4),4);planeInside+=d<=0;}++planeCases;
     }
     std::printf("%u mod001 1fbd60 plane contact blocks (%u inside) match the engine VU0 oracle\n",planeCases,planeInside);
+    unsigned rangeCases=0;
+    for(unsigned block=0;block<2;++block)for(unsigned rounding:{_MM_ROUND_NEAREST,_MM_ROUND_DOWN,_MM_ROUND_UP,_MM_ROUND_TOWARD_ZERO})for(unsigned seed=0;seed<128;++seed){
+        auto &a=old.runtime();auto &b=native.runtime();std::memset(a.memory.flat(),0x51+seed,bozo::kFlatBytes);
+        const uint32_t stack=seed&1?0x70003000:0x1ffd000|(seed&2?0x20000000u:0u),object=0x1e4000,point=0x1e5030;
+        uint32_t state=seed*22695477u+block*911+rounding;const auto next=[&](int lo,int span){state=state*1664525u+1013904223u;return ((state>>8)&0x807fffffu)|uint32_t((lo+int((state>>4)%unsigned(span)))<<23);};
+        const auto put=[&](uint32_t at,uint32_t v){std::memcpy(a.memory.hostPointer(at,4),&v,4);};
+        for(unsigned i=0;i<16;++i)put(object+0x220+4*i,next(118,12));
+        for(unsigned i=0;i<4;++i){put(point+4*i,next(118,12));for(unsigned k=0;k<4;++k)put(stack+0x10*k+4*i,next(118,12));}
+        if(seed%16==7)put(point+12,0);
+        std::memcpy(b.memory.flat(),a.memory.flat(),bozo::kFlatBytes);
+        R5900Context x{};for(unsigned i=1;i<32;++i){x.r[i].ud[0]=0xac46000000000000ull+seed*32+i;x.r[i].ud[1]=~x.r[i].ud[0];x.f[i]=float(i)/8;}
+        std::memset(x.vu0_vf,0x7e,sizeof(x.vu0_vf));std::memset(&x.vu0_acc,0xe7,sizeof(x.vu0_acc));x.vu0_status=0x0e0e;x.vu0_q_bits=0x3f000013;x.vi[0]=0x0e0e;
+        x.r[29].ud[0]=stack;x.r[31].ud[0]=0x170000;x.r[4].ud[0]=object;x.r[5].ud[0]=point;
+        auto y=x;const uint32_t entry=block?0x1fbb80:0x1fbaf8;
+        const auto saved=_mm_getcsr(),control=(saved&~(_MM_ROUND_MASK|0x8040|0x3f))|rounding|(seed&8?0x8040:0);_mm_setcsr(control);
+        host.referenceOverlap=true;a.functions.generated(entry)(a.memory.flat(),&x,&a);const auto expectedFp=_mm_getcsr();_mm_setcsr(control);
+        host.referenceOverlap=false;b.functions.generated(entry)(b.memory.flat(),&y,&b);const auto actualFp=_mm_getcsr();_mm_setcsr(saved);
+        x.cycleLimit=y.cycleLimit;
+        if(actualFp!=expectedFp || x.pc!=0x170000 || std::memcmp(&x,&y,sizeof(x)) || std::memcmp(a.memory.flat(),b.memory.flat(),bozo::kFlatBytes)){
+            std::fprintf(stderr,"range block%u rounding%x seed%u pc%x/%x fp%08x/%08x\n",block,rounding,seed,x.pc,y.pc,expectedFp,actualFp);
+            for(unsigned i=0;i<bozo::kFlatBytes;++i)if(a.memory.flat()[i]!=b.memory.flat()[i]){std::fprintf(stderr,"RAM byte%x old%02x native%02x\n",i,a.memory.flat()[i],b.memory.flat()[i]);break;}check(false);
+        }
+        ++rangeCases;
+    }
+    std::printf("%u mod001 1fbad0 range transform/length blocks match the engine VU0 oracle\n",rangeCases);
+    unsigned buildCases=0;
+    for(unsigned rounding:{_MM_ROUND_NEAREST,_MM_ROUND_DOWN,_MM_ROUND_UP,_MM_ROUND_TOWARD_ZERO})for(unsigned seed=0;seed<128;++seed){
+        auto &a=old.runtime();auto &b=native.runtime();std::memset(a.memory.flat(),0x5f+seed,bozo::kFlatBytes);
+        const uint32_t stack=seed&1?0x70003000:0x1ffd000|(seed&2?0x20000000u:0u),out=seed&4?0x1e6000u:0x1ffd800u;
+        uint32_t state=seed*3266489917u+rounding;const auto next=[&](int lo,int span){state=state*1664525u+1013904223u;return ((state>>8)&0x807fffffu)|uint32_t((lo+int((state>>4)%unsigned(span)))<<23);};
+        const auto put=[&](uint32_t at,uint32_t v){std::memcpy(a.memory.hostPointer(at,4),&v,4);};
+        for(unsigned i=0;i<32;++i)put(stack+0x40+4*i,seed%16==9 && i%5==0?0:next(116,14));
+        for(unsigned i=0;i<16;++i)put(out+4*i,next(118,12));
+        std::memcpy(b.memory.flat(),a.memory.flat(),bozo::kFlatBytes);
+        R5900Context x{};for(unsigned i=1;i<32;++i){x.r[i].ud[0]=0xbd57000000000000ull+seed*32+i;x.r[i].ud[1]=~x.r[i].ud[0];x.f[i]=float(i)/8;}
+        std::memset(x.vu0_vf,0x8f,sizeof(x.vu0_vf));std::memset(&x.vu0_acc,0xf8,sizeof(x.vu0_acc));x.vu0_status=0x0f0f;x.vu0_q_bits=0x3f000015;x.vi[0]=0x0f0f;
+        x.r[29].ud[0]=stack;x.r[31].ud[0]=0x170000;x.r[5].ud[0]=stack+0x40;x.r[3].ud[0]=stack+0x80;x.r[16].ud[0]=out;
+        auto y=x;
+        const auto saved=_mm_getcsr(),control=(saved&~(_MM_ROUND_MASK|0x8040|0x3f))|rounding|(seed&8?0x8040:0);_mm_setcsr(control);
+        host.referenceOverlap=true;a.functions.generated(0x217948)(a.memory.flat(),&x,&a);const auto expectedFp=_mm_getcsr();_mm_setcsr(control);
+        host.referenceOverlap=false;b.functions.generated(0x217948)(b.memory.flat(),&y,&b);const auto actualFp=_mm_getcsr();_mm_setcsr(saved);
+        x.cycleLimit=y.cycleLimit;
+        if(actualFp!=expectedFp || x.pc!=0x170000 || std::memcmp(&x,&y,sizeof(x)) || std::memcmp(a.memory.flat(),b.memory.flat(),bozo::kFlatBytes)){
+            std::fprintf(stderr,"matrix build rounding%x seed%u pc%x/%x fp%08x/%08x\n",rounding,seed,x.pc,y.pc,expectedFp,actualFp);
+            for(unsigned i=0;i<bozo::kFlatBytes;++i)if(a.memory.flat()[i]!=b.memory.flat()[i]){std::fprintf(stderr,"RAM byte%x old%02x native%02x\n",i,a.memory.flat()[i],b.memory.flat()[i]);break;}check(false);
+        }
+        ++buildCases;
+    }
+    std::printf("%u mod001 2178c0 matrix compositions match the engine VU0 oracle\n",buildCases);
+    unsigned listCases=0;
+    for(unsigned rounding:{_MM_ROUND_NEAREST,_MM_ROUND_DOWN,_MM_ROUND_UP,_MM_ROUND_TOWARD_ZERO})for(unsigned seed=0;seed<128;++seed){
+        auto &a=old.runtime();auto &b=native.runtime();std::memset(a.memory.flat(),0x6b+seed,bozo::kFlatBytes);
+        const uint32_t stack=seed&1?0x70003000:0x1ffd000|(seed&2?0x20000000u:0u),node=0x1e4000,object=0x1e5000;
+        uint32_t state=seed*2246822519u+rounding;const auto next=[&](int lo,int span){state=state*1664525u+1013904223u;return ((state>>8)&0x807fffffu)|uint32_t((lo+int((state>>4)%unsigned(span)))<<23);};
+        const auto put=[&](uint32_t at,uint32_t v){std::memcpy(a.memory.hostPointer(at,4),&v,4);};
+        put(node+0x230,object);for(unsigned i=0;i<16;++i)put(object+0x190+4*i,next(118,12));
+        for(unsigned i=0;i<4;++i){put(stack+0x30+4*i,i==3?0x3f800000u:next(118,12));put(stack+0x20+4*i,next(118,12));}
+        std::memcpy(b.memory.flat(),a.memory.flat(),bozo::kFlatBytes);
+        R5900Context x{};for(unsigned i=1;i<32;++i){x.r[i].ud[0]=0xce68000000000000ull+seed*32+i;x.r[i].ud[1]=~x.r[i].ud[0];x.f[i]=float(i)/8;}
+        std::memset(x.vu0_vf,0x91,sizeof(x.vu0_vf));std::memset(&x.vu0_acc,0x19,sizeof(x.vu0_acc));x.vu0_status=0x0101;x.vu0_q_bits=0x3f000017;x.vi[0]=0x0101;
+        x.r[29].ud[0]=stack;x.r[31].ud[0]=0x170000;x.r[16].ud[0]=node;x.r[9].ud[0]=stack+0x30;x.r[10].ud[0]=object+0x190;x.r[8].ud[0]=stack+0x20;
+        auto y=x;
+        const auto saved=_mm_getcsr(),control=(saved&~(_MM_ROUND_MASK|0x8040|0x3f))|rounding|(seed&8?0x8040:0);_mm_setcsr(control);
+        host.referenceOverlap=true;a.functions.generated(0x29f674)(a.memory.flat(),&x,&a);const auto expectedFp=_mm_getcsr();_mm_setcsr(control);
+        host.referenceOverlap=false;b.functions.generated(0x29f674)(b.memory.flat(),&y,&b);const auto actualFp=_mm_getcsr();_mm_setcsr(saved);
+        x.cycleLimit=y.cycleLimit;
+        if(actualFp!=expectedFp || x.pc!=0x170000 || std::memcmp(&x,&y,sizeof(x)) || std::memcmp(a.memory.flat(),b.memory.flat(),bozo::kFlatBytes)){
+            std::fprintf(stderr,"list box rounding%x seed%u pc%x/%x fp%08x/%08x\n",rounding,seed,x.pc,y.pc,expectedFp,actualFp);
+            for(unsigned i=0;i<bozo::kFlatBytes;++i)if(a.memory.flat()[i]!=b.memory.flat()[i]){std::fprintf(stderr,"RAM byte%x old%02x native%02x\n",i,a.memory.flat()[i],b.memory.flat()[i]);break;}check(false);
+        }
+        ++listCases;
+    }
+    std::printf("%u mod001 29f5e0 list box node transforms match the engine VU0 oracle\n",listCases);
     // Animated packet UVs. The original loader 219620 (with its mesh cursors
     // and element methods) builds the scratchpad description; a test-only
     // oracle reproduces the original pipeline from it (toSPR chain, callback

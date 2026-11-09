@@ -1229,8 +1229,76 @@ bool nativePlaneContact(R5900Context *c,Runtime *rt,uint32_t pc){
     }
     return true;
 }
+// mod001 1fbad0 (a0 = object, a1 = point; called from mod003 4466c0). All
+// inputs are explicit and every stored lane is defined:
+//  1fbb00..1fbb24  the point (with its own W) through the rows a0+220 to SP+30.
+//  1fbb40..1fbb54  SP+20 (= SP+30 with Y cleared by EE code): squared length
+//                  ((x2+y2)+1*z2, y2, z2, raw W) to SP+10.
+//  1fbb88..1fbb9c  the same for SP+30, to SP+0.
+bool nativeRangeTest(R5900Context *c,Runtime *rt,uint32_t pc){
+    const bool transform=pc>=0x1fbb00 && pc<=0x1fbb24,flat=pc>=0x1fbb40 && pc<=0x1fbb54,full=pc>=0x1fbb88 && pc<=0x1fbb9c;
+    if(!(transform || flat || full) || (pc&3))return false;
+    if(!c)throw std::runtime_error("native range test has no CPU record");
+    const auto stack=c->r[29].uw[0],object=c->r[4].uw[0];
+    if(transform){
+        if(pc==0x1fbb00 && (c->r[6].uw[0]!=object+0x220 || c->r[3].uw[0]!=stack+0x30))throw std::runtime_error("native range test source mismatch");
+        if(pc!=0x1fbb24)return true;
+        if(c->r[3].uw[0]!=stack+0x30)throw std::runtime_error("native range test destination mismatch");
+        LeafInputs m;for(unsigned i=0;i<4;++i)m.rows[i]=leafRecord(rt,object+0x220+16*i);
+        const auto p=leafRecord(rt,c->r[5].uw[0]);Lanes out;
+        {music::NearestRounding rounding;for(unsigned i=0;i<4;++i)out[i]=pairSum(pairSum(pairSum(pairProduct(m.rows[0][i],p[0]),pairProduct(m.rows[1][i],p[1])),pairProduct(m.rows[2][i],p[2])),pairProduct(m.rows[3][i],p[3]));}
+        for(float x:out)if(!std::isfinite(x))throw std::runtime_error("native range test transform overflow");
+        std::memcpy(record(rt,stack+0x30,16),out.data(),16);return true;
+    }
+    const auto source=flat?stack+0x20:stack+0x30,target=flat?stack+0x10:stack;
+    const unsigned sourceRegister=flat?6:5,targetRegister=flat?5:3;
+    if((pc==0x1fbb40 || pc==0x1fbb88) && c->r[sourceRegister].uw[0]!=source)throw std::runtime_error("native range test length source mismatch");
+    if(pc!=0x1fbb54 && pc!=0x1fbb9c)return true;
+    if(c->r[targetRegister].uw[0]!=target)throw std::runtime_error("native range test length destination mismatch");
+    const auto v=leafRecord(rt,source);Lanes out;std::memcpy(out.data(),record(rt,source,16),16);
+    {music::NearestRounding rounding;Lanes sq;for(unsigned i=0;i<3;++i)sq[i]=pairProduct(v[i],v[i]);
+        out[0]=pairSum(pairSum(sq[0],sq[1]),pairProduct(1.f,sq[2]));out[1]=sq[1];out[2]=sq[2];}
+    for(float x:out)if(!std::isfinite(x))throw std::runtime_error("native range test length overflow");
+    std::memcpy(record(rt,target,16),out.data(),16);return true;
+}
+// mod001 2178c0 matrix build: rows a_k at SP+40 (built by EE code from
+// f12..f16) composed with the 216e40 result B at SP+80; row k of s0 is
+// ((B0*a.x + B1*a.y) + B2*a.z) + B3*a.w. All four rows are computed before
+// the first store (2179a8), as the original holds them in VF1..VF4.
+bool nativeMatrixBuild(R5900Context *c,Runtime *rt,uint32_t pc){
+    if(pc<0x217948 || pc>0x2179b4 || (pc&3))return false;
+    if(!c)throw std::runtime_error("native matrix build has no CPU record");
+    const auto stack=c->r[29].uw[0];
+    if(pc==0x217948 && (c->r[5].uw[0]!=stack+0x40 || c->r[3].uw[0]!=stack+0x80))throw std::runtime_error("native matrix build source mismatch");
+    if(pc!=0x2179a8)return true;
+    const auto target=c->r[16].uw[0];if(target&15)throw std::runtime_error("native matrix build destination misaligned");
+    Lanes a[4],b[4],out[4];for(unsigned k=0;k<4;++k){a[k]=leafRecord(rt,stack+0x40+16*k);b[k]=leafRecord(rt,stack+0x80+16*k);}
+    {music::NearestRounding rounding;
+        for(unsigned k=0;k<4;++k)for(unsigned i=0;i<4;++i)
+            out[k][i]=pairSum(pairSum(pairSum(pairProduct(b[0][i],a[k][0]),pairProduct(b[1][i],a[k][1])),pairProduct(b[2][i],a[k][2])),pairProduct(b[3][i],a[k][3]));}
+    for(const auto &row:out)for(float x:row)if(!std::isfinite(x))throw std::runtime_error("native matrix build overflow");
+    std::memcpy(record(rt,target,64),out,64);return true;
+}
+// mod001 29f5e0 list box query (called from 23e1a4): per node s0, the query
+// point copied to SP+30 (W set to 1 by EE code) through the rows
+// *(s0+230)+190, all four lanes to SP+20; the box test is scalar EE code.
+bool nativeListBoxQuery(R5900Context *c,Runtime *rt,uint32_t pc){
+    if(pc<0x29f674 || pc>0x29f698 || (pc&3))return false;
+    if(!c)throw std::runtime_error("native list box query has no CPU record");
+    const auto stack=c->r[29].uw[0],node=c->r[16].uw[0];
+    if(node&3)throw std::runtime_error("native list box query node misaligned");
+    uint32_t object;std::memcpy(&object,rt->memory.hostPointer(node+0x230,4),4);const auto rows=object+0x190;
+    if(pc==0x29f674 && (c->r[9].uw[0]!=stack+0x30 || c->r[10].uw[0]!=rows || c->r[8].uw[0]!=stack+0x20))throw std::runtime_error("native list box query source mismatch");
+    if(pc!=0x29f698)return true;
+    if(c->r[8].uw[0]!=stack+0x20)throw std::runtime_error("native list box query destination mismatch");
+    LeafInputs m;for(unsigned i=0;i<4;++i)m.rows[i]=leafRecord(rt,rows+16*i);
+    const auto p=leafRecord(rt,stack+0x30);Lanes out;
+    {music::NearestRounding rounding;for(unsigned i=0;i<4;++i)out[i]=pairSum(pairSum(pairSum(pairProduct(m.rows[0][i],p[0]),pairProduct(m.rows[1][i],p[1])),pairProduct(m.rows[2][i],p[2])),pairProduct(m.rows[3][i],p[3]));}
+    for(float x:out)if(!std::isfinite(x))throw std::runtime_error("native list box query overflow");
+    std::memcpy(record(rt,stack+0x20,16),out.data(),16);return true;
+}
 bool nativeMathInstruction(uint8_t *,R5900Context *c,Runtime *rt,uint32_t pc){
-    if(nativeProjectionBlocks(c,rt,pc) || nativeBoneAim(c,rt,pc) || nativeChainBlocks(c,rt,pc) || nativeCapsulePair(c,rt,pc) || nativePlaneContact(c,rt,pc))return true;
+    if(nativeProjectionBlocks(c,rt,pc) || nativeBoneAim(c,rt,pc) || nativeChainBlocks(c,rt,pc) || nativeCapsulePair(c,rt,pc) || nativePlaneContact(c,rt,pc) || nativeRangeTest(c,rt,pc) || nativeMatrixBuild(c,rt,pc) || nativeListBoxQuery(c,rt,pc))return true;
     if(nativeLeafSphere(c,rt,pc) || nativeLeafBox(c,rt,pc) || nativeSegmentBox(c,rt,pc))return true;
     if(nativeLengthSite(c,rt,pc) || nativeRecordDot(c,rt,pc) || nativePackedQuaternion(c,rt,pc))return true;
     if(nativeObjectOverlap(c,rt,pc))return true;

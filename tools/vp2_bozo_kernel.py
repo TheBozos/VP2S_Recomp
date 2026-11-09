@@ -465,6 +465,12 @@ def overlay_adaptations(name,data):
         (0x1fc300,0x1fc4b0,'a9be5b8c031115865ed4655227693efe81c616e3e3655dabb7676b7c5689f0f5'),
         # Plane contact 1fbd60 (virtual +8c, called from 1fe208).
         (0x1fbd60,0x1fbe60,'10e4e985badcbb5ef1eb411c7d8e00be4218e387d2f5281d50f8c58faec8415b'),
+        # Range test 1fbad0 (called from mod003 4466c0).
+        (0x1fbad0,0x1fbc80,'576a329a563d8e6cfd35ef06d5d5b8d39425123b780e2c1394b8b9960f68e762'),
+        # Matrix build 2178b0 (composition with the 216e40 result).
+        (0x2178b0,0x2179e0,'b5461480644eaf81f1f1b135c124af2de68bbb0f2f49ef3ae9eaae4441e253cc'),
+        # List box query 29f5e0 (called from 23e1a4).
+        (0x29f5e0,0x29f760,'cc19d75139ab6ece72d006b5460694f94c19ae26f5da1af7eb4c003ce84ba757'),
         # Animated packet UVs: the 2188d0 streaming owner, loader 219620, the
         # UV-scroll callback 29cfe0/descriptor method 29d0d0 and mesh cursors.
         (0x2188d0,0x219608,'efe18082ff8f33e4c91a09af3d3cc3e775706b30795ceaae059e845b6b23546e'),

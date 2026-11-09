@@ -12,6 +12,25 @@ The earlier VP2S face/shading and general brightness comparisons remain open.
 
 ## Build and evidence
 
+### Range test 1fbad0 and matrix build 2178c0 (2026-11-09)
+
+mod001 `1fbad0` (a0 = object, a1 = point, called from mod003 `4466c0`):
+- The point, using its own W, goes through the rows a0+220 to SP+30.
+- EE code copies that to SP+20 with Y cleared. Its squared length
+  `((x²+y²)+1·z², y², z², raw W)` goes to SP+10.
+- The same length of SP+30 goes to SP+0.
+
+Every stored lane comes from explicit inputs. `2178c0` composes the rows that
+EE code builds at SP+40 (from f12..f16) with the `216e40` result at SP+80:
+row k = `((B0·a.x + B1·a.y) + B2·a.z) + B3·a.w`, written to s0. Guards
+`1fbad0..1fbc80` and `2178b0..2179e0`. The bounded math-fixture cases match the
+engine `ps2f` oracle: 1024 for the range test and 512 for the matrix build.
+
+`29f5e0` (called from `23e1a4`) walks a node list. For each node it puts the
+query point (copied to SP+30 with W set to 1) through `*(node+230)+190`, and the
+four lanes go to SP+20; the box test itself is scalar EE code. Guard
+`29f5e0..29f760`; 512 cases match the oracle.
+
 ### Capsule pair 1fc300, third response caller, plane contact 1fbd60 (2026-11-09)
 
 The 1fd110 owner reaches 1fc300 (`a0`=A, `a1`=B, `a2`=weights, `a3`=separation)

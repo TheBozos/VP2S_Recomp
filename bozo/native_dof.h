@@ -10,8 +10,15 @@ struct NativeDofBlock {
 };
 struct NativeDof {
     uint32_t object=0,source=0,width=0,height=0;
-    float gain=0,depthScale=0,glowAlpha=0;
-    bool glow=false;
+    float gain=0,depthScale=0;
+    // Effect A (post +dfbc, 2d6ea0/2d4ca0): threshold/weight /255 and /128,
+    // and the symmetric kernel of the game's Gaussian lerp-tap chain.
+    bool glowA=false;float glowThreshold=0,glowWeight=0;uint8_t glowRadius=0;std::array<float,17> glowKernel{};
+    // Effect B (post +130e0, 2d71e0/2d7a30): per rotation, the four corners of
+    // the 445 image in the (work+1) x (rows+1) work image, truncated as the
+    // game's xy/uv; threshold /255, rotate-in and rotate-back gains.
+    bool glareB=false;float glareThreshold=0,glareIn=0,glareOut=0;uint32_t glareWork=0,glareRows=0;
+    std::vector<std::array<std::array<int32_t,2>,4>> glareCorners;
     std::shared_ptr<const NativeFrameTarget> frame;
     std::vector<NativeDofBlock> blocks;
 };

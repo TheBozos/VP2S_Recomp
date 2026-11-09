@@ -56,12 +56,51 @@ From the harbour GS dump (frame 0, primitives 13841-14254; FBP n = TBP 32n).
 `+131f0`/`+131f4` = 7, `+131f8`/`+131fc` = 128, `+13200` = 89,
 `+13204` = 128, `+13208` = 3.6.
 
-**Not yet done:** the formulas behind the taps, angles and smear weights. They
-come from `2d4ca0`/`2d5e80` (A) and `2d7a30` (B); `2d7a30` uses a Z rotation
-from `217c60`. The REA decompiler can't load MIPS ELF on Windows, so they have
-to be read by hand. Native glow today computes `0.5*(F - 25/255)` and adds each
-level at `0.5*76/128`: a quarter of A's strength. Its glare is a fitted
-two-direction smear.
+**Ported natively (bozo/native_dof.cpp), replacing the old glow and glare.**
+
+Effect A (`2d6ea0` -> `2d4ca0`):
+- The threshold, the weight (`+dfc8`, times the DOF gain / 3 when `+dfb4`) and
+  the three levels follow the dump above.
+- `glowKernel()` replays the Gaussian tap builder `2e6070` in single precision
+  and turns its lerp chain into the effective symmetric kernel.
+- A radius of 3 or less (`2d5e80`) throws as unported.
+
+Effect B (`2d71e0` -> `2d7a30`), per rotation:
+- **Sizes:** work size `S` = table `0x314720[+130e4]`, and rows
+  `s3 = clamp(int(6 * +ac / +130f8), 16, S)`. On the harbour these give
+  S = 196 and s3 = 183, so the work image is 197x184.
+- **Angles:** mode `+130e8` 0 gives four rotations at
+  `+130f0 + pi*(1/4 + k/2) + +130ec`. Mode 1 gives six at
+  `+130f0 + pi*(1/4 + k/3) + +130ec`. Mode 2 gives two at
+  `pi*(1/2 + k) + +130ec`.
+- **Geometry:**
+  - The 445 rectangle is scaled by `S / |(w/2, h/2)|`, integer halves, and
+    centred in the S square.
+  - It is rotated about its centre (`217c60`), then rows are scaled by `s3/S`.
+  - Corners are truncated to integers; these are the rotate-in xy and the
+    rotate-back uv. On the harbour they match the dump exactly.
+- **Rotate-in gain:** `2 * min(255, int(64 * +130f4)) / 128` (ALPHA 0x08).
+  Above 4 the game adds further passes, which throw as unported.
+- **Smear:** a geometric 0.6^k streak along the work rows, made of two
+  passes. Each pass reads the image before the pass.
+  - Pass 0 is bilinear at +1.375 rows, weight `int(128 * 0.96 + 0.5) = 0x7b`.
+    Under the GS sampling rules that is 0.6 at row 1 and 0.36 at row 2.
+  - Pass 1 is nearest at +3 rows, weight `int(128 * 0.216 + 0.5) = 0x1c`.
+- **Rotate-back:** additive into 428 at alpha `+130e2`, times the DOF gain
+  when `+dfb4` (0x98 on the harbour).
+
+Order and thresholds: `2da124` subtracts the two thresholds in increasing
+order, so each effect sees F less its own count. B before A (`+130e1 < +dfc9`)
+would let A's level-0 write (ALPHA 0x88) replace B in 428. That order has not
+been observed and throws as unported.
+
+**Result** (frame 2200, native/PCSX2 luma on an 8x8 grid):
+- Sea cells right of the pier: about 0.92 -> 0.97-1.10.
+- Sky: 1.00-1.07.
+- Dark stone on the left: still 1.17-1.34. That is not B; it fits the
+  unmodelled GS 8-bit truncation and the DOF.
+- Sparkle positions differ because the sea highlights under them differ
+  between the two frames.
 
 ### Harbour post effects: the glow is 2d6ea0/2d71e0, not FUN_002CC570 (2026-11-09)
 

@@ -22,7 +22,10 @@ t2 at the store. Source guard `1f9d40..1f9e94`; 1024 bounded math-fixture
 cases (extreme, zero and random keys, four modes) match the engine `ps2f`
 oracle. The sites are a table; mod001 `2a44e0` adds an interleaved two-key block
 (t2 to SP+110, t5 to SP+100; guard `2a44e0..2a4e20`), 1536 fixture cases in
-total. The route then stops at mod001 `2a440c` (entry `2a40e0`).
+total. mod001 `2a40e0` adds two single keys (SP+30, SP+20) and another
+interleaved pair (SP+50, SP+40; guard `2a40e0..2a44dc`): 3072 fixture cases.
+The route then stops at the collision-tree owner check `1f6f94` (entry
+`1f6f40`).
 
 ### Table-driven vector lengths and the 439180 blocks (2026-11-09)
 

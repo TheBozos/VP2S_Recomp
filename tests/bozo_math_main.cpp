@@ -90,8 +90,8 @@ struct Host:bozo::ee::Host,bozo::port::Host {
             for(unsigned i=0;i<4;++i)output[i]=exactProduct(input[i],reciprocal);
             std::memcpy(p,output,16);return true;
         }
-        if(referenceOverlap && (pc==0x1f9da4 || pc==0x1f9e28 || pc==0x2a4994 || pc==0x2a49a0)){
-            const unsigned laneReg=pc==0x2a49a0?13:10,destinationReg=pc==0x2a4994?4:3;
+        if(referenceOverlap && (pc==0x1f9da4 || pc==0x1f9e28 || pc==0x2a4994 || pc==0x2a49a0 || pc==0x2a418c || pc==0x2a4258 || pc==0x2a4478 || pc==0x2a44a8)){
+            const unsigned laneReg=pc==0x2a49a0 || pc==0x2a44a8?13:10,destinationReg=pc==0x2a4994?4:pc==0x2a44a8?2:3;
             const auto mul=[](uint32_t a,uint32_t b){uint32_t f=0;return bozo::ps2f::mul(a,b,f);};
             const auto sub=[](uint32_t a,uint32_t b){uint32_t f=0;return bozo::ps2f::subNearest(a,b,f);};
             uint32_t out[4],flags=0;for(unsigned i=0;i<3;++i)out[i]=bozo::ps2f::fromFixed(c->r[laneReg].uw[i],15);
@@ -512,7 +512,7 @@ int main(){try{
     }}
     std::printf("%u segment/sphere contact runs (%u contacts) and5 readonly rejections passed\n",contactCases,contacts);
     unsigned packedCases=0;
-    for(unsigned block=0;block<3;++block)for(unsigned rounding:{_MM_ROUND_NEAREST,_MM_ROUND_DOWN,_MM_ROUND_UP,_MM_ROUND_TOWARD_ZERO})for(unsigned seed=0;seed<128;++seed){
+    for(unsigned block=0;block<6;++block)for(unsigned rounding:{_MM_ROUND_NEAREST,_MM_ROUND_DOWN,_MM_ROUND_UP,_MM_ROUND_TOWARD_ZERO})for(unsigned seed=0;seed<128;++seed){
         auto &a=old.runtime();auto &b=native.runtime();std::memset(a.memory.flat(),0x5b+seed,bozo::kFlatBytes);std::memcpy(b.memory.flat(),a.memory.flat(),bozo::kFlatBytes);
         const uint32_t stack=seed&1?0x70003100:0x1ffd600|(seed&2?0x20000000u:0u);
         uint32_t state=seed*1103515245u+block*977+rounding;const auto next=[&](){state=state*1664525u+1013904223u;return int32_t(int16_t(state>>12));};
@@ -522,8 +522,11 @@ int main(){try{
         for(unsigned i=0;i<3;++i)x.r[10].sw[i]=lanes[i];x.r[10].sw[3]=lanes[2]<0?-1:0;
         for(unsigned i=0;i<3;++i)x.r[13].sw[i]=next();x.r[13].sw[3]=x.r[13].sw[2]<0?-1:0;
         const uint32_t keys=0x1e0000;x.r[16].ud[0]=keys;
+        // 2a40e0's pair block reads two key-record pointers through a1 (+24/+28).
+        const uint32_t records=0x1e1000;std::memcpy(a.memory.hostPointer(records+0x24,4),&keys,4);std::memcpy(a.memory.hostPointer(records+0x28,4),&keys,4);
+        std::memcpy(b.memory.hostPointer(records+0x24,4),&keys,4);std::memcpy(b.memory.hostPointer(records+0x28,4),&keys,4);x.r[5].ud[0]=records;
         x.r[29].ud[0]=stack;x.r[31].ud[0]=0x170000;if(block)x.r[3].ud[0]=stack;auto y=x;
-        const uint32_t entry=block==2?0x2a492c:block?0x1f9df8:0x1f9d74;
+        const uint32_t entries[6]={0x1f9d74,0x1f9df8,0x2a492c,0x2a415c,0x2a4228,0x2a440c},entry=entries[block];
         const auto saved=_mm_getcsr(),control=(saved&~(_MM_ROUND_MASK|0x8040|0x3f))|rounding|(seed&8?0x8040:0);_mm_setcsr(control);
         host.referenceOverlap=true;a.functions.generated(entry)(a.memory.flat(),&x,&a);const auto expectedFp=_mm_getcsr();_mm_setcsr(control);
         host.referenceOverlap=false;b.functions.generated(entry)(b.memory.flat(),&y,&b);const auto actualFp=_mm_getcsr();_mm_setcsr(saved);

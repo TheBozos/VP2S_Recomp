@@ -814,7 +814,10 @@ bool nativeRecordDot(R5900Context *c,Runtime *rt,uint32_t pc){
 struct PackedKeySite{uint32_t first,last,store;unsigned laneReg,destinationReg;uint32_t destinationOffset;};
 constexpr PackedKeySite packedKeySites[]={
     {0x1f9d74,0x1f9da4,0x1f9da4,10,3,0x10},{0x1f9df8,0x1f9e28,0x1f9e28,10,3,0x0},
-    {0x2a492c,0x2a49a0,0x2a4994,10,4,0x110},{0x2a492c,0x2a49a0,0x2a49a0,13,3,0x100}};
+    {0x2a492c,0x2a49a0,0x2a4994,10,4,0x110},{0x2a492c,0x2a49a0,0x2a49a0,13,3,0x100},
+    // mod001 2a40e0: two single keys, then an interleaved pair.
+    {0x2a415c,0x2a418c,0x2a418c,10,3,0x30},{0x2a4228,0x2a4258,0x2a4258,10,3,0x20},
+    {0x2a440c,0x2a44a8,0x2a4478,10,3,0x50},{0x2a440c,0x2a44a8,0x2a44a8,13,2,0x40}};
 bool nativePackedQuaternion(R5900Context *c,Runtime *rt,uint32_t pc){
     if(pc&3)return false;bool inside=false;
     for(const auto &site:packedKeySites){

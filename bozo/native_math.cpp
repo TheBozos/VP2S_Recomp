@@ -806,24 +806,33 @@ bool nativeRecordDot(R5900Context *c,Runtime *rt,uint32_t pc){
     {music::NearestRounding rounding;out[0]=pairSum(pairSum(pairProduct(a[0],b[0]),pairProduct(a[1],b[1])),pairProduct(a[2],b[2]));}
     std::memcpy(record(rt,stack+0x50,16),out,16);return true;
 }
-// Packed unit-quaternion keys, mod001 1f9d40: the CPU packs three signed
-// 16-bit components into GPR t2 (lanes x, y, z); the VU0 block converts them
-// (ITOF15, exact) and rebuilds w = sqrt(|1 - x*x - y*y - z*z|) (MSUB chain,
-// nearest even), storing {x, y, z, w} to SP+10 (first key) and SP+0 (second).
+// Packed unit-quaternion keys: the CPU packs three signed 16-bit components
+// into a GPR (lanes x, y, z); the VU0 block converts them (ITOF15, exact) and
+// rebuilds w = sqrt(|1 - x*x - y*y - z*z|) (MSUB chain, nearest even), storing
+// {x, y, z, w}. Blocks: mod001 1f9d40 (t2 to SP+10, then t2 to SP+0) and
+// 2a44e0 (t2 to SP+110 and t5 to SP+100 in one interleaved block).
+struct PackedKeySite{uint32_t first,last,store;unsigned laneReg,destinationReg;uint32_t destinationOffset;};
+constexpr PackedKeySite packedKeySites[]={
+    {0x1f9d74,0x1f9da4,0x1f9da4,10,3,0x10},{0x1f9df8,0x1f9e28,0x1f9e28,10,3,0x0},
+    {0x2a492c,0x2a49a0,0x2a4994,10,4,0x110},{0x2a492c,0x2a49a0,0x2a49a0,13,3,0x100}};
 bool nativePackedQuaternion(R5900Context *c,Runtime *rt,uint32_t pc){
-    const bool first=pc>=0x1f9d74 && pc<=0x1f9da4,second=pc>=0x1f9df8 && pc<=0x1f9e28;
-    if(!(first || second) || (pc&3))return false;
-    if(!c)throw std::runtime_error("native packed quaternion has no CPU record");
-    if(pc!=0x1f9da4 && pc!=0x1f9e28)return true;
-    const auto destination=c->r[29].uw[0]+(first?0x10:0);
-    if(c->r[3].uw[0]!=destination)throw std::runtime_error("native packed quaternion destination mismatch");
-    for(unsigned i=0;i<3;++i){const auto lane=c->r[10].sw[i];if(lane<-32768 || lane>32767)throw std::runtime_error("native packed quaternion lane is not a 16-bit key");}
-    float out[4];
-    {music::NearestRounding rounding;
-        float squares[3];for(unsigned i=0;i<3;++i){out[i]=float(c->r[10].sw[i])/32768.f;squares[i]=pairProduct(out[i],out[i]);}
-        auto rest=pairSum(1.f,-squares[0]);rest=pairSum(rest,-squares[1]);rest=pairSum(rest,-squares[2]);
-        volatile float root=std::sqrt(std::abs(rest));out[3]=pairProduct(1.f,pairNormal(root));}
-    std::memcpy(record(rt,destination,16),out,16);return true;
+    if(pc&3)return false;bool inside=false;
+    for(const auto &site:packedKeySites){
+        if(pc<site.first || pc>site.last)continue;inside=true;
+        if(pc!=site.store)continue;
+        if(!c)throw std::runtime_error("native packed quaternion has no CPU record");
+        const auto destination=c->r[29].uw[0]+site.destinationOffset;
+        if(c->r[site.destinationReg].uw[0]!=destination)throw std::runtime_error("native packed quaternion destination mismatch");
+        for(unsigned i=0;i<3;++i){const auto lane=c->r[site.laneReg].sw[i];if(lane<-32768 || lane>32767)throw std::runtime_error("native packed quaternion lane is not a 16-bit key");}
+        float out[4];
+        {music::NearestRounding rounding;
+            float squares[3];for(unsigned i=0;i<3;++i){out[i]=float(c->r[site.laneReg].sw[i])/32768.f;squares[i]=pairProduct(out[i],out[i]);}
+            auto rest=pairSum(1.f,-squares[0]);rest=pairSum(rest,-squares[1]);rest=pairSum(rest,-squares[2]);
+            volatile float root=std::sqrt(std::abs(rest));out[3]=pairProduct(1.f,pairNormal(root));}
+        std::memcpy(record(rt,destination,16),out,16);
+    }
+    if(inside && !c)throw std::runtime_error("native packed quaternion has no CPU record");
+    return inside;
 }
 bool nativeMathInstruction(uint8_t *,R5900Context *c,Runtime *rt,uint32_t pc){
     if(nativeLengthSite(c,rt,pc) || nativeRecordDot(c,rt,pc) || nativePackedQuaternion(c,rt,pc))return true;

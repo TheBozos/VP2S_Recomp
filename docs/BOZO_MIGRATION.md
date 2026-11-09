@@ -20,7 +20,9 @@ and rebuilds `w = sqrt(|1 - x*x - y*y - z*z|)` (MSUB chain, nearest even),
 storing `{x, y, z, w}` to SP+10 and SP+0. Native sites take the lanes from
 t2 at the store. Source guard `1f9d40..1f9e94`; 1024 bounded math-fixture
 cases (extreme, zero and random keys, four modes) match the engine `ps2f`
-oracle. The route then stops at mod001 `2a492c` (entry `2a47fc`).
+oracle. The sites are a table; mod001 `2a44e0` adds an interleaved two-key block
+(t2 to SP+110, t5 to SP+100; guard `2a44e0..2a4e20`), 1536 fixture cases in
+total. The route then stops at mod001 `2a440c` (entry `2a40e0`).
 
 ### Table-driven vector lengths and the 439180 blocks (2026-11-09)
 

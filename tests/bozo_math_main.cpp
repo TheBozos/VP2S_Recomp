@@ -1291,6 +1291,72 @@ int main(){try{
             ++paletteCases;}
     }
     std::printf("%u mod001 237320 bone palette entries match the 0x898/0x1f8 listing\n",paletteCases);
+    // 237320 tail: the palette is kept at the VIF0 kick (no transfer); 218220
+    // then skins natively. The oracle is generated from the mode-1 listings by
+    // sequential evaluation (tests/bozo_skin_oracle.inc), lane by lane.
+    unsigned skinVertices=0,skinRejects=0;
+    for(unsigned seed=0;seed<160;++seed){
+        auto &r=native.runtime();std::memset(r.memory.flat(),0,bozo::kFlatBytes);
+        uint32_t state=seed*2654435761u+12345;const auto rnd=[&](){state=state*1664525u+1013904223u;return state>>8;};
+        const auto fl=[&](int lo,int span){return (rnd()&0x807fffffu)|uint32_t((lo+int(rnd()%unsigned(span)))<<23);};
+        const auto put=[&](uint32_t at,uint32_t v){std::memcpy(r.memory.hostPointer(at,4),&v,4);};
+        const auto put8=[&](uint32_t at,uint8_t v){std::memcpy(r.memory.hostPointer(at,1),&v,1);};
+        using V=std::array<uint32_t,4>;const auto load=[&](uint32_t at){V v;std::memcpy(v.data(),r.memory.hostPointer(at,16),16);return v;};
+        const uint32_t skeleton=0x1e5000,counts=0x1e5800,manager=0x1e5c00,desc=0x1e6000,table=0x1e6400,positions=0x1e8000,normals=0x1ec000,packedAt=0x1f0000;
+        const unsigned bones=1+seed%12;put(skeleton+0x34,counts);put(counts+4,bones);
+        std::vector<V> rows(4*bones);
+        for(unsigned i=0;i<4*bones;++i){for(auto &x:rows[i])x=fl(118,12);std::memcpy(r.memory.hostPointer(0x70000010+16*i,16),rows[i].data(),16);}
+        put(0x7000000c,0x6c000010u|(4*bones)<<16);
+        R5900Context u{};u.r[20].ud[0]=skeleton;u.r[6].ud[0]=4*bones+1;auto u0=u;
+        for(uint32_t pc:{0x237568u,0x23756cu,0x237574u,0x23757cu,0x2375a4u})check(vp2s::nativeMathInstruction(r.memory.flat(),&u,&r,pc));
+        check(!std::memcmp(&u,&u0,sizeof(u)));
+        // Scratchpad reuse after the kick must not change the uploaded palette.
+        for(unsigned i=0;i<4*bones;++i)std::memset(r.memory.hostPointer(0x70000010+16*i,16),0x55,16);
+        put(0x35ddb8,manager);put8(manager+0x51,1);
+        const unsigned vertices=1+rnd()%24;const bool packed=seed%3!=0,rigid=seed%5==1;const unsigned index=seed%2;
+        put(desc,seed%17==4?0:vertices);put(desc+4,positions);put(desc+8,normals);put(desc+0x14,packed?packedAt:0);put(desc+0x1c+4*index,table);
+        put8(table+6,rigid);put(table+8,0x100);put(table+0xc,0x400);
+        const unsigned processed=seed%17==4?1:vertices;
+        struct In{V p,n;int16_t t[4];unsigned count;uint8_t first;int8_t extra[3];uint32_t w[4];};std::vector<In> in(processed);
+        uint32_t bonesAt=table+0x100,weightsAt=table+0x400,countsAt=table+0x10;
+        for(auto &v:in){
+            for(auto &x:v.p)x=fl(120,10);for(auto &x:v.n)x=fl(122,6);for(auto &x:v.t)x=int16_t(rnd()&0xffff);
+            v.count=rigid?0:rnd()%5;v.first=uint8_t(16+4*(rnd()%bones));put8(bonesAt++,v.first);
+            if(!rigid){put8(countsAt++,uint8_t(v.count));const unsigned extras=v.count==0?0:v.count>=3?3:v.count;
+                for(unsigned j=0;j<extras;++j){v.extra[j]=int8_t(rnd()%bones);put8(bonesAt++,uint8_t(v.extra[j]));}
+                const unsigned ws=extras+1;for(unsigned j=0;j<ws;++j){v.w[j]=fl(122,5);put(weightsAt,v.w[j]);weightsAt+=4;}}
+        }
+        for(unsigned k=0;k<processed;++k){std::memcpy(r.memory.hostPointer(positions+16*k,16),in[k].p.data(),16);std::memcpy(r.memory.hostPointer(normals+16*k,16),in[k].n.data(),16);
+            if(packed)std::memcpy(r.memory.hostPointer(packedAt+8*k,8),in[k].t,8);}
+        R5900Context x{};for(unsigned i=1;i<32;++i)x.r[i].ud[0]=0x2468000000000000ull+i;x.r[5].ud[0]=desc;x.r[6].ud[0]=index;auto y=x;
+        check(vp2s::nativeMathInstruction(r.memory.flat(),&y,&r,0x21822c));
+        x.r[3].sd[0]=int32_t(packed?packedAt:0);check(!std::memcmp(&x,&y,sizeof(x)));
+        const auto M=[](uint32_t a,uint32_t b){uint32_t f=0;return bozo::ps2f::mul(a,b,f);};
+        const auto A=[](uint32_t a,uint32_t b){uint32_t f=0;return bozo::ps2f::addNearest(a,b,f);};
+        const auto I12=[](uint32_t v){volatile float f=float(int32_t(v))*(1.f/4096.f);return std::bit_cast<uint32_t>(f);};
+        const auto F12=[](uint32_t v){if((v&0x7f800000)==0x7f800000)return v&0x80000000?0x80000000u:0x7fffffffu;
+            const double d=double(std::bit_cast<float>((v&0x7f800000)?v:(v&0x80000000)))*4096.;
+            return d>=2147483647.?0x7fffffffu:d<=-2147483648.?0x80000000u:uint32_t(int32_t(d));};
+        const auto mem=[&](int q){check(q>=16 && q<16+int(4*bones));return rows[unsigned(q-16)];};
+        for(unsigned k=0;k<processed;++k){
+            const auto &v=in[k];V vf[12]{};vf[5]=v.p;vf[6]=v.n;for(unsigned i=0;i<4;++i)vf[11][i]=uint32_t(int32_t(v.t[i]));
+            int vi[5]={0,v.first,v.extra[0],v.extra[1],v.extra[2]};for(unsigned j=0;j<4;++j)vf[7+j][0]=v.w[j];
+            const unsigned program=(packed?0x340:0)+(rigid||v.count==0?0:v.count==1?(packed?0x78:0x58):v.count==2?(packed?0x170:0x108):(packed?0x2d0:0x200));
+            V vf30{},vf31{},vf29{};
+#include "bozo_skin_oracle.inc"
+            const auto gotP=load(positions+16*k),gotN=load(normals+16*k);
+            if(gotP!=vf30 || gotN!=vf31){std::fprintf(stderr,"skin seed%u vertex%u program %x: P %08x %08x %08x %08x / %08x %08x %08x %08x N %08x / %08x\n",seed,k,program,
+                gotP[0],gotP[1],gotP[2],gotP[3],vf30[0],vf30[1],vf30[2],vf30[3],gotN[0],vf31[0]);check(false);}
+            if(packed){int16_t h[4];std::memcpy(h,r.memory.hostPointer(packedAt+8*k,8),8);
+                for(unsigned i=0;i<4;++i)if(uint16_t(h[i])!=uint16_t(vf29[i])){std::fprintf(stderr,"skin seed%u vertex%u program %x packed lane %u %04x / %04x\n",seed,k,program,i,uint16_t(h[i]),uint16_t(vf29[i]));check(false);}}
+            ++skinVertices;
+        }
+        // A bone outside the uploaded palette rejects before any write.
+        put8(table+0x100,uint8_t(16+4*bones));for(unsigned k=0;k<processed;++k)std::memcpy(r.memory.hostPointer(positions+16*k,16),in[k].p.data(),16);
+        auto z=x;try{vp2s::nativeMathInstruction(r.memory.flat(),&z,&r,0x21822c);check(false);}catch(const std::runtime_error &){++skinRejects;}
+        check(load(positions)==in[0].p);
+    }
+    std::printf("%u mod001 218220 skinned vertices match the mode-1 listings (%u out-of-palette rejects)\n",skinVertices,skinRejects);
     // Animated packet UVs. The original loader 219620 (with its mesh cursors
     // and element methods) builds the scratchpad description; a test-only
     // oracle reproduces the original pipeline from it (toSPR chain, callback

@@ -724,7 +724,11 @@ bool nativeUvAnimation(R5900Context *c,Runtime *rt,uint32_t pc){
     const auto halfAt=object+0x84;const int16_t chunks=int16_t(uvWord(rt,halfAt&~3u)>>((halfAt&2)*8));
     if(chunks>0){
         const auto flags=uvWord(rt,object+0x58);
-        if(!(flags&8) || (flags&~0x28u))throw std::runtime_error("unported animated vertex attribute set");
+        if(!(flags&8) || (flags&~0x28u)){
+            // Report the element classes: the next port step depends on them.
+            std::string list;const auto n=c->r[21].uw[0],at=c->r[29].uw[0]+0xe0;
+            for(unsigned i=0;i<n && i<16;++i){const auto e=uvWord(rt,at+4*i),vt=uvWord(rt,e);list+=std::format(" e{:x}:vt{:x}/+10={:x}",e,vt,uvWord(rt,vt+0x10));}
+            throw std::runtime_error(std::format("unported animated vertex attribute set {:x} object={:x} elements{}",flags,object,list));}
         const auto iterator=uvWord(rt,uvWord(rt,object+0x54)+0x644),data=uvWord(rt,iterator+8);
         if(!data)throw std::runtime_error("native UV animation model has no mesh data");
         const bool unaligned=(uvWord(rt,iterator+0x1c)&0xff)!=0;const uint32_t base=unaligned?data:((data+0x7f)&~0x7fu);
@@ -1611,7 +1615,128 @@ bool nativeBonePalette(R5900Context *c,Runtime *rt,uint32_t pc){
     P[3]={vuAdd(0,N[0][3]),vuAdd(0,N[1][3]),vuAdd(0,N[2][3]),N[3][3]};
     std::memcpy(record(rt,s1,64),P,64);return true;
 }
+// VU0 data qwords 16.. as 237320 leaves them: its tail writes a V4-32 UNPACK
+// of the scratchpad palette (4n qwords to VU0 qword 16) and starts VIF0. The
+// only readers are the mode-1 skinning programs that 218220 runs. Natively the
+// palette is kept at that kick; no VIF/DMA transfer or completion exists.
+struct SkinPalette{const Runtime *owner=nullptr;uint32_t bones=0;std::vector<VuWords> rows;};
+SkinPalette &skinPalette(){static SkinPalette palette;return palette;}
+uint32_t skinWord(Runtime *rt,uint32_t at){
+    if(at&3)throw std::runtime_error("native skinning word misaligned");
+    const auto *p=rt->memory.hostPointer(at,4);if(!p || (at&0x1ffffffu)<0x100000)throw std::runtime_error("native skinning record outside EE RAM");
+    uint32_t v;std::memcpy(&v,p,4);return v;}
+uint8_t skinByte(Runtime *rt,uint32_t at){
+    const auto *p=rt->memory.hostPointer(at,1);if(!p || (at&0x1ffffffu)<0x100000)throw std::runtime_error("native skinning stream outside EE RAM");return *p;}
+bool nativeSkinUpload(R5900Context *c,Runtime *rt,uint32_t pc){
+    if(pc!=0x237568 && pc!=0x23756c && pc!=0x237574 && pc!=0x23757c && pc!=0x2375a4)return false;
+    if(!c)throw std::runtime_error("native skin palette upload has no CPU record");
+    // 237568 busy byte, 23756c QWC, 237574 MADR, 23757c D_STAT, 2375a4 CHCR:
+    // no transfer is started, so no completion will clear a busy flag.
+    if(pc!=0x2375a4)return true;
+    const auto skeleton=c->r[20].uw[0];const auto bones=skinWord(rt,skinWord(rt,skeleton+0x34)+4);
+    if(int32_t(bones)<1 || bones>60)throw std::runtime_error("native skin palette outside VU0 data memory");
+    uint32_t tag;std::memcpy(&tag,record(rt,0x70000000,16)+12,4);
+    if(c->r[6].uw[0]!=4*bones+1 || tag!=(0x6c000010u|(4*bones)<<16))throw std::runtime_error("native skin palette upload escaped its original tag");
+    auto &palette=skinPalette();palette.owner=rt;palette.bones=bones;palette.rows.resize(4*bones);
+    for(uint32_t i=0;i<4*bones;++i)palette.rows[i]=vuWords(rt,0x70000010+16*i);
+    return true;
+}
+// mod001 218220 (skeleton vtable +34): software skinning of one mesh with the
+// mode-1 programs, palette rows R at VU0 qwords 16+4j as uploaded above.
+// rot(R,v) = ((R0*v.x + R1*v.y) + R2*v.z), aff(R,p) = rot(R,p) + R3*1 (all
+// lanes); weighted sums accumulate left to right as one VU ACC chain. Records:
+// desc+0 count (at least one vertex is processed), +4 positions, +8 normals
+// (16 bytes each, in place), +14 packed s16x4 vectors (236bc0 path, 0 = none),
+// +1c+4i table: +6 rigid flag, +8 bone-address bytes, +c weights, +10 counts.
+// Faithful quirks of the listings (the PS2 computes them):
+// - 0x340..: T = itof12(packed); out vector = ftoi12(blend of rot(R,T)).xyz | T.w.
+// - 0x3b8: the normal's second term is the blended T (it reuses vf29).
+// - 0x4b0: weight 1 is B0.x (lq vf19 replaces it); the normal's second term is
+//   the blended T, its third rot(C, rot(B,T)).
+// - 0x610: the normal's fourth term is rot(D, aff(C,P)) (vf24 reused).
+struct SkinVertex{VuWords p,n,t;bool packed;uint32_t bone[4];uint32_t w[4];unsigned count;};
+VuWords skinRot(const VuWords *R,const VuWords &v){VuWords o;for(unsigned i=0;i<4;++i)o[i]=vuAdd(vuAdd(vuMul(R[0][i],v[0]),vuMul(R[1][i],v[1])),vuMul(R[2][i],v[2]));return o;}
+VuWords skinAff(const VuWords *R,const VuWords &v){auto o=skinRot(R,v);for(unsigned i=0;i<4;++i)o[i]=vuAdd(o[i],vuMul(R[3][i],0x3f800000u));return o;}
+VuWords skinBlend(std::initializer_list<std::pair<VuWords,uint32_t>> terms){
+    VuWords acc{};bool first=true;
+    for(const auto &[v,w]:terms){for(unsigned i=0;i<4;++i)acc[i]=first?vuMul(v[i],w):vuAdd(acc[i],vuMul(v[i],w));first=false;}
+    return acc;}
+uint32_t skinItof12(uint32_t v){volatile float f=float(int32_t(v))*(1.f/4096.f);return std::bit_cast<uint32_t>(f);}
+uint32_t skinFtoi12(uint32_t v){
+    // PS2 floats have no infinities or NaNs: exponent 255 is just large.
+    if((v&0x7f800000)==0x7f800000)return v&0x80000000?0x80000000u:0x7fffffffu;
+    const auto b=(v&0x7f800000)?v:(v&0x80000000);const double fixed=double(std::bit_cast<float>(b))*4096.;
+    if(fixed>=2147483647.)return 0x7fffffffu;if(fixed<=-2147483648.)return 0x80000000u;return uint32_t(int32_t(fixed));}
+void skinVertex(const SkinVertex &v,VuWords &position,VuWords &normal,VuWords &packed){
+    const auto &palette=skinPalette();const uint32_t one=0x3f800000u;
+    VuWords B[4][4];for(unsigned k=0;k<v.count;++k)for(unsigned r=0;r<4;++r)B[k][r]=palette.rows[4*v.bone[k]+r];
+    VuWords P,N,T{};for(unsigned i=0;i<4;++i){P[i]=vuMul(v.p[i],one);N[i]=vuMul(v.n[i],one);if(v.packed)T[i]=skinItof12(v.t[i]);}
+    const auto *A=B[0];
+    if(!v.packed){
+        if(v.count==1){position=skinAff(A,P);normal=skinRot(A,N);return;}
+        if(v.count==2){position=skinBlend({{skinAff(A,P),v.w[0]},{skinAff(B[1],P),v.w[1]}});normal=skinBlend({{skinRot(A,N),v.w[0]},{skinRot(B[1],N),v.w[1]}});return;}
+        if(v.count==3){position=skinBlend({{skinAff(A,P),v.w[0]},{skinAff(B[1],P),v.w[1]},{skinAff(B[2],P),v.w[2]}});
+            normal=skinBlend({{skinRot(A,N),v.w[0]},{skinRot(B[1],N),v.w[1]},{skinRot(B[2],N),v.w[2]}});return;}
+        position=skinBlend({{skinAff(A,P),v.w[0]},{skinAff(B[1],P),v.w[1]},{skinAff(B[2],P),v.w[2]},{skinAff(B[3],P),v.w[3]}});
+        normal=skinBlend({{skinRot(A,N),v.w[0]},{skinRot(B[1],N),v.w[1]},{skinRot(B[2],N),v.w[2]},{skinRot(B[3],N),v.w[3]}});return;
+    }
+    VuWords tangent;
+    if(v.count==1){position=skinAff(A,P);normal=skinRot(A,N);tangent=skinRot(A,T);}
+    else if(v.count==2){
+        position=skinBlend({{skinAff(A,P),v.w[0]},{skinAff(B[1],P),v.w[1]}});
+        tangent=skinBlend({{skinRot(A,T),v.w[0]},{skinRot(B[1],T),v.w[1]}});tangent[3]=T[3];
+        normal=skinBlend({{skinRot(A,N),v.w[0]},{tangent,v.w[1]}});
+    }else if(v.count==3){
+        const uint32_t w1=B[1][0][0];const auto bt=skinRot(B[1],T);
+        position=skinBlend({{skinAff(A,P),w1},{skinAff(B[1],P),v.w[1]},{skinAff(B[2],P),v.w[2]}});
+        tangent=skinBlend({{skinRot(A,T),w1},{bt,v.w[1]},{skinRot(B[2],T),v.w[2]}});tangent[3]=T[3];
+        normal=skinBlend({{skinRot(A,N),w1},{tangent,v.w[1]},{skinRot(B[2],bt),v.w[2]}});
+    }else{
+        position=skinBlend({{skinAff(A,P),v.w[0]},{skinAff(B[1],P),v.w[1]},{skinAff(B[2],P),v.w[2]},{skinAff(B[3],P),v.w[3]}});
+        tangent=skinBlend({{skinRot(A,T),v.w[0]},{skinRot(B[1],T),v.w[1]},{skinRot(B[2],T),v.w[2]},{skinRot(B[3],T),v.w[3]}});
+        normal=skinBlend({{skinRot(A,N),v.w[0]},{skinRot(B[1],N),v.w[1]},{skinRot(B[2],N),v.w[2]},{skinRot(B[3],skinAff(B[2],P)),v.w[3]}});
+    }
+    tangent[3]=T[3];for(unsigned i=0;i<4;++i)packed[i]=skinFtoi12(tangent[i]);
+}
+bool nativeSoftSkin(R5900Context *c,Runtime *rt,uint32_t pc){
+    if(pc!=0x21822c)return false;
+    if(!c)throw std::runtime_error("native skinning has no CPU record");
+    const auto manager=skinWord(rt,0x35ddb8);
+    if(skinByte(rt,manager+0x51)!=1)throw std::runtime_error("native skinning outside VU0 mode 1");
+    const auto &palette=skinPalette();if(palette.owner!=rt || !palette.bones)throw std::runtime_error("native skinning without an uploaded palette");
+    const auto desc=c->r[5].uw[0];const auto index=c->r[6].uw[0];
+    const auto packedAt=skinWord(rt,desc+0x14);c->r[3].sd[0]=int32_t(packedAt);   // the replaced lw v1,14(a1)
+    const int32_t count=int32_t(skinWord(rt,desc));const unsigned vertices=count<1?1u:unsigned(count);
+    if(vertices>0x10000)throw std::runtime_error("native skinning vertex count outside bounds");
+    uint32_t positions=skinWord(rt,desc+4),normals=skinWord(rt,desc+8),packed=packedAt;
+    const auto table=skinWord(rt,desc+0x1c+4*index);
+    uint32_t bones=table+skinWord(rt,table+8),weights=table+skinWord(rt,table+0xc),counts=table+0x10;
+    const bool rigid=skinByte(rt,table+6)!=0;
+    const auto address=[&](uint32_t qword){if(qword<16 || (qword-16)%4 || (qword-16)/4>=palette.bones)throw std::runtime_error("native skinning bone outside the palette");return (qword-16)/4;};
+    const auto extra=[&](uint8_t b){const int32_t j=int8_t(b);if(j<0 || uint32_t(j)>=palette.bones)throw std::runtime_error("native skinning bone outside the palette");return uint32_t(j);};
+    const uint32_t savedCsr=_mm_getcsr();
+    for(unsigned k=0;k<vertices;++k){
+        SkinVertex v{};v.packed=packed!=0;
+        v.p=vuWords(rt,positions);v.n=vuWords(rt,normals);
+        if(v.packed){uint8_t h[8];std::memcpy(h,rt->memory.hostPointer(packed,8),8);for(unsigned i=0;i<4;++i)v.t[i]=uint32_t(int32_t(int16_t(h[2*i]|h[2*i+1]<<8)));}
+        if(rigid){v.count=1;v.bone[0]=address(skinByte(rt,bones++));}
+        else{
+            const unsigned n=skinByte(rt,counts++);v.bone[0]=address(skinByte(rt,bones++));
+            v.count=n==0?1:n==1?2:n==2?3:4;
+            for(unsigned j=1;j<v.count;++j)v.bone[j]=extra(skinByte(rt,bones++));
+            for(unsigned j=0;j<v.count;++j)v.w[j]=skinWord(rt,weights+4*j);
+            weights+=4*v.count;
+        }
+        VuWords position,normal,out{};skinVertex(v,position,normal,out);
+        std::memcpy(record(rt,positions,16),position.data(),16);std::memcpy(record(rt,normals,16),normal.data(),16);
+        if(v.packed){uint8_t h[8];for(unsigned i=0;i<4;++i){h[2*i]=uint8_t(out[i]);h[2*i+1]=uint8_t(out[i]>>8);}std::memcpy(rt->memory.hostPointer(packed,8),h,8);packed+=8;}
+        positions+=16;normals+=16;
+    }
+    _mm_setcsr(savedCsr);
+    return true;
+}
 bool nativeMathInstruction(uint8_t *,R5900Context *c,Runtime *rt,uint32_t pc){
+    if(nativeSkinUpload(c,rt,pc) || nativeSoftSkin(c,rt,pc))return true;
     if(nativeProjectionBlocks(c,rt,pc) || nativeBoneAim(c,rt,pc) || nativeChainBlocks(c,rt,pc) || nativeCapsulePair(c,rt,pc) || nativePlaneContact(c,rt,pc) || nativeRangeTest(c,rt,pc) || nativeMatrixBuild(c,rt,pc) || nativeListBoxQuery(c,rt,pc) || nativeHitFrame(c,rt,pc) || nativePlaneDistance(c,rt,pc) || nativeSphereSweep(c,rt,pc) || nativeSegmentApproach(c,rt,pc) || nativeWorldPosition(c,rt,pc) || nativeCameraTarget(c,rt,pc) || nativeRootLength(c,rt,pc) || nativeVisibilityLoop(c,rt,pc) || nativeQuaternionLeaf(c,rt,pc) || nativeBonePalette(c,rt,pc))return true;
     if(nativeLeafSphere(c,rt,pc) || nativeLeafBox(c,rt,pc) || nativeSegmentBox(c,rt,pc))return true;
     if(nativeLengthSite(c,rt,pc) || nativeRecordDot(c,rt,pc) || nativePackedQuaternion(c,rt,pc))return true;

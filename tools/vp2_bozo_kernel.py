@@ -489,6 +489,10 @@ def overlay_adaptations(name,data):
         (0x2156d0,0x2156e8,'e317b2772c4ebd373baa795372187d9c541fe2d0ece4d2f69585fd8911266dbd'),
         # Bone palette 237320 (program 0x898 entering the 0x1f0 transpose at 0x1f8).
         (0x237320,0x2375c8,'29885909d6d7b8900f6d3e27a6a4c100d75b4a2c18ff598375914e1a2b21822d'),
+        # Software skinning 218220 and its packed-vector variant 236bc0 (mode-1
+        # programs 0x0/0x58/0x108/0x200 and 0x340/0x3b8/0x4b0/0x610).
+        (0x218220,0x218600,'35183e9abb9e94a7f369a09f9e5d76439087bfbe43e7e856a8e061d476f500a8'),
+        (0x236bc0,0x2370a0,'7efe1af04925d7bbec2bcb1cb3d243d03d9c9e27d53c4e7ca1a43ca128348700'),
         # Animated packet UVs: the 2188d0 streaming owner, loader 219620, the
         # UV-scroll callback 29cfe0/descriptor method 29d0d0 and mesh cursors.
         (0x2188d0,0x219608,'efe18082ff8f33e4c91a09af3d3cc3e775706b30795ceaae059e845b6b23546e'),
@@ -704,7 +708,9 @@ def overlay_adaptations(name,data):
             raise ValueError('USA graphics setup body signature mismatch')
     # Native callbacks/jobs need no PS2 global enable or channel-nine routing
     # bit. Preserve every game allocation, record and callback registration.
-    return ('0030ce84 3c011000 00000000\n'
+    return (# 218220 skins natively at 21822c, then branches to its epilogue.
+            '00218230 10600005 100000ef\n'
+            '0030ce84 3c011000 00000000\n'
             '0030ce8c 8c230000 00000000\n'
             '0030ce90 00621021 00000000\n'
             '0030ce94 3042000f 00000000\n'
@@ -857,6 +863,7 @@ def overlay_native_sites(name,data):
         0x23720c,0x237210,0x237214,0x237218,0x237224,0x237260,0x237264,0x237268,0x23726c,
         0x237270,0x237274,0x237278,0x23727c,0x237280,0x237284,0x237288,0x23728c,0x237290,
         0x23729c,0x2372b8,0x2372bc,0x2372c0,0x2372c4,0x2372c8,
+        0x21822c,0x237568,0x23756c,0x237574,0x23757c,0x2375a4,
         0x2075bc,0x2075cc,0x30ce84,0x306a10,0x306b84,0x306bc4,0x306c58,
         0x30ee00,0x30ef20,0x30ef2c,0x30ef44,0x30ef78,0x30efb8,0x30eff4,0x30f028,0x30f070,0x30ed90,
         0x214540,0x2e9640,0x2e970c,0x2e95d0,0x2e9e90,0x2ea154,0x2ea338,0x2ead10,0x2eae90,0x2eb07c,0x2eb284,0x2eb2ec,0x2eb300,0x2eb320,0x2eb340,0x2eb378,

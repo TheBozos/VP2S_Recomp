@@ -12,6 +12,57 @@ The earlier VP2S face/shading and general brightness comparisons remain open.
 
 ## Build and evidence
 
+### Harbour post effects A and B: the PS2 pass sequence (2026-11-09)
+
+From the harbour GS dump (frame 0, primitives 13841-14254; FBP n = TBP 32n).
+`F` is the frame before the 2x pass.
+
+**Shared setup:**
+- 13841: F -> 396 at 512x512.
+- 13861: downsample to 256x256.
+- 13869: downsample to 445 at 128x89.
+- 13870: frame x2 (ALPHA 0x49).
+- 13878-14089: DOF (depth -> 398/428 weights, blurs, composites onto 198).
+
+**Effect A (glow, `+dfbc`):**
+- 14097: `445 -= 25/255` (ALPHA 0x42, colour = `+dfc9` = 25).
+- 14099: copy x1 into 396 at 128x89 (ALPHA 0x08 at vertex 0x40).
+- 14100/14101: downsample to 398 (64x44) and 412 (32x22).
+- Each level gets a separable blur: base copy, then six lerps `C += (S - C)*a`
+  in this order (bilinear, then the same vertically):
+
+  | Offset (px) | -5 | +5 | -3.25 | +3.25 | -1.375 | +1.375 |
+  |---|---|---|---|---|---|---|
+  | a (/128) | 4 | 4 | 34 | 27 | 54 | 38 |
+
+- 14182-14186: `428 = sum over levels of level * 76/128`. 76 is byte `+130e2`
+  (0x4c), and level 0 is written with ALPHA 0x88, the others with 0x48.
+
+**Effect B (glare, `+130e0`):**
+- 14188: `445 -= 77/255`, so 102 in total (`+130e1` = 102, minus A's 25).
+- Then four times:
+  1. Clear 396 (197x184).
+  2. Draw 445 rotated into 396 at `2*38/128` (ALPHA 0x08, vertex 0x26).
+  3. Smear along 396's y axis: `+= 0.961*I(y-0.875)` (bilinear), then
+     `+= 0.219*I(y-2.5)` (nearest).
+  4. Rotate back into 428 additively at 152/128 (vertex alpha 0x98).
+- The four rotations put 445's u axis at about 74, 166, 254 and 346 degrees,
+  scaled about 1.2.
+
+**Final:** 14254 adds 428 (scaled up from 128x89) to the doubled frame, x1.
+
+**Harbour field values:** `+130f0` = 0.5236 (30 deg), `+130f4` = 0.6,
+`+130f8` = 16.73, `+130e4` = 2, `+130ec` ~ 0, `+dfa8` = 1.4286, `+dfc0` = 9,
+`+131f0`/`+131f4` = 7, `+131f8`/`+131fc` = 128, `+13200` = 89,
+`+13204` = 128, `+13208` = 3.6.
+
+**Not yet done:** the formulas behind the taps, angles and smear weights. They
+come from `2d4ca0`/`2d5e80` (A) and `2d7a30` (B); `2d7a30` uses a Z rotation
+from `217c60`. The REA decompiler can't load MIPS ELF on Windows, so they have
+to be read by hand. Native glow today computes `0.5*(F - 25/255)` and adds each
+level at `0.5*76/128`: a quarter of A's strength. Its glare is a fitted
+two-direction smear.
+
 ### Harbour post effects: the glow is 2d6ea0/2d71e0, not FUN_002CC570 (2026-11-09)
 
 The previous commit gated the native glow on `post+eee4`. That commit has been

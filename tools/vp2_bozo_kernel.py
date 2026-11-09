@@ -457,6 +457,7 @@ def overlay_adaptations(name,data):
         # Segment against the hit box and its scalar clip helper.
         (0x1f6740,0x1f6a38,'8f1a0059234b0a2a618cda8a7256f38c0d24c2c607e9084f830997710e4231cd'),
         (0x1f6670,0x1f6740,'92c9dc03014f3b4f3e397b26c1fbd1a159d01833f9ef6334666c662975fab1c8'),
+        (0x246760,0x246ed8,'76eb263da293367e94e61afd20b6b6904f0e05bf5395ce7ed594dd6b1fd1aadf'),
         # Animated packet UVs: the 2188d0 streaming owner, loader 219620, the
         # UV-scroll callback 29cfe0/descriptor method 29d0d0 and mesh cursors.
         (0x2188d0,0x219608,'efe18082ff8f33e4c91a09af3d3cc3e775706b30795ceaae059e845b6b23546e'),

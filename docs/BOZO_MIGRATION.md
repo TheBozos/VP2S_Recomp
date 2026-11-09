@@ -12,6 +12,21 @@ The earlier VP2S face/shading and general brightness comparisons remain open.
 
 ## Build and evidence
 
+### 246760 projection blocks; omitted getter 3cceb0 (2026-11-09)
+
+mod001 `246760` has five VU0 blocks: two row.point products of the matrix at
+SP+130 (points SP+1b0 / SP+1a0 into SP+190 / SP+180, row sums in the original
+orders x `(x+y)+z+w`, y `(y+x)+z+w`, z `(z+y)+x+w`, w `(w+y)+z+x`), each
+followed by an in-place divide by its W (`Q = 1/w` on all lanes; zero depth
+rejects), and a composition of the rows at SP+e0 with the matrix at s5+90,
+written back over it. Guard `246760..246ed8`; 1920 bounded math-fixture cases
+match the engine `ps2f` oracle.
+
+A vtable call from mod003 `3cdd74` then reached `3cceb0`, a small leaf getter
+the analysis export omitted (it packs record fields and returns); preparation
+exposes the fingerprinted span `3cceb0..3cced8`. The route then stops at
+mod001 `1fe400` (entry `1fe210`).
+
 ### Segment against the hit box; omitted adjustment thunks (2026-11-09)
 
 mod003 `3e6d30` follows a collision-tree hit with mod001 `1f6740`. On a hit,

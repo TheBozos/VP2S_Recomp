@@ -106,6 +106,10 @@ def overlay_entries(name,data):
             raise ValueError('USA adjustment thunk run mismatch')
         for lo in range(0x42a940,0x42a980,16):
             entries.append(dict(Name=f'adjustment_thunk_{lo:08x}',Start=hex(lo),End=hex(lo+16)))
+        # Omitted virtual leaf getter (packs record fields; jr ra), reached from 3cdd74.
+        if hashlib.sha256(span(0x3cceb0,0x3cced8)).hexdigest()!='85c00c0b2f761810b3601ba167d0e2a6d19992d06dcf33344e69e443d07a1527':
+            raise ValueError('USA omitted getter 3cceb0 mismatch')
+        entries.append(dict(Name='virtual_getter_003cceb0',Start='0x3cceb0',End='0x3cced8'))
     return entries
 
 

@@ -970,7 +970,54 @@ bool nativeSegmentBox(R5900Context *c,Runtime *rt,uint32_t pc){
     float out[3];{music::NearestRounding rounding;for(unsigned i=0;i<3;++i)out[i]=pairSum(pairProduct(point[i],1.f),pairProduct(direction[i],t));}
     std::memcpy(record(rt,c->r[20].uw[0]+(pc==0x1f69b0?0x10:0),16),out,12);return true;
 }
+// mod001 246760: two row.point products of the matrix at SP+130 (points
+// SP+1b0 / SP+1a0 into SP+190 / SP+180), each followed by an in-place divide
+// by its W (Q = 1/w, all four lanes), then a composition of the rows at SP+e0
+// with the matrix at s5+90, written back over s5+90. Row sums keep the
+// original orders: x (x+y)+z+w, y (y+x)+z+w, z (z+y)+x+w, w (w+y)+z+x.
+bool nativeProjectionBlocks(R5900Context *c,Runtime *rt,uint32_t pc){
+    struct Block{uint32_t first,last,store;unsigned kind;uint32_t point,out;};   // kind 0 product, 1 divide, 2 compose
+    static constexpr Block blocks[]={{0x246944,0x24699c,0x24699c,0,0x1b0,0x190},{0x2469b8,0x2469c8,0x2469c8,1,0x190,0x190},
+                                     {0x2469d8,0x246a30,0x246a30,0,0x1a0,0x180},{0x246a4c,0x246a5c,0x246a5c,1,0x180,0x180},
+                                     {0x246e1c,0x246e88,0x246e7c,2,0,0}};
+    const Block *block=nullptr;for(const auto &b:blocks)if(pc>=b.first && pc<=b.last && !(pc&3)){block=&b;break;}
+    if(!block)return false;
+    if(!c)throw std::runtime_error("native projection block has no CPU record");
+    const auto stack=c->r[29].uw[0];
+    if(block->kind==2){
+        const auto target=c->r[21].uw[0]+0x90;
+        if(c->r[3].uw[0]!=stack+0xe0 || c->r[2].uw[0]!=target || c->r[4].uw[0]!=target || c->r[21].uw[0]<0x100000)
+            throw std::runtime_error("native projection composition escaped its records");
+        if(pc!=block->store)return true;
+        Lanes rows[4],m[4],out[4];for(unsigned k=0;k<4;++k){rows[k]=leafRecord(rt,stack+0xe0+16*k);m[k]=leafRecord(rt,target+16*k);}
+        {music::NearestRounding rounding;
+            for(unsigned k=0;k<4;++k)for(unsigned i=0;i<4;++i){
+                out[k][i]=pairSum(pairSum(pairSum(pairProduct(m[0][i],rows[k][0]),pairProduct(m[1][i],rows[k][1])),pairProduct(m[2][i],rows[k][2])),pairProduct(m[3][i],rows[k][3]));
+                if(!std::isfinite(out[k][i]))throw std::runtime_error("native projection composition overflow");}}
+        std::memcpy(record(rt,target,64),out,64);return true;
+    }
+    if(block->kind==0 && (c->r[4].uw[0]!=stack+0x130 || c->r[3].uw[0]!=stack+block->point || c->r[2].uw[0]!=stack+block->out))
+        throw std::runtime_error("native projection product escaped its records");
+    if(block->kind==1 && (pc==block->first?c->r[3].uw[0]!=stack+block->point:pc==block->store && c->r[2].uw[0]!=stack+block->out))
+        throw std::runtime_error("native projection divide escaped its record");
+    if(pc!=block->store)return true;
+    Lanes out;
+    if(block->kind==0){
+        Lanes m[4];for(unsigned k=0;k<4;++k)m[k]=leafRecord(rt,stack+0x130+16*k);const auto v=leafRecord(rt,stack+block->point);
+        music::NearestRounding rounding;Lanes p[4];for(unsigned k=0;k<4;++k)for(unsigned i=0;i<4;++i)p[k][i]=pairProduct(m[k][i],v[i]);
+        constexpr unsigned order[4][4]={{0,1,2,3},{1,0,2,3},{2,1,0,3},{3,1,2,0}};
+        for(unsigned k=0;k<4;++k)out[k]=pairSum(pairSum(pairSum(p[k][order[k][0]],p[k][order[k][1]]),pairProduct(1.f,p[k][order[k][2]])),pairProduct(1.f,p[k][order[k][3]]));
+    }else{
+        const auto v=leafRecord(rt,stack+block->point);
+        if(!(std::bit_cast<uint32_t>(v[3])&0x7fffffffu))throw std::runtime_error("native projection divide by zero depth");
+        music::NearestRounding rounding;volatile float q=1.f/v[3];const auto reciprocal=pairNormal(q);
+        for(unsigned i=0;i<4;++i)out[i]=pairProduct(v[i],reciprocal);
+    }
+    for(float x:out)if(!std::isfinite(x))throw std::runtime_error("native projection block overflow");
+    std::memcpy(record(rt,stack+block->out,16),out.data(),16);return true;
+}
 bool nativeMathInstruction(uint8_t *,R5900Context *c,Runtime *rt,uint32_t pc){
+    if(nativeProjectionBlocks(c,rt,pc))return true;
     if(nativeLeafSphere(c,rt,pc) || nativeLeafBox(c,rt,pc) || nativeSegmentBox(c,rt,pc))return true;
     if(nativeLengthSite(c,rt,pc) || nativeRecordDot(c,rt,pc) || nativePackedQuaternion(c,rt,pc))return true;
     if(nativeObjectOverlap(c,rt,pc))return true;

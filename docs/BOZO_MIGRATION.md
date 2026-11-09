@@ -12,6 +12,29 @@ The earlier VP2S face/shading and general brightness comparisons remain open.
 
 ## Build and evidence
 
+### Populated collision-tree queries (2026-11-09)
+
+`1f6f40` (collision-tree query) used to admit only leafless nodes. Its
+triangle loop calls two VU0 leaf tests whose inputs are VF1..VF4 (the
+current object's matrix, `object+150`) and VF5.x (its scale, `object+204`),
+loaded by `1f6f40`, which stores the object to the game global `358cd8` just
+before the loop; children recurse into `1f6f40` (return `1f72f4`).
+
+- `1f6e10`: sphere (centre, radius W scaled) against the query segment; the
+  frame gets `{S.xyz raw, distance - r^2}`, result `<= 0`. VMAX keeps -0.
+- `1f6be0`: separating-axis test of a box (a0 centre, a1 half extents)
+  against the query box, in six stages (three face axes, the cross axis
+  `extent x t` against three rows). Each store recomputes the stages so far
+  and writes only the lanes they defined; the rest is inherited register
+  state in a dead frame.
+
+Both read the object from `358cd8` and check their caller and registers.
+`1f6f40`'s sites now admit populated nodes and recursive entry. Guards
+`1f6be0..1f6e10`, `1f6e10..1f6ea8`. 1536 bounded math-fixture cases (189 box
+and 337 sphere hits, four modes) match an independent engine-`ps2f` oracle;
+the height test now asserts populated nodes are admitted. The route then stops
+at mod003 `3cdc84` (entry `3cdb60`).
+
 ### Packed unit-quaternion keys (2026-11-09)
 
 mod001 `1f9d40` decompresses two animation keys: the CPU packs three signed

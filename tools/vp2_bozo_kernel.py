@@ -450,6 +450,9 @@ def overlay_adaptations(name,data):
         (0x1f9d40,0x1f9e94,'3bc735d6df7168a9ef3c92a7f7ebc8f70f7cca38dc8ac931dcd9474380ea4c14'),
         (0x2a44e0,0x2a4e20,'15f05b9197f1ccb591321e268c8d418765f1789e2e3e53c94f6d965e406cffe8'),
         (0x2a40e0,0x2a44dc,'e69c95cd19de0804fc985c8770ba247b2f895f71eef70f51862434cbc4876d6d'),
+        # Collision-tree leaf tests (box SAT, sphere) called from 1f6f40.
+        (0x1f6be0,0x1f6e10,'7ce5532ba5ba3597a21e26234650d7a9918f4479a355d888728c815be9d2728c'),
+        (0x1f6e10,0x1f6ea8,'5da5a14092064e896a3dcf3ec7ab5488240a7f3bd634b284473d41a49834922d'),
         # Animated packet UVs: the 2188d0 streaming owner, loader 219620, the
         # UV-scroll callback 29cfe0/descriptor method 29d0d0 and mesh cursors.
         (0x2188d0,0x219608,'efe18082ff8f33e4c91a09af3d3cc3e775706b30795ceaae059e845b6b23546e'),

@@ -91,14 +91,17 @@ LeaflessQuery leaflessQuery(Runtime *rt,R5900Context *c,bool entry=false){
     const auto stack=c->r[29].uw[0],nodeAt=c->r[18].uw[0],queryAt=c->r[17].uw[0];
     auto *node=record(rt,nodeAt,32),*query=record(rt,queryAt,32),*frame=record(rt,stack,0xf0);
     uint32_t child,objectAt;int16_t first;std::memcpy(&child,node,4);std::memcpy(&objectAt,node+4,4);std::memcpy(&first,node+14,2);
-    if(child || first>=0)throw std::runtime_error("populated native collision-tree owner required");
+    // Populated nodes run their compiled triangle loop (leaf tests 1f6be0 /
+    // 1f6e10 are native) and child recursion; the VF spills/restores here hold
+    // no native state either way.
+    (void)child;(void)first;
     auto *object=record(rt,objectAt,0x210);
     const auto apart=[](uint8_t *a,size_t an,uint8_t *b,size_t bn){const auto x=reinterpret_cast<uintptr_t>(a),y=reinterpret_cast<uintptr_t>(b);
         if(x<y+bn && y<x+an)throw std::runtime_error("native collision-query live records overlap");};
     apart(frame,0xf0,node,32);apart(frame,0xf0,query,32);apart(frame,0xf0,object,0x210);
     apart(node,32,object,0x210);apart(query,32,object,0x210);apart(node,32,query,32);
     if(entry){uint32_t caller=0;auto *saved=rt->memory.hostPointer(stack+0xf0,4);if(saved)std::memcpy(&caller,saved,4);
-        if(c->r[31].uw[0]!=0x1f7390 || (caller!=0x3e70bc && caller!=0x3e753c))
+        if(c->r[31].uw[0]!=0x1f72f4 && (c->r[31].uw[0]!=0x1f7390 || (caller!=0x3e70bc && caller!=0x3e753c)))
             throw std::runtime_error("unqualified native leafless-query caller");}
     return {node,object,query,frame};
 }
@@ -837,7 +840,96 @@ bool nativePackedQuaternion(R5900Context *c,Runtime *rt,uint32_t pc){
     if(inside && !c)throw std::runtime_error("native packed quaternion has no CPU record");
     return inside;
 }
+// Collision-tree leaf tests called from 1f6f40's triangle loop. Their VU0
+// inputs VF1..VF4 are the current object's matrix (object+150 rows) and VF5.x
+// its scale (object+204), loaded by 1f6f40, which also stores the object to
+// the game global 358cd8 just before the loop. VU0 arithmetic, nearest even.
+using Lanes=std::array<float,4>;
+struct LeafInputs{Lanes rows[4];float scale;};
+float leafLane(float v){const auto bits=std::bit_cast<uint32_t>(v);
+    if((bits&0x7f800000)==0x7f800000 || beyondRange(v))throw std::runtime_error("unqualified native collision leaf input");return pairNormal(v);}
+Lanes leafRecord(Runtime *rt,uint32_t at){Lanes v;std::memcpy(v.data(),record(rt,at,16),16);for(float &x:v)x=leafLane(x);return v;}
+LeafInputs leafInputs(Runtime *rt){
+    uint32_t object;std::memcpy(&object,record(rt,0x358cd0,16)+8,4);
+    if(object<0x100000)throw std::runtime_error("native collision leaf has no current object");
+    LeafInputs in;for(unsigned i=0;i<4;++i)in.rows[i]=leafRecord(rt,object+0x150+16*i);
+    float scale;std::memcpy(&scale,record(rt,object+0x200,16)+4,4);in.scale=leafLane(scale);return in;
+}
+// acc = R1*v.x + R2*v.y + R3*v.z + R4*1, all lanes.
+Lanes leafTransform(const LeafInputs &in,const Lanes &v){Lanes out;
+    for(unsigned i=0;i<4;++i)out[i]=pairSum(pairSum(pairSum(pairProduct(in.rows[0][i],v[0]),pairProduct(in.rows[1][i],v[1])),pairProduct(in.rows[2][i],v[2])),pairProduct(in.rows[3][i],1.f));
+    return out;}
+float leafAbs(float v){return std::bit_cast<float>(std::bit_cast<uint32_t>(v)&0x7fffffffu);}
+// 1f6e10: sphere (a0: centre, radius w) against segment a1 (+0 point, +10
+// direction); stores {S.xyz, distance} to its frame, returns distance <= 0.
+bool nativeLeafSphere(R5900Context *c,Runtime *rt,uint32_t pc){
+    if(pc<0x1f6e18 || pc>0x1f6e74 || (pc&3) || pc==0x1f6e70)return false;
+    if(!c || c->r[31].uw[0]!=0x1f724c || c->r[4].uw[0]!=c->r[16].uw[0]+0x10)throw std::runtime_error("native collision sphere escaped its triangle loop");
+    if(pc!=0x1f6e74)return true;
+    if(c->r[2].uw[0]!=c->r[29].uw[0])throw std::runtime_error("native collision sphere frame mismatch");
+    const auto in=leafInputs(rt);const auto sphere=leafRecord(rt,c->r[4].uw[0]),point=leafRecord(rt,c->r[5].uw[0]),direction=leafRecord(rt,c->r[5].uw[0]+0x10);
+    Lanes out;std::memcpy(out.data(),record(rt,c->r[4].uw[0],16),16);   // stored raw, W replaced
+    {music::NearestRounding rounding;
+        const auto centre=leafTransform(in,sphere);
+        const auto radius=pairProduct(sphere[3],in.scale),radius2=pairProduct(radius,radius);
+        Lanes delta,product;for(unsigned i=0;i<3;++i){delta[i]=pairSum(centre[i],-point[i]);product[i]=pairProduct(delta[i],direction[i]);}
+        auto along=pairSum(pairSum(pairProduct(1.f,product[0]),pairProduct(1.f,product[1])),pairProduct(1.f,product[2]));
+        // VMAX.w with 0: zeros compare equal, so -0 stays; negative values lose.
+        if(std::bit_cast<int32_t>(along)<0 && (std::bit_cast<uint32_t>(along)&0x7fffffffu))along=0.f;
+        Lanes square;for(unsigned i=0;i<3;++i){const auto off=pairSum(delta[i],-pairProduct(direction[i],along));square[i]=pairProduct(off,off);}
+        const auto distance=pairSum(pairSum(pairProduct(1.f,square[0]),pairProduct(1.f,square[1])),pairProduct(1.f,square[2]));
+        out[3]=pairSum(distance,-radius2);}
+    std::memcpy(record(rt,c->r[29].uw[0],16),out.data(),16);return true;
+}
+// 1f6be0: separating-axis test of the box record a0 (centre) / a1 (half
+// extents) against the query box a2 (centre, +10 extents), in six stages.
+// Each store site recomputes the stages so far and writes the lanes they
+// defined (the rest of those registers is inherited state in a dead frame).
+bool nativeLeafBox(R5900Context *c,Runtime *rt,uint32_t pc){
+    if(pc<0x1f6be4 || pc>0x1f6de0 || (pc&3))return false;
+    static constexpr uint32_t stores[]={0x1f6c54,0x1f6c58,0x1f6cb4,0x1f6cb8,0x1f6d10,0x1f6d14,0x1f6d68,0x1f6da8,0x1f6de0};
+    // Only VU instructions reach here; EE words in the range are compiled.
+    if(!c || c->r[31].uw[0]!=0x1f7238 || c->r[4].uw[0]!=c->r[5].uw[0]+0x10 || c->r[6].uw[0]!=c->r[17].uw[0])
+        throw std::runtime_error("native collision box escaped its triangle loop");
+    unsigned stage=99;for(unsigned i=0;i<9;++i)if(pc==stores[i])stage=i;
+    if(stage==99)return true;
+    if(c->r[2].uw[0]!=c->r[29].uw[0])throw std::runtime_error("native collision box frame mismatch");
+    const auto in=leafInputs(rt);const auto box=leafRecord(rt,c->r[4].uw[0]),half=leafRecord(rt,c->r[5].uw[0]);
+    const auto query=leafRecord(rt,c->r[6].uw[0]),extent=leafRecord(rt,c->r[6].uw[0]+0x10);
+    const unsigned level=stage<2?0:stage<4?1:stage<6?2:stage==6?3:stage==7?4:5;
+    Lanes v24{},v25{};bool d24[4]{},d25[4]{};
+    {music::NearestRounding rounding;
+        const auto &R1=in.rows[0],&R2=in.rows[1],&R3=in.rows[2];const auto centre=leafTransform(in,box);
+        Lanes t;for(unsigned i=0;i<3;++i)t[i]=pairSum(query[i],-centre[i]);   // vf7
+        const auto dotXYZ=[&](const Lanes &a,const Lanes &r){return pairSum(pairSum(pairProduct(a[0],r[0]),pairProduct(a[1],r[1])),pairProduct(1.f,pairProduct(a[2],r[2])));};
+        const auto dotYXZ=[&](const Lanes &a,const Lanes &r){return pairSum(pairSum(pairProduct(a[1],r[1]),pairProduct(a[0],r[0])),pairProduct(1.f,pairProduct(a[2],r[2])));};
+        const auto dotZXY=[&](const Lanes &a,const Lanes &r){return pairSum(pairSum(pairProduct(a[2],r[2]),pairProduct(a[0],r[0])),pairProduct(1.f,pairProduct(a[1],r[1])));};
+        Lanes v10,v11,v12,v13;
+        v10[0]=dotXYZ(extent,R1);v12[0]=dotXYZ(t,R1);v10[1]=dotYXZ(extent,R2);v11[0]=leafAbs(v10[0]);v13[0]=leafAbs(v12[0]);v12[1]=dotYXZ(t,R2);
+        v25[0]=pairProduct(v12[0],v10[0]);v24[0]=pairSum(v13[0],-half[0]);d24[0]=d25[0]=true;
+        if(level>=1){v11[1]=leafAbs(v10[1]);v13[1]=leafAbs(v12[1]);v25[1]=pairProduct(v12[1],v10[1]);v24[1]=pairSum(v13[1],-half[1]);
+            v10[2]=dotZXY(extent,R3);v12[2]=dotZXY(t,R3);d24[1]=d25[1]=true;}
+        Lanes v15,v16;
+        if(level>=2){v11[2]=leafAbs(v10[2]);v13[2]=leafAbs(v12[2]);
+            // OPMULA/OPMSUB: v15 = extent x t.
+            v15[0]=pairSum(pairProduct(extent[1],t[2]),-pairProduct(t[1],extent[2]));
+            v15[1]=pairSum(pairProduct(extent[2],t[0]),-pairProduct(t[2],extent[0]));
+            v15[2]=pairSum(pairProduct(extent[0],t[1]),-pairProduct(t[0],extent[1]));
+            v25[2]=pairProduct(v12[2],v10[2]);v24[2]=pairSum(v13[2],-half[2]);d24[2]=d25[2]=true;}
+        if(level>=3){v16[0]=leafAbs(dotXYZ(v15,R1));
+            v24[1]=pairSum(pairSum(pairProduct(v11[1],half[2]),pairProduct(half[1],v11[2])),-pairProduct(1.f,v16[0]));}
+        if(level>=4){v16[1]=leafAbs(dotYXZ(v15,R2));
+            v24[0]=pairSum(pairSum(pairProduct(v11[0],half[2]),pairProduct(half[0],v11[2])),-pairProduct(1.f,v16[1]));}
+        if(level>=5){v16[2]=leafAbs(dotZXY(v15,R3));
+            v24[0]=pairSum(pairSum(pairProduct(v11[0],half[1]),pairProduct(half[0],v11[1])),-pairProduct(1.f,v16[2]));}
+    }
+    auto *frame=record(rt,c->r[29].uw[0],32);
+    const bool second=stage==1 || stage==3 || stage==5;   // VF25 at +10
+    for(unsigned i=0;i<4;++i){if(!second && d24[i])std::memcpy(frame+4*i,&v24[i],4);if(second && d25[i])std::memcpy(frame+0x10+4*i,&v25[i],4);}
+    return true;
+}
 bool nativeMathInstruction(uint8_t *,R5900Context *c,Runtime *rt,uint32_t pc){
+    if(nativeLeafSphere(c,rt,pc) || nativeLeafBox(c,rt,pc))return true;
     if(nativeLengthSite(c,rt,pc) || nativeRecordDot(c,rt,pc) || nativePackedQuaternion(c,rt,pc))return true;
     if(nativeObjectOverlap(c,rt,pc))return true;
     if(nativeUvAnimation(c,rt,pc))return true;

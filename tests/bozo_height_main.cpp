@@ -274,7 +274,10 @@ int main(){try{
         const auto reject=[&]{const auto before=c;std::vector<uint8_t> memory(r.memory.flat(),r.memory.flat()+bozo::kFlatBytes);bool bad=false;
             try{vp2s::nativeMathInstruction(r.memory.flat(),&c,&r,0x1f6f94);}catch(const std::runtime_error &){bad=true;}
             check(bad && !std::memcmp(&before,&c,sizeof(c)) && !std::memcmp(memory.data(),r.memory.flat(),memory.size()));};
-        put(r,node,0x180050u);reject();put(r,node,0u);put<int16_t>(r,node+14,0);reject();put<int16_t>(r,node+14,-1);
+        // Populated nodes (a child, or a first triangle) are admitted now: their
+        // compiled triangle loop calls the native leaf tests 1f6be0/1f6e10.
+        for(int which=0;which<2;++which){if(which)put<int16_t>(r,node+14,0);else put(r,node,0x180050u);const auto before=c;
+            check(vp2s::nativeMathInstruction(r.memory.flat(),&c,&r,0x1f6f94) && !std::memcmp(&before,&c,sizeof(c)));put(r,node,0u);put<int16_t>(r,node+14,-1);}
         put(r,stack+0xf0,0x123456u);reject();put(r,stack+0xf0,0x3e70bcu);c.r[17].ud[0]=stack+0x70;reject();
         c.r[17].ud[0]=query;c.r[2].ud[0]=stack+0x50;
         for(unsigned i=0;i<16;++i)put(r,object+0x150+i*4,std::bit_cast<uint32_t>(i%5?0.f:1.f));

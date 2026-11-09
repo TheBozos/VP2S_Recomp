@@ -136,8 +136,8 @@ std::vector<bozo::render::Vertex> nativeChapterBar(Runtime *rt,uint32_t element)
     const auto y0=add(originY,div(mul(yScale,top),f480)),y1=add(originY,div(mul(yScale,add(at(0x34c),top)),f480));
     const auto opacity=div(mul(at(0xe0),at(0x350)),f128);
     // cvt.w.s and the >= 2^31 path both keep the low byte in bits 24..31.
-    const auto alphaByte=[&](uint32_t v){const float f=std::bit_cast<float>(v);
-        const uint32_t i=f>=2147483648.f?(F::toInt(F::sub(v,0x4f000000,flags))|0x80000000u):F::toInt(v);return i<<24;};
+    const auto alphaByte=[&](uint32_t v){
+        const uint32_t i=(!(v&0x80000000u) && v>=0x4f000000u)?(F::toInt(F::sub(v,0x4f000000,flags))|0x80000000u):F::toInt(v);return i<<24;};
     const uint32_t full=alphaByte(opacity)|0xf0f0f0,end=alphaByte(mul(opacity,endShade))|0xf0f0f0;
     const auto fade=mul(tenth,sub(x1,x0));
     const uint32_t xs[4]={x0,add(x0,fade),sub(x1,fade),x1},ys[3]={y0,add(y0,mul(half,sub(y1,y0))),y1};

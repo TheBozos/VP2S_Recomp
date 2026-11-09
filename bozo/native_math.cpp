@@ -26,6 +26,9 @@ float pairProduct(float a,float b){volatile float value=a*b;return pairNormal(va
 float pairSum(float a,float b){volatile float value=a+b;return pairNormal(value);}
 void pairQualified(float v){const auto b=std::bit_cast<uint32_t>(v),e=b&0x7f800000;
     if(e==0x7f800000 || (!e && (b&0x7fffff)))throw std::runtime_error("unqualified native geometric input");}
+// Magnitude above 1e18 by bits: comparing a denormal as a float would raise
+// the host's denormal-operand flag outside any rounding guard.
+bool beyondRange(float v){return (std::bit_cast<uint32_t>(v)&0x7fffffffu)>std::bit_cast<uint32_t>(1.e18f);}
 void publishUnitQuaternion(Runtime *rt,uint32_t at){
     __m128 input;auto *source=record(rt,at,16);std::memcpy(&input,source,16);float values[4];std::memcpy(values,&input,16);
     for(auto value:values){pairQualified(value);if(std::abs(value)>1.e8f)throw std::runtime_error("unqualified native Euler quaternion input");}
@@ -527,7 +530,7 @@ std::array<uint32_t,4> NativeMotion::finish(uint32_t frame,uint32_t object){
 // ((dx*dx+dy*dy)-r*r)+dz*dz between the two transformed sphere centres.
 // VU0 mul/add/sqrt round to nearest even (engine spec Q1/Q3/Q10).
 float vu0Input(float v){const auto bits=std::bit_cast<uint32_t>(v);
-    if((bits&0x7f800000)==0x7f800000 || std::abs(v)>1.e18f)throw std::runtime_error("unqualified native object overlap input");
+    if((bits&0x7f800000)==0x7f800000 || beyondRange(v))throw std::runtime_error("unqualified native object overlap input");
     return pairNormal(v);}
 bool nativeObjectOverlap(R5900Context *c,Runtime *rt,uint32_t pc){
     const bool spill=pc>=0x1f8b34 && pc<=0x1f8b54,restore=(pc>=0x1f8e70 && pc<=0x1f8e90) || (pc>=0x1f8fec && pc<=0x1f900c)
@@ -758,7 +761,53 @@ bool nativeUvAnimation(R5900Context *c,Runtime *rt,uint32_t pc){
     // The replaced instruction: lh v0,0x84(s7).
     c->r[2].sd[0]=chunks;return true;
 }
+// Vector length sites: one VU0 macro sequence (VMUL.xyz, VADDA.x, VMADD.x,
+// VSQRT, VADD.x 0+Q) publishing {|xyz|, y*y, z*z, w} from a scalar-built
+// record. Each block's source/destination registers are checked against the
+// record they must hold. mul, add and sqrt round to nearest even.
+struct LengthSite{uint32_t first;unsigned sourceReg;bool sourceStack;uint32_t sourceOffset;unsigned destinationReg;uint32_t destinationOffset;uint32_t returnAddress;};
+constexpr LengthSite lengthSites[]={
+    {0x380664,4,true,0x270,3,0xa0,0x3805f0},   // movement step, first pass
+    {0x380844,4,true,0x270,3,0x70,0x3807d0},   // movement step, second pass
+    {0x439258,5,true,0x100,4,0x90,0},          // mod003 439180 update
+    {0x439880,5,true,0x100,4,0x80,0},
+    {0x439ba8,4,false,0x1f0,3,0x70,0},         // s0 records
+    {0x439bd8,3,false,0x230,2,0x60,0}};
+bool nativeLengthSite(R5900Context *c,Runtime *rt,uint32_t pc){
+    const LengthSite *site=nullptr;
+    for(const auto &s:lengthSites)if(pc>=s.first && pc<=s.first+0x20 && !(pc&3)){site=&s;break;}
+    if(!site)return false;
+    if(!c)throw std::runtime_error("native vector length has no CPU record");
+    const auto stack=c->r[29].uw[0],base=site->sourceStack?stack:c->r[17].uw[0];
+    if((!site->sourceStack && base<0x100000) || (site->returnAddress && c->r[31].uw[0]!=site->returnAddress) ||
+       c->r[site->sourceReg].uw[0]!=base+site->sourceOffset || c->r[site->destinationReg].uw[0]!=stack+site->destinationOffset)
+        throw std::runtime_error("native vector length escaped its scalar records");
+    if(pc!=site->first+0x20)return true;
+    float value[4],result[4];std::memcpy(value,record(rt,base+site->sourceOffset,16),16);std::memcpy(result,value,16);
+    for(unsigned i=0;i<3;++i){if((std::bit_cast<uint32_t>(value[i])&0x7f800000)==0x7f800000 || beyondRange(value[i]))
+        throw std::runtime_error("unqualified native vector length");value[i]=pairNormal(value[i]);}
+    {music::NearestRounding rounding;
+        for(unsigned i=0;i<3;++i){volatile float square=value[i]*value[i];result[i]=pairNormal(square);}
+        volatile float partial=result[0]+result[1];volatile float squared=pairNormal(partial)+result[2];
+        volatile float length=std::sqrt(pairNormal(squared));volatile float output=0.f+length;result[0]=output;}
+    std::memcpy(record(rt,stack+site->destinationOffset,16),result,16);return true;
+}
+// mod003 439c54..439c68: dot product of s0+1f0 and s0+230 into SP+50, as
+// VMUL.xyz then two VADD.x; the stored register keeps the first input's YZW.
+bool nativeRecordDot(R5900Context *c,Runtime *rt,uint32_t pc){
+    if(pc<0x439c54 || pc>0x439c68 || (pc&3))return false;
+    if(!c || c->r[17].uw[0]<0x100000)throw std::runtime_error("native record dot has no owner");
+    const auto owner=c->r[17].uw[0],stack=c->r[29].uw[0];
+    if(c->r[4].uw[0]!=owner+0x1f0 || c->r[3].uw[0]!=owner+0x230 || c->r[2].uw[0]!=stack+0x50)throw std::runtime_error("native record dot escaped its records");
+    if(pc!=0x439c68)return true;
+    float a[4],b[4],out[4];std::memcpy(a,record(rt,owner+0x1f0,16),16);std::memcpy(b,record(rt,owner+0x230,16),16);std::memcpy(out,a,16);
+    for(unsigned i=0;i<3;++i){if((std::bit_cast<uint32_t>(a[i])&0x7f800000)==0x7f800000 || (std::bit_cast<uint32_t>(b[i])&0x7f800000)==0x7f800000 ||
+        beyondRange(a[i]) || beyondRange(b[i]))throw std::runtime_error("unqualified native record dot");a[i]=pairNormal(a[i]);b[i]=pairNormal(b[i]);}
+    {music::NearestRounding rounding;out[0]=pairSum(pairSum(pairProduct(a[0],b[0]),pairProduct(a[1],b[1])),pairProduct(a[2],b[2]));}
+    std::memcpy(record(rt,stack+0x50,16),out,16);return true;
+}
 bool nativeMathInstruction(uint8_t *,R5900Context *c,Runtime *rt,uint32_t pc){
+    if(nativeLengthSite(c,rt,pc) || nativeRecordDot(c,rt,pc))return true;
     if(nativeObjectOverlap(c,rt,pc))return true;
     if(nativeUvAnimation(c,rt,pc))return true;
     if(nativeSegmentContact(c,rt,pc))return true;
@@ -1747,29 +1796,6 @@ bool nativeMathInstruction(uint8_t *,R5900Context *c,Runtime *rt,uint32_t pc){
         if(!std::isfinite(squared))throw std::runtime_error("native field distance overflow");
         volatile float length=std::sqrt(squared);volatile float output=0.f+length;result[0]=output;
         std::memcpy(record(rt,destination,16),result,16);return true;
-    }
-    case 0x380664:case 0x380668:case 0x38066c:case 0x380670:
-    case 0x380674:case 0x380678:case 0x38067c:case 0x380680:case 0x380684:
-    case 0x380844:case 0x380848:case 0x38084c:case 0x380850:
-    case 0x380854:case 0x380858:case 0x38085c:case 0x380860:case 0x380864:{
-        // Movement step length, two passes of one shape: the scalar builder put
-        // the displacement at SP+270; entry 3805f0 publishes to SP+a0, entry
-        // 3807d0 to SP+70. Result {|xyz|, y*y, z*z, w} as the original VU0 macro
-        // sequence (VMUL.xyz, VADDA.x, VMADD.x, VSQRT, VADD.x 0+Q); mul, add and
-        // sqrt round to nearest even.
-        const bool second=pc>=0x380844;const uint32_t entry=second?0x3807d0:0x3805f0,out=second?0x70:0xa0;
-        if(!c || c->r[31].uw[0]!=entry || c->r[4].uw[0]!=c->r[29].uw[0]+0x270 || c->r[3].uw[0]!=c->r[29].uw[0]+out)
-            throw std::runtime_error("native movement step length escaped its scalar records");
-        if(pc!=0x380684 && pc!=0x380864)return true;
-        float value[4],result[4];std::memcpy(value,record(rt,c->r[4].uw[0],16),16);std::memcpy(result,value,16);
-        const auto normal=[](float v){const auto bits=std::bit_cast<uint32_t>(v);return std::bit_cast<float>((bits&0x7f800000)?bits:(bits&0x80000000));};
-        for(unsigned i=0;i<3;++i){if((std::bit_cast<uint32_t>(value[i])&0x7f800000)==0x7f800000 || std::abs(value[i])>1.e18f)
-            throw std::runtime_error("unqualified native movement step length");value[i]=normal(value[i]);}
-        music::NearestRounding rounding;
-        for(unsigned i=0;i<3;++i){volatile float square=value[i]*value[i];result[i]=normal(square);}
-        volatile float partial=result[0]+result[1];volatile float squared=normal(partial)+result[2];
-        volatile float length=std::sqrt(normal(squared));volatile float output=0.f+length;result[0]=output;
-        std::memcpy(record(rt,c->r[3].uw[0],16),result,16);return true;
     }
     case 0x239cfc:case 0x239d00:case 0x239d04:case 0x239d0c:
     case 0x239dc8:case 0x239dcc:case 0x239dd0:case 0x239dd4:case 0x239dd8:

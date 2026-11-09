@@ -171,6 +171,16 @@ struct Host:bozo::ee::Host,bozo::port::Host {
             const auto result=vp2s::math::quaternionMatrix(input);
             std::memcpy(rt->memory.hostPointer(c->r[2].uw[0],48),result.data(),48);return true;
         }
+        if(reference && (pc==0x439278 || pc==0x4398a0 || pc==0x439bc8 || pc==0x439bf8 || pc==0x439c68)){
+            const unsigned source=pc==0x439278 || pc==0x4398a0?5:pc==0x439bc8?4:pc==0x439bf8?3:4,destination=pc==0x439278 || pc==0x4398a0?4:pc==0x439bc8?3:2;
+            uint32_t bits[4],flags=0;std::memcpy(bits,rt->memory.hostPointer(c->r[source].uw[0],16),16);
+            if(pc==0x439c68){uint32_t other[4];std::memcpy(other,rt->memory.hostPointer(c->r[3].uw[0],16),16);
+                bits[0]=vu0Sum(vu0Sum(vu0Product(bits[0],other[0]),vu0Product(bits[1],other[1])),vu0Product(bits[2],other[2]));}
+            else{for(unsigned i=0;i<3;++i)bits[i]=vu0Product(bits[i],bits[i]);
+                bits[0]=vu0Sum(vu0Sum(bits[0],bits[1]),vu0Product(0x3f800000,bits[2]));
+                const auto saved=_mm_getcsr();bits[0]=vu0Sum(0,bozo::ps2f::sqrt(bits[0],flags));_mm_setcsr(saved);}
+            std::memcpy(rt->memory.hostPointer(c->r[destination].uw[0],16),bits,16);return true;
+        }
         if(reference && (pc==0x380684 || pc==0x380864)){
             // Original VU0 sequence: VMUL.xyz squares, VADDA.x/VMADD.x sum
             // (product by 1 exact), VSQRT, VADD.x 0+Q; Y/Z squares and W kept.
@@ -423,6 +433,32 @@ int main(){try{
         try{vp2s::nativeMathInstruction(rt.memory.flat(),&c,&rt,pc);}catch(const std::runtime_error &){rejected=true;}check(rejected && _mm_getcsr()==fp && !std::memcmp(&before,&c,sizeof(c)) && !std::memcmp(ram.data(),rt.memory.flat(),ram.size()));
     }}
     std::printf("%u bounded movement rotation consumers,%u identity cases, integer quaternion/row-product oracle and8 readonly rejections passed\n",movementRotations,knownMovementRotations);
+    unsigned vectorBlocks=0;
+    struct VectorBlock{uint32_t first;unsigned sourceReg;bool stack;uint32_t sourceOffset;unsigned destinationReg;uint32_t destinationOffset;bool dot;};
+    const VectorBlock vectorCases[]={{0x439258,5,true,0x100,4,0x90,false},{0x439880,5,true,0x100,4,0x80,false},
+                                     {0x439ba8,4,false,0x1f0,3,0x70,false},{0x439bd8,3,false,0x230,2,0x60,false},{0x439c54,4,false,0x1f0,2,0x50,true}};
+    for(const auto &block:vectorCases)for(unsigned mode:{_MM_ROUND_NEAREST,_MM_ROUND_DOWN,_MM_ROUND_UP,_MM_ROUND_TOWARD_ZERO})for(unsigned seed=0;seed<64;++seed){
+        auto &a=original.runtime(),&b=adapted.runtime();std::memset(a.memory.flat(),0x71+seed,bozo::kFlatBytes);const uint32_t aliases[]={0,0x20000000,0x30000000,0x80000000,0xa0000000};
+        const uint32_t owner=0x1b4000|aliases[(seed/4)%5],stack=seed&1?0x70002e00u:0x1ffd400u|aliases[(seed/8)%5];
+        uint32_t state=seed*2246822519u+block.first+mode;const auto next=[&](){state=state*1664525u+1013904223u;return ((state>>8)&0x807fffffu)|uint32_t((112+(state>>4)%30)<<23);};
+        const uint32_t source=(block.stack?stack:owner)+block.sourceOffset;
+        for(uint32_t at:{source,owner+0x1f0,owner+0x230})for(unsigned i=0;i<4;++i){uint32_t v=next();if(seed%16==2 && i<3)v=0;if(seed%16==3 && i==1)v=1;std::memcpy(a.memory.hostPointer(at+4*i,4),&v,4);}
+        std::memcpy(b.memory.flat(),a.memory.flat(),bozo::kFlatBytes);R5900Context x{};for(unsigned i=1;i<32;++i){x.r[i].ud[0]=0x2468000000000000ull+seed*32+i;x.r[i].ud[1]=~x.r[i].ud[0];x.f[i]=float(i)/4;}
+        std::memset(x.vu0_vf,0x3e,sizeof(x.vu0_vf));std::memset(&x.vu0_acc,0xe3,sizeof(x.vu0_acc));x.vu0_status=0x1111;x.vu0_q_bits=0x3f800005;x.vi[0]=0x1111;
+        x.r[17].ud[0]=owner;x.r[29].ud[0]=stack;x.r[31].ud[0]=0x170000;x.r[block.sourceReg].ud[0]=source;x.r[block.destinationReg].ud[0]=stack+block.destinationOffset;
+        if(block.dot)x.r[3].ud[0]=owner+0x230;auto y=x;
+        const auto saved=_mm_getcsr(),control=(saved&~(_MM_ROUND_MASK|0x8040|0x3f))|mode|(seed&8?0x8040:0);_mm_setcsr(control);
+        host.reference=true;a.functions.generated(block.first)(a.memory.flat(),&x,&a);const auto fp=_mm_getcsr();_mm_setcsr(control);
+        host.reference=false;b.functions.generated(block.first)(b.memory.flat(),&y,&b);const auto blockFp=_mm_getcsr();_mm_setcsr(saved);
+        if(blockFp!=fp)std::fprintf(stderr,"vector block %x mode%x seed%u mxcsr old%08x native%08x\n",block.first,mode,seed,fp,blockFp);check(blockFp==fp);x.cycleLimit=y.cycleLimit;
+        if(x.pc!=0x170000 || std::memcmp(&x,&y,sizeof(x)) || std::memcmp(a.memory.flat(),b.memory.flat(),bozo::kFlatBytes)){
+            std::fprintf(stderr,"vector block %x mode%x seed%u PCs%x/%x\n",block.first,mode,seed,x.pc,y.pc);
+            for(unsigned i=0;i<sizeof(x);++i)if(reinterpret_cast<const uint8_t *>(&x)[i]!=reinterpret_cast<const uint8_t *>(&y)[i]){std::fprintf(stderr,"CPU byte%x old%02x native%02x\n",i,reinterpret_cast<const uint8_t *>(&x)[i],reinterpret_cast<const uint8_t *>(&y)[i]);break;}
+            for(unsigned i=0;i<bozo::kFlatBytes;++i)if(a.memory.flat()[i]!=b.memory.flat()[i]){std::fprintf(stderr,"RAM byte%x old%02x native%02x\n",i,a.memory.flat()[i],b.memory.flat()[i]);break;}check(false);
+        }
+        ++vectorBlocks;
+    }
+    std::printf("%u mod003 439180 vector-length/dot blocks match the engine VU0 oracle\n",vectorBlocks);
     unsigned compositions=0,composedProducts=0;
     for(unsigned mode:{_MM_ROUND_NEAREST,_MM_ROUND_DOWN,_MM_ROUND_UP,_MM_ROUND_TOWARD_ZERO})for(unsigned seed=0;seed<128;++seed){
         auto &a=original.runtime(),&b=adapted.runtime();std::memset(a.memory.flat(),0x5d+seed,bozo::kFlatBytes);const uint32_t aliases[]={0,0x20000000,0x30000000,0x80000000,0xa0000000};

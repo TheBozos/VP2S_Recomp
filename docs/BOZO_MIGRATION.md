@@ -12,6 +12,23 @@ The earlier VP2S face/shading and general brightness comparisons remain open.
 
 ## Build and evidence
 
+### Table-driven vector lengths and the 439180 blocks (2026-11-09)
+
+The movement-step length sites became one table of VU0 length blocks
+(`{|xyz|, y*y, z*z, w}` from a scalar-built record), each with its checked
+source/destination registers. mod003 `439180` adds four blocks (SP+100 to
+SP+90 and SP+80; s0+1f0 to SP+70; s0+230 to SP+60) and a dot product of
+s0+1f0 and s0+230 into SP+50 (the stored register keeps the first input's
+YZW). Source guard `439180..439d88`. The field fixture runs each block as a
+bounded span: 1280 cases match the engine `ps2f` oracle in four modes with
+aliases, zero and denormal lanes.
+
+The denormal lanes found a real leak: range checks written as
+`std::abs(v) > 1e18f` raise the host's denormal-operand flag before any
+rounding guard; they are now bit comparisons (`beyondRange`), also in the
+overlap/projection/composition/contact input checks and the chapter bar.
+The route then stops at mod001 `1f9d74` (entry `1f9d40`).
+
 ### Chapter title layer and bar (2026-11-09)
 
 The field's chapter layer (`168970`/`16898c`/`168a08`, mod004) forwards to the

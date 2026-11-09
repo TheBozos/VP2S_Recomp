@@ -12,6 +12,31 @@ The earlier VP2S face/shading and general brightness comparisons remain open.
 
 ## Build and evidence
 
+### 1fd110 chain constraint blocks and bone aim (2026-11-09)
+
+mod001 `1fd110` (chain owner s2, part s1, owner object `*(s2+4)`) has eight
+VU0 blocks, now native. VU registers that cross EE code between blocks are reread
+from the records the earlier block stored bit-exact:
+- **Placement `1fda08`:** the part point `*(s1+38)+30` goes through the object
+  matrix `+190`, plus the `s1` offset when flag 4 is set. The offset (or VF0) is
+  stored to SP+460 and the point to SP+220.
+- **Split `1fdacc`:** stores point × `s1+30` to SP+460 and point × f22 to SP+470.
+- **Two rotations `1fdb54` and `1fdc48`:** rotate SP+210 in place by the rows at `+150`.
+- **Blend `1fdeb0`:** stores origin + dir·a to SP+200 and dir − dir·f22 to SP+1f0;
+  the W lanes stay raw.
+- **Bone aim `1fe598`:** two points go through the matrix at SP+180 and are
+  normalized with RSQRT. Their dot is stored to SP+170 (X only). The rotation
+  `(b×a / √(2+2d), √(2+2d)/2)` is stored to SP+160. Its 0.5 comes from VF29,
+  which `1fe400` loads from `lui 0x3f00`; the native site rejects any other value.
+- **Product `1fe68c`:** the quaternion product with `s1+30`.
+- **Row product `1fe790`:** the SP+120 rows times `s0+30`, in the 246760 row orders.
+
+Each block checks its source and destination pointer registers. Guard
+`1fd110..1fe9bc`. 2048 bounded math-fixture cases (128 offset placements) match
+the engine `ps2f` oracle, which follows the original ACC/OPMULA order. The route
+now stops at `1fc334` (entry `1fc300`, called from `1fdc2c`), whose VF24..27 are
+the object matrix `+190` loaded at `1fda1c`.
+
 ### 246760 projection blocks; omitted getter 3cceb0 (2026-11-09)
 
 mod001 `246760` has five VU0 blocks: two row.point products of the matrix at

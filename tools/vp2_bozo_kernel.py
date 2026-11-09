@@ -458,6 +458,9 @@ def overlay_adaptations(name,data):
         (0x1f6740,0x1f6a38,'8f1a0059234b0a2a618cda8a7256f38c0d24c2c607e9084f830997710e4231cd'),
         (0x1f6670,0x1f6740,'92c9dc03014f3b4f3e397b26c1fbd1a159d01833f9ef6334666c662975fab1c8'),
         (0x246760,0x246ed8,'76eb263da293367e94e61afd20b6b6904f0e05bf5395ce7ed594dd6b1fd1aadf'),
+        # Chain constraint owner 1fd110: placement, split, rotations, blend,
+        # bone aim (1fe400 half constant) and the closing product.
+        (0x1fd110,0x1fe9bc,'99519d39445c3ea2e6c3b2706ecc9c0fc8da51c813a4d4dbdfaf1080ecca3899'),
         # Animated packet UVs: the 2188d0 streaming owner, loader 219620, the
         # UV-scroll callback 29cfe0/descriptor method 29d0d0 and mesh cursors.
         (0x2188d0,0x219608,'efe18082ff8f33e4c91a09af3d3cc3e775706b30795ceaae059e845b6b23546e'),

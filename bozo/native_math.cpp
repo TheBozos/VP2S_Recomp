@@ -1016,8 +1016,135 @@ bool nativeProjectionBlocks(R5900Context *c,Runtime *rt,uint32_t pc){
     for(float x:out)if(!std::isfinite(x))throw std::runtime_error("native projection block overflow");
     std::memcpy(record(rt,stack+block->out,16),out.data(),16);return true;
 }
+// mod001 1fd110 bone aim: 1fe400 puts 0.5 in VF29 (consumed only by 1fe674
+// below, natively a constant). Block 1fe598..1fe680 transforms a (SP+1c0) and
+// b (*(s8+38)+30) by the matrix at SP+180, normalizes them (1/sqrt), stores
+// their dot to SP+170 (X only; the rest of that register is inherited) and the
+// rotation a->b as q = (b x a / sqrt(2+2d), sqrt(2+2d)/2) to SP+160. Block
+// 1fe68c..1fe6c0 multiplies it by s1+30 in place:
+// xyz = q2*q1.w + q1*q2.w + q1 x q2, w = ((w1w2 - z1z2) - y1y2) - x1x2.
+bool nativeBoneAim(R5900Context *c,Runtime *rt,uint32_t pc){
+    if(pc==0x1fe400){if(!c || c->r[3].uw[0]!=0x3f000000)throw std::runtime_error("native bone aim constant mismatch");return true;}
+    const bool aim=pc>=0x1fe598 && pc<=0x1fe680,multiply=pc>=0x1fe68c && pc<=0x1fe6c0;
+    if(!(aim || multiply) || (pc&3))return false;
+    if(!c)throw std::runtime_error("native bone aim has no CPU record");
+    const auto stack=c->r[29].uw[0];
+    if(multiply){
+        if(c->r[2].uw[0]!=stack+0x160 || c->r[3].uw[0]!=c->r[17].uw[0]+0x30)throw std::runtime_error("native bone quaternion product escaped its records");
+        if(pc!=0x1fe6c0)return true;
+        const auto q1=leafRecord(rt,stack+0x160),q2=leafRecord(rt,c->r[17].uw[0]+0x30);Lanes out;
+        {music::NearestRounding rounding;
+            const Lanes cross={pairSum(pairProduct(q1[1],q2[2]),-pairProduct(q2[1],q1[2])),pairSum(pairProduct(q1[2],q2[0]),-pairProduct(q2[2],q1[0])),
+                               pairSum(pairProduct(q1[0],q2[1]),-pairProduct(q2[0],q1[1])),0};
+            for(unsigned i=0;i<3;++i)out[i]=pairSum(pairSum(pairProduct(q2[i],q1[3]),pairProduct(q1[i],q2[3])),pairProduct(cross[i],1.f));
+            Lanes p;for(unsigned i=0;i<4;++i)p[i]=pairProduct(q1[i],q2[i]);
+            out[3]=pairSum(pairSum(pairSum(p[3],-p[2]),-pairProduct(1.f,p[1])),-pairProduct(1.f,p[0]));}
+        std::memcpy(record(rt,stack+0x160,16),out.data(),16);return true;
+    }
+    const auto partnerAt=c->r[30].uw[0]+0x38;if((partnerAt&3) || (partnerAt&0x1ffffff)<0x100000)throw std::runtime_error("native bone aim partner record outside EE RAM");
+    uint32_t partner;std::memcpy(&partner,rt->memory.hostPointer(partnerAt,4),4);
+    if(pc==0x1fe598 && (c->r[5].uw[0]!=stack+0x180 || c->r[4].uw[0]!=stack+0x1c0 || c->r[3].uw[0]!=partner+0x30))throw std::runtime_error("native bone aim sources mismatch");
+    if(pc!=0x1fe63c && pc!=0x1fe680)return true;
+    if(pc==0x1fe63c?c->r[3].uw[0]!=stack+0x170:c->r[2].uw[0]!=stack+0x160)throw std::runtime_error("native bone aim destination mismatch");
+    LeafInputs m;for(unsigned i=0;i<4;++i)m.rows[i]=leafRecord(rt,stack+0x180+16*i);m.scale=0;
+    const auto a=leafRecord(rt,stack+0x1c0),b=leafRecord(rt,partner+0x30);
+    float dot;Lanes quaternion;
+    {music::NearestRounding rounding;
+        const auto unit=[&](const Lanes &v){const auto t=leafTransform(m,v);
+            const auto squared=pairSum(pairSum(pairProduct(t[0],t[0]),pairProduct(t[1],t[1])),pairProduct(1.f,pairProduct(t[2],t[2])));
+            if(!(std::bit_cast<uint32_t>(squared)&0x7fffffffu))throw std::runtime_error("native bone aim has a zero vector");
+            volatile float root=std::sqrt(std::abs(squared));volatile float reciprocal=1.f/pairNormal(root);
+            Lanes u;for(unsigned i=0;i<3;++i)u[i]=pairProduct(t[i],pairNormal(reciprocal));return u;};
+        const auto ua=unit(a),ub=unit(b);
+        dot=pairSum(pairSum(pairProduct(ua[0],ub[0]),pairProduct(ua[1],ub[1])),pairProduct(ua[2],ub[2]));
+        const Lanes cross={pairSum(pairProduct(ub[1],ua[2]),-pairProduct(ua[1],ub[2])),pairSum(pairProduct(ub[2],ua[0]),-pairProduct(ua[2],ub[0])),
+                           pairSum(pairProduct(ub[0],ua[1]),-pairProduct(ua[0],ub[1])),0};
+        const auto sum=pairSum(pairSum(0.f,2.f),pairProduct(dot,2.f));
+        volatile float root=std::sqrt(std::abs(sum));const auto q=pairProduct(1.f,pairNormal(root));
+        if(!(std::bit_cast<uint32_t>(q)&0x7fffffffu))throw std::runtime_error("native bone aim has opposite vectors");
+        volatile float reciprocal=1.f/q;for(unsigned i=0;i<3;++i)quaternion[i]=pairProduct(cross[i],pairNormal(reciprocal));
+        quaternion[3]=pairProduct(q,0.5f);}
+    if(pc==0x1fe63c)std::memcpy(record(rt,stack+0x170,16),&dot,4);
+    else std::memcpy(record(rt,stack+0x160,16),quaternion.data(),16);
+    return true;
+}
+// mod001 1fd110 chain constraint blocks (s1 = part record, s2 = chain owner,
+// owner object = *(s2+4)). VU registers that cross EE code between blocks
+// are reread from the records the earlier block stored (bit-exact):
+//  1fda08..1fda84  P = *(s1+38)+30 by the object matrix +190 (with
+//                  translation); flag 4 adds the s1 offset; offset (or VF0)
+//                  to SP+460, point to SP+220.
+//  1fdacc..1fdaf0  point * s1+30 to SP+460, point * f22 to SP+470.
+//  1fdb54, 1fdc48  SP+210 rotated by the rows +150 (no translation), in place.
+//  1fdeb0..1fdee8  origin (SP+460) + dir*a to SP+200, dir - dir*f22 to SP+1f0
+//                  (dir SP+220; W lanes kept raw).
+//  1fe790..1fe7e8  matrix SP+120 . point s0+30 into SP+110 (row orders as
+//                  the 246760 products).
+bool nativeChainBlocks(R5900Context *c,Runtime *rt,uint32_t pc){
+    const bool place=pc>=0x1fda08 && pc<=0x1fda84,split=pc>=0x1fdacc && pc<=0x1fdaf0,rotateA=pc>=0x1fdb54 && pc<=0x1fdb74,
+               rotateB=pc>=0x1fdc48 && pc<=0x1fdc68,blend=pc>=0x1fdeb0 && pc<=0x1fdee8,product=pc>=0x1fe790 && pc<=0x1fe7e8;
+    if(!(place || split || rotateA || rotateB || blend || product) || (pc&3))return false;
+    if(!c)throw std::runtime_error("native chain block has no CPU record");
+    const auto stack=c->r[29].uw[0],part=c->r[17].uw[0];
+    const auto word=[&](uint32_t at){if((at&3) || (at&0x1ffffff)<0x100000)throw std::runtime_error("native chain record outside EE RAM");
+        uint32_t v;std::memcpy(&v,rt->memory.hostPointer(at,4),4);return v;};
+    const auto rowsAt=[&](uint32_t at,unsigned n){LeafInputs m;for(unsigned i=0;i<4;++i)m.rows[i]=i<n?leafRecord(rt,at+16*i):Lanes{0,0,0,0};m.scale=0;return m;};
+    const auto raw=[&](uint32_t at){Lanes v;std::memcpy(v.data(),record(rt,at,16),16);return v;};
+    if(place){
+        const auto point=word(part+0x38)+0x30,matrix=word(c->r[18].uw[0]+4)+0x190;
+        if(pc==0x1fda08 && c->r[2].uw[0]!=point)throw std::runtime_error("native chain point source mismatch");
+        if(pc!=0x1fda70 && pc!=0x1fda7c && pc!=0x1fda84)return true;
+        if(c->r[2].uw[0]!=(pc==0x1fda84?stack+0x220:stack+0x460))throw std::runtime_error("native chain placement destination mismatch");
+        const bool offset=(word(part+0x20)&4)!=0;
+        if(pc==0x1fda70){if(!offset)throw std::runtime_error("native chain offset branch mismatch");std::memcpy(record(rt,stack+0x460,16),record(rt,part,16),16);return true;}
+        if(pc==0x1fda7c){if(offset)throw std::runtime_error("native chain offset branch mismatch");const float identity[4]={0,0,0,1};std::memcpy(record(rt,stack+0x460,16),identity,16);return true;}
+        const auto m=rowsAt(matrix,4);const auto p=leafRecord(rt,point);Lanes out;
+        {music::NearestRounding rounding;out=leafTransform(m,p);
+            if(offset){const auto shift=leafRecord(rt,part);for(unsigned i=0;i<3;++i)out[i]=pairSum(out[i],shift[i]);}}
+        for(float x:out)if(!std::isfinite(x))throw std::runtime_error("native chain placement overflow");
+        std::memcpy(record(rt,stack+0x220,16),out.data(),16);return true;
+    }
+    if(split){
+        if(pc!=0x1fdaec && pc!=0x1fdaf0)return true;
+        if(pc==0x1fdaec?c->r[3].uw[0]!=stack+0x460:c->r[2].uw[0]!=stack+0x470)throw std::runtime_error("native chain split destination mismatch");
+        const auto v=leafRecord(rt,stack+0x220);const float scale=leafLane(pc==0x1fdaec?std::bit_cast<float>(word(part+0x30)):c->f[22]);
+        Lanes out;{music::NearestRounding rounding;for(unsigned i=0;i<4;++i)out[i]=pairProduct(v[i],scale);}
+        std::memcpy(record(rt,pc==0x1fdaec?stack+0x460:stack+0x470,16),out.data(),16);return true;
+    }
+    if(rotateA || rotateB){
+        const auto matrix=word(c->r[18].uw[0]+4)+0x150;const uint32_t store=rotateA?0x1fdb74:0x1fdc68;
+        if((rotateA && pc==0x1fdb54 && (c->r[3].uw[0]!=stack+0x210 || c->r[2].uw[0]!=matrix)) || (rotateB && pc==0x1fdc48 && (c->r[2].uw[0]!=stack+0x210 || c->r[3].uw[0]!=matrix)))
+            throw std::runtime_error("native chain rotation source mismatch");
+        if(pc!=store)return true;
+        if(c->r[2].uw[0]!=stack+0x210)throw std::runtime_error("native chain rotation destination mismatch");
+        const auto m=rowsAt(matrix,3);const auto v=leafRecord(rt,stack+0x210);Lanes out;
+        {music::NearestRounding rounding;for(unsigned i=0;i<4;++i)out[i]=pairSum(pairSum(pairProduct(m.rows[0][i],v[0]),pairProduct(m.rows[1][i],v[1])),pairProduct(m.rows[2][i],v[2]));}
+        std::memcpy(record(rt,stack+0x210,16),out.data(),16);return true;
+    }
+    if(blend){
+        if(pc==0x1fdeb0 && c->r[2].uw[0]!=stack+0x220)throw std::runtime_error("native chain blend source mismatch");
+        if(pc!=0x1fdee4 && pc!=0x1fdee8)return true;
+        if(pc==0x1fdee4?c->r[3].uw[0]!=stack+0x200:c->r[2].uw[0]!=stack+0x1f0)throw std::runtime_error("native chain blend destination mismatch");
+        const auto dir=leafRecord(rt,stack+0x220),origin=leafRecord(rt,stack+0x460);
+        auto out=raw(pc==0x1fdee4?stack+0x460:stack+0x220);   // W kept raw
+        {music::NearestRounding rounding;
+            const float a=leafLane(std::bit_cast<float>(word(part+0x30))),s=leafLane(c->f[22]);
+            for(unsigned i=0;i<3;++i)out[i]=pc==0x1fdee4?pairSum(pairSum(origin[i],0.f),pairProduct(dir[i],a)):pairSum(pairSum(dir[i],0.f),-pairProduct(dir[i],s));}
+        std::memcpy(record(rt,pc==0x1fdee4?stack+0x200:stack+0x1f0,16),out.data(),16);return true;
+    }
+    // product
+    const auto owner=c->r[16].uw[0];
+    if(c->r[4].uw[0]!=stack+0x120 || c->r[3].uw[0]!=owner+0x30 || c->r[2].uw[0]!=stack+0x110)throw std::runtime_error("native chain product escaped its records");
+    if(pc!=0x1fe7e8)return true;
+    const auto m=rowsAt(stack+0x120,4);const auto v=leafRecord(rt,owner+0x30);Lanes out;
+    {music::NearestRounding rounding;Lanes p[4];for(unsigned k=0;k<4;++k)for(unsigned i=0;i<4;++i)p[k][i]=pairProduct(m.rows[k][i],v[i]);
+        constexpr unsigned order[4][4]={{0,1,2,3},{1,0,2,3},{2,1,0,3},{3,1,2,0}};
+        for(unsigned k=0;k<4;++k)out[k]=pairSum(pairSum(pairSum(p[k][order[k][0]],p[k][order[k][1]]),pairProduct(1.f,p[k][order[k][2]])),pairProduct(1.f,p[k][order[k][3]]));}
+    for(float x:out)if(!std::isfinite(x))throw std::runtime_error("native chain product overflow");
+    std::memcpy(record(rt,stack+0x110,16),out.data(),16);return true;
+}
 bool nativeMathInstruction(uint8_t *,R5900Context *c,Runtime *rt,uint32_t pc){
-    if(nativeProjectionBlocks(c,rt,pc))return true;
+    if(nativeProjectionBlocks(c,rt,pc) || nativeBoneAim(c,rt,pc) || nativeChainBlocks(c,rt,pc))return true;
     if(nativeLeafSphere(c,rt,pc) || nativeLeafBox(c,rt,pc) || nativeSegmentBox(c,rt,pc))return true;
     if(nativeLengthSite(c,rt,pc) || nativeRecordDot(c,rt,pc) || nativePackedQuaternion(c,rt,pc))return true;
     if(nativeObjectOverlap(c,rt,pc))return true;

@@ -1293,6 +1293,34 @@ int main(){try{
             ++paletteCases;}
     }
     std::printf("%u mod001 237320 bone palette entries match the 0x898/0x1f8 listing\n",paletteCases);
+    // The inlined length idiom, recognised by its nine words anywhere in code.
+    unsigned idiomCases=0;
+    for(unsigned seed=0;seed<512;++seed){
+        auto &r=native.runtime();std::memset(r.memory.flat(),0x33+seed,bozo::kFlatBytes);
+        uint32_t state=seed*2246822519u+3;const auto rnd=[&](){state=state*1664525u+1013904223u;return state>>8;};
+        const unsigned rs=1+rnd()%25,rd=1+rnd()%25;const int16_t so=int16_t(16*(rnd()%64)),dof=int16_t(16*(rnd()%64))-0x200;
+        const uint32_t code=0x1c0000+16*(rnd()%256),srcBase=0x1d0000,dstBase=0x1e8000;
+        const uint32_t words[9]={0xd8000000u|rs<<21|24u<<16|uint16_t(so),0x4bd8c62a,0x4bc00643,0x4b18c03d,0x4b18ce0a,0x4a1803bd,0x4a0003bf,0x4b000620,0xf8000000u|rd<<21|24u<<16|uint16_t(dof)};
+        std::memcpy(r.memory.hostPointer(code,36),words,36);
+        uint32_t v[4];for(auto &x:v)x=(rnd()&0x807fffffu)|((110+rnd()%30)<<23);if(seed%16==3)v[0]=v[1]=v[2]=0;
+        std::memcpy(r.memory.hostPointer(srcBase+so,16),v,16);
+        R5900Context x{};for(unsigned i=1;i<32;++i)x.r[i].ud[0]=0x1357900000000000ull+i;x.r[rs].ud[0]=srcBase;x.r[rd].ud[0]=dstBase;
+        if(rs==rd)continue;
+        const auto before=x;const auto fp=_mm_getcsr();
+        for(unsigned k=0;k<9;++k)check(vp2s::nativeMathInstruction(r.memory.flat(),&x,&r,code+4*k));
+        check(_mm_getcsr()==fp && !std::memcmp(&before,&x,sizeof(x)));
+        const auto M=[](uint32_t a,uint32_t b){uint32_t f=0;return bozo::ps2f::mul(a,b,f);};
+        const auto A=[](uint32_t a,uint32_t b){uint32_t f=0;return bozo::ps2f::addNearest(a,b,f);};
+        uint32_t expect[4]={M(v[0],v[0]),M(v[1],v[1]),M(v[2],v[2]),v[3]},flags=0;
+        const auto saved=_mm_getcsr();expect[0]=A(0,bozo::ps2f::sqrt(A(A(expect[0],expect[1]),M(0x3f800000,expect[2])),flags));_mm_setcsr(saved);
+        uint32_t got[4];std::memcpy(got,r.memory.hostPointer(dstBase+dof,16),16);
+        if(std::memcmp(got,expect,16)){std::fprintf(stderr,"length idiom seed%u %08x %08x %08x %08x / %08x %08x %08x %08x\n",seed,got[0],got[1],got[2],got[3],expect[0],expect[1],expect[2],expect[3]);check(false);}
+        // One changed word makes it unrecognised (the caller then rejects the site).
+        const uint32_t broken=0x4b18ce0b;std::memcpy(r.memory.hostPointer(code+16,4),&broken,4);
+        check(!vp2s::nativeMathInstruction(r.memory.flat(),&x,&r,code+32));
+        ++idiomCases;
+    }
+    std::printf("%u inlined vector-length blocks match the VU0 oracle\n",idiomCases);
     // 237320 tail: the palette is kept at the VIF0 kick (no transfer); 218220
     // then skins natively. The oracle is generated from the mode-1 listings by
     // sequential evaluation (tests/bozo_skin_oracle.inc), lane by lane.

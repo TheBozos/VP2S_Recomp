@@ -12,6 +12,35 @@ The earlier VP2S face/shading and general brightness comparisons remain open.
 
 ## Build and evidence
 
+### The inlined vector-length idiom (2026-11-09)
+
+The block `LQC2 vf24`, `MUL.xyz`, `ADDw.xyz vf25 = 1`, `ADDAy`, `MADDz`,
+`SQRT`, `WAITQ`, `ADDq.x`, `SQC2 vf24` is an inlined `length()`. It appears
+about 110 times in mod003 and 4 times in mod001, with various source and
+destination registers. Seven of them were native table sites; the town walk
+hits new ones one after another (`42c6c8`, then `42c1ac`).
+
+`nativeLengthIdiom` handles every copy:
+- It recognises the block by its nine exact words in the loaded code around
+  the PC.
+- It takes the source and destination from the LQC2/SQC2 encodings (base
+  register + offset).
+- It publishes `{|xyz|, y*y, z*z, w}` with the same arithmetic as the table
+  sites. The table sites still come first.
+- Any other word sequence is unrecognised and rejects as before.
+
+`42c6c8` (in `42c5a0`, guarded) is also a table site, with an entry in the
+field-distance fixture.
+
+**Tests:**
+- 491 synthetic blocks (random registers and offsets) match the ps2f VU0
+  oracle, and a changed word is not recognised.
+- The fixture runs `42c6c8` against the reference.
+
+**Route:** the run reaches serial 2306. It stops at `219210`: an animated
+model with attribute set `0x143` (it includes the `M+34` mode stream, bit 100)
+and nine elements of a new class `1536a0`, whose `+10` is `218600`.
+
 ### Town street: facing rotation 396c00 and more packed keys (2026-11-09)
 
 - **mod003 `396c00`** stores its quaternion argument at `s0+250` and runs

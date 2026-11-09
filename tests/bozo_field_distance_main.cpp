@@ -203,8 +203,8 @@ struct Host:bozo::ee::Host,bozo::port::Host {
             if(pc==0x3ef160){for(unsigned i=0;i<3;++i)o[i]=sub(P[i],B[i]);store(stack+0x50,o,12);}
             return true;
         }
-        if(reference && (pc==0x439278 || pc==0x4398a0 || pc==0x439bc8 || pc==0x439bf8 || pc==0x439c68 || pc==0x3cdca4)){
-            const unsigned source=pc==0x3cdca4?19:pc==0x439278 || pc==0x4398a0?5:pc==0x439bc8?4:pc==0x439bf8?3:4,destination=pc==0x3cdca4?2:pc==0x439278 || pc==0x4398a0?4:pc==0x439bc8?3:2;
+        if(reference && (pc==0x439278 || pc==0x4398a0 || pc==0x439bc8 || pc==0x439bf8 || pc==0x439c68 || pc==0x3cdca4 || pc==0x42c6e8)){
+            const unsigned source=pc==0x3cdca4?19:pc==0x439278 || pc==0x4398a0 || pc==0x42c6e8?5:pc==0x439bc8?4:pc==0x439bf8?3:4,destination=pc==0x3cdca4?2:pc==0x439278 || pc==0x4398a0 || pc==0x42c6e8?4:pc==0x439bc8?3:2;
             uint32_t bits[4],flags=0;std::memcpy(bits,rt->memory.hostPointer(c->r[source].uw[0],16),16);
             if(pc==0x439c68){uint32_t other[4];std::memcpy(other,rt->memory.hostPointer(c->r[3].uw[0],16),16);
                 bits[0]=vu0Sum(vu0Sum(vu0Product(bits[0],other[0]),vu0Product(bits[1],other[1])),vu0Product(bits[2],other[2]));}
@@ -468,7 +468,7 @@ int main(){try{
     unsigned vectorBlocks=0;
     struct VectorBlock{uint32_t first;unsigned sourceReg;bool stack;uint32_t sourceOffset;unsigned destinationReg;uint32_t destinationOffset;bool dot;};
     const VectorBlock vectorCases[]={{0x439258,5,true,0x100,4,0x90,false},{0x439880,5,true,0x100,4,0x80,false},
-                                     {0x439ba8,4,false,0x1f0,3,0x70,false},{0x439bd8,3,false,0x230,2,0x60,false},{0x439c54,4,false,0x1f0,2,0x50,true},{0x3cdc84,19,false,0x1f0,2,0xa0,false}};
+                                     {0x439ba8,4,false,0x1f0,3,0x70,false},{0x439bd8,3,false,0x230,2,0x60,false},{0x439c54,4,false,0x1f0,2,0x50,true},{0x3cdc84,19,false,0x1f0,2,0xa0,false},{0x42c6c8,5,true,0x60,4,0x30,false}};
     for(const auto &block:vectorCases)for(unsigned mode:{_MM_ROUND_NEAREST,_MM_ROUND_DOWN,_MM_ROUND_UP,_MM_ROUND_TOWARD_ZERO})for(unsigned seed=0;seed<64;++seed){
         auto &a=original.runtime(),&b=adapted.runtime();std::memset(a.memory.flat(),0x71+seed,bozo::kFlatBytes);const uint32_t aliases[]={0,0x20000000,0x30000000,0x80000000,0xa0000000};
         const uint32_t owner=0x1b4000|aliases[(seed/4)%5],stack=seed&1?0x70002e00u:0x1ffd400u|aliases[(seed/8)%5];

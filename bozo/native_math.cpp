@@ -825,7 +825,8 @@ constexpr LengthSite lengthSites[]={
     {0x439880,5,true,0x100,4,0x80,0},
     {0x439ba8,4,false,0x1f0,3,0x70,0},         // s0 records
     {0x439bd8,3,false,0x230,2,0x60,0},
-    {0x3cdc84,19,false,~0u,2,0xa0,0}};         // mod003 3cdb60: argument record (s3)
+    {0x3cdc84,19,false,~0u,2,0xa0,0},          // mod003 3cdb60: argument record (s3)
+    {0x42c6c8,5,true,0x60,4,0x30,0}};          // mod003 42c600 distance (SP+60 less s0)
 bool nativeLengthSite(R5900Context *c,Runtime *rt,uint32_t pc){
     const LengthSite *site=nullptr;
     for(const auto &s:lengthSites)if(pc>=s.first && pc<=s.first+0x20 && !(pc&3)){site=&s;break;}
@@ -846,6 +847,33 @@ bool nativeLengthSite(R5900Context *c,Runtime *rt,uint32_t pc){
         volatile float partial=result[0]+result[1];volatile float squared=pairNormal(partial)+result[2];
         volatile float length=std::sqrt(pairNormal(squared));volatile float output=0.f+length;result[0]=output;}
     std::memcpy(record(rt,stack+site->destinationOffset,16),result,16);return true;
+}
+// The same length block is inlined about 110 times (mod003, mod001): LQC2
+// vf24, MUL.xyz vf24*vf24, ADDw.xyz vf25 = 1, ADDAy, MADDz, SQRT, WAITQ,
+// ADDq.x, SQC2 vf24. Recognised by its nine exact words in the loaded code
+// around the PC; source and destination come from the LQC2/SQC2 encodings.
+// Publishes {|xyz|, y*y, z*z, w} like the table sites above.
+bool nativeLengthIdiom(R5900Context *c,Runtime *rt,uint32_t pc){
+    if(!rt || (pc&3))return false;
+    static constexpr uint32_t body[7]={0x4bd8c62a,0x4bc00643,0x4b18c03d,0x4b18ce0a,0x4a1803bd,0x4a0003bf,0x4b000620};
+    uint32_t start=0,words[9];bool found=false;
+    for(unsigned k=0;k<9 && !found;++k){
+        const auto at=pc-4*k;const auto *code=rt->memory.hostPointer(at,36);if(!code)continue;std::memcpy(words,code,36);
+        found=words[0]>>26==0x36 && ((words[0]>>16)&31)==24 && words[8]>>26==0x3e && ((words[8]>>16)&31)==24 && !std::memcmp(words+1,body,sizeof(body));
+        if(found)start=at;}
+    if(!found)return false;
+    if(!c)throw std::runtime_error("native length idiom has no CPU record");
+    if(pc!=start+0x20)return true;
+    const auto address=[&](uint32_t w){return c->r[(w>>21)&31].uw[0]+uint32_t(int32_t(int16_t(w&0xffff)));};
+    const auto sourceAt=address(words[0]),destinationAt=address(words[8]);
+    float value[4],result[4];std::memcpy(value,record(rt,sourceAt,16),16);std::memcpy(result,value,16);
+    for(unsigned i=0;i<3;++i){if((std::bit_cast<uint32_t>(value[i])&0x7f800000)==0x7f800000 || beyondRange(value[i]))
+        throw std::runtime_error(std::format("unqualified native vector length at {:x}",start));value[i]=pairNormal(value[i]);}
+    {music::NearestRounding rounding;
+        for(unsigned i=0;i<3;++i){volatile float square=value[i]*value[i];result[i]=pairNormal(square);}
+        volatile float partial=result[0]+result[1];volatile float squared=pairNormal(partial)+result[2];
+        volatile float length=std::sqrt(pairNormal(squared));volatile float output=0.f+length;result[0]=output;}
+    std::memcpy(record(rt,destinationAt,16),result,16);return true;
 }
 // mod003 439c54..439c68: dot product of s0+1f0 and s0+230 into SP+50, as
 // VMUL.xyz then two VADD.x; the stored register keeps the first input's YZW.
@@ -1795,6 +1823,7 @@ bool nativeMathInstruction(uint8_t *,R5900Context *c,Runtime *rt,uint32_t pc){
     if(nativeProjectionBlocks(c,rt,pc) || nativeBoneAim(c,rt,pc) || nativeChainBlocks(c,rt,pc) || nativeCapsulePair(c,rt,pc) || nativePlaneContact(c,rt,pc) || nativeRangeTest(c,rt,pc) || nativeMatrixBuild(c,rt,pc) || nativeListBoxQuery(c,rt,pc) || nativeHitFrame(c,rt,pc) || nativePlaneDistance(c,rt,pc) || nativeSphereSweep(c,rt,pc) || nativeSegmentApproach(c,rt,pc) || nativeWorldPosition(c,rt,pc) || nativeCameraTarget(c,rt,pc) || nativeRootLength(c,rt,pc) || nativeVisibilityLoop(c,rt,pc) || nativeQuaternionLeaf(c,rt,pc) || nativeBonePalette(c,rt,pc))return true;
     if(nativeLeafSphere(c,rt,pc) || nativeLeafBox(c,rt,pc) || nativeSegmentBox(c,rt,pc))return true;
     if(nativeLengthSite(c,rt,pc) || nativeRecordDot(c,rt,pc) || nativePackedQuaternion(c,rt,pc))return true;
+    if(nativeLengthIdiom(c,rt,pc))return true;
     if(nativeObjectOverlap(c,rt,pc))return true;
     if(nativeUvAnimation(c,rt,pc))return true;
     if(nativeSegmentContact(c,rt,pc))return true;

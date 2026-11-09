@@ -12,6 +12,30 @@ The earlier VP2S face/shading and general brightness comparisons remain open.
 
 ## Build and evidence
 
+### Native model point and spot lights (2026-11-09)
+
+With lighting table A (`object+31c`), table B (`+314`, point lights) and C
+(`+318`, 1 or 2 spot lights) now add to each vertex's factor in the native
+model renderer, after the mode's factor. The formulas follow the old port's
+`vp2s_vu1_hle` (`runObjectSetup`, `addPointLights`, `addSpotLight`), which was
+checked against recorded VU1 runs. They work in object space:
+- **Light rows:** positions `mem[20..22]` and `mem[28..29]` go through O's rigid
+  inverse, and spot directions `mem[30..31]` through `Rn^T`. The rows are read
+  at `object+230+16n`, the same rows as the directional lights.
+- **B:** `colour * max(0, n . d * s / |d|^2)`, squared header 9.w times
+  (`block+3c`).
+- **C:** the cone `clamp((cos^2 - c.x) * c.y, 0, 1)` when `cos > 0`, and a
+  strength of `c.z / |d|`. Mode 3 adds the half-vector specular, weighted by
+  header 11.y/.z (`block+54/58`).
+
+Mode 2, B in mode 3, and C with power 0 in mode 3 reject. There is no unit
+oracle; the evidence is visual (the town street after the harbour renders
+plausibly). A PCSX2 comparison of the lit colours is still open.
+
+**Route:** the harbour, the banner scene (skinned cloth now matches PCSX2's
+shape) and the town street play through. The run now stops at serial 2129 at
+`396c24` (entry `396c00`, mod003), an unported native algorithm.
+
 ### Streamed skinned models through the native 219210 (2026-11-09)
 
 The loader `219620` streams one object's attributes through the scratchpad
@@ -332,15 +356,19 @@ are bone j's rows `*(s2+4j)+90`, its inverse bind `*(s4+40)+64j`, and the
 object rows at SP+60 (from `216e40`). The program:
 - computes `M_k = IB . B_k` for k < 3 and sets `M_3 = B_3`;
 - computes `N_k = M . O_k` for k < 3 and sets `N_3 = M_3`;
-- then executes `B 0x1f8`, entering the 0x1f0 transpose after its first pair.
+- then branches to the transpose at `0x1f0` (the `B` at `0x948` targets
+  `pc + 8 + imm*8`), so the palette is the full transpose of N.
 
-So the palette keeps two stale lanes, `P0.y = M0.y` and `P2.z = M2.z`. The PS2
-computes exactly this, and the port reproduces it.
+**Correction (2026-11-09):** this section first said `B 0x1f8`, which skips
+the `0x1f0` pair and leaves `P0.y = M0.y` and `P2.z = M2.z` stale. The port and
+its test oracle shared that misreading. It showed up as a collapsed skinned
+banner in the town (rigid cloth, one bone per vertex), which hangs correctly
+once the transpose is complete.
 
 The loop is software-pipelined: the next bone's input loads overlap the
 program run, and the interlocked CFC2 precedes the stores. Each entry is
 therefore computed from its own bone's records, at the store, into the
-scratchpad palette `s1 = 70000010 + 64j`. The test runs the 0x898/0x1f8
+scratchpad palette `s1 = 70000010 + 64j`. The test runs the 0x898/0x1f0
 listing instruction by instruction on a VF register file: 766 entries match.
 Guard `237320..2375c8`.
 

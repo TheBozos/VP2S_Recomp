@@ -111,12 +111,26 @@ NativeModelSubmission NativeModels::capture(Runtime *rt,NativeAssets &assets,Nat
     const auto ambient=row(19),objectColour=row(13),limit=row(0);
     const bool tableA=word(object+0x31c)!=0,plain=word(object+0x310)!=0;
     // The light-table word mem[14] is object+310: x plain, y table B (point
-    // lights), z table C (spot lights), w table A. With table A, B and C add
-    // point/spot lights after the factor (vp2s_vu1_hle runLighting); those are
-    // not ported, so they reject explicitly. Without B and C, table A changes
-    // only mode 0 (the object colour is kept).
-    if(tableA && (word(object+0x314) || word(object+0x318)))
-        throw std::runtime_error(std::format("unported native point/spot light tables (B {:x} C {:x})",word(object+0x314),word(object+0x318)));
+    // lights), z table C (spot lights), w table A. Table A alone changes only
+    // mode 0 (the object colour is kept). With A, B and C add lights to the
+    // factor after it, in object space as the VU1 object set-up leaves them
+    // (vp2s_vu1_hle runObjectSetup/runLighting):
+    // - positions mem[20..22] (B) and mem[28..29] (C) through O's rigid
+    //   inverse (R^T, -R^T t times w); spot directions mem[30..31] by Rn^T;
+    // - B: three point lights, colours mem[23..25], strengths mem[27].xyz;
+    //   each adds colour * max(0, n . d * s / |d|^2) squared header 9.w times;
+    // - C: one or two spot lights (mem[14].z = 1 or 2), colour mem[32 + i],
+    //   cone mem[34 + i] (.x cos^2 offset, .y scale, .z strength over distance);
+    //   mode 3 adds a specular half-vector term (header 11.y/.z weights).
+    const auto pointLights=tableA?word(object+0x314):0u,spotLights=tableA?word(object+0x318):0u;
+    if(spotLights>2)throw std::runtime_error(std::format("unqualified native spot light count {}",spotLights));
+    const auto rigidInverse=[&](const std::array<float,4> &x){std::array<float,3> out{};
+        for(unsigned j=0;j<3;++j)for(unsigned r=0;r<3;++r)out[j]+=world[4*r+j]*(x[r]-world[4*r+3]*x[3]);return out;};
+    struct PointLight{std::array<float,3> position,colour;float strength;};std::array<PointLight,3> points{};
+    if(pointLights){const auto strength=row(27);for(unsigned i=0;i<3;++i){const auto c=row(23+i);points[i]={rigidInverse(row(20+i)),{c[0],c[1],c[2]},strength[i]};}}
+    struct SpotLight{std::array<float,3> position,direction,colour;std::array<float,4> cone;};std::vector<SpotLight> spots;
+    for(unsigned i=0;i<spotLights;++i){const auto d=row(30+i),c=row(32+i);SpotLight spot{rigidInverse(row(28+i)),{},{c[0],c[1],c[2]},row(34+i)};
+        for(unsigned c2=0;c2<3;++c2)spot.direction[c2]=rotation[0][c2]*d[0]+rotation[1][c2]*d[1]+rotation[2][c2]*d[2];spots.push_back(spot);}
     std::array<float,3> eye{};for(unsigned c=0;c<3;++c)eye[c]=-(viewObject[c]*viewObject[3]+viewObject[4+c]*viewObject[7]+viewObject[8+c]*viewObject[11]);
     uint32_t boneCount=0,palette=0;const auto skeleton=word(object+0x648);
     if(skeleton){boneCount=word(word(skeleton+0x34)+4);if(boneCount>4096)throw std::runtime_error("native bone count outside bounds");
@@ -199,6 +213,26 @@ NativeModelSubmission NativeModels::capture(Runtime *rt,NativeAssets &assets,Nat
                     std::array<float,3> h{};for(unsigned c=0;c<3;++c)h[c]=directions[l][c]*ws+e[c]*ws*(length?1/length:0);
                     specular[l]=dot(h,n);for(int j=0;j<power;++j)specular[l]*=specular[l];}
                 for(unsigned c=0;c<3;++c){factor[c]=ambient[c]*wa;for(unsigned l=0;l<3;++l)factor[c]+=colours[l][c]*diffuse[l];for(unsigned l=0;l<3;++l)factor[c]+=colours[l][c]*specular[l];}}
+            if(pointLights || !spots.empty()){
+                int32_t power=0;std::array<float,4> weights{};
+                if(material[4]==3 || pointLights){if(!block)throw std::runtime_error("native point/spot lights without a mesh block");
+                    power=value<int32_t>(rt,block+0x3c);if(power<0 || power>16)throw std::runtime_error("native light power outside bounds");}
+                if(material[4]==3){if(pointLights)throw std::runtime_error("unported native point lights in specular mode 3");
+                    if(power<=0)throw std::runtime_error("unported native spot light with specular power 0");weights=value<std::array<float,4>>(rt,block+0x50);}
+                else if(material[4]!=0 && material[4]!=1)throw std::runtime_error(std::format("unported native point/spot lights in mode {}",material[4]));
+                for(unsigned i=0;pointLights && i<3;++i){const auto &l=points[i];std::array<float,3> d{l.position[0]-p[0],l.position[1]-p[1],l.position[2]-p[2]};
+                    const float squared=dot(d,d),q=squared!=0?l.strength/squared:0;float lit=std::max(0.0f,(n[0]*d[0]+n[1]*d[1]+n[2]*d[2])*q);
+                    for(int32_t r=0;r<power;++r)lit*=lit;for(unsigned c=0;c<3;++c)factor[c]+=l.colour[c]*lit;}
+                for(const auto &l:spots){std::array<float,3> d{l.position[0]-p[0],l.position[1]-p[1],l.position[2]-p[2]};
+                    const float dl=std::sqrt(dot(d,d)),inverse=dl!=0?1/dl:0;std::array<float,3> unit{d[0]*inverse,d[1]*inverse,d[2]*inverse};
+                    const float cosine=dot(l.direction,unit),cone=cosine>0?std::clamp((cosine*cosine-l.cone[0])*l.cone[1],0.0f,1.0f):0.0f;
+                    const float strength=l.cone[2]*inverse;float diffuse=std::max(0.0f,(unit[0]*n[0]+unit[1]*n[1]+unit[2]*n[2])*strength*cone);
+                    if(material[4]!=3){for(unsigned c=0;c<3;++c)factor[c]+=l.colour[c]*diffuse;continue;}
+                    const float el=std::sqrt(dot(e,e)),q=el!=0?1/el:std::numeric_limits<float>::max();
+                    std::array<float,3> half{};for(unsigned c=0;c<3;++c)half[c]=(e[c]*q+unit[c])*weights[2];
+                    float sp=std::max(0.0f,dot(half,n));for(int32_t r=0;r<power;++r)sp*=sp;const float specular=sp*cone*strength;diffuse*=weights[1];
+                    for(unsigned c=0;c<3;++c)factor[c]+=l.colour[c]*diffuse+l.colour[c]*specular;}
+            }
             vout.rgba=0;for(unsigned c=0;c<4;++c){finite(factor[c]);const auto lit=uint32_t(std::clamp(v.colour[c]*factor[c],0.0f,limit[c]>0?std::min(limit[c],255.0f):255.0f));vout.rgba|=lit<<(8*c);}
             for(auto f:{vout.x,vout.y,vout.z,vout.u,vout.v,vout.fog})finite(f);
         }

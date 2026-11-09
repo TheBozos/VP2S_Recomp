@@ -1625,8 +1625,8 @@ bool nativeQuaternionLeaf(R5900Context *c,Runtime *rt,uint32_t pc){
 // *(s4+40)+64j, object rows O = SP+60 from 216e40) through program 0x898:
 //  M_k = ((IB0*B_k.x + IB1*B_k.y) + IB2*B_k.z) + IB3*B_k.w (k<3), M_3 = B_3;
 //  N_k = ((M0*O_k.x + M1*O_k.y) + M2*O_k.z) + M3*O_k.w (k<3), N_3 = M_3;
-// then B 0x1f8 enters the 0x1f0 transpose after its first pair, so P0.y and
-// P2.z keep M0.y / M2.z. Transposed lanes: MOVE (raw), ADD 0+x, MUL 1*x as
+// then the B at 0x948 (target pc+8+imm*8 = 0x1f0) runs the whole transpose
+// P = N^T (0x1f0..0x248). Transposed lanes: MOVE (raw), ADD 0+x, MUL 1*x as
 // listed. EE stores P to the scratchpad palette s1 = 70000010 + 64j after the
 // interlocked CFC2 (the next bone's input loads overlap the run, by design).
 bool nativeBonePalette(R5900Context *c,Runtime *rt,uint32_t pc){
@@ -1648,9 +1648,9 @@ bool nativeBonePalette(R5900Context *c,Runtime *rt,uint32_t pc){
     for(unsigned k=0;k<3;++k)M[k]=rows(IB,B[k]);M[3]=B[3];
     for(unsigned k=0;k<3;++k)N[k]=rows(M,O[k]);N[3]=M[3];
     const uint32_t one=0x3f800000u;VuWords P[4];
-    P[0]={N[0][0],M[0][1],vuAdd(0,N[2][0]),vuMul(one,N[3][0])};
+    P[0]={N[0][0],vuAdd(0,N[1][0]),vuAdd(0,N[2][0]),vuMul(one,N[3][0])};
     P[1]={vuAdd(0,N[0][1]),N[1][1],vuAdd(0,N[2][1]),vuMul(one,N[3][1])};
-    P[2]={vuAdd(0,N[0][2]),vuAdd(0,N[1][2]),M[2][2],vuMul(one,N[3][2])};
+    P[2]={vuAdd(0,N[0][2]),vuAdd(0,N[1][2]),N[2][2],vuMul(one,N[3][2])};
     P[3]={vuAdd(0,N[0][3]),vuAdd(0,N[1][3]),vuAdd(0,N[2][3]),N[3][3]};
     std::memcpy(record(rt,s1,64),P,64);return true;
 }

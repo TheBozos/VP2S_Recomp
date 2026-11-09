@@ -1277,7 +1277,8 @@ int main(){try{
                 for(unsigned i=0;i<4;++i){acc[i]=M(a[i],s[0]);acc[i]=A(acc[i],M(b[i],s[1]));acc[i]=A(acc[i],M(c2[i],s[2]));vf[d][i]=A(acc[i],M(e[i],s[3]));}};
             chain(1,vf[13],vf[14],vf[15],vf[16],vf[9]);chain(2,vf[13],vf[14],vf[15],vf[16],vf[10]);chain(3,vf[13],vf[14],vf[15],vf[16],vf[11]);vf[4]=vf[12];
             chain(5,vf[1],vf[2],vf[3],vf[4],vf[28]);chain(6,vf[1],vf[2],vf[3],vf[4],vf[29]);vf[8]=vf[4];chain(7,vf[1],vf[2],vf[3],vf[4],vf[30]);
-            // 0x1f8 .. 0x248
+            // 0x1f0 .. 0x248 (the B at 0x948 targets pc+8+imm*8 = 0x1f0)
+            vf[1][1]=A(vf[0][1],vf[6][0]);vf[3][2]=vf[7][2];
             vf[1][2]=A(vf[0][2],vf[7][0]);vf[4][3]=vf[8][3];vf[1][3]=M(vf[0][3],vf[8][0]);vf[2][0]=A(vf[0][0],vf[5][1]);
             vf[2][2]=A(vf[0][2],vf[7][1]);vf[1][0]=vf[5][0];vf[2][3]=M(vf[0][3],vf[8][1]);vf[3][0]=A(vf[0][0],vf[5][2]);
             vf[3][1]=A(vf[0][1],vf[6][2]);vf[2][1]=vf[6][1];vf[3][3]=M(vf[0][3],vf[8][2]);vf[4][0]=A(vf[0][0],vf[5][3]);

@@ -28,6 +28,11 @@ fixture,_=prepare(data,[dict(Name='field_distance',Start='0x378908',End='0x3789d
                        dict(Name='vector_439bd8',Start='0x439bd8',End='0x439c04'),
                        dict(Name='vector_439c54',Start='0x439c54',End='0x439c74'),
                        dict(Name='vector_3cdc84',Start='0x3cdc84',End='0x3cdcb0'),
+                       dict(Name='approach_length',Start='0x3ef07c',End='0x3ef0a8'),
+                       dict(Name='approach_clamp',Start='0x3ef0c8',End='0x3ef100'),
+                       dict(Name='approach_project',Start='0x3ef100',End='0x3ef16c'),
+                       dict(Name='approach_dot_a',Start='0x3ef170',End='0x3ef190'),
+                       dict(Name='approach_dot_b',Start='0x3ef1b4',End='0x3ef1d4'),
                        dict(Name='row_dot',Start='0x410df0',End='0x410e50'),
                        dict(Name='action_update',Start='0x4126a0',End='0x412868'),
                        dict(Name='animation_parameter',Start='0x446520',End='0x446618'),
@@ -60,6 +65,17 @@ for lo,stop,result in ((0x439258,0x43927c,0x439278),(0x439880,0x4398a4,0x4398a0)
     for pc in range(lo,stop,4):
         if a.variant=='original' and pc!=result:
             at=s[1]+pc-s[2];fixture[at:at+4]=bytes(4)
+        else:movement_sites.append(f'native 0x{pc:x}'+chr(10))
+# mod003 3ef010 segment approach: five blocks, each returns after its last store
+# (the reference runs an oracle at the listed stores).
+for lo,stop,results in ((0x3ef07c,0x3ef0a0,(0x3ef09c,)),(0x3ef0c8,0x3ef0f4,(0x3ef0f0,)),(0x3ef100,0x3ef164,(0x3ef154,0x3ef158,0x3ef15c,0x3ef160)),
+                        (0x3ef170,0x3ef188,(0x3ef184,)),(0x3ef1b4,0x3ef1cc,(0x3ef1c8,))):
+    s=next(s for s in segments if s[0]==1 and s[2]<=lo<stop+8<=s[2]+s[4])
+    at=s[1]+stop-s[2];fixture[at:at+8]=(0x03e00008).to_bytes(4,'little')+bytes(4)
+    for pc in range(lo,stop,4):
+        at=s[1]+pc-s[2];word=int.from_bytes(fixture[at:at+4],'little')
+        if word>>26 not in (0x12,0x36,0x3e):continue
+        if a.variant=='original' and pc not in results:fixture[at:at+4]=bytes(4)
         else:movement_sites.append(f'native 0x{pc:x}'+chr(10))
 # Both step passes join their time threshold at 380730/380910; return there
 # so the fixture stops after each CPU position update.

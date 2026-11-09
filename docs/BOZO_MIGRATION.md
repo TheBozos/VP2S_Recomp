@@ -12,6 +12,21 @@ The earlier VP2S face/shading and general brightness comparisons remain open.
 
 ## Build and evidence
 
+### mod003 3ef010 segment approach (2026-11-09)
+
+Five VU0 blocks, ported natively with `ps2f` arithmetic:
+- **A:** `|SP+90|`, using VU SQRT, goes to SP+40 together with the squared lanes
+  and the raw W.
+- **B:** the clamp to distance 300 along `*a3`.
+- **C:** projects `*a3` onto the segment `s0+280` to `s0+290` (`t` by VU DIV)
+  and stores the foot, the direction and the two offsets to SP+80..50. It writes
+  XYZ only: the W lanes there are inherited VU state. EE code sets SP+80's W to 1
+  before the `+20` virtual call, the only reader; the other W lanes are dead locals.
+- **D and E:** two dots to SP+30 and SP+20, keeping SP+70's raw Y/Z/W.
+
+Guard `3ef010..3ef230`. 1280 field-distance fixture cases, including degenerate
+segments, match the oracle. The route then reaches mod001 `248e64`.
+
 ### Native model light table A (2026-11-09)
 
 The light-table word `mem[14]` is `object+310`: x plain, y table B (point
@@ -54,20 +69,20 @@ an object's first frame the point is whatever the allocation held. The route
 showed `(bfa12848, e3b96faf, b5bac313)`, with a Y of about -6.8e21.
 
 The VU computes with any bit pattern. It has no Inf/NaN, exponent 255 is an
-ordinary number, and overflow saturates to ±max. Host floats cannot hold those
+ordinary number, and overflow saturates to Â±max. Host floats cannot hold those
 values. So the sites that read this cache (`29f5e0`, `214590`, `20d9d0`)
 compute with the engine's PS2 float definitions (`bozo::ps2f`, as the chapter
 bar already does). These are pure functions with no MXCSR or VU state, and
 nothing is rejected. The tests include the route's pattern; in `20d9d0` it
 saturates.
 
-`214590` computes the plane distance `((m.x+m.y)+1·m.z)`, with
+`214590` computes the plane distance `((m.x+m.y)+1Â·m.z)`, with
 `m = (a0 - a2) * a1`, and stores it to SP+0 followed by the point's raw Y/Z/W.
 `20d9d0` passes it the same `+7f0` cache, so it uses the same `ps2f` arithmetic.
 Guard `214590..2145c8`.
 
 `20d9d0` has three VU blocks:
-- `(node+240 - cache)²` on all lanes, stored to SP+d0.
+- `(node+240 - cache)Â²` on all lanes, stored to SP+d0.
 - The same, stored to SP+c0.
 - Row k of `s5+240` scaled by lane k of `self+7e0`, in place.
 

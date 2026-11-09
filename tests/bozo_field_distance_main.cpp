@@ -171,6 +171,31 @@ struct Host:bozo::ee::Host,bozo::port::Host {
             const auto result=vp2s::math::quaternionMatrix(input);
             std::memcpy(rt->memory.hostPointer(c->r[2].uw[0],48),result.data(),48);return true;
         }
+        if(reference && (pc==0x3ef09c || pc==0x3ef0f0 || (pc>=0x3ef154 && pc<=0x3ef160) || pc==0x3ef184 || pc==0x3ef1c8)){
+            // mod003 3ef010 segment approach, engine ps2f arithmetic in the original order.
+            const auto sub=[](uint32_t a,uint32_t b){uint32_t f=0;return bozo::ps2f::subNearest(a,b,f);};
+            const auto load=[&](uint32_t at){std::array<uint32_t,4> v;std::memcpy(v.data(),rt->memory.hostPointer(at,16),16);return v;};
+            const auto store=[&](uint32_t at,const std::array<uint32_t,4> &v,unsigned bytes){std::memcpy(rt->memory.hostPointer(at,bytes),v.data(),bytes);};
+            const auto stack=c->r[29].uw[0];const uint32_t one=0x3f800000;
+            if(pc==0x3ef09c){auto v=load(stack+0x90);for(unsigned i=0;i<3;++i)v[i]=vu0Product(v[i],v[i]);
+                uint32_t f=0;const auto saved=_mm_getcsr();const auto q=bozo::ps2f::sqrt(vu0Sum(vu0Sum(v[0],v[1]),vu0Product(one,v[2])),f);_mm_setcsr(saved);
+                v[0]=vu0Sum(0,q);store(stack+0x40,v,16);return true;}
+            if(pc==0x3ef0f0){auto v=load(stack+0x90);const auto base=load(c->r[7].uw[0]);const auto s=std::bit_cast<uint32_t>(c->f[0]);
+                for(unsigned i=0;i<3;++i)v[i]=vu0Sum(vu0Product(base[i],one),vu0Product(v[i],s));store(stack+0x90,v,16);return true;}
+            if(pc==0x3ef184 || pc==0x3ef1c8){auto v=load(stack+0x70);const auto w=load(stack+(pc==0x3ef184?0x60:0x50));
+                v[0]=vu0Sum(vu0Sum(vu0Product(v[0],w[0]),vu0Product(v[1],w[1])),vu0Product(v[2],w[2]));store(stack+(pc==0x3ef184?0x30:0x20),v,16);return true;}
+            const auto owner=c->r[16].uw[0];const auto A=load(owner+0x280),B=load(owner+0x290),P=load(c->r[7].uw[0]);
+            std::array<uint32_t,4> d{},e{},o{};uint32_t num,den;
+            for(unsigned i=0;i<3;++i){d[i]=sub(B[i],A[i]);e[i]=sub(P[i],A[i]);}
+            num=vu0Sum(vu0Sum(vu0Product(e[0],d[0]),vu0Product(e[1],d[1])),vu0Product(e[2],d[2]));
+            den=vu0Sum(vu0Sum(vu0Product(d[1],d[1]),vu0Product(d[0],d[0])),vu0Product(d[2],d[2]));
+            uint32_t f=0;const auto saved=_mm_getcsr();const auto t=bozo::ps2f::div(num,den,f);_mm_setcsr(saved);
+            if(pc==0x3ef154){for(unsigned i=0;i<3;++i)o[i]=vu0Sum(A[i],vu0Product(d[i],t));store(stack+0x80,o,12);}
+            if(pc==0x3ef158)store(stack+0x70,d,12);
+            if(pc==0x3ef15c)store(stack+0x60,e,12);
+            if(pc==0x3ef160){for(unsigned i=0;i<3;++i)o[i]=sub(P[i],B[i]);store(stack+0x50,o,12);}
+            return true;
+        }
         if(reference && (pc==0x439278 || pc==0x4398a0 || pc==0x439bc8 || pc==0x439bf8 || pc==0x439c68 || pc==0x3cdca4)){
             const unsigned source=pc==0x3cdca4?19:pc==0x439278 || pc==0x4398a0?5:pc==0x439bc8?4:pc==0x439bf8?3:4,destination=pc==0x3cdca4?2:pc==0x439278 || pc==0x4398a0?4:pc==0x439bc8?3:2;
             uint32_t bits[4],flags=0;std::memcpy(bits,rt->memory.hostPointer(c->r[source].uw[0],16),16);
@@ -459,6 +484,37 @@ int main(){try{
         ++vectorBlocks;
     }
     std::printf("%u mod003 439180 vector-length/dot blocks match the engine VU0 oracle\n",vectorBlocks);
+    unsigned approachBlocks=0;
+    const uint32_t approachEntries[5]={0x3ef07c,0x3ef0c8,0x3ef100,0x3ef170,0x3ef1b4};
+    for(unsigned block=0;block<5;++block)for(unsigned mode:{_MM_ROUND_NEAREST,_MM_ROUND_DOWN,_MM_ROUND_UP,_MM_ROUND_TOWARD_ZERO})for(unsigned seed=0;seed<64;++seed){
+        auto &a=original.runtime(),&b=adapted.runtime();std::memset(a.memory.flat(),0x35+seed,bozo::kFlatBytes);
+        const uint32_t owner=0x1b4000,camera=0x1b6000,stack=seed&1?0x70002e00u:0x1ffd400u|(seed&2?0x20000000u:0u);
+        uint32_t state=seed*2654435761u+block*97+mode;const auto next=[&](){state=state*1664525u+1013904223u;return ((state>>8)&0x807fffffu)|uint32_t((116+(state>>4)%16)<<23);};
+        const auto put=[&](uint32_t at,uint32_t v){std::memcpy(a.memory.hostPointer(at,4),&v,4);};
+        for(uint32_t at:{owner+0x280u,owner+0x290u,camera+0x40u,camera+0x250u})for(unsigned i=0;i<4;++i)put(at+4*i,next());
+        for(unsigned i=0;i<0x80/4;++i)put(stack+0x20+4*i,next());
+        if(seed%16==5)for(unsigned i=0;i<4;++i)put(owner+0x290+4*i,i<3?0:next());     // degenerate segment: 0/0
+        if(seed%16==6)for(unsigned i=0;i<3;++i){uint32_t v;std::memcpy(&v,a.memory.hostPointer(owner+0x280+4*i,4),4);put(owner+0x290+4*i,v);} // zero length, nonzero bits
+        std::memcpy(b.memory.flat(),a.memory.flat(),bozo::kFlatBytes);R5900Context x{};for(unsigned i=1;i<32;++i){x.r[i].ud[0]=0x3579000000000000ull+seed*32+i;x.r[i].ud[1]=~x.r[i].ud[0];x.f[i]=float(i)/4;}
+        std::memset(x.vu0_vf,0x4f,sizeof(x.vu0_vf));std::memset(&x.vu0_acc,0xf4,sizeof(x.vu0_acc));x.vu0_status=0x2222;x.vu0_q_bits=0x3f800007;x.vi[0]=0x2222;
+        x.r[16].ud[0]=owner;x.r[29].ud[0]=stack;x.r[31].ud[0]=0x170000;x.r[7].ud[0]=seed&4?camera+0x40:camera+0x250;
+        if(block==0){x.r[4].ud[0]=stack+0x90;x.r[3].ud[0]=stack+0x40;}
+        if(block==1){x.r[7].ud[0]=camera+0x40;x.f[0]=300.f;x.f[1]=std::bit_cast<float>(next()&0x7fffffff)+300.f;}
+        if(block==2){x.r[3].ud[0]=owner+0x280;x.r[2].ud[0]=owner+0x290;}
+        if(block==3){x.r[4].ud[0]=stack+0x70;x.r[3].ud[0]=stack+0x60;x.r[2].ud[0]=stack+0x30;}
+        if(block==4){x.r[4].ud[0]=stack+0x70;x.r[3].ud[0]=stack+0x50;x.r[2].ud[0]=stack+0x20;}
+        auto y=x;
+        const auto saved=_mm_getcsr(),control=(saved&~(_MM_ROUND_MASK|0x8040|0x3f))|mode|(seed&8?0x8040:0);_mm_setcsr(control);
+        host.reference=true;a.functions.generated(approachEntries[block])(a.memory.flat(),&x,&a);const auto fp=_mm_getcsr();_mm_setcsr(control);
+        host.reference=false;b.functions.generated(approachEntries[block])(b.memory.flat(),&y,&b);const auto blockFp=_mm_getcsr();_mm_setcsr(saved);
+        x.cycleLimit=y.cycleLimit;
+        if(blockFp!=fp || x.pc!=0x170000 || std::memcmp(&x,&y,sizeof(x)) || std::memcmp(a.memory.flat(),b.memory.flat(),bozo::kFlatBytes)){
+            std::fprintf(stderr,"approach block%u mode%x seed%u PCs%x/%x fp%08x/%08x\n",block,mode,seed,x.pc,y.pc,fp,blockFp);
+            for(unsigned i=0;i<bozo::kFlatBytes;++i)if(a.memory.flat()[i]!=b.memory.flat()[i]){std::fprintf(stderr,"RAM byte%x old%02x native%02x\n",i,a.memory.flat()[i],b.memory.flat()[i]);break;}check(false);
+        }
+        ++approachBlocks;
+    }
+    std::printf("%u mod003 3ef010 segment approach blocks match the engine VU0 oracle\n",approachBlocks);
     unsigned compositions=0,composedProducts=0;
     for(unsigned mode:{_MM_ROUND_NEAREST,_MM_ROUND_DOWN,_MM_ROUND_UP,_MM_ROUND_TOWARD_ZERO})for(unsigned seed=0;seed<128;++seed){
         auto &a=original.runtime(),&b=adapted.runtime();std::memset(a.memory.flat(),0x5d+seed,bozo::kFlatBytes);const uint32_t aliases[]={0,0x20000000,0x30000000,0x80000000,0xa0000000};

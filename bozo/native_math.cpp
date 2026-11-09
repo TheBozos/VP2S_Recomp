@@ -1381,8 +1381,64 @@ bool nativeSphereSweep(R5900Context *c,Runtime *rt,uint32_t pc){
     for(unsigned i=0;i<4;++i){const auto d=vuSub(b[i],a[i]);out[i]=vuMul(d,d);}
     std::memcpy(record(rt,target,16),out.data(),16);return true;
 }
+// mod003 3ef010 (s0 = owner; a2 = *(*(48e048)+14), SP+90 = a2+250 - a2+40 by
+// EE code), ps2f arithmetic:
+//  A 3ef07c..3ef09c  (sqrt((x2+y2)+1*z2), y2, z2, raw W) of SP+90 to SP+40.
+//  B 3ef0d4..3ef0f0  (when that length >= 300) *a3*1 + SP+90*f0 to SP+90, raw W.
+//  C 3ef100..3ef160  segment s0+280 -> s0+290 and point *a3: d = b-a,
+//                    t = (((p-a)*d).x+y)+z / ((d*d).y+x)+z, a + d*t to SP+80,
+//                    d to SP+70, p-a to SP+60, p-b to SP+50 (XYZ only: their W
+//                    lanes are inherited VU state; SP+80's W is set to 1 by EE
+//                    code and the others are dead locals).
+//  D 3ef170..3ef184  ((SP+70 * SP+60).x+y)+z with SP+70's raw Y/Z/W to SP+30.
+//  E 3ef1b4..3ef1c8  the same with SP+50, to SP+20.
+bool nativeSegmentApproach(R5900Context *c,Runtime *rt,uint32_t pc){
+    const bool length=pc>=0x3ef07c && pc<=0x3ef09c,clamp=pc>=0x3ef0d4 && pc<=0x3ef0f0,project=pc>=0x3ef100 && pc<=0x3ef160,
+               dotA=pc>=0x3ef170 && pc<=0x3ef184,dotB=pc>=0x3ef1b4 && pc<=0x3ef1c8;
+    if(!(length || clamp || project || dotA || dotB) || (pc&3))return false;
+    if(!c)throw std::runtime_error("native segment approach has no CPU record");
+    const auto stack=c->r[29].uw[0];const auto reg=[&](unsigned r){return c->r[r].uw[0];};
+    const auto mismatch=[](){throw std::runtime_error("native segment approach escaped its records");};
+    const auto rooted=[](auto f){const auto saved=_mm_getcsr();const auto v=f();_mm_setcsr(saved);return v;};
+    if(length){
+        if(reg(4)!=stack+0x90 || reg(3)!=stack+0x40)mismatch();
+        if(pc!=0x3ef09c)return true;
+        auto out=vuWords(rt,stack+0x90);for(unsigned i=0;i<3;++i)out[i]=vuMul(out[i],out[i]);
+        const auto sum=vuAdd(vuAdd(out[0],out[1]),vuMul(0x3f800000u,out[2]));
+        out[0]=vuAdd(0,rooted([&]{uint32_t f=0;return bozo::ps2f::sqrt(sum,f);}));
+        std::memcpy(record(rt,stack+0x40,16),out.data(),16);return true;
+    }
+    if(clamp){
+        if(reg(4)!=stack+0x90 || (pc>=0x3ef0e4 && reg(3)!=stack+0x90))mismatch();
+        if(pc!=0x3ef0f0)return true;
+        auto out=vuWords(rt,stack+0x90);const auto base=vuWords(rt,reg(7));const auto scale=std::bit_cast<uint32_t>(c->f[0]);
+        for(unsigned i=0;i<3;++i)out[i]=vuAdd(vuMul(base[i],0x3f800000u),vuMul(out[i],scale));
+        std::memcpy(record(rt,stack+0x90,16),out.data(),16);return true;
+    }
+    if(project){
+        const auto owner=reg(16);
+        if(pc==0x3ef100 && (reg(3)!=owner+0x280 || reg(2)!=owner+0x290))mismatch();
+        if(pc<0x3ef154)return true;
+        if(reg(5)!=stack+0x80 || reg(4)!=stack+0x70 || reg(3)!=stack+0x60 || reg(2)!=stack+0x50)mismatch();
+        if(pc!=0x3ef154)return true;
+        const auto a=vuWords(rt,owner+0x280),b=vuWords(rt,owner+0x290),p=vuWords(rt,reg(7));
+        VuWords d{},e{},f{},g{},sq{},pr{};
+        for(unsigned i=0;i<3;++i){d[i]=vuSub(b[i],a[i]);e[i]=vuSub(p[i],a[i]);sq[i]=vuMul(d[i],d[i]);pr[i]=vuMul(e[i],d[i]);}
+        const auto num=vuAdd(vuAdd(pr[0],pr[1]),pr[2]),den=vuAdd(vuAdd(sq[1],sq[0]),sq[2]);
+        const auto t=rooted([&]{uint32_t fl=0;return bozo::ps2f::div(num,den,fl);});
+        for(unsigned i=0;i<3;++i){f[i]=vuAdd(a[i],vuMul(d[i],t));g[i]=vuSub(p[i],b[i]);}
+        std::memcpy(record(rt,stack+0x80,16),f.data(),12);std::memcpy(record(rt,stack+0x70,16),d.data(),12);
+        std::memcpy(record(rt,stack+0x60,16),e.data(),12);std::memcpy(record(rt,stack+0x50,16),g.data(),12);return true;
+    }
+    const auto other=dotA?stack+0x60:stack+0x50,target=dotA?stack+0x30:stack+0x20;
+    if(reg(4)!=stack+0x70 || reg(3)!=other || reg(2)!=target)mismatch();
+    if(pc!=(dotA?0x3ef184u:0x3ef1c8u))return true;
+    auto out=vuWords(rt,stack+0x70);const auto v=vuWords(rt,other);
+    uint32_t m[3];for(unsigned i=0;i<3;++i)m[i]=vuMul(out[i],v[i]);out[0]=vuAdd(vuAdd(m[0],m[1]),m[2]);
+    std::memcpy(record(rt,target,16),out.data(),16);return true;
+}
 bool nativeMathInstruction(uint8_t *,R5900Context *c,Runtime *rt,uint32_t pc){
-    if(nativeProjectionBlocks(c,rt,pc) || nativeBoneAim(c,rt,pc) || nativeChainBlocks(c,rt,pc) || nativeCapsulePair(c,rt,pc) || nativePlaneContact(c,rt,pc) || nativeRangeTest(c,rt,pc) || nativeMatrixBuild(c,rt,pc) || nativeListBoxQuery(c,rt,pc) || nativeHitFrame(c,rt,pc) || nativePlaneDistance(c,rt,pc) || nativeSphereSweep(c,rt,pc))return true;
+    if(nativeProjectionBlocks(c,rt,pc) || nativeBoneAim(c,rt,pc) || nativeChainBlocks(c,rt,pc) || nativeCapsulePair(c,rt,pc) || nativePlaneContact(c,rt,pc) || nativeRangeTest(c,rt,pc) || nativeMatrixBuild(c,rt,pc) || nativeListBoxQuery(c,rt,pc) || nativeHitFrame(c,rt,pc) || nativePlaneDistance(c,rt,pc) || nativeSphereSweep(c,rt,pc) || nativeSegmentApproach(c,rt,pc))return true;
     if(nativeLeafSphere(c,rt,pc) || nativeLeafBox(c,rt,pc) || nativeSegmentBox(c,rt,pc))return true;
     if(nativeLengthSite(c,rt,pc) || nativeRecordDot(c,rt,pc) || nativePackedQuaternion(c,rt,pc))return true;
     if(nativeObjectOverlap(c,rt,pc))return true;

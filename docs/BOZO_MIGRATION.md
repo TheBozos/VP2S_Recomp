@@ -12,6 +12,42 @@ The earlier VP2S face/shading and general brightness comparisons remain open.
 
 ## Build and evidence
 
+### Harbour sea: PCSX2 GS dump analysis (2026-11-09)
+
+A PCSX2 GS dump (Shift+F8) of the matching harbour frame was taken with the
+route's pad timeline replayed in real time. It is read with
+`tools/pcsx2_gsdump.py`, which handles the header, state, packets and GIF tags
+and collects primitives with their GS state. Frame 0 has 13834 primitives; the
+frame target is FBP 198, 512 wide.
+
+What the dump establishes:
+- **Sea layers**, in draw order:
+  - Base: TBP 13696, opaque, vertex colour about 5,9,11, F 135-254.
+  - Waves: TBP 14112, additive (ALPHA 0x48), alpha 72.
+  - Horizon band: TBP 14016, additive.
+  - TBP 13984: additive, alpha 76.
+  - TBP 14176: additive, alpha 89, unfogged.
+
+  They map to native 11c9050, 11d7180 and 132ba10/1335cb0. Their blend
+  factors match.
+- **Fog matches native exactly:** FOGCOL 0x4c4c46, and per-layer F ranges equal
+  to the native per-vertex values (base 136-255, alpha-76 layer 171-255, alpha-89
+  layer unfogged).
+- **Brightness:** 8 sprites at ALPHA 0x49 (Cd*As + Cd, As = 128) double the
+  frame. That is the native brightness pass (gain 2, high 1, low 0).
+- **After the doubling:** two DOF composites, then a final additive glow
+  (TBP 13696, FBP 428 buffer).
+- **Native DOF composite:** disabling it changes no measured zone.
+
+Ruled out as causes of the remaining sea, sky and haze gap (0.75-0.80): fog
+amount, fog colour, layer blend factors, brightness doubling, the DOF
+composite, and the alpha-89 layer's vertex colours. That layer's colours are
+deterministic per frame and non-zero at frame 2200; an earlier zero reading
+came from a different frame index.
+
+Open: the glow and the sun-glare contributions. Separating them needs a
+rasterization of the dump's post passes (FBP 396/412/428/436/445 chain).
+
 ### Native model fog from the live GIF tag (2026-11-09)
 
 The dark sea was missing GS fog. The game sets PRIM.FGE in each mesh's GIF tag

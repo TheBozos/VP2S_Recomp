@@ -12,6 +12,24 @@ The earlier VP2S face/shading and general brightness comparisons remain open.
 
 ## Build and evidence
 
+### Quaternion leaf 2156d0; the route reaches Logun (2026-11-09)
+
+`2156d0` normalizes `*a0` in place through program 0x670. The sum is
+`((x^2+y^2)+1*z^2)+1*w^2`, followed by RSQRT, and all four lanes are
+multiplied by Q. The SQC2 sits in the JR delay slot, and the CFC2 reads VI0.
+The port uses `ps2f`. 512 stepped cases match a transcription of the listing.
+Guard `2156d0..2156e8`.
+
+Audit item: `2156b0` calls the same program through
+`math::normalizeQuaternion`, one of the older truncating helpers. Its suite pins
+truncation, so it is unchanged here.
+
+**Route:** with this site, the protected Logun field-only route
+(`logun-field-only.txt`, seed 1) runs all 2200 frames with no boundary (exit 0).
+The native capture of frame 2200 (`--capture`, 512x512 native target) shows
+Logun's harbour: buildings, ships, dock and townspeople. Not yet checked: a
+visual comparison against PCSX2, playable control, and sound on that screen.
+
 ### mod001 220d20 visibility loop (2026-11-09)
 
 For each object, `220d20` fetches the bounding sphere (virtual `+5c`, v0) and

@@ -1562,8 +1562,24 @@ bool nativeVisibilityLoop(R5900Context *c,Runtime *rt,uint32_t pc){
         negative=negative || (vuAdd(d,s[3])&0x80000000u);}
     c->r[3].ud[0]=negative?0x80:0;return true;
 }
+// mod001 2156d0 quaternion normalize leaf: *a0 through program 0x670 (sum
+// ((x2+y2)+1*z2)+1*w2, RSQRT, all lanes * Q) back to *a0 (the SQC2 sits in the
+// JR delay slot); the CFC2 reads VI0. ps2f. (The older 2156b0 site of the same
+// program uses math::normalizeQuaternion, an audited truncating helper.)
+bool nativeQuaternionLeaf(R5900Context *c,Runtime *rt,uint32_t pc){
+    if(pc!=0x2156d0 && pc!=0x2156d8 && pc!=0x2156dc && pc!=0x2156e4)return false;
+    if(!c)throw std::runtime_error("native quaternion leaf has no CPU record");
+    if(pc==0x2156dc){c->r[9].ud[0]=0;return true;}
+    if(pc!=0x2156e4)return true;
+    const auto at=c->r[4].uw[0];auto q=vuWords(rt,at);
+    uint32_t sq[4];for(unsigned i=0;i<4;++i)sq[i]=vuMul(q[i],q[i]);
+    const auto sum=vuAdd(vuAdd(vuAdd(sq[0],sq[1]),vuMul(0x3f800000u,sq[2])),vuMul(0x3f800000u,sq[3]));
+    const auto saved=_mm_getcsr();uint32_t f=0;const auto inv=bozo::ps2f::rsqrt(0x3f800000u,sum,f);_mm_setcsr(saved);
+    for(auto &x:q)x=vuMul(x,inv);
+    std::memcpy(record(rt,at,16),q.data(),16);return true;
+}
 bool nativeMathInstruction(uint8_t *,R5900Context *c,Runtime *rt,uint32_t pc){
-    if(nativeProjectionBlocks(c,rt,pc) || nativeBoneAim(c,rt,pc) || nativeChainBlocks(c,rt,pc) || nativeCapsulePair(c,rt,pc) || nativePlaneContact(c,rt,pc) || nativeRangeTest(c,rt,pc) || nativeMatrixBuild(c,rt,pc) || nativeListBoxQuery(c,rt,pc) || nativeHitFrame(c,rt,pc) || nativePlaneDistance(c,rt,pc) || nativeSphereSweep(c,rt,pc) || nativeSegmentApproach(c,rt,pc) || nativeWorldPosition(c,rt,pc) || nativeCameraTarget(c,rt,pc) || nativeRootLength(c,rt,pc) || nativeVisibilityLoop(c,rt,pc))return true;
+    if(nativeProjectionBlocks(c,rt,pc) || nativeBoneAim(c,rt,pc) || nativeChainBlocks(c,rt,pc) || nativeCapsulePair(c,rt,pc) || nativePlaneContact(c,rt,pc) || nativeRangeTest(c,rt,pc) || nativeMatrixBuild(c,rt,pc) || nativeListBoxQuery(c,rt,pc) || nativeHitFrame(c,rt,pc) || nativePlaneDistance(c,rt,pc) || nativeSphereSweep(c,rt,pc) || nativeSegmentApproach(c,rt,pc) || nativeWorldPosition(c,rt,pc) || nativeCameraTarget(c,rt,pc) || nativeRootLength(c,rt,pc) || nativeVisibilityLoop(c,rt,pc) || nativeQuaternionLeaf(c,rt,pc))return true;
     if(nativeLeafSphere(c,rt,pc) || nativeLeafBox(c,rt,pc) || nativeSegmentBox(c,rt,pc))return true;
     if(nativeLengthSite(c,rt,pc) || nativeRecordDot(c,rt,pc) || nativePackedQuaternion(c,rt,pc))return true;
     if(nativeObjectOverlap(c,rt,pc))return true;

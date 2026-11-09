@@ -1235,6 +1235,27 @@ int main(){try{
         visible+=vi2==0;++visibilityCases;
     }
     std::printf("%u mod001 220d20 visibility tests (%u inside) match the 0xb60 listing\n",visibilityCases,visible);
+    // mod001 2156d0: program 0x670 from its listing, in place; CFC2 reads VI0.
+    unsigned quaternionLeafCases=0;
+    for(unsigned seed=0;seed<512;++seed){
+        auto &r=native.runtime();std::memset(r.memory.flat(),0x5d+1+seed,bozo::kFlatBytes);const uint32_t at=seed&1?0x70003040:0x1e4030;
+        uint32_t state=seed*1103515245u;const auto next=[&](int lo,int span){state=state*1664525u+1013904223u;return ((state>>8)&0x807fffffu)|uint32_t((lo+int((state>>4)%unsigned(span)))<<23);};
+        uint32_t q[4];for(auto &v:q)v=next(110,24);if(seed%32==5)for(auto &v:q)v=0;if(seed%32==6)q[1]=0x7fffffffu;
+        std::memcpy(r.memory.hostPointer(at,16),q,16);
+        const auto M=[](uint32_t a,uint32_t b){uint32_t f=0;return bozo::ps2f::mul(a,b,f);};
+        const auto A=[](uint32_t a,uint32_t b){uint32_t f=0;return bozo::ps2f::addNearest(a,b,f);};
+        uint32_t v6[4];for(unsigned i=0;i<4;++i)v6[i]=M(q[i],q[i]);const uint32_t one=0x3f800000;
+        const auto sum=A(A(A(v6[0],v6[1]),M(one,v6[2])),M(one,v6[3]));
+        uint32_t f=0;const auto saved=_mm_getcsr();const auto Q=bozo::ps2f::rsqrt(one,sum,f);_mm_setcsr(saved);
+        uint32_t expect[4];for(unsigned i=0;i<4;++i)expect[i]=M(q[i],Q);
+        R5900Context x{};for(unsigned i=1;i<32;++i){x.r[i].ud[0]=0xf7a8000000000000ull+seed*32+i;x.r[i].ud[1]=~x.r[i].ud[0];}x.r[4].ud[0]=at;
+        auto y=x;const auto fp=_mm_getcsr();
+        for(uint32_t pc:{0x2156d0u,0x2156d8u,0x2156dcu,0x2156e4u})check(vp2s::nativeMathInstruction(r.memory.flat(),&y,&r,pc));
+        uint32_t got[4];std::memcpy(got,r.memory.hostPointer(at,16),16);
+        x.r[9].ud[0]=0;check(!std::memcmp(&x,&y,sizeof(x)) && _mm_getcsr()==fp && !std::memcmp(got,expect,16));
+        ++quaternionLeafCases;
+    }
+    std::printf("%u mod001 2156d0 quaternion normalizations match the 0x670 listing\n",quaternionLeafCases);
     // Animated packet UVs. The original loader 219620 (with its mesh cursors
     // and element methods) builds the scratchpad description; a test-only
     // oracle reproduces the original pipeline from it (toSPR chain, callback

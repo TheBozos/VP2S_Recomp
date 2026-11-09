@@ -12,6 +12,33 @@ The earlier VP2S face/shading and general brightness comparisons remain open.
 
 ## Build and evidence
 
+### Native model fog from the live GIF tag (2026-11-09)
+
+The dark sea was missing GS fog. The game sets PRIM.FGE in each mesh's GIF tag
+in EE RAM: row 13 of the block, with `+70` EOP|nloop 0x8000, PRIM at `+74`
+bits 15 and up, and `+78` REGS 0x412. The converted disc material has the bit
+clear. The old port found this in 6b2e89b; the native renderer still read the
+pack. It now takes FGE from that tag when the tag is present, and otherwise
+falls back to the pack. On the harbour frame, 440 of 446 batches are fogged.
+
+Against PCSX2 (luma, native/PCSX2):
+
+| Zone | Before | After |
+|---|---|---|
+| Sea | 0.31 | 0.75 |
+| Far ships / haze | 0.75 | 0.80 |
+| Sky | 0.81 | 0.78 |
+| Buildings | 1.06 | 1.06 |
+| Dock | 0.98 | 1.02 |
+
+The models suite pins the live tag with FGE, the tag without FGE, and the
+fallback for a different tag.
+
+Still darker than PCSX2: sea, sky and haze, about 0.75-0.80. The native glow
+runs on this frame (enabled, strength 1), and PCSX2 shows a strong sun glare on
+the water. The next step is a PCSX2 GS dump of this frame to decompose the
+sea's layers before changing anything.
+
 ### Logun harbour vs PCSX2 (2026-11-09)
 
 To get a reference, PCSX2 replayed the route's pad script in real time (frame =

@@ -150,7 +150,13 @@ NativeModelSubmission NativeModels::capture(Runtime *rt,NativeAssets &assets,Nat
         if(mat.alphaBlend){mat.gsBlend=true;mat.blendA=material[7];mat.blendB=material[8];mat.blendC=material[9];mat.blendD=material[10];mat.blendFix=0x80;}
         mat.alphaTest=true;mat.depthWrite=!mat.alphaBlend || palette;mat.textureAlpha=material[2];
         mat.textureFunction=static_cast<bozo::render::Material::TextureFunction>(material[3]);
-        mat.fog=material[6] && camera->fog[1]!=0;mat.fogColour=camera->clearColour;
+        // PRIM.FGE is set by the game in the vertices' GIF tag in the block in EE
+        // RAM (row 13 at +70: EOP|nloop 8000, PRIM at +74 bits 15.., REGS 412 =
+        // ST RGBAQ XYZF2); the converted (disc) material has it clear. This is the
+        // town/harbour distance haze (PCSX2: almost every scene prim has FGE).
+        const bool liveTag=block>=0x100000 && word(block+0x70)==0x8000 && word(block+0x78)==0x412;
+        const bool fogEnabled=liveTag?((word(block+0x74)>>15)&0x20)!=0:material[6]!=0;
+        mat.fog=fogEnabled && camera->fog[1]!=0;mat.fogColour=camera->clearColour;
         if(material[1]){if(!block || !manager)throw std::runtime_error("native textured mesh missing material/manager");
             const auto slot=value<int32_t>(rt,block+0x98);if(slot<0 || slot>=256)throw std::runtime_error("native mesh texture slot outside range");
             const auto index=value<int16_t>(rt,manager+0x2670+2*slot);if(index<0)throw std::runtime_error("native mesh texture not registered");

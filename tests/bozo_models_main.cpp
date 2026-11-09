@@ -42,6 +42,7 @@ int main(int argc,char **argv){try{
         put(rt,camera+0x220,uint32_t(0x153120));put(rt,camera+0x8e0,uint32_t(0x1a0000));put(rt,0x1a0000,uint32_t(0x153140));
         put(rt,camera+0x2f0,identity);put(rt,camera+0x370,identity);auto screen=identity;screen[0]=100;screen[5]=100;screen[3]=2048;screen[7]=2048;
         put(rt,camera+0x330,screen);put(rt,camera+0x244,2048.f);put(rt,camera+0x248,2048.f);put(rt,camera+0x260,1728.f);put(rt,camera+0x264,1824.f);
+        put(rt,camera+0x5a8,0.f);put(rt,camera+0x5ac,1000.f);   // fog F = a + b/w (only for FGE meshes)
         scene.selectCamera(&rt,camera);
         put(rt,object+0x90,identity);put(rt,object+0x7bc,model);put(rt,model+0x34,uint32_t(1));put(rt,model+0x64,int16_t(0x200));
         put(rt,model+0x74,uint32_t(1));put(rt,model+0x60+0x40+0x90,uint32_t(1));
@@ -73,6 +74,15 @@ int main(int argc,char **argv){try{
             put(rt,object+0x30c,0.f);check(batch.vertices[0].rgba==((seed<<24)|0x402010)); // immutable captured data
             // Light table A (mem[14].w = +31c) alone keeps the factor; its point (B, +314)
             // and spot (C, +318) tables are not ported and reject explicitly.
+            // PRIM.FGE is read live from the block's GIF tag in EE RAM (row 13: +70 EOP|nloop,
+            // +74 PRIM<<15, +78 REGS 412); a tag that is not this one falls back to the pack.
+            if(seed%8==5){const uint32_t block=model+0x60+0x40;check(!batch.material.fog);
+                put(rt,block+0x70,uint32_t(0x8000));put(rt,block+0x78,uint32_t(0x412));
+                put(rt,block+0x74,uint32_t(0x34u<<15));{const auto r=models.capture(&rt,assets,textures,scene,object);check(r.batches.size()==1 && r.batches[0].material.fog);
+                    for(const auto &v:r.batches[0].vertices)check(v.fog>0 && v.fog<=1);}
+                put(rt,block+0x74,uint32_t(0x14u<<15));check(!models.capture(&rt,assets,textures,scene,object).batches[0].material.fog);
+                put(rt,block+0x74,uint32_t(0x34u<<15));put(rt,block+0x78,uint32_t(0x413));check(!models.capture(&rt,assets,textures,scene,object).batches[0].material.fog);
+                for(uint32_t at:{0x70u,0x74u,0x78u})put(rt,block+at,uint32_t(0));}
             if(seed%8==3){put(rt,object+0x31c,uint32_t(1));
                 {const auto lit=models.capture(&rt,assets,textures,scene,object);check(lit.batches.size()==1 && lit.batches[0].vertices[0].rgba==0x402010u);} // alpha cleared above
                 put(rt,object+0x314,uint32_t(1));rejects([&]{models.capture(&rt,assets,textures,scene,object);});put(rt,object+0x314,uint32_t(0));

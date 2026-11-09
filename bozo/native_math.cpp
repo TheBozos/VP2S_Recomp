@@ -719,6 +719,7 @@ int32_t uvScrolled(uint32_t half,float scroll){
     volatile float value=float(half)*(1.f/4096.f)+pairNormal(scroll);const double fixed=double(pairNormal(value))*4096.;
     if(fixed>=2147483647.)return 0x7fffffff;if(fixed<=-2147483648.)return int32_t(0x80000000u);return int32_t(fixed);}
 void skinMesh(Runtime *rt,uint32_t table,unsigned vertices,uint8_t *positions,uint8_t *normals,uint8_t *packed);
+void morphMesh(Runtime *rt,uint32_t element,unsigned vertices,uint8_t *positions,uint8_t *normals,uint8_t *packed);
 bool nativeUvAnimation(R5900Context *c,Runtime *rt,uint32_t pc){
     if(pc!=0x219210)return false;
     if(!c)throw std::runtime_error("native UV animation has no CPU record");
@@ -728,7 +729,7 @@ bool nativeUvAnimation(R5900Context *c,Runtime *rt,uint32_t pc){
         const auto flags=uvWord(rt,object+0x58);
         // 1 positions, 2 normals, 8 UVs, 80 packed vectors, 20 element data;
         // 40 is only part of the skeleton's flag word (e3). 4, 10, 100 reject.
-        if(!(flags&0x20) || (flags&~0xebu)){
+        if(flags&~0x1ebu){
             // Report the element classes: the next port step depends on them.
             std::string list;const auto n=c->r[21].uw[0],at=c->r[29].uw[0]+0xe0;
             for(unsigned i=0;i<n && i<16;++i){const auto e=uvWord(rt,at+4*i),vt=uvWord(rt,e);list+=std::format(" e{:x}:vt{:x}/+10={:x}",e,vt,uvWord(rt,vt+0x10));}
@@ -745,24 +746,32 @@ bool nativeUvAnimation(R5900Context *c,Runtime *rt,uint32_t pc){
         // skin positions/normals/packed vectors; their table for each included
         // mesh is the +18 cursor, which 237320 resets to +44 and each included
         // mesh advances by its leading halfword.
-        struct Element{uint32_t at,cursor;float scroll[2];bool all;uint32_t bits;bool skeleton;};std::vector<Element> elements;
+        struct Element{uint32_t at,cursor;float scroll[2];bool all;uint32_t bits;bool skeleton;bool morph=false;};std::vector<Element> elements;
         for(unsigned i=0;i<count;++i){const auto e=uvWord(rt,list+4*i);const auto vt=uvWord(rt,e);
             if(vt==0x154690){
                 if(uvWord(rt,vt+0x10)!=0x218220 || uvWord(rt,vt+0x18)!=0x2372f0)throw std::runtime_error("unqualified skeleton element methods");
                 if((flags&3)!=3)throw std::runtime_error("skeleton element without streamed positions and normals");
                 elements.push_back({e,uvWord(rt,e+0x44),{0,0},(uvWord(rt,e+0x18)>>8&0xff)!=0,uvWord(rt,e+0x24),true});continue;}
+            if(vt==0x1536a0){
+                // Morph element: +10 is 218600 (programs 0x7d8/0x848), reading
+                // its own RAM table at the +38 cursor.
+                if(uvWord(rt,vt+0x10)!=0x218600)throw std::runtime_error("unqualified morph element methods");
+                if((flags&3)!=3)throw std::runtime_error("morph element without streamed positions and normals");
+                elements.push_back({e,uvWord(rt,e+0x38),{0,0},(uvWord(rt,e+0x18)>>8&0xff)!=0,uvWord(rt,e+0x24),true});elements.back().morph=true;continue;}
             if(vt!=0x1591b0)throw std::runtime_error("unported animated vertex element class");
             Element el{e,uvWord(rt,e+0x34),{std::bit_cast<float>(uvWord(rt,e+0x40)),std::bit_cast<float>(uvWord(rt,e+0x44))},(uvWord(rt,e+0x18)>>8&0xff)!=0,uvWord(rt,e+0x24),false};
             for(float s:el.scroll)if((std::bit_cast<uint32_t>(s)&0x7f800000)==0x7f800000)throw std::runtime_error("unqualified UV scroll");
             elements.push_back(el);}
         // The loader numbers element data by the object's element chain
-        // (+d or +18 set); 218220 indexes it by this list. They must agree.
-        {unsigned i=0;for(auto e=uvWord(rt,object+8);e!=object;e=uvWord(rt,e+8)){
+        // (+d or +18 set); the +10 callbacks index it by this list. Elements
+        // that read that data (skeleton, UV scroll) must sit at the same index
+        // in both; the morph element reads its own RAM table.
+        {std::vector<uint32_t> chain;for(auto e=uvWord(rt,object+8);e!=object;e=uvWord(rt,e+8)){
             const auto bytes=uvWord(rt,e+0xc),flagWord=uvWord(rt,e+0x18);
             if(!((bytes>>8)&0xff) && !(flagWord&0xff))continue;
-            if(i>=elements.size() || elements[i].at!=e)throw std::runtime_error("animated element list differs from the object's chain");
-            if(++i>16)throw std::runtime_error("animated element chain outside bounds");}
-         if(i!=elements.size())throw std::runtime_error("animated element list differs from the object's chain");}
+            chain.push_back(e);if(chain.size()>64)throw std::runtime_error("animated element chain outside bounds");}
+         for(size_t i=0;i<elements.size();++i){if(elements[i].morph)continue;
+            if(i>=chain.size() || chain[i]!=elements[i].at)throw std::runtime_error("animated element data index differs from the object's chain");}}
         music::NearestRounding rounding;
         for(int32_t j=0;j<meshes;++j){
             const auto sourceStep=int16_t(uvWord(rt,source+4)),packetStep=int16_t(uvWord(rt,packet+4));
@@ -778,12 +787,17 @@ bool nativeUvAnimation(R5900Context *c,Runtime *rt,uint32_t pc){
                 // vectors (N*8 bytes, rounded to qwords, at +34 & 3fff when its mode
                 // bits 14-15 are 0), returned to the same packet offsets.
                 const uint32_t positionAt=uvWord(rt,source+0x18)&0xffff,normalAt=uvWord(rt,source+0x18)>>16,packedHalf=uvWord(rt,source+0x34)&0xffff;
-                const bool hasPacked=(flags&0x80) && packedHalf && !(packedHalf>>14);const uint32_t packedAt=packedHalf&0x3fff,packedBytes=((uint32_t(n)+1)>>1)*16;
+                // Bit 100 streams the same +34 data for every mode (8/18/32/24
+                // bytes per vertex); only mode 0 is the s16x4 layout ported here.
+                if((flags&0x100) && packedHalf && (packedHalf>>14))throw std::runtime_error(std::format("unported +34 stream mode {}",packedHalf>>14));
+                const bool hasPacked=(flags&0x180) && packedHalf && !(packedHalf>>14);const uint32_t packedAt=packedHalf&0x3fff,packedBytes=((uint32_t(n)+1)>>1)*16;
                 std::vector<uint8_t> positions(flags&1?16*n:0),normals(flags&2?16*n:0),packedData(hasPacked?packedBytes:0);
                 if(n && (flags&1))std::memcpy(positions.data(),uvBytes(rt,source+positionAt,16*n),16*n);
                 if(n && (flags&2))std::memcpy(normals.data(),uvBytes(rt,source+normalAt,16*n),16*n);
                 if(n && hasPacked)std::memcpy(packedData.data(),uvBytes(rt,source+packedAt,packedBytes),packedBytes);
                 for(auto &el:elements){
+                    if(el.morph){if(!n || (!el.all && !(uvWord(rt,el.bits+4*(uint32_t(j)>>5))>>(j&31)&1)))continue;
+                        morphMesh(rt,el.at,unsigned(n),positions.data(),normals.data(),hasPacked?packedData.data():nullptr);continue;}
                     if(!el.skeleton)continue;
                     const auto table=el.cursor;if(table&1)throw std::runtime_error("skeleton element table misaligned");el.cursor+=uvWord(rt,table&~3u)>>((table&2)*8)&0xffff;
                     if(!n || (!el.all && !(uvWord(rt,el.bits+4*(uint32_t(j)>>5))>>(j&31)&1)))continue;
@@ -1800,6 +1814,58 @@ void skinMesh(Runtime *rt,uint32_t table,unsigned vertices,uint8_t *positions,ui
         if(v.packed){auto *h=packed+8*k;for(unsigned i=0;i<4;++i){h[2*i]=uint8_t(out[i]);h[2*i+1]=uint8_t(out[i]>>8);}}
     }
     _mm_setcsr(savedCsr);
+}
+// mod001 218600 (element class 1536a0 +10): one morph step for a mesh. The
+// table at e+38 holds count c (+0), its size (+8, the cursor advance), the
+// packed-vector byte count (+c) and c entries of 32 bytes from +10: position
+// delta (16 bytes) and normal delta whose .w word is the vertex index. Weights
+// are e+40 (.x positions/normals, .y packed vectors). Program 0x7d8 is
+// pipelined: each call outputs the previous entry, so the EE stores one call
+// late and repeats the last call to flush. Per entry j, vertex k:
+//   p.xyz = p*1 + dp*w.x; n' = n*1 + dn*w.x; n.xyz = n' * rsqrt(len2(n'))
+//   with len2 = (1*n'x^2 + 1*n'y^2) + 1*n'z^2; n.w = the next entry's input
+//   normal .w (its own for the last); p.w is vf12.w, a VU register never
+//   written by the program: the port keeps the record's w.
+// Program 0x848, for the first (+c)/8 packed vectors in order with deltas
+// following the entries: v = ftoi12(itof12(v)*1 + itof12(d)*w.y), all lanes.
+void morphMesh(Runtime *rt,uint32_t element,unsigned vertices,uint8_t *positions,uint8_t *normals,uint8_t *packed){
+    const auto manager=skinWord(rt,0x35ddb8);
+    if(skinByte(rt,manager+0x51)!=1)throw std::runtime_error("native morph outside VU0 mode 1");
+    const auto table=skinWord(rt,element+0x38);const VuWords weights=vuWords(rt,element+0x40);
+    const int32_t entries=int32_t(skinWord(rt,table));
+    if(entries<1 || entries>0x10000)throw std::runtime_error(std::format("unqualified morph entry count {}",entries));
+    const uint32_t one=0x3f800000u,savedCsr=_mm_getcsr();
+    struct Out{unsigned index;VuWords p,n;};std::vector<Out> out(entries);std::vector<bool> seen(vertices);
+    for(int32_t j=0;j<entries;++j){
+        const uint32_t entry=table+0x10+0x20*uint32_t(j);const auto dp=vuWords(rt,entry),dn=vuWords(rt,entry+0x10);
+        const auto index=dn[3];if(index>=vertices)throw std::runtime_error("morph vertex index outside its mesh");
+        // The EE loads entry j+1 before storing entry j-1: repeated indices would
+        // read a half-updated vertex. Not observed, not ported.
+        if(seen[index])throw std::runtime_error("unported repeated morph vertex index");seen[index]=true;
+        VuWords p,n;std::memcpy(p.data(),positions+16*index,16);std::memcpy(n.data(),normals+16*index,16);
+        auto &o=out[j];o.index=index;o.p=p;o.n=n;
+        for(unsigned i=0;i<3;++i){o.p[i]=vuAdd(vuMul(p[i],one),vuMul(dp[i],weights[0]));o.n[i]=vuAdd(vuMul(n[i],one),vuMul(dn[i],weights[0]));}
+        uint32_t sq[3];for(unsigned i=0;i<3;++i)sq[i]=vuMul(o.n[i],o.n[i]);
+        const auto len2=vuAdd(vuAdd(vuMul(one,sq[0]),vuMul(one,sq[1])),vuMul(one,sq[2]));
+        uint32_t f=0;const auto q=bozo::ps2f::rsqrt(one,len2,f);_mm_setcsr(savedCsr);
+        for(unsigned i=0;i<3;++i)o.n[i]=vuMul(o.n[i],q);
+        o.n[3]=n[3];
+    }
+    for(int32_t j=0;j<entries;++j){auto &o=out[j];if(j+1<entries)o.n[3]=out[j+1].n[3];
+        std::memcpy(positions+16*o.index,o.p.data(),16);std::memcpy(normals+16*o.index,o.n.data(),16);}
+    const auto bytes=int32_t(skinWord(rt,table+0xc));
+    if(packed && bytes){
+        if(bytes<0 || (bytes>>3)>int32_t(vertices))throw std::runtime_error("morph packed vectors outside its mesh");
+        uint32_t delta=table+0x10+0x20*uint32_t(entries);
+        for(int32_t i=0;i<(bytes>>3);++i,delta+=8){
+            uint8_t d[8];std::memcpy(d,rt->memory.hostPointer(delta,8),8);auto *v=packed+8*i;
+            for(unsigned l=0;l<4;++l){const auto a=skinItof12(uint32_t(int32_t(int16_t(v[2*l]|v[2*l+1]<<8)))),b=skinItof12(uint32_t(int32_t(int16_t(d[2*l]|d[2*l+1]<<8))));
+                const auto r=skinFtoi12(vuAdd(vuMul(a,one),vuMul(b,weights[1])));v[2*l]=uint8_t(r);v[2*l+1]=uint8_t(r>>8);}
+        }
+    }
+    _mm_setcsr(savedCsr);
+    // 218720: the cursor advances by the table's size.
+    const auto advanced=table+skinWord(rt,table+8);std::memcpy(rt->memory.hostPointer(element+0x38,4),&advanced,4);
 }
 bool nativeSoftSkin(R5900Context *c,Runtime *rt,uint32_t pc){
     if(pc!=0x21822c)return false;

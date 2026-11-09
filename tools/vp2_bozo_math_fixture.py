@@ -66,7 +66,7 @@ for lo,hi,_ in overlap_rows:rows.append(dict(Name=f'vu_bounded_{lo:x}',Start=hex
 # record rewrite (no VU or DMA execution).
 for name,lo,hi in (('uv_loader',0x219620,0x21a628),('mesh_source_next',0x25cb00,0x25cb28),('mesh_packet_next',0x25cb30,0x25cb58),
                    ('mesh_source_start',0x25cc20,0x25cc80),('mesh_packet_start',0x25cc80,0x25ccf8),('uv_flags',0x29cfd0,0x29cfd8),('uv_descriptor',0x29d0d0,0x29d130),
-                   ('skin_flags',0x236ba0,0x236ba8),('skin_table',0x2372f0,0x237310)):
+                   ('skin_flags',0x236ba0,0x236ba8),('skin_table',0x2372f0,0x237310),('morph_flags',0x21b440,0x21b448),('null_data',0x1f9ab0,0x1f9ab8)):
     rows.append(dict(Name=name,Start=hex(lo),End=hex(hi)))
 if a.variant=='adapted':
     rows.append(dict(Name='component_product',Start='0x211da0',End='0x211dc0'))

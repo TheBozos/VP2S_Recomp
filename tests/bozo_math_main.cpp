@@ -1392,7 +1392,7 @@ int main(){try{
     // oracle reproduces the original pipeline from it (toSPR chain, callback
     // 29cfe0 + micro 0xc80 with ps2f arithmetic, fromSPR destination chain).
     // The native rewrite reads only the records and must produce the same packets.
-    unsigned uvCases=0,uvChunks=0,uvWords=0,uvEmpty=0,skinMeshes=0;
+    unsigned uvCases=0,uvChunks=0,uvWords=0,uvEmpty=0,skinMeshes=0,morphMeshes=0;
     for(unsigned seed=0;seed<96;++seed){
         auto &a=old.runtime(),&b=native.runtime();std::memset(a.memory.flat(),0,bozo::kFlatBytes);
         uint32_t state=seed*747796405u+2891336453u;const auto next=[&](){state=state*1664525u+1013904223u;return state>>8;};
@@ -1400,14 +1400,17 @@ int main(){try{
         const auto put16=[&](uint32_t at,uint16_t v){std::memcpy(a.memory.hostPointer(at,2),&v,2);};
         const auto get=[&](Runtime &r,uint32_t at){uint32_t v;std::memcpy(&v,r.memory.hostPointer(at,4),4);return v;};
         constexpr uint32_t object=0x200000,model=0x201000,iterator=0x201800,maskAt=0x200800,vtable=0x1591b0,data=0x210000,packets=0x240000,stack=0x1ffc000;
-        const unsigned meshes=1+seed%4,elements=1+seed%3;const bool unaligned=seed&1;
+        // Morph seeds: one element of class 1536a0 (attributes 143: positions,
+        // normals, the +34 stream through bit 100; no element data).
+        const bool morphed=seed%6==1;
+        const unsigned meshes=1+seed%4,elements=morphed?1:1+seed%3;const bool unaligned=seed&1;
         // Skinned seeds: element 0 is a skeleton interface (attributes eb:
         // positions, normals, UVs, packed vectors, element data).
         const bool skinned=seed%3==2;const unsigned bones=1+seed%8;
         const uint32_t base=data;  // 128-aligned, so both iterator modes agree
         put(object+0x54,model);put(model+0x644,iterator);put(iterator+8,data);put(iterator+0x14,seed%5==4?0:packets);
         std::memcpy(a.memory.hostPointer(iterator+0x1c,1),&unaligned,1);
-        put(base+0x10+0x34,meshes);put(object+0x48,maskAt);put(object+0x58,skinned?0xeb:0x28);
+        put(base+0x10+0x34,meshes);put(object+0x48,maskAt);put(object+0x58,skinned?0xeb:morphed?0x143:0x28);
         put(object+0x5c,0x202000);put(object+0x60,0x203000);put(object+0x68,0x204000);put(object+0x6c,0x204400);put(object+0x70,0x205000);
         const uint8_t mode=uint8_t(seed%2),rebuild=2,flags8d=uint8_t(seed%7==3?4:0);
         std::memcpy(a.memory.hostPointer(object+0x8a,1),&mode,1);std::memcpy(a.memory.hostPointer(object+0x8c,1),&rebuild,1);std::memcpy(a.memory.hostPointer(object+0x8d,1),&flags8d,1);
@@ -1415,9 +1418,9 @@ int main(){try{
         const uint32_t packetStart=seed%5==4?base+0x70:packets+0x60;
         uint32_t source=base+0x70,packet=packetStart;
         for(unsigned j=0;j<meshes;++j){
-            const uint16_t n=uint16_t(skinned?1+next()%40:seed%9==8?1+next()%3:4+next()%(seed%3==0?1000:120));const uint16_t offset=0x40;
+            const uint16_t n=uint16_t(skinned || morphed?1+next()%40:seed%9==8?1+next()%3:4+next()%(seed%3==0?1000:120));const uint16_t offset=0x40;
             uint32_t span=(0x40+((n+3)/4)*16+0x2f)&~0xfu;
-            if(skinned){const uint32_t at=0x40+((n+3)/4)*16,normalsAt=at+16*n,packedAt=normalsAt+16*n;const bool packed=next()%4!=0;
+            if(skinned || morphed){const uint32_t at=0x40+((n+3)/4)*16,normalsAt=at+16*n,packedAt=normalsAt+16*n;const bool packed=next()%4!=0;
                 put16(source+0x18,uint16_t(at));put16(source+0x1a,uint16_t(normalsAt));put16(source+0x34,packed?uint16_t(packedAt):0);
                 span=(packedAt+16*((n+1u)/2)+0x2f)&~0xfu;
                 for(uint32_t w=at;w<packedAt+16*((n+1u)/2);w+=4){
@@ -1433,6 +1436,25 @@ int main(){try{
         const uint32_t skeletonVtable=0x154690;put(skeletonVtable+0x10,0x218220);put(skeletonVtable+0x14,0x236ba0);put(skeletonVtable+0x18,0x2372f0);
         for(unsigned i=0;i<elements;++i){
             const uint32_t e=0x206000+0x100*i,bits=0x206800+0x10*i;put(e,vtable);put(e+8,i+1<elements?e+0x100:object);
+            if(morphed){
+                // Morph: one table per call (included, applicable, N != 0), in mesh order.
+                const uint32_t morphVtable=0x1536a0;put(morphVtable+0x10,0x218600);put(morphVtable+0x14,0x21b440);put(morphVtable+0x18,0x1f9ab0);
+                put(e,morphVtable);const uint8_t enabled=1,all=uint8_t(seed%4==1);
+                std::memcpy(a.memory.hostPointer(e+0xd,1),&enabled,1);std::memcpy(a.memory.hostPointer(e+0x18,1),&enabled,1);std::memcpy(a.memory.hostPointer(e+0x19,1),&all,1);
+                uint32_t elementBits=0;for(unsigned j=0;j<meshes;++j)if(next()%3)elementBits|=1u<<j;put(bits,elementBits);put(e+0x24,bits);
+                put(e+0x40,(next()&0x807fffffu)|((122+next()%5)<<23));put(e+0x44,(next()&0x807fffffu)|((122+next()%5)<<23));
+                uint32_t tableAt=0x238000;put(e+0x38,tableAt);uint32_t meshSource=base+0x70;
+                for(unsigned j=0;j<meshes;++j){
+                    const bool included=flags8d==4 || (maskBits>>j&1);const uint16_t n=uint16_t(get(a,meshSource+0x14)>>16);
+                    meshSource+=uint16_t(get(a,meshSource+4));if(!included || !n || !(all || (elementBits>>j&1)))continue;
+                    const unsigned count=1+next()%std::min<unsigned>(n,6),packedCount=next()%(n+1u);
+                    std::vector<unsigned> order(n);for(unsigned k=0;k<n;++k)order[k]=k;for(unsigned k=n-1;k>0;--k)std::swap(order[k],order[next()%(k+1)]);
+                    const uint32_t size=(0x10+0x20*count+8*packedCount+15)&~15u;put(tableAt,count);put(tableAt+8,size);put(tableAt+0xc,8*packedCount);
+                    for(unsigned k=0;k<count;++k){const uint32_t entry=tableAt+0x10+0x20*k;
+                        for(unsigned l=0;l<7;++l)put(entry+4*l,(next()&0x807fffffu)|((118+next()%8)<<23));put(entry+0x1c,order[k]);}
+                    for(unsigned k=0;k<2*packedCount;++k)put(tableAt+0x10+0x20*count+4*k,next()*11u);
+                    tableAt+=size;}
+                continue;}
             if(skinned && i==0){
                 // Skeleton: tables for every included mesh from the +44 cursor.
                 put(e,skeletonVtable);const uint8_t enabled=1,all=uint8_t(seed%4==1);
@@ -1471,6 +1493,7 @@ int main(){try{
         }
         put(object+8,0x206000);
         constexpr uint32_t manager=0x207000,skeleton=0x207400,boneCounts=0x207800;
+        if(morphed){put(0x35ddb8,manager);std::memcpy(a.memory.hostPointer(manager+0x51,1),"\1",1);}
         if(skinned){put(0x35ddb8,manager);std::memcpy(a.memory.hostPointer(manager+0x51,1),"\1",1);put(skeleton+0x34,boneCounts);put(boneCounts+4,bones);}
         std::memcpy(b.memory.flat(),a.memory.flat(),bozo::kFlatBytes);
         if(skinned)for(auto *r:{&a,&b}){
@@ -1490,6 +1513,7 @@ int main(){try{
         const int16_t chunks=int16_t(get(a,object+0x84)&0xffff);check(chunks<16);if(chunks<=0)++uvEmpty;
         const uint32_t table=get(a,object+0x68+4*mode),groups=get(a,object+0x70);
         std::vector<uint8_t> spr(16384);unsigned group=0;
+        uint32_t morphVu[32][4];for(auto &r:morphVu)for(auto &w:r)w=(next()&0x007fffffu)|((124+next()%6)<<23);
         for(int c=0;c<chunks;++c){
             const uint32_t count=get(a,table+16*c),chain=get(a,table+16*c+4),sadr=get(a,table+16*c+8);check(sadr>=0x70000000 && sadr<0x70004000);
             uint32_t at=chain,pos=sadr-0x70000000;
@@ -1502,6 +1526,34 @@ int main(){try{
                 const uint32_t dataAt=get(a,rec+0xc)-0x70000000;
                 for(unsigned i=0;i<elements;++i){const uint32_t e=0x206000+0x100*i;const bool all=a.memory.hostPointer(e+0x19,1)[0]!=0;
                     if(!all && !(get(a,get(a,e+0x24)+4*(group>>5))>>(group&31)&1))continue;
+                    if(morphed){
+                        // 218600 with programs 0x7d8/0x848 transcribed pair by pair; the
+                        // VU state persists across calls (stale lanes start random).
+                        const uint32_t posAt=get(a,rec+4)-0x70000000,nrmAt=get(a,rec+8)-0x70000000,pk=get(a,rec+0x14),tbl=get(a,e+0x38);
+                        const uint32_t wx=get(a,e+0x40),wy=get(a,e+0x44),one=0x3f800000;const unsigned count=get(a,tbl);
+                        uint32_t in[5][4];unsigned idx=0,prev=0;
+                        const auto load=[&](unsigned j){const uint32_t entry=tbl+0x10+0x20*j;std::memcpy(in[3],a.memory.hostPointer(entry,16),16);std::memcpy(in[4],a.memory.hostPointer(entry+16,16),16);
+                            idx=in[4][3];check(idx<get(a,rec));std::memcpy(in[1],spr.data()+posAt+16*idx,16);std::memcpy(in[2],spr.data()+nrmAt+16*idx,16);};
+                        const auto call=[&](){uint32_t flags=0;const auto saved=_mm_getcsr();const auto q=bozo::ps2f::rsqrt(one,morphVu[7][0],flags);_mm_setcsr(saved);
+                            for(unsigned c2=0;c2<3;++c2){const auto n9=add(mul(in[2][c2],one),mul(in[4][c2],wx));morphVu[11][c2]=morphVu[9][c2];morphVu[9][c2]=n9;}
+                            for(unsigned c2=0;c2<3;++c2){const auto n8=add(mul(in[1][c2],one),mul(in[3][c2],wx));morphVu[12][c2]=morphVu[8][c2];morphVu[8][c2]=n8;}
+                            morphVu[7][0]=add(0,one);for(unsigned c2=0;c2<3;++c2)morphVu[6][c2]=mul(morphVu[9][c2],morphVu[9][c2]);
+                            auto acc=mul(morphVu[7][0],morphVu[6][0]);acc=add(acc,mul(morphVu[7][0],morphVu[6][1]));morphVu[7][0]=add(acc,mul(morphVu[7][0],morphVu[6][2]));
+                            morphVu[13][3]=in[2][3];for(unsigned c2=0;c2<3;++c2)morphVu[13][c2]=mul(morphVu[11][c2],q);};
+                        // Positions keep their w: vf12.w is VU register history (see 218600 in native_math.cpp).
+                        const auto store=[&](unsigned at){std::memcpy(spr.data()+posAt+16*at,morphVu[12],12);std::memcpy(spr.data()+nrmAt+16*at,morphVu[13],16);};
+                        load(0);call();
+                        if(count==1){call();store(idx);}
+                        else{for(unsigned j=1;j<count;++j){prev=idx;load(j);call();store(prev);}call();store(idx);}
+                        const uint32_t bytes=get(a,tbl+0xc);
+                        if(pk && bytes){const uint32_t pkAt=pk-0x70000000,delta=tbl+0x10+0x20*count;
+                            const auto i12=[](int16_t v){volatile float f=float(v)*(1.f/4096.f);return std::bit_cast<uint32_t>(f);};
+                            for(uint32_t k=0;k<(bytes>>3);++k){int16_t v[4],d[4];std::memcpy(v,spr.data()+pkAt+8*k,8);std::memcpy(d,a.memory.hostPointer(delta+8*k,8),8);
+                                for(unsigned l=0;l<4;++l){const auto r=add(mul(i12(v[l]),one),mul(i12(d[l]),wy));const auto b2=r&0x7f800000?r:r&0x80000000;
+                                    const double fixed=(r&0x7f800000)==0x7f800000?(r&0x80000000?-3e9:3e9):double(std::bit_cast<float>(b2))*4096.;
+                                    v[l]=int16_t(uint16_t(uint32_t(fixed>=2147483647.?0x7fffffff:fixed<=-2147483648.?int32_t(0x80000000u):int32_t(fixed))));}
+                                std::memcpy(spr.data()+pkAt+8*k,v,8);}}
+                        put(e+0x38,tbl+get(a,tbl+8));++morphMeshes;continue;}
                     if(skinned && i==0){
                         // 218220 on the scratchpad copy the loader described (desc = rec, index i).
                         std::memcpy(a.memory.hostPointer(0x70000000,spr.size()),spr.data(),spr.size());
@@ -1525,8 +1577,9 @@ int main(){try{
         const uint32_t firstPacket=seed%5==4?base+0x70:packets+0x60;
         if(std::memcmp(a.memory.hostPointer(firstPacket,0x18000),b.memory.hostPointer(firstPacket,0x18000),0x18000)){
             for(uint32_t at=firstPacket;at<firstPacket+0x18000;at+=4)if(get(a,at)!=get(b,at)){std::fprintf(stderr,"uv seed%u at %x oracle %08x native %08x\n",seed,at,get(a,at),get(b,at));break;}check(false);}
+        if(morphed)check(get(a,0x206000+0x38)==get(b,0x206000+0x38));   // the morph cursor advances alike
         ++uvCases;
     }
-    std::printf("%u animated-UV models (%u loader chunks, %u packet words, %u without chunks) match the original scratchpad pipeline (%u skinned meshes)\n",uvCases,uvChunks,uvWords,uvEmpty,skinMeshes);
+    std::printf("%u animated-UV models (%u loader chunks, %u packet words, %u without chunks) match the original scratchpad pipeline (%u skinned, %u morphed meshes)\n",uvCases,uvChunks,uvWords,uvEmpty,skinMeshes,morphMeshes);
     std::printf("%u matrix/quaternion/Euler ABI cases, %u component products, %u whole CPU/RAM sphere getters,8192 independent scale cases and%u whole CPU/RAM axis-angle cases passed; no VU/device state\n",cases,products,sphereCases,axisCases);return 0;
 }catch(const std::exception &e){std::fprintf(stderr,"%s\n",e.what());return 1;}}

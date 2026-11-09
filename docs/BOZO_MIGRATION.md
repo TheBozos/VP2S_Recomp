@@ -12,6 +12,54 @@ The earlier VP2S face/shading and general brightness comparisons remain open.
 
 ## Build and evidence
 
+### Morph element 218600 in the native streamer (2026-11-09)
+
+Animated models with attribute set `0x143` carry elements of class `1536a0`.
+Their `+14` (`21b440`) returns `143` and `+18` (`1f9ab0`) returns 0, so the
+loader sends no element data. Their `+10` is `218600`.
+
+**The element and its table.** `218600` reads its own RAM table at the `e+38`
+cursor:
+- `+0` count, `+8` size (the cursor advance), `+c` packed-vector bytes.
+- From `+10`, 32-byte entries: position delta and normal delta, with the
+  vertex index in the second qword's `.w`.
+- The weights are `e+40` (`.x` for positions and normals, `.y` for packed
+  vectors).
+
+**Program `0x7d8`** is pipelined: each call blends the current vertex and
+outputs the previous one. The EE stores one call late and repeats the last
+call to flush. Per entry, the result is:
+- `p.xyz = p*1 + dp*w.x`;
+- `n.xyz = n'*rsqrt(len2(n'))`, with `n' = n*1 + dn*w.x` and
+  `len2 = (1*x^2 + 1*y^2) + 1*z^2`;
+- `n.w` = the *next* entry's input normal `.w` (the last entry keeps its own).
+
+**Program `0x848`** handles the first `(+c)/8` packed vectors, with deltas
+following the entries: `ftoi12(itof12(v)*1 + itof12(d)*w.y)`, all lanes.
+
+**Not reproduced:**
+- The stored position's `.w` is `vf12.w`, a VU register this program never
+  writes, so its value is earlier VU history. The port keeps the record's `w`.
+- The `rsqrt` at `0x7d8` is read by the `mulq` at `0x840`, exactly its
+  13-cycle latency. The port takes the designed reading: each normal is
+  normalised by its own length.
+- Repeated vertex indices in one table reject: the EE loads entry `j+1`
+  before storing `j-1`.
+
+**Streamer changes:**
+- Bit 100 (the `+34` stream) is admitted for mode 0, the same s16x4 layout as
+  bit 80. Other modes reject.
+- The element-list/chain check now applies only to the elements that read the
+  loader's per-element data (skeleton, UV scroll).
+
+**Test.** Morph seeds in the animated-model fixture run the original loader.
+Their oracle transcribes `0x7d8` and `0x848` pair by pair on a persistent VU
+register file, driven in the EE's call order, with stores one late and the
+flush. 36 morphed meshes match byte for byte, and the cursor advances alike.
+
+**Route:** the run reaches serial 2412, past the town dialogue scene. The
+next site is mod001 `20eaec` (entry `20e5b8`).
+
 ### The inlined vector-length idiom (2026-11-09)
 
 The block `LQC2 vf24`, `MUL.xyz`, `ADDw.xyz vf25 = 1`, `ADDAy`, `MADDz`,

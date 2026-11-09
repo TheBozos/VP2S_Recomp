@@ -806,8 +806,27 @@ bool nativeRecordDot(R5900Context *c,Runtime *rt,uint32_t pc){
     {music::NearestRounding rounding;out[0]=pairSum(pairSum(pairProduct(a[0],b[0]),pairProduct(a[1],b[1])),pairProduct(a[2],b[2]));}
     std::memcpy(record(rt,stack+0x50,16),out,16);return true;
 }
+// Packed unit-quaternion keys, mod001 1f9d40: the CPU packs three signed
+// 16-bit components into GPR t2 (lanes x, y, z); the VU0 block converts them
+// (ITOF15, exact) and rebuilds w = sqrt(|1 - x*x - y*y - z*z|) (MSUB chain,
+// nearest even), storing {x, y, z, w} to SP+10 (first key) and SP+0 (second).
+bool nativePackedQuaternion(R5900Context *c,Runtime *rt,uint32_t pc){
+    const bool first=pc>=0x1f9d74 && pc<=0x1f9da4,second=pc>=0x1f9df8 && pc<=0x1f9e28;
+    if(!(first || second) || (pc&3))return false;
+    if(!c)throw std::runtime_error("native packed quaternion has no CPU record");
+    if(pc!=0x1f9da4 && pc!=0x1f9e28)return true;
+    const auto destination=c->r[29].uw[0]+(first?0x10:0);
+    if(c->r[3].uw[0]!=destination)throw std::runtime_error("native packed quaternion destination mismatch");
+    for(unsigned i=0;i<3;++i){const auto lane=c->r[10].sw[i];if(lane<-32768 || lane>32767)throw std::runtime_error("native packed quaternion lane is not a 16-bit key");}
+    float out[4];
+    {music::NearestRounding rounding;
+        float squares[3];for(unsigned i=0;i<3;++i){out[i]=float(c->r[10].sw[i])/32768.f;squares[i]=pairProduct(out[i],out[i]);}
+        auto rest=pairSum(1.f,-squares[0]);rest=pairSum(rest,-squares[1]);rest=pairSum(rest,-squares[2]);
+        volatile float root=std::sqrt(std::abs(rest));out[3]=pairProduct(1.f,pairNormal(root));}
+    std::memcpy(record(rt,destination,16),out,16);return true;
+}
 bool nativeMathInstruction(uint8_t *,R5900Context *c,Runtime *rt,uint32_t pc){
-    if(nativeLengthSite(c,rt,pc) || nativeRecordDot(c,rt,pc))return true;
+    if(nativeLengthSite(c,rt,pc) || nativeRecordDot(c,rt,pc) || nativePackedQuaternion(c,rt,pc))return true;
     if(nativeObjectOverlap(c,rt,pc))return true;
     if(nativeUvAnimation(c,rt,pc))return true;
     if(nativeSegmentContact(c,rt,pc))return true;

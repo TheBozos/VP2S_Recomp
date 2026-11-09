@@ -28,7 +28,9 @@ overlap_rows=[(0x1f8b30,0x1f8b60,0x1f8b58),(0x1f8cc8,0x1f8dbc,0x1f8db4),(0x1f8db
 overlap_rows+=[(0x209bd0,0x209d54,0x209d4c),(0x20a00c,0x20a090,0x20a088)]
 # Segment/sphere contact (1fc4b0) from its post-call label through its own return.
 overlap_rows+=[(0x1fc4f0,0x1fc5a8,None)]
-published=(0x1f8d1c,0x1f8d94,0x1f8e58,0x209c94,0x209d14,0x20a084,0x1fc570);vi_reads=(0x1f8d14,0x1f8d8c,0x209c90,0x209d10,0x20a07c)
+# Packed unit-quaternion keys (1f9d40): each block returns after its store.
+overlap_rows+=[(0x1f9d74,0x1f9db0,0x1f9da8),(0x1f9df8,0x1f9e34,0x1f9e2c)]
+published=(0x1f8d1c,0x1f8d94,0x1f8e58,0x209c94,0x209d14,0x20a084,0x1fc570,0x1f9da4,0x1f9e28);vi_reads=(0x1f8d14,0x1f8d8c,0x209c90,0x209d10,0x20a07c)
 for lo,hi,_ in overlap_rows:rows.append(dict(Name=f'vu_bounded_{lo:x}',Start=hex(lo),End=hex(hi)))
 # Animated packet UVs: the original loader and its callees run unchanged in
 # both variants; the test compares its scratchpad description with the native

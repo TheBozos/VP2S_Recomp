@@ -12,6 +12,16 @@ The earlier VP2S face/shading and general brightness comparisons remain open.
 
 ## Build and evidence
 
+### Packed unit-quaternion keys (2026-11-09)
+
+mod001 `1f9d40` decompresses two animation keys: the CPU packs three signed
+16-bit components into GPR t2; the VU0 block converts them (ITOF15, exact)
+and rebuilds `w = sqrt(|1 - x*x - y*y - z*z|)` (MSUB chain, nearest even),
+storing `{x, y, z, w}` to SP+10 and SP+0. Native sites take the lanes from
+t2 at the store. Source guard `1f9d40..1f9e94`; 1024 bounded math-fixture
+cases (extreme, zero and random keys, four modes) match the engine `ps2f`
+oracle. The route then stops at mod001 `2a492c` (entry `2a47fc`).
+
 ### Table-driven vector lengths and the 439180 blocks (2026-11-09)
 
 The movement-step length sites became one table of VU0 length blocks

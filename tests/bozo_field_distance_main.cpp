@@ -171,6 +171,13 @@ struct Host:bozo::ee::Host,bozo::port::Host {
             const auto result=vp2s::math::quaternionMatrix(input);
             std::memcpy(rt->memory.hostPointer(c->r[2].uw[0],48),result.data(),48);return true;
         }
+        if(reference && pc==0x42d3b0){
+            // mod003 42d280 stack length: (sqrt((x2+y2)+1*z2), y2, z2, raw W), ps2f.
+            const auto stack=c->r[29].uw[0];std::array<uint32_t,4> v;std::memcpy(v.data(),rt->memory.hostPointer(stack+0x100,16),16);
+            for(unsigned i=0;i<3;++i)v[i]=vu0Product(v[i],v[i]);uint32_t f=0;const auto saved=_mm_getcsr();
+            const auto q=bozo::ps2f::sqrt(vu0Sum(vu0Sum(v[0],v[1]),vu0Product(0x3f800000,v[2])),f);_mm_setcsr(saved);
+            v[0]=vu0Sum(0,q);std::memcpy(rt->memory.hostPointer(stack+0x70,16),v.data(),16);return true;
+        }
         if(reference && (pc==0x3ef09c || pc==0x3ef0f0 || (pc>=0x3ef154 && pc<=0x3ef160) || pc==0x3ef184 || pc==0x3ef1c8)){
             // mod003 3ef010 segment approach, engine ps2f arithmetic in the original order.
             const auto sub=[](uint32_t a,uint32_t b){uint32_t f=0;return bozo::ps2f::subNearest(a,b,f);};
@@ -515,6 +522,24 @@ int main(){try{
         ++approachBlocks;
     }
     std::printf("%u mod003 3ef010 segment approach blocks match the engine VU0 oracle\n",approachBlocks);
+    unsigned lengthBlocks=0;
+    for(unsigned mode:{_MM_ROUND_NEAREST,_MM_ROUND_DOWN,_MM_ROUND_UP,_MM_ROUND_TOWARD_ZERO})for(unsigned seed=0;seed<64;++seed){
+        auto &a=original.runtime(),&b=adapted.runtime();std::memset(a.memory.flat(),0x47+seed,bozo::kFlatBytes);
+        const uint32_t stack=seed&1?0x70002e00u:0x1ffd400u|(seed&2?0x20000000u:0u);
+        uint32_t state=seed*40503u+mode;const auto next=[&](){state=state*1664525u+1013904223u;return ((state>>8)&0x807fffffu)|uint32_t((110+(state>>4)%36)<<23);};
+        for(unsigned i=0;i<4;++i){uint32_t v=next();if(seed%16==4 && i<3)v=0;std::memcpy(a.memory.hostPointer(stack+0x100+4*i,4),&v,4);v=next();std::memcpy(a.memory.hostPointer(stack+0x70+4*i,4),&v,4);}
+        std::memcpy(b.memory.flat(),a.memory.flat(),bozo::kFlatBytes);R5900Context x{};for(unsigned i=1;i<32;++i){x.r[i].ud[0]=0x4680000000000000ull+seed*32+i;x.r[i].ud[1]=~x.r[i].ud[0];x.f[i]=float(i)/4;}
+        std::memset(x.vu0_vf,0x5a,sizeof(x.vu0_vf));std::memset(&x.vu0_acc,0xa5,sizeof(x.vu0_acc));x.vu0_status=0x3333;x.vu0_q_bits=0x3f800009;x.vi[0]=0x3333;
+        x.r[29].ud[0]=stack;x.r[31].ud[0]=0x170000;x.r[3].ud[0]=stack+0x100;x.r[2].ud[0]=stack+0x70;auto y=x;
+        const auto saved=_mm_getcsr(),control=(saved&~(_MM_ROUND_MASK|0x8040|0x3f))|mode|(seed&8?0x8040:0);_mm_setcsr(control);
+        host.reference=true;a.functions.generated(0x42d390)(a.memory.flat(),&x,&a);const auto fp=_mm_getcsr();_mm_setcsr(control);
+        host.reference=false;b.functions.generated(0x42d390)(b.memory.flat(),&y,&b);const auto blockFp=_mm_getcsr();_mm_setcsr(saved);
+        x.cycleLimit=y.cycleLimit;
+        if(blockFp!=fp || x.pc!=0x170000 || std::memcmp(&x,&y,sizeof(x)) || std::memcmp(a.memory.flat(),b.memory.flat(),bozo::kFlatBytes)){
+            std::fprintf(stderr,"stack length mode%x seed%u PCs%x/%x fp%08x/%08x\n",mode,seed,x.pc,y.pc,fp,blockFp);check(false);}
+        ++lengthBlocks;
+    }
+    std::printf("%u mod003 42d280 stack lengths match the engine VU0 oracle\n",lengthBlocks);
     unsigned compositions=0,composedProducts=0;
     for(unsigned mode:{_MM_ROUND_NEAREST,_MM_ROUND_DOWN,_MM_ROUND_UP,_MM_ROUND_TOWARD_ZERO})for(unsigned seed=0;seed<128;++seed){
         auto &a=original.runtime(),&b=adapted.runtime();std::memset(a.memory.flat(),0x5d+seed,bozo::kFlatBytes);const uint32_t aliases[]={0,0x20000000,0x30000000,0x80000000,0xa0000000};

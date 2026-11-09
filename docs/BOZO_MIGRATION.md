@@ -12,6 +12,14 @@ The earlier VP2S face/shading and general brightness comparisons remain open.
 
 ## Build and evidence
 
+### mod003 42d280 stack length (2026-11-09)
+
+`42d280`'s only VU0 block is the recurring stack-length pattern:
+`(sqrt((x^2+y^2)+1*z^2), y^2, z^2, raw W)` of SP+100 to SP+70. Every lane is
+defined. A table of such sites (`rootLengthSites`) now ports it in `ps2f`.
+Guard `42d280..42d670`; 256 field-distance fixture cases match the oracle.
+The route then reaches mod003 `3d0514`.
+
 ### main 10da70 camera target (2026-11-09)
 
 Two self-contained VU0 blocks, ported natively with `ps2f`:

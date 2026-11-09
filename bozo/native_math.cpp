@@ -1513,8 +1513,28 @@ bool nativeCameraTarget(R5900Context *c,Runtime *rt,uint32_t pc){
     out[0]=vuAdd(vuAdd(out[0],out[1]),vuMul(0x3f800000u,out[2]));
     std::memcpy(record(rt,stack+0x50,16),out.data(),16);return true;
 }
+// Stack vector lengths: LQC2 vf24 <- src; MUL.xyz squares; ADDW.xyz vf25 = 1;
+// ADDAy/MADDz x = (x2+y2)+1*z2; SQRT; ADDQ.x x = 0+Q; SQC2 vf24 -> dst. The
+// stored record is (length, y2, z2, raw W): every lane is defined. ps2f.
+struct RootLengthSite{uint32_t first,store;unsigned sourceReg;uint32_t sourceOffset;unsigned targetReg;uint32_t targetOffset;};
+constexpr RootLengthSite rootLengthSites[]={
+    {0x42d390,0x42d3b0,3,0x100,2,0x70},   // mod003 42d280 (SP+100 -> SP+70)
+};
+bool nativeRootLength(R5900Context *c,Runtime *rt,uint32_t pc){
+    const auto site=std::find_if(std::begin(rootLengthSites),std::end(rootLengthSites),[&](const auto &s){return pc>=s.first && pc<=s.store;});
+    if(site==std::end(rootLengthSites) || (pc&3))return false;
+    if(!c)throw std::runtime_error("native root length has no CPU record");
+    const auto stack=c->r[29].uw[0];
+    if(c->r[site->sourceReg].uw[0]!=stack+site->sourceOffset || c->r[site->targetReg].uw[0]!=stack+site->targetOffset)
+        throw std::runtime_error("native root length escaped its records");
+    if(pc!=site->store)return true;
+    auto out=vuWords(rt,stack+site->sourceOffset);for(unsigned i=0;i<3;++i)out[i]=vuMul(out[i],out[i]);
+    const auto sum=vuAdd(vuAdd(out[0],out[1]),vuMul(0x3f800000u,out[2]));
+    const auto saved=_mm_getcsr();uint32_t f=0;const auto root=bozo::ps2f::sqrt(sum,f);_mm_setcsr(saved);
+    out[0]=vuAdd(0,root);std::memcpy(record(rt,stack+site->targetOffset,16),out.data(),16);return true;
+}
 bool nativeMathInstruction(uint8_t *,R5900Context *c,Runtime *rt,uint32_t pc){
-    if(nativeProjectionBlocks(c,rt,pc) || nativeBoneAim(c,rt,pc) || nativeChainBlocks(c,rt,pc) || nativeCapsulePair(c,rt,pc) || nativePlaneContact(c,rt,pc) || nativeRangeTest(c,rt,pc) || nativeMatrixBuild(c,rt,pc) || nativeListBoxQuery(c,rt,pc) || nativeHitFrame(c,rt,pc) || nativePlaneDistance(c,rt,pc) || nativeSphereSweep(c,rt,pc) || nativeSegmentApproach(c,rt,pc) || nativeWorldPosition(c,rt,pc) || nativeCameraTarget(c,rt,pc))return true;
+    if(nativeProjectionBlocks(c,rt,pc) || nativeBoneAim(c,rt,pc) || nativeChainBlocks(c,rt,pc) || nativeCapsulePair(c,rt,pc) || nativePlaneContact(c,rt,pc) || nativeRangeTest(c,rt,pc) || nativeMatrixBuild(c,rt,pc) || nativeListBoxQuery(c,rt,pc) || nativeHitFrame(c,rt,pc) || nativePlaneDistance(c,rt,pc) || nativeSphereSweep(c,rt,pc) || nativeSegmentApproach(c,rt,pc) || nativeWorldPosition(c,rt,pc) || nativeCameraTarget(c,rt,pc) || nativeRootLength(c,rt,pc))return true;
     if(nativeLeafSphere(c,rt,pc) || nativeLeafBox(c,rt,pc) || nativeSegmentBox(c,rt,pc))return true;
     if(nativeLengthSite(c,rt,pc) || nativeRecordDot(c,rt,pc) || nativePackedQuaternion(c,rt,pc))return true;
     if(nativeObjectOverlap(c,rt,pc))return true;

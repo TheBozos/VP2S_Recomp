@@ -2160,6 +2160,35 @@ bool nativeFacingPath(R5900Context *c,Runtime *rt,uint32_t pc){
         std::memcpy(record(rt,c->r[site->storeReg].uw[0]+16*row,16),&result[row],16);if(row==2)state.loaded&=~1u;return true;}
     return false;
 }
+// mod003 3d15c0: three program-0x720 blocks (LQC2 vf5, VCALLMS 0x720,
+// CFC2 t1/vi0, SQC2 vf8..vf10). Entry 0x720 sets VF16 = VF0, so every row
+// lane is defined (W 0). Sources: SP+1e0 and SP+1d0 (quaternions the EE code
+// built from a sine/cosine pair), then *(s2+84)+b0; the rows land at SP+230,
+// SP+1f0 and SP+1f0. The load base is rewritten before the stores, so the
+// quaternion is captured at the load.
+struct RotationBlocks{VuWords quaternion{};bool loaded=false;};
+RotationBlocks &rotationBlocks(const Runtime *rt){static std::map<const Runtime *,RotationBlocks> blocks;return blocks[rt];}
+bool nativeRotationBlocks(R5900Context *c,Runtime *rt,uint32_t pc){
+    struct Block{uint32_t load,call,cfc,store;unsigned loadReg;uint32_t destination;};
+    constexpr Block blocks[3]={{0x3d166c,0x3d1674,0x3d16a4,0x3d16ac,2,0x230},{0x3d16d4,0x3d16dc,0x3d170c,0x3d1714,3,0x1f0},{0x3d1778,0x3d1780,0x3d17b0,0x3d17b8,2,0x1f0}};
+    const Block *block=nullptr;for(unsigned i=0;i<3;++i){const auto &b=blocks[i];if(pc==b.load || pc==b.call || pc==b.cfc || (pc>=b.store && pc<=b.store+8 && !(pc&3)))block=&b;}
+    if(!block)return false;
+    if(!c)throw std::runtime_error("native rotation block has no CPU record");
+    const auto stack=c->r[29].uw[0];auto &state=rotationBlocks(rt);
+    if(pc==block->call)return true;
+    if(pc==block->cfc){c->r[9].ud[0]=0;return true;}
+    if(pc==block->load){
+        const auto source=c->r[block->loadReg].uw[0];
+        const uint32_t expected=block->load==0x3d166c?stack+0x1e0:block->load==0x3d16d4?stack+0x1d0:skinWord(rt,c->r[18].uw[0]+0x84)+0xb0;
+        if(source!=expected)throw std::runtime_error("native rotation block source mismatch");
+        state.quaternion=vuWords(rt,source);state.loaded=true;return true;}
+    if(!state.loaded)throw std::runtime_error("native rotation block stored without its quaternion");
+    if(c->r[2].uw[0]!=stack+block->destination)throw std::runtime_error("native rotation block destination mismatch");
+    float values[4];std::memcpy(values,state.quaternion.data(),16);
+    for(float f:values){const auto m=std::bit_cast<uint32_t>(f)&0x7fffffff;if(m>=0x7f800000 || m>std::bit_cast<uint32_t>(1.e8f))throw std::runtime_error("unqualified rotation block quaternion");}
+    __m128 input;std::memcpy(&input,values,16);const auto result=math::quaternionMatrix(input);const unsigned row=(pc-block->store)/4;
+    std::memcpy(record(rt,stack+block->destination+16*row,16),&result[row],16);if(row==2)state.loaded=false;return true;
+}
 // The 0x2d0 inverse is inlined about 24 times (mod001 21732c, mod003 3802dc,
 // 3d08f0, ...): LQC2 vf1..vf4 at 0/16/32/48 of one base, two NOPs, VCALLMS
 // 0x2d0, CFC2.I t1,vi0, at most one plain EE word, SQC2 vf1..vf4 at 0/16/32/48
@@ -2221,7 +2250,7 @@ BoxFrustumStores boxFrustumStores(const std::array<std::array<uint32_t,4>,5> &bo
     const auto vu=boxFrustumProgram(box,frustum);BoxFrustumStores out;out.words=vu.stored;out.defined=vu.storedDef;return out;}
 bool nativeMathInstruction(uint8_t *,R5900Context *c,Runtime *rt,uint32_t pc){
     if(nativeSkinUpload(c,rt,pc) || nativeSoftSkin(c,rt,pc))return true;
-    if(nativeFacingPath(c,rt,pc))return true;
+    if(nativeFacingPath(c,rt,pc) || nativeRotationBlocks(c,rt,pc))return true;
     if(nativeProjectionBlocks(c,rt,pc) || nativeBoneAim(c,rt,pc) || nativeChainBlocks(c,rt,pc) || nativeCapsulePair(c,rt,pc) || nativePlaneContact(c,rt,pc) || nativeRangeTest(c,rt,pc) || nativeMatrixBuild(c,rt,pc) || nativeCullTransform(c,rt,pc) || nativeBoxFrustum(c,rt,pc) || nativeListBoxQuery(c,rt,pc) || nativeHitFrame(c,rt,pc) || nativePlaneDistance(c,rt,pc) || nativeSphereSweep(c,rt,pc) || nativeSegmentApproach(c,rt,pc) || nativeWorldPosition(c,rt,pc) || nativeCameraTarget(c,rt,pc) || nativeRootLength(c,rt,pc) || nativeVisibilityLoop(c,rt,pc) || nativeQuaternionLeaf(c,rt,pc) || nativeBonePalette(c,rt,pc))return true;
     if(nativeLeafSphere(c,rt,pc) || nativeLeafBox(c,rt,pc) || nativeSegmentBox(c,rt,pc))return true;
     if(nativeLengthSite(c,rt,pc) || nativeRecordDot(c,rt,pc) || nativePackedQuaternion(c,rt,pc))return true;

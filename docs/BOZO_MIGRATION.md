@@ -12,6 +12,29 @@ The earlier VP2S face/shading and general brightness comparisons remain open.
 
 ## Build and evidence
 
+### 3d15c0 rotation blocks and the 443720 event state machine (2026-11-10)
+
+**3d15c0:** three program-0x720 blocks (LQC2 vf5, VCALLMS 0x720, CFC2 t1/vi0,
+SQC2 vf8..vf10):
+- quaternions from SP+1e0 and SP+1d0 (built by the EE code from a
+  sine/cosine pair) and from *(s2+84)+b0;
+- rows to SP+230, SP+1f0 and SP+1f0.
+
+The load base is rewritten before the stores, so the quaternion is captured
+at the load. The rows come from `math::quaternionMatrix`; entry 0x720 sets
+VF16 = VF0, so W is 0. Guard `3d15c0..3d1b94`. The field-distance suite
+checks 192 cases against the independent 0x720 oracle, including a source
+overwritten between load and store, and a base mismatch that rejects.
+
+**443720:** a scalar state machine whose 7-way computed jump (table 48d9c0)
+ended the export's first fragment. Case 0 (443780..443800) was never
+compiled, and the event's end jumped to it. The whole original function is
+admitted as one entry, with the function and the table guarded by
+signature, as was done for `ui_transition_002ea350`.
+
+**Result:** the route passes the end of the town event (fade to black) and
+next stops at the VU site mod003 397a9c.
+
 ### Native screen-zoom trail and an omitted destructor (2026-11-10)
 
 **Boundary:** an unowned graphics builder submission, writer 5907b0 from

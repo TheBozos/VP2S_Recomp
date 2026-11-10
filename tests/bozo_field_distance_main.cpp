@@ -625,6 +625,35 @@ int main(){try{
         check(rejected && !std::memcmp(&bad,&bad0,sizeof(bad)) && !std::memcmp(snapshot.data(),rt.memory.flat(),snapshot.size()));++facingRejects;
     }
     std::printf("%u mod003 396c00 facing rotations match the engine VU0 oracle (%u rejections)\n",facingRotations,facingRejects);
+    // mod003 3d15c0: three program-0x720 blocks, quaternion captured at the load
+    // (SP+1e0, SP+1d0, *(s2+84)+b0), rows at SP+230, SP+1f0, SP+1f0.
+    unsigned bodyRotations=0;
+    for(unsigned seed=0;seed<192;++seed){
+        auto &rt=adapted.runtime();std::memset(rt.memory.flat(),0x23+seed,bozo::kFlatBytes);
+        const unsigned block=seed%3;const uint32_t stack=seed&8?0x70002000u:0x1ffc000u,owner=0x1a0000,record=0x1b0000;
+        uint32_t q[4];for(unsigned i=0;i<4;++i)q[i]=((seed*6271+i*977)&0x807fffff)|((118+(seed+i)%9)<<23);
+        if(seed%16==1){q[0]=q[1]=q[2]=0;q[3]=0x3f800000;}
+        const uint32_t source=block==0?stack+0x1e0:block==1?stack+0x1d0:record+0xb0,destination=stack+(block?0x1f0:0x230);
+        std::memcpy(rt.memory.hostPointer(source,16),q,16);std::memcpy(rt.memory.hostPointer(owner+0x84,4),&record,4);
+        const auto ram=std::vector<uint8_t>(rt.memory.flat(),rt.memory.flat()+bozo::kFlatBytes);
+        constexpr uint32_t loads[3]={0x3d166c,0x3d16d4,0x3d1778},calls[3]={0x3d1674,0x3d16dc,0x3d1780},cfcs[3]={0x3d16a4,0x3d170c,0x3d17b0},stores[3]={0x3d16ac,0x3d1714,0x3d17b8};
+        R5900Context c{};for(unsigned i=1;i<32;++i)c.r[i].ud[0]=0x5432000000000000ull+seed*32+i;c.r[29].ud[0]=stack;c.r[18].ud[0]=owner;
+        c.r[block==1?3:2].ud[0]=source;const auto fp=_mm_getcsr();
+        check(vp2s::nativeMathInstruction(rt.memory.flat(),&c,&rt,loads[block]));
+        // The EE code rewrites the load base and the source before the stores.
+        const uint32_t junk=0x7fc00000;for(unsigned i=0;i<4;++i)std::memcpy(rt.memory.hostPointer(source+4*i,4),&junk,4);
+        check(vp2s::nativeMathInstruction(rt.memory.flat(),&c,&rt,calls[block]) && vp2s::nativeMathInstruction(rt.memory.flat(),&c,&rt,cfcs[block]) && c.r[9].ud[0]==0);
+        c.r[2].ud[0]=destination;for(unsigned row=0;row<3;++row)check(vp2s::nativeMathInstruction(rt.memory.flat(),&c,&rt,stores[block]+4*row));
+        check(_mm_getcsr()==fp);
+        const auto rows=movementRotationOracle(q);check(!std::memcmp(rows.data(),rt.memory.hostPointer(destination,48),48));
+        if(stack<0x70000000){std::memcpy(rt.memory.hostPointer(destination,48),ram.data()+(destination&0x1ffffff),48);std::memcpy(rt.memory.hostPointer(source,16),ram.data()+(source&0x1ffffff),16);
+            check(!std::memcmp(ram.data(),rt.memory.flat(),ram.size()));}
+        // A mismatched source or destination rejects.
+        R5900Context bad=c;bad.r[block==1?3:2].ud[0]=source+16;bool rejected=false;
+        try{vp2s::nativeMathInstruction(rt.memory.flat(),&bad,&rt,loads[block]);}catch(const std::runtime_error &){rejected=true;}check(rejected);
+        ++bodyRotations;
+    }
+    std::printf("%u mod003 3d15c0 rotation blocks match the engine VU0 oracle\n",bodyRotations);
     // mod003 3cfde0's second path: 0x720 rows (v0 reused for loads and stores)
     // and program 0x2d0, a pivot-clamped 4x4 inverse checked against doubles.
     unsigned pathRotations=0,inverses=0;double worstInverse=0;

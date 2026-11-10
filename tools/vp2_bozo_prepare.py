@@ -115,6 +115,14 @@ def overlay_entries(name,data):
         if hashlib.sha256(span(0x386f60,0x387000)).hexdigest()!='d2fbfa9082025640baebbb8d01fb1416e16d4f88aac0750dd60d011c09654610':
             raise ValueError('USA omitted destructor 386f60 mismatch')
         entries.append(dict(Name='virtual_destructor_00386f60',Start='0x386f60',End='0x387000'))
+        # One scalar state machine with a 7-way computed jump (table 48d9c0).
+        # The export ended its first fragment at the jump and omitted case 0
+        # (443780..443800); expose the whole original function.
+        for lo,hi,expected in ((0x443720,0x443a70,'f204e15178f3050755ea3567727e1670bb46b84135bfcf1478cf11abed963793'),
+                               (0x48d9c0,0x48d9dc,'0030f1ac35e2902beeb2346afcd2827f3f74302bbf783ca03d4a5034b923f716')):
+            if hashlib.sha256(span(lo,hi)).hexdigest()!=expected:
+                raise ValueError('USA event state machine 443720 signature mismatch')
+        entries.append(dict(Name='event_state_00443720',Start='0x443720',End='0x443a70'))
     return entries
 
 

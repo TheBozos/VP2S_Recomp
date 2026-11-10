@@ -110,6 +110,11 @@ def overlay_entries(name,data):
         if hashlib.sha256(span(0x3cceb0,0x3cced8)).hexdigest()!='85c00c0b2f761810b3601ba167d0e2a6d19992d06dcf33344e69e443d07a1527':
             raise ValueError('USA omitted getter 3cceb0 mismatch')
         entries.append(dict(Name='virtual_getter_003cceb0',Start='0x3cceb0',End='0x3cced8'))
+        # Omitted deleting destructor (slot 8 of main's vtable 15dd20), reached
+        # from main 120480 when the town dialogue releases its object.
+        if hashlib.sha256(span(0x386f60,0x387000)).hexdigest()!='d2fbfa9082025640baebbb8d01fb1416e16d4f88aac0750dd60d011c09654610':
+            raise ValueError('USA omitted destructor 386f60 mismatch')
+        entries.append(dict(Name='virtual_destructor_00386f60',Start='0x386f60',End='0x387000'))
     return entries
 
 

@@ -12,6 +12,50 @@ The earlier VP2S face/shading and general brightness comparisons remain open.
 
 ## Build and evidence
 
+### Native screen-zoom trail and an omitted destructor (2026-11-10)
+
+**Boundary:** an unowned graphics builder submission, writer 5907b0 from
+mod003 374c08.
+
+**Class 15d420.** Its draw method 374be0 flushes the packet built by 374c20:
+- The packet sets ALPHA_2 0x44 ((Cs-Cd)·As+Cd), TEX1_2 nearest, TEST_2
+  always, ZBUF_2 from globals+170 loaded with `lwu` (so depth is written),
+  TEXA 0x60, COLCLAMP and context-2 textured SPRITEs.
+- Each SPRITE is a REGLIST (TEX0_2, UV, XYZ2, UV, XYZ2) over one 64x32 page
+  of the display buffer: TBP = FRAME's FBP·32, plus 0x20 per page, PSMCT24.
+  FRAME here is 0x010a0080: FBP 0x80, FBW 10.
+- The pages are placed into the current target (512x512 for event cameras),
+  either zoomed about the centre by obj+a4 (flag c0 bit 0) or shifted by
+  obj+b0/b4. Screen scales are W/W0 and H/H0·(1+fields); the origin is
+  0x800 − size/2.
+- Alpha is (1−obj+98)·160 in RGBAQ, which the GS modulates with the texel
+  alpha 0x60.
+
+**Native owner** (`native_screen_zoom.cpp`, sites 374c04/374c10 on the
+delay slots, plus retire/flushed at 120f4c/120f58, like the screen
+rectangle):
+- It computes the strips from the object fields and display globals, in the
+  builder's EE ps2f order.
+- It checks the writer's exact extent: 0x20 + 0x80 + 0x40 per strip.
+- It draws the strips from the renderer's previous presentation (the display
+  buffer the pages come from): nearest, vertex alpha 0x60·A>>7, alpha blend,
+  depth test always, depth 0xfffe06 written.
+- The packet is never decoded. Its scalar flush keeps its bookkeeping.
+- The GS reads the pages while overwriting them; the native draw samples one
+  snapshot, which is the intended image.
+
+**Test:** `vp2s-bozo-screen-zoom` checks 5040 strips against the builder
+restated in double precision (worst 1/16 px, the 12.4 truncation), the page
+order, the alpha, the vertices and the frame-layout rejection.
+
+**Destructor:** the run then jumped to mod003 386f60, a deleting destructor
+(slot 8 of main's vtable 15dd20) that the analysis export omitted. It is
+admitted as its own entry in `overlay_entries` with a byte signature.
+
+**Result:** the route reaches "( We need to prepare ourselves before heading
+to Dipan. We might have fighting ahead of us. )" and next stops at the VU
+site mod003 3d166c.
+
 ### All chain-physics sites in PS2 words (2026-11-10)
 
 Every native site of the chain owner 1fd110 now uses `Ps2Word`, a VU0 word

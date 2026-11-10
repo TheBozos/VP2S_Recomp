@@ -26,6 +26,7 @@
 #include "native_state_setup.h"
 #include "native_screen_rect.h"
 #include "native_ui_text.h"
+#include "native_screen_zoom.h"
 #include "native_ui_sprites.h"
 #include "native_media_buffer.h"
 #include "native_publication.h"
@@ -61,7 +62,7 @@
 namespace {
 class StrictHost final : public bozo::ee::Host,public vp2s::TimerOwner,public vp2s::SettingsOwner,public vp2s::SeedOwner,
     public vp2s::ModuleOwner,public vp2s::BootstrapOwner,public vp2s::RandomOwner,public vp2s::TextureOwner,public vp2s::SceneOwner,
-    public vp2s::AssetOwner,public vp2s::DebugFontOwner,public vp2s::StateSetupOwner,public vp2s::ScreenRectOwner,public vp2s::UiTextOwner,
+    public vp2s::AssetOwner,public vp2s::DebugFontOwner,public vp2s::StateSetupOwner,public vp2s::ScreenRectOwner,public vp2s::ScreenZoomOwner,public vp2s::UiTextOwner,
     public vp2s::UiSpriteOwner,public vp2s::MediaBufferOwner,public vp2s::ModelOwner,public vp2s::FrameFilterOwner,public vp2s::MusicOwner,
     public vp2s::UiWindowOwner,public vp2s::LoadProgressOwner,public vp2s::MotionOwner,public vp2s::FrameCopyOwner,public vp2s::DofOwner,public vp2s::FeedbackOwner,public vp2s::SquadOwner,
     public vp2s::ParticleOwner,public vp2s::ParticleUpdateOwner,public vp2s::ParticleDrawOwner,public vp2s::ProceduralOwner,public vp2s::ProceduralDrawOwner {
@@ -190,6 +191,25 @@ public:
         bozo::render::Renderer::instance().draw(material,identity,vertices.data(),vertices.size());
         if(++screenRectDraws<=4 && std::getenv("VP2S_BOZO_TRACE_QUEUES"))
             std::fprintf(stderr,"[vp2s:screen] native rect object=%x colour=%08x box=%d,%d,%d,%d\n",rect.object,rect.colour,rect.x,rect.y,rect.right,rect.bottom);
+    }
+    vp2s::NativeScreenZooms screenZooms;
+    unsigned screenZoomDraws=0;
+    vp2s::NativeScreenZooms &nativeScreenZooms()override{return screenZooms;}
+    void drawNativeScreenZoom(const vp2s::NativeScreenZoom &zoom)override{
+        const auto target=scene.frameTarget();
+        if(!target || int32_t(target->width)!=zoom.width || int32_t(target->height)!=zoom.height)throw std::runtime_error("native screen zoom has no matching source frame");
+        // The previous presentation is the texture (the display buffer the GS
+        // pages come from): nearest, vertex alpha only (TEXA 0x60 already folded
+        // in), GS alpha blend, depth test always with the game's depth written.
+        bozo::render::Material material;material.fromFrame=1;material.source=bozo::render::Material::kPreviousFrame;material.target=0;material.nearest=true;
+        material.textureAlpha=false;material.blend=bozo::render::Material::Blend::Alpha;material.depthTest=false;material.depthWrite=true;
+        std::vector<bozo::render::Vertex> vertices;vertices.reserve(zoom.strips.size()*6);
+        for(const auto &strip:zoom.strips){const auto quad=vp2s::nativeScreenZoomVertices(zoom,strip);vertices.insert(vertices.end(),quad.begin(),quad.end());}
+        const float identity[16]={1,0,0,0,0,1,0,0,0,0,1,0,0,0,0,1};
+        bozo::render::Renderer::instance().draw(material,identity,vertices.data(),vertices.size());
+        if(++screenZoomDraws<=4 && std::getenv("VP2S_BOZO_TRACE_QUEUES"))
+            std::fprintf(stderr,"[vp2s:screen] native zoom object=%x alpha=%u strips=%zu first=%g,%g,%g,%g\n",zoom.object,zoom.alpha,zoom.strips.size(),
+                zoom.strips[0].x0,zoom.strips[0].y0,zoom.strips[0].x1,zoom.strips[0].y1);
     }
     vp2s::NativeStateSetups stateSetups;
     vp2s::NativeStateSetups &nativeStateSetups()override{return stateSetups;}
@@ -406,6 +426,7 @@ bool noNativeInstruction(uint8_t *ram,R5900Context *ctx,Runtime *rt,uint32_t pc)
     if(auto handled=vp2s::nativeUiSpriteInstruction(ctx,rt,pc))return *handled;
     if(auto handled=vp2s::nativeMediaBufferInstruction(ctx,rt,pc))return *handled;
     if(auto handled=vp2s::nativeScreenRectInstruction(ctx,rt,pc))return *handled;
+    if(auto handled=vp2s::nativeScreenZoomInstruction(ctx,rt,pc))return *handled;
     if(auto handled=vp2s::nativeFixedImageInstruction(ctx,rt,pc))return *handled;
     if(auto handled=vp2s::nativeTextureManagerInstruction(ctx,rt,pc))return *handled;
     if(auto handled=vp2s::nativeVisibilityInstruction(ctx,rt,pc))return *handled;

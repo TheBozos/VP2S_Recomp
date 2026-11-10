@@ -1997,14 +1997,13 @@ FacingPath &facingPath(const Runtime *rt){static std::map<const Runtime *,Facing
 bool nativeFacingPath(R5900Context *c,Runtime *rt,uint32_t pc){
     struct Site{uint32_t load,cfc,store;unsigned loadReg,storeReg;};
     constexpr Site quats[3]={{0x3d077c,0x3d07b4,0x3d07bc,2,2},{0x3d07e4,0x3d081c,0x3d0824,3,2},{0x3d0888,0x3d08c0,0x3d08c8,2,2}};
-    const bool calls=pc==0x3d0784 || pc==0x3d07ec || pc==0x3d0890 || pc==0x3d08f0;
+    const bool calls=pc==0x3d0784 || pc==0x3d07ec || pc==0x3d0890;
     const Site *site=nullptr;for(const auto &s:quats)if(pc==s.load || pc==s.cfc || (pc>=s.store && pc<=s.store+8))site=&s;
-    const bool inverse=(pc>=0x3d08d8 && pc<=0x3d08e4) || pc==0x3d08f4 || (pc>=0x3d08fc && pc<=0x3d0908);
-    if(!calls && !site && !inverse)return false;
+    if(!calls && !site)return false;
     if(!c)throw std::runtime_error("native facing path has no CPU record");
     if(calls)return true;
     auto &state=facingPath(rt);
-    if(pc==0x3d07b4 || pc==0x3d081c || pc==0x3d08c0 || pc==0x3d08f4){c->r[9].ud[0]=0;return true;}
+    if(pc==0x3d07b4 || pc==0x3d081c || pc==0x3d08c0){c->r[9].ud[0]=0;return true;}
     if(site && pc==site->load){state.quaternion=vuWords(rt,c->r[site->loadReg].uw[0]);state.loaded|=1;return true;}
     if(site){
         if(!(state.loaded&1))throw std::runtime_error("native facing rotation stored without its quaternion");
@@ -2012,10 +2011,45 @@ bool nativeFacingPath(R5900Context *c,Runtime *rt,uint32_t pc){
         for(float f:values){const auto m=std::bit_cast<uint32_t>(f)&0x7fffffff;if(m>=0x7f800000 || m>std::bit_cast<uint32_t>(1.e8f))throw std::runtime_error("unqualified facing path quaternion");}
         __m128 input;std::memcpy(&input,values,16);const auto result=math::quaternionMatrix(input);const unsigned row=(pc-site->store)/4;
         std::memcpy(record(rt,c->r[site->storeReg].uw[0]+16*row,16),&result[row],16);if(row==2)state.loaded&=~1u;return true;}
-    if(pc<=0x3d08e4){const unsigned row=(pc-0x3d08d8)/4;state.rows[row]=vuWords(rt,c->r[2].uw[0]+16*row);state.loaded|=2u<<row;return true;}
-    if((state.loaded&0x1e)!=0x1e)throw std::runtime_error("native matrix inverse stored without its rows");
-    const unsigned row=(pc-0x3d08fc)/4;const auto result=program2d0(state.rows);
-    std::memcpy(record(rt,c->r[2].uw[0]+16*row,16),result[row].data(),16);if(row==3)state.loaded&=~0x1eu;return true;
+    return false;
+}
+// The 0x2d0 inverse is inlined about 24 times (mod001 21732c, mod003 3802dc,
+// 3d08f0, ...): LQC2 vf1..vf4 at 0/16/32/48 of one base, two NOPs, VCALLMS
+// 0x2d0, CFC2.I t1,vi0, at most one plain EE word, SQC2 vf1..vf4 at 0/16/32/48
+// of a store base. Recognised by these words around the PC; the rows are
+// captured at the loads (the store base may be the same register, rewritten).
+struct InverseCapture{std::array<VuWords,4> rows{};uint32_t call=0;unsigned loaded=0;};
+InverseCapture &inverseCapture(const Runtime *rt){static std::map<const Runtime *,InverseCapture> captures;return captures[rt];}
+bool nativeInverseIdiom(R5900Context *c,Runtime *rt,uint32_t pc){
+    if(!rt || (pc&3))return false;
+    const auto word=[&](uint32_t at,uint32_t &out){const auto *p=rt->memory.hostPointer(at,4);if(!p)return false;std::memcpy(&out,p,4);return true;};
+    const auto isLoad=[](uint32_t w,unsigned row){return w>>26==0x36 && ((w>>16)&31)==1+row && (w&0xffff)==16*row;};
+    const auto isStore=[](uint32_t w,unsigned row){return w>>26==0x3e && ((w>>16)&31)==1+row && (w&0xffff)==16*row;};
+    // The block spans at most 17 words; find its VCALLMS within reach of the PC.
+    for(int k=-12;k<=12;++k){
+        const uint32_t call=pc+4*k;uint32_t w;if(!word(call,w) || w!=0x4a0016b8)continue;
+        uint32_t loads[4],a,b,cfc;bool ok=word(call-8,a) && word(call-4,b) && a==0 && b==0 && word(call+4,cfc) && cfc==0x48490001;
+        for(unsigned r=0;r<4 && ok;++r){ok=word(call-24+4*r,loads[r]) && isLoad(loads[r],r) && ((loads[r]>>21)&31)==((loads[0]>>21)&31);}
+        if(!ok)continue;
+        uint32_t first;if(!word(call+8,first))continue;uint32_t storeAt=call+8;
+        if(!isStore(first,0)){const auto op=first>>26;
+            if(op==0x12 || op==0x36 || op==0x3e || (op>=1 && op<=7) || (op>=0x14 && op<=0x17) || (op==0 && ((first&63)==8 || (first&63)==9)))continue;
+            storeAt=call+12;}
+        uint32_t stores[4];for(unsigned r=0;r<4 && ok;++r)ok=word(storeAt+4*r,stores[r]) && isStore(stores[r],r) && ((stores[r]>>21)&31)==((stores[0]>>21)&31);
+        if(!ok)continue;
+        const bool inLoads=pc>=call-24 && pc<call-8,inStores=pc>=storeAt && pc<storeAt+16;
+        if(!inLoads && !inStores && pc!=call && pc!=call+4)continue;
+        if(!c)throw std::runtime_error("native inverse idiom has no CPU record");
+        auto &capture=inverseCapture(rt);
+        if(inLoads){const unsigned r=(pc-(call-24))/4;if(r==0 || capture.call!=call){capture.loaded=0;capture.call=call;}
+            capture.rows[r]=vuWords(rt,c->r[(loads[r]>>21)&31].uw[0]+16*r);capture.loaded|=1u<<r;return true;}
+        if(pc==call)return true;
+        if(pc==call+4){c->r[9].ud[0]=0;return true;}
+        if(capture.call!=call || capture.loaded!=15)throw std::runtime_error(std::format("native 0x2d0 inverse at {:x} stored without its rows",call));
+        const unsigned r=(pc-storeAt)/4;const auto result=program2d0(capture.rows);
+        std::memcpy(record(rt,c->r[(stores[r]>>21)&31].uw[0]+16*r,16),result[r].data(),16);if(r==3)capture.loaded=0;return true;
+    }
+    return false;
 }
 bool nativeSoftSkin(R5900Context *c,Runtime *rt,uint32_t pc){
     if(pc!=0x21822c)return false;
@@ -2038,7 +2072,7 @@ std::optional<bool> nativeModelLightVariant(const Runtime *rt,uint32_t model){
     const auto &map=modelLightVariants();const auto it=map.find({rt,model});return it==map.end()?std::nullopt:std::optional(it->second);}
 bool nativeMathInstruction(uint8_t *,R5900Context *c,Runtime *rt,uint32_t pc){
     if(nativeSkinUpload(c,rt,pc) || nativeSoftSkin(c,rt,pc))return true;
-    if(nativeFacingPath(c,rt,pc))return true;
+    if(nativeFacingPath(c,rt,pc) || nativeInverseIdiom(c,rt,pc))return true;
     if(nativeProjectionBlocks(c,rt,pc) || nativeBoneAim(c,rt,pc) || nativeChainBlocks(c,rt,pc) || nativeCapsulePair(c,rt,pc) || nativePlaneContact(c,rt,pc) || nativeRangeTest(c,rt,pc) || nativeMatrixBuild(c,rt,pc) || nativeListBoxQuery(c,rt,pc) || nativeHitFrame(c,rt,pc) || nativePlaneDistance(c,rt,pc) || nativeSphereSweep(c,rt,pc) || nativeSegmentApproach(c,rt,pc) || nativeWorldPosition(c,rt,pc) || nativeCameraTarget(c,rt,pc) || nativeRootLength(c,rt,pc) || nativeVisibilityLoop(c,rt,pc) || nativeQuaternionLeaf(c,rt,pc) || nativeBonePalette(c,rt,pc))return true;
     if(nativeLeafSphere(c,rt,pc) || nativeLeafBox(c,rt,pc) || nativeSegmentBox(c,rt,pc))return true;
     if(nativeLengthSite(c,rt,pc) || nativeRecordDot(c,rt,pc) || nativePackedQuaternion(c,rt,pc))return true;
@@ -2991,8 +3025,11 @@ bool nativeMathInstruction(uint8_t *,R5900Context *c,Runtime *rt,uint32_t pc){
         std::memcpy(matrix,record(rt,c->r[4].uw[0],64),64);std::memcpy(vector,record(rt,c->r[5].uw[0],16),16);
         const auto normal=[](float value){const auto bits=std::bit_cast<uint32_t>(value);return std::bit_cast<float>((bits&0x7f800000)?bits:(bits&0x80000000));};
         const auto finite=[](float value){const auto bits=std::bit_cast<uint32_t>(value),e=bits&0x7f800000;
-            if(e==0x7f800000 || (!e && (bits&0x7fffff)))throw std::runtime_error("unqualified native row dot input");};
-        for(auto &row:matrix)for(float value:row)finite(value);for(float value:vector)finite(value);
+            if(e==0x7f800000)throw std::runtime_error(std::format("unqualified native row dot input {:08x}",bits));};
+        // The VU reads denormal inputs as signed zero (an uninitialized stack W
+        // lane reaches this from mod003 380300), so flush them rather than reject.
+        for(auto &row:matrix)for(float &value:row){finite(value);value=normal(value);}
+        for(float &value:vector){finite(value);value=normal(value);}
         const unsigned order[4][4]={{0,1,2,3},{1,0,2,3},{2,1,0,3},{3,1,2,0}};
         music::NearestRounding rounding;
         for(unsigned row=0;row<4;++row){float products[4];

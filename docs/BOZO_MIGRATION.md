@@ -12,6 +12,32 @@ The earlier VP2S face/shading and general brightness comparisons remain open.
 
 ## Build and evidence
 
+### The inlined 0x2d0 inverse everywhere; denormal row-product inputs (2026-11-10)
+
+The 0x2d0 inverse block is inlined 24 times (mod001 `21732c`, mod003
+`3802dc`, `3d08f0`, `368a08`, ...):
+- `LQC2 vf1..vf4` at offsets 0/16/32/48 of one base register;
+- two `NOP`s;
+- `VCALLMS 0x2d0`;
+- `CFC2.I t1,vi0`;
+- at most one plain EE word;
+- `SQC2 vf1..vf4` at offsets 0/16/32/48 of a store base.
+
+`nativeInverseIdiom` recognises the block from these words around the PC,
+captures the rows at the loads, and stores `program2d0` of them. It replaces
+the `3d08f0`-specific code. Test: the 496-matrix inverse check now lays the
+real block words down, both with and without the EE word.
+
+**Row product `410df0`** (main, native since earlier) rejected denormal inputs.
+mod003 `380300` passes a vector whose `W` lane is an uninitialized stack word
+(`0x0000000b`). The VU reads denormal inputs as signed zero, so the site now
+flushes them, exactly as its engine-VU0 reference does. Exponent-255 inputs
+still reject. New fixture seeds carry denormals in the vector and the matrix.
+
+**Route:** the town close-up dialogue plays on ("What!?" at frame 4800). These
+cutscene frames are slower than the field: 4800 frames take about 5.5 minutes,
+while the first 2200 still take 26 s.
+
 ### 3cfde0's second path: 0x720 rows and the 0x2d0 inverse (2026-11-10)
 
 `3d077c..3d0908` computes three quaternion matrices with program `0x720` (the

@@ -642,7 +642,14 @@ int main(){try{
         float m[4][4];for(unsigned r=0;r<4;++r)for(unsigned k=0;k<4;++k)m[r][k]=(r==k?2.f+float(rnd()%100)/50.f:0)+(float(int(rnd()%2001)-1000)/2000.f);
         if(seed%32==7)m[0][0]=0;
         std::memcpy(rt.memory.hostPointer(stack+0x240,64),m,64);c.r[2].ud[0]=stack+0x240;
-        for(uint32_t pc:{0x3d08d8u,0x3d08dcu,0x3d08e0u,0x3d08e4u,0x3d08f0u,0x3d08f4u,0x3d08fcu,0x3d0900u,0x3d0904u,0x3d0908u})check(vp2s::nativeMathInstruction(rt.memory.flat(),&c,&rt,pc));
+        // The inlined 0x2d0 block is recognised from its words: lay them down
+        // (3d08d8's form with one EE word before the stores, or none).
+        const bool gap=seed&1;const uint32_t blockAt=0x3d08d8;
+        std::vector<uint32_t> block{0xd8410000,0xd8420010,0xd8430020,0xd8440030,0,0,0x4a0016b8,0x48490001};
+        if(gap)block.push_back(0x27a20240);for(uint32_t w:{0xf8410000u,0xf8420010u,0xf8430020u,0xf8440030u})block.push_back(w);
+        std::memcpy(rt.memory.hostPointer(blockAt,4*block.size()),block.data(),4*block.size());
+        const uint32_t storeAt=blockAt+(gap?36:32);
+        for(uint32_t pc:{blockAt,blockAt+4,blockAt+8,blockAt+12,blockAt+24,blockAt+28,storeAt,storeAt+4,storeAt+8,storeAt+12})check(vp2s::nativeMathInstruction(rt.memory.flat(),&c,&rt,pc));
         float out[4][4];std::memcpy(out,rt.memory.hostPointer(stack+0x240,64),64);
         for(auto &row:out)for(float f:row)check(std::isfinite(f));
         if(seed%32!=7){
@@ -697,6 +704,7 @@ int main(){try{
         uint32_t values[20];for(auto &v:values){random=random*1664525u+1013904223u;v=(random&0x807fffff)|((96+random%56)<<23);}
         if(seed%8==0){for(unsigned i=0;i<20;++i)values[i]=std::bit_cast<uint32_t>(i>=16?1.f:(i%2?-1.f:1.f));}
         if(seed%8==1){for(unsigned i=16;i<20;++i)values[i]=(i&1)?0x80000000u:0;}
+        if(seed%8==2){values[19]=0x0000000b;values[5]=0x80000003;}   // denormal inputs read as zero (mod003 380300's stack W)
         std::memcpy(a.memory.hostPointer(matrix,64),values,64);std::memcpy(a.memory.hostPointer(vector,16),values+16,16);std::memcpy(b.memory.flat(),a.memory.flat(),bozo::kFlatBytes);
         R5900Context x{};for(unsigned i=1;i<32;++i){x.r[i].ud[0]=seed*32+i;x.r[i].ud[1]=~x.r[i].ud[0];}
         std::memset(x.vu0_vf,0xf3,sizeof(x.vu0_vf));x.vu0_acc.u[0]=0x4321;x.vu0_status=0x1234;

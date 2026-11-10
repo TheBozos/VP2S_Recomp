@@ -625,6 +625,34 @@ int main(){try{
         check(rejected && !std::memcmp(&bad,&bad0,sizeof(bad)) && !std::memcmp(snapshot.data(),rt.memory.flat(),snapshot.size()));++facingRejects;
     }
     std::printf("%u mod003 396c00 facing rotations match the engine VU0 oracle (%u rejections)\n",facingRotations,facingRejects);
+    // mod003 3cfde0's second path: 0x720 rows (v0 reused for loads and stores)
+    // and program 0x2d0, a pivot-clamped 4x4 inverse checked against doubles.
+    unsigned pathRotations=0,inverses=0;double worstInverse=0;
+    for(unsigned seed=0;seed<512;++seed){
+        auto &rt=adapted.runtime();std::memset(rt.memory.flat(),0x47+seed,bozo::kFlatBytes);
+        const uint32_t stack=0x1ffd000;uint32_t state=seed*2654435761u+9;const auto rnd=[&](){state=state*1664525u+1013904223u;return state>>8;};
+        uint32_t q[4];for(unsigned i=0;i<4;++i)q[i]=((rnd())&0x807fffff)|((119+rnd()%8)<<23);
+        std::memcpy(rt.memory.hostPointer(stack+0x1f0,16),q,16);
+        R5900Context c{};c.r[29].ud[0]=stack;c.r[2].ud[0]=stack+0x1f0;
+        check(vp2s::nativeMathInstruction(rt.memory.flat(),&c,&rt,0x3d077c));check(vp2s::nativeMathInstruction(rt.memory.flat(),&c,&rt,0x3d0784));
+        check(vp2s::nativeMathInstruction(rt.memory.flat(),&c,&rt,0x3d07b4));check(c.r[9].ud[0]==0);
+        c.r[2].ud[0]=stack+0x240;for(uint32_t pc:{0x3d07bcu,0x3d07c0u,0x3d07c4u})check(vp2s::nativeMathInstruction(rt.memory.flat(),&c,&rt,pc));
+        const auto rows=movementRotationOracle(q);check(!std::memcmp(rows.data(),rt.memory.hostPointer(stack+0x240,48),48));++pathRotations;
+        // A well-conditioned matrix (diagonal-dominant), or a zero first pivot.
+        float m[4][4];for(unsigned r=0;r<4;++r)for(unsigned k=0;k<4;++k)m[r][k]=(r==k?2.f+float(rnd()%100)/50.f:0)+(float(int(rnd()%2001)-1000)/2000.f);
+        if(seed%32==7)m[0][0]=0;
+        std::memcpy(rt.memory.hostPointer(stack+0x240,64),m,64);c.r[2].ud[0]=stack+0x240;
+        for(uint32_t pc:{0x3d08d8u,0x3d08dcu,0x3d08e0u,0x3d08e4u,0x3d08f0u,0x3d08f4u,0x3d08fcu,0x3d0900u,0x3d0904u,0x3d0908u})check(vp2s::nativeMathInstruction(rt.memory.flat(),&c,&rt,pc));
+        float out[4][4];std::memcpy(out,rt.memory.hostPointer(stack+0x240,64),64);
+        for(auto &row:out)for(float f:row)check(std::isfinite(f));
+        if(seed%32!=7){
+            // out * m == I (rows as row vectors, the program's row operations).
+            for(unsigned r=0;r<4;++r)for(unsigned k=0;k<4;++k){double s=0;for(unsigned j=0;j<4;++j)s+=double(out[r][j])*m[j][k];
+                const double err=std::abs(s-(r==k?1.0:0.0));worstInverse=std::max(worstInverse,err);
+                if(err>1e-4){std::fprintf(stderr,"0x2d0 inverse seed%u [%u][%u] %g\n",seed,r,k,s);check(false);}}
+            ++inverses;}
+    }
+    std::printf("%u mod003 3d077c path rotations match the engine oracle; %u 0x2d0 inverses (worst |out*m - I| %g)\n",pathRotations,inverses,worstInverse);
     unsigned steps=0,skippedSteps=0;
     for(unsigned pass=0;pass<2;++pass)for(unsigned mode:{_MM_ROUND_NEAREST,_MM_ROUND_DOWN,_MM_ROUND_UP,_MM_ROUND_TOWARD_ZERO})for(unsigned seed=0;seed<128;++seed){
         auto &a=original.runtime(),&b=adapted.runtime();std::memset(a.memory.flat(),0x37+seed,bozo::kFlatBytes);const uint32_t aliases[]={0,0x20000000,0x30000000,0x80000000,0xa0000000};

@@ -16,11 +16,12 @@ const uint8_t *record(Runtime *rt,uint32_t at,uint32_t size){
     return rt->memory.hostPointer(at,size);
 }
 template<class T>T value(Runtime *rt,uint32_t at){T result;std::memcpy(&result,record(rt,at,sizeof(T)),sizeof(T));return result;}
-// 165ae0 (mod003) derives from 15a450: it keeps the emitter 2e74f0, the item
+// 165ae0 (mod003) derives from 15a2f0 (mod001, the reveal text), which derives
+// from 15a450; both keep the emitter 2e74f0, the item
 // callbacks (+2c 2e7e90, +30 2e76a0, checked per item), placement and draw
 // (+10 2f32d0); its own +1c/+20 (2ed050/2ecfa0) only decide when to rebuild
 // the 0x30-byte item array at +70..+74 and hand it to the same emitter.
-void type(Runtime *rt,uint32_t element){const auto actual=value<uint32_t>(rt,element);if(actual!=0x15a450 && actual!=0x165ae0)throw std::runtime_error(std::format("unported native UI text class {:x} at {:x}",actual,element));}
+void type(Runtime *rt,uint32_t element){const auto actual=value<uint32_t>(rt,element);if(actual!=0x15a450 && actual!=0x15a2f0 && actual!=0x165ae0)throw std::runtime_error(std::format("unported native UI text class {:x} at {:x}",actual,element));}
 }
 void NativeUiTexts::enter(Runtime *rt,uint32_t stack,uint32_t element,uint32_t items,int32_t count){
     type(rt,element);

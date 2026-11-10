@@ -1938,6 +1938,85 @@ bool nativeMacroIdiom(R5900Context *c,Runtime *rt,uint32_t pc){
     }
     return false;
 }
+// VU0 program 0x2d0 (mode 0): in-place 4x4 Gauss-Jordan inverse of rows
+// vf1..vf4, no row swaps. Each pivot is first clamped away from zero by the
+// sign of a CLIP test against |0|: negative -> min(p, c.x), else max(p, c.y),
+// with c = VU0 data qword 0 = (-1e-5, 1e-5, 0, 0) from mode 0's UNPACK; the
+// fourth step's negative clamp uses vf29.x (the negated original M[1][0])
+// instead of c.x, as the listing does. Elimination order, lanes and the
+// 0 - x / x * Q forms follow the listing pair by pair (sequential VU).
+std::array<VuWords,4> program2d0(std::array<VuWords,4> v){
+    const uint32_t one=0x3f800000u,cx=0xb727c5acu,cy=0x3727c5acu;
+    const auto negative=[](uint32_t x){return (x&0x80000000u) && (x&0x7f800000u);};
+    const auto key=[](uint32_t x){const int32_t m=int32_t(x&0x7fffffffu);return (x&0x80000000u)?-m:m;};
+    const auto vmin=[&](uint32_t a,uint32_t b){return key(a)<=key(b)?a:b;};
+    const auto vmax=[&](uint32_t a,uint32_t b){return key(a)>=key(b)?a:b;};
+    const auto inv=[&](uint32_t p){uint32_t f=0;const auto saved=_mm_getcsr();const auto q=bozo::ps2f::div(one,p,f);_mm_setcsr(saved);return q;};
+    auto &r1=v[0],&r2=v[1],&r3=v[2],&r4=v[3];VuWords t29{},t28{},t27{},t26{},t25{},t24{},p{};
+    const auto lanes=[](VuWords &d,unsigned mask,auto f){for(unsigned i=0;i<4;++i)if(mask>>i&1)d[i]=f(i);};
+    // step 1: pivot r1.x
+    p[0]=r1[0];p[0]=negative(p[0])?vmin(p[0],cx):vmax(p[0],cy);
+    t29[0]=vuSub(0,r2[0]);t28[0]=vuSub(0,r3[0]);t27[0]=vuSub(0,r4[0]);
+    auto q=inv(p[0]);lanes(r1,15,[&](unsigned i){return vuMul(r1[i],q);});r1[0]=vuAdd(0,q);
+    lanes(t26,14,[&](unsigned i){return vuMul(r1[i],t29[0]);});lanes(t25,14,[&](unsigned i){return vuMul(r1[i],t28[0]);});lanes(t24,14,[&](unsigned i){return vuMul(r1[i],t27[0]);});
+    r2[0]=vuMul(t29[0],q);lanes(r2,14,[&](unsigned i){return vuAdd(r2[i],t26[i]);});
+    r3[0]=vuMul(t28[0],q);r4[0]=vuMul(t27[0],q);lanes(r3,14,[&](unsigned i){return vuAdd(r3[i],t25[i]);});
+    const bool n2=negative(r2[1]);lanes(r4,14,[&](unsigned i){return vuAdd(r4[i],t24[i]);});p[1]=r2[1];
+    // step 2: pivot r2.y
+    p[1]=n2?vmin(p[1],cx):vmax(p[1],cy);
+    t29[1]=vuSub(0,r1[1]);t28[1]=vuSub(0,r3[1]);t27[1]=vuSub(0,r4[1]);
+    q=inv(p[1]);lanes(r2,15,[&](unsigned i){return vuMul(r2[i],q);});r2[1]=vuAdd(0,q);
+    lanes(t25,13,[&](unsigned i){return vuMul(r2[i],t28[1]);});lanes(t26,13,[&](unsigned i){return vuMul(r2[i],t29[1]);});lanes(t24,13,[&](unsigned i){return vuMul(r2[i],t27[1]);});
+    r1[1]=vuMul(t29[1],q);lanes(r3,13,[&](unsigned i){return vuAdd(r3[i],t25[i]);});r3[1]=vuMul(t28[1],q);r4[1]=vuMul(t27[1],q);
+    lanes(r1,13,[&](unsigned i){return vuAdd(r1[i],t26[i]);});
+    const bool n3=negative(r3[2]);p[2]=r3[2];lanes(r4,13,[&](unsigned i){return vuAdd(r4[i],t24[i]);});
+    // step 3: pivot r3.z
+    p[2]=n3?vmin(p[2],cx):vmax(p[2],cy);
+    t29[2]=vuSub(0,r1[2]);t28[2]=vuSub(0,r2[2]);t27[2]=vuSub(0,r4[2]);
+    q=inv(p[2]);lanes(r3,15,[&](unsigned i){return vuMul(r3[i],q);});
+    lanes(t24,11,[&](unsigned i){return vuMul(r3[i],t27[2]);});r3[2]=vuAdd(0,q);
+    r1[2]=vuMul(t29[2],q);r2[2]=vuMul(t28[2],q);lanes(r4,11,[&](unsigned i){return vuAdd(r4[i],t24[i]);});
+    lanes(t25,11,[&](unsigned i){return vuMul(r3[i],t28[2]);});lanes(t26,11,[&](unsigned i){return vuMul(r3[i],t29[2]);});r4[2]=vuMul(t27[2],q);
+    const auto t28x=vuAdd(0,r4[3]);p[3]=r4[3];
+    lanes(r2,11,[&](unsigned i){return vuAdd(r2[i],t25[i]);});lanes(r1,11,[&](unsigned i){return vuAdd(r1[i],t26[i]);});
+    // step 4: pivot r4.w (negative clamp with vf29.x)
+    p[3]=negative(t28x)?vmin(p[3],t29[0]):vmax(p[3],cy);
+    t29[3]=vuSub(0,r1[3]);t28[3]=vuSub(0,r2[3]);t27[3]=vuSub(0,r3[3]);
+    q=inv(p[3]);lanes(r4,15,[&](unsigned i){return vuMul(r4[i],q);});r4[3]=vuAdd(0,q);
+    r1[3]=vuMul(t29[3],q);r2[3]=vuMul(t28[3],q);
+    lanes(t26,7,[&](unsigned i){return vuMul(r4[i],t29[3]);});lanes(t25,7,[&](unsigned i){return vuMul(r4[i],t28[3]);});lanes(t24,7,[&](unsigned i){return vuMul(r4[i],t27[3]);});
+    r3[3]=vuMul(t27[3],q);lanes(r1,7,[&](unsigned i){return vuAdd(r1[i],t26[i]);});lanes(r2,7,[&](unsigned i){return vuAdd(r2[i],t25[i]);});lanes(r3,7,[&](unsigned i){return vuAdd(r3[i],t24[i]);});
+    return v;
+}
+// mod003 3cfde0's second path 3d077c..3d0908: three quaternion matrices
+// (program 0x720, entry with vf16 = vf0 so every lane is defined) to SP+240,
+// SP+200, SP+200, then program 0x2d0 on SP+240. The base registers of the
+// loads are reused for the stores, so the inputs are captured at the loads.
+struct FacingPath{std::array<VuWords,4> rows{};VuWords quaternion{};unsigned loaded=0;};
+FacingPath &facingPath(const Runtime *rt){static std::map<const Runtime *,FacingPath> paths;return paths[rt];}
+bool nativeFacingPath(R5900Context *c,Runtime *rt,uint32_t pc){
+    struct Site{uint32_t load,cfc,store;unsigned loadReg,storeReg;};
+    constexpr Site quats[3]={{0x3d077c,0x3d07b4,0x3d07bc,2,2},{0x3d07e4,0x3d081c,0x3d0824,3,2},{0x3d0888,0x3d08c0,0x3d08c8,2,2}};
+    const bool calls=pc==0x3d0784 || pc==0x3d07ec || pc==0x3d0890 || pc==0x3d08f0;
+    const Site *site=nullptr;for(const auto &s:quats)if(pc==s.load || pc==s.cfc || (pc>=s.store && pc<=s.store+8))site=&s;
+    const bool inverse=(pc>=0x3d08d8 && pc<=0x3d08e4) || pc==0x3d08f4 || (pc>=0x3d08fc && pc<=0x3d0908);
+    if(!calls && !site && !inverse)return false;
+    if(!c)throw std::runtime_error("native facing path has no CPU record");
+    if(calls)return true;
+    auto &state=facingPath(rt);
+    if(pc==0x3d07b4 || pc==0x3d081c || pc==0x3d08c0 || pc==0x3d08f4){c->r[9].ud[0]=0;return true;}
+    if(site && pc==site->load){state.quaternion=vuWords(rt,c->r[site->loadReg].uw[0]);state.loaded|=1;return true;}
+    if(site){
+        if(!(state.loaded&1))throw std::runtime_error("native facing rotation stored without its quaternion");
+        float values[4];std::memcpy(values,state.quaternion.data(),16);
+        for(float f:values){const auto m=std::bit_cast<uint32_t>(f)&0x7fffffff;if(m>=0x7f800000 || m>std::bit_cast<uint32_t>(1.e8f))throw std::runtime_error("unqualified facing path quaternion");}
+        __m128 input;std::memcpy(&input,values,16);const auto result=math::quaternionMatrix(input);const unsigned row=(pc-site->store)/4;
+        std::memcpy(record(rt,c->r[site->storeReg].uw[0]+16*row,16),&result[row],16);if(row==2)state.loaded&=~1u;return true;}
+    if(pc<=0x3d08e4){const unsigned row=(pc-0x3d08d8)/4;state.rows[row]=vuWords(rt,c->r[2].uw[0]+16*row);state.loaded|=2u<<row;return true;}
+    if((state.loaded&0x1e)!=0x1e)throw std::runtime_error("native matrix inverse stored without its rows");
+    const unsigned row=(pc-0x3d08fc)/4;const auto result=program2d0(state.rows);
+    std::memcpy(record(rt,c->r[2].uw[0]+16*row,16),result[row].data(),16);if(row==3)state.loaded&=~0x1eu;return true;
+}
 bool nativeSoftSkin(R5900Context *c,Runtime *rt,uint32_t pc){
     if(pc!=0x21822c)return false;
     if(!c)throw std::runtime_error("native skinning has no CPU record");
@@ -1959,6 +2038,7 @@ std::optional<bool> nativeModelLightVariant(const Runtime *rt,uint32_t model){
     const auto &map=modelLightVariants();const auto it=map.find({rt,model});return it==map.end()?std::nullopt:std::optional(it->second);}
 bool nativeMathInstruction(uint8_t *,R5900Context *c,Runtime *rt,uint32_t pc){
     if(nativeSkinUpload(c,rt,pc) || nativeSoftSkin(c,rt,pc))return true;
+    if(nativeFacingPath(c,rt,pc))return true;
     if(nativeProjectionBlocks(c,rt,pc) || nativeBoneAim(c,rt,pc) || nativeChainBlocks(c,rt,pc) || nativeCapsulePair(c,rt,pc) || nativePlaneContact(c,rt,pc) || nativeRangeTest(c,rt,pc) || nativeMatrixBuild(c,rt,pc) || nativeListBoxQuery(c,rt,pc) || nativeHitFrame(c,rt,pc) || nativePlaneDistance(c,rt,pc) || nativeSphereSweep(c,rt,pc) || nativeSegmentApproach(c,rt,pc) || nativeWorldPosition(c,rt,pc) || nativeCameraTarget(c,rt,pc) || nativeRootLength(c,rt,pc) || nativeVisibilityLoop(c,rt,pc) || nativeQuaternionLeaf(c,rt,pc) || nativeBonePalette(c,rt,pc))return true;
     if(nativeLeafSphere(c,rt,pc) || nativeLeafBox(c,rt,pc) || nativeSegmentBox(c,rt,pc))return true;
     if(nativeLengthSite(c,rt,pc) || nativeRecordDot(c,rt,pc) || nativePackedQuaternion(c,rt,pc))return true;

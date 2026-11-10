@@ -102,8 +102,8 @@ std::optional<bool> nativeUiSpriteInstruction(R5900Context *c,Runtime *rt,uint32
     }else if(pc==0x2efe40 || pc==0x2effe8){
         auto *texts=dynamic_cast<UiTextOwner *>(&d->host());if(!texts)throw std::runtime_error("native button capture has no text owner");
         const auto element=c->r[pc==0x2efe40?4:21].uw[0];
-        const auto textClass=value<uint32_t>(rt,element);   // 165ae0: the 15a450 subclass (see native_ui_text.cpp)
-        if((textClass!=0x15a450 && textClass!=0x165ae0) || !texts->nativeUiTexts().text(element))throw std::runtime_error("unported native button text class/lifetime");
+        const auto textClass=value<uint32_t>(rt,element);   // 15a2f0/165ae0: 15a450 subclasses (see native_ui_text.cpp)
+        if((textClass!=0x15a450 && textClass!=0x15a2f0 && textClass!=0x165ae0) || !texts->nativeUiTexts().text(element))throw std::runtime_error("unported native button text class/lifetime");
         if(pc==0x2efe40){if(c->pc!=pc || sp<0xa0 || (sp&15))throw std::runtime_error("native text icons require original entry");sprites.beginText(sp-0xa0,element);}
         else texts->nativeUiTexts().icons(element,sprites.finishText(sp,element));
     }else if(pc==0x2eb3a0){

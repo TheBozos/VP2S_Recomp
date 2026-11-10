@@ -12,6 +12,40 @@ The earlier VP2S face/shading and general brightness comparisons remain open.
 
 ## Build and evidence
 
+### 3cfde0's second path: 0x720 rows and the 0x2d0 inverse (2026-11-10)
+
+`3d077c..3d0908` computes three quaternion matrices with program `0x720` (the
+existing `math::quaternionMatrix`, as at `39f31c`/`396c24`), to SP+240, SP+200
+and SP+200. It calls `217550` (scalar), then runs program `0x2d0` on SP+240.
+The code reuses `v0` as both the load and the store base, so the native site
+captures each input at its load PC.
+
+**Program `0x2d0`** is an in-place 4x4 Gauss-Jordan inverse, without row
+swaps. Before each step the pivot is clamped away from zero by the sign of a
+CLIP test against |0|:
+- negative: `min(p, c.x)`;
+- otherwise: `max(p, c.y)`.
+
+Here `c` is VU0 data qword 0, `(-1e-5, 1e-5, 0, 0)`, loaded by mode 0's
+UNPACK. Two `vf30.w` uses are deliberate (`0 + Q`, and `0 - x` on the w lane).
+The fourth step's negative clamp uses `vf29.x` (the negated original M[1][0])
+where `c.x` would be expected, and the port keeps it.
+
+**Test:**
+- 512 rotations match the engine oracle.
+- 496 random well-conditioned matrices invert to within 1.8e-7 of the
+  identity (checked as `out*m`), against doubles.
+- Zero-pivot cases stay finite.
+
+**Also: text class `15a2f0`.** This mod001 reveal-text class sits between
+`165ae0` and `15a450`, with the same emitter, item, draw and reveal methods.
+It is admitted, and so is its destructor chain (`3b1870` -> `2eeb00` ->
+`2f0de0`).
+
+**Route:** the town close-up dialogue ("(That's why we're here. To go to
+Dipan.)") renders cleanly. The run reaches serial 3126 and stops at mod003
+`3802c4` (entry `3802c0`).
+
 ### RAM bone palette 2370a0: operand order of program 0x898 (2026-11-10)
 
 `2370a0`, the RAM-palette twin of `237320` used by most skinned characters,
@@ -615,12 +649,9 @@ The table now names a base register for each side. Its second entry is mod003
 `3cfde0`'s `3d0514`, which takes the length of `s4+20` into SP+a0. Guard
 `3cfde0..3d0b88`; 512 fixture cases cover both sites.
 
-`3cfde0` has a second, unported path at `3d077c..3d0908`. It runs VCALLMS
-0x728 on three quaternions, stores the rows, calls `217550` and then program
-0x2d0. Its 0x728 rows take their W column from VF16, which nothing on that path
-loads, so it is inherited VU state. Porting it first needs proof that those
-lanes don't reach anything the program uses. The route did not take that path;
-it reaches mod001 `220d70`.
+`3cfde0` has a second path at `3d077c..3d0908` (ported 2026-11-10, see the
+section "3cfde0's second path"). The VCALLMS there are `0x720`, not `0x728`:
+entry `0x720` first sets VF16 = VF0, so every lane of the rows is defined.
 
 ### main 10da70 camera target (2026-11-09)
 

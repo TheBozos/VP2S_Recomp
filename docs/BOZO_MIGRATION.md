@@ -12,6 +12,53 @@ The earlier VP2S face/shading and general brightness comparisons remain open.
 
 ## Build and evidence
 
+### Town dialogue: the voice never played (2026-11-10)
+
+The route stopped on the line "(The gods will launch an attack on Dipan just to
+lure us out.)". CROSS presses did nothing because the text box waits for the
+voice line, not for a button.
+
+**The wait chain, from the screen down:**
+
+| Where | What it waits for |
+|---|---|
+| Text box 165ae0, mode 5 | byte +0x3aa cleared by the next line (2ee6a0) |
+| Owner 3b1290 (vtable +0x10 = 15fe10) | voice slot 2 done (3f0570 reads slot +0x22) |
+| Voice poll 3f12d8 | sound entry 6 loaded (main 10f560, state 2) |
+| Loader 109b80, state 6 | its bank queue to drain (main 109f68) |
+| Bank upload 109220, state 5 | the IOP's chunk reply (EE callback 10a1e0) |
+| Csd worker 0x54384 (IOP task 9) | `WaitSema(3)`, the SPU transfer lock |
+| Csd 0x50194 (IOP task 7) | Csm export 9 = 0 (busy byte 0x46ac2) |
+| Csm reverb change (export 8) | two DMA-channel-1 transfer ends |
+
+The reverb change programs both cores, then calls libsd export 31 for core 0.
+It registers the next step on channel 1's transfer interrupt (Csm export 21
+stores it in 0x46a5c[1]). That step clears core 1 the same way, and the last
+step clears the busy byte and releases the lock.
+
+**Cause:** the engine's libsd treated export 31 (`sceSdCleanEffectWorkArea`)
+like export 25 (`sceSdClearEffectWorkArea`). It cleared the area and returned,
+but never raised the channel's transfer interrupt. The chain stopped after its
+first step, so Csd kept semaphore 3 and the voice bank ("SEQW", 0x37c00 bytes)
+was never uploaded.
+
+**Fix (engine):** export 31 now clears the area and reports its end as its DMA
+channel's transfer interrupt (handler, else callback), like a voice transfer.
+Export 25 is unchanged. The engine audio test checks both.
+
+**Second bug, exposed by the first:** every IOP-to-EE reply allocated a 16-byte
+message from the game heap and never freed it. The kernel runs a queued
+handler's end only for a completion frame, and the reply handler was not
+marked as one. The heap runs to the end of RAM, so the buffers crept up to
+thread 1's stack. With the voice and reverb traffic, frame 4648 returned to
+0x4010, the reply header word.
+- **Fix:** `NativeCommandReplies` marks its handler as a completion frame.
+- **Test:** the reply test now checks the queued frame is a completion frame.
+  It fails without the fix.
+
+**Result:** the run passes frame 4648 and stays on the voiced line until the
+next boundary, the inline 4x4 multiply at 0x2203e0.
+
 ### Profiling the town cutscene: texture pictures were rebuilt per mesh (2026-11-10)
 
 The headless app has an opt-in sampling profiler (Windows):

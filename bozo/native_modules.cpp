@@ -38,6 +38,9 @@ uint32_t NativeCommandReplies::submit(bozo::libs::Libraries &libraries,uint32_t 
     if(extraOut)std::copy(extra.begin(),extra.end(),extraOut);
     bozo::ee::QueuedHandler handler;handler.kind=bozo::ee::kInvokeSifCommand;handler.pc=callback;
     handler.a[0]=buffer;handler.a[1]=argument;handler.gp=gp;
+    // The kernel runs a queued handler's end only for a completion frame:
+    // without it every reply's message buffer stayed allocated.
+    handler.completion=true;
     libraries.queueHandler(handler,[buffer](bozo::libs::Libraries &owner,bozo::libs::Guest &){owner.gameHeap().release(buffer);});
     return ++serial;
 }

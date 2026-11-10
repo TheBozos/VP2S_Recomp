@@ -39,6 +39,9 @@ struct Fixture {
         for(unsigned i=0;i<16;++i)check(guest.read8(0x151000+i)==0x77);
         auto &thread=*dispatcher.kernel().thread(1);auto &frame=dispatcher.kernel().stackHandler(thread);
         check(frame.pc==0x160000 && frame.kind==bozo::ee::kInvokeSifCommand);
+        // The dispatcher runs a handler's end (the buffer release) only for a
+        // completion frame; the direct call below would hide a leak otherwise.
+        check(frame.completion);
         callback(nullptr,&frame.ctx,&dispatcher.runtime());
         auto completion=host.libraries.takeHandlerEnd(frame.sequence);check(bool(completion));
         bozo::libs::Guest handlerGuest(dispatcher.runtime(),&frame.ctx);completion(host.libraries,handlerGuest);

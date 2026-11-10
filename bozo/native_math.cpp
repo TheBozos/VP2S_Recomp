@@ -136,7 +136,7 @@ std::array<float,4> leaflessDistance(const LeaflessQuery &data){
     const auto radius=pairProduct(sphere[3],scale),distance=pairSum(sum3(squared),-pairProduct(radius,radius));pairQualified(distance);
     return {sphere[0],sphere[1],sphere[2],distance};
 }
-struct SegmentTerms {std::array<float,3> delta;float firstLength,negativeCross,secondLength,firstProjection,separation,determinant,negativeSecondProjection,secondNumerator,firstNumerator;};
+struct SegmentTerms {std::array<uint32_t,3> delta;uint32_t firstLength,negativeCross,secondLength,firstProjection,separation,determinant,negativeSecondProjection,secondNumerator,firstNumerator;};
 struct PointSegmentTerms {std::array<float,3> delta,direction;float projection,lengthSquared;};
 struct PlaneContact {std::array<float,4> point;std::array<float,3> normal;float distance;};
 PlaneContact planeContact(Runtime *rt,R5900Context *c){
@@ -210,18 +210,24 @@ SegmentTerms segmentTerms(Runtime *rt,R5900Context *c){
     separatePairFrame(frame,first,32);separatePairFrame(frame,second,32);
     for(unsigned reg:{6u,7u}){const auto address=c->r[reg].uw[0];auto *output=rt->memory.hostPointer(address,4);
         if((address&3) || !output)throw std::runtime_error("invalid segment-distance parameter output");separatePairFrame(frame,output,4);}
-    float a[2][4],b[2][4];std::memcpy(a,first,32);std::memcpy(b,second,32);
-    for(auto *vectors:{a,b})for(unsigned row=0;row<2;++row)for(unsigned i=0;i<3;++i){pairQualified(vectors[row][i]);
-        if(std::abs(vectors[row][i])>1.e8f)throw std::runtime_error(std::format("unqualified segment-distance magnitude: a=({},{},{}|{},{},{}) b=({},{},{}|{},{},{})",a[0][0],a[0][1],a[0][2],a[1][0],a[1][1],a[1][2],b[0][0],b[0][1],b[0][2],b[1][0],b[1][1],b[1][2]));}
-    SegmentTerms result;std::array<float,3> u,v,negativeV;
-    for(unsigned i=0;i<3;++i){result.delta[i]=pairSum(a[0][i],-b[0][i]);u[i]=a[1][i];v[i]=b[1][i];negativeV[i]=pairProduct(v[i],-1.f);}
-    const auto dot=[](const auto &x,const auto &y){return pairSum(pairSum(pairProduct(x[0],y[0]),pairProduct(x[1],y[1])),pairProduct(1.f,pairProduct(x[2],y[2])));};
-    result.firstLength=dot(u,u);result.negativeCross=pairProduct(dot(u,v),-1.f);result.secondLength=dot(v,v);
+    // VU0 words with the engine's PS2 float definitions (nearest even, no
+    // Inf/NaN, saturation, denormals read as zero): identical to IEEE nearest
+    // for normal finite operands, and defined for every word, so the chain
+    // stretched by a far-parked anchor (positions ~1e36) saturates as on PS2.
+    uint32_t a[2][4],b[2][4];std::memcpy(a,first,32);std::memcpy(b,second,32);
+    const auto mul=[](uint32_t x,uint32_t y){uint32_t f=0;return bozo::ps2f::mul(x,y,f);};
+    const auto add=[](uint32_t x,uint32_t y){uint32_t f=0;return bozo::ps2f::addNearest(x,y,f);};
+    const auto sub=[](uint32_t x,uint32_t y){uint32_t f=0;return bozo::ps2f::subNearest(x,y,f);};
+    constexpr uint32_t one=0x3f800000u,minusOne=0xbf800000u;
+    SegmentTerms result;std::array<uint32_t,3> u,v,negativeV;
+    for(unsigned i=0;i<3;++i){result.delta[i]=sub(a[0][i],b[0][i]);u[i]=a[1][i];v[i]=b[1][i];negativeV[i]=mul(v[i],minusOne);}
+    const auto dot=[&](const auto &x,const auto &y){return add(add(mul(x[0],y[0]),mul(x[1],y[1])),mul(one,mul(x[2],y[2])));};
+    result.firstLength=dot(u,u);result.negativeCross=mul(dot(u,v),minusOne);result.secondLength=dot(v,v);
     result.firstProjection=dot(result.delta,u);result.separation=dot(result.delta,result.delta);
-    result.determinant=std::abs(pairSum(pairProduct(result.firstLength,result.secondLength),-pairProduct(result.negativeCross,result.negativeCross)));
+    result.determinant=sub(mul(result.firstLength,result.secondLength),mul(result.negativeCross,result.negativeCross))&0x7fffffffu;
     result.negativeSecondProjection=dot(result.delta,negativeV);
-    result.secondNumerator=pairSum(pairProduct(result.negativeCross,result.firstProjection),-pairProduct(result.firstLength,result.negativeSecondProjection));
-    result.firstNumerator=pairSum(pairProduct(result.negativeCross,result.negativeSecondProjection),-pairProduct(result.secondLength,result.firstProjection));return result;
+    result.secondNumerator=sub(mul(result.negativeCross,result.firstProjection),mul(result.firstLength,result.negativeSecondProjection));
+    result.firstNumerator=sub(mul(result.negativeCross,result.negativeSecondProjection),mul(result.secondLength,result.firstProjection));return result;
 }
 // Callers in 1fd110: 1fdf68, 1fe024 (after the +90 virtual test) and 1fdc84
 // (after the 1fc300 capsule pair); all pass a0=s2, a1=s1, a2=SP+210 and the
@@ -2661,7 +2667,7 @@ bool nativeMathInstruction(uint8_t *,R5900Context *c,Runtime *rt,uint32_t pc){
             // XYZ is read by the original parallel-segment scalar branch.
             // W is dead; frame/input/output aliases that could expose it reject.
             std::memcpy(record(rt,c->r[29].uw[0],16),terms.delta.data(),12);return true;}
-        float value=0;switch(pc){
+        uint32_t value=0;switch(pc){
         case 0x212120:value=terms.firstLength;break;case 0x212128:value=terms.negativeCross;break;
         case 0x212130:value=terms.secondLength;break;case 0x21213c:value=terms.firstProjection;break;
         case 0x212144:value=terms.separation;break;case 0x21214c:value=terms.determinant;break;
@@ -2669,7 +2675,7 @@ bool nativeMathInstruction(uint8_t *,R5900Context *c,Runtime *rt,uint32_t pc){
         case 0x212198:value=terms.firstNumerator;break;}
         // Only the scalar word is consumed; both audited callers overwrite
         // these integer temporaries before using a packed or upper component.
-        c->r[pc==0x21214c?3:2].uw[0]=std::bit_cast<uint32_t>(value);return true;
+        c->r[pc==0x21214c?3:2].uw[0]=value;return true;
     }
     if(pc==0x1fde1c || pc==0x1fde20 || (pc>=0x1fde40 && pc<=0x1fde60 && !(pc&3)) || pc==0x1fde70 || pc==0x1fde78)return true;
     if(pc==0x1fde6c){

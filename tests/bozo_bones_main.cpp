@@ -1,5 +1,6 @@
 #include "native_math.h"
 #include "bozo/ee/dispatcher.h"
+#include "bozo/ops_fpu.h"
 #include "bozo/port.h"
 #include "bones_reference_functions.h"
 #include "bones_adapted_functions.h"
@@ -130,19 +131,20 @@ struct Host:bozo::ee::Host,bozo::port::Host,vp2s::MotionOwner{
             std::memcpy(rt->memory.hostPointer(c->r[18].uw[0],12),normal,12);return true;
         }
         if(reference && pc>=0x2120a0 && pc<0x212950){
-            float first[2][4],second[2][4];std::memcpy(first,rt->memory.hostPointer(c->r[4].uw[0],32),32);std::memcpy(second,rt->memory.hostPointer(c->r[5].uw[0],32),32);
-            const auto normal=[](float v){const auto bits=std::bit_cast<uint32_t>(v);return std::bit_cast<float>((bits&0x7f800000)?bits:(bits&0x80000000));};
-            float delta[3],negative[3];for(unsigned i=0;i<3;++i){volatile float d=first[0][i]-second[0][i],n=second[1][i]*-1.f;delta[i]=normal(d);negative[i]=normal(n);}
-            const auto dot=[&](const float *a,const float *b){float product[3];for(unsigned i=0;i<3;++i){volatile float p=a[i]*b[i];product[i]=normal(p);}
-                volatile float xy=product[0]+product[1],z=1.f*product[2],xyz=normal(xy)+normal(z);return normal(xyz);};
-            const float a=dot(first[1],first[1]),cross=dot(first[1],second[1]),cc=dot(second[1],second[1]),d=dot(delta,first[1]),f=dot(delta,delta),e=dot(delta,negative);
-            volatile float negativeCross=cross*-1.f,ac=a*cc,bb=normal(negativeCross)*normal(negativeCross),det=normal(ac)-normal(bb);
-            volatile float bd=normal(negativeCross)*d,ae=a*e,be=normal(negativeCross)*e,cd=cc*d,tn=normal(bd)-normal(ae),sn=normal(be)-normal(cd);
+            // VU0 segment terms with the engine's ps2f arithmetic (equal to IEEE nearest for normal operands).
+            uint32_t first[2][4],second[2][4];std::memcpy(first,rt->memory.hostPointer(c->r[4].uw[0],32),32);std::memcpy(second,rt->memory.hostPointer(c->r[5].uw[0],32),32);
+            const auto M=[](uint32_t x,uint32_t y){uint32_t f=0;return bozo::ps2f::mul(x,y,f);};
+            const auto A=[](uint32_t x,uint32_t y){uint32_t f=0;return bozo::ps2f::addNearest(x,y,f);};
+            const auto S=[](uint32_t x,uint32_t y){uint32_t f=0;return bozo::ps2f::subNearest(x,y,f);};
+            uint32_t delta[3],negative[3];for(unsigned i=0;i<3;++i){delta[i]=S(first[0][i],second[0][i]);negative[i]=M(second[1][i],0xbf800000u);}
+            const auto dot=[&](const uint32_t *a,const uint32_t *b){return A(A(M(a[0],b[0]),M(a[1],b[1])),M(0x3f800000u,M(a[2],b[2])));};
+            const uint32_t a=dot(first[1],first[1]),cross=dot(first[1],second[1]),cc=dot(second[1],second[1]),d=dot(delta,first[1]),f=dot(delta,delta),e=dot(delta,negative);
+            const uint32_t nc=M(cross,0xbf800000u),det=S(M(a,cc),M(nc,nc))&0x7fffffffu,tn=S(M(nc,d),M(a,e)),sn=S(M(nc,e),M(cc,d));
             if(pc==0x21211c){std::memcpy(rt->memory.hostPointer(c->r[29].uw[0],12),delta,12);return true;}
-            float value;switch(pc){case 0x212120:value=a;break;case 0x212128:value=normal(negativeCross);break;case 0x212130:value=cc;break;
-            case 0x21213c:value=d;break;case 0x212144:value=f;break;case 0x21214c:value=std::abs(normal(det));break;
-            case 0x212188:value=e;break;case 0x212190:value=normal(tn);break;case 0x212198:value=normal(sn);break;default:throw std::runtime_error("unexpected reference segment site");}
-            c->r[pc==0x21214c?3:2].uw[0]=std::bit_cast<uint32_t>(value);return true;
+            uint32_t value;switch(pc){case 0x212120:value=a;break;case 0x212128:value=nc;break;case 0x212130:value=cc;break;
+            case 0x21213c:value=d;break;case 0x212144:value=f;break;case 0x21214c:value=det;break;
+            case 0x212188:value=e;break;case 0x212190:value=tn;break;case 0x212198:value=sn;break;default:throw std::runtime_error("unexpected reference segment site");}
+            c->r[pc==0x21214c?3:2].uw[0]=value;return true;
         }
         if(reference && pc==0x1fde6c){
             const auto part=c->r[17].uw[0],current=c->r[18].uw[0],stack=c->r[29].uw[0];float first[4],second[4];
@@ -920,7 +922,14 @@ int main(){try{
         const auto reject=[&]{const auto saved=c;std::vector<uint8_t> ram(r.memory.flat(),r.memory.flat()+bozo::kFlatBytes);bool bad=false;
             try{vp2s::nativeMathInstruction(r.memory.flat(),&c,&r,0x21211c);}catch(const std::runtime_error &){bad=true;}check(bad && !std::memcmp(&saved,&c,sizeof(c)) && !std::memcmp(ram.data(),r.memory.flat(),ram.size()));};
         c.r[31].ud[0]=0;reject();c.r[31].ud[0]=0x1fc3dc;c.r[4].ud[0]=stack;reject();c.r[4].ud[0]=first;c.r[6].ud[0]=stack+4;reject();c.r[6].ud[0]=stack+0x20;
-        put(r,first,0x7fc00000u);reject();put(r,first,1u);reject();put(r,first,std::bit_cast<uint32_t>(1.e9f));reject();
+        // Every word is a PS2 number (VU0 semantics): no magnitude rejection.
+        // A 1e36 direction squares to the saturated maximum, a denormal reads
+        // as zero and exponent 255 is an ordinary large value (PS2 max 0x7fffffff).
+        const auto term=[&](uint32_t site){const auto saved=c;vp2s::nativeMathInstruction(r.memory.flat(),&c,&r,site);const auto v=c.r[site==0x21214c?3:2].uw[0];c=saved;return v;};
+        put(r,first+16,std::bit_cast<uint32_t>(1.e36f));check(term(0x212120)==0x7fffffffu);
+        put(r,first+16,1u);check(term(0x212120)==0);
+        put(r,first+16,0x7fc00000u);check(term(0x212120)==0x7fffffffu);
+        put(r,first+16,0x3f800000u);check(term(0x212120)==0x3f800000u);put(r,first+16,0u);
     }
     unsigned collisionCallers=0,collisionHits=0,collisionMisses=0,responseContinuations=0;h.collisionNormals=0;
     for(unsigned mode:{_MM_ROUND_NEAREST,_MM_ROUND_DOWN,_MM_ROUND_UP,_MM_ROUND_TOWARD_ZERO})for(unsigned seed=0;seed<128;++seed){

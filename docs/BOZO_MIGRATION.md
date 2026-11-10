@@ -12,6 +12,37 @@ The earlier VP2S face/shading and general brightness comparisons remain open.
 
 ## Build and evidence
 
+### Chain physics far from the origin: segment distance in PS2 words (2026-11-10)
+
+**Where the 1e36 segment came from:**
+- It is the capsule that the chain owner 1fd110 builds in its own frame at
+  1fde6c: origin = the current node's position (+30), direction = neighbour
+  minus current.
+- The first jump is in the distance constraint 1fc860. Its pinned anchor node
+  (weight 0) is already at y = 99858 while the free node is at y = -500. So
+  the anchor's bone is about 1e5 away: it looks like a hidden actor parked
+  far off.
+- The constraint pulls the free node about 1e5 in one step. Over the next
+  frames the Verlet chain grows until positions reach about 1e36. This is
+  plausibly the same on PS2, where floats saturate instead of becoming
+  Inf/NaN.
+
+**Change:**
+- The segment terms (2120a0) now use the engine's ps2f word arithmetic
+  instead of host floats with a >1e8 guard.
+- ps2f rounds the exact result to nearest even, so for normal finite operands
+  it matches the old results bit for bit; all 512 segment distances still
+  match.
+- For any other word it follows the VU: saturation to 0x7fffffff, exponent
+  255 as a number, and denormals read as zero.
+- The bones test's segment oracle uses ps2f as well. Its rejection cases
+  (NaN word, denormal, 1e9) became deliberate value checks.
+
+**Next:** the remaining chain sites still reject or guard these magnitudes,
+starting with point/segment 211fb0, then the collision query, velocity,
+constrained position and motion sites. They need the same conversion, or a
+PCSX2 comparison first to confirm that the chain really runs away there.
+
 ### Cull transform 2202d0 and box/frustum test 212950 (2026-11-10)
 
 With the voice playing, the town dialogue runs a new loop: mod001 2202d0

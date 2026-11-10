@@ -42,12 +42,6 @@ void referenceTransform(const float matrix[4][4],const float vector[4],unsigned 
         for(unsigned i=1;i<weights;++i){volatile float product=matrix[i][lane]*vector[i];volatile float next=total+normal(product);total=normal(next);}
         out[lane]=std::bit_cast<uint32_t>(total);}
 }
-float referencePairDistance(const float a[4],const float b[4],float direction[3]){
-    const auto normal=[](float v){const auto bits=std::bit_cast<uint32_t>(v);return std::bit_cast<float>((bits&0x7f800000)?bits:(bits&0x80000000));};
-    float squares[3];for(unsigned i=0;i<3;++i){volatile float difference=b[i]-a[i];direction[i]=normal(difference);volatile float square=direction[i]*direction[i];squares[i]=normal(square);}
-    volatile float xy=squares[0]+squares[1];volatile float z=1.f*squares[2];volatile float squared=normal(xy)+normal(z);
-    volatile float distance=static_cast<float>(std::sqrt(double(normal(squared))));volatile float positive=0.f+distance;return normal(positive);
-}
 void oracle(Runtime &r,R5900Context *c){
     uint32_t base[4][4],bone[4][4],local[4][4],relative[4][4],result[4][4],output[4][4];
     const auto owner=c->r[20].uw[0],i=c->r[6].uw[0]-1;
@@ -82,52 +76,67 @@ struct Host:bozo::ee::Host,bozo::port::Host,vp2s::MotionOwner{
     bool nativeInstruction(uint8_t *r,R5900Context *c,Runtime *rt,uint32_t pc)override{
         if(pc==0x1fbff0)++planeEvaluations;if(pc==0x1fc010)++planePublications;
         if(reference && (pc==0x1fbff0 || pc==0x1fc010)){
-            float point[4],origin[4],normal[4],products[3];std::memcpy(point,rt->memory.hostPointer(c->r[5].uw[0],16),16);std::memcpy(origin,rt->memory.hostPointer(c->r[4].uw[0]+0x230,16),16);std::memcpy(normal,rt->memory.hostPointer(c->r[4].uw[0]+0x220,16),16);
-            const auto reduce=[](float v){const auto bits=std::bit_cast<uint32_t>(v);return std::bit_cast<float>((bits&0x7f800000)?bits:(bits&0x80000000));};
-            for(unsigned i=0;i<3;++i){volatile float difference=point[i]-origin[i],product=reduce(difference)*normal[i];products[i]=reduce(product);}
-            volatile float xy=products[0]+products[1],z=1.f*products[2],dot=reduce(xy)+reduce(z),difference=reduce(dot)-c->f[12];const auto distance=reduce(difference);
-            if(pc==0x1fbff0)put(*rt,c->r[29].uw[0],std::bit_cast<uint32_t>(distance));
-            else{for(unsigned i=0;i<3;++i){volatile float base=point[i]+0.f,product=normal[i]*distance,value=reduce(base)-reduce(product);point[i]=reduce(value);}std::memcpy(rt->memory.hostPointer(c->r[6].uw[0],16),point,16);}return true;
+            // ps2f words (VU0 semantics).
+            const auto M=[](uint32_t x,uint32_t y){uint32_t f=0;return bozo::ps2f::mul(x,y,f);};
+            const auto A=[](uint32_t x,uint32_t y){uint32_t f=0;return bozo::ps2f::addNearest(x,y,f);};
+            const auto S=[](uint32_t x,uint32_t y){uint32_t f=0;return bozo::ps2f::subNearest(x,y,f);};
+            uint32_t point[4],origin[4],normal[4],products[3],margin;std::memcpy(point,rt->memory.hostPointer(c->r[5].uw[0],16),16);std::memcpy(origin,rt->memory.hostPointer(c->r[4].uw[0]+0x230,16),16);std::memcpy(normal,rt->memory.hostPointer(c->r[4].uw[0]+0x220,16),16);
+            std::memcpy(&margin,&c->f[12],4);for(unsigned i=0;i<3;++i)products[i]=M(S(point[i],origin[i]),normal[i]);
+            const auto distance=S(A(A(products[0],products[1]),M(0x3f800000u,products[2])),margin);
+            if(pc==0x1fbff0)put(*rt,c->r[29].uw[0],distance);
+            else{for(unsigned i=0;i<3;++i)point[i]=S(A(point[i],0),M(normal[i],distance));std::memcpy(rt->memory.hostPointer(c->r[6].uw[0],16),point,16);}return true;
         }
         if(reference && pc>=0x211fb0 && pc<0x2120a0){
-            float segment[2][4],point[4],delta[3],products[3],squares[3];std::memcpy(segment,rt->memory.hostPointer(c->r[4].uw[0],32),32);std::memcpy(point,rt->memory.hostPointer(c->r[5].uw[0],16),16);
-            const auto normal=[](float v){const auto bits=std::bit_cast<uint32_t>(v);return std::bit_cast<float>((bits&0x7f800000)?bits:(bits&0x80000000));};
-            for(unsigned i=0;i<3;++i){volatile float d=point[i]-segment[0][i];delta[i]=normal(d);volatile float p=delta[i]*segment[1][i],s=segment[1][i]*segment[1][i];products[i]=normal(p);squares[i]=normal(s);}
-            const auto total=[&](const float *p){volatile float xy=p[0]+p[1],z=p[2]*1.f,value=normal(xy)+normal(z);return normal(value);};
-            const float projection=total(products),length=total(squares);float result;
+            // ps2f words (VU0 semantics): no host floating point.
+            const auto M=[](uint32_t x,uint32_t y){uint32_t f=0;return bozo::ps2f::mul(x,y,f);};
+            const auto A=[](uint32_t x,uint32_t y){uint32_t f=0;return bozo::ps2f::addNearest(x,y,f);};
+            const auto S=[](uint32_t x,uint32_t y){uint32_t f=0;return bozo::ps2f::subNearest(x,y,f);};
+            const auto D=[](uint32_t x,uint32_t y){uint32_t f=0;return bozo::ps2f::div(x,y,f);};
+            const auto key=[](uint32_t x){if(!(x&0x7f800000u))return int64_t(0);const int64_t m=x&0x7fffffffu;return (x&0x80000000u)?-m:m;};
+            uint32_t segment[2][4],point[4],delta[3],products[3],squares[3];std::memcpy(segment,rt->memory.hostPointer(c->r[4].uw[0],32),32);std::memcpy(point,rt->memory.hostPointer(c->r[5].uw[0],16),16);
+            for(unsigned i=0;i<3;++i){delta[i]=S(point[i],segment[0][i]);products[i]=M(delta[i],segment[1][i]);squares[i]=M(segment[1][i],segment[1][i]);}
+            const auto total=[&](const uint32_t *v){return A(A(v[0],v[1]),M(0x3f800000u,v[2]));};
+            const uint32_t projection=total(products),length=total(squares);uint32_t result;
             if(pc==0x211fe8)result=projection;
             else if(pc==0x212020)result=length;
-            else if(pc==0x212064){volatile float ratio=projection/length,value=0.f+normal(ratio);result=normal(value);}
+            else if(pc==0x212064)result=A(0,D(projection,length));
             else if(pc==0x212084){
-                if(projection>0){if(projection>=length){for(unsigned i=0;i<3;++i){volatile float d=delta[i]-segment[1][i];delta[i]=normal(d);}}
-                    else{volatile float ratio=projection/length;for(unsigned i=0;i<3;++i){volatile float base=delta[i]+0.f,p=segment[1][i]*normal(ratio),d=normal(base)-normal(p);delta[i]=normal(d);}}}
-                for(unsigned i=0;i<3;++i){volatile float s=delta[i]*delta[i];squares[i]=normal(s);}result=total(squares);
+                if(key(projection)>0){if(key(projection)>=key(length)){for(unsigned i=0;i<3;++i)delta[i]=S(delta[i],segment[1][i]);}
+                    else{const auto ratio=D(projection,length);for(unsigned i=0;i<3;++i)delta[i]=S(A(delta[i],0),M(segment[1][i],ratio));}}
+                for(unsigned i=0;i<3;++i)squares[i]=M(delta[i],delta[i]);result=total(squares);
             }else throw std::runtime_error("unexpected reference point/segment site");
-            put(*rt,c->r[2].uw[0],std::bit_cast<uint32_t>(result));return true;
+            put(*rt,c->r[2].uw[0],result);return true;
         }
         if(pc==0x1fc0c4)++responsePairs;if(pc==0x1fc128)++responseSeconds;if(pc==0x1fc174)++responseFirsts;if(pc==0x1fc108 || pc==0x1fc15c)++responseFallbacks;
         if(reference && (pc==0x1fc0c4 || pc==0x1fc128 || pc==0x1fc174)){
+            // ps2f words (VU0 semantics); the cap compares as PS2 numbers.
+            const auto M=[](uint32_t x,uint32_t y){uint32_t f=0;return bozo::ps2f::mul(x,y,f);};
+            const auto A=[](uint32_t x,uint32_t y){uint32_t f=0;return bozo::ps2f::addNearest(x,y,f);};
+            const auto S=[](uint32_t x,uint32_t y){uint32_t f=0;return bozo::ps2f::subNearest(x,y,f);};
+            const auto key=[](uint32_t x){if(!(x&0x7f800000u))return int64_t(0);const int64_t m=x&0x7fffffffu;return (x&0x80000000u)?-m:m;};
             const bool pair=pc==0x1fc0c4,secondOnly=pc==0x1fc128;const auto first=c->r[4].uw[0]+(pair?0:0x30),second=c->r[6].uw[0]+0x30;
-            float n[4],a[4],b[4],coefficient;std::memcpy(n,rt->memory.hostPointer(c->r[29].uw[0]+0x210,16),16);std::memcpy(a,rt->memory.hostPointer(first,16),16);std::memcpy(b,rt->memory.hostPointer(second,16),16);std::memcpy(&coefficient,rt->memory.hostPointer(0x35910c,4),4);
-            const auto normal=[](float v){const auto bits=std::bit_cast<uint32_t>(v);return std::bit_cast<float>((bits&0x7f800000)?bits:(bits&0x80000000));};
-            volatile float scaled=c->f[13]*coefficient;float correction[3];for(unsigned i=0;i<3;++i){volatile float d=n[i]*normal(scaled);correction[i]=normal(d);}
-            float weights[2];if(pair){volatile float oneMinus=1.f-c->f[12];weights[0]=normal(oneMinus);weights[1]=c->f[12];}
-            else if(secondOnly?c->f[12]<std::bit_cast<float>(0x3c23d70au):c->f[12]>std::bit_cast<float>(0x3f7d70a4u))std::memcpy(weights,rt->memory.hostPointer(0x359108,4),4);
-            else{volatile float inverse=c->f[12]==0?std::copysign(std::numeric_limits<float>::max(),c->f[12]):1.f/c->f[12];weights[0]=normal(inverse);}
-            float output[2][4];for(unsigned which=0;which<(pair?2u:1u);++which){const auto *input=pair?(which?b:a):secondOnly?b:a;std::memcpy(output[which],input,16);
-                for(unsigned i=0;i<3;++i){volatile float base=pair?input[i]+0.f:input[i]*1.f,d=correction[i]*weights[which],value=normal(base)+normal(d);output[which][i]=normal(value);}}
+            uint32_t n[4],a[4],b[4],coefficient,t,depth;std::memcpy(n,rt->memory.hostPointer(c->r[29].uw[0]+0x210,16),16);std::memcpy(a,rt->memory.hostPointer(first,16),16);std::memcpy(b,rt->memory.hostPointer(second,16),16);std::memcpy(&coefficient,rt->memory.hostPointer(0x35910c,4),4);
+            std::memcpy(&t,&c->f[12],4);std::memcpy(&depth,&c->f[13],4);
+            const auto scaled=M(depth,coefficient);uint32_t correction[3];for(unsigned i=0;i<3;++i)correction[i]=M(n[i],scaled);
+            uint32_t weights[2];if(pair){weights[0]=S(0x3f800000u,t);weights[1]=t;}
+            else if(secondOnly?key(t)<key(0x3c23d70au):key(t)>key(0x3f7d70a4u))std::memcpy(weights,rt->memory.hostPointer(0x359108,4),4);
+            else{uint32_t f=0;weights[0]=bozo::ps2f::div(0x3f800000u,t,f);}
+            uint32_t output[2][4];for(unsigned which=0;which<(pair?2u:1u);++which){const auto *input=pair?(which?b:a):secondOnly?b:a;std::memcpy(output[which],input,16);
+                for(unsigned i=0;i<3;++i)output[which][i]=A(pair?A(input[i],0):M(input[i],0x3f800000u),M(correction[i],weights[which]));}
             if(pair){std::memcpy(rt->memory.hostPointer(first,16),output[0],16);std::memcpy(rt->memory.hostPointer(second,16),output[1],16);}
             else std::memcpy(rt->memory.hostPointer(secondOnly?second:first,16),output[0],16);return true;
         }
         if(pc==0x1fc690)++collisionNormals;
         if(reference && pc==0x1fc690){
-            float a[2][4],b[2][4],delta[3],squares[3],normal[3];std::memcpy(a,rt->memory.hostPointer(c->r[19].uw[0]+0x250,32),32);std::memcpy(b,rt->memory.hostPointer(c->r[20].uw[0]+0x230,32),32);
-            const auto reduce=[](float v){const auto bits=std::bit_cast<uint32_t>(v);return std::bit_cast<float>((bits&0x7f800000)?bits:(bits&0x80000000));};
-            for(unsigned i=0;i<3;++i){volatile float start=b[0][i]+0.f,p=b[1][i]*c->f[1],end=reduce(start)+reduce(p),first=a[0][i]*1.f,d=reduce(end)-reduce(first),last=a[1][i]*c->f[2],difference=reduce(d)-reduce(last);
-                delta[i]=reduce(difference);volatile float square=delta[i]*delta[i];squares[i]=reduce(square);}
-            volatile float xy=squares[0]+squares[1],z=1.f*squares[2],squared=reduce(xy)+reduce(z),length=static_cast<float>(std::sqrt(std::abs(double(reduce(squared)))));
-            volatile float reciprocal=length==0?std::numeric_limits<float>::max():static_cast<float>(1.0/double(length));
-            for(unsigned i=0;i<3;++i){volatile float n=delta[i]*reduce(reciprocal);normal[i]=reduce(n);}
+            // ps2f words (VU0 semantics): no host floating point outside the restored root seed.
+            const auto M=[](uint32_t x,uint32_t y){uint32_t f=0;return bozo::ps2f::mul(x,y,f);};
+            const auto A=[](uint32_t x,uint32_t y){uint32_t f=0;return bozo::ps2f::addNearest(x,y,f);};
+            const auto S=[](uint32_t x,uint32_t y){uint32_t f=0;return bozo::ps2f::subNearest(x,y,f);};
+            uint32_t a[2][4],b[2][4],delta[3],squares[3],normal[3],s,t;std::memcpy(a,rt->memory.hostPointer(c->r[19].uw[0]+0x250,32),32);std::memcpy(b,rt->memory.hostPointer(c->r[20].uw[0]+0x230,32),32);
+            std::memcpy(&s,&c->f[1],4);std::memcpy(&t,&c->f[2],4);
+            for(unsigned i=0;i<3;++i){delta[i]=S(S(A(A(b[0][i],0),M(b[1][i],s)),M(a[0][i],0x3f800000u)),M(a[1][i],t));squares[i]=M(delta[i],delta[i]);}
+            uint32_t f=0;const auto csr=_mm_getcsr();const auto q=bozo::ps2f::rsqrt(0x3f800000u,A(A(squares[0],squares[1]),M(0x3f800000u,squares[2])),f);_mm_setcsr(csr);
+            for(unsigned i=0;i<3;++i)normal[i]=M(delta[i],q);
             std::memcpy(rt->memory.hostPointer(c->r[18].uw[0],12),normal,12);return true;
         }
         if(reference && pc>=0x2120a0 && pc<0x212950){
@@ -147,64 +156,63 @@ struct Host:bozo::ee::Host,bozo::port::Host,vp2s::MotionOwner{
             c->r[pc==0x21214c?3:2].uw[0]=value;return true;
         }
         if(reference && pc==0x1fde6c){
-            const auto part=c->r[17].uw[0],current=c->r[18].uw[0],stack=c->r[29].uw[0];float first[4],second[4];
+            // ps2f words (VU0 semantics).
+            const auto M=[](uint32_t x,uint32_t y){uint32_t f=0;return bozo::ps2f::mul(x,y,f);};
+            const auto A=[](uint32_t x,uint32_t y){uint32_t f=0;return bozo::ps2f::addNearest(x,y,f);};
+            const auto S=[](uint32_t x,uint32_t y){uint32_t f=0;return bozo::ps2f::subNearest(x,y,f);};
+            const auto part=c->r[17].uw[0],current=c->r[18].uw[0],stack=c->r[29].uw[0];uint32_t first[4],second[4];
             std::memcpy(first,rt->memory.hostPointer(word(*rt,part+0x38)+0x30,16),16);std::memcpy(second,rt->memory.hostPointer(current+0x30,16),16);
-            const auto normal=[](float v){const auto bits=std::bit_cast<uint32_t>(v);return std::bit_cast<float>((bits&0x7f800000)?bits:(bits&0x80000000));};
             if(*rt->memory.hostPointer(part+0x20,1)&4){
-                float basis[4][4]{},local[4];uint32_t offset[4];std::memcpy(basis,rt->memory.hostPointer(word(*rt,current+4)+0x150,48),48);std::memcpy(local,rt->memory.hostPointer(part,16),16);
-                // Opaque W is carried separately and never enters geometry.
-                for(auto &row:basis)row[3]=0;referenceTransform(basis,local,3,offset);
-                for(unsigned i=0;i<3;++i){volatile float a=first[i]+std::bit_cast<float>(offset[i]),b=second[i]+std::bit_cast<float>(offset[i]);first[i]=normal(a);second[i]=normal(b);}
+                uint32_t basis[3][4],local[4];std::memcpy(basis,rt->memory.hostPointer(word(*rt,current+4)+0x150,48),48);std::memcpy(local,rt->memory.hostPointer(part,16),16);
+                for(unsigned i=0;i<3;++i){const auto offset=A(A(M(basis[0][i],local[0]),M(basis[1][i],local[1])),M(basis[2][i],local[2]));first[i]=A(first[i],offset);second[i]=A(second[i],offset);}
             }
-            for(unsigned i=0;i<3;++i){volatile float difference=first[i]-second[i];first[i]=normal(difference);}
+            for(unsigned i=0;i<3;++i)first[i]=S(first[i],second[i]);
             std::memcpy(rt->memory.hostPointer(stack+0x460,16),second,16);std::memcpy(rt->memory.hostPointer(stack+0x220,16),first,16);return true;
         }
         if(pc==0x1fe934)++velocityPublications;
         if(reference && pc==0x1fe934){
-            const auto object=c->r[5].uw[0];float current[4],previous[4],contact;uint32_t out[4];
+            // ps2f words (VU0 semantics); contact compares as a PS2 number.
+            const auto M=[](uint32_t x,uint32_t y){uint32_t f=0;return bozo::ps2f::mul(x,y,f);};
+            const auto S=[](uint32_t x,uint32_t y){uint32_t f=0;return bozo::ps2f::subNearest(x,y,f);};
+            const auto object=c->r[5].uw[0];uint32_t current[4],previous[4],contact,out[4],coefficient,factor;
             std::memcpy(current,rt->memory.hostPointer(object+0x30,16),16);std::memcpy(previous,rt->memory.hostPointer(object+0x40,16),16);std::memcpy(out,current,16);std::memcpy(&contact,rt->memory.hostPointer(object+0x1c,4),4);
-            const auto normal=[](float v){const auto bits=std::bit_cast<uint32_t>(v);return std::bit_cast<float>((bits&0x7f800000)?bits:(bits&0x80000000));};
-            for(unsigned i=0;i<3;++i){volatile float a=current[i]*c->f[20],b=previous[i]*c->f[20],difference=normal(a)-normal(b);float result=normal(difference);
-                if(contact>0){volatile float scaled=result*c->f[0];result=normal(scaled);}out[i]=std::bit_cast<uint32_t>(result);}
+            std::memcpy(&coefficient,&c->f[20],4);std::memcpy(&factor,&c->f[0],4);const bool damped=(contact&0x7f800000u) && !(contact>>31);
+            for(unsigned i=0;i<3;++i){auto result=S(M(current[i],coefficient),M(previous[i],coefficient));if(damped)result=M(result,factor);out[i]=result;}
             std::memcpy(rt->memory.hostPointer(object+0x50,16),out,16);return true;
         }
         if(pc==0x1fce30)++angularCompositions;
         if(reference && pc==0x1fce30){
-            float a[4],b[4],products[4],out[4];std::memcpy(a,rt->memory.hostPointer(c->r[29].uw[0]+0x130,16),16);std::memcpy(b,rt->memory.hostPointer(c->r[17].uw[0]+0x30,16),16);
-            const auto normal=[](float v){const auto bits=std::bit_cast<uint32_t>(v);return std::bit_cast<float>((bits&0x7f800000)?bits:(bits&0x80000000));};
-            for(unsigned i=0;i<4;++i){volatile float product=a[i]*b[i];products[i]=normal(product);}
+            // ps2f words (VU0 semantics).
+            const auto M=[](uint32_t x,uint32_t y){uint32_t f=0;return bozo::ps2f::mul(x,y,f);};
+            const auto A=[](uint32_t x,uint32_t y){uint32_t f=0;return bozo::ps2f::addNearest(x,y,f);};
+            const auto S=[](uint32_t x,uint32_t y){uint32_t f=0;return bozo::ps2f::subNearest(x,y,f);};
+            uint32_t a[4],b[4],products[4],out[4];std::memcpy(a,rt->memory.hostPointer(c->r[29].uw[0]+0x130,16),16);std::memcpy(b,rt->memory.hostPointer(c->r[17].uw[0]+0x30,16),16);
+            for(unsigned i=0;i<4;++i)products[i]=M(a[i],b[i]);
             const unsigned next[3]={1,2,0},last[3]={2,0,1};
-            for(unsigned i=0;i<3;++i){volatile float positive=a[next[i]]*b[last[i]],negative=b[next[i]]*a[last[i]];
-                volatile float cross=normal(positive)-normal(negative);volatile float first=b[i]*a[3],second=a[i]*b[3],base=normal(first)+normal(second),one=normal(cross)*1.f;
-                volatile float result=normal(base)+normal(one);out[i]=normal(result);}
-            volatile float wz=products[3]-products[2],wy=normal(wz)-products[1],wx=normal(wy)-products[0];out[3]=normal(wx);
+            for(unsigned i=0;i<3;++i){const auto cross=S(M(a[next[i]],b[last[i]]),M(b[next[i]],a[last[i]]));out[i]=A(A(M(b[i],a[3]),M(a[i],b[3])),M(cross,0x3f800000u));}
+            out[3]=S(S(S(products[3],products[2]),products[1]),products[0]);
             std::memcpy(rt->memory.hostPointer(c->r[29].uw[0]+0x130,16),out,16);return true;
         }
         if(pc==0x1fcdf0)++angularQuaternions;
         if(reference && (pc==0x1fcdac || pc==0x1fcdf0)){
-            const auto stack=c->r[29].uw[0],point=word(*rt,c->r[21].uw[0]+0x38);float matrix[4][4],points[2][4],directions[2][3];
+            // ps2f words (VU0 semantics); the RSQRT/SQRT seeds keep the host status.
+            const auto M=[](uint32_t x,uint32_t y){uint32_t f=0;return bozo::ps2f::mul(x,y,f);};
+            const auto A=[](uint32_t x,uint32_t y){uint32_t f=0;return bozo::ps2f::addNearest(x,y,f);};
+            const auto S=[](uint32_t x,uint32_t y){uint32_t f=0;return bozo::ps2f::subNearest(x,y,f);};
+            const auto stack=c->r[29].uw[0],point=word(*rt,c->r[21].uw[0]+0x38);uint32_t matrix[4][4],points[2][4],directions[2][3];
             std::memcpy(matrix,rt->memory.hostPointer(stack+0x150,64),64);std::memcpy(points[0],rt->memory.hostPointer(stack+0x190,16),16);std::memcpy(points[1],rt->memory.hostPointer(point+0x30,16),16);
-            const auto normal=[](float v){const auto bits=std::bit_cast<uint32_t>(v);return std::bit_cast<float>((bits&0x7f800000)?bits:(bits&0x80000000));};
-            for(unsigned which=0;which<2;++which){float value[3],squares[3];
-                for(unsigned lane=0;lane<3;++lane){volatile float first=matrix[0][lane]*points[which][0];float total=normal(first);
-                    for(unsigned row=1;row<3;++row){volatile float term=matrix[row][lane]*points[which][row];volatile float sum=total+normal(term);total=normal(sum);}
-                    volatile float translation=matrix[3][lane]*1.f;volatile float result=total+normal(translation);value[lane]=normal(result);
-                    volatile float square=value[lane]*value[lane];squares[lane]=normal(square);}
-                volatile float xy=squares[0]+squares[1],z=1.f*squares[2],xyz=normal(xy)+normal(z);volatile float length=static_cast<float>(std::sqrt(double(normal(xyz))));
-                volatile float reciprocal=length==0?std::numeric_limits<float>::max():static_cast<float>(1.0/double(length));
-                for(unsigned i=0;i<3;++i){volatile float valueScaled=value[i]*normal(reciprocal);directions[which][i]=normal(valueScaled);}
+            const auto csr=_mm_getcsr();uint32_t f=0;
+            for(unsigned which=0;which<2;++which){uint32_t value[3],squares[3];
+                for(unsigned lane=0;lane<3;++lane){value[lane]=A(A(A(M(matrix[0][lane],points[which][0]),M(matrix[1][lane],points[which][1])),M(matrix[2][lane],points[which][2])),M(matrix[3][lane],0x3f800000u));squares[lane]=M(value[lane],value[lane]);}
+                const auto q=bozo::ps2f::rsqrt(0x3f800000u,A(A(squares[0],squares[1]),M(0x3f800000u,squares[2])),f);
+                for(unsigned i=0;i<3;++i)directions[which][i]=M(value[i],q);
             }
-            volatile float x=directions[0][0]*directions[1][0],y=directions[0][1]*directions[1][1],z=directions[0][2]*directions[1][2];
-            volatile float xy=normal(x)+normal(y),xyz=normal(xy)+normal(z);const auto result=normal(xyz);
-            if(pc==0x1fcdac){std::memcpy(rt->memory.hostPointer(stack+0x140,4),&result,4);return true;}
-            volatile float twice=result*2.f,coefficient=2.f+normal(twice);volatile float root=static_cast<float>(std::sqrt(std::abs(double(normal(coefficient)))));
-            volatile float reciprocal=root==0?std::numeric_limits<float>::max():1.f/root;
-            float cross[3];volatile float positiveX=directions[1][1]*directions[0][2],negativeX=directions[0][1]*directions[1][2];
-            volatile float positiveY=directions[1][2]*directions[0][0],negativeY=directions[0][2]*directions[1][0];
-            volatile float positiveZ=directions[1][0]*directions[0][1],negativeZ=directions[0][0]*directions[1][1];
-            volatile float crossX=normal(positiveX)-normal(negativeX),crossY=normal(positiveY)-normal(negativeY),crossZ=normal(positiveZ)-normal(negativeZ);
-            cross[0]=normal(crossX);cross[1]=normal(crossY);cross[2]=normal(crossZ);float quaternion[4];
-            for(unsigned i=0;i<3;++i){volatile float component=cross[i]*normal(reciprocal);quaternion[i]=normal(component);}volatile float w=root*0.5f;quaternion[3]=normal(w);
+            const uint32_t result=A(A(M(directions[0][0],directions[1][0]),M(directions[0][1],directions[1][1])),M(directions[0][2],directions[1][2]));
+            if(pc==0x1fcdac){_mm_setcsr(csr);std::memcpy(rt->memory.hostPointer(stack+0x140,4),&result,4);return true;}
+            const auto root=bozo::ps2f::sqrt(A(0x40000000u,M(result,0x40000000u)),f);const auto reciprocal=bozo::ps2f::div(0x3f800000u,root,f);_mm_setcsr(csr);
+            uint32_t quaternion[4];const unsigned next[3]={1,2,0},last[3]={2,0,1};
+            for(unsigned i=0;i<3;++i)quaternion[i]=M(S(M(directions[1][next[i]],directions[0][last[i]]),M(directions[0][next[i]],directions[1][last[i]])),reciprocal);
+            quaternion[3]=M(M(0x3f800000u,root),0x3f000000u);
             std::memcpy(rt->memory.hostPointer(stack+0x130,16),quaternion,16);return true;
         }
         if(reference && pc==0x216e04){
@@ -218,34 +226,38 @@ struct Host:bozo::ee::Host,bozo::port::Host,vp2s::MotionOwner{
         if(pc==0x1fbf9c)++boxPublications;
         if(pc==0x1fc984 || pc==0x1fc7f8)++symmetricPairs;if(pc==0x1fc9cc || pc==0x1fc844)++weightedPairs;
         if(reference && (pc==0x1fc908 || pc==0x1fc984 || pc==0x1fc9cc || pc==0x1fc79c || pc==0x1fc7f8 || pc==0x1fc844)){
+            // ps2f words (VU0 semantics): no host floating point.
+            const auto M=[](uint32_t x,uint32_t y){uint32_t f=0;return bozo::ps2f::mul(x,y,f);};
+            const auto A=[](uint32_t x,uint32_t y){uint32_t f=0;return bozo::ps2f::addNearest(x,y,f);};
+            const auto S=[](uint32_t x,uint32_t y){uint32_t f=0;return bozo::ps2f::subNearest(x,y,f);};
             const bool isDistance=pc==0x1fc908 || pc==0x1fc79c,symmetric=pc==0x1fc984 || pc==0x1fc7f8;
-            float a[4],b[4],delta[3];const auto first=isDistance?c->r[4].uw[0]+0x30:c->r[5].uw[0],second=isDistance?c->r[6].uw[0]+0x30:c->r[4].uw[0];
-            std::memcpy(a,rt->memory.hostPointer(first,16),16);std::memcpy(b,rt->memory.hostPointer(second,16),16);const float distance=referencePairDistance(a,b,delta);
-            if(pc==0x1fc908 || pc==0x1fc79c){std::memcpy(rt->memory.hostPointer(c->r[29].uw[0],4),&distance,4);return true;}
-            const auto normal=[](float v){const auto bits=std::bit_cast<uint32_t>(v);return std::bit_cast<float>((bits&0x7f800000)?bits:(bits&0x80000000));};
-            volatile float reciprocal=distance==0?std::numeric_limits<float>::max():1.f/distance;
+            uint32_t a[4],b[4],delta[3],squares[3];const auto first=isDistance?c->r[4].uw[0]+0x30:c->r[5].uw[0],second=isDistance?c->r[6].uw[0]+0x30:c->r[4].uw[0];
+            std::memcpy(a,rt->memory.hostPointer(first,16),16);std::memcpy(b,rt->memory.hostPointer(second,16),16);
+            for(unsigned i=0;i<3;++i){delta[i]=S(b[i],a[i]);squares[i]=M(delta[i],delta[i]);}
+            uint32_t f=0;const auto csr=_mm_getcsr();const uint32_t distance=A(0,bozo::ps2f::sqrt(A(A(squares[0],squares[1]),M(0x3f800000u,squares[2])),f));_mm_setcsr(csr);
+            if(isDistance){std::memcpy(rt->memory.hostPointer(c->r[29].uw[0],4),&distance,4);return true;}
+            const uint32_t reciprocal=bozo::ps2f::div(0x3f800000u,distance,f);
+            uint32_t w1,w2;std::memcpy(&w1,&c->f[symmetric?0:1],4);std::memcpy(&w2,&c->f[0],4);
             uint32_t out[2][4];std::memcpy(out[0],a,16);std::memcpy(out[1],b,16);
-            for(unsigned i=0;i<3;++i){volatile float direction=delta[i]*normal(reciprocal);volatile float firstDelta=normal(direction)*(symmetric?c->f[0]:c->f[1]);
-                volatile float secondDelta=normal(direction)*c->f[0];volatile float baseA=a[i]*1.f,baseB=b[i]*1.f;
-                volatile float resultA=normal(baseA)+normal(firstDelta),resultB=normal(baseB)-normal(secondDelta);
-                out[0][i]=std::bit_cast<uint32_t>(normal(resultA));out[1][i]=std::bit_cast<uint32_t>(normal(resultB));}
+            for(unsigned i=0;i<3;++i){const auto direction=M(delta[i],reciprocal);out[0][i]=A(M(a[i],0x3f800000u),M(direction,w1));out[1][i]=S(M(b[i],0x3f800000u),M(direction,w2));}
             std::memcpy(rt->memory.hostPointer(first,16),out[0],16);std::memcpy(rt->memory.hostPointer(second,16),out[1],16);return true;
         }
         if(reference && pc==0x1fcb08){
+            // ps2f words (VU0 semantics).
+            const auto M=[](uint32_t x,uint32_t y){uint32_t f=0;return bozo::ps2f::mul(x,y,f);};
+            const auto A=[](uint32_t x,uint32_t y){uint32_t f=0;return bozo::ps2f::addNearest(x,y,f);};
+            const auto S=[](uint32_t x,uint32_t y){uint32_t f=0;return bozo::ps2f::subNearest(x,y,f);};
             const auto object=c->r[16].uw[0];const auto flags=*rt->memory.hostPointer(object+1,1);
-            float position[4],velocity[4],acceleration[4]{},gravity[4]{};std::array<uint32_t,4> out;
+            uint32_t position[4],velocity[4],acceleration[4]{},gravity[4]{},dt,damping;std::array<uint32_t,4> out;
             std::memcpy(position,rt->memory.hostPointer(object+0x30,16),16);std::memcpy(out.data(),position,16);
-            std::memcpy(velocity,rt->memory.hostPointer(object+0x50,16),16);
+            std::memcpy(velocity,rt->memory.hostPointer(object+0x50,16),16);std::memcpy(&dt,&c->f[12],4);std::memcpy(&damping,&c->f[0],4);
             if(flags&0x40)std::memcpy(acceleration,rt->memory.hostPointer(c->r[5].uw[0],16),16);
             if(flags&1)std::memcpy(gravity,rt->memory.hostPointer(0x359100,16),16);
-            const auto normal=[](float v){const auto b=std::bit_cast<uint32_t>(v);return std::bit_cast<float>((b&0x7f800000)?b:(b&0x80000000));};
-            volatile float dtSquared=c->f[12]*c->f[12];const float squared=normal(dtSquared);
-            float acc[3];for(unsigned i=0;i<3;++i){volatile float initial=position[i]+0.f;acc[i]=normal(initial);}
-            if(flags&1){volatile float force=gravity[1]*squared;volatile float value=acc[1]+normal(force);acc[1]=normal(value);}
-            if(flags&0x40)for(unsigned i=0;i<3;++i){volatile float force=acceleration[i]*c->f[12];volatile float value=acc[i]+normal(force);acc[i]=normal(value);}
-            if(flags&2){volatile float coefficient=c->f[0]*c->f[12];const float drag=normal(coefficient);
-                for(unsigned i=0;i<3;++i){volatile float force=velocity[i]*drag;volatile float value=acc[i]-normal(force);acc[i]=normal(value);}}
-            for(unsigned i=0;i<3;++i){volatile float displacement=velocity[i]*c->f[12];volatile float result=acc[i]+normal(displacement);out[i]=std::bit_cast<uint32_t>(normal(result));}
+            const auto squared=M(dt,dt);uint32_t acc[3];for(unsigned i=0;i<3;++i)acc[i]=A(position[i],0);
+            if(flags&1)acc[1]=A(acc[1],M(gravity[1],squared));
+            if(flags&0x40)for(unsigned i=0;i<3;++i)acc[i]=A(acc[i],M(acceleration[i],dt));
+            if(flags&2){const auto drag=M(damping,dt);for(unsigned i=0;i<3;++i)acc[i]=S(acc[i],M(velocity[i],drag));}
+            for(unsigned i=0;i<3;++i)out[i]=A(acc[i],M(velocity[i],dt));
             check(referenceMotion.emplace(c->r[29].uw[0],out).second);return true;
         }
         if(reference && pc==0x1fcb24){
@@ -639,9 +651,13 @@ int main(){try{
         auto reject=[&]{const auto saved=c;std::vector<uint8_t> ram(r.memory.flat(),r.memory.flat()+bozo::kFlatBytes);bool bad=false;
             try{vp2s::nativeMathInstruction(r.memory.flat(),&c,&r,0x1fcb08);}catch(const std::runtime_error &){bad=true;}
             check(bad && !std::memcmp(&saved,&c,sizeof(c)) && !std::memcmp(ram.data(),r.memory.flat(),ram.size()) && h.motion.outstanding()==0);};
-        c.r[6].ud[0]+=16;reject();c.r[6].ud[0]-=16;c.f[12]=std::bit_cast<float>(0x7fc00000u);reject();c.f[12]=0.5f;
-        put(r,object+0x50,1u);reject();put(r,object+0x50,0x3f800000u);put(r,0x359104,0x7fc00000u);reject();put(r,0x359104,0x3f800000u);
-        put(r,table+0x34,0x1fcb44u);reject();put(r,table+0x34,0x1fcb40u);c.f[12]=std::numeric_limits<float>::max();reject();
+        c.r[6].ud[0]+=16;reject();c.r[6].ud[0]-=16;
+        // PS2 words: NaN-pattern, denormal and overflowing inputs are VU numbers; each accepted update is published.
+        const auto accept=[&]{const auto saved=c;const auto position=word(r,object+0x30);check(vp2s::nativeMathInstruction(r.memory.flat(),&c,&r,0x1fcb08) && h.motion.outstanding()==1);
+            c.r[3].ud[0]=object+0x30;check(vp2s::nativeMathInstruction(r.memory.flat(),&c,&r,0x1fcb24) && h.motion.outstanding()==0);c=saved;const auto v=word(r,object+0x30);put(r,object+0x30,position);return v;};
+        c.f[12]=std::bit_cast<float>(0x7fc00000u);accept();c.f[12]=0.5f;
+        put(r,object+0x50,1u);accept();put(r,object+0x50,0x3f800000u);put(r,0x359104,0x7fc00000u);accept();put(r,0x359104,0x3f800000u);
+        put(r,table+0x34,0x1fcb44u);reject();put(r,table+0x34,0x1fcb40u);c.f[12]=std::numeric_limits<float>::max();{const auto v=accept();check(!(v>>31) && v>=0x7f800000u);}c.f[12]=0.5f;
     }
     {vp2s::NativeMotion updates;const std::array<uint32_t,4> first{1,2,3,0x7fc01234},second{4,5,6,0xff801234};
         updates.prepare(0x1fff000,0x180000,first);updates.prepare(0x1ffef00,0x190000,second);
@@ -687,7 +703,10 @@ int main(){try{
             try{vp2s::nativeMathInstruction(r.memory.flat(),&c,&r,0x1fc908);}catch(const std::runtime_error &){bad=true;}
             check(bad && !std::memcmp(&saved,&c,sizeof(c)) && !std::memcmp(ram.data(),r.memory.flat(),ram.size()));};
         c.r[5].ud[0]=stack;reject();c.r[5].ud[0]=constraint;c.r[4].ud[0]=stack-0x30;reject();c.r[4].ud[0]=first;
-        put(r,first+0x30,0x7fc00000u);reject();put(r,first+0x30,1u);reject();put(r,first+0x30,0x7f7fffffu);reject();
+        // Every word is a PS2 number: a denormal reads as zero and huge words saturate instead of rejecting.
+        const auto distance=[&](uint32_t x){put(r,first+0x30,x);const auto saved=c;vp2s::nativeMathInstruction(r.memory.flat(),&c,&r,0x1fc908);c=saved;put(r,first+0x30,0u);return word(r,stack);};
+        const auto base=distance(0);check(base==std::bit_cast<uint32_t>(std::sqrt(3.f)) && distance(1u)==base);
+        const auto huge=distance(0x7fc00000u),largest=distance(0x7f7fffffu);check(!(huge>>31) && huge>0x5f000000u && !(largest>>31) && largest>0x5f000000u);
     }
     unsigned boxes=0,clamped=0,unclamped=0;h.boxPublications=0;
     for(unsigned mode:{_MM_ROUND_NEAREST,_MM_ROUND_DOWN,_MM_ROUND_UP,_MM_ROUND_TOWARD_ZERO})for(unsigned seed=0;seed<128;++seed){
@@ -785,16 +804,20 @@ int main(){try{
             try{vp2s::nativeMathInstruction(r.memory.flat(),&c,&r,0x1fcdac);}catch(const std::runtime_error &){bad=true;}
             check(bad && !std::memcmp(&saved,&c,sizeof(c)) && !std::memcmp(ram.data(),r.memory.flat(),ram.size()));};
         c.r[4].ud[0]+=16;reject();c.r[4].ud[0]-=16;put(r,part+0x38,stack+0x100);reject();put(r,part+0x38,point);
-        put(r,stack+0x150,0x7fc00000u);reject();put(r,stack+0x150,0x3f800000u);put(r,point+0x30,1u);reject();put(r,point+0x30,0x7f7fffffu);reject();
-        for(unsigned i=0;i<3;++i){put(r,stack+0x190+i*4,0x1f800000u);put(r,point+0x30+i*4,0x1f800000u);}reject();
+        // PS2 words: a NaN word, a denormal, FLT_MAX and tiny vectors are all VU numbers (no rejection, host state kept).
+        const auto accept=[&](uint32_t pc){const auto saved=c;const auto fp=_mm_getcsr();check(vp2s::nativeMathInstruction(r.memory.flat(),&c,&r,pc) && _mm_getcsr()==fp && !std::memcmp(&saved,&c,sizeof(c)));};
+        put(r,stack+0x150,0x7fc00000u);accept(0x1fcdac);put(r,stack+0x150,0x3f800000u);put(r,point+0x30,1u);accept(0x1fcdac);put(r,point+0x30,0x7f7fffffu);accept(0x1fcdac);
+        for(unsigned i=0;i<3;++i){put(r,stack+0x190+i*4,0x1f800000u);put(r,point+0x30+i*4,0x1f800000u);}accept(0x1fcdac);
         for(unsigned i=0;i<3;++i){put(r,stack+0x190+i*4,i==0?0x3f800000u:0u);put(r,point+0x30+i*4,i==1?0x3f800000u:0u);}
         check(vp2s::nativeMathInstruction(r.memory.flat(),&c,&r,0x1fcdac));c.r[2].ud[0]=stack+0x130;c.f[0]=std::bit_cast<float>(word(r,stack+0x140));c.f[1]=std::bit_cast<float>(0x3f7ffffeu);
         auto rejectQuaternion=[&]{const auto saved=c;std::vector<uint8_t> ram(r.memory.flat(),r.memory.flat()+bozo::kFlatBytes);bool bad=false;
             try{vp2s::nativeMathInstruction(r.memory.flat(),&c,&r,0x1fcdf0);}catch(const std::runtime_error &){bad=true;}
             check(bad && !std::memcmp(&saved,&c,sizeof(c)) && !std::memcmp(ram.data(),r.memory.flat(),ram.size()));};
         c.r[2].ud[0]+=16;rejectQuaternion();c.r[2].ud[0]-=16;c.f[1]=1.f;rejectQuaternion();c.f[1]=std::bit_cast<float>(0x3f7ffffeu);c.f[0]=1.f;rejectQuaternion();c.f[0]=std::bit_cast<float>(word(r,stack+0x140));
-        put(r,point+0x30,0xbf800000u);put(r,point+0x34,0u);rejectQuaternion();put(r,point+0x30,0u);put(r,point+0x34,0x3f800000u);
-        put(r,stack+0x190,0x1fb00000u);put(r,point+0x34,0x1fb00000u);check(vp2s::nativeMathInstruction(r.memory.flat(),&c,&r,0x1fcdac));c.f[0]=std::bit_cast<float>(word(r,stack+0x140));rejectQuaternion();
+        // Opposite directions (cos -1, root 0: Q = +max, axis 0*max = 0) and tiny vectors are defined PS2 results.
+        put(r,point+0x30,0xbf800000u);put(r,point+0x34,0u);accept(0x1fcdac);c.f[0]=std::bit_cast<float>(word(r,stack+0x140));accept(0x1fcdf0);
+        for(unsigned i=0;i<4;++i)check(!(word(r,stack+0x130+4*i)&0x7fffffffu));put(r,point+0x30,0u);put(r,point+0x34,0x3f800000u);
+        put(r,stack+0x190,0x1fb00000u);put(r,point+0x34,0x1fb00000u);accept(0x1fcdac);c.f[0]=std::bit_cast<float>(word(r,stack+0x140));accept(0x1fcdf0);
     }
     unsigned quaternionProducts=0;
     for(unsigned mode:{_MM_ROUND_NEAREST,_MM_ROUND_DOWN,_MM_ROUND_UP,_MM_ROUND_TOWARD_ZERO})for(unsigned seed=0;seed<128;++seed){
@@ -818,7 +841,11 @@ int main(){try{
         auto reject=[&]{const auto saved=c;std::vector<uint8_t> ram(r.memory.flat(),r.memory.flat()+bozo::kFlatBytes);bool bad=false;
             try{vp2s::nativeMathInstruction(r.memory.flat(),&c,&r,0x1fce30);}catch(const std::runtime_error &){bad=true;}
             check(bad && !std::memcmp(&saved,&c,sizeof(c)) && !std::memcmp(ram.data(),r.memory.flat(),ram.size()));};
-        c.r[2].ud[0]+=4;reject();c.r[2].ud[0]-=4;put(r,first+12,0x7fc00000u);reject();put(r,first+12,1u);reject();put(r,first+12,0x7f7fffffu);put(r,second+12,0x40000000u);reject();
+        c.r[2].ud[0]+=4;reject();c.r[2].ud[0]-=4;
+        // PS2 words: a NaN word, a denormal and an overflowing product are VU numbers; max*2 saturates to 0x7fffffff.
+        const auto product=[&](uint32_t w,uint32_t other){put(r,first+12,w);put(r,second+12,other);const auto saved=c;check(vp2s::nativeMathInstruction(r.memory.flat(),&c,&r,0x1fce30));c=saved;
+            const auto v=word(r,first+12);for(unsigned i=0;i<4;++i){put(r,first+i*4,0x3f800000u);put(r,second+i*4,0x3f800000u);}return v;};
+        product(0x7fc00000u,0x3f800000u);product(1u,0x3f800000u);check(product(0x7f7fffffu,0x40000000u)==0x7fffffffu);
     }
     unsigned velocityLoops=0,velocityRecords=0;h.velocityPublications=0;
     for(unsigned mode:{_MM_ROUND_NEAREST,_MM_ROUND_DOWN,_MM_ROUND_UP,_MM_ROUND_TOWARD_ZERO})for(unsigned seed=0;seed<128;++seed){
@@ -854,8 +881,11 @@ int main(){try{
         auto reject=[&]{const auto saved=c;std::vector<uint8_t> ram(r.memory.flat(),r.memory.flat()+bozo::kFlatBytes);bool bad=false;
             try{vp2s::nativeMathInstruction(r.memory.flat(),&c,&r,0x1fe934);}catch(const std::runtime_error &){bad=true;}
             check(bad && !std::memcmp(&saved,&c,sizeof(c)) && !std::memcmp(ram.data(),r.memory.flat(),ram.size()));};
-        c.r[3].ud[0]+=4;reject();c.r[3].ud[0]-=4;put(r,object+0x1c,0x7fc00000u);reject();put(r,object+0x1c,0x3f000000u);put(r,object+0x48,1u);reject();put(r,object+0x48,0u);
-        c.f[0]=std::bit_cast<float>(0x7fc00000u);reject();c.f[0]=0.5f;c.f[20]=std::numeric_limits<float>::max();put(r,object+0x30,0x40000000u);reject();
+        c.r[3].ud[0]+=4;reject();c.r[3].ud[0]-=4;
+        // PS2 words: NaN-pattern, denormal and overflowing inputs are VU numbers; (2*max - 0) saturates.
+        const auto velocity=[&]{const auto saved=c;check(vp2s::nativeMathInstruction(r.memory.flat(),&c,&r,0x1fe934));c=saved;return word(r,object+0x50);};
+        put(r,object+0x1c,0x7fc00000u);velocity();put(r,object+0x1c,0x3f000000u);put(r,object+0x48,1u);velocity();put(r,object+0x48,0u);
+        c.f[0]=std::bit_cast<float>(0x7fc00000u);velocity();c.f[0]=0.5f;c.f[20]=std::numeric_limits<float>::max();put(r,object+0x30,0x40000000u);{const auto v=velocity();check(!(v>>31) && v>=0x7f000000u);}
     }
     unsigned collisionQueries=0;
     for(unsigned mode:{_MM_ROUND_NEAREST,_MM_ROUND_DOWN,_MM_ROUND_UP,_MM_ROUND_TOWARD_ZERO})for(unsigned seed=0;seed<128;++seed){
@@ -889,10 +919,13 @@ int main(){try{
         const auto reject=[&]{const auto saved=c;std::vector<uint8_t> ram(r.memory.flat(),r.memory.flat()+bozo::kFlatBytes);bool bad=false;
             try{vp2s::nativeMathInstruction(r.memory.flat(),&c,&r,0x1fde6c);}catch(const std::runtime_error &){bad=true;}
             check(bad && !std::memcmp(&saved,&c,sizeof(c)) && !std::memcmp(ram.data(),r.memory.flat(),ram.size()));};
-        c.r[2].ud[0]+=4;reject();c.r[2].ud[0]-=4;put(r,other+0x30,0x7fc00000u);reject();put(r,other+0x30,1u);reject();
-        put(r,other+0x30,0x7f7fffffu);put(r,current+0x30,0xff7fffffu);reject();put(r,other+0x30,0u);put(r,current+0x30,0u);
+        c.r[2].ud[0]+=4;reject();c.r[2].ud[0]-=4;
+        // PS2 words: every input is a VU number; max - (-max) saturates to 0x7fffffff.
+        const auto query=[&]{const auto saved=c;check(vp2s::nativeMathInstruction(r.memory.flat(),&c,&r,0x1fde6c));c=saved;return word(r,stack+0x220);};
+        put(r,other+0x30,0x7fc00000u);query();put(r,other+0x30,1u);check(query()==0);
+        put(r,other+0x30,0x7f7fffffu);put(r,current+0x30,0xff7fffffu);check(query()==0x7fffffffu);put(r,other+0x30,0u);put(r,current+0x30,0u);
         put(r,part+0x20,uint8_t(4));put(r,current+4,0x1b0000u);for(unsigned i=0;i<12;++i)put(r,0x1b0150+i*4,0u);for(unsigned i=0;i<3;++i)put(r,part+i*4,0u);
-        put(r,0x1b0150,0x7fc00000u);reject();put(r,0x1b0150,0x7f7fffffu);put(r,part,0x40000000u);reject();
+        put(r,0x1b0150,0x7fc00000u);query();put(r,0x1b0150,0x7f7fffffu);put(r,part,0x40000000u);check(word(r,stack+0x460)==0);query();check(word(r,stack+0x460)==0x7fffffffu);
     }
     unsigned segmentDistances=0,segmentInterior=0,segmentClamped=0;
     for(unsigned mode:{_MM_ROUND_NEAREST,_MM_ROUND_DOWN,_MM_ROUND_UP,_MM_ROUND_TOWARD_ZERO})for(unsigned seed=0;seed<128;++seed){
@@ -970,7 +1003,7 @@ int main(){try{
         const auto reject=[&]{const auto saved=c;std::vector<uint8_t> ram(r.memory.flat(),r.memory.flat()+bozo::kFlatBytes);bool bad=false;
             try{vp2s::nativeMathInstruction(r.memory.flat(),&c,&r,0x1fc628);}catch(const std::runtime_error &){bad=true;}check(bad && !std::memcmp(&saved,&c,sizeof(c)) && !std::memcmp(ram.data(),r.memory.flat(),ram.size()));};
         put(r,stack+0x50,0u);reject();put(r,stack+0x50,0x1fe000u);c.r[18].ud[0]+=16;reject();c.r[18].ud[0]-=16;c.r[2].ud[0]+=4;reject();c.r[2].ud[0]-=4;
-        put(r,first+0x250,0x7fc00000u);reject();put(r,first+0x250,1u);reject();put(r,first+0x250,0u);c.f[2]=3;reject();c.f[2]=.5f;c.r[19].ud[0]=stack+0x520-0x250;c.r[5].ud[0]=stack+0x520;c.r[4].ud[0]=stack+0x530;reject();
+        /* PS2 words: every input word is a VU number (no rejection) */c.f[2]=3;reject();c.f[2]=.5f;c.r[19].ud[0]=stack+0x520-0x250;c.r[5].ud[0]=stack+0x520;c.r[4].ud[0]=stack+0x530;reject();
     }
     unsigned positionResponses=0;
     for(unsigned mode:{_MM_ROUND_NEAREST,_MM_ROUND_DOWN,_MM_ROUND_UP,_MM_ROUND_TOWARD_ZERO})for(unsigned seed=0;seed<128;++seed){
@@ -1001,7 +1034,7 @@ int main(){try{
         for(auto at:{first,second,stack+0x210})for(unsigned i=0;i<4;++i)put(r,at+i*4,0u);put(r,0x35910c,0x3f800000u);
         const auto reject=[&]{const auto saved=c;std::vector<uint8_t> ram(r.memory.flat(),r.memory.flat()+bozo::kFlatBytes);bool bad=false;
             try{vp2s::nativeMathInstruction(r.memory.flat(),&c,&r,0x1fc0c4);}catch(const std::runtime_error &){bad=true;}check(bad && !std::memcmp(&saved,&c,sizeof(c)) && !std::memcmp(ram.data(),r.memory.flat(),ram.size()));};
-        c.r[31].ud[0]=0;reject();c.r[31].ud[0]=0x1fe024;c.r[3].ud[0]+=4;reject();c.r[3].ud[0]-=4;put(r,stack+0x210,0x7fc00000u);reject();put(r,stack+0x210,1u);reject();put(r,stack+0x210,0u);c.f[12]=3;reject();c.f[12]=.5f;put(r,0x35910c,0x7fc00000u);reject();
+        c.r[31].ud[0]=0;reject();c.r[31].ud[0]=0x1fe024;c.r[3].ud[0]+=4;reject();c.r[3].ud[0]-=4;/* PS2 words: normal and coefficient words are VU numbers (no rejection); t stays clamped */c.f[12]=3;reject();c.f[12]=.5f;
     }
     unsigned pointSegments=0,pointStarts=0,pointEnds=0,pointInteriors=0;
     for(unsigned mode:{_MM_ROUND_NEAREST,_MM_ROUND_DOWN,_MM_ROUND_UP,_MM_ROUND_TOWARD_ZERO})for(unsigned seed=0;seed<128;++seed){
@@ -1027,7 +1060,12 @@ int main(){try{
         const auto reject=[&]{const auto saved=c;std::vector<uint8_t> ram(r.memory.flat(),r.memory.flat()+bozo::kFlatBytes);bool bad=false;
             try{vp2s::nativeMathInstruction(r.memory.flat(),&c,&r,0x211fe8);}catch(const std::runtime_error &){bad=true;}check(bad && !std::memcmp(&saved,&c,sizeof(c)) && !std::memcmp(ram.data(),r.memory.flat(),ram.size()));};
         c.r[31].ud[0]=0;reject();c.r[31].ud[0]=0x1fc4f0;c.r[6].ud[0]=segment+4;reject();c.r[6].ud[0]=stack+0x10;reject();c.r[6].ud[0]=stack+0x40;c.r[4].ud[0]=stack;reject();c.r[4].ud[0]=segment;
-        put(r,point,0x7fc00000u);reject();put(r,point,1u);reject();put(r,point,std::bit_cast<uint32_t>(1.e9f));reject();put(r,point,0u);c.r[2].ud[0]+=4;reject();
+        c.r[2].ud[0]+=4;reject();c.r[2].ud[0]-=4;
+        // Every word is a PS2 number: the projection on a unit X direction is the point's X as the VU computes it.
+        const auto projection=[&](uint32_t x){put(r,point,x);const auto saved=c;vp2s::nativeMathInstruction(r.memory.flat(),&c,&r,0x211fe8);c=saved;const auto v=word(r,stack+0x10);put(r,point,0u);return v;};
+        put(r,segment+16,0x3f800000u);
+        check(projection(std::bit_cast<uint32_t>(1.e36f))==std::bit_cast<uint32_t>(1.e36f));check(projection(0x7fc00000u)==0x7fc00000u);check(projection(1u)==0);
+        put(r,segment+16,0u);
     }
     unsigned planeCallers=0,planeHits=0,planeMisses=0,planeSkipped=0;h.planeEvaluations=h.planePublications=0;
     for(unsigned mode:{_MM_ROUND_NEAREST,_MM_ROUND_DOWN,_MM_ROUND_UP,_MM_ROUND_TOWARD_ZERO})for(unsigned seed=0;seed<128;++seed){
@@ -1060,7 +1098,9 @@ int main(){try{
         const auto reject=[&]{const auto saved=c;std::vector<uint8_t> ram(r.memory.flat(),r.memory.flat()+bozo::kFlatBytes);bool bad=false;
             try{vp2s::nativeMathInstruction(r.memory.flat(),&c,&r,0x1fbff0);}catch(const std::runtime_error &){bad=true;}check(bad && !std::memcmp(&saved,&c,sizeof(c)) && !std::memcmp(ram.data(),r.memory.flat(),ram.size()));};
         c.r[31].ud[0]=0;reject();c.r[31].ud[0]=0x1fe210;c.r[6].ud[0]+=16;reject();c.r[6].ud[0]-=16;put(r,point+0x18,0u);reject();put(r,point+0x18,0x3f000000u);
-        put(r,owner+0x220,0x7fc00000u);reject();put(r,owner+0x220,1u);reject();put(r,owner+0x220,std::bit_cast<uint32_t>(1.e9f));reject();put(r,owner+0x220,0u);
+        {// PS2 words: normal words are VU numbers (no rejection, host state kept).
+            const auto distance=[&](uint32_t w){put(r,owner+0x220,w);const auto saved=c;const auto fp=_mm_getcsr();check(vp2s::nativeMathInstruction(r.memory.flat(),&c,&r,0x1fbff0) && _mm_getcsr()==fp);c=saved;put(r,owner+0x220,0u);};
+            distance(0x7fc00000u);distance(1u);distance(std::bit_cast<uint32_t>(1.e9f));}
         c.r[17].ud[0]=stack-0x30;c.r[5].ud[0]=stack;put(r,stack-0x28,owner);put(r,stack-0x18,0x3f000000u);reject();
     }
     std::printf("%u bone,%u distance,%u scale,%u parameters,%u selectors (%u rigid/%u general),%u column inverses,%u paired aliases,%u paired callers,%u full/%u linear transforms,%u motion callers,%u position pairs (%u fixed),%u boxes (%u clamped/%u unchanged),%u transposed inverses,%u angular callers (%u rotation/%u aligned),%u quaternion products,%u velocity loops/%u records,%u collision queries,%u segment distances (%u interior/%u clamped samples),%u collision callers (%u hit/%u miss),%u responses/%u real continuations,%u point/segments (%u start/%u end/%u interior),%u plane callers (%u hit/%u miss/%u skipped): CPU/RAM, four modes, live XYZW; no VU state\n",cases,distances,scales,parameters,selectors,rigid,general,columns,pairs,pairedCallers,transforms,linearTransforms,motions,positionPairs,fixedPairs,boxes,clamped,unclamped,transposedInverses,angularCosines,angularRotations,angularAligned,quaternionProducts,velocityLoops,velocityRecords,collisionQueries,segmentDistances,segmentInterior,segmentClamped,collisionCallers,collisionHits,collisionMisses,positionResponses,responseContinuations,pointSegments,pointStarts,pointEnds,pointInteriors,planeCallers,planeHits,planeMisses,planeSkipped);return 0;

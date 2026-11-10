@@ -29,6 +29,36 @@ float pairProduct(float a,float b){volatile float value=a*b;return pairNormal(va
 float pairSum(float a,float b){volatile float value=a+b;return pairNormal(value);}
 void pairQualified(float v){const auto b=std::bit_cast<uint32_t>(v),e=b&0x7f800000;
     if(e==0x7f800000 || (!e && (b&0x7fffff)))throw std::runtime_error("unqualified native geometric input");}
+// A VU0 word with the engine's PS2 float definitions (ps2f): nearest-even
+// results, no Inf/NaN (exponent 255 is a number, overflow saturates to
+// +/-0x7fffffff), denormals read as zero, division by zero gives +/-max.
+// For normal finite operands every operation equals the host's correctly
+// rounded float result, so converted sites keep their in-range values bit for
+// bit while far-away chains (anchors parked ~1e5 away, nodes running to 1e36)
+// stay defined as on PS2. No host floating-point state is touched.
+struct Ps2Word{
+    uint32_t bits=0;
+    static Ps2Word of(float v){return {std::bit_cast<uint32_t>(v)};}
+    static Ps2Word load(const uint8_t *p){Ps2Word w;std::memcpy(&w.bits,p,4);return w;}
+    void store(uint8_t *p)const{std::memcpy(p,&bits,4);}
+    bool zero()const{return !(bits&0x7f800000u);}
+    int64_t key()const{if(zero())return 0;const int64_t m=bits&0x7fffffffu;return (bits&0x80000000u)?-m:m;}
+    Ps2Word operator-()const{return {bits^0x80000000u};}
+    Ps2Word abs()const{return {bits&0x7fffffffu};}
+    friend Ps2Word operator*(Ps2Word a,Ps2Word b){uint32_t f=0;return {bozo::ps2f::mul(a.bits,b.bits,f)};}
+    friend Ps2Word operator+(Ps2Word a,Ps2Word b){uint32_t f=0;return {bozo::ps2f::addNearest(a.bits,b.bits,f)};}
+    friend Ps2Word operator-(Ps2Word a,Ps2Word b){uint32_t f=0;return {bozo::ps2f::subNearest(a.bits,b.bits,f)};}
+    friend Ps2Word operator/(Ps2Word a,Ps2Word b){uint32_t f=0;return {bozo::ps2f::div(a.bits,b.bits,f)};}
+    friend bool operator<(Ps2Word a,Ps2Word b){return a.key()<b.key();}
+    friend bool operator>(Ps2Word a,Ps2Word b){return a.key()>b.key();}
+    friend bool operator<=(Ps2Word a,Ps2Word b){return a.key()<=b.key();}
+    friend bool operator>=(Ps2Word a,Ps2Word b){return a.key()>=b.key();}
+    // ps2f's integer square root seeds itself with a host double sqrt; keep
+    // the host's floating-point status exactly as it was.
+    Ps2Word root()const{const auto saved=_mm_getcsr();uint32_t f=0;const Ps2Word r{bozo::ps2f::sqrt(bits,f)};_mm_setcsr(saved);return r;}
+    static Ps2Word reciprocalRoot(Ps2Word a,Ps2Word b){const auto saved=_mm_getcsr();uint32_t f=0;const Ps2Word r{bozo::ps2f::rsqrt(a.bits,b.bits,f)};_mm_setcsr(saved);return r;}
+};
+constexpr Ps2Word kPs2One{0x3f800000u},kPs2Zero{0};
 // Magnitude above 1e18 by bits: comparing a denormal as a float would raise
 // the host's denormal-operand flag outside any rounding guard.
 bool beyondRange(float v){return (std::bit_cast<uint32_t>(v)&0x7fffffffu)>std::bit_cast<uint32_t>(1.e18f);}
@@ -73,17 +103,13 @@ float basisYScale(uint8_t *basis){
     const auto squared=pairSum(pairSum(pairProduct(values[0],values[0]),pairProduct(values[1],values[1])),pairProduct(values[2],values[2]));
     volatile float length=std::sqrt(squared);return pairSum(0.f,length);
 }
-struct PositionPairGeometry {std::array<float,3> difference;float distance;};
-PositionPairGeometry positionPairGeometry(const float first[4],const float second[4]){
-    for(unsigned i=0;i<3;++i){pairQualified(first[i]);pairQualified(second[i]);}
-    {music::CodecRounding validation;const double limit=std::sqrt(double(std::numeric_limits<float>::max())/3);
-        for(unsigned i=0;i<3;++i)if(std::abs(double(first[i]))+std::abs(double(second[i]))>limit)
-            throw std::runtime_error("constrained-position distance overflow");}
-    PositionPairGeometry out;float squares[3];
-    for(unsigned i=0;i<3;++i){out.difference[i]=pairSum(second[i],-first[i]);squares[i]=pairProduct(out.difference[i],out.difference[i]);}
-    const float squared=pairSum(pairSum(squares[0],squares[1]),pairProduct(1.f,squares[2]));
-    volatile float root=static_cast<float>(std::sqrt(double(squared)));
-    out.distance=pairSum(0.f,root);return out;
+struct PositionPairGeometry {std::array<Ps2Word,3> difference;Ps2Word distance;};
+// PS2 words (see Ps2Word): every position is a VU number, no magnitude gate.
+PositionPairGeometry positionPairGeometry(const uint8_t *first,const uint8_t *second){
+    PositionPairGeometry out;Ps2Word squares[3];
+    for(unsigned i=0;i<3;++i){out.difference[i]=Ps2Word::load(second+4*i)-Ps2Word::load(first+4*i);squares[i]=out.difference[i]*out.difference[i];}
+    const auto squared=(squares[0]+squares[1])+kPs2One*squares[2];
+    out.distance=kPs2Zero+squared.root();return out;
 }
 void separatePairFrame(uint8_t *frame,uint8_t *data,size_t bytes){
     const auto a=reinterpret_cast<uintptr_t>(frame),b=reinterpret_cast<uintptr_t>(data);
@@ -137,8 +163,8 @@ std::array<float,4> leaflessDistance(const LeaflessQuery &data){
     return {sphere[0],sphere[1],sphere[2],distance};
 }
 struct SegmentTerms {std::array<uint32_t,3> delta;uint32_t firstLength,negativeCross,secondLength,firstProjection,separation,determinant,negativeSecondProjection,secondNumerator,firstNumerator;};
-struct PointSegmentTerms {std::array<float,3> delta,direction;float projection,lengthSquared;};
-struct PlaneContact {std::array<float,4> point;std::array<float,3> normal;float distance;};
+struct PointSegmentTerms {std::array<Ps2Word,3> delta,direction;Ps2Word projection,lengthSquared;};
+struct PlaneContact {std::array<uint8_t,16> point;std::array<Ps2Word,3> normal;Ps2Word distance;};
 PlaneContact planeContact(Runtime *rt,R5900Context *c){
     if(c->pc!=0x1fbfb0 || c->r[31].uw[0]!=0x1fe210)throw std::runtime_error("unqualified plane-contact caller");
     const auto stack=c->r[29].uw[0],owner=c->r[4].uw[0],pointAddress=c->r[17].uw[0];
@@ -147,13 +173,12 @@ PlaneContact planeContact(Runtime *rt,R5900Context *c){
     if(attached!=owner || c->r[5].uw[0]!=pointAddress+0x30 || c->r[6].uw[0]!=stack+0x1f0 || c->r[3].uw[0]!=owner+0x230 || c->r[2].uw[0]!=stack)
         throw std::runtime_error("plane-contact argument or temporary setup mismatch");
     separatePairFrame(frame,plane,0x240);separatePairFrame(frame,point,0x40);separatePairFrame(frame,output,16);
-    const float margin=c->f[12];uint32_t marginBits;std::memcpy(&marginBits,point+0x18,4);
-    if(marginBits!=std::bit_cast<uint32_t>(margin))throw std::runtime_error("plane-contact margin argument mismatch");
-    pairQualified(margin);if(std::abs(margin)>1.e8f)throw std::runtime_error("unqualified plane-contact margin");
-    PlaneContact result;float normal[4],origin[4],products[3];std::memcpy(result.point.data(),point+0x30,16);std::memcpy(normal,plane+0x220,16);std::memcpy(origin,plane+0x230,16);
-    for(unsigned i=0;i<3;++i){for(float value:{result.point[i],normal[i],origin[i]}){pairQualified(value);if(std::abs(value)>1.e8f)throw std::runtime_error("unqualified plane-contact magnitude");}
-        result.normal[i]=normal[i];products[i]=pairProduct(pairSum(result.point[i],-origin[i]),normal[i]);}
-    result.distance=pairSum(pairSum(pairSum(products[0],products[1]),pairProduct(1.f,products[2])),-margin);return result;
+    uint32_t marginBits;std::memcpy(&marginBits,point+0x18,4);
+    if(marginBits!=std::bit_cast<uint32_t>(c->f[12]))throw std::runtime_error("plane-contact margin argument mismatch");
+    // PS2 words (see Ps2Word), 1fbfd8..1fbfec: d = ((p-o)*n summed (x+y)+1*z) - margin.
+    const auto margin=Ps2Word::of(c->f[12]);PlaneContact result;std::memcpy(result.point.data(),point+0x30,16);Ps2Word products[3];
+    for(unsigned i=0;i<3;++i){result.normal[i]=Ps2Word::load(plane+0x220+4*i);products[i]=(Ps2Word::load(point+0x30+4*i)-Ps2Word::load(plane+0x230+4*i))*result.normal[i];}
+    result.distance=((products[0]+products[1])+kPs2One*products[2])-margin;return result;
 }
 PointSegmentTerms pointSegmentTerms(Runtime *rt,R5900Context *c){
     if(c->pc!=0x211fb0 || (c->r[31].uw[0]!=0x1fc244 && c->r[31].uw[0]!=0x1fc4f0))throw std::runtime_error("unqualified point/segment caller");
@@ -166,14 +191,14 @@ PointSegmentTerms pointSegmentTerms(Runtime *rt,R5900Context *c){
     // Original CPU code publishes the parameter before the final distance.
     // These spans must survive unchanged until that final typed calculation.
     separate(parameter,4,segment,32);separate(parameter,4,point,16);
-    float s[2][4],p[4];std::memcpy(s,segment,32);std::memcpy(p,point,16);
-    for(unsigned i=0;i<3;++i)for(float value:{s[0][i],s[1][i],p[i]}){pairQualified(value);if(std::abs(value)>1.e8f)throw std::runtime_error("unqualified point/segment magnitude");}
-    PointSegmentTerms result;float products[3],squares[3];
-    for(unsigned i=0;i<3;++i){result.delta[i]=pairSum(p[i],-s[0][i]);result.direction[i]=s[1][i];products[i]=pairProduct(result.delta[i],s[1][i]);squares[i]=pairProduct(s[1][i],s[1][i]);}
-    result.projection=pairSum(pairSum(products[0],products[1]),pairProduct(1.f,products[2]));
-    result.lengthSquared=pairSum(pairSum(squares[0],squares[1]),pairProduct(1.f,squares[2]));return result;
+    // PS2 words (see Ps2Word): every input is a VU number, so no magnitude gate.
+    Ps2Word s[2][3],p[3];for(unsigned i=0;i<3;++i){s[0][i]=Ps2Word::load(segment+4*i);s[1][i]=Ps2Word::load(segment+16+4*i);p[i]=Ps2Word::load(point+4*i);}
+    PointSegmentTerms result;Ps2Word products[3],squares[3];
+    for(unsigned i=0;i<3;++i){result.delta[i]=p[i]-s[0][i];result.direction[i]=s[1][i];products[i]=result.delta[i]*s[1][i];squares[i]=s[1][i]*s[1][i];}
+    result.projection=(products[0]+products[1])+kPs2One*products[2];
+    result.lengthSquared=(squares[0]+squares[1])+kPs2One*squares[2];return result;
 }
-std::array<float,3> collisionNormal(Runtime *rt,R5900Context *c,uint32_t pc){
+std::array<Ps2Word,3> collisionNormal(Runtime *rt,R5900Context *c,uint32_t pc){
     if(c->pc!=0x1fc5f4)throw std::runtime_error("unqualified collision-normal continuation");
     const auto stack=c->r[29].uw[0];auto *frame=record(rt,stack,0x70),*normal=record(rt,c->r[18].uw[0],16);
     uint32_t caller;std::memcpy(&caller,frame+0x50,4);
@@ -190,18 +215,15 @@ std::array<float,3> collisionNormal(Runtime *rt,R5900Context *c,uint32_t pc){
     if(pc==0x1fc628 && (c->r[3].uw[0]!=c->r[20].uw[0]+0x230 || c->r[2].uw[0]!=c->r[20].uw[0]+0x240 ||
         c->r[5].uw[0]!=c->r[19].uw[0]+0x250 || c->r[4].uw[0]!=c->r[19].uw[0]+0x260))
         throw std::runtime_error("collision-normal operand setup mismatch");
-    const float firstWeight=c->f[2],secondWeight=c->f[1];pairQualified(firstWeight);pairQualified(secondWeight);
-    if(std::abs(firstWeight)>2 || std::abs(secondWeight)>2)throw std::runtime_error("unqualified collision-normal parameters");
-    float a[2][4],b[2][4];std::memcpy(a,first,32);std::memcpy(b,second,32);
-    for(auto *vectors:{a,b})for(unsigned row=0;row<2;++row)for(unsigned i=0;i<3;++i){pairQualified(vectors[row][i]);
-        if(std::abs(vectors[row][i])>1.e8f)throw std::runtime_error("unqualified collision-normal magnitude");}
-    std::array<float,3> delta,result;float squared[3];
-    for(unsigned i=0;i<3;++i){auto value=pairSum(b[0][i],0.f);value=pairSum(value,pairProduct(b[1][i],secondWeight));
-        value=pairSum(value,-pairProduct(a[0][i],1.f));delta[i]=pairSum(value,-pairProduct(a[1][i],firstWeight));squared[i]=pairProduct(delta[i],delta[i]);}
-    const auto lengthSquared=pairSum(pairSum(squared[0],squared[1]),pairProduct(1.f,squared[2]));
-    volatile float root=static_cast<float>(std::sqrt(std::abs(double(lengthSquared))));
-    volatile float reciprocal=root==0?std::numeric_limits<float>::max():static_cast<float>(1.0/double(root));
-    for(unsigned i=0;i<3;++i)result[i]=pairProduct(delta[i],pairNormal(reciprocal));return result;
+    // PS2 words (see Ps2Word): ACC = (0+B) + D2*s - A*1, normal = (ACC - D1*t) * RSQRT(1, |.|^2).
+    // The segment parameters come clamped from the EE code; anything else is not this caller.
+    const auto firstWeight=Ps2Word::of(c->f[2]),secondWeight=Ps2Word::of(c->f[1]);const Ps2Word two{0x40000000u};
+    if(firstWeight.abs()>two || secondWeight.abs()>two)throw std::runtime_error("unqualified collision-normal parameters");
+    std::array<Ps2Word,3> delta,result;Ps2Word squared[3];
+    for(unsigned i=0;i<3;++i){const auto value=((Ps2Word::load(second+4*i)+kPs2Zero)+Ps2Word::load(second+16+4*i)*secondWeight)-Ps2Word::load(first+4*i)*kPs2One;
+        delta[i]=value-Ps2Word::load(first+16+4*i)*firstWeight;squared[i]=delta[i]*delta[i];}
+    const auto q=Ps2Word::reciprocalRoot(kPs2One,(squared[0]+squared[1])+kPs2One*squared[2]);
+    for(unsigned i=0;i<3;++i)result[i]=delta[i]*q;return result;
 }
 SegmentTerms segmentTerms(Runtime *rt,R5900Context *c){
     if(c->pc!=0x2120a0 || (c->r[31].uw[0]!=0x1fc3dc && c->r[31].uw[0]!=0x1fc5f4))
@@ -245,29 +267,28 @@ void collisionPositionResponse(Runtime *rt,R5900Context *c,uint32_t pc){
     auto *destination=secondOnly?second:first;
     if(c->r[3].uw[0]!=(paired || secondOnly?c->r[6].uw[0]+0x30:c->r[4].uw[0]+0x30))
         throw std::runtime_error("collision position-response destination mismatch");
-    float n[4],a[4],b[4],scale,fallback=0;std::memcpy(n,normal,16);std::memcpy(a,first,16);std::memcpy(b,second,16);std::memcpy(&scale,coefficients+12,4);
-    const auto parameter=c->f[12],depth=c->f[13];pairQualified(parameter);pairQualified(depth);pairQualified(scale);
-    if(std::abs(parameter)>2 || std::abs(depth)>1.e8f || std::abs(scale)>1.e8f)throw std::runtime_error("unqualified collision response coefficients");
-    for(unsigned i=0;i<3;++i){pairQualified(n[i]);if(std::abs(n[i])>1.e8f)throw std::runtime_error("unqualified collision response normal");}
-    const auto scaledDepth=pairProduct(depth,scale);std::array<float,3> correction;
-    for(unsigned i=0;i<3;++i)correction[i]=pairProduct(n[i],scaledDepth);
-    float weights[2];if(paired){weights[0]=pairSum(1.f,-parameter);weights[1]=parameter;}
-    else{const bool capped=secondOnly?parameter<std::bit_cast<float>(0x3c23d70au):parameter>std::bit_cast<float>(0x3f7d70a4u);
-        if(capped){std::memcpy(&fallback,coefficients+8,4);pairQualified(fallback);weights[0]=fallback;}
-        else{volatile float inverse=parameter==0?std::copysign(std::numeric_limits<float>::max(),parameter):1.f/parameter;weights[0]=pairNormal(inverse);}}
-    std::array<std::array<float,4>,2> results;const unsigned count=paired?2:1;
-    for(unsigned which=0;which<count;++which){const auto *input=paired?(which?b:a):secondOnly?b:a;std::memcpy(results[which].data(),input,16);
-        for(unsigned i=0;i<3;++i){pairQualified(input[i]);}
-        {music::CodecRounding validation;for(unsigned i=0;i<3;++i){const double bound=std::abs(double(input[i]))+std::abs(double(correction[i])*weights[which]);
-            if(bound>double(std::numeric_limits<float>::max())/2)throw std::runtime_error("collision response position overflow");}}
-        for(unsigned i=0;i<3;++i){const auto base=paired?pairSum(input[i],0.f):pairProduct(input[i],1.f);results[which][i]=pairSum(base,pairProduct(correction[i],weights[which]));}
+    // PS2 words (see Ps2Word), 1fc038..1fc174: scaled = n * (depth * w-coefficient);
+    // paired: (A+0) + scaled*(1-t), (B+0) + scaled*t; single: P*1 + scaled*k with
+    // k = the +8 coefficient when capped, else DIV(1, t). t comes clamped from the
+    // segment solve; anything else is not this caller.
+    const auto parameter=Ps2Word::of(c->f[12]),depth=Ps2Word::of(c->f[13]),scale=Ps2Word::load(coefficients+12);
+    if(parameter.abs()>Ps2Word{0x40000000u})throw std::runtime_error("unqualified collision response coefficients");
+    const auto scaledDepth=depth*scale;Ps2Word correction[3];
+    for(unsigned i=0;i<3;++i)correction[i]=Ps2Word::load(normal+4*i)*scaledDepth;
+    Ps2Word weights[2];if(paired){weights[0]=kPs2One-parameter;weights[1]=parameter;}
+    else{const bool capped=secondOnly?parameter<Ps2Word{0x3c23d70au}:parameter>Ps2Word{0x3f7d70a4u};
+        weights[0]=capped?Ps2Word::load(coefficients+8):kPs2One/parameter;}
+    std::array<std::array<uint8_t,16>,2> results;const unsigned count=paired?2:1;
+    for(unsigned which=0;which<count;++which){const auto *input=paired?(which?second:first):secondOnly?second:first;std::memcpy(results[which].data(),input,16);
+        for(unsigned i=0;i<3;++i){const auto value=Ps2Word::load(input+4*i);const auto base=paired?value+kPs2Zero:value*kPs2One;
+            (base+correction[i]*weights[which]).store(results[which].data()+4*i);}
     }
     // Pair results are snapshotted before either store; only the already
     // loaded position's own W survives either source path.
     if(paired){std::memcpy(first,results[0].data(),16);std::memcpy(second,results[1].data(),16);}
     else std::memcpy(destination,results[0].data(),16);
 }
-struct AngularDirections {std::array<float,3> first,second;float cosine;};
+struct AngularDirections {std::array<Ps2Word,3> first,second;Ps2Word cosine;};
 AngularDirections angularDirections(Runtime *rt,R5900Context *c){
     const auto stack=c->r[29].uw[0];auto *frame=record(rt,stack,0x1a0);
     if(c->r[4].uw[0]!=stack+0x190 || c->r[5].uw[0]!=stack+0x150)
@@ -278,48 +299,31 @@ AngularDirections angularDirections(Runtime *rt,R5900Context *c){
     auto *part=external(c->r[21].uw[0],0x40);uint32_t pointRecord;std::memcpy(&pointRecord,part+0x38,4);
     external(c->r[19].uw[0],0xa0);external(c->r[17].uw[0],0x210);external(c->r[16].uw[0],0x210);
     auto *point=external(pointRecord,0xa0);
-    math::Matrix matrix;float rows[4][4],points[2][4];std::memcpy(matrix.data(),frame+0x150,64);std::memcpy(rows,matrix.data(),64);
-    std::memcpy(points[0],frame+0x190,16);std::memcpy(points[1],point+0x30,16);
-    for(auto &row:rows)for(unsigned i=0;i<3;++i)pairQualified(row[i]);
-    for(auto &v:points)for(unsigned i=0;i<3;++i)pairQualified(v[i]);
-    {music::CodecRounding validation;const double limit=std::sqrt(double(std::numeric_limits<float>::max())/3);
-        for(auto &v:points)for(unsigned lane=0;lane<3;++lane){double bound=std::abs(double(rows[3][lane]));
-            for(unsigned i=0;i<3;++i)bound+=std::abs(double(rows[i][lane])*v[i]);
-            if(bound>limit)throw std::runtime_error("angular-constraint transform/length overflow");}}
-    // Only XYZ survives normalization and the cosine consumer. Discard dead
-    // input/output W work explicitly; all three translation coordinates remain.
-    for(auto &row:matrix)row=_mm_blend_ps(row,_mm_setzero_ps(),8);
+    // PS2 words (see Ps2Word), transcribed from 1fcd08..1fcda4: the frame
+    // matrix at SP+150 transforms SP+190 and the point record +30 (MULA/MADDA
+    // x,y,z then MADDw with 1); each length is RSQRT(1, (x*x+y*y)+1*(z*z));
+    // the cosine is (a.x*b.x + a.y*b.y) + a.z*b.z through MR32 rotations.
+    Ps2Word rows[4][3],points[2][3];
+    for(unsigned r=0;r<4;++r)for(unsigned i=0;i<3;++i)rows[r][i]=Ps2Word::load(frame+0x150+16*r+4*i);
+    for(unsigned i=0;i<3;++i){points[0][i]=Ps2Word::load(frame+0x190+4*i);points[1][i]=Ps2Word::load(point+0x30+4*i);}
     AngularDirections result;
-    for(unsigned which=0;which<2;++which){__m128 pointVector;std::memcpy(&pointVector,points[which],16);
-        pointVector=_mm_blend_ps(pointVector,_mm_set1_ps(1),8);
-        const auto transformed=math::matrixVectorProduct(matrix,pointVector);float value[4];std::memcpy(value,&transformed,16);
-        const auto squared=pairSum(pairSum(pairProduct(value[0],value[0]),pairProduct(value[1],value[1])),pairProduct(1.f,pairProduct(value[2],value[2])));
-        volatile float length=static_cast<float>(std::sqrt(double(squared)));
-        volatile float reciprocal=length==0?std::numeric_limits<float>::max():static_cast<float>(1.0/double(length));
-        auto &direction=which?result.second:result.first;
-        {music::CodecRounding validation;for(unsigned i=0;i<3;++i)if(std::abs(double(value[i])*reciprocal)>std::numeric_limits<float>::max())
-            throw std::runtime_error("angular-constraint normalization overflow");}
-        for(unsigned i=0;i<3;++i)direction[i]=pairProduct(value[i],pairNormal(reciprocal));
-    }
-    {music::CodecRounding validation;double bound=0;for(unsigned i=0;i<3;++i)bound+=std::abs(double(result.first[i])*result.second[i]);
-        if(bound>std::numeric_limits<float>::max())throw std::runtime_error("angular-constraint cosine overflow");}
-    result.cosine=pairSum(pairSum(pairProduct(result.first[0],result.second[0]),pairProduct(result.first[1],result.second[1])),pairProduct(result.first[2],result.second[2]));
+    for(unsigned which=0;which<2;++which){Ps2Word value[3],squares[3];
+        for(unsigned l=0;l<3;++l){value[l]=((rows[0][l]*points[which][0]+rows[1][l]*points[which][1])+rows[2][l]*points[which][2])+rows[3][l]*kPs2One;squares[l]=value[l]*value[l];}
+        const auto q=Ps2Word::reciprocalRoot(kPs2One,(squares[0]+squares[1])+kPs2One*squares[2]);
+        auto &direction=which?result.second:result.first;for(unsigned i=0;i<3;++i)direction[i]=value[i]*q;}
+    result.cosine=(result.first[0]*result.second[0]+result.first[1]*result.second[1])+result.first[2]*result.second[2];
     return result;
 }
-std::array<float,4> composeConstraintQuaternions(const std::array<float,4> &a,const std::array<float,4> &b){
-    for(float v:a)pairQualified(v);for(float v:b)pairQualified(v);
-    {music::CodecRounding validation;const double limit=std::numeric_limits<float>::max();double scalarBound=0;
-        for(unsigned i=0;i<4;++i)scalarBound+=std::abs(double(a[i])*b[i]);
-        if(scalarBound>limit)throw std::runtime_error("joint quaternion scalar overflow");
-        for(unsigned i=0;i<3;++i){const auto j=(i+1)%3,k=(i+2)%3;
-            const double bound=std::abs(double(b[i])*a[3])+std::abs(double(a[i])*b[3])+std::abs(double(a[j])*b[k])+std::abs(double(b[j])*a[k]);
-            if(bound>limit)throw std::runtime_error("joint quaternion vector overflow");}}
-    float products[4];for(unsigned i=0;i<4;++i)products[i]=pairProduct(a[i],b[i]);std::array<float,4> result;
+// PS2 words (see Ps2Word): xyz = (b*a.w + a*b.w) + (a.yzx*b.zxy - b.yzx*a.zxy)*1,
+// w = ((a.w*b.w - a.z*b.z) - a.y*b.y) - a.x*b.x, in the listing's order.
+std::array<Ps2Word,4> composeConstraintQuaternions(const std::array<Ps2Word,4> &a,const std::array<Ps2Word,4> &b){
+    Ps2Word products[4];for(unsigned i=0;i<4;++i)products[i]=a[i]*b[i];std::array<Ps2Word,4> result;
     for(unsigned i=0;i<3;++i){const auto j=(i+1)%3,k=(i+2)%3;
-        const auto cross=pairSum(pairProduct(a[j],b[k]),-pairProduct(b[j],a[k]));
-        const auto base=pairSum(pairProduct(b[i],a[3]),pairProduct(a[i],b[3]));result[i]=pairSum(base,pairProduct(cross,1.f));}
-    result[3]=pairSum(pairSum(pairSum(products[3],-products[2]),-products[1]),-products[0]);return result;
+        const auto cross=a[j]*b[k]-b[j]*a[k];
+        const auto base=b[i]*a[3]+a[i]*b[3];result[i]=base+cross*kPs2One;}
+    result[3]=((products[3]-products[2])-products[1])-products[0];return result;
 }
+
 std::array<float,4> linearQuaternionBlend(const std::array<float,4> &a,const std::array<float,4> &b,float firstWeight,float secondWeight,bool subtract,float scale=1.f){
     for(float v:a)pairQualified(v);for(float v:b)pairQualified(v);pairQualified(firstWeight);pairQualified(secondWeight);pairQualified(scale);
     {music::CodecRounding validation;const double limit=std::sqrt(double(std::numeric_limits<float>::max())/4);
@@ -690,18 +694,12 @@ bool nativeSegmentContact(R5900Context *c,Runtime *rt,uint32_t pc){
     const auto overlaps=[](uint32_t a,uint32_t an,uint32_t b,uint32_t bn){return (a&0x1fffffff)<(b&0x1fffffff)+bn && (b&0x1fffffff)<(a&0x1fffffff)+an;};
     for(uint32_t scalar:{c->r[16].uw[0],c->r[17].uw[0]})
         if(overlaps(scalar,4,segment,0x20) || overlaps(scalar,4,sphere,0x10))throw std::runtime_error("native segment contact inputs alias its scalar outputs");
-    float a[4],d[4],p[4];std::memcpy(a,record(rt,segment,16),16);std::memcpy(d,record(rt,segment+0x10,16),16);std::memcpy(p,record(rt,sphere,16),16);
-    const float t=vu0Input(std::bit_cast<float>(c->r[2].uw[0]));
-    for(unsigned i=0;i<3;++i){a[i]=vu0Input(a[i]);d[i]=vu0Input(d[i]);p[i]=vu0Input(p[i]);}
-    float normal[3];
-    {music::NearestRounding rounding;
-        float delta[3],squared[3];
-        for(unsigned i=0;i<3;++i){delta[i]=pairSum(pairSum(pairSum(0.f,a[i]),pairProduct(d[i],t)),-pairProduct(p[i],1.f));squared[i]=pairProduct(delta[i],delta[i]);}
-        const auto length2=pairSum(pairSum(squared[0],squared[1]),pairProduct(1.f,squared[2]));
-        if(!std::bit_cast<uint32_t>(length2) || !std::isfinite(length2))throw std::runtime_error("unqualified native segment contact length");
-        volatile float root=std::sqrt(length2);volatile float reciprocal=1.f/pairNormal(root);
-        for(unsigned i=0;i<3;++i)normal[i]=pairProduct(delta[i],pairNormal(reciprocal));
-    }
+    // PS2 words (see Ps2Word): no magnitude gate; Q = RSQRT(1, |d|^2) as one VU op.
+    const auto *A=record(rt,segment,16),*D=record(rt,segment+0x10,16),*P=record(rt,sphere,16);
+    const Ps2Word t{c->r[2].uw[0]};Ps2Word delta[3],squared[3];
+    for(unsigned i=0;i<3;++i){delta[i]=((kPs2Zero+Ps2Word::load(A+4*i))+Ps2Word::load(D+4*i)*t)-Ps2Word::load(P+4*i)*kPs2One;squared[i]=delta[i]*delta[i];}
+    const auto q=Ps2Word::reciprocalRoot(kPs2One,(squared[0]+squared[1])+kPs2One*squared[2]);
+    uint8_t normal[12];for(unsigned i=0;i<3;++i)(delta[i]*q).store(normal+4*i);
     std::memcpy(record(rt,normalAt,16),normal,12);return true;
 }
 // Animated UVs of a model's VU1 packet, mod001 2188d0. The original builds a
@@ -972,6 +970,15 @@ Lanes leafTransform(const LeafInputs &in,const Lanes &v){Lanes out;
     for(unsigned i=0;i<4;++i)out[i]=pairSum(pairSum(pairSum(pairProduct(in.rows[0][i],v[0]),pairProduct(in.rows[1][i],v[1])),pairProduct(in.rows[2][i],v[2])),pairProduct(in.rows[3][i],1.f));
     return out;}
 float leafAbs(float v){return std::bit_cast<float>(std::bit_cast<uint32_t>(v)&0x7fffffffu);}
+// PS2-word lanes for the chain owner 1fd110 and its capsule pair 1fc300 (see
+// Ps2Word): the same orders as leafRecord/leafTransform, for every word.
+using Ps2Lanes=std::array<Ps2Word,4>;
+Ps2Lanes ps2Record(Runtime *rt,uint32_t at){Ps2Lanes v;const auto *p=record(rt,at,16);for(unsigned i=0;i<4;++i)v[i]=Ps2Word::load(p+4*i);return v;}
+void ps2Publish(Runtime *rt,uint32_t at,const Ps2Lanes &v,unsigned lanes=4){auto *p=record(rt,at,16);for(unsigned i=0;i<lanes;++i)v[i].store(p+4*i);}
+struct Ps2Rows{Ps2Lanes rows[4];};
+Ps2Rows ps2Rows(Runtime *rt,uint32_t at,unsigned n){Ps2Rows m;for(unsigned i=0;i<4;++i)m.rows[i]=i<n?ps2Record(rt,at+16*i):Ps2Lanes{};return m;}
+Ps2Lanes ps2Transform(const Ps2Rows &m,const Ps2Lanes &v){Ps2Lanes out;
+    for(unsigned i=0;i<4;++i)out[i]=((m.rows[0][i]*v[0]+m.rows[1][i]*v[1])+m.rows[2][i]*v[2])+m.rows[3][i]*kPs2One;return out;}
 // 1f6e10: sphere (a0: centre, radius w) against segment a1 (+0 point, +10
 // direction); stores {S.xyz, distance} to its frame, returns distance <= 0.
 bool nativeLeafSphere(R5900Context *c,Runtime *rt,uint32_t pc){
@@ -1136,44 +1143,34 @@ bool nativeBoneAim(R5900Context *c,Runtime *rt,uint32_t pc){
     if(!(aim || multiply) || (pc&3))return false;
     if(!c)throw std::runtime_error("native bone aim has no CPU record");
     const auto stack=c->r[29].uw[0];
+    // PS2 words (see Ps2Word): every word is a VU number, degenerate vectors
+    // follow RSQRT/DIV (+/-max) as the VU does.
     if(multiply){
         if(c->r[2].uw[0]!=stack+0x160 || c->r[3].uw[0]!=c->r[17].uw[0]+0x30)throw std::runtime_error("native bone quaternion product escaped its records");
         if(pc!=0x1fe6c0)return true;
-        const auto q1=leafRecord(rt,stack+0x160),q2=leafRecord(rt,c->r[17].uw[0]+0x30);Lanes out;
-        {music::NearestRounding rounding;
-            const Lanes cross={pairSum(pairProduct(q1[1],q2[2]),-pairProduct(q2[1],q1[2])),pairSum(pairProduct(q1[2],q2[0]),-pairProduct(q2[2],q1[0])),
-                               pairSum(pairProduct(q1[0],q2[1]),-pairProduct(q2[0],q1[1])),0};
-            for(unsigned i=0;i<3;++i)out[i]=pairSum(pairSum(pairProduct(q2[i],q1[3]),pairProduct(q1[i],q2[3])),pairProduct(cross[i],1.f));
-            Lanes p;for(unsigned i=0;i<4;++i)p[i]=pairProduct(q1[i],q2[i]);
-            out[3]=pairSum(pairSum(pairSum(p[3],-p[2]),-pairProduct(1.f,p[1])),-pairProduct(1.f,p[0]));}
-        std::memcpy(record(rt,stack+0x160,16),out.data(),16);return true;
+        const auto q1=ps2Record(rt,stack+0x160),q2=ps2Record(rt,c->r[17].uw[0]+0x30);Ps2Lanes out;
+        const Ps2Word cross[3]={q1[1]*q2[2]-q2[1]*q1[2],q1[2]*q2[0]-q2[2]*q1[0],q1[0]*q2[1]-q2[0]*q1[1]};
+        for(unsigned i=0;i<3;++i)out[i]=(q2[i]*q1[3]+q1[i]*q2[3])+cross[i]*kPs2One;
+        Ps2Word p[4];for(unsigned i=0;i<4;++i)p[i]=q1[i]*q2[i];
+        out[3]=((p[3]-p[2])-kPs2One*p[1])-kPs2One*p[0];
+        ps2Publish(rt,stack+0x160,out);return true;
     }
     const auto partnerAt=c->r[30].uw[0]+0x38;if((partnerAt&3) || (partnerAt&0x1ffffff)<0x100000)throw std::runtime_error("native bone aim partner record outside EE RAM");
     uint32_t partner;std::memcpy(&partner,rt->memory.hostPointer(partnerAt,4),4);
     if(pc==0x1fe598 && (c->r[5].uw[0]!=stack+0x180 || c->r[4].uw[0]!=stack+0x1c0 || c->r[3].uw[0]!=partner+0x30))throw std::runtime_error("native bone aim sources mismatch");
     if(pc!=0x1fe63c && pc!=0x1fe680)return true;
     if(pc==0x1fe63c?c->r[3].uw[0]!=stack+0x170:c->r[2].uw[0]!=stack+0x160)throw std::runtime_error("native bone aim destination mismatch");
-    LeafInputs m;for(unsigned i=0;i<4;++i)m.rows[i]=leafRecord(rt,stack+0x180+16*i);m.scale=0;
-    const auto a=leafRecord(rt,stack+0x1c0),b=leafRecord(rt,partner+0x30);
-    float dot;Lanes quaternion;
-    {music::NearestRounding rounding;
-        const auto unit=[&](const Lanes &v){const auto t=leafTransform(m,v);
-            const auto squared=pairSum(pairSum(pairProduct(t[0],t[0]),pairProduct(t[1],t[1])),pairProduct(1.f,pairProduct(t[2],t[2])));
-            if(!(std::bit_cast<uint32_t>(squared)&0x7fffffffu))throw std::runtime_error("native bone aim has a zero vector");
-            volatile float root=std::sqrt(std::abs(squared));volatile float reciprocal=1.f/pairNormal(root);
-            Lanes u;for(unsigned i=0;i<3;++i)u[i]=pairProduct(t[i],pairNormal(reciprocal));return u;};
-        const auto ua=unit(a),ub=unit(b);
-        dot=pairSum(pairSum(pairProduct(ua[0],ub[0]),pairProduct(ua[1],ub[1])),pairProduct(ua[2],ub[2]));
-        const Lanes cross={pairSum(pairProduct(ub[1],ua[2]),-pairProduct(ua[1],ub[2])),pairSum(pairProduct(ub[2],ua[0]),-pairProduct(ua[2],ub[0])),
-                           pairSum(pairProduct(ub[0],ua[1]),-pairProduct(ua[0],ub[1])),0};
-        const auto sum=pairSum(pairSum(0.f,2.f),pairProduct(dot,2.f));
-        volatile float root=std::sqrt(std::abs(sum));const auto q=pairProduct(1.f,pairNormal(root));
-        if(!(std::bit_cast<uint32_t>(q)&0x7fffffffu))throw std::runtime_error("native bone aim has opposite vectors");
-        volatile float reciprocal=1.f/q;for(unsigned i=0;i<3;++i)quaternion[i]=pairProduct(cross[i],pairNormal(reciprocal));
-        quaternion[3]=pairProduct(q,0.5f);}
-    if(pc==0x1fe63c)std::memcpy(record(rt,stack+0x170,16),&dot,4);
-    else std::memcpy(record(rt,stack+0x160,16),quaternion.data(),16);
-    return true;
+    const auto m=ps2Rows(rt,stack+0x180,4);const auto a=ps2Record(rt,stack+0x1c0),b=ps2Record(rt,partner+0x30);
+    const auto unit=[&](const Ps2Lanes &v){const auto t=ps2Transform(m,v);
+        const auto q=Ps2Word::reciprocalRoot(kPs2One,(t[0]*t[0]+t[1]*t[1])+kPs2One*(t[2]*t[2]));
+        Ps2Lanes u{};for(unsigned i=0;i<3;++i)u[i]=t[i]*q;return u;};
+    const auto ua=unit(a),ub=unit(b);
+    const auto dot=(ua[0]*ub[0]+ua[1]*ub[1])+ua[2]*ub[2];
+    if(pc==0x1fe63c){dot.store(record(rt,stack+0x170,16));return true;}
+    const Ps2Word cross[3]={ub[1]*ua[2]-ua[1]*ub[2],ub[2]*ua[0]-ua[2]*ub[0],ub[0]*ua[1]-ua[0]*ub[1]};
+    const Ps2Word two{0x40000000u};const auto q=kPs2One*((kPs2Zero+two)+dot*two).root(),reciprocal=kPs2One/q;
+    Ps2Lanes quaternion;for(unsigned i=0;i<3;++i)quaternion[i]=cross[i]*reciprocal;quaternion[3]=q*Ps2Word{0x3f000000u};
+    ps2Publish(rt,stack+0x160,quaternion);return true;
 }
 // mod001 1fd110 chain constraint blocks (s1 = part record, s2 = chain owner,
 // owner object = *(s2+4)). VU registers that cross EE code between blocks
@@ -1195,8 +1192,7 @@ bool nativeChainBlocks(R5900Context *c,Runtime *rt,uint32_t pc){
     const auto stack=c->r[29].uw[0],part=c->r[17].uw[0];
     const auto word=[&](uint32_t at){if((at&3) || (at&0x1ffffff)<0x100000)throw std::runtime_error("native chain record outside EE RAM");
         uint32_t v;std::memcpy(&v,rt->memory.hostPointer(at,4),4);return v;};
-    const auto rowsAt=[&](uint32_t at,unsigned n){LeafInputs m;for(unsigned i=0;i<4;++i)m.rows[i]=i<n?leafRecord(rt,at+16*i):Lanes{0,0,0,0};m.scale=0;return m;};
-    const auto raw=[&](uint32_t at){Lanes v;std::memcpy(v.data(),record(rt,at,16),16);return v;};
+    // PS2 words (see Ps2Word): every word is a VU number (no overflow gates).
     if(place){
         const auto point=word(part+0x38)+0x30,matrix=word(c->r[18].uw[0]+4)+0x190;
         if(pc==0x1fda08 && c->r[2].uw[0]!=point)throw std::runtime_error("native chain point source mismatch");
@@ -1205,18 +1201,16 @@ bool nativeChainBlocks(R5900Context *c,Runtime *rt,uint32_t pc){
         const bool offset=(word(part+0x20)&4)!=0;
         if(pc==0x1fda70){if(!offset)throw std::runtime_error("native chain offset branch mismatch");std::memcpy(record(rt,stack+0x460,16),record(rt,part,16),16);return true;}
         if(pc==0x1fda7c){if(offset)throw std::runtime_error("native chain offset branch mismatch");const float identity[4]={0,0,0,1};std::memcpy(record(rt,stack+0x460,16),identity,16);return true;}
-        const auto m=rowsAt(matrix,4);const auto p=leafRecord(rt,point);Lanes out;
-        {music::NearestRounding rounding;out=leafTransform(m,p);
-            if(offset){const auto shift=leafRecord(rt,part);for(unsigned i=0;i<3;++i)out[i]=pairSum(out[i],shift[i]);}}
-        for(float x:out)if(!std::isfinite(x))throw std::runtime_error("native chain placement overflow");
-        std::memcpy(record(rt,stack+0x220,16),out.data(),16);return true;
+        auto out=ps2Transform(ps2Rows(rt,matrix,4),ps2Record(rt,point));
+        if(offset){const auto shift=ps2Record(rt,part);for(unsigned i=0;i<3;++i)out[i]=out[i]+shift[i];}
+        ps2Publish(rt,stack+0x220,out);return true;
     }
     if(split){
         if(pc!=0x1fdaec && pc!=0x1fdaf0)return true;
         if(pc==0x1fdaec?c->r[3].uw[0]!=stack+0x460:c->r[2].uw[0]!=stack+0x470)throw std::runtime_error("native chain split destination mismatch");
-        const auto v=leafRecord(rt,stack+0x220);const float scale=leafLane(pc==0x1fdaec?std::bit_cast<float>(word(part+0x30)):c->f[22]);
-        Lanes out;{music::NearestRounding rounding;for(unsigned i=0;i<4;++i)out[i]=pairProduct(v[i],scale);}
-        std::memcpy(record(rt,pc==0x1fdaec?stack+0x460:stack+0x470,16),out.data(),16);return true;
+        const auto v=ps2Record(rt,stack+0x220);const auto scale=pc==0x1fdaec?Ps2Word{word(part+0x30)}:Ps2Word::of(c->f[22]);
+        Ps2Lanes out;for(unsigned i=0;i<4;++i)out[i]=v[i]*scale;
+        ps2Publish(rt,pc==0x1fdaec?stack+0x460:stack+0x470,out);return true;
     }
     if(rotateA || rotateB){
         const auto matrix=word(c->r[18].uw[0]+4)+0x150;const uint32_t store=rotateA?0x1fdb74:0x1fdc68;
@@ -1224,31 +1218,29 @@ bool nativeChainBlocks(R5900Context *c,Runtime *rt,uint32_t pc){
             throw std::runtime_error("native chain rotation source mismatch");
         if(pc!=store)return true;
         if(c->r[2].uw[0]!=stack+0x210)throw std::runtime_error("native chain rotation destination mismatch");
-        const auto m=rowsAt(matrix,3);const auto v=leafRecord(rt,stack+0x210);Lanes out;
-        {music::NearestRounding rounding;for(unsigned i=0;i<4;++i)out[i]=pairSum(pairSum(pairProduct(m.rows[0][i],v[0]),pairProduct(m.rows[1][i],v[1])),pairProduct(m.rows[2][i],v[2]));}
-        std::memcpy(record(rt,stack+0x210,16),out.data(),16);return true;
+        const auto m=ps2Rows(rt,matrix,3);const auto v=ps2Record(rt,stack+0x210);Ps2Lanes out;
+        for(unsigned i=0;i<4;++i)out[i]=(m.rows[0][i]*v[0]+m.rows[1][i]*v[1])+m.rows[2][i]*v[2];
+        ps2Publish(rt,stack+0x210,out);return true;
     }
     if(blend){
         if(pc==0x1fdeb0 && c->r[2].uw[0]!=stack+0x220)throw std::runtime_error("native chain blend source mismatch");
         if(pc!=0x1fdee4 && pc!=0x1fdee8)return true;
         if(pc==0x1fdee4?c->r[3].uw[0]!=stack+0x200:c->r[2].uw[0]!=stack+0x1f0)throw std::runtime_error("native chain blend destination mismatch");
-        const auto dir=leafRecord(rt,stack+0x220),origin=leafRecord(rt,stack+0x460);
-        auto out=raw(pc==0x1fdee4?stack+0x460:stack+0x220);   // W kept raw
-        {music::NearestRounding rounding;
-            const float a=leafLane(std::bit_cast<float>(word(part+0x30))),s=leafLane(c->f[22]);
-            for(unsigned i=0;i<3;++i)out[i]=pc==0x1fdee4?pairSum(pairSum(origin[i],0.f),pairProduct(dir[i],a)):pairSum(pairSum(dir[i],0.f),-pairProduct(dir[i],s));}
-        std::memcpy(record(rt,pc==0x1fdee4?stack+0x200:stack+0x1f0,16),out.data(),16);return true;
+        const auto dir=ps2Record(rt,stack+0x220),origin=ps2Record(rt,stack+0x460);
+        auto out=ps2Record(rt,pc==0x1fdee4?stack+0x460:stack+0x220);   // W kept raw
+        const Ps2Word a{word(part+0x30)};const auto s=Ps2Word::of(c->f[22]);
+        for(unsigned i=0;i<3;++i)out[i]=pc==0x1fdee4?(origin[i]+kPs2Zero)+dir[i]*a:(dir[i]+kPs2Zero)-dir[i]*s;
+        ps2Publish(rt,pc==0x1fdee4?stack+0x200:stack+0x1f0,out);return true;
     }
     // product
     const auto owner=c->r[16].uw[0];
     if(c->r[4].uw[0]!=stack+0x120 || c->r[3].uw[0]!=owner+0x30 || c->r[2].uw[0]!=stack+0x110)throw std::runtime_error("native chain product escaped its records");
     if(pc!=0x1fe7e8)return true;
-    const auto m=rowsAt(stack+0x120,4);const auto v=leafRecord(rt,owner+0x30);Lanes out;
-    {music::NearestRounding rounding;Lanes p[4];for(unsigned k=0;k<4;++k)for(unsigned i=0;i<4;++i)p[k][i]=pairProduct(m.rows[k][i],v[i]);
-        constexpr unsigned order[4][4]={{0,1,2,3},{1,0,2,3},{2,1,0,3},{3,1,2,0}};
-        for(unsigned k=0;k<4;++k)out[k]=pairSum(pairSum(pairSum(p[k][order[k][0]],p[k][order[k][1]]),pairProduct(1.f,p[k][order[k][2]])),pairProduct(1.f,p[k][order[k][3]]));}
-    for(float x:out)if(!std::isfinite(x))throw std::runtime_error("native chain product overflow");
-    std::memcpy(record(rt,stack+0x110,16),out.data(),16);return true;
+    const auto m=ps2Rows(rt,stack+0x120,4);const auto v=ps2Record(rt,owner+0x30);Ps2Lanes out;
+    Ps2Word p[4][4];for(unsigned k=0;k<4;++k)for(unsigned i=0;i<4;++i)p[k][i]=m.rows[k][i]*v[i];
+    constexpr unsigned order[4][4]={{0,1,2,3},{1,0,2,3},{2,1,0,3},{3,1,2,0}};
+    for(unsigned k=0;k<4;++k)out[k]=((p[k][order[k][0]]+p[k][order[k][1]])+kPs2One*p[k][order[k][2]])+kPs2One*p[k][order[k][3]];
+    ps2Publish(rt,stack+0x110,out);return true;
 }
 // mod001 1fc300 capsule pair (virtual +94 of the chain part, called only from
 // 1fdc24 with ra 1fdc2c). a0 = capsule A, a1 = capsule B, a2 = per-axis
@@ -1266,40 +1258,34 @@ bool nativeCapsulePair(R5900Context *c,Runtime *rt,uint32_t pc){
     const auto stack=c->r[29].uw[0],a=c->r[20].uw[0],b=c->r[19].uw[0];
     const auto word=[&](uint32_t at){if(at&3)throw std::runtime_error("native capsule word misaligned");
         uint32_t v;std::memcpy(&v,rt->memory.hostPointer(at,4),4);return v;};
-    const auto lane=[&](uint32_t at){return leafLane(std::bit_cast<float>(word(at)));};
+    const auto lane=[&](uint32_t at){return Ps2Word{word(at)};};
+    // PS2 words (see Ps2Word): every word is a VU number; zero weights and
+    // separations follow DIV/RSQRT (+/-max) as the VU does.
     if(place){
         if(pc==0x1fc334 && (c->r[2].uw[0]!=a+0x250 || c->r[31].uw[0]!=0x1fdc2c))throw std::runtime_error("native capsule pair caller mismatch");
         if(pc!=0x1fc3c0 && pc!=0x1fc3c4)return true;
         if(c->r[2].uw[0]!=stack+0x60)throw std::runtime_error("native capsule pair destination mismatch");
-        LeafInputs m;const auto matrix=word(word(stack+0x20)+4)+0x190;for(unsigned i=0;i<4;++i)m.rows[i]=leafRecord(rt,matrix+16*i);m.scale=0;
-        Lanes out;
+        const auto m=ps2Rows(rt,word(word(stack+0x20)+4)+0x190,4);Ps2Lanes out;
         if(pc==0x1fc3c4){
-            const auto d=leafRecord(rt,a+0x260);
-            {music::NearestRounding rounding;for(unsigned i=0;i<4;++i)out[i]=pairSum(pairSum(pairProduct(m.rows[0][i],d[0]),pairProduct(m.rows[1][i],d[1])),pairProduct(m.rows[2][i],d[2]));}
-            for(float x:out)if(!std::isfinite(x))throw std::runtime_error("native capsule direction overflow");
-            std::memcpy(record(rt,stack+0x70,16),out.data(),16);return true;
+            const auto d=ps2Record(rt,a+0x260);
+            for(unsigned i=0;i<4;++i)out[i]=(m.rows[0][i]*d[0]+m.rows[1][i]*d[1])+m.rows[2][i]*d[2];
+            ps2Publish(rt,stack+0x70,out);return true;
         }
-        const auto weights=leafRecord(rt,c->r[6].uw[0]);const float ra=lane(a+0x220),rb=lane(b+0x220);
-        {music::NearestRounding rounding;out=leafTransform(m,leafRecord(rt,a+0x250));const auto sum=pairSum(rb,ra);
-            for(unsigned i=0;i<3;++i){const auto den=pairSum(pairSum(0.f,ra),pairProduct(weights[i],rb));
-                if(!(std::bit_cast<uint32_t>(den)&0x7fffffffu))throw std::runtime_error("native capsule pair has a zero weight");
-                volatile float q=sum/den;out[i]=pairProduct(out[i],pairNormal(q));}}
-        for(float x:out)if(!std::isfinite(x))throw std::runtime_error("native capsule point overflow");
-        std::memcpy(record(rt,stack+0x60,16),out.data(),16);return true;
+        const auto weights=ps2Record(rt,c->r[6].uw[0]);const auto ra=lane(a+0x220),rb=lane(b+0x220);
+        out=ps2Transform(m,ps2Record(rt,a+0x250));const auto sum=rb+ra;
+        for(unsigned i=0;i<3;++i)out[i]=out[i]*(sum/((kPs2Zero+ra)+weights[i]*rb));
+        ps2Publish(rt,stack+0x60,out);return true;
     }
     if(pc==0x1fc410 && (c->r[3].uw[0]!=b+0x230 || c->r[2].uw[0]!=b+0x240 || c->r[5].uw[0]!=stack+0x60 || c->r[4].uw[0]!=stack+0x70))
         throw std::runtime_error("native capsule separation sources mismatch");
     if(pc!=0x1fc478)return true;
     const auto target=c->r[18].uw[0];if(target&15)throw std::runtime_error("native capsule separation destination misaligned");
-    const auto p0=leafRecord(rt,b+0x230),p1=leafRecord(rt,b+0x240),p=leafRecord(rt,stack+0x60),d=leafRecord(rt,stack+0x70);
-    const float tb=lane(stack+0x88),ta=lane(stack+0x8c);Lanes out;
-    {music::NearestRounding rounding;Lanes delta;
-        for(unsigned i=0;i<3;++i)delta[i]=pairSum(pairSum(pairSum(pairSum(p0[i],0.f),pairProduct(p1[i],tb)),-pairProduct(p[i],1.f)),-pairProduct(d[i],ta));
-        const auto squared=pairSum(pairSum(pairProduct(delta[0],delta[0]),pairProduct(delta[1],delta[1])),pairProduct(1.f,pairProduct(delta[2],delta[2])));
-        if(!(std::bit_cast<uint32_t>(squared)&0x7fffffffu))throw std::runtime_error("native capsule separation is zero");
-        volatile float root=std::sqrt(std::abs(squared));volatile float reciprocal=1.f/pairNormal(root);
-        for(unsigned i=0;i<3;++i)out[i]=pairProduct(delta[i],pairNormal(reciprocal));}
-    std::memcpy(record(rt,target,16),out.data(),12);return true;
+    const auto p0=ps2Record(rt,b+0x230),p1=ps2Record(rt,b+0x240),p=ps2Record(rt,stack+0x60),d=ps2Record(rt,stack+0x70);
+    const auto tb=lane(stack+0x88),ta=lane(stack+0x8c);Ps2Lanes delta{};
+    for(unsigned i=0;i<3;++i)delta[i]=(((p0[i]+kPs2Zero)+p1[i]*tb)-p[i]*kPs2One)-d[i]*ta;
+    const auto q=Ps2Word::reciprocalRoot(kPs2One,(delta[0]*delta[0]+delta[1]*delta[1])+kPs2One*(delta[2]*delta[2]));
+    for(unsigned i=0;i<3;++i)delta[i]=delta[i]*q;
+    ps2Publish(rt,target,delta,3);return true;
 }
 // mod001 1fbd60 plane contact (virtual +8c, a0 = plane object, a1 = point,
 // a2 = output, f12 = radius); all inputs are explicit:
@@ -1318,18 +1304,17 @@ bool nativePlaneContact(R5900Context *c,Runtime *rt,uint32_t pc){
         if(pc==0x1fbd6c && (c->r[3].uw[0]!=plane+0x230 || c->r[2].uw[0]!=plane+0x220))throw std::runtime_error("native plane contact source mismatch");
         if(pc!=0x1fbda0)return true;
         if(c->r[2].uw[0]!=stack+0x10)throw std::runtime_error("native plane contact destination mismatch");
-        const auto p=leafRecord(rt,point),o=leafRecord(rt,plane+0x230),n=leafRecord(rt,plane+0x220);const float r=leafLane(c->f[12]);float d;
-        {music::NearestRounding rounding;Lanes m;for(unsigned i=0;i<3;++i)m[i]=pairProduct(pairSum(p[i],-o[i]),n[i]);
-            d=pairSum(pairSum(pairSum(m[0],m[1]),pairProduct(1.f,m[2])),-r);}
-        std::memcpy(record(rt,stack+0x10,16),&d,4);return true;
+        // PS2 words (see Ps2Word): every word is a VU number.
+        const auto p=ps2Record(rt,point),o=ps2Record(rt,plane+0x230),n=ps2Record(rt,plane+0x220);Ps2Word m[3];
+        for(unsigned i=0;i<3;++i)m[i]=(p[i]-o[i])*n[i];
+        (((m[0]+m[1])+kPs2One*m[2])-Ps2Word::of(c->f[12])).store(record(rt,stack+0x10,16));return true;
     }
     {
         if(pc!=0x1fbdc0)return true;
         const auto target=c->r[6].uw[0];if(target&15)throw std::runtime_error("native plane contact output misaligned");
-        const auto p=leafRecord(rt,point),n=leafRecord(rt,plane+0x220);float d;std::memcpy(&d,record(rt,stack+0x10,16),4);d=leafLane(d);
-        Lanes out;std::memcpy(out.data(),record(rt,point,16),16);
-        {music::NearestRounding rounding;for(unsigned i=0;i<3;++i)out[i]=pairSum(pairSum(p[i],0.f),-pairProduct(n[i],d));}
-        std::memcpy(record(rt,target,16),out.data(),16);return true;
+        auto out=ps2Record(rt,point);const auto n=ps2Record(rt,plane+0x220);const auto d=Ps2Word::load(record(rt,stack+0x10,16));
+        for(unsigned i=0;i<3;++i)out[i]=(out[i]+kPs2Zero)-n[i]*d;
+        ps2Publish(rt,target,out);return true;
     }
     return true;
 }
@@ -2610,33 +2595,34 @@ bool nativeMathInstruction(uint8_t *,R5900Context *c,Runtime *rt,uint32_t pc){
     if(nativeFrustumInstruction(c,rt,pc))return true;
     if(pc==0x1fbff0 || pc==0x1fc010){
         auto contact=planeContact(rt,c);
-        if(pc==0x1fbff0)std::memcpy(record(rt,c->r[29].uw[0],16),&contact.distance,4);
+        if(pc==0x1fbff0)contact.distance.store(record(rt,c->r[29].uw[0],16));
         else{
-            if(contact.distance>0 || std::bit_cast<uint32_t>(c->f[1])!=std::bit_cast<uint32_t>(contact.distance))throw std::runtime_error("plane-contact projection branch mismatch");
-            for(unsigned i=0;i<3;++i)contact.point[i]=pairSum(pairSum(contact.point[i],0.f),-pairProduct(contact.normal[i],contact.distance));
+            if(contact.distance>kPs2Zero || std::bit_cast<uint32_t>(c->f[1])!=contact.distance.bits)throw std::runtime_error("plane-contact projection branch mismatch");
+            // ADDAx then MSUBx: p' = (p + 0) - n*d.
+            for(unsigned i=0;i<3;++i)((Ps2Word::load(contact.point.data()+4*i)+kPs2Zero)-contact.normal[i]*contact.distance).store(contact.point.data()+4*i);
             std::memcpy(record(rt,c->r[6].uw[0],16),contact.point.data(),16);
         }return true;
     }
     if(pc==0x1fbfbc || pc==0x1fbfc0 || pc==0x1fbfc4 || pc==0x1fbfd0 || pc==0x1fbfd8 || pc==0x1fbfdc || pc==0x1fbfe0 || pc==0x1fbfe4 || pc==0x1fbfe8 || pc==0x1fbfec || pc==0x1fc008 || pc==0x1fc00c)return true;
     if(pc==0x211fe8 || pc==0x212020 || pc==0x212064 || pc==0x212084){
-        const auto terms=pointSegmentTerms(rt,c);const auto stack=c->r[29].uw[0];float value;
+        const auto terms=pointSegmentTerms(rt,c);const auto stack=c->r[29].uw[0];Ps2Word value;
         if(c->r[2].uw[0]!=(pc==0x212020?stack:stack+0x10))throw std::runtime_error("point/segment temporary destination mismatch");
         if(pc==0x211fe8)value=terms.projection;
         else if(pc==0x212020)value=terms.lengthSquared;
         else if(pc==0x212064){
-            if(!(terms.projection>0 && terms.projection<terms.lengthSquared))throw std::runtime_error("point/segment interior branch mismatch");
-            volatile float ratio=terms.projection/terms.lengthSquared;value=pairSum(0.f,pairNormal(ratio));
+            if(!(terms.projection>kPs2Zero && terms.projection<terms.lengthSquared))throw std::runtime_error("point/segment interior branch mismatch");
+            value=kPs2Zero+terms.projection/terms.lengthSquared;
         }else{
             auto difference=terms.delta;
-            if(terms.projection>0){
-                if(terms.projection>=terms.lengthSquared){for(unsigned i=0;i<3;++i)difference[i]=pairSum(difference[i],-terms.direction[i]);}
-                else{volatile float ratio=terms.projection/terms.lengthSquared;for(unsigned i=0;i<3;++i)difference[i]=pairSum(pairSum(difference[i],0.f),-pairProduct(terms.direction[i],pairNormal(ratio)));}
+            if(terms.projection>kPs2Zero){
+                if(terms.projection>=terms.lengthSquared){for(unsigned i=0;i<3;++i)difference[i]=difference[i]-terms.direction[i];}
+                else{const auto ratio=terms.projection/terms.lengthSquared;for(unsigned i=0;i<3;++i)difference[i]=(difference[i]+kPs2Zero)-terms.direction[i]*ratio;}
             }
-            float squared[3];for(unsigned i=0;i<3;++i)squared[i]=pairProduct(difference[i],difference[i]);value=pairSum(pairSum(squared[0],squared[1]),pairProduct(1.f,squared[2]));
+            Ps2Word squared[3];for(unsigned i=0;i<3;++i)squared[i]=difference[i]*difference[i];value=(squared[0]+squared[1])+kPs2One*squared[2];
         }
         // Only X is used; complete frame/input/output span checks above guard
         // retirement of the other three temporary words.
-        std::memcpy(record(rt,c->r[2].uw[0],16),&value,4);return true;
+        value.store(record(rt,c->r[2].uw[0],16));return true;
     }
     switch(pc){
     case 0x211fb8:case 0x211fbc:case 0x211fc0:case 0x211fc4:case 0x211fc8:case 0x211fcc:case 0x211fd0:case 0x211fd4:
@@ -2656,7 +2642,7 @@ bool nativeMathInstruction(uint8_t *,R5900Context *c,Runtime *rt,uint32_t pc){
     if(pc==0x1fc690){const auto normal=collisionNormal(rt,c,pc);
         // Both audited physics continuations feed this record to 1fc030,
         // which consumes XYZ only. No stale normal W is synthesized.
-        std::memcpy(record(rt,c->r[18].uw[0],16),normal.data(),12);return true;}
+        auto *out=record(rt,c->r[18].uw[0],16);for(unsigned i=0;i<3;++i)normal[i].store(out+4*i);return true;}
     if(pc==0x1fc62c || pc==0x1fc638 || pc==0x1fc63c || pc==0x1fc640 || pc==0x1fc64c ||
        (pc>=0x1fc650 && pc<=0x1fc670 && !(pc&3)) || pc==0x1fc688 || pc==0x1fc68c)return true;
     if((pc>=0x2120ac && pc<=0x212110 && !(pc&3)) || pc==0x212118 || pc==0x212138 ||
@@ -2683,38 +2669,29 @@ bool nativeMathInstruction(uint8_t *,R5900Context *c,Runtime *rt,uint32_t pc){
         if(c->r[2].uw[0]!=stack+0x460)throw std::runtime_error("collision query origin destination mismatch");
         auto *part=record(rt,c->r[17].uw[0],0x40),*current=record(rt,c->r[18].uw[0],0x40);
         uint32_t otherAddress;std::memcpy(&otherAddress,part+0x38,4);auto *other=record(rt,otherAddress+0x30,16);
-        float a[4],b[4];std::memcpy(a,other,16);std::memcpy(b,current+0x30,16);
-        for(unsigned i=0;i<3;++i){pairQualified(a[i]);pairQualified(b[i]);}
-        float offset[3]{};const bool shifted=part[0x20]&4;
+        // PS2 words (see Ps2Word): offset = (M0*l.x + M1*l.y) + M2*l.z when
+        // shifted (MULA/MADDA/MADD), then A' = A + offset, B' = B + offset,
+        // origin = B', direction = A' - B'. W lanes stay the sources' words.
+        std::array<uint8_t,16> a,b;std::memcpy(a.data(),other,16);std::memcpy(b.data(),current+0x30,16);
+        Ps2Word offset[3]{};const bool shifted=part[0x20]&4;
         if(shifted){
             uint32_t owner;std::memcpy(&owner,current+4,4);auto *basis=record(rt,owner+0x150,48);
-            float matrix[3][4],local[4];std::memcpy(matrix,basis,48);std::memcpy(local,part,16);
-            for(unsigned i=0;i<3;++i){pairQualified(local[i]);for(unsigned j=0;j<3;++j)pairQualified(matrix[i][j]);}
-            {music::CodecRounding validation;for(unsigned lane=0;lane<3;++lane){double bound=0;
-                for(unsigned i=0;i<3;++i)bound+=std::abs(double(matrix[i][lane])*local[i]);
-                if(bound>std::numeric_limits<float>::max())throw std::runtime_error("collision query offset overflow");}}
-            for(unsigned lane=0;lane<3;++lane)offset[lane]=pairSum(pairSum(pairProduct(matrix[0][lane],local[0]),pairProduct(matrix[1][lane],local[1])),pairProduct(matrix[2][lane],local[2]));
+            for(unsigned l=0;l<3;++l)offset[l]=(Ps2Word::load(basis+4*l)*Ps2Word::load(part)+Ps2Word::load(basis+16+4*l)*Ps2Word::load(part+4))+Ps2Word::load(basis+32+4*l)*Ps2Word::load(part+8);
         }
-        {music::CodecRounding validation;for(unsigned i=0;i<3;++i){const double bound=std::abs(double(a[i]))+std::abs(double(b[i]))+2*std::abs(double(offset[i]));
-            if(bound>std::numeric_limits<float>::max())throw std::runtime_error("collision query endpoint/direction overflow");}}
-        for(unsigned i=0;i<3;++i){if(shifted){a[i]=pairSum(a[i],offset[i]);b[i]=pairSum(b[i],offset[i]);}a[i]=pairSum(a[i],-b[i]);}
-        // Both results precede the first original store. Preserve source W
-        // words, including opaque payloads, and snapshot all aliases first.
-        std::memcpy(origin,b,16);std::memcpy(direction,a,16);return true;
+        for(unsigned i=0;i<3;++i){auto x=Ps2Word::load(a.data()+4*i),y=Ps2Word::load(b.data()+4*i);
+            if(shifted){x=x+offset[i];y=y+offset[i];}y.store(b.data()+4*i);(x-y).store(a.data()+4*i);}
+        // Both results precede the first original store; snapshot all aliases first.
+        std::memcpy(origin,b.data(),16);std::memcpy(direction,a.data(),16);return true;
     }
     if(pc==0x1fe8b0 || pc==0x1fe8f0 || pc==0x1fe8f4 || pc==0x1fe8f8 || pc==0x1fe8fc || pc==0x1fe924 || pc==0x1fe928)return true;
     if(pc==0x1fe934){
         const auto object=c->r[5].uw[0];auto *source=record(rt,object,0x70);
         if(c->r[3].uw[0]!=object+0x50 || c->r[4].uw[0]!=object+0x30)throw std::runtime_error("velocity update record mismatch");
-        float current[4],previous[4],contact;std::array<uint32_t,4> result;
-        std::memcpy(current,source+0x30,16);std::memcpy(previous,source+0x40,16);std::memcpy(&contact,source+0x1c,4);std::memcpy(result.data(),current,16);
-        pairQualified(contact);const bool damped=contact>0;const auto coefficient=c->f[20],factor=c->f[0];pairQualified(coefficient);if(damped)pairQualified(factor);
-        for(unsigned i=0;i<3;++i){pairQualified(current[i]);pairQualified(previous[i]);}
-        {music::CodecRounding validation;const double limit=std::numeric_limits<float>::max();
-            for(unsigned i=0;i<3;++i){const double bound=std::abs(double(current[i])*coefficient)+std::abs(double(previous[i])*coefficient);
-                if(bound>limit || (damped && bound*std::abs(double(factor))>limit))throw std::runtime_error("velocity update arithmetic overflow");}}
-        for(unsigned i=0;i<3;++i){auto value=pairSum(pairProduct(current[i],coefficient),-pairProduct(previous[i],coefficient));
-            if(damped)value=pairProduct(value,factor);result[i]=std::bit_cast<uint32_t>(value);}
+        // PS2 words (see Ps2Word): v = cur*c - prev*c, times the factor while in contact.
+        std::array<uint8_t,16> result;std::memcpy(result.data(),source+0x30,16);
+        const bool damped=Ps2Word::load(source+0x1c)>kPs2Zero;const auto coefficient=Ps2Word::of(c->f[20]),factor=Ps2Word::of(c->f[0]);
+        for(unsigned i=0;i<3;++i){auto value=Ps2Word::load(source+0x30+4*i)*coefficient-Ps2Word::load(source+0x40+4*i)*coefficient;
+            if(damped)value=value*factor;value.store(result.data()+4*i);}
         std::memcpy(source+0x50,result.data(),16);return true;
     }
     if((pc>=0x215298 && pc<=0x2152a4 && !(pc&3)) || pc==0x2152ac ||
@@ -2748,14 +2725,15 @@ bool nativeMathInstruction(uint8_t *,R5900Context *c,Runtime *rt,uint32_t pc){
     if(pc==0x1fce30){
         const auto destination=c->r[29].uw[0]+0x130,source=c->r[17].uw[0]+0x30;
         if(c->r[2].uw[0]!=destination || c->r[3].uw[0]!=source)throw std::runtime_error("joint quaternion composition record mismatch");
-        auto *out=record(rt,destination,16);std::array<float,4> a,b;std::memcpy(a.data(),out,16);std::memcpy(b.data(),record(rt,source,16),16);
-        const auto result=composeConstraintQuaternions(a,b);std::memcpy(out,result.data(),16);return true;
+        auto *out=record(rt,destination,16);const auto *in=record(rt,source,16);std::array<Ps2Word,4> a,b;
+        for(unsigned i=0;i<4;++i){a[i]=Ps2Word::load(out+4*i);b[i]=Ps2Word::load(in+4*i);}
+        const auto result=composeConstraintQuaternions(a,b);for(unsigned i=0;i<4;++i)result[i].store(out+4*i);return true;
     }
     if((pc>=0x1fcd08 && pc<=0x1fcd5c && !(pc&3)) ||
        (pc>=0x1fcd6c && pc<=0x1fcda4 && !(pc&3)))return true;
     if(pc==0x1fcdac){
         const auto stack=c->r[29].uw[0];if(c->r[3].uw[0]!=stack+0x140)throw std::runtime_error("angular-constraint cosine destination mismatch");
-        const auto directions=angularDirections(rt,c);std::memcpy(record(rt,stack+0x140,16),&directions.cosine,4);return true;
+        const auto directions=angularDirections(rt,c);directions.cosine.store(record(rt,stack+0x140,16));return true;
     }
     if(pc==0x1fcdb0 || pc==0x1fcdb4 || pc==0x1fcdc8 || pc==0x1fcdd0 || pc==0x1fcdd4 || pc==0x1fcdd8 ||
        pc==0x1fcddc || pc==0x1fcde0 || pc==0x1fcde4 || pc==0x1fcde8 || pc==0x1fcdec)return true;
@@ -2765,21 +2743,14 @@ bool nativeMathInstruction(uint8_t *,R5900Context *c,Runtime *rt,uint32_t pc){
             throw std::runtime_error("angular-constraint quaternion record mismatch");
         uint32_t cosineBits;std::memcpy(&cosineBits,record(rt,stack+0x140,16),4);
         const auto directions=angularDirections(rt,c);
-        if(std::bit_cast<uint32_t>(directions.cosine)!=cosineBits || std::bit_cast<uint32_t>(c->f[0])!=cosineBits || !(c->f[0]<c->f[1]))
+        if(directions.cosine.bits!=cosineBits || std::bit_cast<uint32_t>(c->f[0])!=cosineBits || !(Ps2Word::of(c->f[0])<Ps2Word::of(c->f[1])))
             throw std::runtime_error("angular-constraint quaternion has stale cosine/branch inputs");
-        const auto &a=directions.first,&b=directions.second;
-        {music::CodecRounding validation;const double limit=std::numeric_limits<float>::max();
-            if(2+2*std::abs(double(directions.cosine))>limit)throw std::runtime_error("angular-constraint quaternion coefficient overflow");
-            for(unsigned i=0;i<3;++i){const auto j=(i+1)%3,k=(i+2)%3;
-                if(std::abs(double(b[j])*a[k])+std::abs(double(a[j])*b[k])>limit)throw std::runtime_error("angular-constraint cross product overflow");}}
-        const auto squared=pairSum(2.f,pairProduct(directions.cosine,2.f));
-        volatile float root=static_cast<float>(std::sqrt(std::abs(double(squared))));
-        volatile float reciprocal=root==0?std::numeric_limits<float>::max():1.f/root;
-        float cross[3];for(unsigned i=0;i<3;++i){const auto j=(i+1)%3,k=(i+2)%3;cross[i]=pairSum(pairProduct(b[j],a[k]),-pairProduct(a[j],b[k]));}
-        {music::CodecRounding validation;for(float v:cross)if(std::abs(double(v)*reciprocal)>std::numeric_limits<float>::max())
-            throw std::runtime_error("angular-constraint quaternion axis overflow");}
-        std::array<float,4> quaternion;for(unsigned i=0;i<3;++i)quaternion[i]=pairProduct(cross[i],pairNormal(reciprocal));quaternion[3]=pairProduct(root,0.5f);
-        std::memcpy(result,quaternion.data(),16);return true;
+        // PS2 words, 1fcdb0..1fcdec: root = SQRT(2 + cos*2), Q = DIV(1, root),
+        // xyz = (OPMULA/OPMSUB cross) * Q, w = (1*root) * vf29.x (0.5).
+        const auto &a=directions.first,&b=directions.second;const Ps2Word two{0x40000000u},half{0x3f000000u};
+        const auto root=(two+directions.cosine*two).root(),reciprocal=kPs2One/root;
+        Ps2Word quaternion[4];for(unsigned i=0;i<3;++i){const auto j=(i+1)%3,k=(i+2)%3;quaternion[i]=(b[j]*a[k]-a[j]*b[k])*reciprocal;}
+        quaternion[3]=(kPs2One*root)*half;for(unsigned i=0;i<4;++i)quaternion[i].store(result+4*i);return true;
     }
     if(pc>=0x216da4 && pc<=0x216dbc && !(pc&3))return true;
     if(pc==0x216e04){
@@ -2815,25 +2786,22 @@ bool nativeMathInstruction(uint8_t *,R5900Context *c,Runtime *rt,uint32_t pc){
         if(c->r[3].uw[0]!=frame)throw std::runtime_error("constrained-position distance destination mismatch");
         auto *first=record(rt,c->r[4].uw[0]+0x30,16),*second=record(rt,c->r[6].uw[0]+0x30,16),*constraint=record(rt,c->r[5].uw[0],0x30);
         separatePairFrame(stack,first,16);separatePairFrame(stack,second,16);separatePairFrame(stack,constraint,0x30);
-        float a[4],b[4];std::memcpy(a,first,16);std::memcpy(b,second,16);const auto geometry=positionPairGeometry(a,b);
+        const auto geometry=positionPairGeometry(first,second);
         // The scalar tail reads only this distance. YZW die at frame release;
         // aliases that could make those retired stores observable reject above.
-        std::memcpy(stack,&geometry.distance,4);return true;
+        geometry.distance.store(stack);return true;
     }
     if(pc==0x1fc984 || pc==0x1fc9cc || pc==0x1fc7f8 || pc==0x1fc844){
         auto *first=record(rt,c->r[5].uw[0],16),*second=record(rt,c->r[4].uw[0],16),*frame=record(rt,c->r[29].uw[0],16);
         if(c->r[4].uw[0]!=c->r[6].uw[0]+0x30)throw std::runtime_error("constrained-position output record mismatch");
         separatePairFrame(frame,first,16);separatePairFrame(frame,second,16);
-        float a[4],b[4];std::memcpy(a,first,16);std::memcpy(b,second,16);const auto geometry=positionPairGeometry(a,b);
-        const float firstWeight=pc==0x1fc984 || pc==0x1fc7f8?c->f[0]:c->f[1],secondWeight=c->f[0];pairQualified(firstWeight);pairQualified(secondWeight);
-        volatile float inverse=geometry.distance==0?std::numeric_limits<float>::max():1.f/geometry.distance;
-        float direction[3];for(unsigned i=0;i<3;++i)direction[i]=pairProduct(geometry.difference[i],pairNormal(inverse));
-        {music::CodecRounding validation;const double limit=std::numeric_limits<float>::max();
-            for(unsigned i=0;i<3;++i)if(std::abs(double(a[i]))+std::abs(double(direction[i])*firstWeight)>limit ||
-                std::abs(double(b[i]))+std::abs(double(direction[i])*secondWeight)>limit)throw std::runtime_error("constrained-position correction overflow");}
-        std::array<uint32_t,4> outA,outB;std::memcpy(outA.data(),a,16);std::memcpy(outB.data(),b,16);
-        for(unsigned i=0;i<3;++i){outA[i]=std::bit_cast<uint32_t>(pairSum(pairProduct(a[i],1.f),pairProduct(direction[i],firstWeight)));
-            outB[i]=std::bit_cast<uint32_t>(pairSum(pairProduct(b[i],1.f),-pairProduct(direction[i],secondWeight)));}
+        const auto geometry=positionPairGeometry(first,second);
+        const auto firstWeight=Ps2Word::of(pc==0x1fc984 || pc==0x1fc7f8?c->f[0]:c->f[1]),secondWeight=Ps2Word::of(c->f[0]);
+        // VU DIV Q = 1/distance (+/-max for a zero distance), MULq, MULAw/MADDx.
+        const auto inverse=kPs2One/geometry.distance;Ps2Word direction[3];for(unsigned i=0;i<3;++i)direction[i]=geometry.difference[i]*inverse;
+        std::array<uint8_t,16> outA,outB;std::memcpy(outA.data(),first,16);std::memcpy(outB.data(),second,16);
+        for(unsigned i=0;i<3;++i){(Ps2Word::load(first+4*i)*kPs2One+direction[i]*firstWeight).store(outA.data()+4*i);
+            (Ps2Word::load(second+4*i)*kPs2One-direction[i]*secondWeight).store(outB.data()+4*i);}
         // Both original stores precede the next dispatch checkpoint, including
         // the symmetric branch's delay slot. Capture both before either write.
         std::memcpy(first,outA.data(),16);std::memcpy(second,outB.data(),16);return true;
@@ -2855,31 +2823,17 @@ bool nativeMathInstruction(uint8_t *,R5900Context *c,Runtime *rt,uint32_t pc){
         uint32_t targetObject,table,callback;std::memcpy(&targetObject,source+4,4);
         std::memcpy(&table,record(rt,targetObject,0x60),4);std::memcpy(&callback,record(rt,table+0x30,16)+4,4);
         if(!owner->qualifiedMotionCallback(rt,callback))throw std::runtime_error("unqualified native motion callback");
-        const auto flags=source[1];float position[4],velocity[4],acceleration[4]{},gravity[4]{};
-        std::array<uint32_t,4> out;std::memcpy(out.data(),source+0x30,16);std::memcpy(position,out.data(),16);std::memcpy(velocity,source+0x50,16);
-        if(flags&1)std::memcpy(gravity,record(rt,0x359100,16),16);
-        if(flags&0x40)std::memcpy(acceleration,record(rt,c->r[5].uw[0],16),16);
-        const float dt=c->f[12],damping=flags&2?c->f[0]:0.f;
-        const auto qualified=[](float v){const auto b=std::bit_cast<uint32_t>(v),e=b&0x7f800000;
-            if(e==0x7f800000 || (!e && (b&0x7fffff)))throw std::runtime_error("unqualified native motion input");};
-        qualified(dt);if(flags&2)qualified(damping);if(flags&1)qualified(gravity[1]);
-        for(unsigned i=0;i<3;++i){qualified(position[i]);qualified(velocity[i]);if(flags&0x40)qualified(acceleration[i]);}
-        {music::CodecRounding validation;const double limit=std::numeric_limits<float>::max(),t=std::abs(double(dt)),d=std::abs(double(damping));
-            if(t*t>limit || d*t>limit)throw std::runtime_error("native motion coefficient overflow");
-            for(unsigned i=0;i<3;++i){double bound=std::abs(double(position[i]))+std::abs(double(velocity[i]))*t;
-                if((flags&1) && i==1)bound+=std::abs(double(gravity[1]))*t*t;
-                if(flags&0x40)bound+=std::abs(double(acceleration[i]))*t;
-                if(flags&2)bound+=std::abs(double(velocity[i]))*d*t;
-                if(bound>limit)throw std::runtime_error("native motion position overflow");}}
-        const auto normal=[](float v){const auto b=std::bit_cast<uint32_t>(v);return std::bit_cast<float>((b&0x7f800000)?b:(b&0x80000000));};
-        const auto product=[&](float a,float b){volatile float v=a*b;return normal(v);};
-        const auto sum=[&](float a,float b){volatile float v=a+b;return normal(v);};
-        const float squared=product(dt,dt),drag=flags&2?product(damping,dt):0.f;
-        for(unsigned i=0;i<3;++i){float value=sum(position[i],0.f);
-            if((flags&1) && i==1)value=sum(value,product(gravity[1],squared));
-            if(flags&0x40)value=sum(value,product(acceleration[i],dt));
-            if(flags&2)value=sum(value,-product(velocity[i],drag));
-            out[i]=std::bit_cast<uint32_t>(sum(value,product(velocity[i],dt)));}
+        // PS2 words (see Ps2Word): p' = (((p+0) + g.y*dt^2) + a*dt - v*(damping*dt)) + v*dt,
+        // each term present only for its flag (1 gravity on Y, 0x40 acceleration, 2 damping).
+        const auto flags=source[1];std::array<uint32_t,4> out;std::memcpy(out.data(),source+0x30,16);
+        const uint8_t *gravity=flags&1?record(rt,0x359100,16):nullptr,*acceleration=flags&0x40?record(rt,c->r[5].uw[0],16):nullptr;
+        const auto dt=Ps2Word::of(c->f[12]),damping=flags&2?Ps2Word::of(c->f[0]):kPs2Zero;
+        const auto squared=dt*dt,drag=flags&2?damping*dt:kPs2Zero;
+        for(unsigned i=0;i<3;++i){const auto velocity=Ps2Word::load(source+0x50+4*i);auto value=Ps2Word::load(source+0x30+4*i)+kPs2Zero;
+            if(gravity && i==1)value=value+Ps2Word::load(gravity+4)*squared;
+            if(acceleration)value=value+Ps2Word::load(acceleration+4*i)*dt;
+            if(flags&2)value=value-velocity*drag;
+            out[i]=(value+velocity*dt).bits;}
         owner->nativeMotion().prepare(frame,object,out);return true;
     }
     if((pc>=0x1fb1e4 && pc<0x1fb200 && !(pc&3)) ||

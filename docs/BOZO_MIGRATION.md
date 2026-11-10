@@ -12,6 +12,46 @@ The earlier VP2S face/shading and general brightness comparisons remain open.
 
 ## Build and evidence
 
+### All chain-physics sites in PS2 words (2026-11-10)
+
+Every native site of the chain owner 1fd110 now uses `Ps2Word`, a VU0 word
+with the engine's ps2f definitions. For normal finite operands each op equals
+the host's correctly rounded result (double rounding is harmless for ×, ÷ and
+√ at these precisions), so in-range results are unchanged bit for bit. Every
+other word follows the VU:
+- saturation to ±0x7fffffff (exponent 255 is a number, up to about 6.8e38);
+- denormals read as zero;
+- DIV/RSQRT by zero give ±max.
+
+No host floating-point state changes: the integer square root restores
+MXCSR. The EE FPU in the engine is ps2f as well, so its comparisons branch on
+these words exactly as on the console.
+
+**Converted:**
+- segment distance 2120a0 and point/segment 211fb0;
+- segment/sphere contact 1fc4b0 and collision normal 1fc690;
+- distance constraint 1fc860 (1fc908/1fc984/1fc9cc and 1fc79c/1fc7f8/1fc844);
+- angular constraint 1fcdac/1fcdf0 and joint composition 1fce30;
+- collision query capsule 1fde6c, velocity update 1fe934 and motion
+  1fcb08/1fcb24;
+- collision response 1fc030 and both plane contacts (1fbfb0, 1fbd60);
+- the 1fd110 blocks (placement, split, rotations, blend, product), bone aim
+  1fe598..1fe6c0 and the capsule pair 1fc300.
+
+Each site was transcribed from its listing: ACC chains, MR32/OPMULA cross
+products, RSQRT versus SQRT+DIV.
+
+**Tests:**
+- The bones-suite references for these sites now use ps2f too. The math-suite
+  oracles already did.
+- Rejection cases for NaN words, denormals, 1e9 and FLT_MAX became value
+  checks (saturation, zero, exponent-255 results), deliberately.
+- Record and caller checks still reject. So do the clamped-parameter checks
+  of the collision normal and response.
+
+**Result:** the route passes the voiced dialogue and Alicia's chain. It stops
+at an unowned graphics builder submission (writer 5907b0 from mod003 374c08).
+
 ### Chain physics far from the origin: segment distance in PS2 words (2026-11-10)
 
 **Where the 1e36 segment came from:**

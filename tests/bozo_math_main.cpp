@@ -789,9 +789,14 @@ int main(){try{
         else if(which==3)c.r[2].uw[0]=0x7f800000;else{pc=0x1fc520;c.r[2].uw[0]=segment+0x220;}
         const auto before=c;const auto fp=_mm_getcsr();const auto ram=std::vector<uint8_t>(rt.memory.flat(),rt.memory.flat()+bozo::kFlatBytes);bool rejected=false;
         try{vp2s::nativeMathInstruction(rt.memory.flat(),&c,&rt,pc);}catch(const std::runtime_error &){rejected=true;}
+        if(which==2 || which==3){
+            // PS2 words: a zero-length difference gives RSQRT +max (normal 0*max = 0), and
+            // exponent 255 is an ordinary number; both publish without touching host state.
+            uint32_t out[3];std::memcpy(out,rt.memory.hostPointer(outputs+0x20,12),12);
+            check(!rejected && _mm_getcsr()==fp && !std::memcmp(&before,&c,sizeof(c)) && (which==3 || (!out[0] && !out[1] && !out[2])));continue;}
         check(rejected && _mm_getcsr()==fp && !std::memcmp(&before,&c,sizeof(c)) && !std::memcmp(ram.data(),rt.memory.flat(),ram.size()));
     }}
-    std::printf("%u segment/sphere contact runs (%u contacts) and5 readonly rejections passed\n",contactCases,contacts);
+    std::printf("%u segment/sphere contact runs (%u contacts), 3 readonly rejections and 2 PS2-word cases passed\n",contactCases,contacts);
     unsigned packedCases=0;
     for(unsigned block=0;block<9;++block)for(unsigned rounding:{_MM_ROUND_NEAREST,_MM_ROUND_DOWN,_MM_ROUND_UP,_MM_ROUND_TOWARD_ZERO})for(unsigned seed=0;seed<128;++seed){
         auto &a=old.runtime();auto &b=native.runtime();std::memset(a.memory.flat(),0x5b+seed,bozo::kFlatBytes);std::memcpy(b.memory.flat(),a.memory.flat(),bozo::kFlatBytes);

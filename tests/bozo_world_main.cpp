@@ -371,7 +371,19 @@ int main(){try{
     vp2s::ObjectWorldInput input{};input.quaternion=_mm_setr_ps(0,0,0,1);input.position=_mm_setzero_ps();input.scale=_mm_set1_ps(1);
     input.attachment={_mm_setr_ps(1,0,0,0),_mm_setr_ps(0,1,0,0),_mm_setr_ps(0,0,1,0),_mm_setr_ps(0,0,0,1)};
     const auto identity=vp2s::objectWorld(input);check(!std::memcmp(identity.world.data(),input.attachment.data(),64));
-    input.quaternion=_mm_setr_ps(std::bit_cast<float>(1u),0,0,1);bool rejected=false;
+    // VU0 reads denormal operands as signed zero: the 249180 route quaternion
+    // and a denormal attachment word (with a huge weight) equal their zeroed forms.
+    const auto same=[](const vp2s::ObjectWorldResult &u,const vp2s::ObjectWorldResult &v){return !std::memcmp(u.local.data(),v.local.data(),64) && !std::memcmp(u.world.data(),v.world.data(),64);};
+    const auto word=[](uint32_t w){return std::bit_cast<float>(w);};
+    input.quaternion=_mm_setr_ps(word(0x9c888d64),word(0x1ca37b8c),word(0x80000554),1);input.position=_mm_setr_ps(1.e30f,-2.f,3.f,0);
+    auto flushed=input;flushed.quaternion=_mm_setr_ps(word(0x9c888d64),word(0x1ca37b8c),word(0x80000000),1);
+    check(same(vp2s::objectWorld(input),vp2s::objectWorld(flushed)));
+    input.attachment[0]=_mm_setr_ps(1,word(0x00400000),0,0);flushed.attachment[0]=_mm_setr_ps(1,0,0,0);
+    check(same(vp2s::objectWorld(input),vp2s::objectWorld(flushed)));
+    input.hasParent=flushed.hasParent=true;input.normalizeParent=flushed.normalizeParent=true;
+    input.parent={_mm_setr_ps(2,word(0x80000001),0,0),_mm_setr_ps(0,2,0,0),_mm_setr_ps(0,0,2,0)};flushed.parent=input.parent;flushed.parent[0]=_mm_setr_ps(2,word(0x80000000),0,0);
+    check(same(vp2s::objectWorld(input),vp2s::objectWorld(flushed)));
+    input=flushed;input.quaternion=_mm_setr_ps(word(0x7f800000),0,0,1);bool rejected=false;
     try{vp2s::objectWorld(input);}catch(const std::runtime_error &){rejected=true;}check(rejected);
     std::printf("%u generated game-record CPU/RAM and scalar math comparisons; aliases, FP modes, tiny terms and resumed callbacks passed\n",cases);return 0;
 }catch(const std::exception &e){std::fprintf(stderr,"%s\n",e.what());return 1;}}

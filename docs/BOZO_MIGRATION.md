@@ -12,6 +12,30 @@ The earlier VP2S face/shading and general brightness comparisons remain open.
 
 ## Build and evidence
 
+### Object-transform denormal inputs (mod001 249180, 2026-11-11)
+
+The scene-node update 248fc0 (vtable +0x64 of many classes) rejected the
+quaternion {9c888d64, 1ca37b8c, 80000554, 3f800000}: a near-identity
+rotation with a denormal z.
+
+`VP2S_BOZO_WATCH=<hex address>` is a new diagnostic. It logs every native
+site whose handler changed the 16 bytes at that address. On this quaternion
+it shows that no native handler wrote it: an EE store did. PS2 arithmetic
+never produces a denormal, so the word comes from data (most likely an
+authored asset value). The bytes are not stored raw on the disc, because
+the assets are compressed.
+
+VU0 reads a denormal operand as signed zero, so `objectWorld` now flushes
+every input word that way before any host arithmetic. Exponent-255 words
+still reject. This deliberately changes the policy: the world suite no
+longer expects a denormal rejection. It checks instead that denormal
+quaternion, attachment and parent words give the same result as their
+zeroed forms, and that exponent 255 rejects.
+
+**Result:** the route renders the next scene, the ship interior (frame
+serial 7989), and stops at a mesh that is not converted (model a80770,
+mesh a8a052a4/0+e450, site 239ff0).
+
 ### Squared-length idiom (mod003 397a9c, 2026-11-10)
 
 mod003 397a60 opens with the first five words of the inlined length block

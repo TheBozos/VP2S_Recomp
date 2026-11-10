@@ -409,7 +409,7 @@ public:
     void waitCompleted(bozo::ee::Dispatcher &d,bozo::ee::Thread &t) override { native.waitCompleted(d,t); }
     void handlerCompleted(bozo::ee::Dispatcher &d,bozo::ee::Thread &t,const bozo::ee::Frame &f) override { native.handlerCompleted(d,t,f); }
 };
-bool noNativeInstruction(uint8_t *ram,R5900Context *ctx,Runtime *rt,uint32_t pc) {
+bool dispatchNativeInstruction(uint8_t *ram,R5900Context *ctx,Runtime *rt,uint32_t pc) {
     try {
     if(auto handled=vp2s::nativeLoadProgressInstruction(ctx,rt,pc))return *handled;
     if(auto handled=vp2s::nativeUiWindowInstruction(ctx,rt,pc))return *handled;
@@ -524,6 +524,19 @@ bool noNativeInstruction(uint8_t *ram,R5900Context *ctx,Runtime *rt,uint32_t pc)
             e.what(),pc,ctx->pc,ctx->r[31].uw[0],ctx->r[4].uw[0],ctx->r[5].uw[0],ctx->r[6].uw[0],ctx->r[7].uw[0],ctx->r[29].uw[0]));
     }
 }
+// Diagnostic: VP2S_BOZO_WATCH=<hex address> reports every native site whose
+// handler changed the 16 bytes at that address (native handlers are where
+// host arithmetic results enter guest memory).
+bool watchedNativeInstruction(uint8_t *ram,R5900Context *ctx,Runtime *rt,uint32_t pc) {
+    static const uint32_t watch=[]{const char *v=std::getenv("VP2S_BOZO_WATCH");return v?uint32_t(std::strtoul(v,nullptr,16))&~15u:0u;}();
+    if(!watch || !rt)return dispatchNativeInstruction(ram,ctx,rt,pc);
+    uint32_t before[4]={};if(const auto *p=rt->memory.hostPointer(watch,16))std::memcpy(before,p,16);
+    const bool handled=dispatchNativeInstruction(ram,ctx,rt,pc);
+    uint32_t after[4]={};if(const auto *p=rt->memory.hostPointer(watch,16))std::memcpy(after,p,16);
+    if(std::memcmp(before,after,16))std::fprintf(stderr,"[vp2s:watch] pc=%x ra=%x %08x %08x %08x %08x -> %08x %08x %08x %08x\n",pc,ctx?ctx->r[31].uw[0]:0u,
+        before[0],before[1],before[2],before[3],after[0],after[1],after[2],after[3]);
+    return handled;
+}
 }
 
 #ifdef _WIN32
@@ -592,7 +605,7 @@ int main(int argc,char **argv) {
         bozo::port::Registry registry;
         vp2s::installNativeKernelBindings(registry);
         vp2s::registerNativeMusic(registry);
-        registry.nativeGraphics(&noNativeInstruction); // guard retired graphics; no compatibility fallback
+        registry.nativeGraphics(&watchedNativeInstruction); // guard retired graphics; no compatibility fallback
         std::string error;
         if(!bozo::port::undeclared(registry,vp2_main_external_table,vp2_main_external_count).empty())
             throw std::runtime_error("native kernel bindings missing from generated externals");

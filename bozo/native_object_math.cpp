@@ -2,6 +2,7 @@
 #include <algorithm>
 #include <array>
 #include <cstring>
+#include <format>
 #include <limits>
 #include <stdexcept>
 namespace vp2s {
@@ -13,11 +14,12 @@ __m128 normal(__m128 v){
 }
 __m128 product(__m128 a,__m128 b){return normal(_mm_mul_ps(a,b));}
 __m128 sum(__m128 a,__m128 b){return normal(music::codecSum(a,b));}
-void qualified(__m128 v,unsigned mask=15){
+void qualified(__m128 v,const char *field,unsigned mask=15){
     alignas(16) uint32_t bits[4];std::memcpy(bits,&v,16);
     for(unsigned i=0;i<4;++i)if(mask&(1u<<i)){
-        const auto exponent=bits[i]&0x7f800000,mantissa=bits[i]&0x7fffff;
-        if(exponent==0x7f800000 || (!exponent && mantissa))throw std::runtime_error("unqualified nonfinite/subnormal object-transform input");
+        const auto exponent=bits[i]&0x7f800000;
+        if(exponent==0x7f800000)throw std::runtime_error(std::format(
+            "unqualified exponent-255 object-transform input {} lane {} ({:08x} {:08x} {:08x} {:08x})",field,i,bits[0],bits[1],bits[2],bits[3]));
     }
 }
 void finite(__m128 v){
@@ -40,10 +42,18 @@ constexpr std::array<uint32_t,64> sites{
     0x24920c,0x249210,0x249214,0x249218,0x24921c,0x249220,0x249224,0x249228,
     0x24922c,0x249230,0x249234,0x249238,0x24923c,0x249240,0x249244,0x249248};
 }
-ObjectWorldResult objectWorld(const ObjectWorldInput &in){
-    qualified(in.quaternion);qualified(in.position,7);qualified(in.scale,7);
-    for(auto v:in.attachment)qualified(v);
-    if(in.hasParent)for(auto v:in.parent)qualified(v);
+// VU0 reads a denormal operand as signed zero, so denormal input words are
+// flushed before any host arithmetic (mod001 249180 met an authored
+// near-identity quaternion {-9e-22, 1e-21, 80000554, 1}). Exponent-255 words
+// are PS2 numbers the host cannot represent and still reject.
+ObjectWorldResult objectWorld(const ObjectWorldInput &original){
+    ObjectWorldInput in=original;
+    in.quaternion=normal(in.quaternion);in.position=normal(in.position);in.scale=normal(in.scale);
+    for(auto &v:in.attachment)v=normal(v);
+    for(auto &v:in.parent)v=normal(v);
+    qualified(in.quaternion,"quaternion");qualified(in.position,"position",7);qualified(in.scale,"scale",7);
+    for(auto v:in.attachment)qualified(v,"attachment row");
+    if(in.hasParent)for(auto v:in.parent)qualified(v,"parent row");
     auto rotation=math::quaternionMatrix(in.quaternion);
     for(unsigned i=0;i<3;++i)rotation[i]=_mm_blend_ps(rotation[i],_mm_set1_ps(music::laneValue(in.position,i)),8);
     const auto scale=_mm_blend_ps(in.scale,_mm_set1_ps(1),8);

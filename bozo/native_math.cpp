@@ -212,7 +212,7 @@ SegmentTerms segmentTerms(Runtime *rt,R5900Context *c){
         if((address&3) || !output)throw std::runtime_error("invalid segment-distance parameter output");separatePairFrame(frame,output,4);}
     float a[2][4],b[2][4];std::memcpy(a,first,32);std::memcpy(b,second,32);
     for(auto *vectors:{a,b})for(unsigned row=0;row<2;++row)for(unsigned i=0;i<3;++i){pairQualified(vectors[row][i]);
-        if(std::abs(vectors[row][i])>1.e8f)throw std::runtime_error("unqualified segment-distance magnitude");}
+        if(std::abs(vectors[row][i])>1.e8f)throw std::runtime_error(std::format("unqualified segment-distance magnitude: a=({},{},{}|{},{},{}) b=({},{},{}|{},{},{})",a[0][0],a[0][1],a[0][2],a[1][0],a[1][1],a[1][2],b[0][0],b[0][1],b[0][2],b[1][0],b[1][1],b[1][2]));}
     SegmentTerms result;std::array<float,3> u,v,negativeV;
     for(unsigned i=0;i<3;++i){result.delta[i]=pairSum(a[0][i],-b[0][i]);u[i]=a[1][i];v[i]=b[1][i];negativeV[i]=pairProduct(v[i],-1.f);}
     const auto dot=[](const auto &x,const auto &y){return pairSum(pairSum(pairProduct(x[0],y[0]),pairProduct(x[1],y[1])),pairProduct(1.f,pairProduct(x[2],y[2])));};
@@ -1377,6 +1377,36 @@ bool nativeMatrixBuild(R5900Context *c,Runtime *rt,uint32_t pc){
     for(const auto &row:out)for(float x:row)if(!std::isfinite(x))throw std::runtime_error("native matrix build overflow");
     std::memcpy(record(rt,target,64),out,64);return true;
 }
+// mod001 2202d0 cull transform, per listed object s0 (vtable +68 returns its
+// matrix in v0): block 2203e0 composes the rows at s4+2f0 with that matrix
+// into SP+a0 (row k = sum_j A[k][j]*B[j], VU0 MULA/MADDA/MADD order); the
+// EE code transposes SP+a0 in place; block 2204a4 transforms the point at
+// SP+e0 by those rows into SP+90. Each block publishes at its first store.
+bool nativeCullTransform(R5900Context *c,Runtime *rt,uint32_t pc){
+    const bool compose=pc>=0x2203e0 && pc<=0x22044c,point=pc>=0x2204a4 && pc<=0x2204c8;
+    if(!(compose || point) || (pc&3))return false;
+    if(!c)throw std::runtime_error("native cull transform has no CPU record");
+    const auto stack=c->r[29].uw[0];
+    const auto qualify=[](const Lanes &row){for(float x:row)if(!std::isfinite(x))throw std::runtime_error("native cull transform overflow");};
+    if(compose){
+        if(c->r[3].uw[0]!=c->r[20].uw[0]+0x2f0 || c->r[4].uw[0]!=stack+0xa0)throw std::runtime_error("native cull composition records mismatch");
+        if(pc!=0x220440)return true;
+        const auto rowsAt=c->r[3].uw[0],matrixAt=c->r[2].uw[0];
+        if((rowsAt|matrixAt)&15)throw std::runtime_error("native cull composition source misaligned");
+        Lanes a[4],b[4],out[4];for(unsigned k=0;k<4;++k){a[k]=leafRecord(rt,rowsAt+16*k);b[k]=leafRecord(rt,matrixAt+16*k);}
+        {music::NearestRounding rounding;
+            for(unsigned k=0;k<4;++k)for(unsigned i=0;i<4;++i)
+                out[k][i]=pairSum(pairSum(pairSum(pairProduct(b[0][i],a[k][0]),pairProduct(b[1][i],a[k][1])),pairProduct(b[2][i],a[k][2])),pairProduct(b[3][i],a[k][3]));}
+        for(const auto &row:out)qualify(row);
+        std::memcpy(record(rt,stack+0xa0,64),out,64);return true;
+    }
+    if(c->r[4].uw[0]!=stack+0xe0 || c->r[3].uw[0]!=stack+0xa0 || c->r[2].uw[0]!=stack+0x90)throw std::runtime_error("native cull point records mismatch");
+    if(pc!=0x2204c8)return true;
+    Lanes rows[4],p=leafRecord(rt,stack+0xe0),out;for(unsigned k=0;k<4;++k)rows[k]=leafRecord(rt,stack+0xa0+16*k);
+    {music::NearestRounding rounding;
+        for(unsigned i=0;i<4;++i)out[i]=pairSum(pairSum(pairSum(pairProduct(rows[0][i],p[0]),pairProduct(rows[1][i],p[1])),pairProduct(rows[2][i],p[2])),pairProduct(rows[3][i],p[3]));}
+    qualify(out);std::memcpy(record(rt,stack+0x90,16),out.data(),16);return true;
+}
 // mod001 29f5e0 list box query (called from 23e1a4): per node s0, the query
 // point copied to SP+30 (W set to 1 by EE code) through the rows
 // *(s0+230)+190, all four lanes to SP+20; the box test is scalar EE code.
@@ -1988,6 +2018,132 @@ std::array<VuWords,4> program2d0(std::array<VuWords,4> v){
     r3[3]=vuMul(t27[3],q);lanes(r1,7,[&](unsigned i){return vuAdd(r1[i],t26[i]);});lanes(r2,7,[&](unsigned i){return vuAdd(r2[i],t25[i]);});lanes(r3,7,[&](unsigned i){return vuAdd(r3[i],t24[i]);});
     return v;
 }
+// mod001 212950 (called from the cull loop 2202d0 at 2204fc): separating-axis
+// test of an oriented box against the camera frustum. a1 = box record (+0
+// centre, +10..+30 axes, +40 half extents), a0 = frustum record (+0 origin,
+// +10..+30 axes, +40 extents; +48..+58 limits read by the EE code). The VU0
+// macro work is transcribed below in listing order, one native ps2f statement
+// per macro op (ACC products rounded, then summed, as the VU does). VF lanes
+// carry definition bits: only lanes this function writes or loads are stored,
+// so a store never publishes a stale register lane. The EE code between the
+// blocks (comparisons, early returns) stays compiled; every block runs in
+// address order (no branch skips a VU word except to the exit).
+struct BoxFrustumStore{uint32_t pc;unsigned reg;uint32_t offset;};
+struct BoxFrustumLoad{uint32_t pc;unsigned reg,frustum;uint32_t offset,immediate;};
+struct BoxFrustumVu{
+    VuWords vf[32]{};unsigned def[32]{};VuWords acc{};unsigned accDef=0;
+    std::array<VuWords,38> stored{};std::array<unsigned,38> storedDef{};
+    BoxFrustumVu(){vf[0]={0,0,0,0x3f800000u};def[0]=15;}
+    uint32_t lane(unsigned r,unsigned i,int bc)const{return vf[r][bc<0?i:unsigned(bc)];}
+    bool known(unsigned r,unsigned i,int bc)const{return def[r]>>(bc<0?i:unsigned(bc))&1;}
+    void load(unsigned r,const VuWords &w){vf[r]=w;def[r]=15;}
+    void store(unsigned k,unsigned r){stored[k]=vf[r];storedDef[k]=def[r];}
+    template<class F>void write(unsigned fd,unsigned fs,unsigned ft,int bc,unsigned m,bool useAcc,F f){
+        VuWords out=vf[fd];unsigned d=def[fd];
+        for(unsigned i=0;i<4;++i)if(m>>i&1){out[i]=f(vf[fs][i],lane(ft,i,bc),acc[i]);
+            const bool ok=(def[fs]>>i&1) && known(ft,i,bc) && (!useAcc || (accDef>>i&1));d=ok?d|1u<<i:d&~(1u<<i);}
+        vf[fd]=out;def[fd]=d;}
+    template<class F>void accumulate(unsigned fs,unsigned ft,int bc,unsigned m,bool useAcc,F f){
+        VuWords out=acc;unsigned d=accDef;
+        for(unsigned i=0;i<4;++i)if(m>>i&1){out[i]=f(vf[fs][i],lane(ft,i,bc),acc[i]);
+            const bool ok=(def[fs]>>i&1) && known(ft,i,bc) && (!useAcc || (accDef>>i&1));d=ok?d|1u<<i:d&~(1u<<i);}
+        acc=out;accDef=d;}
+    static uint32_t larger(uint32_t a,uint32_t b){const auto k=[](uint32_t x){const int32_t m=int32_t(x&0x7fffffffu);return (x&0x80000000u)?-m:m;};return k(a)>=k(b)?a:b;}
+    void add(unsigned d,unsigned s,unsigned t,int bc,unsigned m){write(d,s,t,bc,m,false,[](uint32_t a,uint32_t b,uint32_t){return vuAdd(a,b);});}
+    void sub(unsigned d,unsigned s,unsigned t,int bc,unsigned m){write(d,s,t,bc,m,false,[](uint32_t a,uint32_t b,uint32_t){return vuSub(a,b);});}
+    void mul(unsigned d,unsigned s,unsigned t,int bc,unsigned m){write(d,s,t,bc,m,false,[](uint32_t a,uint32_t b,uint32_t){return vuMul(a,b);});}
+    void max(unsigned d,unsigned s,unsigned t,int bc,unsigned m){write(d,s,t,bc,m,false,[](uint32_t a,uint32_t b,uint32_t){return larger(a,b);});}
+    void madd(unsigned d,unsigned s,unsigned t,int bc,unsigned m){write(d,s,t,bc,m,true,[](uint32_t a,uint32_t b,uint32_t c){return vuAdd(c,vuMul(a,b));});}
+    void msub(unsigned d,unsigned s,unsigned t,int bc,unsigned m){write(d,s,t,bc,m,true,[](uint32_t a,uint32_t b,uint32_t c){return vuSub(c,vuMul(a,b));});}
+    void adda(unsigned s,unsigned t,int bc,unsigned m){accumulate(s,t,bc,m,false,[](uint32_t a,uint32_t b,uint32_t){return vuAdd(a,b);});}
+    void mula(unsigned s,unsigned t,int bc,unsigned m){accumulate(s,t,bc,m,false,[](uint32_t a,uint32_t b,uint32_t){return vuMul(a,b);});}
+    void madda(unsigned s,unsigned t,int bc,unsigned m){accumulate(s,t,bc,m,true,[](uint32_t a,uint32_t b,uint32_t c){return vuAdd(c,vuMul(a,b));});}
+    void msuba(unsigned s,unsigned t,int bc,unsigned m){accumulate(s,t,bc,m,true,[](uint32_t a,uint32_t b,uint32_t c){return vuSub(c,vuMul(a,b));});}
+    void abs(unsigned t,unsigned s,unsigned m){for(unsigned i=0;i<4;++i)if(m>>i&1){vf[t][i]=vf[s][i]&0x7fffffffu;def[t]=(def[s]>>i&1)?def[t]|1u<<i:def[t]&~(1u<<i);}}
+};
+constexpr BoxFrustumStore kBoxFrustumStores[]={{0x2129c4,5,0x0},{0x2129e0,5,0x10},{0x212a78,2,0x0},{0x212a7c,2,0x10},{0x212ad0,2,0x0},{0x212ad4,2,0x10},{0x212b70,2,0x0},{0x212b74,2,0x10},{0x212bc8,2,0x10},{0x212bcc,2,0x0},{0x212c2c,2,0x0},{0x212c30,2,0x10},{0x212c34,2,0x20},{0x212c38,2,0x30},{0x212da4,2,0x0},{0x212da8,2,0x10},{0x212dac,2,0x20},{0x212e04,2,0x30},{0x212f78,2,0x0},{0x212f7c,2,0x10},{0x212f80,2,0x20},{0x212fd8,2,0x30},{0x213164,2,0x0},{0x213168,2,0x10},{0x21316c,2,0x20},{0x2131b8,2,0x30},{0x213334,2,0x0},{0x213338,2,0x10},{0x21333c,2,0x20},{0x213388,2,0x30},{0x213508,2,0x0},{0x21350c,2,0x10},{0x213510,2,0x20},{0x21355c,2,0x30},{0x2136e0,2,0x0},{0x2136e4,2,0x10},{0x2136e8,2,0x20},{0x213734,2,0x30}};
+constexpr BoxFrustumLoad kBoxFrustumLoads[]={{0x212954,5,0,0x0,0x0},{0x212958,4,1,0x0,0x0},{0x212964,3,0,0x10,0x0},{0x212968,3,0,0x20,0x10},{0x21296c,3,0,0x30,0x20},{0x212970,2,0,0x40,0x0},{0x21297c,2,1,0x30,0x0},{0x2129cc,3,1,0x10,0x0},{0x2129d4,2,1,0x40,0x0},{0x212b0c,2,1,0x20,0x0}};
+BoxFrustumVu boxFrustumProgram(const std::array<VuWords,5> &box,const std::array<VuWords,5> &frustum){
+    BoxFrustumVu v;
+    v.load(6,box[0]); v.load(7,frustum[0]); v.load(1,box[1]); v.load(2,box[2]); v.load(3,box[3]); v.load(4,box[4]); v.sub(5,6,7,-1,7);
+    v.load(6,frustum[3]); v.max(31,0,0,3,15); v.sub(30,0,0,3,15); v.mul(29,5,6,-1,7); v.mul(27,3,6,-1,7); v.mul(28,2,6,-1,7); v.adda(29,29,1,4);
+    v.madd(7,31,29,0,4); v.mul(29,1,6,-1,7); v.adda(27,27,1,4); v.madd(8,31,27,0,4); v.adda(28,28,0,2); v.madd(8,31,28,2,2); v.adda(29,29,1,1);
+    v.madd(8,31,29,2,1); v.store(0,7); v.abs(29,8,7); v.load(6,frustum[1]); v.mul(28,4,29,-1,7); v.load(10,frustum[4]); v.adda(28,28,1,1);
+    v.madd(27,31,28,2,1); v.store(1,27);
+    v.mul(29,1,6,-1,7); v.mul(28,2,6,-1,7); v.mul(27,3,6,-1,7); v.adda(29,29,1,1); v.madd(9,31,29,2,1); v.adda(28,28,0,2); v.madd(9,31,28,2,2);
+    v.adda(27,27,1,4); v.madd(9,31,27,0,4); v.mul(29,5,6,-1,7); v.mul(11,8,10,0,7); v.mul(12,9,10,2,7); v.sub(13,12,11,-1,7); v.adda(29,29,1,1);
+    v.madd(7,31,29,2,1); v.abs(28,13,7); v.mul(27,28,4,-1,7); v.mul(14,7,10,2,1); v.mul(15,7,10,0,4); v.adda(27,27,1,1); v.madd(27,31,27,2,1);
+    v.sub(28,14,15,2,1);
+    v.store(2,27); v.store(3,28);
+    v.add(16,12,11,-1,7); v.abs(29,16,7); v.mul(28,29,4,-1,7); v.adda(28,28,1,1); v.madd(27,31,28,2,1); v.mula(30,14,-1,1); v.madd(28,30,15,2,1);
+    v.store(4,27); v.store(5,28);
+    v.load(6,frustum[2]); v.mul(29,1,6,-1,7); v.mul(28,2,6,-1,7); v.mul(27,3,6,-1,7); v.adda(29,29,1,1); v.madd(17,31,29,2,1); v.adda(28,28,0,2);
+    v.madd(17,31,28,2,2); v.adda(27,27,1,4); v.madd(17,31,27,0,4); v.mul(18,8,10,1,7); v.mul(19,17,10,2,7); v.sub(20,19,18,-1,7); v.mul(29,5,6,-1,7);
+    v.abs(28,20,7); v.adda(29,29,0,2); v.madd(7,31,29,2,2); v.mul(27,28,4,-1,7); v.mul(14,7,10,2,2); v.mul(21,7,10,1,4); v.adda(27,27,1,1);
+    v.madd(27,31,27,2,1); v.sub(28,14,21,2,2);
+    v.store(6,27); v.store(7,28);
+    v.add(22,19,18,-1,7); v.abs(29,22,7); v.mul(28,29,4,-1,7); v.mula(30,14,1,1); v.madd(29,30,21,2,1); v.adda(28,28,1,1); v.madd(27,31,28,2,1);
+    v.store(8,29); v.store(9,27);
+    v.abs(29,9,7); v.abs(28,17,7); v.mul(23,8,10,2,7); v.mula(29,10,0,7); v.madd(27,28,10,1,7); v.mula(9,7,0,7); v.madda(17,7,1,7); v.madd(28,8,7,2,7);
+    v.sub(29,23,27,-1,7); v.add(27,23,27,-1,7); v.store(10,28); v.store(11,29); v.store(12,27); v.store(13,4);
+    v.abs(29,8,7); v.mul(29,29,10,1,7); v.sub(28,19,29,-1,7); v.add(27,19,29,-1,7); v.mula(17,7,2,7); v.msub(29,8,7,1,7); v.store(14,29); v.store(15,28);
+    v.store(16,27); v.mula(17,8,0,7); v.msub(29,8,17,0,7); v.mula(17,8,1,7); v.msub(28,8,17,1,7); v.mula(17,8,2,7); v.msub(27,8,17,2,7); v.abs(29,29,7);
+    v.abs(28,28,7); v.abs(27,27,7); v.mul(29,29,4,-1,7); v.mul(28,28,4,-1,7); v.mul(27,27,4,-1,7); v.adda(29,29,1,1); v.madd(29,31,29,2,1);
+    v.adda(28,28,0,2); v.madd(29,31,28,2,2); v.adda(27,27,1,4); v.madd(29,31,27,0,4);
+    v.store(17,29);
+    v.abs(29,8,7); v.mul(28,29,10,0,7); v.mula(30,12,-1,7); v.msub(29,28,0,3,7); v.sub(28,28,12,-1,7); v.mula(8,7,0,7); v.msub(27,9,7,2,7);
+    v.store(18,29); v.store(19,28); v.store(20,27); v.mula(9,8,0,7); v.msub(29,8,9,0,7); v.mula(9,8,1,7); v.msub(28,8,9,1,7); v.mula(9,8,2,7);
+    v.msub(27,8,9,2,7); v.abs(29,29,7); v.abs(28,28,7); v.abs(27,27,7); v.mul(29,29,4,-1,7); v.mul(28,28,4,-1,7); v.mul(27,27,4,-1,7); v.adda(29,29,1,1);
+    v.madd(29,31,29,2,1); v.adda(28,28,0,2); v.madd(29,31,28,2,2); v.adda(27,27,1,4); v.madd(29,31,27,0,4);
+    v.store(21,29);
+    v.mul(24,17,10,0,7); v.mul(25,9,10,1,7); v.add(26,24,25,-1,7); v.sub(23,24,25,-1,7); v.abs(29,20,7); v.abs(28,13,7); v.mula(29,10,0,7);
+    v.madd(27,28,10,1,7); v.mul(28,23,10,2,7); v.sub(29,28,27,-1,7); v.add(28,28,27,-1,7); v.mula(13,7,1,7); v.msuba(20,7,0,7); v.madd(27,23,7,2,7);
+    v.store(22,29); v.store(23,28); v.store(24,27); v.mula(13,17,0,7); v.msuba(20,9,0,7); v.madd(29,23,8,0,7); v.mula(13,17,1,7); v.msuba(20,9,1,7);
+    v.madd(28,23,8,1,7); v.mula(13,17,2,7); v.msuba(20,9,2,7); v.madd(27,23,8,2,7); v.abs(29,29,7); v.abs(28,28,7); v.abs(27,27,7); v.mula(29,4,0,7);
+    v.madda(28,4,1,7); v.madd(29,27,4,2,7);
+    v.store(25,29);
+    v.abs(29,22,7); v.abs(28,13,7); v.mula(29,10,0,7); v.madd(29,28,10,1,7); v.mul(27,26,10,2,7); v.sub(28,27,29,-1,7); v.add(27,27,29,-1,7);
+    v.mula(13,7,1,7); v.msuba(22,7,0,7); v.madd(29,26,7,2,7); v.store(26,28); v.store(27,27); v.store(28,29); v.mula(13,17,0,7); v.msuba(22,9,0,7);
+    v.madd(29,26,8,0,7); v.mula(13,17,1,7); v.msuba(22,9,1,7); v.madd(28,26,8,1,7); v.mula(13,17,2,7); v.msuba(22,9,2,7); v.madd(27,26,8,2,7);
+    v.abs(29,29,7); v.abs(28,28,7); v.abs(27,27,7); v.mula(29,4,0,7); v.madda(28,4,1,7); v.madd(29,27,4,2,7);
+    v.store(29,29);
+    v.abs(29,20,7); v.abs(28,16,7); v.mula(29,10,0,7); v.madd(29,28,10,1,7); v.mula(0,0,0,7); v.msub(27,26,10,2,7); v.sub(28,27,29,-1,7);
+    v.add(27,27,29,-1,7); v.mula(16,7,1,7); v.msuba(20,7,0,7); v.msub(29,26,7,2,7); v.store(30,28); v.store(31,27); v.store(32,29); v.mula(16,17,0,7);
+    v.msuba(20,9,0,7); v.msub(29,26,8,0,7); v.mula(16,17,1,7); v.msuba(20,9,1,7); v.msub(28,26,8,1,7); v.mula(16,17,2,7); v.msuba(20,9,2,7);
+    v.msub(27,26,8,2,7); v.abs(29,29,7); v.abs(28,28,7); v.abs(27,27,7); v.mula(29,4,0,7); v.madda(28,4,1,7); v.madd(29,27,4,2,7);
+    v.store(33,29);
+    v.abs(29,22,7); v.abs(28,16,7); v.mula(29,10,0,7); v.madd(29,28,10,1,7); v.mula(0,0,0,7); v.msub(27,23,10,2,7); v.sub(28,27,29,-1,7);
+    v.add(27,27,29,-1,7); v.mula(16,7,1,7); v.msuba(22,7,0,7); v.msub(29,23,7,2,7); v.store(34,28); v.store(35,27); v.store(36,29); v.mula(16,17,0,7);
+    v.msuba(22,9,0,7); v.msub(29,23,8,0,7); v.mula(16,17,1,7); v.msuba(22,9,1,7); v.msub(28,23,8,1,7); v.mula(16,17,2,7); v.msuba(22,9,2,7);
+    v.msub(27,23,8,2,7); v.abs(29,29,7); v.abs(28,28,7); v.abs(27,27,7); v.mula(29,4,0,7); v.madda(28,4,1,7); v.madd(29,27,4,2,7);
+    v.store(37,29);
+    return v;
+}
+struct BoxFrustumCall{BoxFrustumVu vu;uint32_t sp=0,box=0,frustum=0;bool active=false;};
+BoxFrustumCall &boxFrustumCall(const Runtime *rt){static std::map<const Runtime *,BoxFrustumCall> calls;return calls[rt];}
+bool nativeBoxFrustum(R5900Context *c,Runtime *rt,uint32_t pc){
+    if(pc<0x212954 || pc>0x213734 || (pc&3))return false;
+    if(!c)throw std::runtime_error("native box/frustum test has no CPU record");
+    auto &call=boxFrustumCall(rt);
+    if(pc==0x212954){
+        call.active=false;call.frustum=c->r[4].uw[0];call.box=c->r[5].uw[0];call.sp=c->r[29].uw[0];
+        if((call.frustum|call.box|call.sp)&15)throw std::runtime_error("native box/frustum records misaligned");
+        const auto overlaps=[](uint32_t a,uint32_t an,uint32_t b,uint32_t bn){return (a&0x1fffffff)<(b&0x1fffffff)+bn && (b&0x1fffffff)<(a&0x1fffffff)+an;};
+        if(overlaps(call.box,0x50,call.sp,0x40) || overlaps(call.frustum,0x50,call.sp,0x40))throw std::runtime_error("native box/frustum records alias its frame");
+        std::array<VuWords,5> box,frustum;for(unsigned k=0;k<5;++k){box[k]=vuWords(rt,call.box+16*k);frustum[k]=vuWords(rt,call.frustum+16*k);}
+        call.vu=boxFrustumProgram(box,frustum);call.active=true;
+    }
+    if(!call.active)throw std::runtime_error("native box/frustum block reached without its entry");
+    for(const auto &l:kBoxFrustumLoads)if(pc==l.pc){
+        if(c->r[l.reg].uw[0]!=(l.frustum?call.frustum:call.box)+l.offset-l.immediate)throw std::runtime_error("native box/frustum load source mismatch");
+        return true;}
+    for(unsigned k=0;k<std::size(kBoxFrustumStores);++k)if(pc==kBoxFrustumStores[k].pc){
+        const auto &s=kBoxFrustumStores[k];if(c->r[s.reg].uw[0]!=call.sp)throw std::runtime_error("native box/frustum store frame mismatch");
+        auto *out=record(rt,call.sp+s.offset,16);
+        for(unsigned i=0;i<4;++i)if(call.vu.storedDef[k]>>i&1)std::memcpy(out+4*i,&call.vu.stored[k][i],4);
+        return true;}
+    return true;
+}
 // mod003 3cfde0's second path 3d077c..3d0908: three quaternion matrices
 // (program 0x720, entry with vf16 = vf0 so every lane is defined) to SP+240,
 // SP+200, SP+200, then program 0x2d0 on SP+240. The base registers of the
@@ -2070,10 +2226,12 @@ bool nativeSoftSkin(R5900Context *c,Runtime *rt,uint32_t pc){
 }
 std::optional<bool> nativeModelLightVariant(const Runtime *rt,uint32_t model){
     const auto &map=modelLightVariants();const auto it=map.find({rt,model});return it==map.end()?std::nullopt:std::optional(it->second);}
+BoxFrustumStores boxFrustumStores(const std::array<std::array<uint32_t,4>,5> &box,const std::array<std::array<uint32_t,4>,5> &frustum){
+    const auto vu=boxFrustumProgram(box,frustum);BoxFrustumStores out;out.words=vu.stored;out.defined=vu.storedDef;return out;}
 bool nativeMathInstruction(uint8_t *,R5900Context *c,Runtime *rt,uint32_t pc){
     if(nativeSkinUpload(c,rt,pc) || nativeSoftSkin(c,rt,pc))return true;
     if(nativeFacingPath(c,rt,pc))return true;
-    if(nativeProjectionBlocks(c,rt,pc) || nativeBoneAim(c,rt,pc) || nativeChainBlocks(c,rt,pc) || nativeCapsulePair(c,rt,pc) || nativePlaneContact(c,rt,pc) || nativeRangeTest(c,rt,pc) || nativeMatrixBuild(c,rt,pc) || nativeListBoxQuery(c,rt,pc) || nativeHitFrame(c,rt,pc) || nativePlaneDistance(c,rt,pc) || nativeSphereSweep(c,rt,pc) || nativeSegmentApproach(c,rt,pc) || nativeWorldPosition(c,rt,pc) || nativeCameraTarget(c,rt,pc) || nativeRootLength(c,rt,pc) || nativeVisibilityLoop(c,rt,pc) || nativeQuaternionLeaf(c,rt,pc) || nativeBonePalette(c,rt,pc))return true;
+    if(nativeProjectionBlocks(c,rt,pc) || nativeBoneAim(c,rt,pc) || nativeChainBlocks(c,rt,pc) || nativeCapsulePair(c,rt,pc) || nativePlaneContact(c,rt,pc) || nativeRangeTest(c,rt,pc) || nativeMatrixBuild(c,rt,pc) || nativeCullTransform(c,rt,pc) || nativeBoxFrustum(c,rt,pc) || nativeListBoxQuery(c,rt,pc) || nativeHitFrame(c,rt,pc) || nativePlaneDistance(c,rt,pc) || nativeSphereSweep(c,rt,pc) || nativeSegmentApproach(c,rt,pc) || nativeWorldPosition(c,rt,pc) || nativeCameraTarget(c,rt,pc) || nativeRootLength(c,rt,pc) || nativeVisibilityLoop(c,rt,pc) || nativeQuaternionLeaf(c,rt,pc) || nativeBonePalette(c,rt,pc))return true;
     if(nativeLeafSphere(c,rt,pc) || nativeLeafBox(c,rt,pc) || nativeSegmentBox(c,rt,pc))return true;
     if(nativeLengthSite(c,rt,pc) || nativeRecordDot(c,rt,pc) || nativePackedQuaternion(c,rt,pc))return true;
     if(nativeObjectOverlap(c,rt,pc))return true;

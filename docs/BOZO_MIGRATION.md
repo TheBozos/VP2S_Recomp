@@ -12,6 +12,44 @@ The earlier VP2S face/shading and general brightness comparisons remain open.
 
 ## Build and evidence
 
+### Cull transform 2202d0 and box/frustum test 212950 (2026-11-10)
+
+With the voice playing, the town dialogue runs a new loop: mod001 2202d0
+culls the listed objects against the camera frustum.
+
+**Cull transform (2202d0):**
+- Block 2203e0 composes the rows at s4+2f0 with the object matrix that
+  vtable +68 returns, into SP+a0.
+- The EE code transposes SP+a0 in place.
+- Block 2204a4 transforms the point at SP+e0 by those rows into SP+90.
+- Both blocks are native, with the VU0 MULA/MADDA/MADD order and nearest
+  rounding. The math test checks 1024 cases against the engine's ps2f oracle.
+
+**Box/frustum test (212950):**
+- It is a separating-axis test of an oriented box (a1: centre, three axes,
+  half extents) against the frustum record (a0: origin, three axes,
+  extents).
+- About 290 VU0 macro ops feed 38 stack stores. The EE code compares them and
+  returns early.
+- VF registers stay live across those EE branches, but no branch skips a VU
+  word except to the exit. So the native code transcribes the listing in
+  order, one ps2f statement per macro op, once at the first load.
+- Each later load checks its base register; each store writes its qword.
+- Lanes carry definition bits, so a store never publishes a stale register
+  lane (mostly w).
+- **Test:** all 38 stores against the listing evaluated symbolically in
+  double (24 random cases, bound from the same expression on magnitudes).
+  The worst error is 1.2e-7 of magnitude, and the lane masks match exactly.
+
+**Result:** the dialogue reaches its next line ("But, my father will never
+listen to anything that I have to say.").
+
+**Next boundary:** segment distance 2120a0 (called from the capsule pair
+1fc5b0) rejects a second segment whose start is about -1.4e36 and whose
+direction is its exact negative. The record (s4+230) belongs to an object
+built on the caller's stack. Values that size may come from a saturated VU
+divide upstream, so they need tracing before the >1e8 guard is relaxed.
+
 ### Town dialogue: the voice never played (2026-11-10)
 
 The route stopped on the line "(The gods will launch an attack on Dipan just to

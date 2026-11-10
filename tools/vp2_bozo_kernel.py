@@ -475,6 +475,10 @@ def overlay_adaptations(name,data):
         (0x1fbad0,0x1fbc80,'576a329a563d8e6cfd35ef06d5d5b8d39425123b780e2c1394b8b9960f68e762'),
         # Matrix build 2178b0 (composition with the 216e40 result).
         (0x2178b0,0x2179e0,'b5461480644eaf81f1f1b135c124af2de68bbb0f2f49ef3ae9eaae4441e253cc'),
+        # Cull transform 2202d0: object matrix composition and centre transform.
+        (0x2202d0,0x2205c0,'d10b52fc9a3905cf0ed5df5ceccad3e8eff38c8ba622ab749817ce70bfdadcce'),
+        # Box/frustum separating-axis test 212950 (called from 2204fc only).
+        (0x212950,0x2138a0,'de90aa3886e278ea7b5b38205aecc1f2bd25fe4fbeaa2330f93b3c90bebbf5b4'),
         # List box query 29f5e0 (called from 23e1a4).
         (0x29f5e0,0x29f760,'cc19d75139ab6ece72d006b5460694f94c19ae26f5da1af7eb4c003ce84ba757'),
         # Hit frame 23e0d0 (composition and row product after the 29f5e0 query).

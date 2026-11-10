@@ -61,4 +61,9 @@ bool nativeMathInstruction(uint8_t *,R5900Context *,Runtime *,uint32_t pc);
 // The global light byte +517 seen by model setup 23c0d0 for this model in
 // this frame (the VU1 program set choice in builder 23a950). nullopt: unseen.
 std::optional<bool> nativeModelLightVariant(const Runtime *,uint32_t model);
+// mod001 212950 box/frustum test: the 38 VU stores in listing order for the
+// box record (a1, 5 qwords) and frustum record (a0, 5 qwords); defined = the
+// lanes the function writes or loads (only those are published).
+struct BoxFrustumStores{std::array<std::array<uint32_t,4>,38> words{};std::array<unsigned,38> defined{};};
+BoxFrustumStores boxFrustumStores(const std::array<std::array<uint32_t,4>,5> &box,const std::array<std::array<uint32_t,4>,5> &frustum);
 }

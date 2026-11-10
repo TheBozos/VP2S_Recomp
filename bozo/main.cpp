@@ -505,6 +505,44 @@ bool noNativeInstruction(uint8_t *ram,R5900Context *ctx,Runtime *rt,uint32_t pc)
 }
 }
 
+#ifdef _WIN32
+// Opt-in diagnostic sampling profiler (VP2S_BOZO_PROFILE=out.txt, optional
+// VP2S_BOZO_PROFILE_FROM=frame): a side thread suspends the main thread every
+// millisecond and records its host RIP (as an offset from the image base) and
+// the guest PC/RA last published through onFrame's context. Off by default;
+// it changes no game state.
+#ifndef NOMINMAX
+#define NOMINMAX
+#endif
+#include <windows.h>
+#include <thread>
+#include <atomic>
+#include <map>
+#include <vector>
+#include <algorithm>
+namespace {
+std::atomic<const R5900Context *> profileContext{nullptr};std::atomic<uint64_t> profileFrame{0};
+struct SamplingProfiler{
+    HANDLE target=nullptr;std::atomic<bool> stop{false};std::thread worker;std::string path;uint64_t from=0;
+    std::map<uint64_t,uint64_t> host;std::map<uint32_t,uint64_t> guest,caller;uint64_t samples=0;
+    void start(const char *out,uint64_t first){path=out;from=first;
+        DuplicateHandle(GetCurrentProcess(),GetCurrentThread(),GetCurrentProcess(),&target,0,FALSE,DUPLICATE_SAME_ACCESS);
+        timeBeginPeriod(1);
+        worker=std::thread([this]{const auto base=uint64_t(GetModuleHandleW(nullptr));
+            while(!stop){Sleep(1);if(profileFrame<from)continue;
+                if(SuspendThread(target)==DWORD(-1))continue;CONTEXT ctx{};ctx.ContextFlags=CONTEXT_CONTROL;
+                if(GetThreadContext(target,&ctx)){++host[ctx.Rip-base];if(const auto *c=profileContext.load()){++guest[c->pc];++caller[c->r[31].uw[0]];}++samples;}
+                ResumeThread(target);}});}
+    ~SamplingProfiler(){if(!worker.joinable())return;stop=true;worker.join();timeEndPeriod(1);
+        FILE *f=std::fopen(path.c_str(),"w");if(!f)return;
+        const auto dump=[&](const char *name,auto &map){std::vector<std::pair<uint64_t,uint64_t>> v(map.begin(),map.end());
+            std::sort(v.begin(),v.end(),[](auto a,auto b){return a.second>b.second;});
+            std::fprintf(f,"## %s (%llu samples)\n",name,(unsigned long long)samples);
+            for(size_t i=0;i<v.size() && i<400;++i)std::fprintf(f,"%llx %llu\n",(unsigned long long)v[i].first,(unsigned long long)v[i].second);};
+        dump("host rva",host);dump("guest pc",guest);dump("guest ra",caller);std::fclose(f);}
+};
+}
+#endif
 int main(int argc,char **argv) {
     bozo::host::FreeOptions options;
     options.elf=std::string(VP2S_BOZO_IMAGES)+"/main.elf";
@@ -541,6 +579,15 @@ int main(int argc,char **argv) {
             throw std::runtime_error(error);
         vp2sBozoRegisterImages(dispatcher.runtime(),VP2S_BOZO_IMAGES,[&](uint32_t pc){host.overlayExternals.insert(pc);dispatcher.bindLibrary(pc);});
         vp2s::installNativeMusic(dispatcher.runtime());
+#ifdef _WIN32
+        SamplingProfiler profiler;
+        if(const char *out=std::getenv("VP2S_BOZO_PROFILE")){
+            const char *from=std::getenv("VP2S_BOZO_PROFILE_FROM");
+            auto previous=host.native.onFrame;
+            host.native.onFrame=[previous](uint64_t frame,const R5900Context *ctx){profileFrame=frame;profileContext=ctx;if(previous)previous(frame,ctx);};
+            profiler.start(out,from?std::stoull(from):0);
+        }
+#endif
         uint64_t frames=0;
         try{frames=host.native.run();}catch(...){
 #ifdef VP2S_BOZO_CAPTURE

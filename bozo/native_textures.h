@@ -1,4 +1,5 @@
 #pragma once
+#include <mutex>
 #include "bozo/runtime.h"
 #include "bozo/render/texture.h"
 #include <array>
@@ -21,6 +22,10 @@ struct NativeTextureAsset {
     std::array<uint32_t,256> palette{}; // Offline index order.
     // Preserve 0x80-scale alpha: each engine presenter expands it once.
     std::shared_ptr<const bozo::render::Texture> picture(unsigned csa=0)const;
+    // Expanded pictures per palette part: the asset is immutable once loaded,
+    // so each is built once (it used to be rebuilt per mesh per frame).
+    mutable std::array<std::shared_ptr<const bozo::render::Texture>,16> pictures{};
+    mutable std::mutex picturesLock;
 };
 class NativeTextures {
     struct Invocation {

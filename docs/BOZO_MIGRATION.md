@@ -12,6 +12,49 @@ The earlier VP2S face/shading and general brightness comparisons remain open.
 
 ## Build and evidence
 
+### Profiling the town cutscene: texture pictures were rebuilt per mesh (2026-11-10)
+
+The headless app has an opt-in sampling profiler (Windows):
+- `VP2S_BOZO_PROFILE=out.txt` turns it on, and `VP2S_BOZO_PROFILE_FROM=frame`
+  sets the first sampled frame.
+- A side thread suspends the main thread every millisecond and records its host
+  RIP (as an offset from the image base) and the guest PC/RA last published by
+  `onFrame`.
+- Map the host offsets with `nm -C` on the exe (it has symbols but no line
+  info): `ImageBase 0x140000000` + offset. Offsets outside the image are
+  driver/system code.
+
+**Frames 3000-3600 (town cutscene), before the fix:**
+
+| Share | Where |
+|---|---|
+| 36.7% | `NativeTextureAsset::picture` |
+| 40% | outside the exe (mostly its allocation and zero-fill) |
+| about 7% | the inlined-block recognisers |
+
+`picture()` expanded the whole texture (up to 1024x1024 RGBA) into a new
+buffer on every call, once per textured mesh per frame.
+
+**Fix:**
+- Each asset now caches its expanded picture per palette part. Assets are
+  immutable after load: only the loader writes texels and palettes.
+- The three recognisers (length, macro, inverse) now run only after every
+  specific handler, as `nativeMathInstruction`'s default case, so claimed
+  sites no longer pay for their code scan.
+
+**Result:**
+
+| Run | Before | After |
+|---|---|---|
+| 3600 frames | 155 s | 61 s |
+| 4800 frames | 5 min 25 s | 1 min 41 s |
+| 2200 frames | 26 s | 21 s |
+
+Frames 2200 and 4800 are pixel-identical to the captures before the change,
+and all 83 tests pass. The remaining profile is spread over the game's
+generated code and the native-hook dispatch chain; the largest single entry is
+`nativeTrigInstruction` at 4.9%.
+
 ### The inlined 0x2d0 inverse everywhere; denormal row-product inputs (2026-11-10)
 
 The 0x2d0 inverse block is inlined 24 times (mod001 `21732c`, mod003

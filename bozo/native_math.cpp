@@ -2072,12 +2072,10 @@ std::optional<bool> nativeModelLightVariant(const Runtime *rt,uint32_t model){
     const auto &map=modelLightVariants();const auto it=map.find({rt,model});return it==map.end()?std::nullopt:std::optional(it->second);}
 bool nativeMathInstruction(uint8_t *,R5900Context *c,Runtime *rt,uint32_t pc){
     if(nativeSkinUpload(c,rt,pc) || nativeSoftSkin(c,rt,pc))return true;
-    if(nativeFacingPath(c,rt,pc) || nativeInverseIdiom(c,rt,pc))return true;
+    if(nativeFacingPath(c,rt,pc))return true;
     if(nativeProjectionBlocks(c,rt,pc) || nativeBoneAim(c,rt,pc) || nativeChainBlocks(c,rt,pc) || nativeCapsulePair(c,rt,pc) || nativePlaneContact(c,rt,pc) || nativeRangeTest(c,rt,pc) || nativeMatrixBuild(c,rt,pc) || nativeListBoxQuery(c,rt,pc) || nativeHitFrame(c,rt,pc) || nativePlaneDistance(c,rt,pc) || nativeSphereSweep(c,rt,pc) || nativeSegmentApproach(c,rt,pc) || nativeWorldPosition(c,rt,pc) || nativeCameraTarget(c,rt,pc) || nativeRootLength(c,rt,pc) || nativeVisibilityLoop(c,rt,pc) || nativeQuaternionLeaf(c,rt,pc) || nativeBonePalette(c,rt,pc))return true;
     if(nativeLeafSphere(c,rt,pc) || nativeLeafBox(c,rt,pc) || nativeSegmentBox(c,rt,pc))return true;
     if(nativeLengthSite(c,rt,pc) || nativeRecordDot(c,rt,pc) || nativePackedQuaternion(c,rt,pc))return true;
-    if(nativeLengthIdiom(c,rt,pc))return true;
-    if(nativeMacroIdiom(c,rt,pc))return true;
     if(nativeObjectOverlap(c,rt,pc))return true;
     if(nativeUvAnimation(c,rt,pc))return true;
     if(nativeSegmentContact(c,rt,pc))return true;
@@ -3300,7 +3298,10 @@ bool nativeMathInstruction(uint8_t *,R5900Context *c,Runtime *rt,uint32_t pc){
         std::memcpy(record(rt,c->r[3].uw[0],64),result.data(),64);
         return true;
     }
-    default:return false;
+    default:
+        // Inlined-block recognisers last: they read code around the PC, so
+        // only sites no specific handler claimed pay for that scan.
+        return nativeLengthIdiom(c,rt,pc) || nativeMacroIdiom(c,rt,pc) || nativeInverseIdiom(c,rt,pc);
     }
 }
 }

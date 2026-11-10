@@ -23,6 +23,7 @@ template<class T>T read(Runtime *rt,uint32_t at){T value;std::memcpy(&value,reco
 }
 std::shared_ptr<const bozo::render::Texture> NativeTextureAsset::picture(unsigned csa)const{
     if(csa>15)throw std::runtime_error("native texture palette part outside range");
+    std::lock_guard lock(picturesLock);if(pictures[csa])return pictures[csa];
     auto result=std::make_shared<bozo::render::Texture>();result->width=width;result->height=height;
     result->key=(identity<<4)|csa;result->version=identity;
     result->rgba.resize(size_t(width)*height);
@@ -34,7 +35,7 @@ std::shared_ptr<const bozo::render::Texture> NativeTextureAsset::picture(unsigne
         // it here so partial coverage is scaled once, at presentation.
         result->rgba[i]=value;
     }
-    return result;
+    pictures[csa]=result;return result;
 }
 NativeTextures::NativeTextures(std::filesystem::path directory,std::filesystem::path manifest):root(std::move(directory)){
     if(manifest.empty())return; // Synthetic tests may deliberately have no source.

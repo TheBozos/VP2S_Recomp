@@ -12,6 +12,20 @@ The earlier VP2S face/shading and general brightness comparisons remain open.
 
 ## Build and evidence
 
+### Squared-length idiom (mod003 397a9c, 2026-11-10)
+
+mod003 397a60 opens with the first five words of the inlined length block
+(LQC2 vf24; MUL.xyz vf24^2; ADDw.xyz vf25 = 1; ADDAy; MADDz.x) and stores
+vf24 straight away, without SQRT. The result is
+{(x2+y2)+1*z2, y2, z2, w}.
+
+It is the fifth `macroIdioms` pattern, `squared`. The load is captured at its
+PC and the formula is computed at the store, in PS2 words (ps2f, nearest
+even). The sqrt variant is still claimed first by `nativeLengthIdiom`. The
+macro-idiom suite now covers it (384 blocks, five kinds).
+
+**Result:** the route passes 397a9c (still the black scene transition) and next stops at the object-transform input gate in mod001 249180 (entry 248ff8): a nonfinite or denormal input word.
+
 ### 3d15c0 rotation blocks and the 443720 event state machine (2026-11-10)
 
 **3d15c0:** three program-0x720 blocks (LQC2 vf5, VCALLMS 0x720, CFC2 t1/vi0,

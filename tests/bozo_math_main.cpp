@@ -1394,12 +1394,12 @@ int main(){try{
     for(unsigned seed=0;seed<384;++seed){
         auto &r=native.runtime();std::memset(r.memory.flat(),0x21+seed,bozo::kFlatBytes);
         uint32_t state=seed*747796405u+11;const auto rnd=[&](){state=state*1664525u+1013904223u;return state>>8;};
-        const unsigned kind=seed%4,loads=kind==0 || kind==3?1:kind==1?3:2;const uint32_t code=0x1c4000+64*(rnd()%64);
+        const unsigned kind=seed%5,loads=kind==0 || kind>=3?1:kind==1?3:2;const uint32_t code=0x1c4000+64*(rnd()%64);
         const auto lq=[](unsigned base,unsigned vf,int16_t off){return 0xd8000000u|base<<21|vf<<16|uint16_t(off);};
         const auto sq=[](unsigned base,unsigned vf,int16_t off){return 0xf8000000u|base<<21|vf<<16|uint16_t(off);};
         const unsigned regs[3]={4,5,3};const uint32_t bases[3]={0x1d0000,0x1d4000,0x1d8000},outBase=0x1e8000;
         std::vector<uint32_t> words;uint32_t in[3][4];
-        const unsigned vfs[3]={kind==0?1u:20u,21u,22u};
+        const unsigned vfs[3]={kind==0?1u:kind==4?24u:20u,21u,22u};
         for(unsigned l=0;l<loads;++l){for(auto &w:in[l])w=(rnd()&0x807fffffu)|((112+rnd()%30)<<23);
             const int16_t off=int16_t(16*(rnd()%32));std::memcpy(r.memory.hostPointer(bases[l]+off,16),in[l],16);words.push_back(lq(regs[l],vfs[l],off));
             if(rnd()%2)words.push_back(0);}   // a plain EE word between COP2 words
@@ -1409,6 +1409,7 @@ int main(){try{
         if(kind==0){words.push_back(0x4bc1006c);words.push_back(sq(3,1,0));}
         else if(kind==1){for(uint32_t w:{0x4bf4adecu,0x4b000603u,0x4bf7b5eau,0x4b17b83du,0x4b17c5cau})words.push_back(w);words.push_back(sq(3,23,0));}
         else if(kind==2){words.push_back(0x4bf4adac);words.push_back(0x4bf6b5aa);words.push_back(sq(3,22,0));}
+        else if(kind==4){for(uint32_t w:{0x4bd8c62au,0x4bc00643u,0x4b18c03du,0x4b18ce0au})words.push_back(w);words.push_back(sq(3,24,0));}
         else{for(uint32_t w:{0x4bd4a5aau,0x4b000543u,0x4b16b03du,0x4b16ad8au,0x4a7603beu,0u,0u,0u,0x4a0003bfu,0x4bc0a51cu})words.push_back(w);words.push_back(sq(3,20,0));}
         std::memcpy(r.memory.hostPointer(code,4*words.size()),words.data(),4*words.size());
         R5900Context x{};for(unsigned i=1;i<32;++i)x.r[i].ud[0]=0x2468a00000000000ull+i;for(unsigned l=0;l<3;++l)x.r[regs[l]].ud[0]=bases[l];
@@ -1423,6 +1424,7 @@ int main(){try{
         if(kind==0){for(unsigned i=0;i<3;++i)expect[i]=S(0,in[0][i]);expect[3]=in[0][3];}
         else if(kind==1){for(unsigned i=0;i<4;++i)expect[i]=M(in[2][i],S(in[1][i],in[0][i]));expect[0]=A(A(expect[0],expect[1]),M(0x3f800000,expect[2]));}
         else if(kind==2)for(unsigned i=0;i<4;++i){const auto d=S(in[1][i],in[0][i]);expect[i]=M(d,d);}
+        else if(kind==4){for(unsigned i=0;i<3;++i)expect[i]=M(in[0][i],in[0][i]);expect[0]=A(A(expect[0],expect[1]),M(0x3f800000,expect[2]));expect[3]=in[0][3];}
         else{uint32_t f=0,sqv[3];for(unsigned i=0;i<3;++i)sqv[i]=M(in[0][i],in[0][i]);const auto saved=_mm_getcsr();
             const auto q=bozo::ps2f::rsqrt(0x3f800000,A(A(sqv[0],sqv[1]),M(0x3f800000,sqv[2])),f);_mm_setcsr(saved);for(unsigned i=0;i<3;++i)expect[i]=M(in[0][i],q);expect[3]=in[0][3];}
         uint32_t got[4];std::memcpy(got,r.memory.hostPointer(outBase,16),16);
@@ -1431,7 +1433,7 @@ int main(){try{
         R5900Context y=x;bool rejected=false;try{vp2s::nativeMathInstruction(r.memory.flat(),&y,&r,code+4*unsigned(words.size()-1));}catch(const std::runtime_error &){rejected=true;}check(rejected);
         ++macroCases;
     }
-    std::printf("%u inlined negate/dot/square/normalize blocks match the VU0 oracle\n",macroCases);
+    std::printf("%u inlined negate/dot/square/normalize/squared-length blocks match the VU0 oracle\n",macroCases);
     // 237320 tail: the palette is kept at the VIF0 kick (no transfer); 218220
     // then skins natively. The oracle is generated from the mode-1 listings by
     // sequential evaluation (tests/bozo_skin_oracle.inc), lane by lane.

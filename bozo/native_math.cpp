@@ -1907,7 +1907,11 @@ constexpr MacroIdiom macroIdioms[]={
     {"square",{-21,-22,0x4bf4adac,0x4bf6b5aa,-122},5},
     // normalize: LQC2 vf20; MUL.xyz vf22 = vf20^2; ADDw.x vf21 = 1; ADDAy; MADDz;
     // RSQRT Q = 1/sqrt(vf22.x); WAITQ; MULq.xyz vf20; SQC2 vf20 -> {xyz*Q, w}
-    {"normalize",{-21,0x4bd4a5aa,0x4b000543,0x4b16b03d,0x4b16ad8a,0x4a7603be,0x4a0003bf,0x4bc0a51c,-120},9}};
+    {"normalize",{-21,0x4bd4a5aa,0x4b000543,0x4b16b03d,0x4b16ad8a,0x4a7603be,0x4a0003bf,0x4bc0a51c,-120},9},
+    // squared length (mod003 397a9c and its kin): LQC2 vf24; MUL.xyz vf24^2;
+    // ADDw.xyz vf25 = 1; ADDAy; MADDz.x; SQC2 vf24 -> {(x2+y2)+1*z2, y2, z2, w}.
+    // The length idiom (same words followed by SQRT) is claimed before this.
+    {"squared",{-25,0x4bd8c62a,0x4bc00643,0x4b18c03d,0x4b18ce0a,-124},6}};
 struct MacroCapture{std::array<VuWords,32> vf{};uint32_t valid=0,block=0;};
 MacroCapture &macroCapture(const Runtime *rt){static std::map<const Runtime *,MacroCapture> captures;return captures[rt];}
 bool nativeMacroIdiom(R5900Context *c,Runtime *rt,uint32_t pc){
@@ -1949,6 +1953,8 @@ bool nativeMacroIdiom(R5900Context *c,Runtime *rt,uint32_t pc){
             if(kind=="normalize"){const auto v=need(20);uint32_t sq[3];for(unsigned i=0;i<3;++i)sq[i]=vuMul(v[i],v[i]);
                 uint32_t f=0;const auto q=bozo::ps2f::rsqrt(one,vuAdd(vuAdd(sq[0],sq[1]),vuMul(one,sq[2])),f);_mm_setcsr(savedCsr);
                 for(unsigned i=0;i<3;++i)out[i]=vuMul(v[i],q);out[3]=v[3];}
+            else if(kind=="squared"){const auto v=need(24);for(unsigned i=0;i<3;++i)out[i]=vuMul(v[i],v[i]);
+                out[0]=vuAdd(vuAdd(out[0],out[1]),vuMul(one,out[2]));out[3]=v[3];}
             else if(kind=="negate"){const auto v=need(1);for(unsigned i=0;i<3;++i)out[i]=vuSub(0,v[i]);out[3]=v[3];}
             else if(kind=="dot"){const auto a=need(20),b=need(21),m=need(22);
                 for(unsigned i=0;i<4;++i)out[i]=vuMul(m[i],vuSub(b[i],a[i]));out[0]=vuAdd(vuAdd(out[0],out[1]),vuMul(one,out[2]));}

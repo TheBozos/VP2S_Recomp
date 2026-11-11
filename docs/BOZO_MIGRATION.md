@@ -72,6 +72,25 @@ native `0x209aa0` projection inputs. The native port should follow that: plane
 markers into the native frame's alpha, then sampled-frame copies with the
 engine's alpha test and GS blend, published at `0x1ffe84` with no queue entry.
 
+**PCSX2 evidence (same day).** The route was replayed in PCSX2: the pad script
+shifted by +250 frames, and 29 one-frame GS dumps from 180 to 361 s. The
+325-361 s dumps show the same dialogue shots as the native stop, including the
+foreground-hair close-up of capture serial 11695.
+
+None of the dumps contains this effect:
+- no context-2 alpha-only (FBMSK 0x00ffffff) planes;
+- no copies alpha-tested against 0x40+i into the display frame (FBP 0xc6).
+
+They do contain the scene DOF passes (FBMSK 0xffffff / 0xff000000 into its work
+buffers), which `native_dof` already owns.
+
+So the real game does not draw the ring-copy blur where the native run enables
+it (+0x3e7c = 1, n = 3), and some of the native plane words are out of range.
+The next step is the upstream divergence: who calls the setter `0x113aa0` (from
+mod001 `0x2099d0`) natively, with which arguments, compared against ctx
++0x3e7c..+0x3f0c in a PCSX2 save state of this shot. Porting the effect as it
+stands would draw something the PS2 does not.
+
 ### Flat-fade flag bits that never reach the draw (2026-11-11)
 
 The ship scene's flat fade (class `0x161230`, mode 0) arrived with flag byte

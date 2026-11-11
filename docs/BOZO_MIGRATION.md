@@ -12,6 +12,66 @@ The earlier VP2S face/shading and general brightness comparisons remain open.
 
 ## Build and evidence
 
+### Ship-scene multi-copy depth blur: analysis (2026-11-11)
+
+The route's next stop is the generic GIF send `0x123220` reached from queue
+type 2 (`0x112fb8` -> `0x1235b8`, channel 2). Nothing has been ported yet. The
+boundary message for this call site now prints the effect's parameters.
+
+**Producer chain.**
+- The packet is ctx's double-buffered immediate list (ctx = `*(0x35de60)`):
+  start `+0x3c98[i]`, qwords `+0x3ca0[i]`, index `+0x3cb1`.
+- It is built by main `0x1152c0`, called from mod001 `0x209d4c`. That is the
+  update of the effect object whose `+0x8c` is ctx. Its camera projections
+  (`0x209aa0`, already native) fill the plane tables `+0x3e8c[i]` and
+  `+0x3ecc[i]`.
+- It is published from scene-object draw `0x1ffe70`. That method calls the
+  enqueue `0x114fa0` at `0x1ffe84`, then the real completion `0x21c9a0`.
+- The only type-2 enqueue on the route is `ra=0x114fec`: source `0x98ab40`,
+  429 qwords.
+
+**Builder.** Parameters come from `0x113aa0`:
+- `+0x3e7c` on, `+0x3e7d` plane pass, `+0x3e7e` final pass;
+- `+0x3e7f` n copies (at most 6), radii `+0x3e80..+0x3e84`;
+- `+0x3e88` final plane Z.
+
+Plane writer `0x116070` (GS context 2): FRAME_2 = ctx+0x160 with FBMSK
+0x00ffffff (alpha only), TEST_2 Z GEQUAL with no alpha test, ZBUF_2 = ctx+0x170
+with ZMSK. Sprites in 64-pixel columns write RGBAQ alpha = marker, at Z = plane.
+
+Copy writer `0x115830` (context 2):
+- TEX1 bilinear when `+0x3c77` is set; CLAMP clamp/clamp;
+- ALPHA 0x44 (ordinary alpha); ZBUF without writes;
+- TEST: Z GEQUAL, plus alpha test GEQUAL AREF when its argument 14 is nonzero;
+- PRIM sprite with TME, FST, context 2, and ABE from argument 10;
+- TEX0 = the frame at `+0x1e0` (FBP), TCC on;
+- RGBAQ = 0x808080 plus the copy alpha;
+- UV sprites in 32-pixel columns, offset by (dx/16, dy/32).
+
+Pass order:
+1. A first plane pass writes alpha 0 at the format's maximum Z.
+2. For copy i of n: angle 2*pi*i/n, radius r_i = r0 + i*(r1 - r0)/(n - 1),
+   offset 16*r_i*(cos, sin) through `0x12dbc0`/`0x12df60`. The plane pass writes
+   alpha 0x40+i at `+0x3e8c[i]`, then the copy is drawn with alpha 0x80 and
+   alpha test AREF 0x40+i.
+3. The final pass writes alpha 0x80 at `+0x3e88`, then n copies with radius
+   factor 24, using `+0x3ecc[i]`, via mod001 `0x214300`/`0x2144c0`.
+
+**Route values.**
+- Flags on/planes/final = 1/1/1, n = 3, r = 0.2..4, final Z 0xffffff;
+- frame FBP 0xc6 PSMCT32, depth PSMZ24, bilinear, 512x512;
+- near planes 0x604027, 0xdfff005a, 0x8b3883;
+- far planes 0x8b0224, 0x36a04d, 0xfffb008b.
+
+**Open question.** Several plane words lie outside the 24-bit Z range. Whether
+they are genuine (projections of points behind the camera) or a native
+projection defect decides which pixels each layer reaches. The GS's handling
+of Z beyond the PSMZ24 range also matters. The separating evidence is a PCSX2
+GS dump of this frame (the `0x116070` sprites' XYZ2 Z), compared against the
+native `0x209aa0` projection inputs. The native port should follow that: plane
+markers into the native frame's alpha, then sampled-frame copies with the
+engine's alpha test and GS blend, published at `0x1ffe84` with no queue entry.
+
 ### Flat-fade flag bits that never reach the draw (2026-11-11)
 
 The ship scene's flat fade (class `0x161230`, mode 0) arrived with flag byte

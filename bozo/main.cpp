@@ -348,8 +348,20 @@ public:
         // Known producers publish offline assets before retiring their transport.
         if(target==0x122bf8u)
             throw std::runtime_error(std::format("native VP2S image owner required at {:x} ra={:x}",target,c->r[31].uw[0]));
-        if(target==0x123220u || target==0x123550u || target==0x1235b8u || target==0x123630u || target==0x1237f0u)
-            throw std::runtime_error(std::format("native VP2S draw/data owner required at {:x} ra={:x}",target,c->r[31].uw[0]));
+        if(target==0x123220u || target==0x123550u || target==0x1235b8u || target==0x123630u || target==0x1237f0u){
+            std::string detail;
+            if(c->r[31].uw[0]==0x112fc0){
+                // Type-2 queue entry: the 1152c0 multi-copy frame effect's packet (ctx = *(35de60)).
+                auto &m=d.runtime().memory;const auto word=[&](uint32_t at){uint32_t v=0;if(const auto *p=m.hostPointer(at,4))std::memcpy(&v,p,4);return v;};
+                const auto ctx=word(0x35de60),flags=word(ctx+0x3e7c);float r0,r1;const auto f0=word(ctx+0x3e80),f1=word(ctx+0x3e84);std::memcpy(&r0,&f0,4);std::memcpy(&r1,&f1,4);
+                detail=std::format(" [effect ctx={:x} on/planes/final/n={:08x} r={}..{} final={:x} frame={:x} 3c70={:x} 3c74={:x} 3c77={:x} size={}x{} near:",ctx,flags,r0,r1,word(ctx+0x3e88),
+                    word(ctx+0x1e0)&0xffff,word(ctx+0x3c70)&0xffff,word(ctx+0x3c74)&0xffff,(word(ctx+0x3c74)>>24)&0xff,int16_t(word(ctx+0x3c6c)),int16_t(word(ctx+0x3c6e)));
+                for(unsigned i=0;i<8;++i)detail+=std::format(" {:x}",word(ctx+0x3e8c+4*i));
+                detail+=" far:";for(unsigned i=0;i<8;++i)detail+=std::format(" {:x}",word(ctx+0x3ecc+4*i));
+                detail+=std::format(" owner={:x}]",c->r[17].uw[0]);
+            }
+            throw std::runtime_error(std::format("native VP2S draw/data owner required at {:x} ra={:x}{}",target,c->r[31].uw[0],detail));
+        }
         if(target==0x122160u || target==0x1224d0u)
             throw std::runtime_error(std::format("native VP2S display owner required at {:x} ra={:x}",target,c->r[31].uw[0]));
         if(std::getenv("VP2S_BOZO_TRACE_CALLS") && traceLibrary++<160)

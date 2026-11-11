@@ -12,6 +12,48 @@ The earlier VP2S face/shading and general brightness comparisons remain open.
 
 ## Build and evidence
 
+### Box pair separating-axis test (2026-11-12)
+
+Object-pair test `1f8aa0` first checks the bounding spheres. When they
+overlap, it does not restore its VU spill. Instead it reaches the shape-pair
+dispatch (`1f8964`), which calls the box-pair test `1f82c0` on the registers
+1f8aa0's block loaded:
+- vf1..vf4: object A rows (`first+150`);
+- vf5..vf8: object B rows (`second+150`);
+- vf9: SP+90, with x = A scale (`+204`) and y = B scale.
+
+The test's arguments: a0 and a2 are the box centres, a1 and a3 the half
+extents.
+
+**The listing.** About 200 VU0 macro ops, pipelined across the axes. Each
+axis is a pair of stores (vf18 to SP+10, vf20 to SP+0). An FPU compare then
+returns 0 when separation > radius; after all 15 axes it returns 1. The
+three B-side radius terms of the cross axes use the listing's own |R| entries
+(for A0xB0, eB1*|R02| + |R11|*eB2), not the textbook ones. They are kept.
+
+**Native.**
+- 1f8aa0's overlap store (`1f8e58`) now records vf1..vf9 as loaded. Its spill
+  and restore sites invalidate them.
+- `1f82c0` is a kernel `stub`. `nativeBoxPairLibrary` serves it (caller
+  `1f896c` only), and `nativeBoxPairTest` computes:
+  - R[i][j] = Ai.Bj, ta = Ai.T and tb = Bj.T as ((1*x + 1*y) + 1*z);
+  - T = PB - PA;
+  - the 15 axes in listing order, with an explicit index table for the cross
+    terms;
+  - the compare as the FPU does it: signed magnitude, with zero and
+    denormals equal.
+
+**Tests.** `tools/vp2_bozo_box_pair_oracle.py` evaluates the listing
+sequentially and symbolically, producing `tests/bozo_box_pair_oracle.inc`
+(the 15 compared lane pairs). The math suite runs 8192 random cases against
+it, with denormal inputs, bit-exact. All 16 outcomes are reached (every
+separating axis, and overlap). The kernel guard covers `1f82c0..1f8840`, and
+the kernel test pins the stub.
+
+**Result:** the route passes it (serial 13545, 1375 batches). It stops at
+mod003 VU0 site `3e7158` (entry `3e7104`, scratchpad stack). The partial
+capture is fully black again.
+
 ### Composite model draws own their children (2026-11-11)
 
 Class `1599a0` (draw method `2b7ab0`) is a composite. With `+878` set it draws

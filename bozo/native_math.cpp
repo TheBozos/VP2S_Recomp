@@ -551,6 +551,8 @@ std::array<uint32_t,4> NativeMotion::finish(uint32_t frame,uint32_t object){
 float vu0Input(float v){const auto bits=std::bit_cast<uint32_t>(v);
     if((bits&0x7f800000)==0x7f800000 || beyondRange(v))throw std::runtime_error("unqualified native object overlap input");
     return pairNormal(v);}
+struct ObjectPairRegisters{std::array<std::array<uint32_t,4>,8> rows{};std::array<uint32_t,4> scale{};bool valid=false;};
+ObjectPairRegisters &objectPairRegisters(const Runtime *rt){static std::map<const Runtime *,ObjectPairRegisters> states;return states[rt];}
 bool nativeObjectOverlap(R5900Context *c,Runtime *rt,uint32_t pc){
     const bool spill=pc>=0x1f8b34 && pc<=0x1f8b54,restore=(pc>=0x1f8e70 && pc<=0x1f8e90) || (pc>=0x1f8fec && pc<=0x1f900c)
         || (pc>=0x1f907c && pc<=0x1f909c) || (pc>=0x1f90dc && pc<=0x1f90fc);
@@ -562,6 +564,7 @@ bool nativeObjectOverlap(R5900Context *c,Runtime *rt,uint32_t pc){
     const auto stack=c->r[29].uw[0],first=c->r[18].uw[0],second=c->r[17].uw[0];
     if(spill || restore){
         if(c->r[2].uw[0]!=stack+0xa0)throw std::runtime_error("native object overlap spill escaped its frame");
+        objectPairRegisters(rt).valid=false;   // vf1..vf9 belong to the caller again
         return true;
     }
     if(firstScale || secondScale){
@@ -585,6 +588,12 @@ bool nativeObjectOverlap(R5900Context *c,Runtime *rt,uint32_t pc){
         throw std::runtime_error("native object overlap escaped its records");
     if(pc!=0x1f8e58){if(pc<0x1f8e50 && c->r[2].uw[0]!=stack+0x90)throw std::runtime_error("native object overlap scale record mismatch");return true;}
     if(c->r[2].uw[0]!=stack+0x80)throw std::runtime_error("native object overlap destination mismatch");
+    {   // vf1..vf4 / vf5..vf8 / vf9 as the block loaded them; the shape tests reached
+        // when the spheres overlap (box pair 1f82c0) run on them.
+        auto &regs=objectPairRegisters(rt);
+        std::memcpy(regs.rows[0].data(),record(rt,first+0x150,64),64);std::memcpy(regs.rows[4].data(),record(rt,second+0x150,64),64);
+        std::memcpy(regs.scale.data(),record(rt,stack+0x90,16),16);regs.valid=true;
+    }
     float scale[4],a[4],b[4],m1[4][4],m2[4][4];
     std::memcpy(scale,record(rt,stack+0x90,16),16);std::memcpy(a,record(rt,c->r[4].uw[0],16),16);std::memcpy(b,record(rt,c->r[3].uw[0],16),16);
     std::memcpy(m1,record(rt,first+0x150,64),64);std::memcpy(m2,record(rt,second+0x150,64),64);
@@ -1000,6 +1009,58 @@ VuWords vuWords(Runtime *rt,uint32_t at){VuWords v;std::memcpy(v.data(),record(r
 uint32_t vuMul(uint32_t a,uint32_t b){uint32_t f=0;return bozo::ps2f::mul(a,b,f);}
 uint32_t vuAdd(uint32_t a,uint32_t b){uint32_t f=0;return bozo::ps2f::addNearest(a,b,f);}
 uint32_t vuSub(uint32_t a,uint32_t b){uint32_t f=0;return bozo::ps2f::subNearest(a,b,f);}
+// Box pair separating-axis test, mod001 1f82c0 (called from the shape pair
+// dispatch at 1f8964 once 1f8aa0's spheres overlap). It runs on the VU
+// registers that block left: vf1..vf4 = object A rows, vf5..vf8 = object B
+// rows, vf9 = (scale A, scale B). a0/a2 hold the box centres, a1/a3 the half
+// extents. Transcribed from the listing's terms (ps2f mul, nearest-even add):
+// R[i][j] = Ai.Bj and the T dots sum as ((1*x + 1*y) + 1*z); T = PB - PA with
+// P = ((r0*c.x + r1*c.y) + r2*c.z) + r3*1. Fifteen axes in listing order; the
+// EE code compares |T.L| <= radius (FPU compare) and returns 0 at the first
+// separating axis, else 1. Some cross-axis radii use the listing's own |R|
+// entries (not the textbook ones); they are kept.
+uint32_t nativeBoxPairTest(const std::array<std::array<uint32_t,4>,8> &rows,const std::array<uint32_t,4> &scale,const VuWords &ca,const VuWords &ea,const VuWords &cb,const VuWords &eb){
+    constexpr uint32_t one=0x3f800000u;
+    const auto M=vuMul;const auto A=vuAdd;const auto S=vuSub;const auto abs=[](uint32_t x){return x&0x7fffffffu;};
+    const auto dot=[&](const std::array<uint32_t,4> &u,const std::array<uint32_t,4> &v){return A(A(M(one,M(u[0],v[0])),M(one,M(u[1],v[1]))),M(one,M(u[2],v[2])));};
+    std::array<uint32_t,4> pa{},pb{},t{};
+    for(unsigned l=0;l<4;++l){pa[l]=A(A(A(M(rows[0][l],ca[0]),M(rows[1][l],ca[1])),M(rows[2][l],ca[2])),M(rows[3][l],one));
+        pb[l]=A(A(A(M(rows[4][l],cb[0]),M(rows[5][l],cb[1])),M(rows[6][l],cb[2])),M(rows[7][l],one));}
+    for(unsigned l=0;l<3;++l)t[l]=S(pb[l],pa[l]);
+    uint32_t r[3][3],ar[3][3],ta[3],tb[3],eA[3],eB[3];
+    for(unsigned i=0;i<3;++i){ta[i]=dot(rows[i],t);tb[i]=dot(rows[4+i],t);eA[i]=M(ea[i],scale[0]);eB[i]=M(eb[i],scale[1]);
+        for(unsigned j=0;j<3;++j){r[i][j]=dot(rows[i],rows[4+j]);ar[i][j]=abs(r[i][j]);}}
+    // The FPU compare: signed magnitude, zero and denormals equal to zero.
+    const auto key=[](uint32_t x){const int64_t m=(x&0x7f800000u)?int64_t(x&0x7fffffffu):0;return (x&0x80000000u)?-m:m;};
+    const auto separated=[&](uint32_t distance,uint32_t radius){return !(key(distance)<=key(radius));};
+    for(unsigned i=0;i<3;++i)
+        if(separated(abs(ta[i]),A(A(A(M(one,M(eB[0],ar[i][0])),M(one,M(eB[1],ar[i][1]))),M(one,eA[i])),M(one,M(eB[2],ar[i][2])))))return 0;
+    for(unsigned j=0;j<3;++j)
+        if(separated(abs(tb[j]),A(A(A(M(ar[0][j],eA[0]),M(ar[1][j],eA[1])),M(one,eB[j])),M(ar[2][j],eA[2]))))return 0;
+    // Cross axes Ai x Bj, listing order: |r[p][j]*ta[q] - r[q][j]*ta[p]| against
+    // (|r[ri1][j]|*eA[a1] + |r[ri2][j]|*eA[a2]) + (eB[b1]*|r[bi1][bj1]| + |r[bi2][bj2]|*eB[b2]),
+    // every index as the listing reads it.
+    struct Cross{unsigned p,q,j,ri1,a1,ri2,a2,b1,bi1,bj1,bi2,bj2,b2;};
+    constexpr Cross cross[9]={
+        {1,2,0, 2,1,1,2, 1,0,2,1,1,2},{1,2,1, 2,1,1,2, 0,0,2,0,0,2},{1,2,2, 2,1,1,2, 0,0,1,0,0,1},
+        {2,0,0, 2,0,0,2, 1,1,2,1,1,2},{2,0,1, 2,0,0,2, 0,1,2,1,0,2},{2,0,2, 2,0,0,2, 0,1,1,1,0,1},
+        {0,1,0, 1,0,0,1, 1,2,2,2,1,2},{0,1,1, 1,0,0,1, 0,2,2,2,0,2},{0,1,2, 1,0,0,1, 0,2,1,2,0,1}};
+    for(const auto &x:cross){
+        const auto distance=abs(S(M(r[x.p][x.j],ta[x.q]),M(r[x.q][x.j],ta[x.p])));
+        const auto radius=A(A(M(ar[x.ri1][x.j],eA[x.a1]),M(ar[x.ri2][x.j],eA[x.a2])),A(M(eB[x.b1],ar[x.bi1][x.bj1]),M(ar[x.bi2][x.bj2],eB[x.b2])));
+        if(separated(distance,radius))return 0;
+    }
+    return 1;
+}
+bool nativeBoxPairLibrary(R5900Context *c,Runtime *rt,uint32_t target){
+    if(target!=0x1f82c0)return false;
+    if(!c || !rt || c->pc!=target || c->r[31].uw[0]!=0x1f896c)throw std::runtime_error("native box pair test requires its shape-pair caller");
+    const auto &regs=objectPairRegisters(rt);
+    if(!regs.valid)throw std::runtime_error("native box pair test has no object-pair registers");
+    const auto ca=vuWords(rt,c->r[4].uw[0]),ea=vuWords(rt,c->r[5].uw[0]),cb=vuWords(rt,c->r[6].uw[0]),eb=vuWords(rt,c->r[7].uw[0]);
+    const auto saved=_mm_getcsr();const auto result=nativeBoxPairTest(regs.rows,regs.scale,ca,ea,cb,eb);_mm_setcsr(saved);
+    c->r[2].sd[0]=result;c->pc=c->r[31].uw[0];return true;
+}
 LeafInputs leafInputs(Runtime *rt,bool withScale=true){
     uint32_t object;std::memcpy(&object,record(rt,0x358cd0,16)+8,4);
     if(object<0x100000)throw std::runtime_error("native collision leaf has no current object");

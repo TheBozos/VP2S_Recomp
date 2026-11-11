@@ -1554,6 +1554,36 @@ int main(){try{
         ++composeCases;
     }
     std::printf("%u inlined matrix-product blocks match the VU0 oracle\n",composeCases);
+    // Box pair separating-axis test (mod001 1f82c0) against the listing's
+    // sequential evaluation (tests/bozo_box_pair_oracle.inc): the first compared
+    // pair with separation > radius (FPU compare) returns 0, else 1.
+    {unsigned boxCases=0,reached[16]{};
+        const auto M=[](uint32_t a,uint32_t b){uint32_t f=0;return bozo::ps2f::mul(a,b,f);};
+        const auto A=[](uint32_t a,uint32_t b){uint32_t f=0;return bozo::ps2f::addNearest(a,b,f);};
+        const auto S=[](uint32_t a,uint32_t b){uint32_t f=0;return bozo::ps2f::subNearest(a,b,f);};
+        const auto ABS=[](uint32_t a){return a&0x7fffffffu;};
+        const auto key=[](uint32_t x){const int64_t m=(x&0x7f800000u)?int64_t(x&0x7fffffffu):0;return (x&0x80000000u)?-m:m;};
+        uint64_t state=0x243f6a8885a308d3ull;const auto next=[&](){state^=state<<13;state^=state>>7;state^=state<<17;return state;};
+        const auto real=[&](float range){return std::bit_cast<uint32_t>(float(int64_t(next()%2000001)-1000000)/1000000.f*range);};
+        for(unsigned seed=0;seed<8192;++seed){
+            std::array<std::array<uint32_t,4>,8> R{};std::array<uint32_t,4> sc{},ca{},ea{},cb{},eb{};
+            const float spread=seed%4==0?0.2f:seed%4==1?2.f:seed%4==2?6.f:20.f;   // centre distance vs extents
+            for(unsigned r=0;r<8;++r)for(unsigned l=0;l<4;++l)R[r][l]=(r%4==3)?(l<3?real(spread):0x3f800000u):real(1.f);
+            for(unsigned l=0;l<4;++l){ca[l]=real(spread);cb[l]=real(spread);ea[l]=std::bit_cast<uint32_t>(std::fabs(std::bit_cast<float>(real(4.f))));eb[l]=std::bit_cast<uint32_t>(std::fabs(std::bit_cast<float>(real(4.f))));}
+            sc[0]=std::bit_cast<uint32_t>(0.5f+std::fabs(std::bit_cast<float>(real(1.f))));sc[1]=std::bit_cast<uint32_t>(0.5f+std::fabs(std::bit_cast<float>(real(1.f))));
+            sc[2]=real(1e6f);sc[3]=real(1e6f);   // unused lanes
+            if(seed%64==5)R[1][2]=0x00000042u;     // a denormal input
+#include "bozo_box_pair_oracle.inc"
+            unsigned axis=15;for(unsigned k=0;k<15;++k)if(!(key(pairs[k][0])<=key(pairs[k][1]))){axis=k;break;}
+            const uint32_t expect=axis==15?1:0;
+            const auto csr=_mm_getcsr();const auto got=vp2s::nativeBoxPairTest(R,sc,ca,ea,cb,eb);check(_mm_getcsr()==csr);
+            if(got!=expect){std::fprintf(stderr,"box pair seed%u axis%u got%u\n",seed,axis,got);check(false);}
+            ++reached[axis];++boxCases;
+        }
+        unsigned axes=0;for(unsigned k=0;k<16;++k)axes+=reached[k]!=0;
+        std::printf("%u box-pair tests match the listing (%u of 16 outcomes reached:",boxCases,axes);for(unsigned k=0;k<16;++k)std::printf(" %u",reached[k]);std::printf(")\n");
+        check(axes==16);
+    }
     // 237320 tail: the palette is kept at the VIF0 kick (no transfer); 218220
     // then skins natively. The oracle is generated from the mode-1 listings by
     // sequential evaluation (tests/bozo_skin_oracle.inc), lane by lane.

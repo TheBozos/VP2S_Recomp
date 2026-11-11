@@ -58,6 +58,13 @@ public:
 // Game record algorithms shared with the existing native port, through Bozo's
 // memory/CPU ABI. No vector bank, microprogram or transport is provided.
 bool nativeMathInstruction(uint8_t *,R5900Context *,Runtime *,uint32_t pc);
+// Box pair separating-axis test mod001 1f82c0 (stubbed): served at its call from
+// the shape-pair dispatch with the vf1..vf9 that object-pair block 1f8aa0 loaded.
+bool nativeBoxPairLibrary(R5900Context *,Runtime *,uint32_t target);
+// The test itself: rows 0..3 object A, 4..7 object B, scale (A, B), centres and
+// half extents (a0, a1, a2, a3). Returns 1 when no axis separates the boxes.
+uint32_t nativeBoxPairTest(const std::array<std::array<uint32_t,4>,8> &rows,const std::array<uint32_t,4> &scale,const std::array<uint32_t,4> &ca,
+    const std::array<uint32_t,4> &ea,const std::array<uint32_t,4> &cb,const std::array<uint32_t,4> &eb);
 // The global light byte +517 seen by model setup 23c0d0 for this model in
 // this frame (the VU1 program set choice in builder 23a950). nullopt: unseen.
 std::optional<bool> nativeModelLightVariant(const Runtime *,uint32_t model);

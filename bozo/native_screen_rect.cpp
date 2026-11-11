@@ -1,6 +1,7 @@
 #include "native_screen_rect.h"
 #include "bozo/ee/dispatcher.h"
 #include <cstring>
+#include <format>
 #include <stdexcept>
 namespace vp2s {
 namespace {
@@ -9,11 +10,17 @@ template<class T>T value(Runtime *rt,uint32_t at){
     T v;std::memcpy(&v,rt->memory.hostPointer(at,sizeof(T)),sizeof(T));return v;
 }
 }
+// Flag byte +0xf5 of class 0x161230: the constructor (3d4b90) writes bits 0..4 only.
+// The builder (3d3660) reads bits 2..4 (skip, pause gate, hidden); bits 0..1 steer the
+// timer update and auto-destroy (3d46c0..3d47e4), and no class method reads bits 5..7.
+constexpr uint8_t kFadeDrawFlags=0x1c;
 void NativeScreenRects::captureFade(Runtime *rt,const R5900Context *c){
     const auto object=c->r[17].uw[0];
     if(value<uint32_t>(rt,object)!=0x161230 || value<uint32_t>(rt,object+0x90)!=0x1612ac ||
-       value<uint8_t>(rt,object+0xf2) || value<uint8_t>(rt,object+0xf3) || value<uint8_t>(rt,object+0xf4) || value<uint8_t>(rt,object+0xf5))
-        throw std::runtime_error("unported native fade type/mode");
+       value<uint8_t>(rt,object+0xf2) || value<uint8_t>(rt,object+0xf3) || value<uint8_t>(rt,object+0xf4) || (value<uint8_t>(rt,object+0xf5)&kFadeDrawFlags))
+        throw std::runtime_error(std::format("unported native fade type/mode (object {:x} class {:x}/{:x} f2..f5 {:x} {:x} {:x} {:x})",object,
+            value<uint32_t>(rt,object),value<uint32_t>(rt,object+0x90),value<uint8_t>(rt,object+0xf2),value<uint8_t>(rt,object+0xf3),
+            value<uint8_t>(rt,object+0xf4),value<uint8_t>(rt,object+0xf5)));
     const auto source=value<uint32_t>(rt,0x35de60);
     NativeScreenRect rect{.object=object,.colour=c->r[10].uw[0],.depth=c->r[16].uw[0],
         .x=c->r[5].sw[0],.y=c->r[6].sw[0],.right=c->r[7].sw[0],.bottom=c->r[8].sw[0],
@@ -29,7 +36,7 @@ NativeScreenRect NativeScreenRects::beginFade(Runtime *rt,uint32_t stack,uint32_
     if(calls.contains(stack))throw std::runtime_error("native fade publication stack reused");
     auto it=fades.find(object);
     if(it==fades.end() || value<uint32_t>(rt,object)!=0x161230 || !value<uint8_t>(rt,object+0x63) || value<uint8_t>(rt,object+0x64)!=1 ||
-       value<uint8_t>(rt,object+0xf2) || value<uint8_t>(rt,object+0xf3) || value<uint8_t>(rt,object+0xf4) || value<uint8_t>(rt,object+0xf5))
+       value<uint8_t>(rt,object+0xf2) || value<uint8_t>(rt,object+0xf3) || value<uint8_t>(rt,object+0xf4) || (value<uint8_t>(rt,object+0xf5)&kFadeDrawFlags))
         throw std::runtime_error("native fade has no completed flat builder");
     const auto scene=value<uint32_t>(rt,0x35ddf8);const auto layer=value<uint8_t>(rt,object+0x65);
     if(layer>1 || value<uint32_t>(rt,scene+0x40a8+layer*4)!=object || value<uint8_t>(rt,scene+0x40dc+layer)!=1)

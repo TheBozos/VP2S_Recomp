@@ -188,6 +188,8 @@ int main(int argc,char **argv){try{
         const auto colour=((seed*0x070301u)&0xffffff)|(std::array<uint32_t,4>{0,1,64,128}[seed%4]<<24);
         put(x,object,uint32_t(0x161230));put(x,object+0x90,uint32_t(0x1612ac));put(x,object+0xc4,buffer);
         put(x,object+0xa0,colour);put(x,object+0xc0,uint32_t(0xffff00));put(x,object+0xf1,uint8_t(seed));put(x,object+0xf2,uint32_t(0));put(x,object+0x65,uint8_t(layer));
+        // Bits 0..1 and 5..7 of +0xf5 do not reach the draw (0xe0 seen on the ship route).
+        put(x,object+0xf5,uint8_t(seed%4==3?0xe0|((seed>>2)&3):(seed>>2)&3));
         put(x,buffer,base);put(x,buffer+16,uint32_t(0x100));put(x,0x35de60,source);put(x,source+0x3c6c,int16_t(width));put(x,source+0x3c6e,int16_t(height));
         // Actual offline-admitted table entry for the flat fade's mode0:
         // ordinary source-alpha blend. Only compiled CPU code reads it here.
@@ -208,10 +210,12 @@ int main(int argc,char **argv){try{
         check(value<uint32_t>(y,buffer+8)==base+0xb0 && value<uint32_t>(y,buffer+12)==base+0xb0);
         check(p.cycles==q.cycles+8 && p.checkpoints==q.checkpoints+1);p.cycles-=8;--p.checkpoints;p.cycleLimit=q.cycleLimit;p.r[2]=q.r[2];check(!std::memcmp(&p,&q,sizeof(p)));++cases;
         put(y,object+0x64,uint8_t(1));put(y,scene+0x40dc+layer,uint8_t(1));put(y,scene+0x40a8+layer*4,object);put(y,buffer+12,base+0x40);put(y,buffer+8,base+0xa0);
-        for(uint32_t offset:{0xf2u,0xf3u,0xf4u,0xf5u}){
-            put(y,object+offset,uint8_t(1));bool rejected=false;
-            try{now.rects.beginFade(&y,1,object);}catch(const std::runtime_error &){rejected=true;}check(rejected && !now.rects.outstanding());put(y,object+offset,uint8_t(0));
+        const auto flags=*y.memory.hostPointer(object+0xf5,1);
+        for(const auto [offset,bits]:std::array<std::pair<uint32_t,uint32_t>,6>{{{0xf2u,1u},{0xf3u,1u},{0xf4u,1u},{0xf5u,4u},{0xf5u,8u},{0xf5u,16u}}}){
+            const auto saved=*y.memory.hostPointer(object+offset,1);put(y,object+offset,uint8_t(saved|bits));bool rejected=false;
+            try{now.rects.beginFade(&y,1,object);}catch(const std::runtime_error &){rejected=true;}check(rejected && !now.rects.outstanding());put(y,object+offset,saved);
         }
+        check(*y.memory.hostPointer(object+0xf5,1)==flags);
         put(y,buffer+8,base+0xb0);bool extra=false;
         try{now.rects.beginFade(&y,1,object);}catch(const std::runtime_error &){extra=true;}check(extra && !now.rects.outstanding());put(y,buffer+8,base+0xa0);
         now.rects.beginFade(&y,1,object);bool rejected=false;

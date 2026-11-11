@@ -12,6 +12,33 @@ The earlier VP2S face/shading and general brightness comparisons remain open.
 
 ## Build and evidence
 
+### Flat-fade flag bits that never reach the draw (2026-11-11)
+
+The ship scene's flat fade (class `0x161230`, mode 0) arrived with flag byte
++0xf5 = `0xe0`. The native fade rejected any nonzero +0xf5, so the route stopped
+at the `0x3d38d4` capture. The rejection message now names the object, its
+class and bytes f2..f5.
+
+All readers and writers of +0xf5 in mod003 near the class:
+- the constructor `0x3d4b90` installs `0x161230`/`0x1612ac`, then writes bits
+  0..4 only, so bits 5..7 keep whatever the byte held;
+- the builder `0x3d3660` reads bit 2 (skip), bit 3 (gate through `0x3d4fe0`)
+  and bit 4 (skip);
+- the update reads bits 3 and 4 again, bit 0 (count frames with the global
+  counter) and bit 1 (keep the object at the end instead of the vtable +0x10
+  call), between `0x3d46c0` and `0x3d47e4`.
+
+No class method reads bits 5..7, and bits 0..1 never reach the rectangle. The
+capture and the publication now reject only bits 2..4 (`kFadeDrawFlags`);
+f2, f3 and f4 must still be zero. f4 selects the GS ALPHA entry at `0x3140e0`:
+0 -> entry 2 (ordinary alpha), 1 -> entry 7, 2 -> entry 1 (additive).
+
+The 64 whole-builder fade cases now vary the admitted bits (`0xe0` included),
+and bits 2, 3 and 4 each reject at publication, as does a nonzero f2/f3/f4.
+
+**Result:** the route passes the fade and reaches frame serial 11695, then
+stops at graphics service `0x123220` (called from `0x112fc0`).
+
 ### Inlined plain dot product, mod003 436eac (2026-11-11)
 
 The ship close-up stopped at mod003 436eac, inside the function at 436e08.

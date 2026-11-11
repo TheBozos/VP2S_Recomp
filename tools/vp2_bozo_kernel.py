@@ -283,7 +283,14 @@ def native_game_sites(data):
     at=s[1]+lo-s[2]
     if hashlib.sha256(data[at:at+hi-lo]).hexdigest()!='b51e65c468e6ccfbc18ebe97e73361841f296da61c34ec5d5dafae384360053c':
         raise ValueError('USA game frame-wait signature mismatch')
-    return 'native 0x1003c4\nnative 0x11fb50\nnative 0x11f62c\nnative 0x1131c0\n'+asset_sites()+composition_sites()+'native 0x120f4c\nnative 0x120f58\n'
+    # Depth blur 1152c0 and its two GIF writers: the native owner records the
+    # writers' scalar arguments at their entries (the compiled builder still runs).
+    lo,hi=0x1152c0,0x116528
+    s=next(s for s in segments if s[0]==1 and s[2]<=lo<hi<=s[2]+s[4])
+    at=s[1]+lo-s[2]
+    if hashlib.sha256(data[at:at+hi-lo]).hexdigest()!='cb1860e4ee448add9d0d8d3d8b0c698774f9985e7ba073227421a58ffa920873':
+        raise ValueError('USA depth blur builder signature mismatch')
+    return 'native 0x1003c4\nnative 0x11fb50\nnative 0x11f62c\nnative 0x1131c0\n'+asset_sites()+composition_sites()+'native 0x120f4c\nnative 0x120f58\nnative 0x116070\nnative 0x115830\n'
 
 
 def asset_sites():
@@ -848,6 +855,11 @@ def overlay_native_sites(name,data):
         return 'native 0x362328\nnative 0x3721a4\nnative 0x3721b0\n'
     if name!='mod001':return ''
     overlay_adaptations(name,data)
+    # Depth blur publication: draw method 1ffe70 at its enqueue call 1ffe84 (delay slot 1ffe88)
+    # (with builder method 1ffe00 that selects the published buffer).
+    _,segments,_=elf_parts(data);lo,hi=0x1ffe00,0x1ffea4
+    s=next(s for s in segments if s[0]==1 and s[2]<=lo<hi<=s[2]+s[4]);at=s[1]+lo-s[2]
+    if hashlib.sha256(data[at:at+hi-lo]).hexdigest()!='0508be2f7c3e4e6351710d0b0eb209d8fb59819d8c36c8abf7422ece5bae17b5':raise ValueError('USA depth blur publication signature mismatch')
     return ''.join(f'native 0x{pc:x}\n' for pc in (
         *LEAFLESS_QUERY_SITES,
         *FULL_SINE_SITES,
@@ -872,6 +884,7 @@ def overlay_native_sites(name,data):
         0x205ab0,0x206808,0x205aa0,0x206830,
         *range(0x252ec8,0x252f24,4),0x252fdc,0x252fe0,0x252fe4,0x252fec,0x252ff0,0x252ff8,
         0x2bf040,0x2bf058,
+        0x1ffe88,
         0x2371e8,0x2371ec,0x2371f0,0x2371f4,0x2371fc,0x237200,0x237204,0x237208,
         0x23720c,0x237210,0x237214,0x237218,0x237224,0x237260,0x237264,0x237268,0x23726c,
         0x237270,0x237274,0x237278,0x23727c,0x237280,0x237284,0x237288,0x23728c,0x237290,

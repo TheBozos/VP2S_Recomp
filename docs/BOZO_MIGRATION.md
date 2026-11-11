@@ -12,6 +12,90 @@ The earlier VP2S face/shading and general brightness comparisons remain open.
 
 ## Build and evidence
 
+### Ship-scene depth blur drawn natively (2026-11-11)
+
+Main `0x1152c0`'s multi-copy depth blur is now drawn by `bozo/native_depth_blur`.
+No GIF packet is sent or decoded.
+
+**Capture.** The compiled builder still runs, including its own cos/sin calls.
+Native sites at the entries of its two GIF writers record the scalar arguments
+it computed, only when called from `0x1152c0`:
+- plane writer `0x116070`: w, h, alpha, Z;
+- copy writer `0x115830`: frame FBP, sizes, ABE, vertex alpha, AREF, copy Z,
+  dx, dy and the end-tag flag. Its stack arguments are read through the
+  runtime's mapping, since the update thread's stack is in the scratchpad.
+
+A build opens at the double-buffer base `+0x3c88[+0x3cb0]`, and every later
+call must start exactly where the previous one ends. Plane writers emit
+8 + ceil(w/64) + 3 qwords and copy writers 14 + 2*ceil(w/32) (+1 end tag),
+which proves the size formulas against the real writers. The route frame is
+8*19 + 6*46 + 1 = 429 qwords, the traced type-2 entry.
+
+**Publication.** At mod001 `0x1ffe88`, the delay slot of draw `0x1ffe70`'s
+enqueue call, the build for index `+0x3cb1` must start at `+0x3c98` and span
+`+0x3ca0` qwords. The passes are then drawn and `+0x3c98` is cleared, which is
+the store `0x114ff8` makes after enqueueing. `0x114fa0` therefore queues
+nothing; with no queue (`+0x3c84` 0) nothing is drawn either. The real
+`0x21c9a0` completion still runs.
+
+**Admitted modes.** PSMCT32 frame, PSMZ24 depth, whole 32-pixel strips,
+same-size source and destination, ABE, nonzero AREF and a nonzero offset. The
+sequence must start with an alpha-0 plane and end with the end-tagged copy.
+Anything else rejects (no-offset copies use an unexercised writer path).
+
+**Drawing (engine `Material::frameDepth`, BozoEngine PR #89).** The GS keeps
+the markers in the frame's alpha. Here the main target's alpha is presentation
+coverage, so the markers live in image 6, drawn with the main frame's depth:
+- planes replace image 6's alpha (GS blend form D, colour mask A), Z test
+  GEQUAL at the plane's Z, no Z write;
+- each copy first snapshots the frame's RGB into image 6's RGB (nearest);
+- it then samples image 6 (RGB and markers) at the writer's geometry: 32-pixel
+  strips moved dx/16 and (dy halved toward zero)/16, texels u 32k..32k+31.5,
+  v 0..h-0.5, bilinear when `+0x3c77` is set;
+- that copy is drawn into the frame's RGB with vertex alpha, alpha test GEQUAL
+  AREF, Z test GEQUAL at the copy's Z, and GS blend (Cs-Cd)As+Cd;
+- the same draw goes into image 6's alpha, so later markers see As as the
+  GS's RGBA write leaves it.
+
+The engine's shader stores alpha/128 in 8 bits and tests round((a*255)/255*128).
+Markers 0x40/0x41/0x42 (bytes 128/129/131) test back exactly. Plane Z keeps its
+low 24 bits, which is the engine's GS rule, so first-frame leftover tables
+(0xdfff005a) draw at 0xff005a.
+
+**Tests.** `vp2s-bozo-depth-blur` (83 checks) replays the route's 14 writer
+calls from the dump values on a scratchpad stack. It checks the 429-qword
+packet, the pass list, every copy's first-strip position and texels against
+the PCSX2 dump, plane columns, retirement, the no-queue case, leftover Z, and
+rejections: caller, sequence gaps, AREF 0, no offset, size, Z32 frame,
+partial strips, short sequence and size mismatch. The engine GPU test covers
+`frameDepth`. The kernel signature test lists the three new sites; the guarded
+source ranges are main `0x1152c0..0x116528` and mod001 `0x1ffe00..0x1ffea4`.
+
+**Result:** the protected route publishes the blur natively (14 passes, 512x512)
+and runs all 24000 frames ("frame limit 24000 reached", capture serial 12787)
+with no rejecting boundary.
+
+**Visual evidence.** Native captures were compared against PCSX2 snapshots of
+the same lines. In the Alicia close-up ("I am concealing my identity...",
+serial 11834), the PS2 dump has no blur passes, and the native frame matches
+the PCSX2 snapshot: only the scene DOF softens the background.
+
+In the Dylan shot with Alicia's hair in front ("...!", serial 11734), the blur
+is active. Mean absolute gradients, native with the blur versus with it skipped
+(`VP2S_BOZO_DEPTH_BLUR_SKIP=1`, diagnostic only):
+- foreground hair 1.60 vs 3.34 (the far copies);
+- background 4.17 vs 5.22 (the near copies);
+- face 10.35 vs 10.36 (in focus);
+- 20% of pixels change.
+
+The PCSX2 snapshot's background is still softer (2.09 at display scale, while
+its in-focus face is also 1.35x softer than native from snapshot scaling).
+That residual is open. PCSX2's own frame-as-texture handling is not a
+bit-exact reference, so it is not tuned.
+
+**Engine dependency.** This needs BozoEngine PR #89 (`Material::frameDepth`).
+Bump the submodule pointer to merged engine main once it lands.
+
 ### Ship-scene multi-copy depth blur: analysis (2026-11-11)
 
 The route's next stop is the generic GIF send `0x123220` reached from queue

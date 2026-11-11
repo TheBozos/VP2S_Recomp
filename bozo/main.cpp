@@ -27,6 +27,7 @@
 #include "native_screen_rect.h"
 #include "native_ui_text.h"
 #include "native_screen_zoom.h"
+#include "native_depth_blur.h"
 #include "native_ui_sprites.h"
 #include "native_media_buffer.h"
 #include "native_publication.h"
@@ -65,7 +66,7 @@ class StrictHost final : public bozo::ee::Host,public vp2s::TimerOwner,public vp
     public vp2s::AssetOwner,public vp2s::DebugFontOwner,public vp2s::StateSetupOwner,public vp2s::ScreenRectOwner,public vp2s::ScreenZoomOwner,public vp2s::UiTextOwner,
     public vp2s::UiSpriteOwner,public vp2s::MediaBufferOwner,public vp2s::ModelOwner,public vp2s::FrameFilterOwner,public vp2s::MusicOwner,
     public vp2s::UiWindowOwner,public vp2s::LoadProgressOwner,public vp2s::MotionOwner,public vp2s::FrameCopyOwner,public vp2s::DofOwner,public vp2s::FeedbackOwner,public vp2s::SquadOwner,
-    public vp2s::ParticleOwner,public vp2s::ParticleUpdateOwner,public vp2s::ParticleDrawOwner,public vp2s::ProceduralOwner,public vp2s::ProceduralDrawOwner {
+    public vp2s::ParticleOwner,public vp2s::ParticleUpdateOwner,public vp2s::ParticleDrawOwner,public vp2s::ProceduralOwner,public vp2s::ProceduralDrawOwner,public vp2s::DepthBlurOwner {
 public:
     vp2s::NativeProceduralDraws proceduralDraws;
     vp2s::NativeProceduralDraws &nativeProceduralDraws()override{return proceduralDraws;}
@@ -210,6 +211,45 @@ public:
         if(++screenZoomDraws<=4 && std::getenv("VP2S_BOZO_TRACE_QUEUES"))
             std::fprintf(stderr,"[vp2s:screen] native zoom object=%x alpha=%u strips=%zu first=%g,%g,%g,%g\n",zoom.object,zoom.alpha,zoom.strips.size(),
                 zoom.strips[0].x0,zoom.strips[0].y0,zoom.strips[0].x1,zoom.strips[0].y1);
+    }
+    vp2s::NativeDepthBlurs depthBlurs;
+    unsigned depthBlurDraws=0;
+    vp2s::NativeDepthBlurs &nativeDepthBlurs()override{return depthBlurs;}
+    void drawNativeDepthBlur(const vp2s::NativeDepthBlur &blur)override{
+        // Main 1152c0's multi-copy depth blur. The markers live in image 6, drawn
+        // with the main frame's depth (the GS writes them into the frame's alpha,
+        // which here is the presentation's coverage). Before each copy the frame's
+        // RGB is snapshotted into image 6's RGB; the copy samples image 6 (RGB and
+        // markers), offset, alpha-tested against AREF and depth-tested at its Z, into
+        // the frame's RGB with ALPHA 0x44, and into image 6's alpha (As), as the GS
+        // write of one RGBA frame would leave both.
+        const auto target=scene.frameTarget();
+        if(!target || int32_t(target->width)!=blur.width || int32_t(target->height)!=blur.height)
+            throw std::runtime_error("native depth blur has no matching frame");
+        static const bool skip=std::getenv("VP2S_BOZO_DEPTH_BLUR_SKIP")!=nullptr;   // diagnostic comparison only
+        if(skip)return;
+        using bozo::render::Material;auto &renderer=bozo::render::Renderer::instance();
+        const float identity[16]={1,0,0,0,0,1,0,0,0,0,1,0,0,0,0,1};
+        constexpr uint8_t image=6;
+        Material plane;plane.textured=false;plane.target=image;plane.frameDepth=true;plane.depthTest=true;plane.depthWrite=false;
+        plane.gsBlend=true;plane.blendA=2;plane.blendB=2;plane.blendC=0;plane.blendD=0;plane.colourMask=8;   // alpha replaced
+        Material snapshot;snapshot.textured=false;snapshot.fromFrame=1;snapshot.source=0;snapshot.target=image;snapshot.frameDepth=true;
+        snapshot.nearest=true;snapshot.depthTest=false;snapshot.depthWrite=false;snapshot.blend=Material::Blend::Opaque;snapshot.colourMask=7;
+        Material copy;copy.textured=false;copy.fromFrame=1;copy.source=image;copy.nearest=!blur.bilinear;copy.clampU=copy.clampV=true;
+        copy.alphaTest=true;copy.alphaFunc=Material::AlphaFunc::GreaterEqual;copy.depthTest=true;copy.depthWrite=false;
+        copy.gsBlend=true;copy.blendA=0;copy.blendB=1;copy.blendC=0;copy.blendD=1;copy.colourMask=7;
+        bozo::render::Vertex whole[6];const float xy[6][2]={{0,0},{1,0},{0,1},{1,0},{1,1},{0,1}};
+        for(unsigned i=0;i<6;++i){auto &v=whole[i];v.x=2048-blur.width/2+xy[i][0]*blur.width;v.y=2048-blur.height/2+xy[i][1]*blur.height;
+            v.u=xy[i][0];v.v=xy[i][1];v.rgba=0x80808080;}
+        for(const auto &pass:blur.passes){
+            if(!pass.copy){const auto v=vp2s::nativeDepthBlurPlaneVertices(blur,pass);renderer.draw(plane,identity,v.data(),uint32_t(v.size()));continue;}
+            renderer.draw(snapshot,identity,whole,6);
+            const auto v=vp2s::nativeDepthBlurCopyVertices(blur,pass);
+            auto rgb=copy;rgb.alphaRef=pass.reference;renderer.draw(rgb,identity,v.data(),uint32_t(v.size()));
+            auto alpha=rgb;alpha.target=image;alpha.frameDepth=true;alpha.colourMask=8;renderer.draw(alpha,identity,v.data(),uint32_t(v.size()));
+        }
+        if(++depthBlurDraws<=4 && std::getenv("VP2S_BOZO_TRACE_QUEUES"))
+            std::fprintf(stderr,"[vp2s:depth-blur] native context=%x passes=%zu %dx%d\n",blur.context,blur.passes.size(),blur.width,blur.height);
     }
     vp2s::NativeStateSetups stateSetups;
     vp2s::NativeStateSetups &nativeStateSetups()override{return stateSetups;}
@@ -439,6 +479,7 @@ bool dispatchNativeInstruction(uint8_t *ram,R5900Context *ctx,Runtime *rt,uint32
     if(auto handled=vp2s::nativeMediaBufferInstruction(ctx,rt,pc))return *handled;
     if(auto handled=vp2s::nativeScreenRectInstruction(ctx,rt,pc))return *handled;
     if(auto handled=vp2s::nativeScreenZoomInstruction(ctx,rt,pc))return *handled;
+    if(auto handled=vp2s::nativeDepthBlurInstruction(ctx,rt,pc))return *handled;
     if(auto handled=vp2s::nativeFixedImageInstruction(ctx,rt,pc))return *handled;
     if(auto handled=vp2s::nativeTextureManagerInstruction(ctx,rt,pc))return *handled;
     if(auto handled=vp2s::nativeVisibilityInstruction(ctx,rt,pc))return *handled;

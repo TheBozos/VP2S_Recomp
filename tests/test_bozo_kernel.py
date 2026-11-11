@@ -579,6 +579,7 @@ class KernelGuardTests(unittest.TestCase):
         0x205ab0,0x206808,0x205aa0,0x206830,
         *range(0x252ec8,0x252f24,4),0x252fdc,0x252fe0,0x252fe4,0x252fec,0x252ff0,0x252ff8,
         0x2bf040,0x2bf058,
+        0x1ffe88,
         0x2371e8,0x2371ec,0x2371f0,0x2371f4,0x2371fc,0x237200,0x237204,0x237208,
         0x23720c,0x237210,0x237214,0x237218,0x237224,0x237260,0x237264,0x237268,0x23726c,
         0x237270,0x237274,0x237278,0x23727c,0x237280,0x237284,0x237288,0x23728c,0x237290,
@@ -696,7 +697,7 @@ class KernelGuardTests(unittest.TestCase):
                 with self.subTest(pc=hex(pc)),self.assertRaises(ValueError):game_entries(data)
 
     def test_boot_seed_site(self):
-        self.assertEqual(native_game_sites(self.data),'native 0x1003c4\nnative 0x11fb50\nnative 0x11f62c\nnative 0x1131c0\nnative 0x102650\nnative 0x102998\nnative 0x105a30\nnative 0x105b58\nnative 0x105940\nnative 0x105a10\nnative 0x118230\n'+composition_sites()+'native 0x120f4c\nnative 0x120f58\n')
+        self.assertEqual(native_game_sites(self.data),'native 0x1003c4\nnative 0x11fb50\nnative 0x11f62c\nnative 0x1131c0\nnative 0x102650\nnative 0x102998\nnative 0x105a30\nnative 0x105b58\nnative 0x105940\nnative 0x105a10\nnative 0x118230\n'+composition_sites()+'native 0x120f4c\nnative 0x120f58\nnative 0x116070\nnative 0x115830\n')
         segment=next(s for s in self.segments if s[0]==1 and s[2]<=0x1003bc<0x1003dc<=s[2]+s[4])
         for pc in range(0x1003bc,0x1003dc,4):
             data=bytearray(self.data);data[segment[1]+pc-segment[2]]^=1

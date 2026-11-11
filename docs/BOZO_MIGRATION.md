@@ -12,6 +12,37 @@ The earlier VP2S face/shading and general brightness comparisons remain open.
 
 ## Build and evidence
 
+### Inlined row point, homogeneous divide and matrix product (2026-11-11)
+
+The function around mod001 `2b8020..2b8510` inlines three VU0 macro blocks.
+They are added to the macro-idiom table, which is recognised from the exact
+COP2 words wherever they occur. The table now holds up to 28 words.
+
+- **rowpoint** (`2b802c`):
+  - LQC2 vf15 (point) and vf11..vf14 (rows); `ADDw.xyz vf31 = 1`;
+  - MUL each row by the point;
+  - per row, ADDA/MADDA/MADD with `1*` on the last two terms, in the orders
+    XYZW, YXZW, ZYXW and WYZX (the field row-dot orders);
+  - SQC2 vf5.
+- **homogeneous** (`2b80a0`): LQC2 vf20; `DIV Q = 1/vf20.w`; WAITQ;
+  `MULq.xyzw`; SQC2 vf20, giving all four lanes times Q (a zero w follows ps2f).
+- **compose** (`2b84a0`): LQC2 vf1..vf4 (rows A) and vf5..vf8 (rows B). Each A
+  row becomes `((B0*a.x + B1*a.y) + B2*a.z) + B3*a.w`, through the MULAx /
+  MADDAy / MADDAz / MADDw chain. SQC2 vf1..vf4 each publish their row. The
+  capture lives until the fourth store.
+
+All three use the engine's ps2f mul and nearest-even add, as the other VU0
+idioms do. Loads capture at their own PC, so a store over its source is safe.
+
+**Tests.** The math suite runs 256 row-point/homogeneous blocks and 256
+matrix-product blocks, bit-exact against the ps2f oracle. It includes plain EE
+words between COP2 words and division by zero. A store reached without its
+loads rejects, and one changed arithmetic word leaves a block unrecognised.
+
+**Result:** the route passes all three in serial 13538. It then stops at the
+native model draw `239ff0` for object `9a2920`, which has "no pending scene
+ownership".
+
 ### Lens-flare light projection (2026-11-11)
 
 The flare owner's block at `256068..256188` (entry `256038`) runs the resident

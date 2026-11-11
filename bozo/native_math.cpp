@@ -1940,7 +1940,7 @@ void morphMesh(Runtime *rt,uint32_t element,unsigned vertices,uint8_t *positions
 // load's base register as the store's, so each load captures its quadword at
 // its own PC; the store computes the fixed formula. Recognised only from the
 // exact COP2 words of a straight block (no branch in between).
-struct MacroIdiom{const char *name;std::array<int32_t,9> words;unsigned size;};
+struct MacroIdiom{const char *name;std::array<int32_t,28> words;unsigned size;};
 // >=0: exact word; -1-n: LQC2 into vf n; -100-n: SQC2 from vf n.
 constexpr MacroIdiom macroIdioms[]={
     {"negate",{-2,0x4bc1006c,-101},3},
@@ -1955,7 +1955,20 @@ constexpr MacroIdiom macroIdioms[]={
     {"squared",{-25,0x4bd8c62a,0x4bc00643,0x4b18c03d,0x4b18ce0a,-124},6},
     // plain dot (mod003 436eac): LQC2 vf1,vf2; MUL.xyz vf3 = vf1*vf2; ADDy.x vf1 = vf3.x+vf3.y;
     // ADDz.x vf1 += vf3.z; SQC2 vf1 -> {(x1x2+y1y2)+z1z2, y1, z1, w1}.
-    {"dot3",{-2,-3,0x4bc208ea,0x4b031841,0x4b030842,-101},6}};
+    {"dot3",{-2,-3,0x4bc208ea,0x4b031841,0x4b030842,-101},6},
+    // row point (mod001 2b802c): LQC2 vf15 (point), vf11..vf14 (rows); ADDw.xyz vf31 = 1;
+    // MUL vf11..vf14 *= vf15; per row ADDA/MADDA/MADD with 1*: x ((x+y)+1z)+1w,
+    // y ((y+x)+1z)+1w, z ((z+y)+1x)+1w, w ((w+y)+1z)+1x; SQC2 vf5.
+    {"rowpoint",{-16,-12,-13,-14,-15,0x4bc007c3,0x4bef5aea,0x4bef632a,0x4bef6b6a,0x4bef73aa,0x4b0b583d,0x4b0bf8be,0x4b0bf94b,
+        0x4a8c603c,0x4a8cf8be,0x4a8cf94b,0x4a4d683d,0x4a4df8bc,0x4a4df94b,0x4a2e703d,0x4a2e00be,0x4a2e0148,-105},23},
+    // homogeneous divide (mod001 2b80a0): LQC2 vf20; DIV Q = 1/vf20.w; WAITQ;
+    // MULq.xyzw vf20; SQC2 vf20 -> {x*Q, y*Q, z*Q, w*Q}.
+    {"homogeneous",{-21,0x4bf403bc,0x4a0003bf,0x4be0a51c,-120},5},
+    // matrix product (mod001 2b84a0): LQC2 vf1..vf4 (rows A), vf5..vf8 (rows B); per row k
+    // MULAx/MADDAy/MADDAz/MADDw: A_k = ((B0*A_k.x + B1*A_k.y) + B2*A_k.z) + B3*A_k.w;
+    // SQC2 vf1..vf4 (each store publishes its row; the capture lives to the last).
+    {"compose",{-2,-3,-4,-5,-6,-7,-8,-9,0x4be129bc,0x4be130bd,0x4be138be,0x4be1404b,0x4be229bc,0x4be230bd,0x4be238be,0x4be2408b,
+        0x4be329bc,0x4be330bd,0x4be338be,0x4be340cb,0x4be429bc,0x4be430bd,0x4be438be,0x4be4410b,-101,-102,-103,-104},28}};
 struct MacroCapture{std::array<VuWords,32> vf{};uint32_t valid=0,block=0;};
 MacroCapture &macroCapture(const Runtime *rt){static std::map<const Runtime *,MacroCapture> captures;return captures[rt];}
 bool nativeMacroIdiom(R5900Context *c,Runtime *rt,uint32_t pc){
@@ -1973,7 +1986,7 @@ bool nativeMacroIdiom(R5900Context *c,Runtime *rt,uint32_t pc){
         for(unsigned k=0;k<idiom.size;++k){
             if(!matches(idiom.words[k],self))continue;
             // Walk back k COP2 words (at most 6 plain EE words between them), then forward.
-            uint32_t at=pc,addresses[9];bool ok=true;addresses[k]=pc;
+            uint32_t at=pc,addresses[28];bool ok=true;addresses[k]=pc;
             for(unsigned b=k;b>0 && ok;--b){unsigned gap=0;uint32_t w;
                 do{at-=4;if(!word(at,w) || control(w) || ++gap>7){ok=false;break;}}while(!cop2(w));
                 if(ok && !matches(idiom.words[b-1],w))ok=false;else addresses[b-1]=at;}
@@ -2001,6 +2014,14 @@ bool nativeMacroIdiom(R5900Context *c,Runtime *rt,uint32_t pc){
                 out[0]=vuAdd(vuAdd(out[0],out[1]),vuMul(one,out[2]));out[3]=v[3];}
             else if(kind=="dot3"){const auto a=need(1),b=need(2);uint32_t m[3];for(unsigned i=0;i<3;++i)m[i]=vuMul(a[i],b[i]);
                 out=a;out[0]=vuAdd(vuAdd(m[0],m[1]),m[2]);}
+            else if(kind=="compose"){const unsigned row=unsigned(-100-want)-1;const auto a=need(1+row);
+                for(unsigned i=0;i<4;++i)out[i]=vuAdd(vuAdd(vuAdd(vuMul(need(5)[i],a[0]),vuMul(need(6)[i],a[1])),vuMul(need(7)[i],a[2])),vuMul(need(8)[i],a[3]));
+                _mm_setcsr(savedCsr);std::memcpy(record(rt,address(self),16),out.data(),16);if(row==3)capture.valid=0;return true;}
+            else if(kind=="rowpoint"){const auto v=need(15);constexpr unsigned order[4][4]={{0,1,2,3},{1,0,2,3},{2,1,0,3},{3,1,2,0}};
+                for(unsigned row=0;row<4;++row){const auto m=need(11+row);uint32_t t[4];for(unsigned i=0;i<4;++i)t[i]=vuMul(m[i],v[i]);
+                    out[row]=vuAdd(vuAdd(vuAdd(t[order[row][0]],t[order[row][1]]),vuMul(one,t[order[row][2]])),vuMul(one,t[order[row][3]]));}}
+            else if(kind=="homogeneous"){const auto v=need(20);uint32_t f=0;const auto q=bozo::ps2f::div(one,v[3],f);_mm_setcsr(savedCsr);
+                for(unsigned i=0;i<4;++i)out[i]=vuMul(v[i],q);}
             else if(kind=="negate"){const auto v=need(1);for(unsigned i=0;i<3;++i)out[i]=vuSub(0,v[i]);out[3]=v[3];}
             else if(kind=="dot"){const auto a=need(20),b=need(21),m=need(22);
                 for(unsigned i=0;i<4;++i)out[i]=vuMul(m[i],vuSub(b[i],a[i]));out[0]=vuAdd(vuAdd(out[0],out[1]),vuMul(one,out[2]));}

@@ -1487,6 +1487,73 @@ int main(){try{
         ++macroCases;
     }
     std::printf("%u inlined negate/dot/square/normalize/squared-length/dot3 blocks match the VU0 oracle\n",macroCases);
+    // Row point and homogeneous divide (mod001 2b802c / 2b80a0), the game's words.
+    unsigned rowCases=0;
+    for(unsigned seed=0;seed<256;++seed){
+        auto &r=native.runtime();std::memset(r.memory.flat(),0x5a+seed,bozo::kFlatBytes);
+        uint32_t state=seed*2891336453u+7;const auto rnd=[&](){state=state*1664525u+1013904223u;return state>>8;};
+        const bool homogeneous=seed&1;const uint32_t code=0x1c4000+128*(rnd()%32),point=0x1d0000+16*(rnd()%64),matrix=0x1d4000+16*(rnd()%64),out=0x1e8000;
+        const auto lq=[](unsigned base,unsigned vf,int16_t off){return 0xd8000000u|base<<21|vf<<16|uint16_t(off);};
+        const auto sq=[](unsigned base,unsigned vf,int16_t off){return 0xf8000000u|base<<21|vf<<16|uint16_t(off);};
+        const auto value=[&](){return (rnd()&0x807fffffu)|((110+rnd()%34)<<23);};
+        uint32_t v[4],m[4][4];for(auto &w:v)w=value();for(auto &row:m)for(auto &w:row)w=value();
+        if(homogeneous && seed%8==1)v[3]=0;   // division by zero follows ps2f (max magnitude)
+        std::memcpy(r.memory.hostPointer(point,16),v,16);std::memcpy(r.memory.hostPointer(matrix,64),m,64);
+        std::vector<uint32_t> words;
+        if(homogeneous){words={lq(3,20,0),0x27a201b0u,0x4bf403bcu,0x4a0003bfu,0x4be0a51cu,sq(2,20,0)};}
+        else{words={lq(3,15,0),lq(4,11,0),lq(4,12,0x10),lq(4,13,0x20),lq(4,14,0x30),0x4bc007c3u,0x4bef5aeau,0x4bef632au,0x4bef6b6au,0x4bef73aau,0x4b0b583du,0x4b0bf8beu,0x4b0bf94bu,
+            0x4a8c603cu,0x4a8cf8beu,0x4a8cf94bu,0x4a4d683du,0x4a4df8bcu,0x4a4df94bu,0x4a2e703du,0x4a2e00beu,0x4a2e0148u,sq(2,5,0)};}
+        std::memcpy(r.memory.hostPointer(code,4*words.size()),words.data(),4*words.size());
+        R5900Context x{};x.r[3].ud[0]=point;x.r[4].ud[0]=matrix;x.r[2].ud[0]=out;
+        for(unsigned i=0;i<words.size();++i){const uint32_t w=words[i];if(!((w>>26)==0x12 || (w>>26)==0x36 || (w>>26)==0x3e))continue;
+            if(!vp2s::nativeMathInstruction(r.memory.flat(),&x,&r,code+4*i)){std::fprintf(stderr,"row idiom seed%u word %u unclaimed\n",seed,i);check(false);}}
+        const auto M=[](uint32_t a,uint32_t b){uint32_t f=0;return bozo::ps2f::mul(a,b,f);};
+        const auto A=[](uint32_t a,uint32_t b){uint32_t f=0;return bozo::ps2f::addNearest(a,b,f);};
+        uint32_t expect[4];
+        if(homogeneous){uint32_t f=0;const auto saved=_mm_getcsr();const auto q=bozo::ps2f::div(0x3f800000,v[3],f);_mm_setcsr(saved);for(unsigned i=0;i<4;++i)expect[i]=M(v[i],q);}
+        else{constexpr unsigned order[4][4]={{0,1,2,3},{1,0,2,3},{2,1,0,3},{3,1,2,0}};
+            for(unsigned row=0;row<4;++row){uint32_t t[4];for(unsigned i=0;i<4;++i)t[i]=M(m[row][i],v[i]);
+                expect[row]=A(A(A(t[order[row][0]],t[order[row][1]]),M(0x3f800000,t[order[row][2]])),M(0x3f800000,t[order[row][3]]));}}
+        uint32_t got[4];std::memcpy(got,r.memory.hostPointer(out,16),16);
+        if(std::memcmp(got,expect,16)){std::fprintf(stderr,"row idiom seed%u %08x %08x %08x %08x / %08x %08x %08x %08x\n",seed,got[0],got[1],got[2],got[3],expect[0],expect[1],expect[2],expect[3]);check(false);}
+        R5900Context y=x;bool rejected=false;try{vp2s::nativeMathInstruction(r.memory.flat(),&y,&r,code+4*unsigned(words.size()-1));}catch(const std::runtime_error &){rejected=true;}check(rejected);
+        // One changed arithmetic word leaves the block unrecognised.
+        const uint32_t broken=words[homogeneous?4:10]^0x40;std::memcpy(r.memory.hostPointer(code+4*(homogeneous?4:10),4),&broken,4);
+        check(!vp2s::nativeMathInstruction(r.memory.flat(),&x,&r,code+4*unsigned(words.size()-1)));
+        ++rowCases;
+    }
+    std::printf("%u inlined row-point/homogeneous-divide blocks match the VU0 oracle\n",rowCases);
+    // Matrix product (mod001 2b84a0): A rows (vf1..vf4) at v1, B rows (vf5..vf8) at
+    // v0, each output row stored over A; plain EE words between some COP2 words.
+    unsigned composeCases=0;
+    for(unsigned seed=0;seed<256;++seed){
+        auto &r=native.runtime();std::memset(r.memory.flat(),0x3c+seed,bozo::kFlatBytes);
+        uint32_t state=seed*3266489917u+3;const auto rnd=[&](){state=state*1664525u+1013904223u;return state>>8;};
+        const uint32_t code=0x1c4000+256*(rnd()%16),a=0x1d0000+16*(rnd()%64),b=0x1d4000+16*(rnd()%64);
+        const auto lq=[](unsigned base,unsigned vf,int16_t off){return 0xd8000000u|base<<21|vf<<16|uint16_t(off);};
+        const auto sq=[](unsigned base,unsigned vf,int16_t off){return 0xf8000000u|base<<21|vf<<16|uint16_t(off);};
+        uint32_t ma[4][4],mb[4][4];for(auto *m:{&ma,&mb})for(auto &row:*m)for(auto &w:row)w=(rnd()&0x807fffffu)|((112+rnd()%30)<<23);
+        std::memcpy(r.memory.hostPointer(a,64),ma,64);std::memcpy(r.memory.hostPointer(b,64),mb,64);
+        std::vector<uint32_t> words;
+        for(unsigned k=0;k<4;++k)words.push_back(lq(3,1+k,int16_t(16*k)));
+        for(unsigned k=0;k<4;++k){words.push_back(lq(2,5+k,int16_t(16*k)));if(rnd()%3==0)words.push_back(0);}
+        for(uint32_t w:{0x4be129bcu,0x4be130bdu,0x4be138beu,0x4be1404bu,0x4be229bcu,0x4be230bdu,0x4be238beu,0x4be2408bu,
+                        0x4be329bcu,0x4be330bdu,0x4be338beu,0x4be340cbu,0x4be429bcu,0x4be430bdu,0x4be438beu,0x4be4410bu})words.push_back(w);
+        for(unsigned k=0;k<4;++k)words.push_back(sq(3,1+k,int16_t(16*k)));
+        std::memcpy(r.memory.hostPointer(code,4*words.size()),words.data(),4*words.size());
+        R5900Context x{};x.r[3].ud[0]=a;x.r[2].ud[0]=b;
+        for(unsigned i=0;i<words.size();++i){const uint32_t w=words[i];if(!w)continue;
+            if(!vp2s::nativeMathInstruction(r.memory.flat(),&x,&r,code+4*i)){std::fprintf(stderr,"compose idiom seed%u word %u unclaimed\n",seed,i);check(false);}}
+        const auto M=[](uint32_t p,uint32_t q){uint32_t f=0;return bozo::ps2f::mul(p,q,f);};
+        const auto A=[](uint32_t p,uint32_t q){uint32_t f=0;return bozo::ps2f::addNearest(p,q,f);};
+        uint32_t expect[4][4],got[4][4];
+        for(unsigned k=0;k<4;++k)for(unsigned i=0;i<4;++i)expect[k][i]=A(A(A(M(mb[0][i],ma[k][0]),M(mb[1][i],ma[k][1])),M(mb[2][i],ma[k][2])),M(mb[3][i],ma[k][3]));
+        std::memcpy(got,r.memory.hostPointer(a,64),64);
+        if(std::memcmp(got,expect,64)){std::fprintf(stderr,"compose idiom seed%u row0 %08x %08x / %08x %08x\n",seed,got[0][0],got[0][1],expect[0][0],expect[0][1]);check(false);}
+        R5900Context y=x;bool rejected=false;try{vp2s::nativeMathInstruction(r.memory.flat(),&y,&r,code+4*unsigned(words.size()-1));}catch(const std::runtime_error &){rejected=true;}check(rejected);
+        ++composeCases;
+    }
+    std::printf("%u inlined matrix-product blocks match the VU0 oracle\n",composeCases);
     // 237320 tail: the palette is kept at the VIF0 kick (no transfer); 218220
     // then skins natively. The oracle is generated from the mode-1 listings by
     // sequential evaluation (tests/bozo_skin_oracle.inc), lane by lane.

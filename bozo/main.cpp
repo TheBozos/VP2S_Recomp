@@ -636,6 +636,11 @@ int main(int argc,char **argv) {
 #endif
         uint64_t frames=0;
         try{frames=host.native.run();}catch(...){
+            // Diagnostic only: EE RAM at the rejecting boundary, for comparison with a PCSX2 state's eeMemory.bin.
+            if(const char *ramPath=std::getenv("VP2S_BOZO_BOUNDARY_RAM")){
+                if(FILE *out=std::fopen(ramPath,"wb")){std::fwrite(dispatcher.runtime().memory.flat(),1,0x2000000,out);std::fclose(out);
+                    std::fprintf(stderr,"[vp2s:diagnostic] EE RAM at the boundary written to %s\n",ramPath);}
+            }
 #ifdef VP2S_BOZO_CAPTURE
             if(!capturePath.empty() && std::getenv("VP2S_BOZO_CAPTURE_BOUNDARY")){
                 // Explicit diagnostic only: this is an incomplete frame, never

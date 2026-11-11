@@ -91,6 +91,47 @@ mod001 `0x2099d0`) natively, with which arguments, compared against ctx
 +0x3e7c..+0x3f0c in a PCSX2 save state of this shot. Porting the effect as it
 stands would draw something the PS2 does not.
 
+**Resolved: the effect is real; the out-of-range planes are first-frame leftovers.**
+- *Event command.* Class `0x15d6e0`, execute `0x37c1f0`, calls set-blur
+  `0x2098f0` at `0x37c244` with record +0x20 bits (enable/planes/final),
+  +0x18 level and +0x1c final Z. The native call is level 3 with all three
+  flags set; the effect object then reads +0x98..+0x9b = 01 01 03 01.
+- *PS2 at 334/340 s* (save states, slots 7/8). The last setter calls were the
+  mod003 warm-up at `0x3d59f0`/`0x3d5a18`: enable n=1, r=0..1, then disable.
+  That allocates the two 0x5460 buffers and leaves +0x3e7c = 0. Since
+  `0x2098f0` never disables through the setter, the PS2 had not yet run the
+  level-3 command.
+- *PS2 at 360-430 s* (GS dumps every 3 s). The effect is drawn at about
+  375-384 s. One frame in pass order:
+  1. alpha 0 at Z 0xffffff;
+  2. for i = 0..2: a plane with alpha 0x40+i at the near Z (0x84fe0, 0x5ba58,
+     0x45d20), then a copy with TEST 0x5040b+16i, vertex alpha 0x80, and offsets
+     (0.19, 0), (-1, 0.875), (-1.94, -1.69);
+  3. alpha 0x80 at Z 0xffffff;
+  4. for i = 0..2: a plane with alpha 0 at the far Z (0x11fee4, 0x164fad,
+     0x1d56e9), then a copy with TEST 0x5001b (alpha >= 1) and vertex alpha 0x60.
+
+  That is 128 plane sprites and 96 copy strips per dump, with ALPHA 0x44 and
+  frame FBP 0xc6.
+- *Planes.* `0x209aa0` projects (0, 0, d, 1) by camera +0x330. Near
+  d = focus(+0x2a4) + s(1+i), clamped to <= +0x278; far
+  d = focus - 0.2s(1+i), clamped to >= 10. Here
+  s = 200 * f2^2 * f4^2 * (f5/fov)^2, with fov = +0x230, f2 = +0x2b0,
+  f5 = (+0x270 - +0x260)/4/tan(0.698), and f4 = focus/f5.
+- *Native camera at the stop.* This gives near 0x76f3d/0x4ec16/0x3ac29 and far
+  0x12f514/0x198456/0x26fd49: the same scale and order as the PS2. The native
+  tables (0x604027, 0xdfff005a, ...) are not these. The command's immediate
+  `0x1152c0` build (`0x2099d8`) runs before any update fills the tables. The
+  PS2 tables also hold leftovers before the effect (0x97e0808, 0x9880046, ...),
+  so its first frame is built the same way.
+
+The native port should therefore follow the dump: plane markers into the main
+frame's alpha, then sampled-frame copies with the alpha test and blend, in
+this order. A diagnostic `VP2S_BOZO_BOUNDARY_RAM=<file>` now writes EE RAM at
+a rejecting boundary, for comparison with a PCSX2 state's eeMemory.bin. The
+PS2 reaches this command later relative to the sampled shots than the native
+run does. That pacing difference is noted but not yet measured.
+
 ### Flat-fade flag bits that never reach the draw (2026-11-11)
 
 The ship scene's flat fade (class `0x161230`, mode 0) arrived with flag byte

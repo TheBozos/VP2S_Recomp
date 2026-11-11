@@ -85,6 +85,29 @@ std::shared_ptr<const NativeModels::Pack> NativeModels::load(const AssetOrigin &
     if(r.at!=r.data.size())throw std::runtime_error("trailing semantic mesh bytes");
     packs[key]=pack;return pack;
 }
+// The scene's pending object owns a model it is, or one its composite draw
+// (class 1599a0, method 2b7ab0) reaches: for slot 2..0, each list child's slot
+// +8c0+4i, then its own; then each list child (list +8d4, next +8, ending at
+// the owner's +8cc). Children of that class compose the same way; their draws
+// run inside the owner's, and their completions (21c9a0) leave the scene slot.
+bool composedBy(Runtime *rt,uint32_t owner,uint32_t object){
+    constexpr uint32_t kComposite=0x1599a0;
+    std::vector<uint32_t> stack{owner},seen;
+    while(!stack.empty()){
+        const auto node=stack.back();stack.pop_back();
+        if(node==object)return true;
+        if(node<0x100000 || node>0x2000000-0x8d8 || std::find(seen.begin(),seen.end(),node)!=seen.end())continue;
+        seen.push_back(node);if(seen.size()>512)throw std::runtime_error("native composite model tree outside bounds");
+        if(value<uint32_t>(rt,node)!=kComposite)continue;
+        for(unsigned i=0;i<3;++i)if(const auto slot=value<uint32_t>(rt,node+0x8c0+4*i))stack.push_back(slot);
+        unsigned steps=0;
+        for(auto child=value<uint32_t>(rt,node+0x8d4);child!=node+0x8cc;child=value<uint32_t>(rt,child+8)){
+            if(child<0x100000 || child>0x2000000-0x8d8 || ++steps>256)throw std::runtime_error("native composite model list outside bounds");
+            stack.push_back(child);for(unsigned i=0;i<3;++i)if(const auto slot=value<uint32_t>(rt,child+0x8c0+4*i))stack.push_back(slot);
+        }
+    }
+    return false;
+}
 NativeModelSubmission NativeModels::capture(Runtime *rt,NativeAssets &assets,NativeTextures &textures,const NativeScene &scene,uint32_t object){
     const auto word=[&](uint32_t at,std::source_location source=std::source_location::current()){return value<uint32_t>(rt,at,source);};
     const auto byte=[&](uint32_t at){return value<uint8_t>(rt,at);};
@@ -93,7 +116,7 @@ NativeModelSubmission NativeModels::capture(Runtime *rt,NativeAssets &assets,Nat
     const auto camera=scene.drawingCamera();const auto target=scene.frameTarget();
     if(!camera || !target)throw std::runtime_error("native model has no active camera/frame");
     const auto current=word(0x35ddf8);const auto layer=byte(object+0x65);
-    if(layer>1 || word(current+0x40a8+4*layer)!=object || byte(current+0x40dc+layer)!=1)
+    if(layer>1 || byte(current+0x40dc+layer)!=1 || !composedBy(rt,word(current+0x40a8+4*layer),object))
         throw std::runtime_error("native model has no pending scene ownership");
     const auto model=word(object+0x7bc),count=word(model+0x34),list=word(object+0x77c);
     if(count>4096)throw std::runtime_error(std::format("native model mesh count outside bounds: model={:08x} count={}",model,count));

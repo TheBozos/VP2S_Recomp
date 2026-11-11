@@ -106,6 +106,23 @@ int main(int argc,char **argv){try{
                 check(_mm_getcsr()==fp && !std::memcmp(before.data(),rt.memory.flat(),before.size()));++emptyCases;
             }
             put(rt,current+0x40dc,uint8_t(0));rejects([&]{models.capture(&rt,assets,textures,scene,object);});put(rt,current+0x40dc,uint8_t(1));
+            // Composite draws (class 1599a0, 2b7ab0): the scene's pending object owns
+            // the models its child slots and child list reach (route: 999540 -> 9a2920).
+            {constexpr uint32_t owner=0x1e4000,child=0x1e6000,nested=0x1e8000,kComposite=0x1599a0;
+                const auto composite=[&](uint32_t at){std::memset(rt.memory.hostPointer(at,0x900),0,0x900);put(rt,at,kComposite);put(rt,at+0x8d4,at+0x8cc);};
+                const auto admitted=[&]{return !models.capture(&rt,assets,textures,scene,object).batches.size();};
+                composite(owner);composite(child);composite(nested);put(rt,current+0x40a8,owner);
+                rejects([&]{models.capture(&rt,assets,textures,scene,object);});++emptyCases;            // unreachable
+                put(rt,owner+0x8c4,object);check(admitted());put(rt,owner+0x8c4,uint32_t(0));++emptyCases;   // owner slot
+                put(rt,owner+0x8d4,child);put(rt,child+8,owner+0x8cc);put(rt,child+0x8c0,object);check(admitted());++emptyCases; // list child's slot
+                put(rt,child+0x8c0,uint32_t(0));put(rt,child+0x8d4,nested);put(rt,nested+8,child+0x8cc);put(rt,nested+0x8c8,object);check(admitted());++emptyCases; // nested
+                put(rt,nested+0x8c8,uint32_t(0));uint32_t link;std::memcpy(&link,rt.memory.hostPointer(object+8,4),4);
+                put(rt,child+0x8d4,object);put(rt,object+8,child+0x8cc);check(admitted());put(rt,object+8,link);++emptyCases; // list child itself
+                put(rt,child+0x8d4,child+0x8cc);put(rt,owner,uint32_t(0x153700));put(rt,owner+0x8c4,object);
+                rejects([&]{models.capture(&rt,assets,textures,scene,object);});put(rt,owner,kComposite);++emptyCases;   // not a composite
+                put(rt,owner+0x8c4,uint32_t(0));put(rt,owner+0x8d4,child);put(rt,child+8,child);   // a list that never ends
+                rejects([&]{models.capture(&rt,assets,textures,scene,object);});++emptyCases;
+                put(rt,current+0x40a8,object);}
             put(rt,empty-0x10,uint32_t(0));rejects([&]{models.capture(&rt,assets,textures,scene,object);});put(rt,empty-0x10,uint32_t(0x00535046));
             assets.overwrite(empty+0x5f,1);rejects([&]{models.capture(&rt,assets,textures,scene,object);});provenance();
             assets.overwrite(empty+0x10,1);rejects([&]{models.capture(&rt,assets,textures,scene,object);});provenance();

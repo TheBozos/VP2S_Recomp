@@ -12,6 +12,42 @@ The earlier VP2S face/shading and general brightness comparisons remain open.
 
 ## Build and evidence
 
+### Composite model draws own their children (2026-11-11)
+
+Class `1599a0` (draw method `2b7ab0`) is a composite. With `+878` set it draws
+its own model through `239fd0`. Otherwise it walks its children:
+- for each slot 2..0, every list child's slot `+8c0+4i`, then its own slot;
+- then every list child itself (list `+8d4`, next `+8`, ending at the owner's
+  `+8cc`);
+- each child with `+63` set is drawn through its vtable `+18`.
+
+On the route, the scene's pending object `999540` drew its child `9a2920`
+(same class, `+878` set). The native model capture required the object itself
+to be the scene slot, so it rejected the child.
+
+On the PS2 the child's completion (`21c9a0`, already the patched target of
+`239fec`) finds that the child is not the scene slot and only marks the child
+done. The native path keeps that unchanged.
+
+**Change.** The ownership check now walks this tree from the pending owner
+(bounded at 512 nodes and 256 list steps). Recursion happens only through
+nodes of the composite class. A list that never reaches its terminator
+rejects.
+
+**Tests.** The models suite admits a model reached by:
+- the owner's slot;
+- a list child's slot;
+- a nested composite's slot;
+- a list child itself.
+
+It rejects an unreachable model, an owner that is not a composite, and an
+endless list.
+
+**Result:** the route draws the composite (serial 13543, 1301 batches). It
+then stops at VU0 site `1f82c4` (entry `1f82c0`, ra `1f896c`). That partial
+capture is fully black; whether that is a fade or an incomplete frame is not
+yet checked.
+
 ### Inlined row point, homogeneous divide and matrix product (2026-11-11)
 
 The function around mod001 `2b8020..2b8510` inlines three VU0 macro blocks.

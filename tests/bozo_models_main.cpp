@@ -1,4 +1,6 @@
 #include "native_models.h"
+#include "bozo/ops_fpu.h"
+#include <bit>
 #include <fstream>
 #include <cstring>
 #include <source_location>
@@ -115,6 +117,36 @@ int main(int argc,char **argv){try{
         }
         assets.overwrite(model,0x1000);rejects([&]{models.capture(&rt,assets,textures,scene,object);});
     }
-    std::printf("%u native model captures +%u qualified empty FPS models: independent positions/skinning/UV/colour/strip ordering, unused-input isolation, whole RAM/FP preservation and snapshot/asset lifetime\n",cases,emptyCases);
+    // VU1 set-up routine 20 (code 0x1078) against its listing in PS2 words:
+    // MUL/ADDAy/MADDz n.e; MULAx/MADDAx/MSUBw r; rows 73..75 with .y times -8,
+    // MULAx/MADDAy/MADDAi.y(I=8)/MADDz; SQRT Q of .y; S,T = (x, z) + 0.5 Q, Q; FTOI12.
+    unsigned sphereCases=0;
+    {const auto M=[](uint32_t a,uint32_t b){uint32_t f=0;return bozo::ps2f::mul(a,b,f);};
+     const auto A=[](uint32_t a,uint32_t b){uint32_t f=0;return bozo::ps2f::addNearest(a,b,f);};
+     const auto S=[](uint32_t a,uint32_t b){uint32_t f=0;return bozo::ps2f::subNearest(a,b,f);};
+     const auto W=[](float x){return std::bit_cast<uint32_t>(x);};const auto F=[](uint32_t x){return std::bit_cast<float>(x);};
+     uint32_t state=12345;const auto rnd=[&](){state=state*1664525u+1013904223u;return float(state>>8)/float(1u<<24)*2-1;};
+     for(unsigned seed=0;seed<4096;++seed){
+        std::array<float,3> n{rnd(),rnd(),rnd()},eye{rnd(),rnd(),rnd()};const float el=std::sqrt(eye[0]*eye[0]+eye[1]*eye[1]+eye[2]*eye[2]);for(auto &x:eye)x/=el;
+        if(seed%3==0){const float nl=std::sqrt(n[0]*n[0]+n[1]*n[1]+n[2]*n[2]);for(auto &x:n)x/=nl;}
+        // An orthonormal rotation from a random unit quaternion.
+        float qv[4]{rnd(),rnd(),rnd(),rnd()};const float ql=std::sqrt(qv[0]*qv[0]+qv[1]*qv[1]+qv[2]*qv[2]+qv[3]*qv[3]);for(auto &x:qv)x/=ql;
+        const float x=qv[0],y=qv[1],z=qv[2],w=qv[3];
+        float rot[3][3]={{1-2*(y*y+z*z),2*(x*y+z*w),2*(x*z-y*w)},{2*(x*y-z*w),1-2*(x*x+z*z),2*(y*z+x*w)},{2*(x*z+y*w),2*(y*z-x*w),1-2*(x*x+y*y)}};
+        const auto got=vp2s::sphereMapTexture(n,eye,rot);
+        uint32_t e[3],nn[3];for(unsigned c=0;c<3;++c){e[c]=W(eye[c]);nn[c]=W(n[c]);}
+        const uint32_t d=A(A(M(nn[0],e[0]),M(nn[1],e[1])),M(W(1),M(nn[2],e[2])));
+        uint32_t r[3];for(unsigned c=0;c<3;++c)r[c]=S(A(M(nn[c],d),M(nn[c],d)),M(e[c],W(1)));
+        uint32_t row[3][3];for(unsigned i=0;i<3;++i)for(unsigned j=0;j<3;++j){row[i][j]=W(rot[j][i]);if(j==1)row[i][j]=M(row[i][j],W(-8));}
+        uint32_t v[3];for(unsigned j=0;j<3;++j){uint32_t acc=A(M(row[0][j],r[0]),M(row[1][j],r[1]));if(j==1)acc=A(acc,M(W(1),W(8)));v[j]=A(acc,M(row[2][j],r[2]));}
+        const auto saved=_mm_getcsr();uint32_t f=0;const uint32_t q=bozo::ps2f::sqrt(v[1],f);_mm_setcsr(saved);
+        const auto fixed=[&](uint32_t a){return int32_t(std::trunc(double(F(a))*4096));};
+        const int32_t expect[3]={fixed(A(M(v[0],W(1)),M(W(.5f),q))),fixed(A(M(v[2],W(1)),M(W(.5f),q))),fixed(A(0,q))};
+        for(unsigned c=0;c<3;++c)if(std::abs(got[c]-expect[c])>2){std::fprintf(stderr,"sphere map seed%u lane%u %d / %d\n",seed,c,got[c],expect[c]);check(false);}
+        // The GS's S/Q, T/Q stay on the unit disc's square: |u - 1/2|, |v - 1/2| <= 1/2.
+        // (For unit normals: then |r| = 1 and (v.x/q)^2 = (1 + v.y)/8 <= 1/4.)
+        if(seed%3==0 && got[2]>64)for(unsigned c=0;c<2;++c)check(std::fabs(float(got[c])/float(got[2])-.5f)<=.5f+4.f/float(got[2]));
+        ++sphereCases;}}
+    std::printf("%u VU1 routine-20 sphere-map vertices match the listing; %u native model captures +%u qualified empty FPS models: independent positions/skinning/UV/colour/strip ordering, unused-input isolation, whole RAM/FP preservation and snapshot/asset lifetime\n",sphereCases,cases,emptyCases);
     return 0;
 }catch(const std::exception &e){std::fprintf(stderr,"%s\n",e.what());return 1;}}

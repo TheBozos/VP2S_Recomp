@@ -47,6 +47,17 @@ std::array<float,4> apply(const Mat &m,const std::array<float,4> &p){std::array<
 float dot(const std::array<float,3> &a,const std::array<float,3> &b){return a[0]*b[0]+a[1]*b[1]+a[2]*b[2];}
 void finite(float f){if(!std::isfinite(f))throw std::runtime_error("nonfinite native model input/result");}
 }
+// r = 2(n.e)n - e; v = Rn r; q = sqrt(8 - 8 v.y); (S, T, Q) = (v.x + q/2,
+// v.z + q/2, q) as 12-bit fixed point (FTOI12 truncates). The GS divides S
+// and T by Q: u = v.x/q + 1/2, the classic sphere map around the world Y axis.
+std::array<int32_t,3> sphereMapTexture(const std::array<float,3> &n,const std::array<float,3> &eye,const float (&rotation)[3][3]){
+    const float d=(n[0]*eye[0]+n[1]*eye[1])+n[2]*eye[2];
+    std::array<float,3> r{},v{};for(unsigned c=0;c<3;++c)r[c]=(n[c]*d+n[c]*d)-eye[c];
+    for(unsigned j=0;j<3;++j)v[j]=(rotation[j][0]*r[0]+rotation[j][1]*r[1])+rotation[j][2]*r[2];
+    const float q=std::sqrt(std::fabs(8-8*v[1]));   // VU SQRT takes |x|
+    const auto fixed=[](float x){const double s=std::trunc(double(x)*4096);return int32_t(std::clamp(s,-2147483648.0,2147483647.0));};
+    return {fixed(v[0]+.5f*q),fixed(v[2]+.5f*q),fixed(q)};
+}
 std::shared_ptr<const NativeModels::Pack> NativeModels::load(const AssetOrigin &origin){
     if(origin.kind!=AssetOrigin::Kind::Part)throw std::runtime_error("native mesh has no decoded asset-part provenance");
     const auto key=std::pair{origin.disc,origin.part};if(auto it=packs.find(key);it!=packs.end())return it->second;
@@ -133,6 +144,8 @@ NativeModelSubmission NativeModels::capture(Runtime *rt,NativeAssets &assets,Nat
     for(unsigned i=0;i<spotLights;++i){const auto d=row(30+i),c=row(32+i);SpotLight spot{rigidInverse(row(28+i)),{},{c[0],c[1],c[2]},row(34+i)};
         for(unsigned c2=0;c2<3;++c2)spot.direction[c2]=rotation[0][c2]*d[0]+rotation[1][c2]*d[1]+rotation[2][c2]*d[2];spots.push_back(spot);}
     std::array<float,3> eye{};for(unsigned c=0;c<3;++c)eye[c]=-(viewObject[c]*viewObject[3]+viewObject[4+c]*viewObject[7]+viewObject[8+c]*viewObject[11]);
+    // VU row 72: the eye's direction in object space (object set-up, see vp2s_vu1_hle runObjectSetup).
+    std::array<float,3> eyeDirection{};{const float length=std::sqrt(dot(eye,eye));if(length)for(unsigned c=0;c<3;++c)eyeDirection[c]=eye[c]/length;}
     uint32_t boneCount=0,palette=0;const auto skeleton=word(object+0x648);
     if(skeleton){boneCount=word(word(skeleton+0x34)+4);if(boneCount>4096)throw std::runtime_error("native bone count outside bounds");
         palette=word(skeleton+0x4c)+0x40+64*boneCount*(byte(skeleton+0x50)&1);}
@@ -155,7 +168,7 @@ NativeModelSubmission NativeModels::capture(Runtime *rt,NativeAssets &assets,Nat
         const auto pack=load(*origin);const auto found=pack->find(origin->offset);
         if(found==pack->end())throw std::runtime_error(std::format("native mesh not converted: {:x}/{}+{:x}",origin->disc,origin->part,origin->offset));
         const auto &m=*found->second;
-        for(auto algorithm:m.algorithms)if(algorithm!=-1 && algorithm!=0 && algorithm!=2 && algorithm!=4 && algorithm!=6 && algorithm!=8 && algorithm!=12 && algorithm!=14 && algorithm!=18 && algorithm!=28 && algorithm!=32 && algorithm!=36 && algorithm!=44 && algorithm!=46 && algorithm!=48)
+        for(auto algorithm:m.algorithms)if(algorithm!=-1 && algorithm!=0 && algorithm!=2 && algorithm!=4 && algorithm!=6 && algorithm!=8 && algorithm!=12 && algorithm!=14 && algorithm!=18 && algorithm!=28 && algorithm!=32 && algorithm!=36 && algorithm!=20 && algorithm!=44 && algorithm!=46 && algorithm!=48)
             throw std::runtime_error(std::format("unported native mesh algorithm {}",algorithm));
         if(m.hasMaterial)material=m.material;
         else if(block>=0x40 && block-0x40!=mesh){const auto owner=assets.origin(block-0x40);if(owner && owner->disc==origin->disc && owner->part==origin->part){
@@ -202,6 +215,14 @@ NativeModelSubmission NativeModels::capture(Runtime *rt,NativeAssets &assets,Nat
             if(m.has(36)){const float d=dot(n,e),inv=length?1/length:0;std::array<float,3> reflection{2*d*n[0]-e[0],2*d*n[1]-e[1],2*d*n[2]-e[2]},view{};
                 for(unsigned r=0;r<3;++r)view[r]=(viewObject[4*r]*reflection[0]+viewObject[4*r+1]*reflection[1]+viewObject[4*r+2]*reflection[2])*inv;
                 const float q=std::sqrt(std::max(1-view[2],0.1f));vout.u=(-view[0]+1.41421f*q)/(2.82843f*q);vout.v=(view[1]+1.41421f*q)/(2.82843f*q);}
+            if(m.has(20)){
+                if(m.has(2) || m.has(4) || m.has(36))throw std::runtime_error("unqualified native sphere map with skinning or routine 36");
+                // Routine 20 writes S, T, Q; a later routine 48 adds its offset to S
+                // and T (12-bit); the GS then divides by Q.
+                auto stq=sphereMapTexture(n,eyeDirection,rotation);
+                if(m.has(48)){const auto scrollAfter=std::find(m.algorithms.begin(),m.algorithms.end(),48)>std::find(m.algorithms.begin(),m.algorithms.end(),20);
+                    if(scrollAfter)for(unsigned c=0;c<2;++c)stq[c]=int32_t(std::trunc((double(stq[c])/4096+scroll[c])*4096));}
+                vout.u=stq[2]?float(stq[0])/float(stq[2]):.5f;vout.v=stq[2]?float(stq[1])/float(stq[2]):.5f;}
             std::array<float,4> factor{1,1,1,objectColour[3]};
             if(material[4]==0){factor=objectColour;if(!tableA && !plain)factor[0]=factor[1]=factor[2]=0;}
             else if(material[4]==1){for(unsigned c=0;c<3;++c){factor[c]=ambient[c];for(unsigned l=0;l<4;++l)factor[c]+=colours[l][c]*std::max(0.0f,dot(directions[l],n));}}

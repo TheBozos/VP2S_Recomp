@@ -12,6 +12,34 @@ The earlier VP2S face/shading and general brightness comparisons remain open.
 
 ## Build and evidence
 
+### VU1 set-up routine 20: sphere map (2026-11-11)
+
+The ship scene's mesh a8a052a4/0+e450 has set-up routines [20, 48]. The
+offline converter rejected routine 20, so the pack had no record for it.
+
+Routine 20 is at 0x1078 in the model programs (set-up table entry 20), with
+the same body in every build. With e the unit eye direction in object space
+(VU row 72) and n the vertex normal, it computes:
+- r = 2(n.e)n - e and v = Rn r (rows 73..75 are Rn^T);
+- q = sqrt(|8 - 8 v.y|), since the VU's SQRT takes |x|;
+- S = v.x + q/2, T = v.z + q/2, Q = q, stored as 12-bit fixed point.
+
+Rows 72..75 and vf31 = 1 are the object set-up's, as documented by
+`runObjectSetup` in vp2s_vu1_hle. The GS divides by Q, which gives the
+classic sphere map u = v.x/q + 1/2.
+
+The converter keeps routine 20 with its data, like skinning, fade and scroll.
+`sphereMapTexture` computes it per vertex at draw time. A later routine 48
+adds its offset to S and T before the division, as on the VU. Combinations
+with skinning or routine 36 reject.
+
+The models suite checks 4096 vertices against the listing evaluated in PS2
+words (within 2/4096), plus the unit-disc bound for unit normals. Every
+routine-20 mesh now converts; only routines 26 and 40 remain unconverted.
+
+**Result:** the route reaches the ship scene's character close-up (frame
+serial 10339) and stops at the mod003 VU site 436eac (entry 436e08).
+
 ### Object-transform denormal inputs (mod001 249180, 2026-11-11)
 
 The scene-node update 248fc0 (vtable +0x64 of many classes) rejected the

@@ -28,6 +28,7 @@
 #include "native_ui_text.h"
 #include "native_screen_zoom.h"
 #include "native_depth_blur.h"
+#include "native_depth_probe.h"
 #include "native_ui_sprites.h"
 #include "native_media_buffer.h"
 #include "native_publication.h"
@@ -66,7 +67,7 @@ class StrictHost final : public bozo::ee::Host,public vp2s::TimerOwner,public vp
     public vp2s::AssetOwner,public vp2s::DebugFontOwner,public vp2s::StateSetupOwner,public vp2s::ScreenRectOwner,public vp2s::ScreenZoomOwner,public vp2s::UiTextOwner,
     public vp2s::UiSpriteOwner,public vp2s::MediaBufferOwner,public vp2s::ModelOwner,public vp2s::FrameFilterOwner,public vp2s::MusicOwner,
     public vp2s::UiWindowOwner,public vp2s::LoadProgressOwner,public vp2s::MotionOwner,public vp2s::FrameCopyOwner,public vp2s::DofOwner,public vp2s::FeedbackOwner,public vp2s::SquadOwner,
-    public vp2s::ParticleOwner,public vp2s::ParticleUpdateOwner,public vp2s::ParticleDrawOwner,public vp2s::ProceduralOwner,public vp2s::ProceduralDrawOwner,public vp2s::DepthBlurOwner {
+    public vp2s::ParticleOwner,public vp2s::ParticleUpdateOwner,public vp2s::ParticleDrawOwner,public vp2s::ProceduralOwner,public vp2s::ProceduralDrawOwner,public vp2s::DepthBlurOwner,public vp2s::DepthProbeOwner {
 public:
     vp2s::NativeProceduralDraws proceduralDraws;
     vp2s::NativeProceduralDraws &nativeProceduralDraws()override{return proceduralDraws;}
@@ -211,6 +212,18 @@ public:
         if(++screenZoomDraws<=4 && std::getenv("VP2S_BOZO_TRACE_QUEUES"))
             std::fprintf(stderr,"[vp2s:screen] native zoom object=%x alpha=%u strips=%zu first=%g,%g,%g,%g\n",zoom.object,zoom.alpha,zoom.strips.size(),
                 zoom.strips[0].x0,zoom.strips[0].y0,zoom.strips[0].x1,zoom.strips[0].y1);
+    }
+    vp2s::NativeDepthProbes depthProbes;
+    vp2s::NativeDepthProbes &nativeDepthProbes()override{return depthProbes;}
+    vp2s::NativeDepthProbeFrame nativeDepthProbeFrame()override{
+        const auto target=scene.frameTarget();
+        if(!target)throw std::runtime_error("native depth probe has no frame");
+        return {int32_t(target->width),int32_t(target->height)};
+    }
+    bool nativeDepthSample(float gsX,float gsY,uint32_t &gsZ)override{
+        // The frame presented last, read back by tiles (false headless or before
+        // the tile has been read; the probe then counts the sample as hidden).
+        return bozo::render::Renderer::instance().depthAt(gsX,gsY,gsZ);
     }
     vp2s::NativeDepthBlurs depthBlurs;
     unsigned depthBlurDraws=0;
@@ -377,7 +390,22 @@ public:
         std::fprintf(stderr,"[vp2s:bozo] boundary RAM hash=%016llx\n",(unsigned long long)hash);
     }
     unsigned traceLibrary=0;
+    // Diagnostic: VP2S_BOZO_WATCH also reports library calls that changed the
+    // watched 16 bytes, and changes made by compiled code between two calls.
+    uint32_t watchSeen[4]={};bool watchPrimed=false;
+    void watchLibrary(bozo::ee::Dispatcher &d,R5900Context *c,uint32_t target,const char *when) {
+        static const uint32_t watch=[]{const char *v=std::getenv("VP2S_BOZO_WATCH");return v?uint32_t(std::strtoul(v,nullptr,16))&~15u:0u;}();
+        if(!watch)return;
+        uint32_t now[4]={};if(const auto *p=d.runtime().memory.hostPointer(watch,16))std::memcpy(now,p,16);
+        if(watchPrimed && std::memcmp(now,watchSeen,16))
+            std::fprintf(stderr,"[vp2s:watch] %s library %x ra=%x a0=%x a1=%x a2=%x frames=%llu: %08x %08x %08x %08x -> %08x %08x %08x %08x\n",when,target,c->r[31].uw[0],
+                c->r[4].uw[0],c->r[5].uw[0],c->r[6].uw[0],(unsigned long long)native.framesEnded(),watchSeen[0],watchSeen[1],watchSeen[2],watchSeen[3],now[0],now[1],now[2],now[3]);
+        std::memcpy(watchSeen,now,16);watchPrimed=true;
+    }
     void libraryCall(bozo::ee::Dispatcher &d,R5900Context *c,uint32_t target) override {
+        watchLibrary(d,c,target,"before");
+        struct WatchAfter{StrictHost *self;bozo::ee::Dispatcher &d;R5900Context *c;uint32_t target;
+            ~WatchAfter(){self->watchLibrary(d,c,target,"during");}} watchAfter{this,d,c,target};
         if(vp2s::nativeMediaLibrary(c,&d.runtime(),target))return;
         // The shared libmpeg wrapper retains a TMB-specific reference ABI and
         // an IPU-demand flag. VP2S needs its native media provider first.
@@ -404,6 +432,15 @@ public:
         }
         if(target==0x122160u || target==0x1224d0u)
             throw std::runtime_error(std::format("native VP2S display owner required at {:x} ra={:x}",target,c->r[31].uw[0]));
+        if(target==0x122ab8u){
+            // sceGsSetDefStoreImage builds no packet natively: the readback node's
+            // request is recorded here and served from native depth at its enqueue.
+            depthProbes.request(c);
+            bozo::render::Renderer::instance().wantDepth();
+            if(std::getenv("VP2S_BOZO_TRACE_READBACK"))
+                std::fprintf(stderr,"[vp2s:readback] request packet=%x sbp=%x sbw=%x psm=%x x=%d y=%d w=%d h=%d frames=%llu\n",c->r[4].uw[0],c->r[5].uw[0],c->r[6].uw[0],c->r[7].uw[0],
+                    c->r[8].sw[0],c->r[9].sw[0],c->r[10].sw[0],c->r[11].sw[0],(unsigned long long)native.framesEnded());
+        }
         if(std::getenv("VP2S_BOZO_TRACE_CALLS") && traceLibrary++<160)
             std::fprintf(stderr,"[vp2s:call] pc=%x ra=%x a0=%x a1=%x\n",target,c->r[31].uw[0],c->r[4].uw[0],c->r[5].uw[0]);
         const uint32_t a0=c->r[4].uw[0],a1=c->r[5].uw[0],a2=c->r[6].uw[0];
@@ -437,7 +474,16 @@ public:
             std::fprintf(stderr,"[vp2s:device] pc=%x a0=%x a1=%x ra=%x frames=%llu\n",
                          c->pc,c->r[4].uw[0],c->r[5].uw[0],c->r[31].uw[0],
                          (unsigned long long)native.framesEnded());
-        throw std::runtime_error(std::format("unported device write {:x} at pc={:x} a0={:x} a1={:x} a2={:x} ra={:x}",address,c->pc,c->r[4].uw[0],c->r[5].uw[0],c->r[6].uw[0],c->r[31].uw[0]));
+        // Diagnostic: s0..s7 and the code addresses found on the first 0x200 stack
+        // bytes (saved return addresses), so a virtual-call boundary names its owner.
+        std::string stack;
+        const uint32_t sp=c->r[29].uw[0];
+        for(uint32_t k=0;k<0x200;k+=4)
+            if(const auto *p=d.runtime().memory.hostPointer(sp+k,4)){uint32_t v;std::memcpy(&v,p,4);
+                if(v>=0x100000 && v<0x400000 && !(v&3))stack+=std::format(" sp+{:x}={:x}",k,v);}
+        throw std::runtime_error(std::format("unported device write {:x} at pc={:x} a0={:x} a1={:x} a2={:x} ra={:x} sp={:x} s0..s7={:x} {:x} {:x} {:x} {:x} {:x} {:x} {:x} stack:{}",
+            address,c->pc,c->r[4].uw[0],c->r[5].uw[0],c->r[6].uw[0],c->r[31].uw[0],sp,
+            c->r[16].uw[0],c->r[17].uw[0],c->r[18].uw[0],c->r[19].uw[0],c->r[20].uw[0],c->r[21].uw[0],c->r[22].uw[0],c->r[23].uw[0],stack));
     }
     bool cop0Condition(bozo::ee::Dispatcher &,R5900Context *c) override {
         throw std::runtime_error(std::format("unported device completion condition at pc={:x}",c->pc));
@@ -480,6 +526,7 @@ bool dispatchNativeInstruction(uint8_t *ram,R5900Context *ctx,Runtime *rt,uint32
     if(auto handled=vp2s::nativeScreenRectInstruction(ctx,rt,pc))return *handled;
     if(auto handled=vp2s::nativeScreenZoomInstruction(ctx,rt,pc))return *handled;
     if(auto handled=vp2s::nativeDepthBlurInstruction(ctx,rt,pc))return *handled;
+    if(auto handled=vp2s::nativeDepthProbeInstruction(ctx,rt,pc))return *handled;
     if(auto handled=vp2s::nativeFixedImageInstruction(ctx,rt,pc))return *handled;
     if(auto handled=vp2s::nativeTextureManagerInstruction(ctx,rt,pc))return *handled;
     if(auto handled=vp2s::nativeVisibilityInstruction(ctx,rt,pc))return *handled;

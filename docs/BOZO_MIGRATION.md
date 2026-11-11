@@ -12,6 +12,76 @@ The earlier VP2S face/shading and general brightness comparisons remain open.
 
 ## Build and evidence
 
+### Lens-flare depth probe read from native depth (2026-11-11)
+
+Past 24000 frames the route stopped at a GS CSR write (`12001000`, FINISH
+clear) at `299f1c`. That is thread `299c30` (argument block `35dd50`), which
+downloads a GS rectangle into EE RAM via BUSDIR and the VIF1 FIFO.
+
+**What reads back.** Readback node class `159010`, built by constructor `29a720`
+with 0x210 bytes. Request `29a520`:
+- flips slot `+95`;
+- builds a 7-qword StoreImage packet at `+e0+70*slot` (`sceGsSetDefStoreImage`,
+  main `122ab8`);
+- keeps the destination at `+200+4*slot`.
+
+Promotion `29a5d0` copies the slot to `+96`. Enqueue `29a4b0` queues `+90` on
+the DMA list. The list wakes the thread, which calls notify `299c00` (slot flag
+`+97+slot`, scene completion `21c9a0`).
+
+The route's requester is lens-flare owner `253360`:
+- it reads 16x16 of the Z buffer (PSMZ24, ZBUF base, 512 wide) around the
+  light at `+420/+424` minus 8;
+- it counts the samples whose Z is below its light's Z (`+428`);
+- it stores the count/256 at `+42c`, one frame later.
+
+`256250`/`2563d8` multiply the flare intensity by that fraction. Off-screen
+distance already removes 1/250 per pixel, so a light thousands of pixels away
+has no intensity whatever the probe returns.
+
+**Native.** The engine's `sceGsSetDefStoreImage` builds no packet. Its rule
+is that readback belongs to the high-level caller, so:
+- the request is recorded at that call (ra `29a584` only);
+- `29a4d8`'s `jal 201f20` becomes `jal 299c00`;
+- native site `29a4dc` (the delay slot) fills the slot's destination from
+  `Renderer::depthAt`, which gives GS Z of the frame presented last, read back
+  by tiles;
+- it marks `+64` and enters the real notify with the node.
+
+No DMA job, no thread wake, no GS transfer. The owner-queue path (`+65` set)
+still fails closed.
+
+**Native rules.**
+- Only PSMZ32 (4 bytes) and PSMZ24 (3 packed bytes) are owned, rows top-down,
+  which is the layout the consumer reads.
+- Samples outside the frame, or with no renderer depth (headless, tile not read
+  yet), read as all-ones Z, so they never count as visible. The PS2 would read
+  whatever GS memory lies beyond the buffer.
+- The route's probe is at (3868, 10492), fully off-screen, so its flare has no
+  intensity on either side.
+
+**Tests.** `vp2s-bozo-depth-probe` (25 checks):
+- the route request: 768 hidden bytes, `+64`, request consumed;
+- Z24 layout and pixel-centre coordinates, and the consumer's count;
+- edge columns, unavailable depth, Z32 bytes and Z24 clamp;
+- rejections: colour and Z16 formats, size, buffer width, no frame, foreign
+  caller, not the original enqueue, class, job class, owner queue, slot,
+  missing request, destination.
+
+The kernel test pins the patch, the site, and bit flips in the five guarded
+ranges: `253360..25355c`, `29a4b0..29a514`, `29a520..29a5c4`,
+`29a5d0..29a604` and `299c00..299c28`.
+
+**Result:** three requests are served (frames 25485-25488, slots alternating).
+The route reaches the town field (serial 13536, 1076 batches). It now stops
+at the flare owner's next VU0 site, `256068` (entry `256038`).
+
+**Diagnostics added.** Device-write rejections print `s0..s7` and the code
+addresses on the stack, so a thread or virtual call names its owner.
+`VP2S_BOZO_WATCH` also reports library calls, and compiled code between
+calls, that change the watched 16 bytes. `VP2S_BOZO_TRACE_READBACK` prints
+requests.
+
 ### Ship-scene depth blur drawn natively (2026-11-11)
 
 Main `0x1152c0`'s multi-copy depth blur is now drawn by `bozo/native_depth_blur`.

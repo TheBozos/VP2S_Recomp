@@ -52,6 +52,15 @@ class KernelGuardTests(unittest.TestCase):
             for pc in range(lo,hi,4):
                 changed=bytearray(data);changed[s[1]+pc-s[2]]^=1
                 with self.subTest(pc=hex(pc)),self.assertRaises(ValueError):overlay_adaptations('mod001',changed)
+    def test_depth_probe_source(self):
+        data=(IMAGE.parent/'mod001.elf').read_bytes();_,segments,_=elf_parts(data)
+        self.assertIn('0029a4d8 0c0807c8 0c0a6700',overlay_adaptations('mod001',data).splitlines())
+        self.assertIn('native 0x29a4dc',overlay_native_sites('mod001',data).splitlines())
+        for lo,hi in ((0x253360,0x25355c),(0x29a4b0,0x29a514),(0x29a520,0x29a5c4),(0x29a5d0,0x29a604),(0x299c00,0x299c28)):
+            s=next(s for s in segments if s[0]==1 and s[2]<=lo<hi<=s[2]+s[4])
+            for pc in range(lo,hi,4):
+                changed=bytearray(data);changed[s[1]+pc-s[2]]^=1
+                with self.subTest(pc=hex(pc)),self.assertRaises(ValueError):overlay_adaptations('mod001',changed)
     def test_particle_draw_source(self):
         data=(IMAGE.parent/'mod001.elf').read_bytes();_,segments,_=elf_parts(data)
         self.assertIn('0022f15c 0c0807c8 0c08bc48',overlay_adaptations('mod001',data).splitlines())
@@ -530,7 +539,7 @@ class KernelGuardTests(unittest.TestCase):
             '002088ec 0c0807c8 00000000',
             '002cb48c 0c0807c8 0c087268',
             '00239fec 0c0807c8 0c087268',
-            '002dbdcc 0c0807c8 0c0b6f64',
+            '002dbdcc 0c0807c8 0c0b6f64','0029a4d8 0c0807c8 0c0a6700',
             '002d934c 0c0807c8 0c0b64c4',
             '00205a9c 0c0807c8 0c081698',
             '0022f15c 0c0807c8 0c08bc48',
@@ -580,6 +589,7 @@ class KernelGuardTests(unittest.TestCase):
         *range(0x252ec8,0x252f24,4),0x252fdc,0x252fe0,0x252fe4,0x252fec,0x252ff0,0x252ff8,
         0x2bf040,0x2bf058,
         0x1ffe88,
+        0x29a4dc,
         0x2371e8,0x2371ec,0x2371f0,0x2371f4,0x2371fc,0x237200,0x237204,0x237208,
         0x23720c,0x237210,0x237214,0x237218,0x237224,0x237260,0x237264,0x237268,0x23726c,
         0x237270,0x237274,0x237278,0x23727c,0x237280,0x237284,0x237288,0x23728c,0x237290,

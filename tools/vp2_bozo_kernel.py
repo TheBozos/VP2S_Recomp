@@ -598,6 +598,13 @@ def overlay_adaptations(name,data):
         (0x357900,0x357960,'462a6e78b8921044746093d1279f2e1fa139896c45bacee515d4504e946a0a24'),
         (0x30ed90,0x30ee00,'99dd9b859b2f98960359a3d9f43a0f78761f81ebe207c707331e026607154550'),
         (0x30ee00,0x30f0c0,'15d8bbc42064f45964cc032ed2db9a95beeb2530a0c24e0ead872528eae453e4'),
+        # Depth probe (lens-flare visibility): owner/consumer 253360, readback node
+        # class 159010 (enqueue 29a4b0, request 29a520, promotion 29a5d0, notify 299c00).
+        (0x253360,0x25355c,'b7a4b3072752339ec52c723fcf7591f2de1428e3c93a0273adde057e13cda828'),
+        (0x29a4b0,0x29a514,'3205de3fa3732997d66a7bbbaedb2a75e866e12988e6fe7545f57d974f2dc327'),
+        (0x29a520,0x29a5c4,'366e70decbc88b799e0ba81fb13c40086647681c8e7a647031cb547d60091a50'),
+        (0x29a5d0,0x29a604,'0db8c865a0850c85f96be19b8f89b4c3113903878207d83d04946f7d04ed1716'),
+        (0x299c00,0x299c28,'d588b04815b7379090fc1f37dbdaf811a0cd3896b74dc1abf814527cf52ab715'),
         (0x306950,0x306f84,'1d86e9d29099ea34987865d5e92e9912b090428d65f9c26e8e2b9ba62d18f156'),
         (0x30ce70,0x30ceb0,'953419ce510a7ca81e1955b302db4fe8eb4b944b91967725615a3ebbb8d3c2f6'),
         (0x239f70,0x239fa8,'c3849227f4e9e451d7b72f6b758661de4ed53015868faa6d5fb18a88f95167f9'),
@@ -776,6 +783,10 @@ def overlay_adaptations(name,data):
             # Publish in the outer producer before a transport job can exist;
             # enter the original scalar completion with the owning object.
             '002dbdcc 0c0807c8 0c0b6f64\n'
+            # Readback node 29a4b0: the depth probe is filled from native depth at
+            # 29a4dc, then the real notify 299c00 (slot flag, scene completion) runs.
+            # No DMA job, no readback thread, no GS transfer.
+            '0029a4d8 0c0807c8 0c0a6700\n'
             '002d934c 0c0807c8 0c0b64c4\n'
             '00205a9c 0c0807c8 0c081698\n'
             '0022f15c 0c0807c8 0c08bc48\n'
@@ -885,6 +896,7 @@ def overlay_native_sites(name,data):
         *range(0x252ec8,0x252f24,4),0x252fdc,0x252fe0,0x252fe4,0x252fec,0x252ff0,0x252ff8,
         0x2bf040,0x2bf058,
         0x1ffe88,
+        0x29a4dc,
         0x2371e8,0x2371ec,0x2371f0,0x2371f4,0x2371fc,0x237200,0x237204,0x237208,
         0x23720c,0x237210,0x237214,0x237218,0x237224,0x237260,0x237264,0x237268,0x23726c,
         0x237270,0x237274,0x237278,0x23727c,0x237280,0x237284,0x237288,0x23728c,0x237290,

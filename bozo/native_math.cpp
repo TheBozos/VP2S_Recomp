@@ -1911,7 +1911,10 @@ constexpr MacroIdiom macroIdioms[]={
     // squared length (mod003 397a9c and its kin): LQC2 vf24; MUL.xyz vf24^2;
     // ADDw.xyz vf25 = 1; ADDAy; MADDz.x; SQC2 vf24 -> {(x2+y2)+1*z2, y2, z2, w}.
     // The length idiom (same words followed by SQRT) is claimed before this.
-    {"squared",{-25,0x4bd8c62a,0x4bc00643,0x4b18c03d,0x4b18ce0a,-124},6}};
+    {"squared",{-25,0x4bd8c62a,0x4bc00643,0x4b18c03d,0x4b18ce0a,-124},6},
+    // plain dot (mod003 436eac): LQC2 vf1,vf2; MUL.xyz vf3 = vf1*vf2; ADDy.x vf1 = vf3.x+vf3.y;
+    // ADDz.x vf1 += vf3.z; SQC2 vf1 -> {(x1x2+y1y2)+z1z2, y1, z1, w1}.
+    {"dot3",{-2,-3,0x4bc208ea,0x4b031841,0x4b030842,-101},6}};
 struct MacroCapture{std::array<VuWords,32> vf{};uint32_t valid=0,block=0;};
 MacroCapture &macroCapture(const Runtime *rt){static std::map<const Runtime *,MacroCapture> captures;return captures[rt];}
 bool nativeMacroIdiom(R5900Context *c,Runtime *rt,uint32_t pc){
@@ -1955,6 +1958,8 @@ bool nativeMacroIdiom(R5900Context *c,Runtime *rt,uint32_t pc){
                 for(unsigned i=0;i<3;++i)out[i]=vuMul(v[i],q);out[3]=v[3];}
             else if(kind=="squared"){const auto v=need(24);for(unsigned i=0;i<3;++i)out[i]=vuMul(v[i],v[i]);
                 out[0]=vuAdd(vuAdd(out[0],out[1]),vuMul(one,out[2]));out[3]=v[3];}
+            else if(kind=="dot3"){const auto a=need(1),b=need(2);uint32_t m[3];for(unsigned i=0;i<3;++i)m[i]=vuMul(a[i],b[i]);
+                out=a;out[0]=vuAdd(vuAdd(m[0],m[1]),m[2]);}
             else if(kind=="negate"){const auto v=need(1);for(unsigned i=0;i<3;++i)out[i]=vuSub(0,v[i]);out[3]=v[3];}
             else if(kind=="dot"){const auto a=need(20),b=need(21),m=need(22);
                 for(unsigned i=0;i<4;++i)out[i]=vuMul(m[i],vuSub(b[i],a[i]));out[0]=vuAdd(vuAdd(out[0],out[1]),vuMul(one,out[2]));}

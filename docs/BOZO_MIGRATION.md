@@ -12,6 +12,25 @@ The earlier VP2S face/shading and general brightness comparisons remain open.
 
 ## Build and evidence
 
+### Inlined plain dot product, mod003 436eac (2026-11-11)
+
+The ship close-up stopped at mod003 436eac, inside the function at 436e08.
+The block is a straight inlined VU0 dot product:
+
+- LQC2 vf1 = object +0x220; LQC2 vf2 = the stack vector at sp+0xc30;
+- MUL.xyz vf3 = vf1*vf2; ADDy.x vf1 = vf3.x + vf3.y; ADDz.x vf1 += vf3.z;
+- SQC2 vf1 to sp+0x1f0.
+
+The EE then reads lane x and, when it is negative, resets the stack vector to
+(0, 0, 0, 1). The block is now the `dot3` entry of the macro-idiom table. Like
+the others, it is recognised only from its exact COP2 words. The loads are
+captured at their own PCs, and the store writes {(x1x2+y1y2)+z1z2, y1, z1, w1},
+computed in PS2 arithmetic (plain adds, no accumulator).
+
+The math suite's macro-idiom loop now has a sixth kind for it, checked
+bit-exact against the ps2f oracle. As for every kind, a store reached without
+its loads rejects.
+
 ### VU1 set-up routine 20: sphere map (2026-11-11)
 
 The ship scene's mesh a8a052a4/0+e450 has set-up routines [20, 48]. The

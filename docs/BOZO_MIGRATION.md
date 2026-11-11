@@ -12,6 +12,39 @@ The earlier VP2S face/shading and general brightness comparisons remain open.
 
 ## Build and evidence
 
+### Lens-flare light projection (2026-11-11)
+
+The flare owner's block at `256068..256188` (entry `256038`) runs the resident
+mode-0 program 0:
+- LQC2 vf1..vf4 load the rows at SP+360;
+- the FPU intensity code runs (its call `217370` has no COP2, so vf1..vf4 survive);
+- LQC2 vf5 loads the light at SP+340;
+- `VCALLMS 0`, then `CFC2.I t1,vi0`;
+- SQC2 vf6 writes SP+2c0, the screen point the depth probe and the edge
+  fades read.
+
+Program 0, read from the mode-0 MPG at `312280`:
+- ACC = vf1*v.x + vf2*v.y + vf3*v.z, and vf6 = ACC + vf4*v.w;
+- Q = 1/vf6.w, vf6.w = 1, vf6 *= Q, giving (p.x*Q, p.y*Q, p.z*Q, Q).
+
+This is the camera projection's formula, but the rows are used raw: there is
+no 0x1f0 column canonicalization here. The port captures the rows and the
+light at their loads, and sets t1 = 0 at the CFC2. It computes at the store,
+nearest-even, with denormal inputs read as zero. A path that leaves before the
+store (no flare intensity) drops the capture.
+
+**Tests.** The math suite runs 512 cases, over the four host rounding modes
+and normal and scratchpad stacks, bit-exact against the engine's ps2f
+mul/addNearest/div. The host rounding mode is left unchanged. Five rejections:
+- the matrix source, the light source and the destination;
+- a store without its loads;
+- zero depth.
+
+The kernel guard covers `256038..25618c`.
+
+**Result:** the route passes the flare (serial 13538, 789 batches) and stops
+at the next VU0 site, `2b802c` (entry `2b8020`).
+
 ### Lens-flare depth probe read from native depth (2026-11-11)
 
 Past 24000 frames the route stopped at a GS CSR write (`12001000`, FINISH

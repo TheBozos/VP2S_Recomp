@@ -56,7 +56,7 @@ class KernelGuardTests(unittest.TestCase):
         data=(IMAGE.parent/'mod001.elf').read_bytes();_,segments,_=elf_parts(data)
         self.assertIn('0029a4d8 0c0807c8 0c0a6700',overlay_adaptations('mod001',data).splitlines())
         self.assertIn('native 0x29a4dc',overlay_native_sites('mod001',data).splitlines())
-        for lo,hi in ((0x253360,0x25355c),(0x29a4b0,0x29a514),(0x29a520,0x29a5c4),(0x29a5d0,0x29a604),(0x299c00,0x299c28)):
+        for lo,hi in ((0x253360,0x25355c),(0x29a4b0,0x29a514),(0x29a520,0x29a5c4),(0x29a5d0,0x29a604),(0x299c00,0x299c28),(0x256038,0x25618c)):
             s=next(s for s in segments if s[0]==1 and s[2]<=lo<hi<=s[2]+s[4])
             for pc in range(lo,hi,4):
                 changed=bytearray(data);changed[s[1]+pc-s[2]]^=1

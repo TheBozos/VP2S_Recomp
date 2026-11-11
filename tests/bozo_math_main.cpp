@@ -753,6 +753,57 @@ int main(){try{
         check(rejected && _mm_getcsr()==fp && !std::memcmp(&before,&c,sizeof(c)) && !std::memcmp(ram.data(),rt.memory.flat(),ram.size()));
     }}
     std::printf("%u camera projection runs (%u projected points) and5 readonly rejections passed\n",projectionCases,projectedPoints);
+    // Flare light projection (flare owner block 256068..256188): rows SP+360 as
+    // program 0's column registers, light SP+340, result SP+2c0; ps2f oracle.
+    unsigned flareCases=0;
+    {auto &rt=native.runtime();
+        const auto mul=[](uint32_t a,uint32_t b){uint32_t f=0;return bozo::ps2f::mul(a,b,f);};
+        const auto add=[](uint32_t a,uint32_t b){uint32_t f=0;return bozo::ps2f::addNearest(a,b,f);};
+        uint64_t state=0x9e3779b97f4a7c15ull;const auto next=[&](){state^=state<<13;state^=state>>7;state^=state<<17;return state;};
+        const auto value=[&](float range){return float(int64_t(next()%2000001)-1000000)/1000000.f*range;};
+        const auto run=[&](uint32_t stack,const R5900Context &start,std::array<uint32_t,4> &out){
+            R5900Context c=start;
+            for(uint32_t pc:{0x256068u,0x25606cu,0x256070u,0x256074u}){c.r[3].uw[0]=stack+0x360;check(vp2s::nativeMathInstruction(rt.memory.flat(),&c,&rt,pc));}
+            c.r[3].uw[0]=stack+0x340;check(vp2s::nativeMathInstruction(rt.memory.flat(),&c,&rt,0x256170));
+            check(vp2s::nativeMathInstruction(rt.memory.flat(),&c,&rt,0x25617c));c.r[9].ud[0]=0x1234;
+            check(vp2s::nativeMathInstruction(rt.memory.flat(),&c,&rt,0x256180));check(c.r[9].ud[0]==0);
+            c.r[3].uw[0]=stack+0x2c0;check(vp2s::nativeMathInstruction(rt.memory.flat(),&c,&rt,0x256188));
+            std::memcpy(out.data(),rt.memory.hostPointer(stack+0x2c0,16),16);
+        };
+        for(unsigned rounding:{_MM_ROUND_NEAREST,_MM_ROUND_DOWN,_MM_ROUND_UP,_MM_ROUND_TOWARD_ZERO})for(unsigned seed=0;seed<128;++seed){
+            const uint32_t stack=seed&1?0x70002c00:0x1ffd000;R5900Context c{};c.r[29].uw[0]=stack;
+            float rows[16],light[4];for(float &x:rows)x=value(4.f);for(unsigned i=0;i<3;++i)light[i]=value(5000.f);light[3]=1.f;
+            rows[15]=std::fabs(rows[15])+2.f;   // keep p.w away from zero
+            if(seed%8==3)rows[1]=std::bit_cast<float>(0x00000123u);   // a denormal input reads as zero
+            std::memcpy(rt.memory.hostPointer(stack+0x360,64),rows,64);std::memcpy(rt.memory.hostPointer(stack+0x340,16),light,16);
+            uint32_t m[4][4],v[4];std::memcpy(m,rows,64);std::memcpy(v,light,16);if(seed%8==3)m[0][1]=0;
+            uint32_t p[4],expected[4],flags=0;
+            for(unsigned i=0;i<4;++i)p[i]=add(add(add(mul(m[0][i],v[0]),mul(m[1][i],v[1])),mul(m[2][i],v[2])),mul(m[3][i],v[3]));
+            const auto savedCsr=_mm_getcsr();const auto q=bozo::ps2f::div(0x3f800000,p[3],flags);_mm_setcsr(savedCsr);
+            for(unsigned i=0;i<3;++i)expected[i]=mul(p[i],q);expected[3]=mul(0x3f800000,q);
+            _MM_SET_ROUNDING_MODE(rounding);const auto csr=_mm_getcsr();std::array<uint32_t,4> out{};run(stack,c,out);
+            check(_mm_getcsr()==csr);_MM_SET_ROUNDING_MODE(_MM_ROUND_NEAREST);
+            check(!std::memcmp(out.data(),expected,16));++flareCases;
+        }
+        // Rejections: wrong sources/destination, store without loads, zero depth.
+        const uint32_t stack=0x1ffd000;
+        for(unsigned which=0;which<5;++which){R5900Context c{};c.r[29].uw[0]=stack;bool rejected=false;
+            try{
+                if(which==0){c.r[3].uw[0]=stack+0x350;vp2s::nativeMathInstruction(rt.memory.flat(),&c,&rt,0x256068);}
+                else if(which==1){c.r[3].uw[0]=stack+0x330;vp2s::nativeMathInstruction(rt.memory.flat(),&c,&rt,0x256170);}
+                else if(which==2){c.r[3].uw[0]=stack+0x2c0;vp2s::nativeMathInstruction(rt.memory.flat(),&c,&rt,0x256188);}
+                else{
+                    float rows[16]={1,0,0,0,0,1,0,0,0,0,1,0,0,0,0,which==3?0.f:1.f},light[4]={1,2,3,1};
+                    std::memcpy(rt.memory.hostPointer(stack+0x360,64),rows,64);std::memcpy(rt.memory.hostPointer(stack+0x340,16),light,16);
+                    for(uint32_t pc:{0x256068u,0x25606cu,0x256070u,0x256074u}){c.r[3].uw[0]=stack+0x360;vp2s::nativeMathInstruction(rt.memory.flat(),&c,&rt,pc);}
+                    c.r[3].uw[0]=stack+0x340;vp2s::nativeMathInstruction(rt.memory.flat(),&c,&rt,0x256170);
+                    c.r[3].uw[0]=which==3?stack+0x2c0:stack+0x2d0;vp2s::nativeMathInstruction(rt.memory.flat(),&c,&rt,0x256188);
+                }
+            }catch(const std::runtime_error &){rejected=true;}
+            check(rejected);
+        }
+    }
+    std::printf("%u flare projection cases and 5 rejections passed\n",flareCases);
     unsigned contactCases=0,contacts=0;
     for(unsigned rounding:{_MM_ROUND_NEAREST,_MM_ROUND_DOWN,_MM_ROUND_UP,_MM_ROUND_TOWARD_ZERO})for(unsigned seed=0;seed<128;++seed){
         auto &a=old.runtime();auto &b=native.runtime();std::memset(a.memory.flat(),0x33+seed,bozo::kFlatBytes);

@@ -649,6 +649,47 @@ bool nativeCameraProjection(R5900Context *c,Runtime *rt,uint32_t pc){
     }
     std::memcpy(record(rt,point,16),result,16);return true;
 }
+// Lens-flare light projection, mod001 flare owner (block entry 256038). LQC2
+// vf1..vf4 load the rows at SP+360 (no 0x1f0 canonicalization: program 0 reads
+// them as its column registers), the FPU code runs (its call 217370 uses no
+// COP2), LQC2 vf5 loads the light at SP+340, VCALLMS 0, CFC2.I t1/vi0, SQC2 vf6
+// to SP+2c0. Program 0: ACC = vf1*v.x + vf2*v.y + vf3*v.z, vf6 = ACC + vf4*v.w,
+// Q = 1/vf6.w, vf6.w = 1, vf6 *= Q: (p.x*Q, p.y*Q, p.z*Q, Q). The rows are
+// captured at their loads; a path that leaves before the store (no intensity)
+// just drops them.
+struct FlareProjection{float rows[4][4]{};unsigned loaded=0;bool point=false;float v[4]{};};
+FlareProjection &flareProjection(const Runtime *rt){static std::map<const Runtime *,FlareProjection> states;return states[rt];}
+bool nativeFlareProjection(R5900Context *c,Runtime *rt,uint32_t pc){
+    const bool row=pc>=0x256068 && pc<=0x256074 && !(pc&3);
+    if(!row && pc!=0x256170 && pc!=0x25617c && pc!=0x256180 && pc!=0x256188)return false;
+    if(!c)throw std::runtime_error("native flare projection has no CPU record");
+    const auto stack=c->r[29].uw[0],base=c->r[3].uw[0];auto &state=flareProjection(rt);
+    if(row){
+        if(base!=stack+0x360)throw std::runtime_error("native flare projection matrix source mismatch");
+        const unsigned k=(pc-0x256068)/4;if(k==0){state.loaded=0;state.point=false;}
+        std::memcpy(state.rows[k],record(rt,base+16*k,16),16);for(float &x:state.rows[k])x=vu0Input(x);
+        state.loaded|=1u<<k;return true;
+    }
+    if(pc==0x256170){
+        if(base!=stack+0x340)throw std::runtime_error("native flare projection light source mismatch");
+        std::memcpy(state.v,record(rt,base,16),16);for(float &x:state.v)x=vu0Input(x);state.point=true;return true;
+    }
+    if(pc==0x25617c)return true;
+    if(pc==0x256180){c->r[9].ud[0]=0;return true;}
+    if(base!=stack+0x2c0)throw std::runtime_error("native flare projection destination mismatch");
+    if(state.loaded!=15 || !state.point)throw std::runtime_error("native flare projection stored without its matrix and light");
+    float result[4];
+    {music::NearestRounding rounding;
+        float p[4];
+        for(unsigned i=0;i<4;++i)
+            p[i]=pairSum(pairSum(pairSum(pairProduct(state.rows[0][i],state.v[0]),pairProduct(state.rows[1][i],state.v[1])),pairProduct(state.rows[2][i],state.v[2])),pairProduct(state.rows[3][i],state.v[3]));
+        if((std::bit_cast<uint32_t>(p[3])&0x7fffffff)==0)throw std::runtime_error("native flare projection has zero depth");
+        volatile float q=1.f/p[3];const auto reciprocal=pairNormal(q);
+        for(unsigned i=0;i<3;++i)result[i]=pairProduct(p[i],reciprocal);result[3]=pairProduct(1.f,reciprocal);
+        for(float x:result)if(!std::isfinite(x))throw std::runtime_error("native flare projection overflow");
+    }
+    std::memcpy(record(rt,base,16),result,16);state.loaded=0;state.point=false;return true;
+}
 // Object matrix composition, mod003 39f0d0: when s0+290 bit 0 (B = s0+210)
 // and/or bit 1 (B = s0+250, the rotation 39f300 publishes) is set, the
 // object's matrices at s0+90 and s0+d0 become row*B. Each row lane is
@@ -2270,6 +2311,7 @@ bool nativeMathInstruction(uint8_t *,R5900Context *c,Runtime *rt,uint32_t pc){
     if(nativeSegmentContact(c,rt,pc))return true;
     if(nativeObjectCompose(c,rt,pc))return true;
     if(nativeCameraProjection(c,rt,pc))return true;
+    if(nativeFlareProjection(c,rt,pc))return true;
     if(pc==0x38011c || pc==0x380124 || pc==0x380154 || pc==0x38015c || pc==0x380160 || pc==0x380164){
         if(!c || c->pc!=0x380118 || c->r[31].uw[0]!=0x380118)throw std::runtime_error("native movement rotation escaped scalar quaternion builder");
         const auto stack=c->r[29].uw[0];

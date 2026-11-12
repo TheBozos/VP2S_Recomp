@@ -130,7 +130,11 @@ LeaflessQuery leaflessQuery(Runtime *rt,R5900Context *c,bool entry=false){
     apart(frame,0xf0,node,32);apart(frame,0xf0,query,32);apart(frame,0xf0,object,0x210);
     apart(node,32,object,0x210);apart(query,32,object,0x210);apart(node,32,query,32);
     if(entry){uint32_t caller=0;auto *saved=rt->memory.hostPointer(stack+0xf0,4);if(saved)std::memcpy(&caller,saved,4);
-        if(c->r[31].uw[0]!=0x1f72f4 && (c->r[31].uw[0]!=0x1f7390 || (caller!=0x3e70bc && caller!=0x3e753c)))
+        // Admitted: recursion; the 1f7370 wrapper from 3e70bc/3e753c (they read the
+        // hit object's VF1..VF4 afterwards, see the hit-box/hit-point ports); and
+        // mod003 41f340's object-list loop (direct call, 41f3f0), which keeps only
+        // the hit flag and reads no VU register afterwards.
+        if(c->r[31].uw[0]!=0x1f72f4 && c->r[31].uw[0]!=0x41f3f0 && (c->r[31].uw[0]!=0x1f7390 || (caller!=0x3e70bc && caller!=0x3e753c)))
             throw std::runtime_error("unqualified native leafless-query caller");}
     return {node,object,query,frame};
 }

@@ -278,7 +278,11 @@ int main(){try{
         // compiled triangle loop calls the native leaf tests 1f6be0/1f6e10.
         for(int which=0;which<2;++which){if(which)put<int16_t>(r,node+14,0);else put(r,node,0x180050u);const auto before=c;
             check(vp2s::nativeMathInstruction(r.memory.flat(),&c,&r,0x1f6f94) && !std::memcmp(&before,&c,sizeof(c)));put(r,node,0u);put<int16_t>(r,node+14,-1);}
-        put(r,stack+0xf0,0x123456u);reject();put(r,stack+0xf0,0x3e70bcu);c.r[17].ud[0]=stack+0x70;reject();
+        put(r,stack+0xf0,0x123456u);reject();
+        // mod003 41f340's object-list loop calls 1f6f40 directly (return 41f3f0).
+        c.r[31].ud[0]=0x41f3f0;{const auto before=c;check(vp2s::nativeMathInstruction(r.memory.flat(),&c,&r,0x1f6f94) && !std::memcmp(&before,&c,sizeof(c)));}
+        c.r[31].ud[0]=0x41f3f8;reject();c.r[31].ud[0]=0x1f7390;
+        put(r,stack+0xf0,0x3e70bcu);c.r[17].ud[0]=stack+0x70;reject();
         c.r[17].ud[0]=query;c.r[2].ud[0]=stack+0x50;
         for(unsigned i=0;i<16;++i)put(r,object+0x150+i*4,std::bit_cast<uint32_t>(i%5?0.f:1.f));
         put(r,object+0x204,0x3f800000u);for(unsigned i=0;i<4;++i)put(r,node+16+i*4,i==3?0x3f800000u:0u);

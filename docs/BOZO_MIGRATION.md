@@ -12,6 +12,25 @@ The earlier VP2S face/shading and general brightness comparisons remain open.
 
 ## Build and evidence
 
+### Object-list collision loop admitted (2026-11-12)
+
+mod003 `41f340` walks an object list (from `s5+14`, next at `+8`). For each
+object it sets the table global `358cc8` the way the `1f7370` wrapper does,
+and calls the collision-tree query `1f6f40` directly on the object's tree at
+`node+20` (return `41f3f0`). It stops at the first hit and returns 1.
+
+It consumes only the hit flag; no COP2 word in it reads VF state afterwards.
+So the leafless-query entry check now admits this return address beside
+recursion (`1f72f4`) and the wrapper from `3e70bc`/`3e753c`. Those two read
+the hit object's VF1..VF4 afterwards and are ported for it.
+
+The kernel guard covers `41f340..41f480`. The height suite admits the direct
+caller and rejects a neighbouring return address.
+
+**Result:** the route reaches serial 13548. It stops at the GIF send owner
+`123220` called from `112fe0`, a sibling of the type-2 queue entry `112fc0`
+(the depth blur).
+
 ### Hit-point transform after a collision hit; the black frames (2026-11-12)
 
 mod003 `3e6d30` follows a collision-tree hit. At `3e7158` (block entry

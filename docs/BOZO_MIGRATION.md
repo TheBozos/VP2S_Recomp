@@ -79,6 +79,48 @@ fields, keyed by element. Draw the sprites with the resource image and the
 strips untextured, ALPHA 44 (Cs-Cd)As+Cd, at the element's depth. Test
 against the route packet values above.
 
+**Native (path A and tail, 2026-11-12).** The builder's first argument is the
+layer: placement, length, alpha, depth and the text child are layer fields.
+
+Native site `4653e8` (path A's first instruction) records what the compiled
+builder computed: X (f24), Y (f23), L (f28), colour (s6), depth (fp), the
+resource (s5), text size (s0) and the layer. `nativeNamePlate` then
+transcribes the rest of path A on PS2 float words (`ps2f` FPU
+add/sub/mul/div/cvt):
+- four sprites, from table rects `+b0`, `+150`, `+140`, `+150` through the UV
+  helper's `(1<<log2)/256` scaling;
+- the cap width `0.85*w`, times 0.75 with the global flag (`48e04c` byte 3,
+  bit 4);
+- the two strips at y offset 28, written by the `475050` writer, with the
+  screen origin added.
+
+The tail is drawn when layer `+270` is set and the uploader `+26c` reports
+done. It adds the uploaded image, under its uploader-entry identity:
+- x from 16+X over `0.85*w`;
+- y from `((Y + s0/2) - 0.85*h/2) - 8`, over h;
+- alpha `+e0*+298`.
+
+It is drawn after the strips, as on the PS2. Path B (`465b38`) and the narrow
+tail still reject.
+
+The plate is stored per element when it is built. The packet is built once,
+so the native draw is too. The layer walk draws the element from that store.
+
+**Pitfall found.** A check at `465f04` fired on every build: it is the delay
+slot of the tail's last `beqz`. The site moved to `465f08`, the tail's first
+own instruction. The earlier "tail reached" boundary was this false alarm.
+
+**Tests.** The UI-text suite rebuilds the route's inputs with ps2f (layer
+`+40` -266, `+44` 379, `+27c` 240, `+2a4` 75). All four sprites' XYZ2 and UV
+match the route's built packet. Both strips match too: dark
+(1654,2227)-(1774,2229), light (1652,2225)-(1772,2227). The cap and the tail
+geometry/UV scaling are also checked. Kernel guards: `4650d0..466300`,
+`475050..475280`, `410c30..410da0`.
+
+**Result:** the plate "Solde / Port of Logun" renders, sliding in at the
+left, over the town (the fade has lifted). The route reaches serial 13576 and
+stops at mod003 VU0 site `396a8c` (entry `396a80`, ra `3ab5cc`).
+
 ### Event texture uploader (2026-11-12)
 
 The type-3 queue entry (dispatch `112fd8`, sending a source DMA chain through

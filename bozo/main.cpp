@@ -178,6 +178,15 @@ public:
             material.blend=icon.additive?bozo::render::Material::Blend::Additive:bozo::render::Material::Blend::Alpha;
             const auto vertices=vp2s::nativeUiSpriteVertices(icon);
             bozo::render::Renderer::instance().draw(material,identity,vertices.data(),vertices.size(),icon.picture);
+        }
+        if(!text->alphaTriangles.empty()){
+            auto flat=material;flat.textured=false;flat.blend=bozo::render::Material::Blend::Alpha;
+            bozo::render::Renderer::instance().draw(flat,identity,text->alphaTriangles.data(),text->alphaTriangles.size());
+        }
+        for(const auto &icon:text->lateIcons){
+            material.blend=bozo::render::Material::Blend::Alpha;
+            const auto vertices=vp2s::nativeUiSpriteVertices(icon);
+            bozo::render::Renderer::instance().draw(material,identity,vertices.data(),vertices.size(),icon.picture);
         }}
         if(std::getenv("VP2S_BOZO_TRACE_QUEUES"))std::fprintf(stderr,"[vp2s:UI] native layer=%x texts=%zu frame=%llu\n",layer.layer,layer.texts.size(),static_cast<unsigned long long>(native.framesEnded()));
     }
@@ -544,6 +553,7 @@ bool dispatchNativeInstruction(uint8_t *ram,R5900Context *ctx,Runtime *rt,uint32
     if(auto handled=vp2s::nativeDepthProbeInstruction(ctx,rt,pc))return *handled;
     if(auto handled=vp2s::nativeFixedImageInstruction(ctx,rt,pc))return *handled;
     if(auto handled=vp2s::nativeTextureUploaderInstruction(ctx,rt,pc))return *handled;
+    if(auto handled=vp2s::nativeNamePlateInstruction(ctx,rt,pc))return *handled;
     if(auto handled=vp2s::nativeTextureManagerInstruction(ctx,rt,pc))return *handled;
     if(auto handled=vp2s::nativeVisibilityInstruction(ctx,rt,pc))return *handled;
     if(auto handled=vp2s::nativeStateSetupInstruction(ram,ctx,rt,pc))return *handled;

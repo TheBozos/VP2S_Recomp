@@ -8,6 +8,9 @@
 #include "ui_layer_original_functions.h"
 #include "ui_layer_adapted_functions.h"
 #include <cstring>
+#include <bit>
+#include <cmath>
+#include "bozo/ops_fpu.h"
 #include <cstdio>
 #include <source_location>
 #include <stdexcept>
@@ -210,5 +213,43 @@ int main(int argc,char **argv){try{
     put(layerRam,current+0x40ac,layer+0x40);rejects([&]{layerAfter.texts.layer(&layerRam,layer);});put(layerRam,current+0x40ac,layer+0x20);
     put(layerRam,inactive+0x14,layer+0x10);rejects([&]{layerAfter.texts.layer(&layerRam,layer);});put(layerRam,inactive+0x14,layer);
     layerAfter.texts.release(object);rejects([&]{layerAfter.texts.layer(&layerRam,layer);});
+    {   // Event name plate (465150 path A) against the route's built packet (element 13268dc):
+        // layer +40 -266, +44 379, +27c 240, +2a4 75.0, frame 512x512, half-width flag set.
+        namespace F=bozo::ps2f;uint32_t fl=0;const auto W=[](float v){return std::bit_cast<uint32_t>(v);};
+        vp2s::NativeNamePlateInputs in;
+        in.x=F::add(F::fromInt(1792),F::div(F::mul(W(512.f),W(-266.f),fl),W(640.f),fl),fl);
+        in.y=F::add(F::fromInt(1792),F::div(F::mul(0x44003d70u,W(379.f),fl),W(480.f),fl),fl);
+        in.length=F::div(F::mul(W(512.f),F::fromInt(240),fl),W(640.f),fl);
+        in.colour=0x80808080u;in.depth=0xfffeceu;in.tailOffset=W(75.f);in.narrowCap=true;
+        in.rects={std::array<uint16_t,6>{0x0008,0x0db8,0x0e88,0x0f98,0x00e9,0x001f},{0x0008,0x0db8,0x0e88,0x0fc8,0x00e9,0x0022},{0x0e98,0x0db8,0x0fd8,0x0fc8,0x0015,0x0022}};
+        const auto plate=vp2s::nativeNamePlate(in,nullptr);
+        // XYZ2 (12.4) and UV of the four sprites, as the PS2 packet holds them.
+        const int32_t xyz[4][4]={{25267,35088,28595,35584},{28595,35088,28809,35632},{25053,35584,28381,36128},{28381,35584,28595,36128}};
+        const int32_t uvs[4][4]={{0x0008,0x0db8,0x0e88,0x0f98},{0x0e98,0x0db8,0x0fd8,0x0fc8},{0x0008,0x0db8,0x0e88,0x0fc8},{0x0e98,0x0db8,0x0fd8,0x0fc8}};
+        check(plate.icons.size()==4);
+        for(unsigned k=0;k<4;++k){const auto &s=plate.icons[k];
+            check(s.fixedCorners[0][0]==xyz[k][0] && s.fixedCorners[0][1]==xyz[k][1] && s.fixedCorners[3][0]==xyz[k][2] && s.fixedCorners[3][1]==xyz[k][3]);
+            check(s.fixedCorners[1][0]==xyz[k][2] && s.fixedCorners[1][1]==xyz[k][1] && s.fixedCorners[2][0]==xyz[k][0] && s.fixedCorners[2][1]==xyz[k][3]);
+            for(unsigned i=0;i<4;++i)check(s.uv[i]==float(uvs[k][i])/4096.f);
+            check(s.colour==0x80808080u && s.depth==0xfffeceu);}
+        // The strips: dark (1654,2227)-(1774,2229) then light (1652,2225)-(1772,2227).
+        check(plate.alphaTriangles.size()==12);
+        const auto &a=plate.alphaTriangles;
+        check(a[0].x==1654 && a[0].y==2227 && a[4].x==1774 && a[4].y==2229 && a[0].rgba==0x80010101u);
+        check(a[6].x==1652 && a[6].y==2225 && a[10].x==1772 && a[10].y==2227 && a[6].rgba==0x80f8f8f8u);
+        check(plate.lateIcons.empty());
+        // The uploader-image tail: 16+X .. +0.85*w (x0.75 with the flag), y from Y + s0/2 - 0.85*h/2 - 8, height h.
+        {auto tail=in;tail.icon=true;tail.textSize=41;tail.alpha=W(128.f);tail.alphaScale=W(0.5f);
+            tail.iconRect={0x0008,0x0008,0x0208,0x0208,32,32};tail.iconLog2Width=7;tail.iconLog2Height=7;
+            const auto t=vp2s::nativeNamePlate(tail,nullptr,nullptr);check(t.lateIcons.size()==1);const auto &s=t.lateIcons[0];
+            const auto X=std::bit_cast<float>(in.x),Y=std::bit_cast<float>(in.y);
+            check(s.colour==0x40808080u && s.depth==0xfffeceu);
+            check(std::abs(s.fixedCorners[0][0]/16.f-(16+X))<0.07f && std::abs((s.fixedCorners[3][0]-s.fixedCorners[0][0])/16.f-0.85f*32*0.75f)<0.13f);
+            check(std::abs(s.fixedCorners[0][1]/16.f-(Y+20-0.85f*16-8))<0.13f && std::abs((s.fixedCorners[3][1]-s.fixedCorners[0][1])/16.f-32)<0.13f);
+            check(s.uv[0]==4.f/2048 && s.uv[3]==260.f/2048);}   // 410c30 scales table texels by (1<<7)/256
+        // Without the half-width flag the cap is 0.85*w wide.
+        in.narrowCap=false;const auto wide=vp2s::nativeNamePlate(in,nullptr);
+        check(wide.icons[1].fixedCorners[3][0]-wide.icons[1].fixedCorners[0][0]>plate.icons[1].fixedCorners[3][0]-plate.icons[1].fixedCorners[0][0]);
+    }
     std::puts("64 full text-emitter,64 original scalar glyph and64 native-contract layer/real-completion CPU/RAM cases; immutable lifetime, fixed-point geometry, colour/alpha, shadow, half-texel UV, visibility and scene completion passed");return 0;
 }catch(const std::exception &e){std::fprintf(stderr,"%s\n",e.what());return 1;}}

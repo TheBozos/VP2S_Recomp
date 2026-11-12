@@ -217,6 +217,10 @@ NativeUiLayer NativeUiTexts::layer(Runtime *rt,uint32_t layer)const{
             auto item=std::make_shared<NativeUiText>();item->element=element;item->additiveTriangles=nativeChapterBar(rt,element);
             result.texts.push_back(std::move(item));continue;
         }
+        if(value<uint32_t>(rt,element)==0x167820){
+            auto captured=plate(element);if(!captured)throw std::runtime_error("native name plate has no finished snapshot");
+            result.texts.push_back(std::move(captured));continue;
+        }
         if(value<uint32_t>(rt,element)==0x15a690){
             auto captured=text(element);if(!captured || !captured->iconsCaptured || !captured->glyphs.empty())throw std::runtime_error("native image element has no finished sprite snapshot");
             result.texts.push_back(std::move(captured));continue;
@@ -244,6 +248,128 @@ NativeUiLayer NativeUiTexts::layer(Runtime *rt,uint32_t layer)const{
         result.texts.push_back(std::move(captured));
     }
     return result;
+}
+// Event name plate, builder 465150 path A (from 4653e8 to the join 465ee0),
+// transcribed operation by operation on PS2 float words (FPU add/sub truncate,
+// mul/div/cvt as ps2f defines them). Four SPRITEs (PRIM 356) over the
+// resource image: [X, X+L+16] x [Y-4, Y-4+h1] (rect +b0), a cap of width
+// f29 = 0.85*w, times 0.75 with the half-width flag (rect +150), then the
+// second row shifted left by f29 (rect +140 and the cap again). Two flat
+// strips (PRIM 244) from the rectangle writer 475050, dark then light.
+NativeUiText nativeNamePlate(const NativeNamePlateInputs &in,std::shared_ptr<const bozo::render::Texture> picture,std::shared_ptr<const bozo::render::Texture> iconPicture){
+    namespace F=bozo::ps2f;uint32_t flags=0;
+    const auto A=[&](uint32_t a,uint32_t b){return F::add(a,b,flags);};
+    const auto S=[&](uint32_t a,uint32_t b){return F::sub(a,b,flags);};
+    const auto M=[&](uint32_t a,uint32_t b){return F::mul(a,b,flags);};
+    const auto D=[&](uint32_t a,uint32_t b){return F::div(a,b,flags);};
+    const auto I=[](uint32_t x){return int32_t(F::toInt(x));};
+    const auto W=[](float v){return std::bit_cast<uint32_t>(v);};
+    const auto U=[](uint16_t v){return F::fromInt(v);};
+    const uint32_t k16=W(16.f),k4=W(4.f),k2=W(2.f),k28=W(28.f),k512=W(512.f),k640=W(640.f),k085=0x3f59999au,k075=0x3f400000u;
+    const auto &r1=in.rects[0],&r3=in.rects[1],&r2=in.rects[2];
+    // UV helper 410c30: (1<<log2)/256 times each table coordinate, truncated.
+    const auto su=D(F::fromInt(1u<<in.log2Width),W(256.f)),sv=D(F::fromInt(1u<<in.log2Height),W(256.f));
+    const auto uv=[&](const std::array<uint16_t,6> &r){return std::array<int32_t,4>{I(M(su,U(r[0]))),I(M(sv,U(r[1]))),I(M(su,U(r[2]))),I(M(sv,U(r[3])))};};
+    const float texW=float(1u<<in.log2Width)*16,texH=float(1u<<in.log2Height)*16;
+    NativeUiText out;
+    const auto sprite=[&](int32_t x0,int32_t y0,int32_t x1,int32_t y1,const std::array<uint16_t,6> &r){
+        const auto t=uv(r);NativeUiSprite s;s.colour=in.colour;s.depth=in.depth;s.picture=picture;
+        s.fixedCorners={std::array<int32_t,2>{x0,y0},{x1,y0},{x0,y1},{x1,y1}};
+        s.uv={float(t[0])/texW,float(t[1])/texH,float(t[2])/texW,float(t[3])/texH};out.icons.push_back(std::move(s));};
+    const auto X=in.x,Y=in.y,L=in.length;
+    const auto f20=A(X,L);auto f25=S(Y,k4);auto f26=A(k16,f20);const auto f27=A(f25,U(r1[5]));
+    const auto row1y0=I(M(k16,f25));
+    sprite(I(M(k16,X)),row1y0,I(M(k16,f26)),I(M(k16,f27)),r1);
+    const auto f29=in.narrowCap?M(k075,M(k085,U(r2[4]))):M(k085,U(r2[4]));
+    {const auto x0=I(M(k16,f26));f26=A(f26,f29);sprite(x0,row1y0,I(M(k16,f26)),I(M(k16,A(f25,U(r2[5])))),r2);}
+    const auto g27=S(X,f29);f25=A(S(Y,k4),U(r1[5]));f26=A(k16,A(g27,L));const auto f28=A(f25,U(r3[5]));
+    const auto row2y0=I(M(k16,f25));
+    sprite(I(M(k16,g27)),row2y0,I(M(k16,f26)),I(M(k16,f28)),r3);
+    {const auto x0=I(M(k16,f26));f26=A(f26,f29);sprite(x0,row2y0,I(M(k16,f26)),I(M(k16,A(f25,U(r2[5])))),r2);}
+    // Strips: integer writer coordinates; the writer adds the screen origin.
+    const auto half=[](int32_t v){return v>=0?v>>1:(v+1)>>1;};
+    const int32_t ox=0x800-half(in.frameWidth),oy=0x800-half(in.frameHeight);
+    const auto fox=F::fromInt(uint32_t(ox)),foy=F::fromInt(uint32_t(oy));
+    const auto s27=S(A(X,D(M(k512,A(k16,in.tailOffset)),k640)),fox);
+    const auto s26=S(f20,fox),s25=S(A(k28,Y),foy),s2=A(k2,s25);
+    const float depth=float(in.depth);const uint32_t alpha=in.colour&0xff000000u;
+    const auto strip=[&](int32_t x0,int32_t y0,int32_t x1,int32_t y1,uint32_t rgb){
+        const auto v=[&](int32_t x,int32_t y){bozo::render::Vertex p{};p.x=float(x+ox);p.y=float(y+oy);p.z=depth;p.rgba=alpha|rgb;return p;};
+        const auto a=v(x0,y0),b=v(x1,y0),c=v(x0,y1),d=v(x1,y1);out.alphaTriangles.insert(out.alphaTriangles.end(),{a,b,c,b,d,c});};
+    strip(I(A(k2,s27)),I(s2),I(A(k2,s26)),I(A(k2,s2)),0x010101u);
+    strip(I(s27),I(s25),I(s26),I(s2),0xf8f8f8u);
+    if(in.icon){
+        // x0 = 16+X, x1 = x0 + 0.85*w (w x0.75 with the flag); y0 = ((Y + s0/2) - 0.85*h/2) - 8, y1 = y0 + h.
+        const auto &r=in.iconRect;
+        const auto iu=D(F::fromInt(1u<<in.iconLog2Width),W(256.f)),iv=D(F::fromInt(1u<<in.iconLog2Height),W(256.f));
+        const std::array<int32_t,4> t{I(M(iu,U(r[0]))),I(M(iv,U(r[1]))),I(M(iu,U(r[2]))),I(M(iv,U(r[3])))};
+        auto w=U(r[4]);if(in.narrowCap)w=M(w,k075);
+        const auto x0=A(k16,X),x1=A(x0,M(k085,w));
+        const auto half=in.textSize>=0?in.textSize>>1:(in.textSize+1)>>1;
+        const auto y0=S(S(A(Y,F::fromInt(uint32_t(half))),D(M(k085,U(r[5])),k2)),W(8.f)),y1=A(y0,U(r[5]));
+        const uint32_t alpha=(F::toInt(M(in.alpha,in.alphaScale))&0xff)<<24;
+        const float iw=float(1u<<in.iconLog2Width)*16,ih=float(1u<<in.iconLog2Height)*16;
+        NativeUiSprite s;s.colour=alpha|0x808080u;s.depth=in.depth;s.picture=std::move(iconPicture);
+        s.fixedCorners={std::array<int32_t,2>{I(M(k16,x0)),I(M(k16,y0))},{I(M(k16,x1)),I(M(k16,y0))},{I(M(k16,x0)),I(M(k16,y1))},{I(M(k16,x1)),I(M(k16,y1))}};
+        s.uv={float(t[0])/iw,float(t[1])/ih,float(t[2])/iw,float(t[3])/ih};out.lateIcons.push_back(std::move(s));
+    }
+    return out;
+}
+std::optional<bool> nativeNamePlateInstruction(R5900Context *c,Runtime *rt,uint32_t pc){
+    if(pc!=0x4653e8 && pc!=0x465b38 && pc!=0x465f08)return std::nullopt;
+    if(pc==0x465b38)throw std::runtime_error("unported native name plate: narrow path 465b38");
+    if(pc==0x465f08){
+        // The tail is reached exactly when the capture at 4653e8 decided it is.
+        auto *dd=rt?dynamic_cast<bozo::ee::Dispatcher *>(rt->services):nullptr;auto *o=dd?dynamic_cast<UiTextOwner *>(&dd->host()):nullptr;
+        if(!c || !o || c->r[17].uw[0]<0x100040)throw std::runtime_error("native name plate tail requires its builder");
+        const auto captured=o->nativeUiTexts().plate(c->r[17].uw[0]-0x40);
+        if(!captured || captured->lateIcons.size()!=1){
+            const auto layer=c->r[18].uw[0],uploader=layer>=0x100000?value<uint32_t>(rt,layer+0x26c):0u;
+            throw std::runtime_error(std::format("native name plate tail was not captured: plate={} icons={} layer={:x} +270={:x} uploader={:x} done={}",
+                bool(captured),captured?captured->lateIcons.size():0,layer,layer>=0x100000?value<uint32_t>(rt,layer+0x270):0u,uploader,uploader?value<uint8_t>(rt,uploader+0x12ac)&1:0));}
+        return false;
+    }
+    auto *d=rt?dynamic_cast<bozo::ee::Dispatcher *>(rt->services):nullptr;
+    auto *owner=d?dynamic_cast<UiTextOwner *>(&d->host()):nullptr;auto *textures=d?dynamic_cast<TextureOwner *>(&d->host()):nullptr;
+    if(!c || !owner || !textures || c->r[17].uw[0]<0x100040)throw std::runtime_error("native name plate requires its builder");
+    const auto layer=c->r[18].uw[0],element=c->r[17].uw[0]-0x40,resource=c->r[21].uw[0];
+    record(rt,element,0x60);record(rt,layer,0x2b0);record(rt,resource,0x240);
+    if(value<uint32_t>(rt,element)!=0x167820 || value<uint32_t>(rt,element+0x54)!=layer || value<uint32_t>(rt,resource)!=0x165b40 ||
+       value<uint32_t>(rt,value<uint32_t>(rt,0x48e048)+0x5c)!=resource)
+        throw std::runtime_error("native name plate escaped its element/resource");
+    const auto image=textures->nativeTextures().imageAsset(resource);
+    NativeNamePlateInputs in;in.x=c->fu[24];in.y=c->fu[23];in.length=c->fu[28];in.colour=c->r[22].uw[0];in.depth=c->r[30].uw[0];
+    in.tailOffset=value<uint32_t>(rt,layer+0x2a4);
+    in.log2Width=value<uint8_t>(rt,resource+0x238);in.log2Height=value<uint8_t>(rt,resource+0x239);
+    if(!image || in.log2Width>10 || in.log2Height>10 || image->width!=(1u<<in.log2Width) || image->height!=(1u<<in.log2Height))
+        throw std::runtime_error("native name plate has no published resource image");
+    const auto table=value<uint32_t>(rt,resource+0x224);record(rt,table+0xb0,0xb0);
+    const uint32_t offsets[3]={0xb0,0x140,0x150};
+    for(unsigned k=0;k<3;++k)for(unsigned i=0;i<6;++i)in.rects[k][i]=value<uint16_t>(rt,table+offsets[k]+2*i);
+    in.narrowCap=(value<uint8_t>(rt,value<uint32_t>(rt,0x48e04c)+3)>>4)&1;
+    const auto context=value<uint32_t>(rt,0x35de60);in.frameWidth=value<int16_t>(rt,context+0x3c6c);in.frameHeight=value<int16_t>(rt,context+0x3c6e);
+    if((in.colour&0x00ffffffu)!=0x808080u)throw std::runtime_error("unqualified native name plate colour");
+    // The tail's conditions, evaluated as 465ee0 does (nothing changes them in between).
+    std::shared_ptr<const bozo::render::Texture> iconPicture;
+    const auto uploader=value<uint32_t>(rt,layer+0x26c);
+    if(value<uint32_t>(rt,layer+0x270) && uploader){record(rt,uploader,0x12b0);
+        if(value<uint32_t>(rt,uploader)!=0x165630)throw std::runtime_error("native name plate tail has no texture uploader");
+        if(value<uint8_t>(rt,uploader+0x12ac)&1){
+            const auto index=value<uint32_t>(rt,layer+0x284);if(index>=16)throw std::runtime_error("native name plate image entry outside the uploader");
+            const auto entry=uploader+0x10a8+0x18*index;const auto tex0=value<uint64_t>(rt,entry);
+            const auto icon=textures->nativeTextures().imageAsset(entry);
+            in.icon=true;in.textSize=c->r[16].sw[0];in.alpha=value<uint32_t>(rt,layer+0xe0);in.alphaScale=value<uint32_t>(rt,layer+0x298);
+            in.iconLog2Width=unsigned(tex0>>26)&15;in.iconLog2Height=unsigned(tex0>>30)&15;
+            const auto rect=value<uint32_t>(rt,layer+0x268);record(rt,rect,12);for(unsigned i=0;i<6;++i)in.iconRect[i]=value<uint16_t>(rt,rect+2*i);
+            if(!icon || icon->width!=(1u<<in.iconLog2Width) || icon->height!=(1u<<in.iconLog2Height) || ((tex0>>56)&0x1f))
+                throw std::runtime_error("native name plate image has no published uploader entry");
+            if(value<uint8_t>(rt,layer+0x2ac)&1)throw std::runtime_error("unported native name plate: narrow image tail");
+            iconPicture=icon->picture(0);
+        }
+    }
+    auto plate=std::make_shared<NativeUiText>(nativeNamePlate(in,image->picture(0),std::move(iconPicture)));plate->element=element;plate->iconsCaptured=true;
+    owner->nativeUiTexts().plates[element]=std::move(plate);
+    return false; // The original scalar builder continues; its packet is never sent.
 }
 std::optional<bool> nativeUiTextInstruction(R5900Context *c,Runtime *rt,uint32_t pc){
     if(pc!=0x2e74f0 && pc!=0x2e7520 && pc!=0x2e7550 && pc!=0x2e757c && pc!=0x2e75a0 && pc!=0x2f0de0 && pc!=0x2e83e4 && pc!=0x2ec9e4)return std::nullopt;

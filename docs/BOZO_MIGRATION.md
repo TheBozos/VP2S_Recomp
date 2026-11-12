@@ -12,6 +12,33 @@ The earlier VP2S face/shading and general brightness comparisons remain open.
 
 ## Build and evidence
 
+### Event UI layer 167850 admitted; custom element 167820 next (2026-11-12)
+
+**UI layer `167850`/`16786c`/`1678e8`** (mod003, constructor `466c80`):
+- it builds through the same thunks as the message layer: object `+18` is
+  `3b3150` (`j 2ec9c0`, a0 -= 20), job `+c` is `3b31c0` (`j 2ec9a0`,
+  a0 -= b0);
+- its completion (job `+14`) is the base `2eca00` itself;
+- object `+10` is thunk `466ef0` -> `466c10`, which calls the base `2ef0f0`
+  and then releases `+274`/`+26c`. That is teardown; the native draw and
+  completion do not use it.
+
+It is admitted by those vtable entries and instruction words, including the
+base call at `466c20`. The UI-text suite admits it and rejects another
+completion, a teardown that does not call the base, and a changed thunk
+adjustment.
+
+**Next boundary: element class `167820`** (at `13268dc`). It is not
+text-derived:
+- it shares only the element draw `+10 2f32d0`;
+- `+1c` (`4489a0`) is empty;
+- `+20` (`4650d0`) calls `465150`, a large custom GIF packet builder
+  (about 0x11b0 bytes, through the writers `475230`/`4751e0`). It reads the
+  frame size from `35de60`, a texture record from global `48e048`, and
+  element floats from `+e0`.
+
+That needs its own native draw port.
+
 ### Event texture uploader (2026-11-12)
 
 The type-3 queue entry (dispatch `112fd8`, sending a source DMA chain through

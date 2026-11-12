@@ -185,7 +185,15 @@ NativeUiLayer NativeUiTexts::layer(Runtime *rt,uint32_t layer)const{
     const bool message=layerType==0x15fe10 && objectType==0x15fe2c && jobType==0x15fea8 &&
         value<uint32_t>(rt,objectType+0x18)==0x3b3150 && value<uint32_t>(rt,jobType+0x0c)==0x3b31c0 &&
         thunk(0x3b3150,0x2ec9c0,0xffe0) && thunk(0x3b31c0,0x2ec9a0,0xff50);
-    if(value<uint32_t>(rt,layer)!=0x152060 || (!base && !story && !field && !message) ||
+    // The mod003 event layer (167850/16786c/1678e8, constructor 466c80): the same
+    // producer/build thunks as the message layer, the base completion 2eca00 as
+    // job +14, and object +10 = thunk 466ef0 -> 466c10, the base 2ef0f0 followed
+    // by two releases (teardown; the native draw/completion does not use it).
+    const bool event=layerType==0x167850 && objectType==0x16786c && jobType==0x1678e8 &&
+        value<uint32_t>(rt,objectType+0x18)==0x3b3150 && value<uint32_t>(rt,jobType+0x0c)==0x3b31c0 && value<uint32_t>(rt,jobType+0x14)==0x2eca00 &&
+        value<uint32_t>(rt,objectType+0x10)==0x466ef0 && thunk(0x3b3150,0x2ec9c0,0xffe0) && thunk(0x3b31c0,0x2ec9a0,0xff50) &&
+        thunk(0x466ef0,0x466c10,0xffe0) && value<uint32_t>(rt,0x466c20)==(0x0c000000u|(0x2ef0f0u>>2));
+    if(value<uint32_t>(rt,layer)!=0x152060 || (!base && !story && !field && !message && !event) ||
        value<uint8_t>(rt,layer+0x83)!=1 || value<uint8_t>(rt,layer+0xca)!=2)
         throw std::runtime_error(std::format("unported native UI layer type/build mode: layer={:x} types={:x}/{:x}/{:x}/{:x} mode83={} modeca={}",
             layer,value<uint32_t>(rt,layer),value<uint32_t>(rt,layer+0x10),value<uint32_t>(rt,layer+0x20),value<uint32_t>(rt,layer+0xb0),

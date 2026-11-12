@@ -193,6 +193,16 @@ int main(int argc,char **argv){try{
     layerAfter.failDraw=false;
     put(layerRam,layer+0x10,0x15ba00u); // A mixed base/derived tuple is invalid.
     rejects([&]{layerAfter.texts.layer(&layerRam,layer);});put(layerRam,layer+0x10,0x15bca0u);
+    {   // mod003 event layer 167850: admitted by its vtables and thunk words.
+        const auto types=[&](uint32_t l,uint32_t o,uint32_t j){put(layerRam,layer+0x10,l);put(layerRam,layer+0x20,o);put(layerRam,layer+0xb0,j);};
+        put(layerRam,0x16786cu+0x18,0x3b3150u);put(layerRam,0x1678e8u+0x0c,0x3b31c0u);put(layerRam,0x1678e8u+0x14,0x2eca00u);put(layerRam,0x16786cu+0x10,0x466ef0u);
+        put(layerRam,0x3b3150u,0x08000000u|(0x2ec9c0u>>2));put(layerRam,0x3b3154u,0x2484ffe0u);put(layerRam,0x3b31c0u,0x08000000u|(0x2ec9a0u>>2));put(layerRam,0x3b31c4u,0x2484ff50u);
+        put(layerRam,0x466ef0u,0x08000000u|(0x466c10u>>2));put(layerRam,0x466ef4u,0x2484ffe0u);put(layerRam,0x466c20u,0x0c000000u|(0x2ef0f0u>>2));
+        types(0x167850u,0x16786cu,0x1678e8u);layerAfter.texts.layer(&layerRam,layer);
+        put(layerRam,0x1678e8u+0x14,0x447680u);rejects([&]{layerAfter.texts.layer(&layerRam,layer);});put(layerRam,0x1678e8u+0x14,0x2eca00u);   // another completion
+        put(layerRam,0x466c20u,0u);rejects([&]{layerAfter.texts.layer(&layerRam,layer);});put(layerRam,0x466c20u,0x0c000000u|(0x2ef0f0u>>2));    // teardown not the base
+        put(layerRam,0x3b3154u,0x2484ffd0u);rejects([&]{layerAfter.texts.layer(&layerRam,layer);});put(layerRam,0x3b3154u,0x2484ffe0u);            // another adjustment
+        types(0x15bca0u,0x15bcbcu,0x15bd38u);}
     for(auto at:{0x39u,0x3bu,0x3du})put(layerRam,inactive+at,uint8_t(1));
     rejects([&]{layerAfter.texts.layer(&layerRam,layer);});
     put(layerRam,inactive+0x3b,uint8_t(0));put(layerRam,inactive+8,object);

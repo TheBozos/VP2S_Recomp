@@ -39,6 +39,46 @@ text-derived:
 
 That needs its own native draw port.
 
+### Element 167820: name-plate banner, analysis (2026-11-12)
+
+**The packet.** Built once: `+20` builds when `+3b` is clear and then sets it.
+The packet lies at `+48..+4c`, behind a DMA END tag at `+34`. On the route
+(element `13268dc`, 27 qwords) it holds:
+- `ALPHA_2 44`;
+- `TEX0_2 8007fe8621300000`, then `8007fe8621b10800`: a CLUT load, then a
+  256x256 PSMT8H page at block 800;
+- four SPRITEs (PRIM `356`: sprite, textured, ABE, FST, context 2), each
+  RGBAQ, UV, XYZ2, UV, XYZ2, forming a 2x2 plate. Texels: u 0.5..232.5 and
+  233.5..253.5, v 219.5..252.5. Z is fffece;
+- two flat strips from the rectangle writer `475050` (PRIM `244`), colours
+  `80010101` and `80f8f8f8`: a dark and a light underline.
+
+On the route the plate sits about 210 px left of the 512x512 target.
+
+**Texture identity.** The TEX0 comes from global `48e048` `+5c`: object
+`590420`, class `165b40`. That is the native FIS resource class (published by
+object at `447b84`), here with key {4e484f4a, 272b}. Its log2 sizes are
+`+238`/`+239` (8, 8) and its sub-image table is `+224`. The native draw can
+use `imageAsset(590420)`; no GS address is involved.
+
+**Builder `465150(layer, packet)`.**
+- Prologue: ALPHA via `475230`, TEX0 pair via `4751e0`.
+- Placement: x = screen origin + `+40`*512/640, y = origin + `+44`*512.96/480.
+- Plate length: the text child at `+f0` (`2ef860`, `+c` width) and `+27c`,
+  both scaled by 512/640.
+- Under 29 the narrow path `465b38` is taken; otherwise path A
+  (`4653e8..465b30`): sprites whose texels are the table rectangles at
+  `+b0`, `+140`, `+150` through the UV helper `410c30`. The two rectangles
+  come from `475050` (x0, y0, x1, y1, z, rgba).
+- Tail (`465ee0..`): when the event texture uploader `+60` reports its upload
+  done (`4430c0`, `+12ac` bit 0), it adds a TEX0 pair and the uploaded image.
+  On the route the build ran before the upload finished, so the tail is absent.
+
+**Plan.** Transcribe paths A/B and the tail as a native producer from these
+fields, keyed by element. Draw the sprites with the resource image and the
+strips untextured, ALPHA 44 (Cs-Cd)As+Cd, at the element's depth. Test
+against the route packet values above.
+
 ### Event texture uploader (2026-11-12)
 
 The type-3 queue entry (dispatch `112fd8`, sending a source DMA chain through

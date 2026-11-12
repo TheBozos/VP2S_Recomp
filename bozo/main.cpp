@@ -432,6 +432,17 @@ public:
                 detail+=" far:";for(unsigned i=0;i<8;++i)detail+=std::format(" {:x}",word(ctx+0x3ecc+4*i));
                 detail+=std::format(" owner={:x}]",c->r[17].uw[0]);
             }
+            if(c->r[31].uw[0]==0x112fe0){
+                // Type-3 queue entry: a source-chain DMA (s1); each REF with its asset origin.
+                auto &m=d.runtime().memory;const auto qword=[&](uint32_t at){uint64_t v=0;if(const auto *p=m.hostPointer(at,8))std::memcpy(&v,p,8);return v;};
+                detail=" [chain";uint32_t at=c->r[17].uw[0]&0x1ffffff;
+                for(unsigned k=0;k<8;++k){const auto tag=qword(at);const unsigned id=unsigned(tag>>28)&7,qwc=unsigned(tag&0xffff);const auto address=uint32_t(tag>>32)&0x1ffffff;
+                    const auto origin=nativeAssets().origin(address);
+                    detail+=std::format(" {}:{:x}/{:x}",id,address,qwc);
+                    if(origin)detail+=std::format("(asset {}/{:x}+{:x})",origin->part,origin->disc,origin->offset);
+                    if(id==7 || id==0)break;at+=16;}
+                detail+="]";
+            }
             throw std::runtime_error(std::format("native VP2S draw/data owner required at {:x} ra={:x}{}",target,c->r[31].uw[0],detail));
         }
         if(target==0x122160u || target==0x1224d0u)
@@ -532,6 +543,7 @@ bool dispatchNativeInstruction(uint8_t *ram,R5900Context *ctx,Runtime *rt,uint32
     if(auto handled=vp2s::nativeDepthBlurInstruction(ctx,rt,pc))return *handled;
     if(auto handled=vp2s::nativeDepthProbeInstruction(ctx,rt,pc))return *handled;
     if(auto handled=vp2s::nativeFixedImageInstruction(ctx,rt,pc))return *handled;
+    if(auto handled=vp2s::nativeTextureUploaderInstruction(ctx,rt,pc))return *handled;
     if(auto handled=vp2s::nativeTextureManagerInstruction(ctx,rt,pc))return *handled;
     if(auto handled=vp2s::nativeVisibilityInstruction(ctx,rt,pc))return *handled;
     if(auto handled=vp2s::nativeStateSetupInstruction(ram,ctx,rt,pc))return *handled;

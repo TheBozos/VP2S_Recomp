@@ -12,6 +12,46 @@ The earlier VP2S face/shading and general brightness comparisons remain open.
 
 ## Build and evidence
 
+### Event texture uploader (2026-11-12)
+
+The type-3 queue entry (dispatch `112fd8`, sending a source DMA chain through
+`123550`) came from mod003 class `165630`, an event-effect texture uploader.
+
+**What it does.** Its update `443270` walks up to 16 entries (0x18 bytes at
+`+10a8`: TEX0 pair, image `+10b8`, callback `+10bc`). For each, it allocates
+or finds a texture-manager slot by FIS key (`29d9b0`, with `29d7c0` evicting
+and retrying), then builds the slot's upload packet (`29c5e0`). Each upload
+becomes a REF(7-qword packet) / REF(pixels) / END chain at `+1228` (count
+`+12a8`). On the route: a 128x128 PSMT8 image to block 3280 and its 16x16
+CLUT to 3e24.
+
+Its draw `4431c0` queues each chain as type 3, the last with owner `+90`.
+Completion `443190` sets `+12ac` bit 0 and runs scene completion `21c9a0`.
+Event-effect draws in mod003, 008, 010, 021, 023 and 024 read an entry's TEX0
+through the getter `4430e0`.
+
+**Native.** The image is a decoded FIS file: the pixels are part 0, offset
+0x600, of disc file 6e6be300, and the header holds key {4e484f4a, 272d}.
+- The enqueue call `443234` is patched to `443190`.
+- Site `443238` (its delay slot) checks the submission against the draw: chain
+  pointer, type 3, owner only on the last chain, and block entry `4431c0` or
+  the loop label `44323c`.
+- It publishes every registered FIS image (decoded-file provenance and FIS
+  magic required) under its entry address, which is the identity the
+  consumers will resolve, and releases empty entries.
+- It sets a0 to the uploader.
+
+There is no GS transfer, chain read or job. With several chains, the
+completion runs once per chain; the repeats are no-ops.
+
+**Tests.** The resource suite has 9 cases: publication on both entries, plus
+rejections for entry, owner, chain, type, class, magic and provenance. The
+kernel test pins the patch and the site, and guards `443140..443710`.
+
+**Result:** the route passes the uploads (serial 13548). It stops at the
+native UI layer `2ec9e4`, which rejects an unported layer type/build mode:
+types 152060/167850/16786c/1678e8, mode83 1, modeca 2.
+
 ### Object-list collision loop admitted (2026-11-12)
 
 mod003 `41f340` walks an object list (from `s5+14`, next at `+8`). For each

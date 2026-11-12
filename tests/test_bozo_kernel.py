@@ -63,7 +63,7 @@ class KernelGuardTests(unittest.TestCase):
                 with self.subTest(pc=hex(pc)),self.assertRaises(ValueError):overlay_adaptations('mod001',changed)
     def test_hit_point_source(self):
         data=(IMAGE.parent/'mod003.elf').read_bytes();_,segments,_=elf_parts(data)
-        for lo,hi in ((0x3e70b0,0x3e7220),(0x41f340,0x41f480)):
+        for lo,hi in ((0x3e70b0,0x3e7220),(0x41f340,0x41f480),(0x443140,0x443190),(0x443190,0x4431c0),(0x4431c0,0x443270),(0x443270,0x443710)):
             s=next(s for s in segments if s[0]==1 and s[2]<=lo<hi<=s[2]+s[4])
             for pc in range(lo,hi,4):
                 changed=bytearray(data);changed[s[1]+pc-s[2]]^=1
@@ -245,7 +245,7 @@ class KernelGuardTests(unittest.TestCase):
         words={0x3d7718:0x3c011000,0x3d771c:0x8c360000,0x3d7740:0x3c011000,0x3d7744:0x8c220000,
                0x3d7748:0x00561023,0x3d774c:0x2c41003f,0x3d7750:0x10200005,0x3d7760:0x1000fff7}
         self.assertEqual(overlay_adaptations('mod003',data),'003d9238 ac220010 00000000\n00420ed8 0c04343c 00000000\n00420ee0 3c010001 10000013\n00420ee4 24060002 00000000\n003d95b0 ac200000 00000000\n003d5694 0c04896e 00000000\n003d5794 0c048afe 00000000\n003d57a0 0c04896e 00000000\n'+''.join(f'{pc:08x} {word:08x} 00000000\n' for pc,word in words.items())+
-            '003d3648 dfbf0000 0c0f4d38\n003d364c 03e00008 00000000\n003d3650 27bd0010 dfbf0000\n003d3654 00000000 03e00008\n003d3658 00000000 27bd0010\n00447d5c 0c044c70 0c111e78\n00447a44 0c044c70 0c111e78\n')
+            '003d3648 dfbf0000 0c0f4d38\n003d364c 03e00008 00000000\n003d3650 27bd0010 dfbf0000\n003d3654 00000000 03e00008\n003d3658 00000000 27bd0010\n00447d5c 0c044c70 0c111e78\n00447a44 0c044c70 0c111e78\n00443234 0c044c70 0c110c64\n')
         _,segments,_=elf_parts(data);lo,hi=0x3d7708,0x3d77cc
         s=next(s for s in segments if s[0]==1 and s[2]<=lo<hi<=s[2]+s[4])
         for pc in range(lo,hi,4):
@@ -317,7 +317,7 @@ class KernelGuardTests(unittest.TestCase):
 
     def test_field_debug_font_owner(self):
         data=(IMAGE.parent/'mod003.elf').read_bytes();_,segments,_=elf_parts(data)
-        self.assertEqual(overlay_native_sites('mod003',data),'native 0x374c04\nnative 0x374c10\nnative 0x40b040\nnative 0x3d93f4\nnative 0x3d38d4\nnative 0x3d363c\nnative 0x3d364c\nnative 0x3d49b0\nnative 0x447af0\nnative 0x447b84\nnative 0x447d60\nnative 0x447a48\nnative 0x447f50\n'+''.join(f'native 0x{pc:x}\n' for pc in (0x3e5ca4,0x3e5ca8,0x3e5cac,0x3e5cb4,0x3e5cb8,0x3e5cc0,*range(0x3e7edc,0x3e7f38,4),*range(0x3e7fa0,0x3e7ffc,4))))
+        self.assertEqual(overlay_native_sites('mod003',data),'native 0x374c04\nnative 0x374c10\nnative 0x40b040\nnative 0x3d93f4\nnative 0x3d38d4\nnative 0x3d363c\nnative 0x3d364c\nnative 0x3d49b0\nnative 0x447af0\nnative 0x447b84\nnative 0x447d60\nnative 0x447a48\nnative 0x447f50\nnative 0x443238\n'+''.join(f'native 0x{pc:x}\n' for pc in (0x3e5ca4,0x3e5ca8,0x3e5cac,0x3e5cb4,0x3e5cb8,0x3e5cc0,*range(0x3e7edc,0x3e7f38,4),*range(0x3e7fa0,0x3e7ffc,4))))
         lo,hi=0x3d93dc,0x3d9400;s=next(s for s in segments if s[0]==1 and s[2]<=lo<hi<=s[2]+s[4])
         for pc in range(lo,hi,4):
             changed=bytearray(data);changed[s[1]+pc-s[2]]^=1

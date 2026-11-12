@@ -7,6 +7,7 @@
 #include "resource_helpers_reference_functions.h"
 #include "resource_helpers_adapted_functions.h"
 #include <algorithm>
+#include <functional>
 #include <cstdio>
 #include <cstring>
 #include <fstream>
@@ -139,5 +140,28 @@ int main(int argc,char **argv){try{
     now.assets.begin(1,source,buffer,0);now.assets.finish(1,true,now.decoded.size());put(r,buffer+0x18,999u);rejectUnchanged(0x447b84);
     put(r,buffer+0x18,1u);check(vp2s::nativeFixedImageInstruction(&c,&r,0x447b84)==false);
     c.r[9].ud[0]=object+0x90;c.r[4].ud[0]=queue+4;c.r[5].ud[0]=3;c.r[7].ud[0]=object+0xa0;rejectUnchanged(0x447a48);
+    // Texture uploader 165630 (mod003 draw 4431c0, enqueue delay slot 443238):
+    // every registered FIS image is published under its entry; a0 becomes the
+    // uploader for the real completion 443190. Entry 0 holds the decoded file.
+    {constexpr uint32_t uploader=0x1e0000;unsigned cases=0;
+        put(r,uploader,0x165630u);put(r,uploader+0x90,0x1656acu);put(r,uploader+0x12a8,2u);
+        put(r,uploader+0x1228,uploader+0xa0);put(r,uploader+0x122c,uploader+0xd0);put(r,uploader+0x10b8,buffer);put(r,uploader+0x10b8+0x18,0u);
+        const auto submit=[&](int index){R5900Context u{};u.pc=0x4431c0;u.r[18].ud[0]=uploader;u.r[17].ud[0]=uint64_t(index);u.r[16].ud[0]=uploader+4*uint32_t(index);
+            u.r[4].ud[0]=queue;u.r[5].ud[0]=3;u.r[6].ud[0]=0;u.r[7].ud[0]=get<uint32_t>(r,uploader+0x1228+4*uint32_t(index));u.r[8].ud[0]=0x55;
+            u.r[9].ud[0]=index==1?uploader+0x90:0;return u;};
+        for(int index:{0,1}){auto u=submit(index);if(index)u.pc=0x44323c;check(vp2s::nativeTextureUploaderInstruction(&u,&r,0x443238)==true);
+            check(u.r[4].uw[0]==uploader && u.r[8].ud[0]==0);
+            const auto image=now.textures.imageAsset(uploader+0x10a8);check(image && image->key.index==1 && !now.textures.imageAsset(uploader+0x10a8+0x18));++cases;}
+        const auto rejectUploader=[&](const std::function<void(R5900Context &)> &spoil){auto u=submit(0);spoil(u);
+            rejects([&]{vp2s::nativeTextureUploaderInstruction(&u,&r,0x443238);});++cases;};
+        rejectUploader([](R5900Context &u){u.pc=0x443190;});                                   // not the draw method
+        rejectUploader([](R5900Context &u){u.r[9].ud[0]=uploader+0x90;});                      // owner on a non-last chain
+        rejectUploader([](R5900Context &u){u.r[7].ud[0]+=0x10;});                              // another chain
+        rejectUploader([](R5900Context &u){u.r[5].ud[0]=2;});                                  // another job type
+        rejectUploader([&](R5900Context &){put(r,uploader,0x165b40u);});put(r,uploader,0x165630u);   // another class
+        rejectUploader([&](R5900Context &){put(r,buffer,0x12345u);});put(r,buffer,0x534946u);        // not a FIS file
+        now.assets.overwrite(buffer,now.decoded.size());rejectUploader([](R5900Context &){});           // no decoded provenance
+        check(vp2s::nativeTextureUploaderInstruction(nullptr,&r,0x443200)==std::nullopt);
+        std::printf("%u texture-uploader publications and rejections\n",cases);}
     std::puts("64 FIS load/free/reload/failure + original draw/scene completion CPU/RAM cases, resumable contracts, immutable assets and provenance rejection; no device consumer");return 0;
 }catch(const std::exception &e){std::fprintf(stderr,"%s\n",e.what());return 1;}}

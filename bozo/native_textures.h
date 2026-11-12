@@ -61,4 +61,5 @@ public:
 };
 bool nativeTextureInstruction(uint8_t *,R5900Context *,Runtime *,uint32_t pc);
 std::optional<bool> nativeFixedImageInstruction(R5900Context *,Runtime *,uint32_t pc);
+std::optional<bool> nativeTextureUploaderInstruction(R5900Context *,Runtime *,uint32_t pc);
 }

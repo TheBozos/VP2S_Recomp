@@ -96,6 +96,42 @@ void NativeTextures::releaseImage(uint32_t object){images.erase(object);}
 std::shared_ptr<const NativeTextureAsset> NativeTextures::imageAsset(uint32_t object)const{
     auto it=images.find(object);return it==images.end()?nullptr:it->second;
 }
+// mod003 class 165630: a texture uploader for event effects. Its update 443270
+// fills up to 16 entries (0x18 bytes at +10a8: TEX0 pair +10a8/+10b0, image
+// +10b8, callback +10bc) through the game's texture manager, and builds one
+// REF(packet)/REF(pixels)/END chain per upload at +1228 (count +12a8). Its draw
+// 4431c0 queued each chain as a type-3 job (the last with owner +90, completion
+// 443190). Natively the enqueue call at 443234 is patched to 443190 and this
+// site (its delay slot 443238) publishes every registered FIS image under its
+// entry address, the identity the event-effect consumers reach through the
+// getter 4430e0. With several chains the completion runs once per chain; the
+// repeats are no-ops (the flag is already set and 21c9a0 finds the scene slot
+// cleared).
+std::optional<bool> nativeTextureUploaderInstruction(R5900Context *c,Runtime *rt,uint32_t pc){
+    if(pc!=0x443238)return std::nullopt;
+    auto *d=rt?dynamic_cast<bozo::ee::Dispatcher *>(rt->services):nullptr;
+    auto *textures=d?dynamic_cast<TextureOwner *>(&d->host()):nullptr;auto *assets=d?dynamic_cast<AssetOwner *>(&d->host()):nullptr;
+    // Block entries: the draw method (first chain) or the loop label after the previous call.
+    if(!textures || !assets || !c || (c->pc!=0x4431c0 && c->pc!=0x44323c))throw std::runtime_error("native texture uploader requires its draw method");
+    const auto object=c->r[18].uw[0],slot=c->r[16].uw[0];
+    record(rt,object,0x12b0);
+    if(read<uint32_t>(rt,object)!=0x165630 || read<uint32_t>(rt,object+0x90)!=0x1656ac)throw std::runtime_error("unowned native texture uploader");
+    const auto count=read<int32_t>(rt,object+0x12a8),index=int32_t(c->r[17].uw[0]);
+    if(count<1 || count>32 || index<0 || index>=count || slot!=object+4*uint32_t(index) || c->r[4].uw[0]!=read<uint32_t>(rt,0x35dd78) ||
+       c->r[5].uw[0]!=3 || c->r[6].uw[0] || c->r[7].uw[0]!=read<uint32_t>(rt,slot+0x1228) || c->r[9].uw[0]!=(index==count-1?object+0x90:0u))
+        throw std::runtime_error("native texture uploader submission escaped its draw");
+    for(uint32_t k=0;k<16;++k){
+        const auto entry=object+0x10a8+0x18*k,image=read<uint32_t>(rt,entry+0x10);
+        if(!image){textures->nativeTextures().releaseImage(entry);continue;}
+        const auto header=(image+0x7f)&~0x7fu;record(rt,header,0x20);
+        const auto origin=assets->nativeAssets().origin(header);
+        if(!origin || origin->kind!=AssetOrigin::Kind::Part || read<uint32_t>(rt,header)!=0x534946)
+            throw std::runtime_error(std::format("native texture uploader entry {} has no decoded FIS file (image {:x})",k,image));
+        textures->nativeTextures().publishImage(entry,{read<uint32_t>(rt,header+0x14),read<uint32_t>(rt,header+0x18)});
+    }
+    c->r[8].ud[0]=0;c->r[4].sd[0]=int32_t(object);
+    return true; // The patched call enters the real completion 443190 with the uploader.
+}
 std::optional<bool> nativeFixedImageInstruction(R5900Context *c,Runtime *rt,uint32_t pc){
     const bool resource=pc==0x447af0 || pc==0x447b84 || pc==0x447d60 || pc==0x447a48 || pc==0x447f50;
     if(!resource && pc!=0x2f3714 && pc!=0x2ea9a0)return std::nullopt;

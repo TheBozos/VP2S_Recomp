@@ -370,6 +370,11 @@ def overlay_adaptations(name,data):
                                (0x3e70b0,0x3e7220,'586725b1ec547501f8eb0a9d3481fb810a5163fa31d8cad387dd4c040f85967b'),
                                # Object-list collision loop calling 1f6f40 directly (return 41f3f0).
                                (0x41f340,0x41f480,'db85f712cba69a8168a17fb8b5885157a2b51ee6ab0f2a4f5841bbe1e8870275'),
+                               # Texture uploader 165630: register 443140, completion 443190, draw 4431c0, update 443270.
+                               (0x443140,0x443190,'196edd6d91eb39c7a6bdc580284218825212f22af48a5cd7d17589364b4a3655'),
+                               (0x443190,0x4431c0,'fd63671910dc0bb31051b686fde9d6cdbf6ee45db7edb96398830c80c54ce307'),
+                               (0x4431c0,0x443270,'f436585c9ab547d50ce2f40bd7dc1507390abe4bac645af444ecaf7fe0029cdf'),
+                               (0x443270,0x443710,'9ef403d45c6ec89a890026704126c50df28b74c9b0da36302e1d8be3efe22b66'),
                                (0x3d7708,0x3d77cc,'435926535d852e22f0b20b9027f65fd6674acc7a63b6aaedb31e59c63a1cd1c8'),
                                (0x3d5670,0x3d57ec,'250a2389769015fbda23859f5082b6f69031a706af85f263b765f34130611ecc'),
                                (0x378908,0x3789c8,'25cee96dbb982fe7f31c806c09286d7d6d1630101851998b42a1431e9cf4fd17'),
@@ -425,7 +430,10 @@ def overlay_adaptations(name,data):
                 '003d3654 00000000 03e00008\n'
                 '003d3658 00000000 27bd0010\n'
                 '00447d5c 0c044c70 0c111e78\n'
-                '00447a44 0c044c70 0c111e78\n')
+                '00447a44 0c044c70 0c111e78\n'
+                # Texture uploader 165630: the draw's type-3 enqueue enters its real
+                # completion 443190; 443238 (delay slot) publishes the FIS entries.
+                '00443234 0c044c70 0c110c64\n')
     if name=='mod002':
         _,segments,_=elf_parts(data);lo,hi=0x3617f0,0x362764
         s=next(s for s in segments if s[0]==1 and s[2]<=lo<hi<=s[2]+s[4]);at=s[1]+lo-s[2]
@@ -865,7 +873,7 @@ def overlay_native_sites(name,data):
         _,segments,_=elf_parts(data);lo,hi=0x374be0,0x375240
         s=next(s for s in segments if s[0]==1 and s[2]<=lo<hi<=s[2]+s[4]);at=s[1]+lo-s[2]
         if hashlib.sha256(data[at:at+hi-lo]).hexdigest()!='b993fd5a68cebb93c65d37fb69ebe90cba67c410408b0f9530e30a4dfd9a470e':raise ValueError('USA screen zoom overlay source mismatch')
-        return 'native 0x374c04\nnative 0x374c10\nnative 0x40b040\nnative 0x3d93f4\nnative 0x3d38d4\nnative 0x3d363c\nnative 0x3d364c\nnative 0x3d49b0\nnative 0x447af0\nnative 0x447b84\nnative 0x447d60\nnative 0x447a48\nnative 0x447f50\n'+''.join(f'native 0x{pc:x}\n' for pc in (0x3e5ca4,0x3e5ca8,0x3e5cac,0x3e5cb4,0x3e5cb8,0x3e5cc0,*range(0x3e7edc,0x3e7f38,4),*range(0x3e7fa0,0x3e7ffc,4)))
+        return 'native 0x374c04\nnative 0x374c10\nnative 0x40b040\nnative 0x3d93f4\nnative 0x3d38d4\nnative 0x3d363c\nnative 0x3d364c\nnative 0x3d49b0\nnative 0x447af0\nnative 0x447b84\nnative 0x447d60\nnative 0x447a48\nnative 0x447f50\nnative 0x443238\n'+''.join(f'native 0x{pc:x}\n' for pc in (0x3e5ca4,0x3e5ca8,0x3e5cac,0x3e5cb4,0x3e5cb8,0x3e5cc0,*range(0x3e7edc,0x3e7f38,4),*range(0x3e7fa0,0x3e7ffc,4)))
     if name=='mod002':
         _,segments,_=elf_parts(data);lo,hi=0x3622e8,0x362338
         s=next(s for s in segments if s[0]==1 and s[2]<=lo<hi<=s[2]+s[4]);at=s[1]+lo-s[2]

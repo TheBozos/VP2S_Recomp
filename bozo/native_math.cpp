@@ -1186,6 +1186,23 @@ bool nativeSegmentBox(R5900Context *c,Runtime *rt,uint32_t pc){
     float out[3];{music::NearestRounding rounding;for(unsigned i=0;i<3;++i)out[i]=pairSum(pairProduct(point[i],1.f),pairProduct(direction[i],t));}
     std::memcpy(record(rt,c->r[20].uw[0]+(pc==0x1f69b0?0x10:0),16),out,12);return true;
 }
+// mod003 3e6d30 (block entry 3e7104): after a collision-tree hit (v0 == 1 from
+// the box/sphere follow-up 1f6740 / 3e6c20), the point at SP+160 goes through
+// VF1..VF4, still the hit object's matrix (358cd8, as for 1f6740), in place:
+// ((R1*x + R2*y) + R3*z) + R4*1 on all four lanes. LQC2 vf10 3e7158, four ACC
+// ops, SQC2 vf11 3e716c. The point is read at the store (only the arithmetic
+// sits between).
+bool nativeHitPointTransform(R5900Context *c,Runtime *rt,uint32_t pc){
+    if(pc<0x3e7158 || pc>0x3e716c || (pc&3))return false;
+    if(!c)throw std::runtime_error("native hit-point transform has no CPU record");
+    const auto point=c->r[29].uw[0]+0x160;
+    if(c->r[3].uw[0]!=point)throw std::runtime_error("native hit-point transform frame mismatch");
+    if(pc!=0x3e716c)return true;
+    const auto in=leafInputs(rt,false);const auto v=leafRecord(rt,point);Lanes out;
+    {music::NearestRounding rounding;out=leafTransform(in,v);}
+    for(float x:out)if(!std::isfinite(x))throw std::runtime_error("native hit-point transform overflow");
+    std::memcpy(record(rt,point,16),out.data(),16);return true;
+}
 // mod001 246760: two row.point products of the matrix at SP+130 (points
 // SP+1b0 / SP+1a0 into SP+190 / SP+180), each followed by an in-place divide
 // by its W (Q = 1/w, all four lanes), then a composition of the rows at SP+e0
@@ -2386,7 +2403,7 @@ bool nativeMathInstruction(uint8_t *,R5900Context *c,Runtime *rt,uint32_t pc){
     if(nativeSkinUpload(c,rt,pc) || nativeSoftSkin(c,rt,pc))return true;
     if(nativeFacingPath(c,rt,pc) || nativeRotationBlocks(c,rt,pc))return true;
     if(nativeProjectionBlocks(c,rt,pc) || nativeBoneAim(c,rt,pc) || nativeChainBlocks(c,rt,pc) || nativeCapsulePair(c,rt,pc) || nativePlaneContact(c,rt,pc) || nativeRangeTest(c,rt,pc) || nativeMatrixBuild(c,rt,pc) || nativeCullTransform(c,rt,pc) || nativeBoxFrustum(c,rt,pc) || nativeListBoxQuery(c,rt,pc) || nativeHitFrame(c,rt,pc) || nativePlaneDistance(c,rt,pc) || nativeSphereSweep(c,rt,pc) || nativeSegmentApproach(c,rt,pc) || nativeWorldPosition(c,rt,pc) || nativeCameraTarget(c,rt,pc) || nativeRootLength(c,rt,pc) || nativeVisibilityLoop(c,rt,pc) || nativeQuaternionLeaf(c,rt,pc) || nativeBonePalette(c,rt,pc))return true;
-    if(nativeLeafSphere(c,rt,pc) || nativeLeafBox(c,rt,pc) || nativeSegmentBox(c,rt,pc))return true;
+    if(nativeLeafSphere(c,rt,pc) || nativeLeafBox(c,rt,pc) || nativeSegmentBox(c,rt,pc) || nativeHitPointTransform(c,rt,pc))return true;
     if(nativeLengthSite(c,rt,pc) || nativeRecordDot(c,rt,pc) || nativePackedQuaternion(c,rt,pc))return true;
     if(nativeObjectOverlap(c,rt,pc))return true;
     if(nativeUvAnimation(c,rt,pc))return true;

@@ -1554,6 +1554,31 @@ int main(){try{
         ++composeCases;
     }
     std::printf("%u inlined matrix-product blocks match the VU0 oracle\n",composeCases);
+    // mod003 3e7158: SP+160 through the hit object's rows (358cd8 -> +150), in place.
+    {unsigned hitCases=0;auto &r=native.runtime();
+        const auto M=[](uint32_t a,uint32_t b){uint32_t f=0;return bozo::ps2f::mul(a,b,f);};
+        const auto A=[](uint32_t a,uint32_t b){uint32_t f=0;return bozo::ps2f::addNearest(a,b,f);};
+        uint64_t state=0x13198a2e03707344ull;const auto next=[&](){state^=state<<13;state^=state>>7;state^=state<<17;return state;};
+        const auto real=[&](float range){return std::bit_cast<uint32_t>(float(int64_t(next()%2000001)-1000000)/1000000.f*range);};
+        for(unsigned seed=0;seed<512;++seed){
+            std::memset(r.memory.flat(),0x11+seed,bozo::kFlatBytes);
+            const uint32_t object=0x1d0000+0x400*(seed%16),stack=seed&1?0x70003700:0x1ffd000;
+            uint32_t rows[4][4],v[4];for(auto &row:rows)for(auto &w:row)w=real(seed%3?2.f:500.f);for(auto &w:v)w=real(1000.f);
+            if(seed%32==7)rows[2][1]=0x00000077u;   // a denormal row lane reads as zero
+            std::memcpy(r.memory.hostPointer(0x358cd0+8,4),&object,4);std::memcpy(r.memory.hostPointer(object+0x150,64),rows,64);
+            std::memcpy(r.memory.hostPointer(stack+0x160,16),v,16);
+            R5900Context c{};c.r[29].uw[0]=stack;c.r[3].uw[0]=stack+0x160;
+            for(uint32_t pc=0x3e7158;pc<=0x3e716c;pc+=4)check(vp2s::nativeMathInstruction(r.memory.flat(),&c,&r,pc));
+            uint32_t expect[4],got[4];if(seed%32==7)rows[2][1]=0;
+            for(unsigned i=0;i<4;++i)expect[i]=A(A(A(M(rows[0][i],v[0]),M(rows[1][i],v[1])),M(rows[2][i],v[2])),M(rows[3][i],0x3f800000u));
+            std::memcpy(got,r.memory.hostPointer(stack+0x160,16),16);
+            if(std::memcmp(got,expect,16)){std::fprintf(stderr,"hit point seed%u %08x/%08x\n",seed,got[0],expect[0]);check(false);}
+            ++hitCases;
+        }
+        for(unsigned which=0;which<2;++which){R5900Context c{};c.r[29].uw[0]=0x1ffd000;c.r[3].uw[0]=which?0x1ffd170:0x1ffd160;bool rejected=false;
+            if(!which){const uint32_t none=0;std::memcpy(r.memory.hostPointer(0x358cd0+8,4),&none,4);}
+            try{vp2s::nativeMathInstruction(r.memory.flat(),&c,&r,0x3e716c);}catch(const std::runtime_error &){rejected=true;}check(rejected);}
+        std::printf("%u hit-point transforms match the VU0 oracle; 2 rejections\n",hitCases);}
     // Box pair separating-axis test (mod001 1f82c0) against the listing's
     // sequential evaluation (tests/bozo_box_pair_oracle.inc): the first compared
     // pair with separation > radius (FPU compare) returns 0, else 1.

@@ -191,8 +191,11 @@ public:
         const float identity[16]={1,0,0,0,0,1,0,0,0,0,1,0,0,0,0,1};
         const auto vertices=vp2s::nativeScreenRectangleVertices(rect);
         bozo::render::Renderer::instance().draw(material,identity,vertices.data(),vertices.size());
-        if(++screenRectDraws<=4 && std::getenv("VP2S_BOZO_TRACE_QUEUES"))
-            std::fprintf(stderr,"[vp2s:screen] native rect object=%x colour=%08x box=%d,%d,%d,%d\n",rect.object,rect.colour,rect.x,rect.y,rect.right,rect.bottom);
+        // VP2S_BOZO_TRACE_RECTS_FROM=<frame>: every rectangle from that frame on (fades, curtains).
+        static const unsigned long long rectsFrom=[]{const char *v=std::getenv("VP2S_BOZO_TRACE_RECTS_FROM");return v?std::strtoull(v,nullptr,10):~0ull;}();
+        if((++screenRectDraws<=4 && std::getenv("VP2S_BOZO_TRACE_QUEUES")) || native.framesEnded()>=rectsFrom)
+            std::fprintf(stderr,"[vp2s:screen] native rect object=%x colour=%08x box=%d,%d,%d,%d frame=%llu\n",rect.object,rect.colour,rect.x,rect.y,rect.right,rect.bottom,
+                (unsigned long long)native.framesEnded());
     }
     vp2s::NativeScreenZooms screenZooms;
     unsigned screenZoomDraws=0;

@@ -12,6 +12,35 @@ The earlier VP2S face/shading and general brightness comparisons remain open.
 
 ## Build and evidence
 
+### Hit-point transform after a collision hit; the black frames (2026-11-12)
+
+mod003 `3e6d30` follows a collision-tree hit. At `3e7158` (block entry
+`3e7104`) it puts the point at SP+160 through VF1..VF4, in place. VF1..VF4 are
+still the hit object's matrix: `1f6f40` returns on a hit without restoring
+them, and the object is in `358cd8`, as for the `1f6740` port.
+
+The block: LQC2 vf10, then MULAx/MADDAy/MADDAz/MADDw with vf0.w, giving
+((R1*x + R2*y) + R3*z) + R4*1 on all four lanes. SQC2 vf11 stores it at
+`3e716c`. The native site reads the point at the store and publishes through
+the existing `leafTransform`, nearest even.
+
+**Tests.** 512 math-suite cases are bit-exact against ps2f, including
+scratchpad stacks and a denormal row lane. Rejections: no hit object, wrong
+frame. The kernel guard covers `3e70b0..3e7220`.
+
+**Black frames.** Complete captures at serials 13539 and 13543 (frames 25494
+and 25498) are fully black, not only the partial ones. The new
+`VP2S_BOZO_TRACE_RECTS_FROM=<frame>` shows the cause: every frame from 25480 on
+draws a full-screen rectangle, colour `80000000` (opaque black, A 0x80 = 1.0),
+box 0,0,512,512. Its object `6a2040` is the scene's layer-1 pending object. So
+the game is holding its own fade; this is not a renderer fault. Earlier
+partial captures showed the field because they stopped before that draw.
+Whether the PS2 is also black at this point is not yet checked against PCSX2.
+
+**Result:** the route reaches serial 13547. It stops at `1f6f94`, the
+leafless collision query, called from a caller not yet admitted (ra `41f3f0`,
+mod003).
+
 ### Box pair separating-axis test (2026-11-12)
 
 Object-pair test `1f8aa0` first checks the bounding spheres. When they

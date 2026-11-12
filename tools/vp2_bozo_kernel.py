@@ -380,6 +380,8 @@ def overlay_adaptations(name,data):
                                (0x4650d0,0x466300,'7391aa71a0e1607bf350dd4a5e20114b8606b0faa587ca5214c09d4114898301'),
                                (0x475050,0x475280,'155a2c564567c03d5850be9019c945619827944b4d2494edf12e78d8d64cd9be'),
                                (0x410c30,0x410da0,'d744a9e5b51513944c7eae5e644b42f3dd642a611c190fb3af40195f76291b14'),
+                               # Object yaw 396a80 (program-0x720 block, then 410df0 and atan2).
+                               (0x396a80,0x396b2c,'992694f1522b2f2232e23f55442299d5d2fe9d6391a787c179ca604145d58d95'),
                                (0x3d7708,0x3d77cc,'435926535d852e22f0b20b9027f65fd6674acc7a63b6aaedb31e59c63a1cd1c8'),
                                (0x3d5670,0x3d57ec,'250a2389769015fbda23859f5082b6f69031a706af85f263b765f34130611ecc'),
                                (0x378908,0x3789c8,'25cee96dbb982fe7f31c806c09286d7d6d1630101851998b42a1431e9cf4fd17'),

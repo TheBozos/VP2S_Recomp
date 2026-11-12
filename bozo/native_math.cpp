@@ -2456,6 +2456,21 @@ bool nativeMathInstruction(uint8_t *,R5900Context *c,Runtime *rt,uint32_t pc){
             const auto result=math::quaternionMatrix(input);const auto row=(pc-0x396c64)/4;std::memcpy(record(rt,stack+0x40+16*row,16),&result[row],16);
         }return true;
     }
+    if(pc==0x396a8c || pc==0x396a94 || pc==0x396ac4 || pc==0x396acc || pc==0x396ad0 || pc==0x396ad4){
+        // mod003 396a80 (yaw from an object's quaternion): LQC2 vf5 from a0+b0,
+        // program 0x720, rows to SP+20, which the scalar code hands to 410df0
+        // (native) and atan2. a0 stays the object until after the stores.
+        if(!c || c->pc!=0x396a80)throw std::runtime_error("native object yaw escaped its routine");
+        const auto stack=c->r[29].uw[0],object=c->r[4].uw[0];
+        if(pc==0x396a8c && c->r[2].uw[0]!=object+0xb0)throw std::runtime_error("object yaw quaternion source mismatch");
+        if(pc==0x396ac4)c->r[9].ud[0]=0;
+        else if(pc>=0x396acc){
+            if(c->r[2].uw[0]!=stack+0x20)throw std::runtime_error("object yaw rotation destination mismatch");
+            __m128 input;std::memcpy(&input,record(rt,object+0xb0,16),16);float values[4];std::memcpy(values,&input,16);
+            for(float v:values){const auto magnitude=std::bit_cast<uint32_t>(v)&0x7fffffff;if(magnitude>=0x7f800000 || magnitude>std::bit_cast<uint32_t>(1.e8f))throw std::runtime_error("unqualified object yaw quaternion");}
+            const auto result=math::quaternionMatrix(input);const auto row=(pc-0x396acc)/4;std::memcpy(record(rt,stack+0x20+16*row,16),&result[row],16);
+        }return true;
+    }
     if(nativeParticleCallbackInstruction(c,rt,pc))return true;
     if(pc==0x22f300 || pc==0x22f304 || pc==0x22f308 || pc==0x22f30c){
         if(!c || c->pc<0x22f170 || c->pc>0x22f2f8 || !c->r[18].uw[0] || c->r[3].uw[0]!=c->r[20].uw[0]+0x580 || c->r[4].uw[0]!=c->r[18].uw[0]+0x340 || c->r[2].uw[0]!=c->r[29].uw[0]+0xb0)

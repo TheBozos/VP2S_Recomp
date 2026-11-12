@@ -12,6 +12,25 @@ The earlier VP2S face/shading and general brightness comparisons remain open.
 
 ## Build and evidence
 
+### Object yaw quaternion block 396a80 (2026-11-13)
+
+mod003 `396a80` turns an object's quaternion into a yaw angle:
+- LQC2 vf5 loads `a0+b0`;
+- program `0x720` runs;
+- CFC2.I t1/vi0;
+- SQC2 vf8..vf10 store the three rows to SP+20;
+- the scalar code hands those rows to `410df0` (native) and `atan2`.
+
+It is ported like the `396c00` facing rotation, through `math::quaternionMatrix`
+(W lanes 0, as entry 0x720 leaves them). a0 stays the object until after the
+stores. The field-distance suite has 256 cases matching the engine VU0 oracle
+(scratchpad and aliased stacks; RAM outside the rows unchanged) and 256
+rejections (destination, source, entry, nonfinite input). The guard covers
+`396a80..396b2c`.
+
+**Result:** the route reaches serial 13578. It stops at the native UI layer
+again, on another layer subclass: types `165d30/165d4c/165dc8`.
+
 ### Event UI layer 167850 admitted; custom element 167820 next (2026-11-12)
 
 **UI layer `167850`/`16786c`/`1678e8`** (mod003, constructor `466c80`):

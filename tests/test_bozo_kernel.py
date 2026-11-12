@@ -63,7 +63,7 @@ class KernelGuardTests(unittest.TestCase):
                 with self.subTest(pc=hex(pc)),self.assertRaises(ValueError):overlay_adaptations('mod001',changed)
     def test_hit_point_source(self):
         data=(IMAGE.parent/'mod003.elf').read_bytes();_,segments,_=elf_parts(data)
-        for lo,hi in ((0x3e70b0,0x3e7220),(0x41f340,0x41f480),(0x443140,0x443190),(0x443190,0x4431c0),(0x4431c0,0x443270),(0x443270,0x443710),(0x4650d0,0x466300),(0x475050,0x475280),(0x410c30,0x410da0)):
+        for lo,hi in ((0x3e70b0,0x3e7220),(0x41f340,0x41f480),(0x443140,0x443190),(0x443190,0x4431c0),(0x4431c0,0x443270),(0x443270,0x443710),(0x4650d0,0x466300),(0x475050,0x475280),(0x410c30,0x410da0),(0x396a80,0x396b2c)):
             s=next(s for s in segments if s[0]==1 and s[2]<=lo<hi<=s[2]+s[4])
             for pc in range(lo,hi,4):
                 changed=bytearray(data);changed[s[1]+pc-s[2]]^=1

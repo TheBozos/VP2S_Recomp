@@ -12,6 +12,23 @@ The earlier VP2S face/shading and general brightness comparisons remain open.
 
 ## Build and evidence
 
+### UI layer 165d30 admitted (2026-11-13)
+
+mod003 layer `165d30/165d4c/165dc8` uses:
+- the same producer/build thunks (object `+18` 3b3150, job `+c` 3b31c0);
+- the base teardown `2ef0f0` as object `+10`;
+- its own completion `44a540`. That completion calls `100c90` with a value
+  from the `48e048` record (`+78`), then the base `2eca00` with the same
+  arguments, then `100c90` with the returned previous value: a context saved
+  and restored around the base. It stays compiled.
+
+The layer is admitted by those entries, the thunk words and the
+`jal 2eca00` at `44a58c`. The UI-text suite rejects a completion that skips
+the base and another teardown.
+
+**Result:** the route then stops at its child element class `165e00`
+(`58dd00`).
+
 ### Object yaw quaternion block 396a80 (2026-11-13)
 
 mod003 `396a80` turns an object's quaternion into a yaw angle:

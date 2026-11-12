@@ -205,6 +205,12 @@ int main(int argc,char **argv){try{
         put(layerRam,0x1678e8u+0x14,0x447680u);rejects([&]{layerAfter.texts.layer(&layerRam,layer);});put(layerRam,0x1678e8u+0x14,0x2eca00u);   // another completion
         put(layerRam,0x466c20u,0u);rejects([&]{layerAfter.texts.layer(&layerRam,layer);});put(layerRam,0x466c20u,0x0c000000u|(0x2ef0f0u>>2));    // teardown not the base
         put(layerRam,0x3b3154u,0x2484ffd0u);rejects([&]{layerAfter.texts.layer(&layerRam,layer);});put(layerRam,0x3b3154u,0x2484ffe0u);            // another adjustment
+        // mod003 layer 165d30: base teardown, own bracketing completion 44a540.
+        put(layerRam,0x165d4cu+0x18,0x3b3150u);put(layerRam,0x165dc8u+0x0c,0x3b31c0u);put(layerRam,0x165dc8u+0x14,0x44a540u);put(layerRam,0x165d4cu+0x10,0x2ef0f0u);
+        put(layerRam,0x44a58cu,0x0c000000u|(0x2eca00u>>2));
+        types(0x165d30u,0x165d4cu,0x165dc8u);layerAfter.texts.layer(&layerRam,layer);
+        put(layerRam,0x44a58cu,0u);rejects([&]{layerAfter.texts.layer(&layerRam,layer);});put(layerRam,0x44a58cu,0x0c000000u|(0x2eca00u>>2));       // completion skips the base
+        put(layerRam,0x165d4cu+0x10,0x466ef0u);rejects([&]{layerAfter.texts.layer(&layerRam,layer);});put(layerRam,0x165d4cu+0x10,0x2ef0f0u); // another teardown
         types(0x15bca0u,0x15bcbcu,0x15bd38u);}
     for(auto at:{0x39u,0x3bu,0x3du})put(layerRam,inactive+at,uint8_t(1));
     rejects([&]{layerAfter.texts.layer(&layerRam,layer);});

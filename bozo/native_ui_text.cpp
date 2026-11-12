@@ -193,7 +193,15 @@ NativeUiLayer NativeUiTexts::layer(Runtime *rt,uint32_t layer)const{
         value<uint32_t>(rt,objectType+0x18)==0x3b3150 && value<uint32_t>(rt,jobType+0x0c)==0x3b31c0 && value<uint32_t>(rt,jobType+0x14)==0x2eca00 &&
         value<uint32_t>(rt,objectType+0x10)==0x466ef0 && thunk(0x3b3150,0x2ec9c0,0xffe0) && thunk(0x3b31c0,0x2ec9a0,0xff50) &&
         thunk(0x466ef0,0x466c10,0xffe0) && value<uint32_t>(rt,0x466c20)==(0x0c000000u|(0x2ef0f0u>>2));
-    if(value<uint32_t>(rt,layer)!=0x152060 || (!base && !story && !field && !message && !event) ||
+    // Another mod003 layer (165d30/165d4c/165dc8): the same thunks, the base
+    // teardown 2ef0f0 as object +10, and its own completion 44a540, which brackets
+    // the base 2eca00 with two 100c90 calls (a context saved and restored around
+    // it); that completion stays compiled.
+    const bool bracketed=layerType==0x165d30 && objectType==0x165d4c && jobType==0x165dc8 &&
+        value<uint32_t>(rt,objectType+0x18)==0x3b3150 && value<uint32_t>(rt,jobType+0x0c)==0x3b31c0 && value<uint32_t>(rt,jobType+0x14)==0x44a540 &&
+        value<uint32_t>(rt,objectType+0x10)==0x2ef0f0 && thunk(0x3b3150,0x2ec9c0,0xffe0) && thunk(0x3b31c0,0x2ec9a0,0xff50) &&
+        value<uint32_t>(rt,0x44a58c)==(0x0c000000u|(0x2eca00u>>2));
+    if(value<uint32_t>(rt,layer)!=0x152060 || (!base && !story && !field && !message && !event && !bracketed) ||
        value<uint8_t>(rt,layer+0x83)!=1 || value<uint8_t>(rt,layer+0xca)!=2)
         throw std::runtime_error(std::format("unported native UI layer type/build mode: layer={:x} types={:x}/{:x}/{:x}/{:x} mode83={} modeca={}",
             layer,value<uint32_t>(rt,layer),value<uint32_t>(rt,layer+0x10),value<uint32_t>(rt,layer+0x20),value<uint32_t>(rt,layer+0xb0),

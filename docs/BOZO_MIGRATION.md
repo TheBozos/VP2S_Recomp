@@ -49,7 +49,27 @@ words. The UI-text suite reproduces the route's built packet: x 35072 /
 **Result:** the scripted walk moves Alicia through two more streets (serial
 14608). It then stops at the GS readback thread again (CSR write at
 `299c78`). Some readback request reaches it by a path the depth-probe port
-does not cover; this is being traced.
+does not cover. Traced (`VP2S_BOZO_TRACE_READBACK`):
+
+**Frame capture through the readback node.** At frame 26560, 160 frames into
+the scripted walk, mod003 routine `3d2cd0..3d30b8` does the following:
+- allocates and clears a buffer (`112860`, `132e40`);
+- constructs a readback node (`29a720`), sets its `+65` (owner queue, type 6
+  via `29a504`);
+- requests strips of the **main frame**: block = FRAME (`ctx+160`) * 32 =
+  `18c0`, PSMCT32, 64 wide, 513 rows, x = 0..448 step 64, into `s4+80`;
+- registers the node with the scene (`*(35ddf8)->vtbl+24`);
+- calls `3d4530`.
+
+It is most likely an area-transition or snapshot effect of the current
+screen. The depth-probe port covers neither colour formats nor the owner-queue
+path, so the thread is woken and its GS transfer rejects.
+
+A native port has to snapshot the native frame into a native image, keyed by
+the destination buffer's identity. It then has to draw that image wherever
+the consumer (`3d4530` and the code using `s4+80`) shows those pixels. The
+consumer is not yet analysed; the engine's frame snapshot images exist, but
+are not yet bound to an EE buffer.
 
 ### Event title ornament 165e00; the route runs all 40000 frames (2026-11-13)
 

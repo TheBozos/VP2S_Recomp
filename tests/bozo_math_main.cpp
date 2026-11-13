@@ -1487,6 +1487,28 @@ int main(){try{
         ++macroCases;
     }
     std::printf("%u inlined negate/dot/square/normalize/squared-length/dot3 blocks match the VU0 oracle\n",macroCases);
+    // Component product (mod003 366d10): the game's words, its store in the
+    // delay slot of jr ra. Any other control word there leaves it unclaimed.
+    unsigned productCases=0;
+    for(unsigned seed=0;seed<128;++seed){
+        auto &r=native.runtime();std::memset(r.memory.flat(),0x33+seed,bozo::kFlatBytes);
+        uint32_t state=seed*2246822519u+3;const auto rnd=[&](){state=state*1664525u+1013904223u;return state>>8;};
+        const uint32_t code=0x1c4000+64*(rnd()%64),object=0x1d0000+16*(rnd()%256);
+        const uint32_t words[8]={0x24860560,0x24850570,0x24830580,0xd8cc0000,0xd8ad0000,0x4bed632a,0x03e00008,0xf86c0000};
+        std::memcpy(r.memory.hostPointer(code,32),words,32);
+        uint32_t a[4],b[4];for(unsigned i=0;i<4;++i){a[i]=(rnd()&0x807fffffu)|((100+rnd()%50)<<23);b[i]=(rnd()&0x807fffffu)|((100+rnd()%50)<<23);}
+        if(seed%16==3)b[2]=0;   // a zero lane
+        std::memcpy(r.memory.hostPointer(object+0x560,16),a,16);std::memcpy(r.memory.hostPointer(object+0x570,16),b,16);
+        R5900Context x{};x.r[4].ud[0]=object;x.r[6].ud[0]=object+0x560;x.r[5].ud[0]=object+0x570;x.r[3].ud[0]=object+0x580;
+        for(const unsigned i:{3u,4u,5u,7u})check(vp2s::nativeMathInstruction(r.memory.flat(),&x,&r,code+4*i));
+        uint32_t got[4],expect[4];std::memcpy(got,r.memory.hostPointer(object+0x580,16),16);
+        for(unsigned i=0;i<4;++i){uint32_t f=0;expect[i]=bozo::ps2f::mul(a[i],b[i],f);}
+        check(!std::memcmp(got,expect,16));
+        const uint32_t branch=0x10000003;std::memcpy(r.memory.hostPointer(code+24,4),&branch,4);
+        check(!vp2s::nativeMathInstruction(r.memory.flat(),&x,&r,code+28));
+        ++productCases;
+    }
+    std::printf("%u component-product blocks (store in a return delay slot) match the VU0 oracle\n",productCases);
     // Row point and homogeneous divide (mod001 2b802c / 2b80a0), the game's words.
     unsigned rowCases=0;
     for(unsigned seed=0;seed<256;++seed){

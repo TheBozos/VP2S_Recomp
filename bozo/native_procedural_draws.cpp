@@ -3,6 +3,8 @@
 #include "../port/vp2s_music_math.h"
 #include <cmath>
 #include <cstring>
+#include <format>
+#include <string>
 namespace vp2s {namespace {
 template<class T>T value(Runtime *rt,uint32_t at){
     const bool scratch=at>=0x70000000 && uint64_t(at)+sizeof(T)<=0x70004000;
@@ -35,11 +37,26 @@ void NativeProceduralDraws::vertex(Runtime *rt,const R5900Context *c){
     if(found==active.end() || found->second.object!=c->r[21].uw[0] || !found->second.mesh)throw std::runtime_error("procedural vertex lacks mesh owner");auto &mesh=*found->second.mesh;
     const auto index=c->r[5].uw[0],stack=c->r[29].uw[0];if(index!=mesh.points.size() || index>=mesh.count || c->r[20].uw[0]!=mesh.count)throw std::runtime_error("procedural vertex order/count mismatch");
     const auto position=value<std::array<int32_t,4>>(rt,stack+0x80);const auto uv=value<std::array<float,2>>(rt,stack+0xa8);
-    if(!std::isfinite(uv[0]) || !std::isfinite(uv[1]) || std::abs(uv[0])>16 || std::abs(uv[1])>16)throw std::runtime_error("unqualified procedural texture coordinates");
+    // 2478c0..2479c0: UV is affine in the projected first position (scale +24c/+250
+    // and offsets). A point projected far off screen or near the camera carries an
+    // arbitrarily large position and UV (the town's sheet: x 251198, uv 2200/-5682);
+    // the GS sees it only through a drawn triangle, qualified below.
+    const auto detail=[&](const char *what){
+        // The point and the mesh's earlier ones (GS pixels, raw ADC word, UV as stored).
+        std::string out=std::format("{} [object {:x} point {}/{} at {},{} adc {:x} uv {},{}; earlier:",what,c->r[21].uw[0],index,mesh.count,
+            position[0]/16.f,position[1]/16.f,uint32_t(position[3]),uv[0],uv[1]);
+        for(size_t i=mesh.points.size()>8?mesh.points.size()-8:0;i<mesh.points.size();++i)
+            out+=std::format(" ({},{} uv {},{})",mesh.points[i].x,mesh.points[i].y,mesh.points[i].v,mesh.points[i].u);
+        return out+"]";};
+    if(!std::isfinite(uv[0]) || !std::isfinite(uv[1]))throw std::runtime_error(detail("unqualified procedural texture coordinates"));
     const auto colour64=uint64_t(c->r[17].uw[0])+4ull*index;if(colour64>UINT32_MAX)throw std::runtime_error("procedural colour array overflow");
     bozo::render::Vertex v;v.x=position[0]/16.f;v.y=position[1]/16.f;v.z=float(uint32_t(position[2]));v.u=uv[1];v.v=uv[0];v.rgba=value<uint32_t>(rt,uint32_t(colour64));
     mesh.points.push_back(v);if(index>=2 && !(uint32_t(position[3])&0x8000)){
         const unsigned first=mesh.fan?0:index-2,second=index-1;const unsigned order[]={mesh.fan || !(index&1)?first:second,mesh.fan || !(index&1)?second:first,index};
+        // A drawn triangle's points must be GS-representable (XYZ2 12.4, 0..4096 px):
+        // the GS wraps larger coordinates, which a native draw would not.
+        for(unsigned i:order)if(!(mesh.points[i].x>=0 && mesh.points[i].x<4096 && mesh.points[i].y>=0 && mesh.points[i].y<4096))
+            throw std::runtime_error(detail("procedural triangle outside the GS coordinate range"));
         for(unsigned i:order)mesh.batch.vertices.push_back(mesh.points[i]);}
 }
 void NativeProceduralDraws::endMesh(const R5900Context *c){

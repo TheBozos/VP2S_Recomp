@@ -12,6 +12,47 @@ The earlier VP2S face/shading and general brightness comparisons remain open.
 
 ## Build and evidence
 
+### Component product 366d10 and far procedural points (2026-11-13)
+
+After the capture fade, the walk enters a new area (Soul Street, Solde),
+and two boundaries follow.
+
+**`366d10`** (mod003, called from `39dc9c`) is a VU0 leaf: `LQC2 vf12`
+(`a0+560`), `LQC2 vf13` (`a0+570`), `VMUL.xyzw vf12 = vf12*vf13`, then
+`SQC2 vf12` (`a0+580`) in the delay slot of its `jr ra`. It is now the macro
+idiom `product`: `out[i] = vuMul(a[i], b[i])`. The idiom walk now accepts a
+`jr ra` between the last two words only when its delay slot is the idiom's
+final store; any other control word still breaks the match. The math suite
+runs 128 cases with the game's words; changing the `jr` to a branch leaves
+the store unclaimed.
+
+**Procedural sheet `12b13c0`** (class `152d50`, the screen-feedback draw).
+The builder (`2478c0..2479c0`) computes UV as an affine function of the
+projected first position (`+24c/+250` scales, offsets):
+
+    u = f5 * (f9 + (p.x - f3) * obj[+24c])
+    v = f4 * (f8 + (p.y - f3) * obj[+250])
+
+Points projected far off screen, or near the camera, carry huge positions
+and UVs. Two points from the route's rejection diagnostic:
+- x 21459, uv -28.25/56.77;
+- x 251198, uv 2200/-5682.
+
+Both have ADC set. The old `|uv| <= 16` limit was a guess, not a
+qualification. A point only reaches the GS through a drawn triangle, so the
+checks are now:
+- UV must be finite;
+- every emitted triangle's three points must lie within the GS XYZ2 range
+  (0..4096 px), because the GS would wrap a larger coordinate and a native
+  draw would not. Outside that range it rejects with the point list.
+
+On the route, every drawn triangle is in range. Five new cases cover this.
+The rejection now prints the point and the mesh's earlier points.
+
+**Result:** the walk reaches Soul Street, with the area title "Solde / Soul
+Street" and the "House" prompt drawn natively (serial 14768). It stops at
+VU0 site `433c70` (routine `433c08`, a0 = scratchpad `70003dc0`).
+
 ### Capture fade 1610f0: a native frame snapshot (2026-11-13)
 
 The frame readback at frame 26560 belongs to the **capture fade**, mod003

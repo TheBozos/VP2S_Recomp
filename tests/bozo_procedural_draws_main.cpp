@@ -2,6 +2,7 @@
 #include <bit>
 #include <cstdio>
 #include <cstring>
+#include <limits>
 #include <immintrin.h>
 #include <source_location>
 #ifdef VP2S_PROCEDURAL_GPU
@@ -97,5 +98,23 @@ int main(int argc,char **argv){try{
         }catch(const std::runtime_error &){rejected=true;}
         check(rejected && draws.pending()==active && projections.pendingPoints()==pointCount && _mm_getcsr()==fp && !std::memcmp(&before,&c,sizeof(c)) && !std::memcmp(ram.data(),rt.memory.flat(),ram.size()));
     }
+    // Far points (the town route's: x 21459 uv -28.25/56.77, x 251198 uv 2200/-5682)
+    // keep any finite UV; infinity rejects. A far point that only closes an ADC-skipped
+    // triangle is kept; a drawn triangle using it rejects (the GS would wrap it).
+    unsigned farCases=0;
+    for(const auto uv:{std::array<float,2>{-28.2529011f,56.7665977f},std::array<float,2>{2200.4858f,-5682.459f},
+                       std::array<float,2>{std::numeric_limits<float>::infinity(),0}}){
+        initialize(rt,scene,projections,0);vp2s::NativeProceduralDraws draws;auto c=meshContext(0,4);draws.beginMesh(&rt,&c,scene,projections);
+        vertexInput(rt,c,0,true);put(rt,stack+0xa8,uv);bool rejected=false;try{draws.vertex(&rt,&c);}catch(const std::runtime_error &){rejected=true;}
+        check(rejected==(farCases==2));++farCases;
+    }
+    for(const bool drawn:{false,true}){
+        initialize(rt,scene,projections,0);vp2s::NativeProceduralDraws draws;auto c=meshContext(0,4);draws.beginMesh(&rt,&c,scene,projections);
+        for(unsigned i=0;i<2;++i){vertexInput(rt,c,i);draws.vertex(&rt,&c);}
+        vertexInput(rt,c,2,!drawn);put(rt,stack+0x80,std::array<int32_t,4>{16*21459,16*2000,1000,drawn?16:0x8000});
+        bool rejected=false;try{draws.vertex(&rt,&c);}catch(const std::runtime_error &){rejected=true;}
+        check(rejected==drawn);++farCases;
+    }
+    std::printf("%u far-point cases: finite UVs kept, infinite UV and drawn out-of-range triangles rejected\n",farCases);
     _mm_setcsr(saved);std::printf("%u native procedural captures: known strips/fans/ADC triangles, UV/colour/depth units, opaque packet words, CPU/RAM/FP, feedback publication/consumption and21 readonly failures passed\n",cases);return 0;
 }catch(const std::exception &e){std::fprintf(stderr,"%s\n",e.what());return 1;}}

@@ -2046,6 +2046,9 @@ constexpr MacroIdiom macroIdioms[]={
     // homogeneous divide (mod001 2b80a0): LQC2 vf20; DIV Q = 1/vf20.w; WAITQ;
     // MULq.xyzw vf20; SQC2 vf20 -> {x*Q, y*Q, z*Q, w*Q}.
     {"homogeneous",{-21,0x4bf403bc,0x4a0003bf,0x4be0a51c,-120},5},
+    // component product (mod003 366d10): LQC2 vf12, vf13; MUL.xyzw vf12 = vf12*vf13;
+    // SQC2 vf12 in the delay slot of the routine's jr ra -> {x1x2, y1y2, z1z2, w1w2}.
+    {"product",{-13,-14,0x4bed632a,-112},4},
     // matrix product (mod001 2b84a0): LQC2 vf1..vf4 (rows A), vf5..vf8 (rows B); per row k
     // MULAx/MADDAy/MADDAz/MADDw: A_k = ((B0*A_k.x + B1*A_k.y) + B2*A_k.z) + B3*A_k.w;
     // SQC2 vf1..vf4 (each store publishes its row; the capture lives to the last).
@@ -2063,6 +2066,10 @@ bool nativeMacroIdiom(R5900Context *c,Runtime *rt,uint32_t pc){
         if(want<=-100)return w>>26==0x3e && int32_t((w>>16)&31)==-100-want;
         return w>>26==0x36 && int32_t((w>>16)&31)==-1-want;};
     uint32_t self;if(!word(pc,self) || !cop2(self))return false;
+    // A jr ra may stand between the last two words when the idiom's final store
+    // is its delay slot (the store still runs before the return).
+    const auto returnSlot=[&](const MacroIdiom &idiom,unsigned f,uint32_t at,uint32_t w){
+        uint32_t next;return w==0x03e00008u && f+1==idiom.size && word(at+4,next) && matches(idiom.words[f],next);};
     for(const auto &idiom:macroIdioms){
         // Try every position this PC could hold in the idiom.
         for(unsigned k=0;k<idiom.size;++k){
@@ -2070,11 +2077,11 @@ bool nativeMacroIdiom(R5900Context *c,Runtime *rt,uint32_t pc){
             // Walk back k COP2 words (at most 6 plain EE words between them), then forward.
             uint32_t at=pc,addresses[28];bool ok=true;addresses[k]=pc;
             for(unsigned b=k;b>0 && ok;--b){unsigned gap=0;uint32_t w;
-                do{at-=4;if(!word(at,w) || control(w) || ++gap>7){ok=false;break;}}while(!cop2(w));
+                do{at-=4;if(!word(at,w) || (control(w) && !(gap==0 && b==k && returnSlot(idiom,k,at,w))) || ++gap>7){ok=false;break;}}while(!cop2(w));
                 if(ok && !matches(idiom.words[b-1],w))ok=false;else addresses[b-1]=at;}
             at=pc;
             for(unsigned f=k+1;f<idiom.size && ok;++f){unsigned gap=0;uint32_t w;
-                do{at+=4;if(!word(at,w) || control(w) || ++gap>7){ok=false;break;}}while(!cop2(w));
+                do{at+=4;if(!word(at,w) || (control(w) && !returnSlot(idiom,f,at,w)) || ++gap>7){ok=false;break;}}while(!cop2(w));
                 if(ok && !matches(idiom.words[f],w))ok=false;else addresses[f]=at;}
             if(!ok)continue;
             if(!c)throw std::runtime_error("native macro idiom has no CPU record");
@@ -2104,6 +2111,7 @@ bool nativeMacroIdiom(R5900Context *c,Runtime *rt,uint32_t pc){
                     out[row]=vuAdd(vuAdd(vuAdd(t[order[row][0]],t[order[row][1]]),vuMul(one,t[order[row][2]])),vuMul(one,t[order[row][3]]));}}
             else if(kind=="homogeneous"){const auto v=need(20);uint32_t f=0;const auto q=bozo::ps2f::div(one,v[3],f);_mm_setcsr(savedCsr);
                 for(unsigned i=0;i<4;++i)out[i]=vuMul(v[i],q);}
+            else if(kind=="product"){const auto a=need(12),b=need(13);for(unsigned i=0;i<4;++i)out[i]=vuMul(a[i],b[i]);}
             else if(kind=="negate"){const auto v=need(1);for(unsigned i=0;i<3;++i)out[i]=vuSub(0,v[i]);out[3]=v[3];}
             else if(kind=="dot"){const auto a=need(20),b=need(21),m=need(22);
                 for(unsigned i=0;i<4;++i)out[i]=vuMul(m[i],vuSub(b[i],a[i]));out[0]=vuAdd(vuAdd(out[0],out[1]),vuMul(one,out[2]));}

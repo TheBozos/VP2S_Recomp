@@ -56,10 +56,17 @@ crossfade. Its methods:
   sprites.
 - **Submit.** Site `3d2520` requires strip count 0 and draws the snapshot
   full screen, 1:1: vertex alpha, GS alpha blend, no depth test, no depth
-  write. The final type-2 enqueue stays. A first version patched it out:
-  its completion (owner `+90`) is what clears the scene's pending flag
-  `+40dc`, and the main loop then spun on it at `221070` (no frame ended
-  after 26562).
+  write. Its only entry is then the builder's own register packet (0x11
+  qwords, exactly the writer range; more rejects). As for the flat fade,
+  its final type-2 enqueue (`3d2600`) becomes the real completion:
+  `jal 21c9a0` with `a0 = s3 - 90` in the delay slot. `21c9a0(object)`
+  clears `+64` and the scene's pending flag `+40dc`, which is also what the
+  job's `+14` (`3d24d0`) calls.
+- Two wrong turns, recorded:
+  - Patching that enqueue to `nop` left `+40dc` set; the main loop spun
+    at `221070` and no frame ended after 26562.
+  - Keeping the enqueue sent the packet to DMA (`123220` from `112fc0`,
+    source `3069fe90` = `+9d8`; the "owner" printed there is the source).
 
 **Engine.** Auxiliary images go from 8 to 16 (`Material::kAuxiliaryImages`).
 `kPreviousFrame` stays 8. Images 9..15 are free for kept images: an image
@@ -72,15 +79,15 @@ eighth recycles the oldest, and a recycled fade's draw rejects.
 Guard `3d2400..3d30c0`. Tests:
 - `vp2s-bozo-capture-fade`: claim, single copy, build/submit, recycle, and
   geometry;
-- the kernel test pins the two patches and four sites.
+- the kernel test pins the four patch words and four sites.
 
 Known limit: `releaseGpu` (a lost context) clears the kept images.
 
 **Result:** the capture fade (object `69bd30`, image 9) is captured at frame
-26560 and drawn at 26562. Its own type-2 entry completes, and the game ends
-one more frame (serial 14609). The walk then stops at the next boundary: a
-type-2 queue entry of another owner (`69fe90`, not the fade's `69bdc0`)
-reaches DMA (`123220` from `112fc0`). Its producer is not yet identified.
+26560 and drawn for 29 frames (26562..26590, colour `82828282` down to
+`45454545`). The game then changes area (black partial frame, serial
+14637; not yet compared with PCSX2). It stops at the next boundary: the
+guarded native-algorithm site `366d1c` (entry `366d10`, ra `39dc9c`).
 All 88 suites pass. The engine change is BozoEngine branch
 `codex/vp2s-kept-images`; the submodule bump waits for its merge, as for
 PR #89.

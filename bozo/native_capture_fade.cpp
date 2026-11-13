@@ -101,12 +101,19 @@ std::optional<bool> nativeCaptureFadeInstruction(R5900Context *c,Runtime *rt,uin
         draw.image=*image;fades.build(draw);
         return false;
     }
-    // 3d2520 submit: strip count 0, so only the builder's own packet (register
-    // state, no draw) is enqueued; its completion clears the scene's pending flag.
+    // 3d2520 submit: strip count 0, so its only entry is the builder's own packet
+    // (register header, 3d3500 defaults, terminator: 0x11 qwords, no draw). The
+    // patched tail calls the real completion 21c9a0(object) instead of queueing it.
     const auto object=c->r[4].uw[0];
     if(value<uint32_t>(rt,object)!=kClass || value<int32_t>(rt,object+0xa98)!=0)
         throw std::runtime_error("native capture fade submit has original packets");
-    if(const auto draw=fades.submit(object))owner->drawNativeCaptureFade(*draw);
+    if(const auto draw=fades.submit(object)){
+        const auto writer=value<uint32_t>(rt,object+0xc4),begin=value<uint32_t>(rt,writer+12),end=value<uint32_t>(rt,writer+8);
+        if(value<uint32_t>(rt,object+0x9d8)!=begin || value<uint32_t>(rt,object+0x9dc)!=0x11 || uint64_t(begin)+0x110!=end)
+            throw std::runtime_error(std::format("native capture fade packet has additional content ({:x}+{:x} writer {:x}..{:x})",
+                value<uint32_t>(rt,object+0x9d8),value<uint32_t>(rt,object+0x9dc),begin,end));
+        owner->drawNativeCaptureFade(*draw);
+    }
     return false;
 }
 }

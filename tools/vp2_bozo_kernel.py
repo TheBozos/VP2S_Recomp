@@ -451,11 +451,14 @@ def overlay_adaptations(name,data):
                 # Capture fade 1610f0. Capture (3d2d78) branches to the state-0 tail
                 # 3d3020 (+a0 = +98, state 1): no readback nodes, no strip headers.
                 # The builder keeps its own packet (register header, 3d3500 defaults,
-                # terminator) and the submit its final type-2 enqueue, whose
-                # completion clears the scene's pending flag (+40dc); only the strip
-                # uploads and sprites (3d27b8..3d2c40) go. Native sites copy and draw.
+                # terminator); only the strip uploads and sprites (3d27b8..3d2c40) go.
+                # The submit's final type-2 enqueue of that packet becomes its real
+                # completion 21c9a0(object), as the flat fade's (it clears the scene's
+                # pending flag +40dc). Native sites copy and draw.
                 '003d2d78 3c010036 100000a9\n'
-                '003d27b8 8e0509c4 10000121\n')
+                '003d27b8 8e0509c4 10000121\n'
+                '003d2600 0c044c70 0c087268\n'
+                '003d2604 0007393e 2664ff70\n')
     if name=='mod002':
         _,segments,_=elf_parts(data);lo,hi=0x3617f0,0x362764
         s=next(s for s in segments if s[0]==1 and s[2]<=lo<hi<=s[2]+s[4]);at=s[1]+lo-s[2]

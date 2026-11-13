@@ -209,6 +209,12 @@ int main(int argc,char **argv){try{
         put(layerRam,0x165d4cu+0x18,0x3b3150u);put(layerRam,0x165dc8u+0x0c,0x3b31c0u);put(layerRam,0x165dc8u+0x14,0x44a540u);put(layerRam,0x165d4cu+0x10,0x2ef0f0u);
         put(layerRam,0x44a58cu,0x0c000000u|(0x2eca00u>>2));
         types(0x165d30u,0x165d4cu,0x165dc8u);layerAfter.texts.layer(&layerRam,layer);
+        {   // The sibling 165c60 with the same entries.
+            put(layerRam,0x165c7cu+0x18,0x3b3150u);put(layerRam,0x165cf8u+0x0c,0x3b31c0u);put(layerRam,0x165cf8u+0x14,0x44a540u);put(layerRam,0x165c7cu+0x10,0x2ef0f0u);
+            types(0x165c60u,0x165c7cu,0x165cf8u);layerAfter.texts.layer(&layerRam,layer);
+            put(layerRam,0x165cf8u+0x14,0x2eca00u);rejects([&]{layerAfter.texts.layer(&layerRam,layer);});put(layerRam,0x165cf8u+0x14,0x44a540u);
+            types(0x165c60u,0x165d4cu,0x165dc8u);rejects([&]{layerAfter.texts.layer(&layerRam,layer);});   // mixed tuple
+            types(0x165d30u,0x165d4cu,0x165dc8u);}
         put(layerRam,0x44a58cu,0u);rejects([&]{layerAfter.texts.layer(&layerRam,layer);});put(layerRam,0x44a58cu,0x0c000000u|(0x2eca00u>>2));       // completion skips the base
         put(layerRam,0x165d4cu+0x10,0x466ef0u);rejects([&]{layerAfter.texts.layer(&layerRam,layer);});put(layerRam,0x165d4cu+0x10,0x2ef0f0u); // another teardown
         types(0x15bca0u,0x15bcbcu,0x15bd38u);}
@@ -266,6 +272,25 @@ int main(int argc,char **argv){try{
             for(unsigned k=0;k<4;++k){const auto &s=t.icons[k];
                 check(s.fixedCorners[0][0]==xs[k][0] && s.fixedCorners[3][0]==xs[k][1] && s.fixedCorners[0][1]==1854*16 && s.fixedCorners[3][1]==1892*16);
                 check(s.uv[0]==float(us[k][0])/4096.f && s.uv[2]==float(us[k][1])/4096.f && s.uv[1]==8.f/4096 && s.uv[3]==520.f/4096);
+                check(s.colour==0x0c808080u && s.depth==0xffff32u);}
+        }
+        {   // Town prompt bar (4489b0) against the route's built packet (element 58cf40):
+            // x = -16+542, y = -8+394 scaled; cap 0.75*33 (flag set); right edge 2304.
+            namespace G=bozo::ps2f;uint32_t g=0;const auto A=[&](uint32_t a,uint32_t b){return G::add(a,b,g);};
+            const auto Sb=[&](uint32_t a,uint32_t b){return G::sub(a,b,g);};const auto Mu=[&](uint32_t a,uint32_t b){return G::mul(a,b,g);};
+            const auto Di=[&](uint32_t a,uint32_t b){return G::div(a,b,g);};
+            vp2s::NativeBarInputs b;
+            const auto x=A(W(-16.f),W(542.f)),y=A(W(-8.f),W(394.f));
+            b.x1=A(W(6.f),A(G::fromInt(1792),Sb(Di(Mu(W(512.f),x),W(640.f)),W(2.f))));
+            b.y0=A(W(4.f),A(G::fromInt(1792),Sb(Di(Mu(0x44003d70u,y),W(480.f)),W(2.f))));
+            b.y1=A(W(4.f),A(b.y0,G::fromInt(0x21)));b.cap=Mu(W(0.75f),G::fromInt(0x21));b.right=G::fromInt(2304);
+            b.colour=0x0c808080u;b.depth=0xffff32u;
+            b.rects={std::array<uint16_t,6>{0x0998,0x0458,0x0cd8,0x0658,0x0035,0x0021},{0x0ce8,0x0458,0x0fe8,0x0658,0x0031,0x0021}};
+            const auto t=vp2s::nativeBar(b,nullptr);check(t.icons.size()==2);
+            const int32_t xs[2][2]={{35072,35468},{35468,36864}};const int32_t us[2][2]={{0x0998,0x0cd8},{0x0ce8,0x0fe8}};
+            for(unsigned k=0;k<2;++k){const auto &s=t.icons[k];
+                check(s.fixedCorners[0][0]==xs[k][0] && s.fixedCorners[3][0]==xs[k][1] && s.fixedCorners[0][1]==35304 && s.fixedCorners[3][1]==35896);
+                check(s.uv[0]==float(us[k][0])/4096.f && s.uv[2]==float(us[k][1])/4096.f && s.uv[1]==float(0x0458)/4096.f && s.uv[3]==float(0x0658)/4096.f);
                 check(s.colour==0x0c808080u && s.depth==0xffff32u);}
         }
         // Without the half-width flag the cap is 0.85*w wide.

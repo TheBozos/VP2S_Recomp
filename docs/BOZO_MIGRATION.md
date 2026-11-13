@@ -12,6 +12,45 @@ The earlier VP2S face/shading and general brightness comparisons remain open.
 
 ## Build and evidence
 
+### Extended town route: prompt layer 165c60 and bar 165c30 (2026-11-13)
+
+**Route script.** `tools/pad_scripts/bozo_logun_armory.txt` takes the Logun
+route and appends, from frame 26400, the armory walk of the PS2Recomp
+script `armory_usa.txt`, converted to frames at 60 per second:
+- LEFT for 540 frames;
+- UP for 72;
+- LEFT for 48;
+- CROSS three times.
+
+The Bozo route does not skip cutscenes, so control returns around frame 25600
+(the name plate) rather than at 108 s.
+
+**Layer `165c60/165c7c/165cf8`** is the sibling of `165d30`: same thunks, base
+teardown `2ef0f0`, and the bracketing completion `44a540`. It is admitted
+next to it. The UI-text suite admits it and rejects a mixed tuple and another
+completion.
+
+**Element class `165c30`** (build `4489b0`) is a prompt bar:
+- placement = element `+58/+5c` + layer `+40/+44`, scaled from 640x480 to the
+  512x512 target. Then x1 = 6 + (ox + (512*X/640 - 2)) and y0 = 4 + (oy +
+  (512.96*Y/480 - 2));
+- y1 = 4 + (y0 + h), with h from rect `+160` (`+16a`);
+- a cap from rect `+160` over [x1 - cap, x1], where cap = h (times 0.75 with
+  the global flag);
+- a body from rect `+170` stretched over [x1, 0x800 + width/2], the right
+  edge of the screen;
+- alpha = layer `+e0` * element `+28` / 128.
+
+Native site `448d70` (the join after the cap width) records x1, y0, y1, cap,
+right, the colour and the resource. `nativeBar` builds both sprites on ps2f
+words. The UI-text suite reproduces the route's built packet: x 35072 /
+35468 / 36864, y 35304..35896. The guard covers `4489b0..448f80`.
+
+**Result:** the scripted walk moves Alicia through two more streets (serial
+14608). It then stops at the GS readback thread again (CSR write at
+`299c78`). Some readback request reaches it by a path the depth-probe port
+does not cover; this is being traced.
+
 ### Event title ornament 165e00; the route runs all 40000 frames (2026-11-13)
 
 **Element class `165e00`** (layer `165d30`) is a custom element like the name

@@ -197,7 +197,9 @@ NativeUiLayer NativeUiTexts::layer(Runtime *rt,uint32_t layer)const{
     // teardown 2ef0f0 as object +10, and its own completion 44a540, which brackets
     // the base 2eca00 with two 100c90 calls (a context saved and restored around
     // it); that completion stays compiled.
-    const bool bracketed=layerType==0x165d30 && objectType==0x165d4c && jobType==0x165dc8 &&
+    // Its sibling 165c60/165c7c/165cf8 (the town prompt layer) has the same entries.
+    const bool bracketed=((layerType==0x165d30 && objectType==0x165d4c && jobType==0x165dc8) ||
+                          (layerType==0x165c60 && objectType==0x165c7c && jobType==0x165cf8)) &&
         value<uint32_t>(rt,objectType+0x18)==0x3b3150 && value<uint32_t>(rt,jobType+0x0c)==0x3b31c0 && value<uint32_t>(rt,jobType+0x14)==0x44a540 &&
         value<uint32_t>(rt,objectType+0x10)==0x2ef0f0 && thunk(0x3b3150,0x2ec9c0,0xffe0) && thunk(0x3b31c0,0x2ec9a0,0xff50) &&
         value<uint32_t>(rt,0x44a58c)==(0x0c000000u|(0x2eca00u>>2));
@@ -225,7 +227,7 @@ NativeUiLayer NativeUiTexts::layer(Runtime *rt,uint32_t layer)const{
             auto item=std::make_shared<NativeUiText>();item->element=element;item->additiveTriangles=nativeChapterBar(rt,element);
             result.texts.push_back(std::move(item));continue;
         }
-        if(value<uint32_t>(rt,element)==0x167820 || value<uint32_t>(rt,element)==0x165e00){
+        if(value<uint32_t>(rt,element)==0x167820 || value<uint32_t>(rt,element)==0x165e00 || value<uint32_t>(rt,element)==0x165c30){
             auto captured=plate(element);if(!captured)throw std::runtime_error("native name plate has no finished snapshot");
             result.texts.push_back(std::move(captured));continue;
         }
@@ -352,7 +354,53 @@ NativeUiText nativeOrnament(const NativeOrnamentInputs &in,std::shared_ptr<const
     sprite(xL,xM,centre,false);sprite(xM,xR,centre,true);sprite(xC,xL,wing,false);sprite(xR,xD,wing,true);
     return out;
 }
+// Builder 4489b0 after 448d70: the cap (rect +160) over [x1-cap, x1] and the
+// body (rect +170) over [x1, right], both over [y0, y1], on PS2 float words.
+NativeUiText nativeBar(const NativeBarInputs &in,std::shared_ptr<const bozo::render::Texture> picture){
+    namespace F=bozo::ps2f;uint32_t flags=0;
+    const auto S=[&](uint32_t a,uint32_t b){return F::sub(a,b,flags);};
+    const auto M=[&](uint32_t a,uint32_t b){return F::mul(a,b,flags);};
+    const auto D=[&](uint32_t a,uint32_t b){return F::div(a,b,flags);};
+    const auto I=[](uint32_t x){return int32_t(F::toInt(x));};
+    const auto W=[](float v){return std::bit_cast<uint32_t>(v);};
+    const auto U=[](uint32_t v){return F::fromInt(v);};
+    const uint32_t k16=W(16.f);
+    const auto su=D(F::fromInt(1u<<in.log2Width),W(256.f)),sv=D(F::fromInt(1u<<in.log2Height),W(256.f));
+    const auto uv=[&](const std::array<uint16_t,6> &r){return std::array<int32_t,4>{I(M(su,U(r[0]))),I(M(sv,U(r[1]))),I(M(su,U(r[2]))),I(M(sv,U(r[3])))};};
+    const float texW=float(1u<<in.log2Width)*16,texH=float(1u<<in.log2Height)*16;
+    const auto y0=I(M(k16,in.y0)),y1=I(M(k16,in.y1));
+    const auto xa=I(M(k16,S(in.x1,in.cap))),xb=I(M(k16,in.x1)),xc=I(M(k16,in.right));
+    NativeUiText out;
+    const auto sprite=[&](int32_t x0,int32_t x1,const std::array<uint16_t,6> &r){
+        const auto t=uv(r);NativeUiSprite s;s.colour=in.colour;s.depth=in.depth;s.picture=picture;
+        s.fixedCorners={std::array<int32_t,2>{x0,y0},{x1,y0},{x0,y1},{x1,y1}};
+        s.uv={float(t[0])/texW,float(t[1])/texH,float(t[2])/texW,float(t[3])/texH};out.icons.push_back(std::move(s));};
+    sprite(xa,xb,in.rects[0]);sprite(xb,xc,in.rects[1]);
+    return out;
+}
 std::optional<bool> nativeNamePlateInstruction(R5900Context *c,Runtime *rt,uint32_t pc){
+    if(pc==0x448d70){
+        auto *d=rt?dynamic_cast<bozo::ee::Dispatcher *>(rt->services):nullptr;
+        auto *owner=d?dynamic_cast<UiTextOwner *>(&d->host()):nullptr;auto *textures=d?dynamic_cast<TextureOwner *>(&d->host()):nullptr;
+        if(!c || !owner || !textures || c->r[21].uw[0]<0x100000)throw std::runtime_error("native prompt bar requires its builder");
+        const auto element=c->r[21].uw[0],resource=c->r[17].uw[0];record(rt,element,0x60);
+        const auto layer=value<uint32_t>(rt,element+0x54);record(rt,layer,0xe0);record(rt,resource,0x240);
+        if(value<uint32_t>(rt,element)!=0x165c30 || c->r[20].uw[0]!=element+0x40 || value<uint32_t>(rt,resource)!=0x165b40 ||
+           value<uint32_t>(rt,value<uint32_t>(rt,0x48e048)+0x5c)!=resource)
+            throw std::runtime_error("native prompt bar escaped its element/resource");
+        const auto image=textures->nativeTextures().imageAsset(resource);
+        NativeBarInputs in;in.x1=c->fu[23];in.y0=c->fu[21];in.y1=c->fu[20];in.cap=c->fu[24];in.right=c->fu[22];
+        in.colour=c->r[18].uw[0];in.depth=value<uint32_t>(rt,layer+0xc4);
+        in.log2Width=value<uint8_t>(rt,resource+0x238);in.log2Height=value<uint8_t>(rt,resource+0x239);
+        if(!image || in.log2Width>10 || in.log2Height>10 || image->width!=(1u<<in.log2Width) || image->height!=(1u<<in.log2Height))
+            throw std::runtime_error("native prompt bar has no published resource image");
+        if((in.colour&0x00ffffffu)!=0x808080u)throw std::runtime_error("unqualified native prompt bar colour");
+        const auto table=value<uint32_t>(rt,resource+0x224);record(rt,table+0x160,0x20);
+        for(unsigned i=0;i<6;++i){in.rects[0][i]=value<uint16_t>(rt,table+0x160+2*i);in.rects[1][i]=value<uint16_t>(rt,table+0x170+2*i);}
+        auto bar=std::make_shared<NativeUiText>(nativeBar(in,image->picture(0)));bar->element=element;bar->iconsCaptured=true;
+        owner->nativeUiTexts().plates[element]=std::move(bar);
+        return false; // The original builder continues; its packet is never sent.
+    }
     if(pc==0x449790){
         auto *d=rt?dynamic_cast<bozo::ee::Dispatcher *>(rt->services):nullptr;
         auto *owner=d?dynamic_cast<UiTextOwner *>(&d->host()):nullptr;auto *textures=d?dynamic_cast<TextureOwner *>(&d->host()):nullptr;

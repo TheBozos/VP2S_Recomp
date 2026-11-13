@@ -71,6 +71,16 @@ struct NativeOrnamentInputs {
     unsigned log2Width=8,log2Height=8;
 };
 NativeUiText nativeOrnament(const NativeOrnamentInputs &,std::shared_ptr<const bozo::render::Texture> picture);
+// Town prompt bar (element class 165c30, build 4489b0): at the join 448d70 the
+// builder holds x1 (f23), y0 (f21), y1 (f20), the cap width (f24) and the
+// screen's right edge (f22); the colour (s2), depth (layer +c4) and the
+// resource table's rects +160 (cap) and +170 (body, stretched to the edge).
+struct NativeBarInputs {
+    uint32_t x1=0,y0=0,y1=0,cap=0,right=0,colour=0,depth=0;
+    std::array<std::array<uint16_t,6>,2> rects{};   // +160, +170
+    unsigned log2Width=8,log2Height=8;
+};
+NativeUiText nativeBar(const NativeBarInputs &,std::shared_ptr<const bozo::render::Texture> picture);
 // Name-plate geometry from the scalars builder 465150 computed when it enters
 // path A (465e3e8): X (f24), Y (f23), length L (f28), all PS2 float words; the
 // colour (s6), depth (fp), the frame size and the resource image's sub-image

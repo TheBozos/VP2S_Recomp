@@ -253,6 +253,21 @@ int main(int argc,char **argv){try{
             check(std::abs(s.fixedCorners[0][0]/16.f-(16+X))<0.07f && std::abs((s.fixedCorners[3][0]-s.fixedCorners[0][0])/16.f-0.85f*32*0.75f)<0.13f);
             check(std::abs(s.fixedCorners[0][1]/16.f-(Y+20-0.85f*16-8))<0.13f && std::abs((s.fixedCorners[3][1]-s.fixedCorners[0][1])/16.f-32)<0.13f);
             check(s.uv[0]==4.f/2048 && s.uv[3]==260.f/2048);}   // 410c30 scales table texels by (1<<7)/256
+        {   // Event title ornament (449580) against the route's built packet (element 58dd00):
+            // left = 1792 + 512*244.5/640, right 2108.375, top = 1792 + 512.96*63.6307/480 (1860).
+            vp2s::NativeOrnamentInputs o;
+            o.left=F::add(F::fromInt(1792),F::div(F::mul(W(512.f),W(244.5f),fl),W(640.f),fl),fl);o.right=W(2108.375f);o.top=W(1860.f);
+            o.colour=0x0c808080u;o.depth=0xffff32u;
+            o.rects={std::array<uint16_t,6>{0x0598,0x0008,0x0908,0x0208,0x0038,0x0021},{0x02b8,0x0008,0x0578,0x0208,0x002d,0x0021}};
+            const auto t=vp2s::nativeOrnament(o,nullptr);check(t.icons.size()==4);
+            // XYZ2 (12.4) x0,x1 and UV u0,u1 of the four sprites as packed: y 1854..1892, v 0.5..32.5.
+            const int32_t xs[4][2]={{31801,32767},{32767,33734},{31081,31801},{33734,34454}};
+            const int32_t us[4][2]={{0x0598,0x0908},{0x0908,0x0598},{0x02b8,0x0578},{0x0578,0x02b8}};
+            for(unsigned k=0;k<4;++k){const auto &s=t.icons[k];
+                check(s.fixedCorners[0][0]==xs[k][0] && s.fixedCorners[3][0]==xs[k][1] && s.fixedCorners[0][1]==1854*16 && s.fixedCorners[3][1]==1892*16);
+                check(s.uv[0]==float(us[k][0])/4096.f && s.uv[2]==float(us[k][1])/4096.f && s.uv[1]==8.f/4096 && s.uv[3]==520.f/4096);
+                check(s.colour==0x0c808080u && s.depth==0xffff32u);}
+        }
         // Without the half-width flag the cap is 0.85*w wide.
         in.narrowCap=false;const auto wide=vp2s::nativeNamePlate(in,nullptr);
         check(wide.icons[1].fixedCorners[3][0]-wide.icons[1].fixedCorners[0][0]>plate.icons[1].fixedCorners[3][0]-plate.icons[1].fixedCorners[0][0]);

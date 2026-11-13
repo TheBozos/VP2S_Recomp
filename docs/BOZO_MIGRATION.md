@@ -12,6 +12,38 @@ The earlier VP2S face/shading and general brightness comparisons remain open.
 
 ## Build and evidence
 
+### Event title ornament 165e00; the route runs all 40000 frames (2026-11-13)
+
+**Element class `165e00`** (layer `165d30`) is a custom element like the name
+plate. It has an empty `+1c`, and its `+20` (`4494f0`) builds once through the
+layer's `+c4` method `449580`. That builder is linear:
+- ALPHA 44, and a TEX0 pair for the same UI page;
+- the resource object `590420` (`48e048` `+5c`) again;
+- two REGLIST tags of two sprites each.
+
+The builder computes left = ox + 512*x/640, right = ox + 512*(+288 + (x +
+text))/640 and top = oy + 512.96*y/480. Mode `+28c` 1 or 2 moves left out, or
+right out, by 128.
+
+Native site `449790` (after those adjustments) records left (f21), right
+(f20), top (f22), colour (s3) and the resource. `nativeOrnament` then
+transcribes, on ps2f words:
+- y0 = 16*(top-6) and y1 = y0 + 16*(h+5);
+- the centre, from rect `+a0`: left to 0.5*(left+right), then mirrored to
+  right;
+- the wings, from rect `+90`: [left-w, left] and, mirrored, [right, right+w].
+
+It is stored per element and drawn by the layer walk with the name plate.
+
+**Tests.** The UI-text suite reproduces the route's built packet: all four
+sprites' x, y and mirrored UV. Guards: `4494f0..449580`, `449580..449cc0`.
+
+**Result:** the protected route runs **all 40000 frames** ("frame limit 40000
+reached", capture serial 28045) with no rejecting boundary. The last frame is
+the playable town: Alicia and the party, a cat, and the "Waiting Area" label
+with its ornament. All 86 suites pass. The pad script ended long before, so
+the run idles in town; going further needs a longer input route.
+
 ### UI layer 165d30 admitted (2026-11-13)
 
 mod003 layer `165d30/165d4c/165dc8` uses:

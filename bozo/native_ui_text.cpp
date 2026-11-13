@@ -225,7 +225,7 @@ NativeUiLayer NativeUiTexts::layer(Runtime *rt,uint32_t layer)const{
             auto item=std::make_shared<NativeUiText>();item->element=element;item->additiveTriangles=nativeChapterBar(rt,element);
             result.texts.push_back(std::move(item));continue;
         }
-        if(value<uint32_t>(rt,element)==0x167820){
+        if(value<uint32_t>(rt,element)==0x167820 || value<uint32_t>(rt,element)==0x165e00){
             auto captured=plate(element);if(!captured)throw std::runtime_error("native name plate has no finished snapshot");
             result.texts.push_back(std::move(captured));continue;
         }
@@ -323,7 +323,57 @@ NativeUiText nativeNamePlate(const NativeNamePlateInputs &in,std::shared_ptr<con
     }
     return out;
 }
+// Builder 449580 (after 449790), on PS2 float words: y0 = 16*(top-6), y1 = y0 +
+// 16*(h+5) (h of rect +a0); the centre is rect +a0 from left to the middle
+// 0.5*(left+right) and mirrored (u1..u0) from there to right; the wings are
+// rect +90 over [left-w, left] and, mirrored, [right, right+w].
+NativeUiText nativeOrnament(const NativeOrnamentInputs &in,std::shared_ptr<const bozo::render::Texture> picture){
+    namespace F=bozo::ps2f;uint32_t flags=0;
+    const auto A=[&](uint32_t a,uint32_t b){return F::add(a,b,flags);};
+    const auto S=[&](uint32_t a,uint32_t b){return F::sub(a,b,flags);};
+    const auto M=[&](uint32_t a,uint32_t b){return F::mul(a,b,flags);};
+    const auto D=[&](uint32_t a,uint32_t b){return F::div(a,b,flags);};
+    const auto I=[](uint32_t x){return int32_t(F::toInt(x));};
+    const auto W=[](float v){return std::bit_cast<uint32_t>(v);};
+    const auto U=[](uint32_t v){return F::fromInt(v);};
+    const uint32_t k16=W(16.f),k6=W(6.f),kHalf=W(0.5f);
+    const auto &centre=in.rects[0],&wing=in.rects[1];
+    const auto su=D(F::fromInt(1u<<in.log2Width),W(256.f)),sv=D(F::fromInt(1u<<in.log2Height),W(256.f));
+    const auto uv=[&](const std::array<uint16_t,6> &r){return std::array<int32_t,4>{I(M(su,U(r[0]))),I(M(sv,U(r[1]))),I(M(su,U(r[2]))),I(M(sv,U(r[3])))};};
+    const float texW=float(1u<<in.log2Width)*16,texH=float(1u<<in.log2Height)*16;
+    const auto y0f=M(k16,S(in.top,k6));const auto y0=I(y0f),y1=I(A(y0f,M(k16,U(uint32_t(centre[5])+5))));
+    const auto xL=I(M(k16,in.left)),xR=I(M(k16,in.right)),xM=I(M(k16,M(kHalf,A(in.left,in.right))));
+    const auto xC=I(M(k16,S(in.left,U(wing[4])))),xD=I(M(k16,A(in.right,U(wing[4]))));
+    NativeUiText out;
+    const auto sprite=[&](int32_t x0,int32_t x1,const std::array<uint16_t,6> &r,bool mirrored){
+        const auto t=uv(r);NativeUiSprite s;s.colour=in.colour;s.depth=in.depth;s.picture=picture;
+        s.fixedCorners={std::array<int32_t,2>{x0,y0},{x1,y0},{x0,y1},{x1,y1}};
+        s.uv={float(mirrored?t[2]:t[0])/texW,float(t[1])/texH,float(mirrored?t[0]:t[2])/texW,float(t[3])/texH};out.icons.push_back(std::move(s));};
+    sprite(xL,xM,centre,false);sprite(xM,xR,centre,true);sprite(xC,xL,wing,false);sprite(xR,xD,wing,true);
+    return out;
+}
 std::optional<bool> nativeNamePlateInstruction(R5900Context *c,Runtime *rt,uint32_t pc){
+    if(pc==0x449790){
+        auto *d=rt?dynamic_cast<bozo::ee::Dispatcher *>(rt->services):nullptr;
+        auto *owner=d?dynamic_cast<UiTextOwner *>(&d->host()):nullptr;auto *textures=d?dynamic_cast<TextureOwner *>(&d->host()):nullptr;
+        if(!c || !owner || !textures || c->r[20].uw[0]<0x100040)throw std::runtime_error("native ornament requires its builder");
+        const auto layer=c->r[21].uw[0],element=c->r[20].uw[0]-0x40,resource=c->r[17].uw[0];
+        record(rt,element,0x60);record(rt,layer,0x290);record(rt,resource,0x240);
+        if(value<uint32_t>(rt,element)!=0x165e00 || value<uint32_t>(rt,element+0x54)!=layer || value<uint32_t>(rt,resource)!=0x165b40 ||
+           value<uint32_t>(rt,value<uint32_t>(rt,0x48e048)+0x5c)!=resource)
+            throw std::runtime_error("native ornament escaped its element/resource");
+        const auto image=textures->nativeTextures().imageAsset(resource);
+        NativeOrnamentInputs in;in.left=c->fu[21];in.right=c->fu[20];in.top=c->fu[22];in.colour=c->r[19].uw[0];in.depth=value<uint32_t>(rt,layer+0xc4);
+        in.log2Width=value<uint8_t>(rt,resource+0x238);in.log2Height=value<uint8_t>(rt,resource+0x239);
+        if(!image || in.log2Width>10 || in.log2Height>10 || image->width!=(1u<<in.log2Width) || image->height!=(1u<<in.log2Height))
+            throw std::runtime_error("native ornament has no published resource image");
+        if((in.colour&0x00ffffffu)!=0x808080u)throw std::runtime_error("unqualified native ornament colour");
+        const auto table=value<uint32_t>(rt,resource+0x224);record(rt,table+0x90,0x20);
+        for(unsigned i=0;i<6;++i){in.rects[0][i]=value<uint16_t>(rt,table+0xa0+2*i);in.rects[1][i]=value<uint16_t>(rt,table+0x90+2*i);}
+        auto ornament=std::make_shared<NativeUiText>(nativeOrnament(in,image->picture(0)));ornament->element=element;ornament->iconsCaptured=true;
+        owner->nativeUiTexts().plates[element]=std::move(ornament);
+        return false; // The original builder continues; its packet is never sent.
+    }
     if(pc!=0x4653e8 && pc!=0x465b38 && pc!=0x465f08)return std::nullopt;
     if(pc==0x465b38)throw std::runtime_error("unported native name plate: narrow path 465b38");
     if(pc==0x465f08){

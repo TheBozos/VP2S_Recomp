@@ -61,6 +61,16 @@ public:
 };
 std::optional<bool> nativeUiTextInstruction(R5900Context *,Runtime *,uint32_t pc);
 std::optional<bool> nativeNamePlateInstruction(R5900Context *,Runtime *,uint32_t pc);
+// Event title ornament (element class 165e00, builder = layer method 449580):
+// left (f21), right (f20) and top (f22) as the builder computed them after its
+// mode adjustments (site 449790), the colour (s3), depth (layer +c4) and the
+// resource table's rects +a0 (centre) and +90 (wings).
+struct NativeOrnamentInputs {
+    uint32_t left=0,right=0,top=0,colour=0,depth=0;
+    std::array<std::array<uint16_t,6>,2> rects{};   // +a0, +90
+    unsigned log2Width=8,log2Height=8;
+};
+NativeUiText nativeOrnament(const NativeOrnamentInputs &,std::shared_ptr<const bozo::render::Texture> picture);
 // Name-plate geometry from the scalars builder 465150 computed when it enters
 // path A (465e3e8): X (f24), Y (f23), length L (f28), all PS2 float words; the
 // colour (s6), depth (fp), the frame size and the resource image's sub-image

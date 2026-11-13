@@ -1504,11 +1504,98 @@ int main(){try{
         uint32_t got[4],expect[4];std::memcpy(got,r.memory.hostPointer(object+0x580,16),16);
         for(unsigned i=0;i<4;++i){uint32_t f=0;expect[i]=bozo::ps2f::mul(a[i],b[i],f);}
         check(!std::memcmp(got,expect,16));
-        const uint32_t branch=0x10000003;std::memcpy(r.memory.hostPointer(code+24,4),&branch,4);
+        const uint32_t branch=0x14400003;std::memcpy(r.memory.hostPointer(code+24,4),&branch,4);
         check(!vp2s::nativeMathInstruction(r.memory.flat(),&x,&r,code+28));
         ++productCases;
     }
     std::printf("%u component-product blocks (store in a return delay slot) match the VU0 oracle\n",productCases);
+    // Scaled sum (mod003 433c60..433c8c), the game's words: the scale comes from a
+    // GPR through QMTC2 (2.0 there; other values and garbage upper lanes here).
+    unsigned sumCases=0;
+    for(unsigned seed=0;seed<128;++seed){
+        auto &r=native.runtime();std::memset(r.memory.flat(),0x44+seed,bozo::kFlatBytes);
+        uint32_t state=seed*3266489917u+5;const auto rnd=[&](){state=state*1664525u+1013904223u;return state>>8;};
+        const uint32_t code=0x1c4000+64*(rnd()%64),object=0x1d0000+16*(rnd()%256),stackAt=0x1e0000+16*(rnd()%256);
+        const uint32_t words[12]={0x268501f0,0x44820000,0x27a40150,0x27a30150,0xd8a10000,0xd8820000,0x44020000,0,0x48a21800,0x4bc011bf,0x4bc30848,0xf8610000};
+        std::memcpy(r.memory.hostPointer(code,48),words,48);
+        uint32_t a[4],b[4];for(unsigned i=0;i<4;++i){a[i]=(rnd()&0x807fffffu)|((100+rnd()%50)<<23);b[i]=(rnd()&0x807fffffu)|((100+rnd()%50)<<23);}
+        const uint32_t scale=seed%4?0x40000000u:(rnd()&0x807fffffu)|((110+rnd()%30)<<23);
+        std::memcpy(r.memory.hostPointer(object+0x1f0,16),a,16);std::memcpy(r.memory.hostPointer(stackAt+0x150,16),b,16);
+        R5900Context x{};x.r[20].ud[0]=object;x.r[29].ud[0]=stackAt;x.r[5].ud[0]=object+0x1f0;x.r[4].ud[0]=stackAt+0x150;x.r[3].ud[0]=stackAt+0x150;
+        x.r[2].uw[0]=scale;x.r[2].uw[1]=rnd();x.r[2].uw[2]=rnd();x.r[2].uw[3]=rnd();
+        for(const unsigned i:{4u,5u,8u,9u,10u,11u})if(!vp2s::nativeMathInstruction(r.memory.flat(),&x,&r,code+4*i)){std::fprintf(stderr,"scaled sum word %u unclaimed\n",i);check(false);}
+        uint32_t got[4],expect[4];std::memcpy(got,r.memory.hostPointer(stackAt+0x150,16),16);
+        for(unsigned i=0;i<3;++i){uint32_t f=0;expect[i]=bozo::ps2f::addNearest(bozo::ps2f::mul(b[i],0x3f800000,f),bozo::ps2f::mul(a[i],scale,f),f);}expect[3]=a[3];
+        if(std::memcmp(got,expect,16)){std::fprintf(stderr,"scaled sum seed%u %08x %08x %08x %08x / %08x %08x %08x %08x\n",seed,got[0],got[1],got[2],got[3],expect[0],expect[1],expect[2],expect[3]);check(false);}
+        ++sumCases;
+    }
+    std::printf("%u scaled-sum blocks (QMTC2 scale) match the VU0 oracle\n",sumCases);
+    // Particle draw setup (mod001 22f3a4..22f3bc and 22f404..22f410), the game's words:
+    // a*b + c with its store in the delay slot of b 22f418, and the plain product.
+    unsigned setupCases=0;
+    for(unsigned seed=0;seed<128;++seed){
+        auto &r=native.runtime();std::memset(r.memory.flat(),0x66+seed,bozo::kFlatBytes);
+        uint32_t state=seed*1103515245u+7;const auto rnd=[&](){state=state*1664525u+1013904223u;return state>>8;};
+        const bool sum=seed&1;const uint32_t code=0x1c4000+64*(rnd()%64),s2=0x1d0000+16*(rnd()%64),sp=0x1e0000+16*(rnd()%64);
+        const std::vector<uint32_t> words=sum?std::vector<uint32_t>{0x264503c0,0x27a400b0,0x27a30090,0x26420310,0xd8a10000,0xd8820000,0xd8430000,0x4be20abe,0x4be0184b,0x10000017,0xf8610000}
+                                             :std::vector<uint32_t>{0x26440310,0x27a300b0,0x27a20090,0xd8810000,0xd8620000,0x4be2086a,0xf8410000};
+        std::memcpy(r.memory.hostPointer(code,4*words.size()),words.data(),4*words.size());
+        uint32_t a[4],b[4],k[4];for(unsigned i=0;i<4;++i){a[i]=(rnd()&0x807fffffu)|((100+rnd()%50)<<23);b[i]=(rnd()&0x807fffffu)|((100+rnd()%50)<<23);k[i]=(rnd()&0x807fffffu)|((100+rnd()%50)<<23);}
+        R5900Context x{};
+        if(sum){std::memcpy(r.memory.hostPointer(s2+0x3c0,16),a,16);std::memcpy(r.memory.hostPointer(sp+0xb0,16),b,16);std::memcpy(r.memory.hostPointer(s2+0x310,16),k,16);
+            x.r[5].ud[0]=s2+0x3c0;x.r[4].ud[0]=sp+0xb0;x.r[3].ud[0]=sp+0x90;x.r[2].ud[0]=s2+0x310;
+            for(const unsigned i:{4u,5u,6u,7u,8u,10u})if(!vp2s::nativeMathInstruction(r.memory.flat(),&x,&r,code+4*i)){std::fprintf(stderr,"muladd word %u unclaimed\n",i);check(false);}}
+        else{std::memcpy(r.memory.hostPointer(s2+0x310,16),a,16);std::memcpy(r.memory.hostPointer(sp+0xb0,16),b,16);
+            x.r[4].ud[0]=s2+0x310;x.r[3].ud[0]=sp+0xb0;x.r[2].ud[0]=sp+0x90;
+            for(const unsigned i:{3u,4u,5u,6u})if(!vp2s::nativeMathInstruction(r.memory.flat(),&x,&r,code+4*i)){std::fprintf(stderr,"product2 word %u unclaimed\n",i);check(false);}}
+        uint32_t got[4],expect[4];std::memcpy(got,r.memory.hostPointer(sp+0x90,16),16);
+        for(unsigned i=0;i<4;++i){uint32_t f=0;expect[i]=bozo::ps2f::mul(a[i],b[i],f);if(sum)expect[i]=bozo::ps2f::addNearest(expect[i],bozo::ps2f::mul(k[i],0x3f800000,f),f);}
+        check(!std::memcmp(got,expect,16));
+        if(sum){const uint32_t conditional=0x14400017;std::memcpy(r.memory.hostPointer(code+36,4),&conditional,4);check(!vp2s::nativeMathInstruction(r.memory.flat(),&x,&r,code+40));}
+        ++setupCases;
+    }
+    std::printf("%u particle draw-setup blocks (a*b+c after b, a*b) match the VU0 oracle\n",setupCases);
+    // Particle step (mod003 3652d0): the game's site words at their addresses; four
+    // loop variants, dt from v1 or s1, two stores per particle, out-of-order rejects.
+    unsigned particleCases=0;
+    {struct Variant{uint32_t q,p,v,a,m,s1,s2;};
+     const Variant variants[4]={{0x365350,0x3653c4,0x3653c8,0x3653e8,0x3653ec,0x3653f8,0x3653fc},{0x365350,0x3654ac,0x3654b0,0x3654d0,0x3654d4,0x3654e0,0x3654e4},
+                                {0x36554c,0x3655e8,0x3655f0,0x3656f4,0x3656f8,0x365704,0x36570c},{0x36554c,0x3657e4,0x3657e8,0x3658fc,0x365900,0x36590c,0x365914}};
+     const std::pair<uint32_t,uint32_t> words[]={{0x365350,0x48a31800},{0x36554c,0x48b11800},
+        {0x3653c4,0xda010000},{0x3653c8,0xd8620000},{0x3653e8,0x4bc00abc},{0x3653ec,0x4bc31048},{0x3653f8,0xf8610000},{0x3653fc,0xfa010000},
+        {0x3654ac,0xd8610000},{0x3654b0,0xd9220000},{0x3654d0,0x4bc00abc},{0x3654d4,0x4bc31048},{0x3654e0,0xf9210000},{0x3654e4,0xf8610000},
+        {0x3655e8,0xda610000},{0x3655f0,0xdaa20000},{0x3656f4,0x4bc00abc},{0x3656f8,0x4bc31048},{0x365704,0xfa410000},{0x36570c,0xfa610000},
+        {0x3657e4,0xda610000},{0x3657e8,0xda020000},{0x3658fc,0x4bc00abc},{0x365900,0x4bc31048},{0x36590c,0xfa010000},{0x365914,0xfa610000}};
+     const auto field=[](uint32_t w,unsigned shift){return (w>>shift)&31;};
+     for(unsigned seed=0;seed<64;++seed){
+        auto &r=native.runtime();std::memset(r.memory.flat(),0x5c+seed,bozo::kFlatBytes);for(const auto &[pc,w]:words)std::memcpy(r.memory.hostPointer(pc,4),&w,4);
+        uint32_t state=seed*2654435761u+9;const auto rnd=[&](){state=state*1664525u+1013904223u;return state>>8;};
+        const auto value=[&](){return (rnd()&0x807fffffu)|((105+rnd()%40)<<23);};
+        const auto &var=variants[seed%4];const uint32_t dt=seed%8==1?0:value();
+        R5900Context x{};const auto qw=[&](uint32_t pc){uint32_t w;std::memcpy(&w,r.memory.hostPointer(pc,4),4);return w;};
+        x.r[field(qw(var.q),16)].uw[0]=dt;x.r[field(qw(var.q),16)].uw[3]=rnd();check(vp2s::nativeMathInstruction(r.memory.flat(),&x,&r,var.q));
+        for(unsigned n=0;n<3;++n){
+            const uint32_t pAt=0x1d0000+0x100*n+16*(rnd()%8),vAt=0x1d8000+0x100*n+16*(rnd()%8),o1=0x1e0000+0x40*n,o2=0x1e8000+0x40*n;
+            uint32_t p[4],v[4];for(auto &w:p)w=value();for(auto &w:v)w=value();if(seed%8==3)p[1]=0x80000000;
+            std::memcpy(r.memory.hostPointer(pAt,16),p,16);std::memcpy(r.memory.hostPointer(vAt,16),v,16);
+            x.r[field(qw(var.p),21)].uw[0]=pAt;check(vp2s::nativeMathInstruction(r.memory.flat(),&x,&r,var.p));
+            x.r[field(qw(var.v),21)].uw[0]=vAt;check(vp2s::nativeMathInstruction(r.memory.flat(),&x,&r,var.v));
+            check(vp2s::nativeMathInstruction(r.memory.flat(),&x,&r,var.a) && vp2s::nativeMathInstruction(r.memory.flat(),&x,&r,var.m));
+            x.r[field(qw(var.s1),21)].uw[0]=o1;check(vp2s::nativeMathInstruction(r.memory.flat(),&x,&r,var.s1));
+            x.r[field(qw(var.s2),21)].uw[0]=o2;check(vp2s::nativeMathInstruction(r.memory.flat(),&x,&r,var.s2));
+            uint32_t expect[4],got1[4],got2[4];
+            for(unsigned i=0;i<3;++i){uint32_t f=0;expect[i]=bozo::ps2f::addNearest(bozo::ps2f::addNearest(p[i],0,f),bozo::ps2f::mul(v[i],dt,f),f);}expect[3]=p[3];
+            std::memcpy(got1,r.memory.hostPointer(o1,16),16);std::memcpy(got2,r.memory.hostPointer(o2,16),16);
+            if(std::memcmp(got1,expect,16) || std::memcmp(got2,expect,16)){std::fprintf(stderr,"particle seed%u n%u %08x %08x %08x %08x / %08x %08x %08x %08x\n",seed,n,got1[0],got1[1],got1[2],got1[3],expect[0],expect[1],expect[2],expect[3]);check(false);}
+            ++particleCases;
+        }
+        // A step or velocity without its position rejects; so does a store before the step.
+        bool rejected=false;try{vp2s::nativeMathInstruction(r.memory.flat(),&x,&r,var.q);vp2s::nativeMathInstruction(r.memory.flat(),&x,&r,var.v);}catch(const std::runtime_error &){rejected=true;}check(rejected);
+        rejected=false;try{vp2s::nativeMathInstruction(r.memory.flat(),&x,&r,var.p);vp2s::nativeMathInstruction(r.memory.flat(),&x,&r,var.s1);}catch(const std::runtime_error &){rejected=true;}check(rejected);
+        // Different code at the same address (another overlay) is not claimed here.
+        const uint32_t other=0;std::memcpy(r.memory.hostPointer(var.m,4),&other,4);check(!vp2s::nativeMathInstruction(r.memory.flat(),&x,&r,var.m));
+     }}
+    std::printf("%u particle steps (four loops, two stores) match the VU0 oracle\n",particleCases);
     // Row point and homogeneous divide (mod001 2b802c / 2b80a0), the game's words.
     unsigned rowCases=0;
     for(unsigned seed=0;seed<256;++seed){

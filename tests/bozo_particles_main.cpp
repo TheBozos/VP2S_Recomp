@@ -1,4 +1,5 @@
 #include "native_particles.h"
+#include "native_math.h"
 #include "native_float_oracle.h"
 #include "bozo/ee/dispatcher.h"
 #include "bozo/port.h"
@@ -142,6 +143,25 @@ int main(){try{
         old.publications=now.publications=0;x.functions.generated(0x22e650)(x.memory.flat(),&p,&x);y.functions.generated(0x22e650)(y.memory.flat(),&q,&y);
         p.cycleLimit=q.cycleLimit;check(!std::memcmp(&p,&q,sizeof(p)) && !std::memcmp(x.memory.flat(),y.memory.flat(),bozo::kFlatBytes));
         check(!now.publications && !old.publications && now.particles.outstanding()==0);
+    }
+    // mod003 3649f0's box sites (the game's words): LQC2 vf1 from a2, VMINI, VMAX join
+    // the point to the driver frame's bounds (the method's frame is the driver's - 0x40).
+    {auto &rt=b.runtime();initialize(rt,0);now.particles=vp2s::NativeParticles{};now.assets=vp2s::NativeAssets{};
+        R5900Context c{};c.pc=0x22eadc;c.r[21].uw[0]=0x180000;c.r[29].uw[0]=0x1fff000;write(rt,0x1fff0e0,uint32_t(0x200020));
+        check(*vp2s::nativeParticleInstruction(&c,&rt,0x22eae0));const auto frame=c.r[29].uw[0];
+        write(rt,0x35dbc0,std::array<float,4>{1,1,1,0});write(rt,0x35dbe0,std::array<float,4>{2,2,2,.5f});c.r[3].uw[0]=0x35dbc0;c.r[2].uw[0]=0x35dbe0;
+        check(*vp2s::nativeParticleInstruction(&c,&rt,0x22ec9c));check(*vp2s::nativeParticleInstruction(&c,&rt,0x22eca0));
+        for(const auto &[pc,w]:{std::pair{0x364a84u,0xd8c10000u},{0x364ac4u,0x4bc1d6afu},{0x364ac8u,0x4bc1deebu}})write(rt,pc,w);
+        R5900Context m{};m.r[29].uw[0]=frame-0x40;m.r[4].uw[0]=0x190000;m.r[6].uw[0]=0x1d0000;write(rt,0x1d0000,std::array<float,4>{-4,7,1.5f,9});
+        auto math=[&](uint32_t pc){return vp2s::nativeMathInstruction(rt.memory.flat(),&m,&rt,pc);};
+        bool order=false;try{math(0x364ac4);}catch(const std::runtime_error &){order=true;}check(order);
+        check(math(0x364a84));order=false;try{math(0x364ac8);}catch(const std::runtime_error &){order=true;}check(order);
+        check(math(0x364ac4) && math(0x364ac8));
+        const auto grown=now.particles.bounds(frame,0x190000);
+        check(grown.minimum[0]==-4 && grown.maximum[0]==2 && grown.minimum[1]==1 && grown.maximum[1]==7 && grown.minimum[2]==1 && grown.maximum[2]==2 && grown.maximum[3]==.5f);
+        m.r[4].uw[0]=0x190010;order=false;try{math(0x364a84);}catch(const std::runtime_error &){order=true;}check(order);
+        write(rt,0x364ac4,uint32_t(0));check(!math(0x364ac4));
+        now.particles=vp2s::NativeParticles{};
     }
     {auto &rt=b.runtime();initialize(rt,0);now.particles=vp2s::NativeParticles{};now.assets=vp2s::NativeAssets{};
         R5900Context c{};c.pc=0x22eadc;c.r[21].uw[0]=0x180000;c.r[29].uw[0]=0x1fff000;write(rt,0x1fff0e0,uint32_t(0x200020));

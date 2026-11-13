@@ -12,6 +12,51 @@ The earlier VP2S face/shading and general brightness comparisons remain open.
 
 ## Build and evidence
 
+### Soul Street VU0 sites: scaled sum, particle step, box, draw setup (2026-11-13)
+
+Four VU0 boundaries on Soul Street, each ported from its exact words:
+- **`433c70`** (mod003 `433c08`), idiom `scaledsum`:
+  - `LQC2 vf1` (`s4+1f0`) and `vf2` (`sp+150`);
+  - `QMTC2 v0 -> vf3` (v0 = 2.0);
+  - `MULAw.xyz ACC = vf2*1`, `MADDx.xyz vf1 = ACC + vf1*vf3.x`;
+  - `SQC2 vf1` -> {b + a*s, a.w}.
+
+  The idiom capture now records a `QMTC2` (a GPR quadword into a VF
+  register) at its own site. The same routine's second block is the
+  existing length idiom.
+- **`3652d0`** (mod003, particle step, four loop variants):
+  - dt arrives once through `QMTC2` (`365350` from `v1` = `*(35dee8)`,
+    `36554c` from `s1`);
+  - per particle: `LQC2` position and velocity, `VADDA.xyz ACC = p + 0`,
+    `VMADDx.xyz p = ACC + v*dt`, two `SQC2`.
+
+  `nativeParticleStep` lists all 26 sites with their exact words, and
+  rejects any out-of-order use.
+- **`3649f0`** (mod003 emitter method, called from the driver at
+  `22ed38`): `LQC2 vf1` (the point copied to the output), then
+  `VMINI vf26` and `VMAX vf27`. vf26/vf27 are the driver's box, loaded at
+  `22ec9c` and published at `22efd8`. `nativeParticleBox` feeds the point to
+  `NativeParticles::includePoint` for the driver frame (method `sp + 40`).
+- **`22f3a4` / `22f3d8` / `22f404`** (mod001 particle draw setup): idioms
+  `muladd` (`MULA.xyzw` + `MADDw`: a*b + c) and `product2` (`MUL.xyzw`).
+  The first two store in the delay slot of `b 22f418`. The idiom walk now
+  admits an unconditional `b` (`beq zero,zero`), like `jr ra`, only before
+  the final store. A conditional branch still breaks the match.
+
+Tests:
+- math suite: 128 scaled-sum, 192 particle-step and 128 draw-setup cases
+  with the game's words;
+- particles suite: the box sites growing a real driver box, plus
+  order/emitter/word rejections.
+
+**Result:** the walk reaches serial 14782 and stops at the existing particle
+draw's check, "negative native particle colour" (`22f160`). In the dump:
+object `fd9840` (class `154180`, lighting identity mode 1) has a point with
+colour (255, 255, 255, **-1.0**), kind 0. Open question before admitting
+it: does the original VU1 particle program clamp a negative channel to 0
+(invisible), or does the packed GIF byte wrap it to 255? The program has
+not yet been identified (transport `22f0e0`).
+
 ### Component product 366d10 and far procedural points (2026-11-13)
 
 After the capture fade, the walk enters a new area (Soul Street, Solde),

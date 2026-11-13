@@ -2038,6 +2038,10 @@ constexpr MacroIdiom macroIdioms[]={
     // plain dot (mod003 436eac): LQC2 vf1,vf2; MUL.xyz vf3 = vf1*vf2; ADDy.x vf1 = vf3.x+vf3.y;
     // ADDz.x vf1 += vf3.z; SQC2 vf1 -> {(x1x2+y1y2)+z1z2, y1, z1, w1}.
     {"dot3",{-2,-3,0x4bc208ea,0x4b031841,0x4b030842,-101},6},
+    // scaled sum (mod003 433c70): LQC2 vf1 (a), vf2 (b); QMTC2 v0 -> vf3 (s in .x, a GPR
+    // value: 2.0 there); MULAw.xyz ACC = b*1; MADDx.xyz vf1 = ACC + a*s; SQC2 vf1
+    // -> {b + a*s (xyz), a.w}.
+    {"scaledsum",{-2,-3,0x48a21800,0x4bc011bf,0x4bc30848,-101},6},
     // row point (mod001 2b802c): LQC2 vf15 (point), vf11..vf14 (rows); ADDw.xyz vf31 = 1;
     // MUL vf11..vf14 *= vf15; per row ADDA/MADDA/MADD with 1*: x ((x+y)+1z)+1w,
     // y ((y+x)+1z)+1w, z ((z+y)+1x)+1w, w ((w+y)+1z)+1x; SQC2 vf5.
@@ -2049,6 +2053,11 @@ constexpr MacroIdiom macroIdioms[]={
     // component product (mod003 366d10): LQC2 vf12, vf13; MUL.xyzw vf12 = vf12*vf13;
     // SQC2 vf12 in the delay slot of the routine's jr ra -> {x1x2, y1y2, z1z2, w1w2}.
     {"product",{-13,-14,0x4bed632a,-112},4},
+    // particle draw setup (mod001 22f3a4 / 22f3d8, store in the delay slot of b 22f418):
+    // LQC2 vf1, vf2, vf3; MULA.xyzw ACC = vf1*vf2; MADDw.xyzw vf1 = ACC + vf3*1; SQC2 vf1.
+    {"muladd",{-2,-3,-4,0x4be20abe,0x4be0184b,-101},6},
+    // and its third variant (22f404): LQC2 vf1, vf2; MUL.xyzw vf1 = vf1*vf2; SQC2 vf1.
+    {"product2",{-2,-3,0x4be2086a,-101},4},
     // matrix product (mod001 2b84a0): LQC2 vf1..vf4 (rows A), vf5..vf8 (rows B); per row k
     // MULAx/MADDAy/MADDAz/MADDw: A_k = ((B0*A_k.x + B1*A_k.y) + B2*A_k.z) + B3*A_k.w;
     // SQC2 vf1..vf4 (each store publishes its row; the capture lives to the last).
@@ -2066,10 +2075,10 @@ bool nativeMacroIdiom(R5900Context *c,Runtime *rt,uint32_t pc){
         if(want<=-100)return w>>26==0x3e && int32_t((w>>16)&31)==-100-want;
         return w>>26==0x36 && int32_t((w>>16)&31)==-1-want;};
     uint32_t self;if(!word(pc,self) || !cop2(self))return false;
-    // A jr ra may stand between the last two words when the idiom's final store
-    // is its delay slot (the store still runs before the return).
+    // A jr ra or an unconditional b (beq zero,zero) may stand between the last two
+    // words when the idiom's final store is its delay slot (the store always runs).
     const auto returnSlot=[&](const MacroIdiom &idiom,unsigned f,uint32_t at,uint32_t w){
-        uint32_t next;return w==0x03e00008u && f+1==idiom.size && word(at+4,next) && matches(idiom.words[f],next);};
+        uint32_t next;return (w==0x03e00008u || (w>>16)==0x1000u) && f+1==idiom.size && word(at+4,next) && matches(idiom.words[f],next);};
     for(const auto &idiom:macroIdioms){
         // Try every position this PC could hold in the idiom.
         for(unsigned k=0;k<idiom.size;++k){
@@ -2091,7 +2100,11 @@ bool nativeMacroIdiom(R5900Context *c,Runtime *rt,uint32_t pc){
             if(want<0 && want>-100){   // load: capture
                 if(k==0 || capture.block!=first){capture.valid=0;capture.block=first;}
                 const unsigned n=unsigned(-1-want);capture.vf[n]=vuWords(rt,address(self));capture.valid|=1u<<n;return true;}
-            if(want>=0)return true;     // arithmetic: folded into the store
+            if(want>=0){                // arithmetic: folded into the store
+                // QMTC2 brings a GPR's quadword into a VF register: captured here.
+                if((self>>21)==0x245){if(capture.block!=first)throw std::runtime_error(std::format("native {} idiom at {:x} moved without its loads",idiom.name,first));
+                    const auto &g=c->r[(self>>16)&31];const VuWords q{g.uw[0],g.uw[1],g.uw[2],g.uw[3]};const unsigned n=(self>>11)&31;capture.vf[n]=q;capture.valid|=1u<<n;}
+                return true;}
             // store
             const auto need=[&](unsigned n){if(capture.block!=first || !(capture.valid>>n&1))throw std::runtime_error(std::format("native {} idiom at {:x} stored without its loads",idiom.name,first));return capture.vf[n];};
             const uint32_t one=0x3f800000u,savedCsr=_mm_getcsr();VuWords out{};
@@ -2111,6 +2124,10 @@ bool nativeMacroIdiom(R5900Context *c,Runtime *rt,uint32_t pc){
                     out[row]=vuAdd(vuAdd(vuAdd(t[order[row][0]],t[order[row][1]]),vuMul(one,t[order[row][2]])),vuMul(one,t[order[row][3]]));}}
             else if(kind=="homogeneous"){const auto v=need(20);uint32_t f=0;const auto q=bozo::ps2f::div(one,v[3],f);_mm_setcsr(savedCsr);
                 for(unsigned i=0;i<4;++i)out[i]=vuMul(v[i],q);}
+            else if(kind=="scaledsum"){const auto a=need(1),b=need(2),k=need(3);
+                for(unsigned i=0;i<3;++i)out[i]=vuAdd(vuMul(b[i],one),vuMul(a[i],k[0]));out[3]=a[3];}
+            else if(kind=="muladd"){const auto a=need(1),b=need(2),k=need(3);for(unsigned i=0;i<4;++i)out[i]=vuAdd(vuMul(a[i],b[i]),vuMul(k[i],one));}
+            else if(kind=="product2"){const auto a=need(1),b=need(2);for(unsigned i=0;i<4;++i)out[i]=vuMul(a[i],b[i]);}
             else if(kind=="product"){const auto a=need(12),b=need(13);for(unsigned i=0;i<4;++i)out[i]=vuMul(a[i],b[i]);}
             else if(kind=="negate"){const auto v=need(1);for(unsigned i=0;i<3;++i)out[i]=vuSub(0,v[i]);out[3]=v[3];}
             else if(kind=="dot"){const auto a=need(20),b=need(21),m=need(22);
@@ -2121,6 +2138,69 @@ bool nativeMacroIdiom(R5900Context *c,Runtime *rt,uint32_t pc){
         }
     }
     return false;
+}
+// Particle step (mod003 3652d0, four loop variants): the step dt arrives once per
+// call through QMTC2 into vf3 (365350 from v1 = *(35dee8), 36554c from s1). Per
+// particle: LQC2 vf1 (position), vf2 (velocity); VADDA.xyz ACC = vf1 + vf0;
+// VMADDx.xyz vf1 = ACC + vf2*vf3.x; SQC2 vf1 twice -> {p + v*dt (xyz), p.w}.
+// Every site and its exact word are listed; the result exists only after both
+// loads of the same particle, and only stores read it.
+struct ParticleSite{uint32_t pc,word;char role;};   // q: dt, p/v: loads, a: ACC, m: result, s: store
+constexpr ParticleSite particleSites[]={
+    {0x365350,0x48a31800,'q'},{0x36554c,0x48b11800,'q'},
+    {0x3653c4,0xda010000,'p'},{0x3653c8,0xd8620000,'v'},{0x3653e8,0x4bc00abc,'a'},{0x3653ec,0x4bc31048,'m'},{0x3653f8,0xf8610000,'s'},{0x3653fc,0xfa010000,'s'},
+    {0x3654ac,0xd8610000,'p'},{0x3654b0,0xd9220000,'v'},{0x3654d0,0x4bc00abc,'a'},{0x3654d4,0x4bc31048,'m'},{0x3654e0,0xf9210000,'s'},{0x3654e4,0xf8610000,'s'},
+    {0x3655e8,0xda610000,'p'},{0x3655f0,0xdaa20000,'v'},{0x3656f4,0x4bc00abc,'a'},{0x3656f8,0x4bc31048,'m'},{0x365704,0xfa410000,'s'},{0x36570c,0xfa610000,'s'},
+    {0x3657e4,0xda610000,'p'},{0x3657e8,0xda020000,'v'},{0x3658fc,0x4bc00abc,'a'},{0x365900,0x4bc31048,'m'},{0x36590c,0xfa010000,'s'},{0x365914,0xfa610000,'s'}};
+struct ParticleState{uint32_t dt=0;bool step=false;VuWords position{},velocity{},result{};uint8_t have=0;};
+ParticleState &particleState(const Runtime *rt){static std::map<const Runtime *,ParticleState> states;return states[rt];}
+bool nativeParticleStep(R5900Context *c,Runtime *rt,uint32_t pc){
+    if(!rt || pc<0x365350 || pc>0x365914)return false;
+    const ParticleSite *site=nullptr;for(const auto &s:particleSites)if(s.pc==pc)site=&s;
+    if(!site)return false;
+    uint32_t word=0;if(const auto *p=rt->memory.hostPointer(pc,4))std::memcpy(&word,p,4);
+    if(word!=site->word)return false;   // another overlay at these addresses
+    if(!c)throw std::runtime_error("native particle step has no CPU record");
+    auto &st=particleState(rt);
+    const auto address=[&]{return c->r[(word>>21)&31].uw[0]+uint32_t(int32_t(int16_t(word&0xffff)));};
+    switch(site->role){
+    case 'q':st.dt=c->r[(word>>16)&31].uw[0];st.step=true;st.have=0;return true;
+    case 'p':st.position=vuWords(rt,address());st.have=1;return true;
+    case 'v':if(st.have!=1)throw std::runtime_error(std::format("native particle velocity at {:x} without its position",pc));
+        st.velocity=vuWords(rt,address());st.have=2;return true;
+    case 'a':if(st.have!=2)throw std::runtime_error(std::format("native particle accumulate at {:x} without its loads",pc));return true;
+    case 'm':{if(st.have!=2 || !st.step)throw std::runtime_error(std::format("native particle step at {:x} without its loads or dt",pc));
+        const auto savedCsr=_mm_getcsr();
+        for(unsigned i=0;i<3;++i)st.result[i]=vuAdd(vuAdd(st.position[i],0),vuMul(st.velocity[i],st.dt));
+        st.result[3]=st.position[3];_mm_setcsr(savedCsr);st.have=3;return true;}
+    default:if(st.have!=3)throw std::runtime_error(std::format("native particle store at {:x} without its step",pc));
+        std::memcpy(record(rt,address(),16),st.result.data(),16);return true;
+    }
+}
+// Particle box (mod003 3649f0, an emitter method called from the driver at 22ed38):
+// LQC2 vf1 (364a84, the point just copied to the output at a2); VMINI.xyz
+// vf26 = min(vf26, vf1) (364ac4); VMAX.xyz vf27 = max(vf27, vf1) (364ac8).
+// vf26/vf27 are the driver's box (loaded at 22ec9c/22eca0, published at 22efd8):
+// the point joins NativeParticles' explicit bounds of that driver frame (sp+40).
+struct ParticleBoxState{bool loaded=false,included=false;uint32_t frame=0,emitter=0;std::array<float,4> point{};};
+ParticleBoxState &particleBoxState(const Runtime *rt){static std::map<const Runtime *,ParticleBoxState> states;return states[rt];}
+bool nativeParticleBox(R5900Context *c,Runtime *rt,uint32_t pc){
+    constexpr std::pair<uint32_t,uint32_t> sites[]={{0x364a84,0xd8c10000},{0x364ac4,0x4bc1d6af},{0x364ac8,0x4bc1deeb}};
+    const auto site=std::find_if(std::begin(sites),std::end(sites),[&](const auto &s){return s.first==pc;});
+    if(!rt || site==std::end(sites))return false;
+    uint32_t word=0;if(const auto *p=rt->memory.hostPointer(pc,4))std::memcpy(&word,p,4);
+    if(word!=site->second)return false;   // another overlay at these addresses
+    auto *d=dynamic_cast<bozo::ee::Dispatcher *>(rt->services);auto *particles=d?dynamic_cast<ParticleOwner *>(&d->host()):nullptr;
+    if(!c || !particles)throw std::runtime_error("native particle box requires its bounds owner");
+    auto &st=particleBoxState(rt);const auto frame=c->r[29].uw[0]+0x40,emitter=c->r[4].uw[0];
+    if(pc==0x364a84){
+        particles->nativeParticles().validateEmitter(frame,emitter);
+        std::memcpy(st.point.data(),record(rt,c->r[6].uw[0],16),16);st=ParticleBoxState{true,false,frame,emitter,st.point};return true;}
+    if(!st.loaded || st.frame!=frame || st.emitter!=emitter || st.included!=(pc==0x364ac8))
+        throw std::runtime_error(std::format("native particle box at {:x} out of order",pc));
+    if(pc==0x364ac4){particles->nativeParticles().includePoint(frame,emitter,st.point);st.included=true;}
+    else st=ParticleBoxState{};
+    return true;
 }
 // VU0 program 0x2d0 (mode 0): in-place 4x4 Gauss-Jordan inverse of rows
 // vf1..vf4, no row swaps. Each pivot is first clamped away from zero by the
@@ -3627,7 +3707,7 @@ bool nativeMathInstruction(uint8_t *,R5900Context *c,Runtime *rt,uint32_t pc){
     default:
         // Inlined-block recognisers last: they read code around the PC, so
         // only sites no specific handler claimed pay for that scan.
-        return nativeLengthIdiom(c,rt,pc) || nativeMacroIdiom(c,rt,pc) || nativeInverseIdiom(c,rt,pc);
+        return nativeParticleStep(c,rt,pc) || nativeParticleBox(c,rt,pc) || nativeLengthIdiom(c,rt,pc) || nativeMacroIdiom(c,rt,pc) || nativeInverseIdiom(c,rt,pc);
     }
 }
 }

@@ -12,6 +12,79 @@ The earlier VP2S face/shading and general brightness comparisons remain open.
 
 ## Build and evidence
 
+### Capture fade 1610f0: a native frame snapshot (2026-11-13)
+
+The frame readback at frame 26560 belongs to the **capture fade**, mod003
+class `0x1610f0`, a subclass of the fade `0x161230`. It shows the frame as it
+was when the fade began, redrawn over the new scene under the fade colour: a
+crossfade. Its methods:
+- `+14` update `3d2cd0`;
+- `+18` submit `3d2520`;
+- `+60` builder `3d2630`;
+- `+9c` `3d2400`, empty.
+
+**State byte `+9d4`:**
+- **0, capture.** Taken when `+a4 < 0`, `+9c4` is set and `48e048+8c` bit 0
+  is clear. One readback node per 64-pixel strip (`+aa0` strips), registered
+  with the scene; each strip has an upload header in `+9c4`. Then
+  `+a0 = +98` and state 1.
+- **1.** The update destroys the nodes and sets state 2.
+- **2, draw.** The builder draws only now. Each strip is uploaded through the
+  texture manager (`29d9b0`, TEX0 from `23db00`: TBP, TBW, PSM, TW, TH, with
+  **TCC 0** and modulate). It is drawn as a sprite, context 2, at
+  x = `0x800 - w/2 + 64 i`, y = `0x800 - h/2`, UV +0.5 on pixel corners (one
+  texel per pixel). The colour is `+a0`, with ALPHA `0x44` (`3140f0`, normal
+  blend), TEST_2 ZTST always, ZBUF_2 ZMSK. `3d3500` then restores the
+  defaults.
+- The submit enqueues, per strip, the upload chain (type 3) and the draw
+  (type 2), then a final type-2 packet.
+
+**Native port, no readback:**
+- **Capture.** Patch `3d2d78` (`lui`) to `b 3d3020`, the state-0 tail. Site
+  `3d2d7c` (the branch's delay slot) checks the capture condition and claims a
+  kept engine image for the object. No nodes, no headers.
+- **Copy.** Site `3d2630` (builder entry) copies once, in the frame the
+  builder draws into, the **previous presentation** (`kPreviousFrame`,
+  stable per game frame) into that image. That is what the GS frame held
+  when the game read it back. The frame opens at `114550`, after the
+  update, so the copy cannot be issued at the capture itself.
+- **Build.** Site `3d2698` (draw path, state >= 2) records colour `+a0`,
+  depth `+c0` and the screen (`35de60` `+3c6c/+3c6e`), and requires
+  `64 * strips` = width. Patch `3d27b8` to `b 3d2c40`: the builder keeps its
+  own packet (register header, `3d3500` defaults, terminator) with strip
+  count 0, and skips only the texture-manager allocation, strip uploads and
+  sprites.
+- **Submit.** Site `3d2520` requires strip count 0 and draws the snapshot
+  full screen, 1:1: vertex alpha, GS alpha blend, no depth test, no depth
+  write. The final type-2 enqueue stays. A first version patched it out:
+  its completion (owner `+90`) is what clears the scene's pending flag
+  `+40dc`, and the main loop then spun on it at `221070` (no frame ended
+  after 26562).
+
+**Engine.** Auxiliary images go from 8 to 16 (`Material::kAuxiliaryImages`).
+`kPreviousFrame` stays 8. Images 9..15 are free for kept images: an image
+keeps its pixels until a draw into it in a later frame. The bloom, DOF,
+feedback and frame-copy effects keep 1..7. The `render_targets` GPU test
+copies the previous frame into image 12 and samples it two frames later,
+including a repeated presentation. Seven captures can be alive at once; an
+eighth recycles the oldest, and a recycled fade's draw rejects.
+
+Guard `3d2400..3d30c0`. Tests:
+- `vp2s-bozo-capture-fade`: claim, single copy, build/submit, recycle, and
+  geometry;
+- the kernel test pins the two patches and four sites.
+
+Known limit: `releaseGpu` (a lost context) clears the kept images.
+
+**Result:** the capture fade (object `69bd30`, image 9) is captured at frame
+26560 and drawn at 26562. Its own type-2 entry completes, and the game ends
+one more frame (serial 14609). The walk then stops at the next boundary: a
+type-2 queue entry of another owner (`69fe90`, not the fade's `69bdc0`)
+reaches DMA (`123220` from `112fc0`). Its producer is not yet identified.
+All 88 suites pass. The engine change is BozoEngine branch
+`codex/vp2s-kept-images`; the submodule bump waits for its merge, as for
+PR #89.
+
 ### Extended town route: prompt layer 165c60 and bar 165c30 (2026-11-13)
 
 **Route script.** `tools/pad_scripts/bozo_logun_armory.txt` takes the Logun

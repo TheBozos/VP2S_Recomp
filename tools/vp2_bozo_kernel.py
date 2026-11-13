@@ -387,6 +387,8 @@ def overlay_adaptations(name,data):
                                (0x449580,0x449cc0,'8d3f4712fa16f316978e60cef4e04eaadf12a4961e0ef7bc2169db44ad4043ab'),
                                # Town prompt bar 165c30: build 4489b0.
                                (0x4489b0,0x448f80,'6fe80836105b67750347fece9b6667950b00f5cc99c6455278a7b584eaa9f9ce'),
+                               # Capture fade 1610f0: +9c 3d2400, submit 3d2520, builder 3d2630, update 3d2cd0.
+                               (0x3d2400,0x3d30c0,'0ca4e7f7226fec364d6c5f33e46a513669fc475adf4b839db93a109a2af5c65a'),
                                (0x3d7708,0x3d77cc,'435926535d852e22f0b20b9027f65fd6674acc7a63b6aaedb31e59c63a1cd1c8'),
                                (0x3d5670,0x3d57ec,'250a2389769015fbda23859f5082b6f69031a706af85f263b765f34130611ecc'),
                                (0x378908,0x3789c8,'25cee96dbb982fe7f31c806c09286d7d6d1630101851998b42a1431e9cf4fd17'),
@@ -445,7 +447,15 @@ def overlay_adaptations(name,data):
                 '00447a44 0c044c70 0c111e78\n'
                 # Texture uploader 165630: the draw's type-3 enqueue enters its real
                 # completion 443190; 443238 (delay slot) publishes the FIS entries.
-                '00443234 0c044c70 0c110c64\n')
+                '00443234 0c044c70 0c110c64\n'
+                # Capture fade 1610f0. Capture (3d2d78) branches to the state-0 tail
+                # 3d3020 (+a0 = +98, state 1): no readback nodes, no strip headers.
+                # The builder keeps its own packet (register header, 3d3500 defaults,
+                # terminator) and the submit its final type-2 enqueue, whose
+                # completion clears the scene's pending flag (+40dc); only the strip
+                # uploads and sprites (3d27b8..3d2c40) go. Native sites copy and draw.
+                '003d2d78 3c010036 100000a9\n'
+                '003d27b8 8e0509c4 10000121\n')
     if name=='mod002':
         _,segments,_=elf_parts(data);lo,hi=0x3617f0,0x362764
         s=next(s for s in segments if s[0]==1 and s[2]<=lo<hi<=s[2]+s[4]);at=s[1]+lo-s[2]
@@ -885,7 +895,7 @@ def overlay_native_sites(name,data):
         _,segments,_=elf_parts(data);lo,hi=0x374be0,0x375240
         s=next(s for s in segments if s[0]==1 and s[2]<=lo<hi<=s[2]+s[4]);at=s[1]+lo-s[2]
         if hashlib.sha256(data[at:at+hi-lo]).hexdigest()!='b993fd5a68cebb93c65d37fb69ebe90cba67c410408b0f9530e30a4dfd9a470e':raise ValueError('USA screen zoom overlay source mismatch')
-        return 'native 0x374c04\nnative 0x374c10\nnative 0x40b040\nnative 0x3d93f4\nnative 0x3d38d4\nnative 0x3d363c\nnative 0x3d364c\nnative 0x3d49b0\nnative 0x447af0\nnative 0x447b84\nnative 0x447d60\nnative 0x447a48\nnative 0x447f50\nnative 0x443238\nnative 0x4653e8\nnative 0x465b38\nnative 0x465f08\nnative 0x449790\nnative 0x448d70\n'+''.join(f'native 0x{pc:x}\n' for pc in (0x3e5ca4,0x3e5ca8,0x3e5cac,0x3e5cb4,0x3e5cb8,0x3e5cc0,*range(0x3e7edc,0x3e7f38,4),*range(0x3e7fa0,0x3e7ffc,4)))
+        return 'native 0x374c04\nnative 0x374c10\nnative 0x40b040\nnative 0x3d93f4\nnative 0x3d38d4\nnative 0x3d363c\nnative 0x3d364c\nnative 0x3d49b0\nnative 0x447af0\nnative 0x447b84\nnative 0x447d60\nnative 0x447a48\nnative 0x447f50\nnative 0x443238\nnative 0x4653e8\nnative 0x465b38\nnative 0x465f08\nnative 0x449790\nnative 0x448d70\nnative 0x3d2d7c\nnative 0x3d2630\nnative 0x3d2698\nnative 0x3d2520\n'+''.join(f'native 0x{pc:x}\n' for pc in (0x3e5ca4,0x3e5ca8,0x3e5cac,0x3e5cb4,0x3e5cb8,0x3e5cc0,*range(0x3e7edc,0x3e7f38,4),*range(0x3e7fa0,0x3e7ffc,4)))
     if name=='mod002':
         _,segments,_=elf_parts(data);lo,hi=0x3622e8,0x362338
         s=next(s for s in segments if s[0]==1 and s[2]<=lo<hi<=s[2]+s[4]);at=s[1]+lo-s[2]

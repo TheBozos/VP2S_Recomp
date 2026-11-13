@@ -25,6 +25,7 @@
 #include "native_debug_font.h"
 #include "native_state_setup.h"
 #include "native_screen_rect.h"
+#include "native_capture_fade.h"
 #include "native_ui_text.h"
 #include "native_screen_zoom.h"
 #include "native_depth_blur.h"
@@ -64,7 +65,7 @@
 namespace {
 class StrictHost final : public bozo::ee::Host,public vp2s::TimerOwner,public vp2s::SettingsOwner,public vp2s::SeedOwner,
     public vp2s::ModuleOwner,public vp2s::BootstrapOwner,public vp2s::RandomOwner,public vp2s::TextureOwner,public vp2s::SceneOwner,
-    public vp2s::AssetOwner,public vp2s::DebugFontOwner,public vp2s::StateSetupOwner,public vp2s::ScreenRectOwner,public vp2s::ScreenZoomOwner,public vp2s::UiTextOwner,
+    public vp2s::AssetOwner,public vp2s::DebugFontOwner,public vp2s::StateSetupOwner,public vp2s::ScreenRectOwner,public vp2s::CaptureFadeOwner,public vp2s::ScreenZoomOwner,public vp2s::UiTextOwner,
     public vp2s::UiSpriteOwner,public vp2s::MediaBufferOwner,public vp2s::ModelOwner,public vp2s::FrameFilterOwner,public vp2s::MusicOwner,
     public vp2s::UiWindowOwner,public vp2s::LoadProgressOwner,public vp2s::MotionOwner,public vp2s::FrameCopyOwner,public vp2s::DofOwner,public vp2s::FeedbackOwner,public vp2s::SquadOwner,
     public vp2s::ParticleOwner,public vp2s::ParticleUpdateOwner,public vp2s::ParticleDrawOwner,public vp2s::ProceduralOwner,public vp2s::ProceduralDrawOwner,public vp2s::DepthBlurOwner,public vp2s::DepthProbeOwner {
@@ -205,6 +206,36 @@ public:
         if((++screenRectDraws<=4 && std::getenv("VP2S_BOZO_TRACE_QUEUES")) || native.framesEnded()>=rectsFrom)
             std::fprintf(stderr,"[vp2s:screen] native rect object=%x colour=%08x box=%d,%d,%d,%d frame=%llu\n",rect.object,rect.colour,rect.x,rect.y,rect.right,rect.bottom,
                 (unsigned long long)native.framesEnded());
+    }
+    vp2s::NativeCaptureFades captureFades;
+    vp2s::NativeCaptureFades &nativeCaptureFades()override{return captureFades;}
+    // The frame the GS held when the capture fade began: the previous presentation,
+    // copied once into a kept engine image at the main frame's own resolution.
+    void copyNativeFrameToImage(uint8_t image)override{
+        if(!scene.frameTarget())throw std::runtime_error("native capture fade has no frame to copy");
+        bozo::render::Material material;material.textured=false;material.fromFrame=1;material.source=bozo::render::Material::kPreviousFrame;
+        material.target=image;material.nearest=true;material.alphaBlend=false;material.blend=bozo::render::Material::Blend::Opaque;
+        material.depthTest=false;material.depthWrite=false;
+        vp2s::NativeCaptureFadeDraw whole{.colour=0x80808080,.width=int32_t(scene.frameTarget()->width),.height=int32_t(scene.frameTarget()->height)};
+        const auto vertices=vp2s::nativeCaptureFadeVertices(whole);
+        const float identity[16]={1,0,0,0,0,1,0,0,0,0,1,0,0,0,0,1};
+        bozo::render::Renderer::instance().draw(material,identity,vertices.data(),vertices.size());
+        if(std::getenv("VP2S_BOZO_TRACE_QUEUES"))
+            std::fprintf(stderr,"[vp2s:screen] native capture copy image=%u frame=%llu\n",image,(unsigned long long)native.framesEnded());
+    }
+    void drawNativeCaptureFade(const vp2s::NativeCaptureFadeDraw &draw)override{
+        const auto target=scene.frameTarget();
+        if(!target || int32_t(target->width)!=draw.width || int32_t(target->height)!=draw.height)
+            throw std::runtime_error("native capture fade has no matching frame");
+        // TEX0.TCC 0 and modulate: the vertex alpha; ALPHA 0x44; ZTST always, ZMSK.
+        bozo::render::Material material;material.textured=false;material.fromFrame=1;material.source=draw.image;material.target=0;material.nearest=true;
+        material.textureAlpha=false;material.blend=bozo::render::Material::Blend::Alpha;material.depthTest=false;material.depthWrite=false;
+        const auto vertices=vp2s::nativeCaptureFadeVertices(draw);
+        const float identity[16]={1,0,0,0,0,1,0,0,0,0,1,0,0,0,0,1};
+        bozo::render::Renderer::instance().draw(material,identity,vertices.data(),vertices.size());
+        static const unsigned long long rectsFrom=[]{const char *v=std::getenv("VP2S_BOZO_TRACE_RECTS_FROM");return v?std::strtoull(v,nullptr,10):~0ull;}();
+        if(native.framesEnded()>=rectsFrom)
+            std::fprintf(stderr,"[vp2s:screen] native capture fade object=%x image=%u colour=%08x frame=%llu\n",draw.object,draw.image,draw.colour,(unsigned long long)native.framesEnded());
     }
     vp2s::NativeScreenZooms screenZooms;
     unsigned screenZoomDraws=0;
@@ -548,6 +579,7 @@ bool dispatchNativeInstruction(uint8_t *ram,R5900Context *ctx,Runtime *rt,uint32
     if(auto handled=vp2s::nativeUiSpriteInstruction(ctx,rt,pc))return *handled;
     if(auto handled=vp2s::nativeMediaBufferInstruction(ctx,rt,pc))return *handled;
     if(auto handled=vp2s::nativeScreenRectInstruction(ctx,rt,pc))return *handled;
+    if(auto handled=vp2s::nativeCaptureFadeInstruction(ctx,rt,pc))return *handled;
     if(auto handled=vp2s::nativeScreenZoomInstruction(ctx,rt,pc))return *handled;
     if(auto handled=vp2s::nativeDepthBlurInstruction(ctx,rt,pc))return *handled;
     if(auto handled=vp2s::nativeDepthProbeInstruction(ctx,rt,pc))return *handled;

@@ -61,7 +61,32 @@ Vtable `152ac0`: `+08` destructor `201aa0`, `+0c` `200770`,
 It is probably a per-character ground effect (footsteps or splashes in the
 rain); not yet confirmed against PCSX2.
 
+**Frame lifecycle (read since):**
+- `201850` begins a frame: it selects RAM buffer `+20/+24` by `+74`,
+  reserves a 0x60 header (`+2c`, uncached), resets the counters and
+  flushes.
+- `201600` ends it:
+  - finalizes the open chunk, then fills the header:
+    - `+0` = 0x60;
+    - `+4` = `a1`;
+    - `+18` = `f12`;
+    - `+34` = chunk count `+b4`;
+    - `+38` = size;
+    - `+3e/+3f` flags;
+  - writes the FIS image list (`+c0` entries from `+b0`) after it;
+  - sends the descriptors (`200840`);
+  - calls `25cab0(writer, header - 0x10)`.
+- `25cab0` (base class `25ca00`) stores the data pointer at `+8`, sets
+  `+1c`, and registers the writer with the manager at `*(35de40)` through
+  `21cbd0`. The accessors `200770` / `2007e0` hand that block to the
+  manager's consumers.
+
+So the batcher **generates a model-like data block in RAM** that the
+game's ordinary renderer then draws. It is not a separate VU1 path.
+
 **Still to find before a native port:**
+- which consumer draws the registered block, and whether the native model
+  path accepts this generated format;
 - the VU1 program the RAM buffers feed (its `MSCAL`, and how each
   instance expands into a sprite: position, size, UV, colour);
 - the queue path that sends `+20/+24`;

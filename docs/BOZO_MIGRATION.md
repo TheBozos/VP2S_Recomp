@@ -12,6 +12,66 @@ The earlier VP2S face/shading and general brightness comparisons remain open.
 
 ## Build and evidence
 
+### Analysis: the scratchpad sprite batcher (mod001 class 152ac0) (2026-11-15)
+
+The boundary at serial 14787 (`1000d080`, fromSPR SADR) belongs to a
+generic sprite batcher in mod001, not to one effect. Not yet ported.
+
+**The writer** (class `152ac0`, 0xd0 bytes):
+- constructor `201b30`;
+- setup `201940(n, size, slots, chunk)`:
+  - `n` RAM output buffers at `+20`/`+24`, `(size+0x20)*4` bytes each;
+  - `slots` words at `+b0`;
+  - a descriptor array at `+28`, `(min(chunk, slots)+2)*48` bytes;
+- `2009f0` registers up to 8 **FIS images** found by magic `0x534946` in a
+  chunk list (`+54+4i`, sizes at `+34`/`+44`/`+4c`, count `+30`);
+- `200840` starts the frame: descriptor records at SPR `+1800`, sent out
+  through a normal-mode transfer (channel 8, `CHCR 0x101`);
+- `200b00` **begins a batch** from a 0x20-byte material record:
+  - `+0` count;
+  - `+2` ALPHA index (table `3140e0`, 8-byte stride);
+  - `+3` FIS slot (TEX0 from the slot tables);
+  - `+5/+6/+7` mode bytes (`+6 == 3` reads a vector at `+8..+10`);
+  - `+14` float;
+  - `+18..+1c` flags.
+
+  It writes a VU1 constant/header block into the SPR buffer (`+84`): a
+  GIF tag `...8004`, words at `+20..+bc`, and the UNPACK headers at
+  `+70/+80` built from `+0`;
+- callers fill per-instance lanes: two quadwords per instance through
+  cursors `+94`/`+9c`, pointer arrays `+a4`/`+ac`, count `+c4`, at most 40
+  per chunk (`200aa0` flushes at 40);
+- `200e60` finalizes a chunk (DMA tag and UNPACK V4-32 `6d078000`);
+- `2014f0` flushes: it waits for channel 8, then a destination-chain
+  fromSPR (`SADR` = SPR, `CHCR 0x105`) scatters the chunks into the RAM
+  buffer at `+7c`.
+
+Vtable `152ac0`: `+08` destructor `201aa0`, `+0c` `200770`,
+`+10` `2007e0` (buffer accessors), `+14` `25ca00`, `+28` `201bf0`.
+
+**The user on Soul Street** is mod003 class `166e50` (object `693870`):
+- `+14` = `450680`;
+- the first call creates the writer (`+1b0`, `201940(2, 0x9c40, 8, 8)`), a
+  `FISP` resource (`382ab0`) registered into it, and a `23f120` child
+  (`+1b4`, 0x860 bytes);
+- every 30 time units (`+1c0`), it walks the scene's characters
+  (`48e048+4` list; flags `+18&8`, `+2bc`, `+2c0`, `+4b4`, method `+2c`)
+  and adds instances through `200b00` / `200aa0` / `201850`.
+
+It is probably a per-character ground effect (footsteps or splashes in the
+rain); not yet confirmed against PCSX2.
+
+**Still to find before a native port:**
+- the VU1 program the RAM buffers feed (its `MSCAL`, and how each
+  instance expands into a sprite: position, size, UV, colour);
+- the queue path that sends `+20/+24`;
+- the exact instance lane layout.
+
+The native port should then capture the batch material (FIS slot, ALPHA,
+modes) at `200b00` and the instance records at their writes, draw native
+quads with the published FIS images (as the particle draw does), and
+retire both SPR transfers with their completion bookkeeping intact.
+
 ### Particle colour below zero, as the VU1 program draws it (2026-11-15)
 
 The Soul Street particle (object `fd9840`, class `154180`, lighting

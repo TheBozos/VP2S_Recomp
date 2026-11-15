@@ -12,6 +12,51 @@ The earlier VP2S face/shading and general brightness comparisons remain open.
 
 ## Build and evidence
 
+### Scratchpad sprite batcher: sections published natively (2026-11-16)
+
+User decision: publish the batcher's records natively (rather than a
+separate native draw).
+
+**Chunk kick** (tail of `200e60`):
+- the `D_STAT` poll at `20148c` reads channel 8 as done (natively every
+  transfer is complete once published);
+- the `SADR`/`QWC`/`D_STAT` stores retire;
+- at the `CHCR` store (`2014d0`, value `0x105`, `a2` = the scratchpad half)
+  `nativeSprWriterSections` walks the half and each section's data is
+  copied to its address; the asset provenance of those bytes is cleared
+  (`NativeAssets::overwrite`).
+
+The walk admits only the writer's layout:
+- `CNT` tags whose address is the running cursor, from inside
+  `[+78, +78 + 16*+b8)`;
+- zero qwords as empty tags: the absent 17-qword texture block, and lane
+  slots zero-filled up to 40 qwords;
+- one `END` tag, at which the cursor must equal `+7c`;
+- all of it inside its 0xc00-byte half. Anything else rejects.
+
+**Descriptor transfer** (`200840`): the poll at `200954` reads as done;
+the stores retire; at `2009d4` (`0x101`) `+30*3` qwords from `SPR+1800`
+go to `+28+30`.
+
+**`sceDmaGetChan` / `sceDmaSync`** (`123220` / `1237f0`) from `20097c` /
+`20098c` and `201810` / `201820` only, for the context's channel 8:
+fromSPR base, and 0 (nothing in flight). Other callers still reject.
+
+Guards: `200840..2009f0`, `200e60..2014f0`, `201600..201940`; sites are in
+`SPR_WRITER_SITES`. The `vp2s-bozo-spr-writer` suite (26 checks) covers the
+game's layout with and without a texture block, 1/4/40 instances, a
+40-qword empty run, and each rejection. A first version capped empty runs
+at 17 and rejected the route's real lane padding.
+
+**Result:** the chunk and frame pass (serial 14788). The next stop is
+expected: model object `13da980` (class `1546d0`) draws the generated
+block (`+7bc` = `138c680`, the writer's buffer), and the native model path
+rejects it ("native mesh missing allocation provenance"). Native models
+take geometry only from offline-converted disc assets. Drawing this block
+needs a reader for the writer's own semantic sections, keyed by the
+writer's publication rather than by disc origin, without generic packet
+decoding.
+
 ### Analysis: the scratchpad sprite batcher (mod001 class 152ac0) (2026-11-15)
 
 The boundary at serial 14787 (`1000d080`, fromSPR SADR) belongs to a

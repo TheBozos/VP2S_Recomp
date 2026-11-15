@@ -29,6 +29,11 @@ HERMITE_VECTOR_SITES=(*range(0x2a68d4,0x2a68f8,4),0x2a68fc)
 SQUAD_SITES=(0x214c40,*range(0x214c98,0x214ca4,4),*range(0x214cbc,0x214cc8,4),
     *range(0x214cdc,0x214cec,4),*range(0x214db8,0x214dd4,4),0x214dd8,
     *range(0x214df0,0x214e04,4),*range(0x214e08,0x214e20,4))
+# Scratchpad sprite batcher 152ac0: the fromSPR polls and register stores of the
+# chunk kick (200e60 tail) and of the descriptor transfer (200840); the CHCR
+# stores publish the writer's sections natively (bozo/native_spr_writer.cpp).
+SPR_WRITER_SITES=(0x20148c,0x2014b8,0x2014c0,0x2014c8,0x2014d0,
+    0x200954,0x20099c,0x2009a8,0x2009c4,0x2009cc,0x2009d4)
 PARTICLE_PUBLICATION_SITES=(0x22eae0,0x22ec9c,0x22eca0,0x22ee88,0x22ee94,0x22ee9c,0x22eea4,0x22eebc,0x22f0a0,
     0x22efd8,0x22efdc,0x22efe0,0x22efe4,0x22efe8,0x22efec,0x22eff0,0x22eff4,0x22eff8,0x22effc,0x22f004,0x22f008,0x22f010,0x22f014,0x22f018)
 
@@ -644,6 +649,11 @@ def overlay_adaptations(name,data):
         (0x29a520,0x29a5c4,'366e70decbc88b799e0ba81fb13c40086647681c8e7a647031cb547d60091a50'),
         (0x29a5d0,0x29a604,'0db8c865a0850c85f96be19b8f89b4c3113903878207d83d04946f7d04ed1716'),
         (0x299c00,0x299c28,'d588b04815b7379090fc1f37dbdaf811a0cd3896b74dc1abf814527cf52ab715'),
+        # Scratchpad sprite batcher (class 152ac0): descriptor transfer 200840,
+        # chunk finalize/kick 200e60, frame end 201600 / begin 201850.
+        (0x200840,0x2009f0,'f7f143cb602a88df702b1cb0273f1ae2044a9b3be483b2d93622214ec34d99a2'),
+        (0x200e60,0x2014f0,'455f43f605f083e574fd1481abfb5180925dce9458c11dc957a8cf152ff2fb50'),
+        (0x201600,0x201940,'d31efc31821541021ce658c97747442d2c391ecc100b98d989c2fbfbb471be08'),
         # Flare light projection block (rows SP+360, light SP+340, VCALLMS 0, SP+2c0).
         (0x256038,0x25618c,'c65f06f9d7ca33f1c91b0f973c0cfe55da9738717453529a243e5bae6aab78e9'),
         (0x306950,0x306f84,'1d86e9d29099ea34987865d5e92e9912b090428d65f9c26e8e2b9ba62d18f156'),
@@ -938,6 +948,7 @@ def overlay_native_sites(name,data):
         0x2bf040,0x2bf058,
         0x1ffe88,
         0x29a4dc,
+        *SPR_WRITER_SITES,
         0x2371e8,0x2371ec,0x2371f0,0x2371f4,0x2371fc,0x237200,0x237204,0x237208,
         0x23720c,0x237210,0x237214,0x237218,0x237224,0x237260,0x237264,0x237268,0x23726c,
         0x237270,0x237274,0x237278,0x23727c,0x237280,0x237284,0x237288,0x23728c,0x237290,

@@ -189,5 +189,16 @@ int main(int argc,char **argv){try{
         try{draws.capture(&rt,assets,textures,scene,particles,object);}catch(const std::runtime_error &){rejected=true;}
         check(rejected && _mm_getcsr()==fp && active==particles.outstanding() && !std::memcmp(before.data(),rt.memory.flat(),before.size()));
     }
+    // Negative point colours (the town's alpha -1.0 at a particle's end of life), as the
+    // VU1 program draws them: tint*colour, min 255, FTOI0, GIF low byte; with tints
+    // (1, .5, 1, 1): alpha -1 -> 0xff, -0.5 -> 0, -2 -> 0xfe, -300 -> 0xd4 (-300 & 0xff).
+    {initialize(rt,scene,assets,13);const auto chunk=0x210000u+0x20;const float alphas[3]={-1,-.5f,-300};
+     for(unsigned i=0;i<3;++i)put(rt,chunk+32+48*i+16,std::array<float,4>{16,32,64,alphas[i]});
+     const auto result=draws.capture(&rt,assets,textures,scene,particles,object);check(result.batches.size()==1 && result.batches[0].vertices.size()==18);
+     const uint32_t expect[3]={0xff401010u,0x00401010u,0xd4401010u};for(unsigned i=0;i<18;++i)check(result.batches[0].vertices[i].rgba==expect[i/6]);
+     put(rt,chunk+32+16,std::array<float,4>{16,32,64,-2});const auto two=draws.capture(&rt,assets,textures,scene,particles,object);check(two.batches[0].vertices[0].rgba==0xfe401010u);
+     // Non-identity lighting has its own clamp; a negative channel there stays unqualified.
+     initialize(rt,scene,assets,11);put(rt,0x210000u+0x20+32+16,std::array<float,4>{16,32,64,-1});bool rejected=false;
+     try{draws.capture(&rt,assets,textures,scene,particles,object);}catch(const std::runtime_error &){rejected=true;}check(rejected);}
     _mm_setcsr(saved);completionCases(dir);std::printf("%u native particle captures,%u known vertices; axis geometry/UV/two-stage colour/material, opaque transport words, whole RAM/FP, immutable output and28 rejection cases passed\n",cases,vertices);return 0;
 }catch(const std::exception &e){std::fprintf(stderr,"%s\n",e.what());return 1;}}

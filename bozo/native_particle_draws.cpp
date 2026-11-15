@@ -93,8 +93,13 @@ NativeModelSubmission NativeParticleDraws::capture(Runtime *rt,NativeAssets &ass
             const float x[2]={number(value<float>(shape,0)),number(value<float>(shape,16))},y[2]={number(value<float>(shape,4)),number(value<float>(shape,20))};
             if(value<uint32_t>(shape,40)!=0x3f800000 || value<uint32_t>(shape,56)!=0x3f800000)throw std::runtime_error("unported native particle projective texture coordinates");
             const float u[2]={number(value<float>(shape,32)),number(value<float>(shape,48))},v[2]={number(value<float>(shape,36)),number(value<float>(shape,52))};
-            uint32_t rgba=0;for(unsigned i=0;i<4;++i){auto channel=number(value<float>(point,16+4*i));const auto tint=number(value<float>(shape,64+4*i));if(channel<0 || tint<0)throw std::runtime_error("negative native particle colour");
-                if(!identity)channel=std::clamp(channel*colour[i],0.f,limit[i]);channel=std::min(channel*tint,255.f);rgba|=uint32_t(channel)<<(8*i);}
+            // VU1 particle program (0x6e0, image c8e40f07): MUL tint*colour (0b60), MINIi 255
+            // (0b80), FTOI0 (0ba8); no clamp at zero. FTOI0 truncates toward zero (saturating),
+            // and GIF PACKED RGBAQ keeps each word's low byte: a channel of -1 draws as 0xff.
+            uint32_t rgba=0;for(unsigned i=0;i<4;++i){auto channel=number(value<float>(point,16+4*i));const auto tint=number(value<float>(shape,64+4*i));
+                if(tint<0 || (!identity && channel<0))throw std::runtime_error("negative native particle colour");
+                if(!identity)channel=std::clamp(channel*colour[i],0.f,limit[i]);channel=std::min(channel*tint,255.f);
+                const int32_t fixed=channel<=-2147483648.f?INT32_MIN:int32_t(channel);rgba|=(uint32_t(fixed)&0xffu)<<(8*i);}
             bozo::render::Vertex corners[4];bool outside[4];
             for(unsigned i=0;i<4;++i){auto &out=corners[i];out.x=eye[0]+c*sx*x[i&1]+s*sy*y[i>>1];out.y=eye[1]-s*sx*x[i&1]+c*sy*y[i>>1];out.z=eye[2];out.u=u[i&1];out.v=v[i>>1];out.rgba=rgba;
                 for(float f:{out.x,out.y,out.z,out.u,out.v})if(!std::isfinite(f))throw std::runtime_error("native particle vertex overflow");

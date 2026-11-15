@@ -12,6 +12,35 @@ The earlier VP2S face/shading and general brightness comparisons remain open.
 
 ## Build and evidence
 
+### Particle colour below zero, as the VU1 program draws it (2026-11-15)
+
+The Soul Street particle (object `fd9840`, class `154180`, lighting
+identity mode) has a point colour of (255, 255, 255, -1.0) at the end of
+its fade. The old draw rejected any negative channel.
+
+**Evidence: the program itself.** The DMA chain at `object+620` uploads
+static microcode from `326940`: `MPG` to VU1 `0x6e0..0x1b18` (image hash
+`c8e40f07`). After the point chunk's `UNPACK`, it starts `MSCALF 0x6e0`.
+The colour path in that program:
+- `0b38`: `lq vf11, 1(vi13)`, the point colour (`+16`);
+- `0b40`: `lq vf12, 4(vi02)`, the kind's tint (`+64`);
+- `0b60`: `MUL vf12 = tint * colour`;
+- `0b80`: `MINIi vf12, I=255`;
+- `0ba8`: `FTOI0`.
+
+There is no clamp at zero. GIF PACKED RGBAQ keeps each 32-bit word's low
+byte. So a channel of -1.0 (with tint 1) draws as **0xff**, values in
+(-1, 0) truncate to 0, and -300 draws as 0xd4.
+
+The identity path now computes `min(colour * tint, 255)`, truncates toward
+zero (saturating at INT32_MIN), and keeps the low byte. The non-identity
+path has its own clamp to `[0, limit]`, so a negative channel there still
+rejects, as do negative tints. The particle-draw suite checks
+-1 -> ff, -0.5 -> 0, -2 -> fe, -300 -> d4, and the non-identity rejection.
+
+**Result:** the walk reaches serial 14787. It stops at a scratchpad DMA
+write, `1000d080` (fromSPR SADR), at `200e60`, called from `201510`.
+
 ### Soul Street VU0 sites: scaled sum, particle step, box, draw setup (2026-11-13)
 
 Four VU0 boundaries on Soul Street, each ported from its exact words:

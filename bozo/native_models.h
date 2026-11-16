@@ -25,9 +25,20 @@ private:
     std::filesystem::path root;
     std::map<std::pair<uint64_t,uint32_t>,std::shared_ptr<const Pack>> packs;
     std::shared_ptr<const Pack> load(const AssetOrigin &);
+    // Meshes generated at run time (no disc origin): the semantic record and the
+    // exact bytes it was read from, keyed by the mesh's RAM address.
+    struct Generated {std::shared_ptr<const Mesh> mesh;std::vector<uint8_t> bytes;};
+    std::map<uint32_t,Generated> generated;
 public:
     explicit NativeModels(std::filesystem::path directory):root(std::move(directory)){}
     NativeModelSubmission capture(Runtime *,NativeAssets &,NativeTextures &,const NativeScene &,uint32_t object);
+    // The scratchpad sprite batcher (mod001 152ac0) publishes one mesh per chunk:
+    // `sections` are its published sections in the writer's order (RAM address,
+    // qwords): header, material (when flagged), strip lengths, normals, UVs,
+    // colours, positions. Each lane's VIF word must be the one the writer's code
+    // composes; values are read from the writer's records, never interpreted.
+    void publishGeneratedMesh(Runtime *,const std::vector<std::pair<uint32_t,uint32_t>> &sections);
+    size_t generatedMeshes()const{return generated.size();}
 };
 class ModelOwner {
 public:

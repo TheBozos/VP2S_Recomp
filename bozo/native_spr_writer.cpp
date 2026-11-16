@@ -1,4 +1,5 @@
 #include "native_spr_writer.h"
+#include "native_models.h"
 #include "bozo/ee/dispatcher.h"
 #include <cstring>
 #include <format>
@@ -63,7 +64,14 @@ std::optional<bool> nativeSprWriterInstruction(R5900Context *c,Runtime *rt,uint3
         const auto high=uint64_t(low)+16ull*value<uint32_t>(rt,object+0xb8);
         if(c->r[3].uw[0]!=0x105 || c->r[6].uw[0]!=spr || high>0xffffffffull || cursor>high)
             throw std::runtime_error("native scratchpad writer kick escaped its chunk");
-        for(const auto &s:nativeSprWriterSections(rt,spr,low,uint32_t(high),cursor))publish(rt,owner->nativeAssets(),s.destination,s.source,16*s.qwords);
+        auto *models=dynamic_cast<ModelOwner *>(&d->host());
+        if(!models)throw std::runtime_error("native scratchpad writer requires its model owner");
+        const auto sections=nativeSprWriterSections(rt,spr,low,uint32_t(high),cursor);
+        std::vector<std::pair<uint32_t,uint32_t>> mesh;
+        for(const auto &s:sections){publish(rt,owner->nativeAssets(),s.destination,s.source,16*s.qwords);mesh.push_back({s.destination,s.qwords});}
+        // Each chunk is one mesh of the game's model format, drawn later through
+        // the model the writer registers (25cab0): give the model path its record.
+        models->nativeModels().publishGeneratedMesh(rt,mesh);
         return true;
     }
     if(pc==0x2009d4){

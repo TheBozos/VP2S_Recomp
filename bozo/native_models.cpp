@@ -4,6 +4,7 @@
 #include "native_math.h"
 #include "bozo/ee/dispatcher.h"
 #include <algorithm>
+#include <bit>
 #include <cmath>
 #include <cstring>
 #include <fstream>
@@ -84,6 +85,71 @@ std::shared_ptr<const NativeModels::Pack> NativeModels::load(const AssetOrigin &
     }
     if(r.at!=r.data.size())throw std::runtime_error("trailing semantic mesh bytes");
     packs[key]=pack;return pack;
+}
+// The sprite batcher's mesh, from its sections (see native_models.h). Header
+// payload: V4-16 rows 0..6 as the writer's halfword stores leave them (row 0:
+// size, vertex row, strip count, length row; row 2: flags, vertex count; row 5:
+// routines; row 6.y: group). Lanes, each behind the VIF word the writer composes:
+// strip lengths (S-8 unsigned), then with STCYCL 4/1 normals (V4-32, row v),
+// UVs (V2-16 signed, v+1), colours (V4-8 unsigned, v+2), positions (V4-32, v+3)
+// and the closing STCYCL 1/1. Values become vertices exactly as tools/vp2_meshes.py
+// converts disc meshes (routines 6/8 fixed point, UV /4096); materials as
+// tools/vp2_bozo_meshes.py names them.
+void NativeModels::publishGeneratedMesh(Runtime *rt,const std::vector<std::pair<uint32_t,uint32_t>> &input){
+    if(input.size()!=6 && input.size()!=7)throw std::runtime_error("native generated mesh has an unknown section count");
+    std::vector<std::pair<uint32_t,uint32_t>> s;for(const auto &[at,q]:input)s.push_back({NativeAssets::address(at),q});
+    uint64_t total=0;for(size_t i=0;i<s.size();++i){if(i && s[i].first!=s[i-1].first+16*s[i-1].second)throw std::runtime_error("native generated mesh sections are not contiguous");total+=16ull*s[i].second;}
+    const auto mesh=s[0].first;
+    if(s[0].second!=4 || value<uint32_t>(rt,mesh)!=0x6d078000u)throw std::runtime_error("native generated mesh header escaped the writer's layout");
+    const auto half=[&](unsigned i){return value<int16_t>(rt,mesh+4+2*i);};
+    const unsigned size=uint16_t(half(0));const int32_t vertexRow=half(1),strips=half(2),lengthRow=half(3),flags=half(8),count=half(9),group=half(25);
+    const bool material=flags&1;
+    if(size!=total || material!=(s.size()==7) || count<1 || count>1024 || strips<1 || strips>count || vertexRow<0 || vertexRow+4*count>1024 || lengthRow<0 || lengthRow>=1024)
+        throw std::runtime_error(std::format("native generated mesh header outside its sections (size {} of {}, {} vertices, {} strips)",size,total,count,strips));
+    auto m=std::make_shared<Mesh>();m->group=uint32_t(group);m->sourceSize=size;
+    for(unsigned r=0;r<4;++r)m->algorithms[r]=half(20+r);
+    bool fixed16=false,fixed4096=false;
+    for(auto r:m->algorithms){
+        if(r==8)fixed16=fixed4096=true;else if(r==6)fixed4096=true;
+        else if(r!=0 && r!=12 && r!=14 && r!=16 && r!=18 && r!=22 && r!=24 && r!=28 && r!=32 && r!=34 && r!=38 && r!=42 && r!=46 && r!=50 && r!=52 && r!=54)
+            throw std::runtime_error(std::format("unported generated mesh routine {}",r));
+    }
+    size_t k=1;
+    const auto lane=[&](uint32_t code,uint32_t qwords){
+        if(k>=s.size() || s[k].second!=qwords || value<uint32_t>(rt,s[k].first+12)!=code)
+            throw std::runtime_error(std::format("native generated mesh lane {} escaped the writer's layout",k));
+        return s[k++].first+16;};
+    if(material){
+        const auto rows=lane(0x6c0f8007u,16);const auto row=[&](unsigned r,unsigned c){return value<uint32_t>(rt,rows+16*(r-7)+4*c);};
+        const auto alpha=row(8,0),mode=row(8,1),tex=row(9,1),prim=(row(13,1)>>15)&0x7ff,cull=row(15,0);
+        m->hasMaterial=true;m->material={uint32_t(bool(prim&64)),uint32_t(bool(prim&16)),uint32_t(bool(tex&4)),(tex>>3)&3,mode,uint32_t(cull==0),uint32_t(bool(prim&32)),
+            alpha&3,(alpha>>2)&3,(alpha>>4)&3,(alpha>>6)&3};
+        const auto &x=m->material;
+        if(x[4]>3 || x[7]>2 || x[8]>2 || x[9]>2 || x[10]>2)throw std::runtime_error("invalid generated native material");
+    }
+    const auto n=uint32_t(count);
+    const auto lengths=lane(0x62000000u|uint32_t(strips)<<16|0xc000u|uint32_t(lengthRow),(uint32_t(strips)+15)/16+1);
+    if(value<uint32_t>(rt,lengths-16+8)!=0)throw std::runtime_error("native generated mesh strip lane escaped the writer's layout");
+    const auto normals=lane(0x6c000000u|n<<16|0x8000u|uint32_t(vertexRow),n+1);
+    if(value<uint32_t>(rt,normals-16+8)!=0x01000104u)throw std::runtime_error("native generated mesh stride escaped the writer's layout");
+    const auto uvs=lane(0x75000000u|n<<16|0x8000u|uint32_t(vertexRow+1),(n+3)/4+1);
+    const auto colours=lane(0x6e000000u|n<<16|0xc000u|uint32_t(vertexRow+2),(n+3)/4+1);
+    const auto positions=lane(0x6c000000u|n<<16|0x8000u|uint32_t(vertexRow+3),n+2);
+    if(k!=s.size() || value<uint32_t>(rt,positions+16*n)!=0x01000101u)throw std::runtime_error("native generated mesh does not close as the writer's");
+    uint32_t sum=0;for(int32_t i=0;i<strips;++i){const auto l=value<uint8_t>(rt,lengths+i);m->strips.push_back(l);sum+=l;}
+    if(sum!=n)throw std::runtime_error("native generated mesh strip extent mismatch");
+    for(uint32_t i=0;i<n;++i){Mesh::Vertex v{};
+        for(unsigned c=0;c<3;++c){const auto pw=value<uint32_t>(rt,positions+16*i+4*c),nw=value<uint32_t>(rt,normals+16*i+4*c);
+            v.p[c]=fixed16?float(int32_t(pw))/16.f:std::bit_cast<float>(pw);v.n[c]=fixed4096?float(int32_t(nw))/4096.f:std::bit_cast<float>(nw);}
+        v.p[3]=float(value<int32_t>(rt,positions+16*i+12));
+        for(unsigned c=0;c<2;++c)v.uv[c]=float(value<int16_t>(rt,uvs+4*i+2*c))/4096.f;
+        for(unsigned c=0;c<4;++c)v.colour[c]=value<uint8_t>(rt,colours+4*i+c);
+        for(float f:{v.p[0],v.p[1],v.p[2],v.n[0],v.n[1],v.n[2]})finite(f);
+        m->vertices.push_back(v);m->sources.push_back({UINT32_MAX,UINT32_MAX});}
+    for(auto it=generated.begin();it!=generated.end();)
+        if(it->first<mesh+size && mesh<it->first+it->second.bytes.size())it=generated.erase(it);else ++it;
+    const auto *bytes=rt->memory.hostPointer(mesh,size);if(!bytes)throw std::runtime_error("native generated mesh unmapped");
+    generated[mesh]=Generated{std::move(m),std::vector<uint8_t>(bytes,bytes+size)};
 }
 // The scene's pending object owns a model it is, or one its composite draw
 // (class 1599a0, method 2b7ab0) reaches: for slot 2..0, each list child's slot
@@ -187,14 +253,30 @@ NativeModelSubmission NativeModels::capture(Runtime *rt,NativeAssets &assets,Nat
             if(word(mesh+0x14)&1){block=mesh+0x40;const auto entry=word(block+0x5c);if(entry){if(entry>4096)throw std::runtime_error("native material palette index outside bounds");block=word(object+0x734)+256*(entry-1);}}}
         if(!mesh)continue;
         if(byte(model+0x59) && (value<uint16_t>(rt,mesh+0x36)&value<uint16_t>(rt,object+0x7a4)))continue;
-        const auto origin=assets.origin(mesh);if(!origin)throw std::runtime_error("native mesh missing allocation provenance");
-        const auto pack=load(*origin);const auto found=pack->find(origin->offset);
-        if(found==pack->end())throw std::runtime_error(std::format("native mesh not converted: {:x}/{}+{:x}",origin->disc,origin->part,origin->offset));
-        const auto &m=*found->second;
+        const auto origin=assets.origin(mesh);std::shared_ptr<const Pack> pack;std::shared_ptr<const Mesh> held;
+        if(origin){pack=load(*origin);const auto found=pack->find(origin->offset);
+            if(found==pack->end())throw std::runtime_error(std::format("native mesh not converted: {:x}/{}+{:x}",origin->disc,origin->part,origin->offset));
+            held=found->second;}
+        else{
+            // A run-time mesh: only one the sprite batcher published, with every
+            // byte as it was published.
+            const auto g=generated.find(mesh);if(g==generated.end())throw std::runtime_error("native mesh missing allocation provenance");
+            const auto *now=rt->memory.hostPointer(mesh,uint32_t(g->second.bytes.size()));
+            if(!now)throw std::runtime_error("native generated mesh unmapped");
+            // Except the material block's +5c (mesh +9c), the palette entry the game
+            // assigns after publication and this path reads live (below).
+            std::string detail;unsigned shown=0;
+            for(size_t at=0;at+4<=g->second.bytes.size();at+=4){
+                if(at==0x9c && g->second.mesh->hasMaterial)continue;
+                uint32_t was,is;std::memcpy(&was,g->second.bytes.data()+at,4);std::memcpy(&is,now+at,4);
+                if(was!=is && shown++<6)detail+=std::format(" +{:x}: {:08x}->{:08x}",at,was,is);}
+            if(shown)throw std::runtime_error(std::format("native generated mesh {:x} changed after publication:{}",mesh,detail));
+            held=g->second.mesh;}
+        const auto &m=*held;
         for(auto algorithm:m.algorithms)if(algorithm!=-1 && algorithm!=0 && algorithm!=2 && algorithm!=4 && algorithm!=6 && algorithm!=8 && algorithm!=12 && algorithm!=14 && algorithm!=18 && algorithm!=28 && algorithm!=32 && algorithm!=36 && algorithm!=20 && algorithm!=44 && algorithm!=46 && algorithm!=48)
             throw std::runtime_error(std::format("unported native mesh algorithm {}",algorithm));
         if(m.hasMaterial)material=m.material;
-        else if(block>=0x40 && block-0x40!=mesh){const auto owner=assets.origin(block-0x40);if(owner && owner->disc==origin->disc && owner->part==origin->part){
+        else if(origin && block>=0x40 && block-0x40!=mesh){const auto owner=assets.origin(block-0x40);if(owner && owner->disc==origin->disc && owner->part==origin->part){
             const auto other=pack->find(owner->offset);if(other!=pack->end() && other->second->hasMaterial)material=other->second->material;}}
         NativeModelBatch batch;batch.matrix=matrix;auto &mat=batch.material;
         mat.alphaBlend=material[0];mat.blend=mat.alphaBlend?bozo::render::Material::Blend::Alpha:bozo::render::Material::Blend::Opaque;

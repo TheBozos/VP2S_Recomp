@@ -1,4 +1,6 @@
 #include "native_spr_writer.h"
+#include "native_models.h"
+#include <array>
 #include <cstdio>
 #include <cstring>
 #include <functional>
@@ -64,5 +66,30 @@ int main(){try{
      c.r[31].uw[0]=0x201820;c.r[4].uw[0]=0x1000d000;c.r[5].uw[0]=c.r[6].uw[0]=0;check(vp2s::nativeSprWriterLibrary(&c,&rt,0x1237f0) && c.r[2].uw[0]==0 && c.pc==0x201820,"nothing in flight");++checks;
      c.r[31].uw[0]=0x112fc0;check(!vp2s::nativeSprWriterLibrary(&c,&rt,0x123220),"other callers keep their owner");++checks;
      c.r[31].uw[0]=0x201810;c.r[4].uw[0]=2;check(rejects([&]{vp2s::nativeSprWriterLibrary(&c,&rt,0x123220);}),"another channel rejects");++checks;}
+    // The route's mesh (one 4-vertex strip, material, routine 32), laid out as the
+    // writer's sections: header 4, material 16, strips 2, normals 5, UVs 2, colours 2, positions 6.
+    {const uint32_t mesh=0x138c6e0;std::memset(rt.memory.hostPointer(mesh,0x300),0,0x300);
+     const auto half=[&](unsigned i,int16_t v){put(rt,mesh+4+2*i,v);};
+     put(rt,mesh,uint32_t(0x6d078000));half(0,592);half(1,23);half(2,1);half(3,22);half(8,9);half(9,4);half(20,32);
+     const uint32_t mat=mesh+0x40;put(rt,mat+12,uint32_t(0x6c0f8007));put(rt,mat+16+16,uint32_t(0x42));put(rt,mat+16+20,uint32_t(2));
+     put(rt,mat+16+32+4,uint32_t(5));put(rt,mat+16+6*16+4,uint32_t(0x302e4000));put(rt,mat+16+8*16,uint32_t(1));
+     const uint32_t strips=mat+0x100;put(rt,strips+12,uint32_t(0x6201c016));put(rt,strips+16,uint8_t(4));
+     const uint32_t normals=strips+0x20;put(rt,normals+8,uint32_t(0x01000104));put(rt,normals+12,uint32_t(0x6c048017));
+     const uint32_t uvs=normals+0x50;put(rt,uvs+12,uint32_t(0x75048018));const uint32_t colours=uvs+0x20;put(rt,colours+12,uint32_t(0x6e04c019));
+     const uint32_t positions=colours+0x20;put(rt,positions+12,uint32_t(0x6c04801a));put(rt,positions+16+64,uint32_t(0x01000101));
+     for(unsigned i=0;i<4;++i){put(rt,normals+16+16*i,std::array<float,4>{0,-1,0,1});put(rt,uvs+16+4*i,std::array<int16_t,2>{int16_t(352+3392*(i>>1)),int16_t(416+3264*(i&1))});
+        put(rt,colours+16+4*i,uint32_t(0x10808080));put(rt,positions+16+16*i,std::array<float,4>{1839.f+8*(i>>1),2,-372.f-4*(i&1),0});}
+     const std::vector<std::pair<uint32_t,uint32_t>> sections{{mesh,4},{mat,16},{strips,2},{normals,5},{uvs,2},{colours,2},{positions,6}};
+     vp2s::NativeModels models("");models.publishGeneratedMesh(&rt,sections);check(models.generatedMeshes()==1,"the route's mesh is admitted");++checks;
+     models.publishGeneratedMesh(&rt,sections);check(models.generatedMeshes()==1,"republishing replaces it");++checks;
+     const auto reject=[&](uint32_t at,uint32_t v,const char *what){uint32_t old;std::memcpy(&old,rt.memory.hostPointer(at,4),4);put(rt,at,v);
+        vp2s::NativeModels fresh("");check(rejects([&]{fresh.publishGeneratedMesh(&rt,sections);}) && !fresh.generatedMeshes(),what);put(rt,at,old);++checks;};
+     reject(uvs+12,0x75048019,"a lane at another VU row rejects");
+     reject(positions+16+64,0x01000104,"a mesh must close with STCYCL 1/1");
+     reject(mesh+4,uint32_t(591|23<<16),"the header size must cover its sections");
+     reject(strips+16,3,"strip lengths must sum to the vertex count");
+     reject(mesh+4+40,uint32_t(20),"routines with frame data (sphere map) reject");
+     reject(mat+12,0x6c0e8007,"the material lane is the writer's");
+     check(rejects([&]{vp2s::NativeModels fresh("");auto gap=sections;gap[3].first+=16;fresh.publishGeneratedMesh(&rt,gap);}),"sections must be contiguous");++checks;}
     std::printf("scratchpad writer: %u checks passed\n",checks);return 0;
 }catch(const std::exception &e){std::fprintf(stderr,"FAIL %s\n",e.what());return 1;}}

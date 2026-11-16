@@ -12,6 +12,55 @@ The earlier VP2S face/shading and general brightness comparisons remain open.
 
 ## Build and evidence
 
+### Generated meshes: the batcher's chunks drawn by the native model path (2026-11-16)
+
+User decision: a native reader for the batcher's sections.
+
+**What a chunk is.** Each published chunk is one mesh in the game's own
+model format, the same layout as disc meshes. Model object `13da980`
+(class `1546d0`) draws the block through `+7bc`. The route's mesh is a
+single textured 4-vertex ground quad (y = 2):
+- normals (0, -1, 0);
+- UV 0.086..0.914;
+- colour (128, 128, 128, 16);
+- routine 32;
+- ALPHA `0x42`, PRIM `0x5c`.
+
+**Reading it.** At the kick, after the sections are copied,
+`NativeModels::publishGeneratedMesh` builds the semantic mesh record from
+the writer's sections, in the writer's order:
+- header: the writer's halfword stores into V4-16 rows 0..6;
+- material: rows 7..21 behind `6c0f8007`;
+- lanes: strip lengths (S-8), then with STCYCL 4/1 normals (V4-32),
+  UVs (V2-16), colours (V4-8) and positions (V4-32), closed by STCYCL 1/1.
+
+Each lane's VIF word must equal the one the writer's code composes from
+the vertex count and the header's rows, so nothing is decoded. Values
+convert exactly as `tools/vp2_meshes.py` converts disc meshes: routines
+6/8 fixed point, UV /4096; material semantics as
+`tools/vp2_bozo_meshes.py` names them. Routines with frame data reject.
+
+The record is kept by RAM address with a byte snapshot. The model path
+uses it only for a mesh without disc provenance, and only if every byte is
+unchanged. The single exception is the material block's `+5c` (mesh
+`+9c`): the palette entry the game assigns after publication (0 -> 1),
+which the path reads live anyway. The rejection lists the first differing
+words.
+
+Tests, in the writer suite (35 checks): the route's mesh shape is
+admitted and republishing replaces it. It rejects:
+- a lane at another VU row;
+- a missing STCYCL 1/1;
+- a wrong header size;
+- a strip/vertex mismatch;
+- a sphere-map routine;
+- a different material lane word;
+- non-contiguous sections.
+
+**Result:** the walk continues 44 frames, deeper into Soul Street (serial
+14832). It stops at a disc mesh missing from the offline packs:
+`6e2785b8/0+6cb80` (model object `11e5ff0`), not yet analysed.
+
 ### Scratchpad sprite batcher: sections published natively (2026-11-16)
 
 User decision: publish the batcher's records natively (rather than a

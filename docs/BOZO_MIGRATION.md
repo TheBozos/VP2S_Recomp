@@ -12,6 +12,86 @@ The earlier VP2S face/shading and general brightness comparisons remain open.
 
 ## Build and evidence
 
+### Extended route: the field pause and a house (2026-11-16)
+
+**Route script.** `tools/pad_scripts/bozo_logun_armory.txt` now continues
+after frame 32000:
+- START at 32100 (the pause);
+- CIRCLE at 32500 (closes it);
+- RIGHT for 300 frames at 32800, then DOWN 300 at 33200 (into a house);
+- UP 300 at 33600, SQUARE at 34000, CROSS at 34400.
+
+Run it with `--frames 35000`.
+
+The pause had five boundaries, all ported.
+
+**Frozen frame, class `1670d0`.** This is a capture-fade subclass. It shares
+the capture-fade capture (`3d2d7c` in the base update), builder `3d2630` and
+submit `3d2520`. Only four vtable slots differ:
+- destructor `453d20`;
+- update `4523f0`: the base update, then +ab0 ramps by 8 between 0 and 128;
+- `+8c 451fc0`: allocates the writer;
+- `+9c 452040`: called after each strip's sprite inside the strip loop that
+  the native fade retires.
+
+`452040` adds 16 copies of the strip:
+- colour 0x505050, alpha trunc(+ab0 / 10);
+- copy k moved by (-k, -2k);
+- the last strip's right edge stays.
+
+The copies move only left and up, so no later strip's sprite covers an
+earlier strip's copy. Per pixel, the game's strip-by-strip order is
+therefore the same as copy order. `nativeCaptureFadeTrail` draws one or two
+quads per copy after the base sprite. The four fade sites admit both classes.
+`452040..4523f0` and `4523f0..452498` are guarded.
+
+**Copy timing.** The snapshot is now copied at the capture site itself.
+The original reads back the frame on screen (display +160) during that
+frame, which is the previous presentation. The pause culls the town (+6a)
+from the next frames, so a later copy can miss it.
+
+**Text `15a350`.** This class is a sibling of `15a450` on the base `15a170`.
+It shares the emitter, item callbacks, placement and draw. Its own methods:
+- `+20 2eed90` lays out and emits once (+3b);
+- `+1c` does nothing;
+- `+100` is a layout scale, not a reveal control.
+
+Its destructor `2eeb80` calls the base `2e9490` without `2f0de0`, so it has
+its own release site, `2eeb80`. Both are guarded.
+
+**Layers `166fe0/166ffc/167078` and `166f20/166f3c/166fb8`.** They have the
+event layer's job entries (`3b31c0`, `3b31d0` -> `2eca00`) and the base
+teardown `2ef0f0`. Only their destructors are their own. The thunk words
+are checked.
+
+**Logo `166ef0`.** Builder `4514f0`, site `4516f0`. It draws one sprite of
+the field HUD sheet's rect +30:
+- x = 512 (73 + layer x)/640 + originX;
+- y = 512.96 (79 + layer y)/480 + originY;
+- colour 808080, alpha int(layer +e0).
+
+**Bar `1670a0`.** Builder `451a60`, site `451b64`, after the rectangle
+writer `475050`. It draws:
+- black from (int x, int y) to (512, int(128 + y)) at the layer's depth;
+- a Gouraud strip at depth ffffaa: dark `802b1243` at 16X, light `802b51bd`
+  at 16X + 2560, dark again at 16(512 + Y). That right end uses Y: it is
+  the game's own end, reproduced as is.
+
+**Headless captures.** `VP2S_BOZO_CAPTURE_EVERY=N` (from
+`VP2S_BOZO_CAPTURE_FROM`) saves a numbered PNG every N frames. The capture
+now keeps one hidden GL context for the whole run. Before, each capture
+released the GPU state, so kept images (9..15) and the previous frame were
+lost between captures: the pause showed black headless. Frames that are not
+captured are not presented headless; to see frame-to-frame effects, capture
+every frame across them.
+
+**Result.** With captures every frame, the pause shows the frozen town
+dimmed (mean 65.8 -> 43.8, x0.67) and smeared up-left, under the logo, the
+help text and the bar ("Solde", "Chapter 1"). My earlier note gives PCSX2
+about 0.58 here; this is not re-measured. CIRCLE resumes, and the walk
+enters a house whose interior and "Head outside" prompt are drawn. The
+route runs all 35000 frames (rc 0, serial 23045); all 89 suites pass.
+
 ### VU1 set-up routine 26: reflection map from the eye's position (2026-11-16)
 
 Disc mesh `6e2785b8/0+6cb80` (routines [8, 26]) had no converted record:

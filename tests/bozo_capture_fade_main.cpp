@@ -42,5 +42,19 @@ int main(){try{
      check(v[3].rgba==0x80406080 && v[5].z==0x2a,"fade colour and depth on every vertex");++checks;
      const auto odd=vp2s::nativeCaptureFadeVertices({.width=640,.height=447});
      check(odd[0].x==1728 && odd[0].y==1825 && odd[4].y==2272,"odd height rounds toward zero as 3d2630");++checks;}
+    // The field pause's copies (452040): 8 strips of 64, alpha trunc(+ab0 / 10).
+    {const vp2s::NativeCaptureFadeDraw pause{.object=object,.colour=0x80707070,.depth=0x2a,.image=9,.width=512,.height=512,.strips=8,.trailAlpha=12};
+     const auto t=vp2s::nativeCaptureFadeTrail(pause);
+     check(t.size()==16*2*6,"16 copies, each the first seven strips and the last");++checks;
+     check(t[0].x==1792 && t[0].y==1792 && t[4].x==2240 && t[4].y==2304 && t[4].u==0.875f,"copy 0 over the strips");++checks;
+     check(t[6].x==2240 && t[10].x==2304 && t[6].u==0.875f && t[10].u==1,"copy 0's last strip");++checks;
+     const auto *k15=&t[15*12];
+     check(k15[0].x==1777 && k15[0].y==1762 && k15[4].x==2225 && k15[4].y==2274,"copy 15 moved by (-15, -30)");++checks;
+     check(k15[6].x==2225 && k15[10].x==2304 && k15[10].y==2274,"the last strip's right edge stays");++checks;
+     check(k15[3].rgba==0x0c505050 && k15[5].z==0x2a,"grey 0x50, the copy alpha, the fade depth");++checks;
+     auto none=pause;none.trailAlpha=0;check(vp2s::nativeCaptureFadeTrail(none).empty(),"alpha 0 draws no copies");++checks;
+     auto fade=pause;fade.trailAlpha=0;fade.strips=8;check(vp2s::nativeCaptureFadeTrail(fade).empty(),"the plain fade has none");++checks;
+     auto one=pause;one.width=64;one.strips=1;const auto single=vp2s::nativeCaptureFadeTrail(one);
+     check(single.size()==16*6 && single[15*6].x==2016-15 && single[15*6+4].x==2080,"one strip: its right edge stays");++checks;}
     std::printf("capture fade: %u checks passed\n",checks);return 0;
 }catch(const std::exception &e){std::fprintf(stderr,"FAIL %s\n",e.what());return 1;}}

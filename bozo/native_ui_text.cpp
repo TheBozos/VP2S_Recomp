@@ -21,7 +21,11 @@ template<class T>T value(Runtime *rt,uint32_t at){T result;std::memcpy(&result,r
 // callbacks (+2c 2e7e90, +30 2e76a0, checked per item), placement and draw
 // (+10 2f32d0); its own +1c/+20 (2ed050/2ecfa0) only decide when to rebuild
 // the 0x30-byte item array at +70..+74 and hand it to the same emitter.
-void type(Runtime *rt,uint32_t element){const auto actual=value<uint32_t>(rt,element);if(actual!=0x15a450 && actual!=0x15a2f0 && actual!=0x165ae0)throw std::runtime_error(std::format("unported native UI text class {:x} at {:x}",actual,element));}
+// 15a350 (mod001) is a sibling of 15a450 on the base 15a170: the same emitter,
+// item callbacks, placement and draw; its +20 (2eed90) lays out and emits once
+// (+3b), its +1c does nothing, and +100 is a layout scale, not a reveal
+// control. Its destructor 2eeb80 calls the base 2e9490 without 2f0de0.
+void type(Runtime *rt,uint32_t element){const auto actual=value<uint32_t>(rt,element);if(actual!=0x15a450 && actual!=0x15a2f0 && actual!=0x165ae0 && actual!=0x15a350)throw std::runtime_error(std::format("unported native UI text class {:x} at {:x}",actual,element));}
 }
 void NativeUiTexts::enter(Runtime *rt,uint32_t stack,uint32_t element,uint32_t items,int32_t count){
     type(rt,element);
@@ -203,7 +207,16 @@ NativeUiLayer NativeUiTexts::layer(Runtime *rt,uint32_t layer)const{
         value<uint32_t>(rt,objectType+0x18)==0x3b3150 && value<uint32_t>(rt,jobType+0x0c)==0x3b31c0 && value<uint32_t>(rt,jobType+0x14)==0x44a540 &&
         value<uint32_t>(rt,objectType+0x10)==0x2ef0f0 && thunk(0x3b3150,0x2ec9c0,0xffe0) && thunk(0x3b31c0,0x2ec9a0,0xff50) &&
         value<uint32_t>(rt,0x44a58c)==(0x0c000000u|(0x2eca00u>>2));
-    if(value<uint32_t>(rt,layer)!=0x152060 || (!base && !story && !field && !message && !event && !bracketed) ||
+    // The field pause's layer (166fe0/166ffc/167078): the event layer's job entries
+    // (3b31c0, 3b31d0 -> 2eca00, the base completion 2eca00) and the base teardown
+    // 2ef0f0 as object +10; only its destructors (+8) are its own.
+    // Its sibling 166f20/166f3c/166fb8 (the pause's second layer) has the same entries.
+    const bool pause=((layerType==0x166fe0 && objectType==0x166ffc && jobType==0x167078) ||
+                      (layerType==0x166f20 && objectType==0x166f3c && jobType==0x166fb8)) &&
+        value<uint32_t>(rt,objectType+0x18)==0x3b3150 && value<uint32_t>(rt,objectType+0x10)==0x2ef0f0 &&
+        value<uint32_t>(rt,jobType+0x0c)==0x3b31c0 && value<uint32_t>(rt,jobType+0x10)==0x3b31d0 && value<uint32_t>(rt,jobType+0x14)==0x2eca00 &&
+        thunk(0x3b3150,0x2ec9c0,0xffe0) && thunk(0x3b31c0,0x2ec9a0,0xff50) && thunk(0x3b31d0,0x2eca00,0xffe0);
+    if(value<uint32_t>(rt,layer)!=0x152060 || (!base && !story && !field && !message && !event && !bracketed && !pause) ||
        value<uint8_t>(rt,layer+0x83)!=1 || value<uint8_t>(rt,layer+0xca)!=2)
         throw std::runtime_error(std::format("unported native UI layer type/build mode: layer={:x} types={:x}/{:x}/{:x}/{:x} mode83={} modeca={}",
             layer,value<uint32_t>(rt,layer),value<uint32_t>(rt,layer+0x10),value<uint32_t>(rt,layer+0x20),value<uint32_t>(rt,layer+0xb0),
@@ -227,7 +240,8 @@ NativeUiLayer NativeUiTexts::layer(Runtime *rt,uint32_t layer)const{
             auto item=std::make_shared<NativeUiText>();item->element=element;item->additiveTriangles=nativeChapterBar(rt,element);
             result.texts.push_back(std::move(item));continue;
         }
-        if(value<uint32_t>(rt,element)==0x167820 || value<uint32_t>(rt,element)==0x165e00 || value<uint32_t>(rt,element)==0x165c30){
+        if(value<uint32_t>(rt,element)==0x167820 || value<uint32_t>(rt,element)==0x165e00 || value<uint32_t>(rt,element)==0x165c30 ||
+           value<uint32_t>(rt,element)==0x166ef0 || value<uint32_t>(rt,element)==0x1670a0){
             auto captured=plate(element);if(!captured)throw std::runtime_error("native name plate has no finished snapshot");
             result.texts.push_back(std::move(captured));continue;
         }
@@ -239,7 +253,7 @@ NativeUiLayer NativeUiTexts::layer(Runtime *rt,uint32_t layer)const{
         if(std::getenv("VP2S_BOZO_TRACE_QUEUES")){
             static unsigned traced=0;
             if(traced++<4){
-                const auto control=value<uint32_t>(rt,element+0x100);
+                const auto control=value<uint32_t>(rt,element)==0x15a350?0u:value<uint32_t>(rt,element+0x100);
                 if(control){
                     const auto count=value<uint32_t>(rt,control+0x28),sprites=value<uint32_t>(rt,control+0x24);
                     std::fprintf(stderr,"[vp2s:UI] text=%x reveal=%x inline-count=%u capacity=%u sprites=%x\n",element,value<uint32_t>(rt,element+0x74),count,value<uint32_t>(rt,control+0x2c),sprites);
@@ -251,7 +265,7 @@ NativeUiLayer NativeUiTexts::layer(Runtime *rt,uint32_t layer)const{
             }
         }
         if(!captured || captured->inlineImages)throw std::runtime_error("native UI layer has uncaptured text/inline images");
-        const auto control=value<uint32_t>(rt,element+0x100);
+        const auto control=value<uint32_t>(rt,element)==0x15a350?0u:value<uint32_t>(rt,element+0x100);
         if(control && value<int32_t>(rt,control+0x2c)>0 && value<int32_t>(rt,control+0x28)>0 && !captured->iconsCaptured)
             throw std::runtime_error("native UI layer has uncaptured button sprites");
         for(const auto &glyph:captured->glyphs)if(!glyph.placed)throw std::runtime_error("native UI layer has an unfinished glyph placement");
@@ -378,6 +392,53 @@ NativeUiText nativeBar(const NativeBarInputs &in,std::shared_ptr<const bozo::ren
     sprite(xa,xb,in.rects[0]);sprite(xb,xc,in.rects[1]);
     return out;
 }
+// Pause logo 4514f0 on PS2 float words: x0 = 16x, y0 = 16y, x1 = 16(x + w),
+// y1 = 16(y + h) with w, h of rect +30; UVs as 410c30.
+NativeUiText nativePauseLogo(const NativePauseLogoInputs &in,std::shared_ptr<const bozo::render::Texture> picture){
+    namespace F=bozo::ps2f;uint32_t flags=0;
+    const auto A=[&](uint32_t a,uint32_t b){return F::add(a,b,flags);};
+    const auto M=[&](uint32_t a,uint32_t b){return F::mul(a,b,flags);};
+    const auto D=[&](uint32_t a,uint32_t b){return F::div(a,b,flags);};
+    const auto I=[](uint32_t x){return int32_t(F::toInt(x));};
+    const auto W=[](float v){return std::bit_cast<uint32_t>(v);};
+    const auto U=[](uint32_t v){return F::fromInt(v);};
+    const uint32_t k16=W(16.f);const auto &r=in.rect;
+    const auto su=D(F::fromInt(1u<<in.log2Width),W(256.f)),sv=D(F::fromInt(1u<<in.log2Height),W(256.f));
+    const std::array<int32_t,4> t{I(M(su,U(r[0]))),I(M(sv,U(r[1]))),I(M(su,U(r[2]))),I(M(sv,U(r[3])))};
+    const float texW=float(1u<<in.log2Width)*16,texH=float(1u<<in.log2Height)*16;
+    const auto x0=I(M(k16,in.x)),y0=I(M(k16,in.y)),x1=I(M(k16,A(in.x,U(r[4])))),y1=I(M(k16,A(in.y,U(r[5]))));
+    NativeUiText out;NativeUiSprite s;s.colour=in.colour;s.depth=in.depth;s.picture=std::move(picture);
+    s.fixedCorners={std::array<int32_t,2>{x0,y0},{x1,y0},{x0,y1},{x1,y1}};
+    s.uv={float(t[0])/texW,float(t[1])/texH,float(t[2])/texW,float(t[3])/texH};out.icons.push_back(std::move(s));
+    return out;
+}
+// Pause bar 451a60 on PS2 float words. The rectangle writer 475050 (ABE):
+// black 0x80000000 from (int x, int y) to (512, int(128 + y)), plus the origin,
+// at the layer's depth. Then a Gouraud strip (PRIM 24c) at depth 0xffffaa with
+// X = x + originX, Y = y + originY: from 16X (dark 802b1243) through 16X + 2560
+// (light 802b51bd) to 16(512 + Y) (dark), the game's own right end, rows 16Y and
+// 16Y + 64.
+NativeUiText nativePauseBar(const NativePauseBarInputs &in){
+    namespace F=bozo::ps2f;uint32_t flags=0;
+    const auto A=[&](uint32_t a,uint32_t b){return F::add(a,b,flags);};
+    const auto M=[&](uint32_t a,uint32_t b){return F::mul(a,b,flags);};
+    const auto I=[](uint32_t x){return int32_t(F::toInt(x));};
+    const auto W=[](float v){return std::bit_cast<uint32_t>(v);};
+    NativeUiText out;
+    const auto vertex=[&](float x,float y,uint32_t z,uint32_t rgba){bozo::render::Vertex v{};v.x=x;v.y=y;v.z=float(z);v.rgba=rgba;return v;};
+    {const auto x0=I(in.x)+in.originX,y0=I(in.y)+in.originY,x1=0x200+in.originX,y1=I(A(W(128.f),in.y))+in.originY;
+     const auto a=vertex(float(x0),float(y0),in.depth,0x80000000u),b=vertex(float(x1),float(y0),in.depth,0x80000000u),
+                c=vertex(float(x0),float(y1),in.depth,0x80000000u),d=vertex(float(x1),float(y1),in.depth,0x80000000u);
+     out.alphaTriangles.insert(out.alphaTriangles.end(),{a,b,c,b,d,c});}
+    const auto X=A(in.x,F::fromInt(uint32_t(in.originX))),Y=A(in.y,F::fromInt(uint32_t(in.originY)));
+    const auto k16=W(16.f),x16=M(k16,X),y16=M(k16,Y);
+    const auto x0=I(x16),xm=I(A(x16,W(2560.f))),xe=I(M(k16,A(W(512.f),Y))),y0=I(y16),y1=I(A(W(64.f),y16));
+    constexpr uint32_t dark=0x802b1243u,light=0x802b51bdu,depth=0xffffaa;
+    const bozo::render::Vertex strip[6]={vertex(x0/16.f,y0/16.f,depth,dark),vertex(x0/16.f,y1/16.f,depth,dark),vertex(xm/16.f,y0/16.f,depth,light),
+                                          vertex(xm/16.f,y1/16.f,depth,light),vertex(xe/16.f,y0/16.f,depth,dark),vertex(xe/16.f,y1/16.f,depth,dark)};
+    for(unsigned i=0;i+2<6;++i)out.alphaTriangles.insert(out.alphaTriangles.end(),{strip[i],strip[i+1],strip[i+2]});
+    return out;
+}
 std::optional<bool> nativeNamePlateInstruction(R5900Context *c,Runtime *rt,uint32_t pc){
     if(pc==0x448d70){
         auto *d=rt?dynamic_cast<bozo::ee::Dispatcher *>(rt->services):nullptr;
@@ -420,6 +481,44 @@ std::optional<bool> nativeNamePlateInstruction(R5900Context *c,Runtime *rt,uint3
         for(unsigned i=0;i<6;++i){in.rects[0][i]=value<uint16_t>(rt,table+0xa0+2*i);in.rects[1][i]=value<uint16_t>(rt,table+0x90+2*i);}
         auto ornament=std::make_shared<NativeUiText>(nativeOrnament(in,image->picture(0)));ornament->element=element;ornament->iconsCaptured=true;
         owner->nativeUiTexts().plates[element]=std::move(ornament);
+        return false; // The original builder continues; its packet is never sent.
+    }
+    if(pc==0x4516f0 || pc==0x451b64){
+        auto *d=rt?dynamic_cast<bozo::ee::Dispatcher *>(rt->services):nullptr;
+        auto *owner=d?dynamic_cast<UiTextOwner *>(&d->host()):nullptr;auto *textures=d?dynamic_cast<TextureOwner *>(&d->host()):nullptr;
+        if(!c || !owner || !textures)throw std::runtime_error("native pause element requires its builder");
+        if(pc==0x4516f0){
+            // Logo 166ef0 (4514f0) after its ALPHA/TEX0 writes: x f21, y f20,
+            // colour s4, depth s1, rect s0 = table +30, resource s2, writer s5.
+            const auto element=c->r[21].uw[0]-0x40,resource=c->r[18].uw[0];record(rt,element,0x60);record(rt,resource,0x240);
+            const auto layer=value<uint32_t>(rt,element+0x54);record(rt,layer,0xe0);
+            const auto table=value<uint32_t>(rt,resource+0x224);
+            if(value<uint32_t>(rt,element)!=0x166ef0 || value<uint32_t>(rt,resource)!=0x165b40 || value<uint32_t>(rt,value<uint32_t>(rt,0x48e048)+0x5c)!=resource ||
+               c->r[16].uw[0]!=table+0x30 || c->r[17].uw[0]!=value<uint32_t>(rt,layer+0xc4))
+                throw std::runtime_error("native pause logo escaped its element/resource");
+            const auto image=textures->nativeTextures().imageAsset(resource);
+            NativePauseLogoInputs in;in.x=c->fu[21];in.y=c->fu[20];in.colour=c->r[20].uw[0];in.depth=c->r[17].uw[0];
+            in.log2Width=value<uint8_t>(rt,resource+0x238);in.log2Height=value<uint8_t>(rt,resource+0x239);
+            if(!image || in.log2Width>10 || in.log2Height>10 || image->width!=(1u<<in.log2Width) || image->height!=(1u<<in.log2Height))
+                throw std::runtime_error("native pause logo has no published resource image");
+            if((in.colour&0x00ffffffu)!=0x808080u)throw std::runtime_error("unqualified native pause logo colour");
+            record(rt,table+0x30,12);for(unsigned i=0;i<6;++i)in.rect[i]=value<uint16_t>(rt,table+0x30+2*i);
+            auto logo=std::make_shared<NativeUiText>(nativePauseLogo(in,image->picture(0)));logo->element=element;logo->iconsCaptured=true;
+            owner->nativeUiTexts().plates[element]=std::move(logo);
+        }else{
+            // Bar 1670a0 (451a60) after its black rectangle: x f21, y f20 (scaled,
+            // before the origin), origin s2/s1, layer s3, writer s0.
+            const auto element=c->r[16].uw[0]-0x40,layer=c->r[19].uw[0];record(rt,element,0x60);record(rt,layer,0xe0);
+            if(value<uint32_t>(rt,element)!=0x1670a0 || value<uint32_t>(rt,element+0x54)!=layer || !(value<uint8_t>(rt,element+0x50)&1))
+                throw std::runtime_error("native pause bar escaped its element");
+            const auto display=value<uint32_t>(rt,0x35de60);record(rt,display,0x3c70);
+            const auto half=[](int32_t v){return v>=0?v>>1:(v+1)>>1;};
+            NativePauseBarInputs in;in.x=c->fu[21];in.y=c->fu[20];in.depth=value<uint32_t>(rt,layer+0xc4);
+            in.originX=0x800-half(value<int16_t>(rt,display+0x3c6c));in.originY=0x800-half(value<int16_t>(rt,display+0x3c6e));
+            if(c->r[18].sw[0]!=in.originX || c->r[17].sw[0]!=in.originY)throw std::runtime_error("native pause bar origin differs from the display");
+            auto bar=std::make_shared<NativeUiText>(nativePauseBar(in));bar->element=element;bar->iconsCaptured=true;
+            owner->nativeUiTexts().plates[element]=std::move(bar);
+        }
         return false; // The original builder continues; its packet is never sent.
     }
     if(pc!=0x4653e8 && pc!=0x465b38 && pc!=0x465f08)return std::nullopt;
@@ -478,7 +577,7 @@ std::optional<bool> nativeNamePlateInstruction(R5900Context *c,Runtime *rt,uint3
     return false; // The original scalar builder continues; its packet is never sent.
 }
 std::optional<bool> nativeUiTextInstruction(R5900Context *c,Runtime *rt,uint32_t pc){
-    if(pc!=0x2e74f0 && pc!=0x2e7520 && pc!=0x2e7550 && pc!=0x2e757c && pc!=0x2e75a0 && pc!=0x2f0de0 && pc!=0x2e83e4 && pc!=0x2ec9e4)return std::nullopt;
+    if(pc!=0x2e74f0 && pc!=0x2e7520 && pc!=0x2e7550 && pc!=0x2e757c && pc!=0x2e75a0 && pc!=0x2f0de0 && pc!=0x2eeb80 && pc!=0x2e83e4 && pc!=0x2ec9e4)return std::nullopt;
     auto *d=rt?dynamic_cast<bozo::ee::Dispatcher *>(rt->services):nullptr;
     auto *owner=d?dynamic_cast<UiTextOwner *>(&d->host()):nullptr;
     auto *assets=d?dynamic_cast<AssetOwner *>(&d->host()):nullptr;
@@ -493,10 +592,11 @@ std::optional<bool> nativeUiTextInstruction(R5900Context *c,Runtime *rt,uint32_t
     }else if(pc==0x2e74f0){
         if(c->pc!=pc || sp<0x50 || (sp&15) || !rt->memory.hostPointer(sp-0x50,0x50))throw std::runtime_error("native text emitter requires its complete original entry");
         texts.enter(rt,sp-0x50,c->r[4].uw[0],c->r[5].uw[0],c->r[6].sw[0]);
-    }else if(pc==0x2f0de0){
+    }else if(pc==0x2f0de0 || pc==0x2eeb80){
         if(c->pc!=pc)throw std::runtime_error("native text release requires its destructor entry");
         if(c->r[4].uw[0]){
             const auto element=c->r[4].uw[0];
+            if(pc==0x2eeb80 && value<uint32_t>(rt,element)!=0x15a350)throw std::runtime_error("native text 15a350 destructor outside its class");
             // The mod002 derived destructor writes its own vtable before
             // calling this base destructor. Admit only that proven teardown;
             // it does not qualify the derived class's rendering callbacks.

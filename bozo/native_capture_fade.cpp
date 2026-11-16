@@ -2,6 +2,8 @@
 #include "bozo/ee/dispatcher.h"
 #include <bit>
 #include <cstring>
+#include <cstdio>
+#include <cstdlib>
 #include <format>
 #include <stdexcept>
 namespace vp2s {
@@ -10,7 +12,8 @@ template<class T>T value(Runtime *rt,uint32_t at){
     if(!rt || at<0x100000 || at>0x2000000-sizeof(T))throw std::runtime_error("native capture fade outside EE RAM");
     T v;std::memcpy(&v,rt->memory.hostPointer(at,sizeof(T)),sizeof(T));return v;
 }
-constexpr uint32_t kClass=0x1610f0;
+constexpr uint32_t kClass=0x1610f0,kPauseClass=0x1670d0;
+bool fadeClass(uint32_t value){return value==kClass || value==kPauseClass;}
 // The screen the strips cover: 35de60 +3c6c/+3c6e, as 3d2630 reads them.
 std::array<int32_t,2> screen(Runtime *rt){
     const auto source=value<uint32_t>(rt,0x35de60);
@@ -60,6 +63,27 @@ std::array<bozo::render::Vertex,6> nativeCaptureFadeVertices(const NativeCapture
     }
     return vertices;
 }
+std::vector<bozo::render::Vertex> nativeCaptureFadeTrail(const NativeCaptureFadeDraw &draw){
+    std::vector<bozo::render::Vertex> vertices;
+    if(!draw.trailAlpha || draw.strips<1 || draw.width!=64*draw.strips)return vertices;
+    // 452040: x0 = X0 + 64 s - k, x1 = X0 + 64 (s + 1) - k (the last strip's x1
+    // stays), y = Y0 - 2k .. Y0 + h - 2k, the strip's texels as its own sprite.
+    const int32_t x=0x800-draw.width/2,y=0x800-draw.height/2,last=64*(draw.strips-1);
+    const uint32_t rgba=uint32_t(draw.trailAlpha)<<24|0x505050;
+    const auto quad=[&](float x0,float x1,float y0,float y1,float u0,float u1){
+        const bool right[6]={false,true,false,true,true,false},bottom[6]={false,false,true,false,true,true};
+        for(unsigned i=0;i<6;++i){
+            bozo::render::Vertex v;v.x=right[i]?x1:x0;v.y=bottom[i]?y1:y0;v.z=float(draw.depth);
+            v.u=right[i]?u1:u0;v.v=bottom[i]?1.f:0.f;v.rgba=rgba;vertices.push_back(v);
+        }
+    };
+    for(int32_t k=0;k<16;++k){
+        const float y0=float(y-2*k),y1=float(y+draw.height-2*k),split=float(last)/float(draw.width);
+        if(last)quad(float(x-k),float(x+last-k),y0,y1,0.f,split);
+        quad(float(x+last-k),float(x+draw.width),y0,y1,split,1.f);
+    }
+    return vertices;
+}
 std::optional<bool> nativeCaptureFadeInstruction(R5900Context *c,Runtime *rt,uint32_t pc){
     if(pc!=0x3d2d7c && pc!=0x3d2630 && pc!=0x3d2698 && pc!=0x3d2520)return std::nullopt;
     auto *d=rt?dynamic_cast<bozo::ee::Dispatcher *>(rt->services):nullptr;
@@ -72,17 +96,26 @@ std::optional<bool> nativeCaptureFadeInstruction(R5900Context *c,Runtime *rt,uin
         // its tail (+a0 = +98, state 1) without readback nodes or strip headers.
         const auto object=c->r[21].uw[0];
         const auto strips=value<int32_t>(rt,object+0xaa0);
-        if(value<uint32_t>(rt,object)!=kClass || value<uint8_t>(rt,object+0x9d4) || !value<uint32_t>(rt,object+0x9c4) ||
+        if(!fadeClass(value<uint32_t>(rt,object)) || value<uint8_t>(rt,object+0x9d4) || !value<uint32_t>(rt,object+0x9c4) ||
            !(std::bit_cast<float>(value<uint32_t>(rt,object+0xa4))<0.f) || (value<uint32_t>(rt,value<uint32_t>(rt,0x48e048)+0x8c)&1) ||
            strips<1 || strips>16)
             throw std::runtime_error("native capture fade escaped its capture condition");
         for(int32_t i=0;i<strips;++i)if(value<uint32_t>(rt,object+0x984+4*i))throw std::runtime_error("native capture fade already has readback nodes");
-        fades.capture(object);
+        // The original reads back the frame on screen (display +160) during this
+        // frame: the previous presentation, copied now. One frame later the
+        // field pause has already culled the town (+6a), so a later copy is black.
+        const auto claimed=fades.capture(object);
+        if(const auto image=fades.pendingCopy(object))owner->copyNativeFrameToImage(*image);
+        if(std::getenv("VP2S_BOZO_TRACE_FADES"))std::fprintf(stderr,"[vp2s:fade] capture object=%x image=%u\n",object,claimed);
         return false; // The patched branch runs.
     }
     if(pc==0x3d2630){
         const auto object=c->r[4].uw[0];
-        if(value<uint32_t>(rt,object)!=kClass)throw std::runtime_error("native capture fade builder outside its class");
+        if(!fadeClass(value<uint32_t>(rt,object)))throw std::runtime_error("native capture fade builder outside its class");
+        if(std::getenv("VP2S_BOZO_TRACE_FADES"))
+            std::fprintf(stderr,"[vp2s:fade] builder object=%x class=%x state=%d buffer=%x writer=%x time=%08x strips=%d colour=%08x +ab0=%08x\n",object,value<uint32_t>(rt,object),
+                value<int8_t>(rt,object+0x9d4),value<uint32_t>(rt,object+0x9c4),value<uint32_t>(rt,object+0xc4),value<uint32_t>(rt,object+0xa4),value<int32_t>(rt,object+0xaa0),
+                value<uint32_t>(rt,object+0xa0),value<uint32_t>(rt,object+0xab0));
         if(const auto image=fades.pendingCopy(object))owner->copyNativeFrameToImage(*image);
         return false;
     }
@@ -90,11 +123,18 @@ std::optional<bool> nativeCaptureFadeInstruction(R5900Context *c,Runtime *rt,uin
         // Builder after its state (>= 2) and buffer checks: the original strip
         // uploads and sprites are replaced by one native draw of the snapshot.
         const auto object=c->r[16].uw[0];const auto size=screen(rt);
-        if(value<uint32_t>(rt,object)!=kClass || value<int8_t>(rt,object+0x9d4)<2 || !value<uint32_t>(rt,object+0xc4) || !value<uint32_t>(rt,object+0x9c4))
+        if(!fadeClass(value<uint32_t>(rt,object)) || value<int8_t>(rt,object+0x9d4)<2 || !value<uint32_t>(rt,object+0xc4) || !value<uint32_t>(rt,object+0x9c4))
             throw std::runtime_error("native capture fade builder escaped its draw path");
         if(size[0]<64 || size[0]>2048 || size[1]<1 || size[1]>2048 || value<int32_t>(rt,object+0xaa0)*64!=size[0])
             throw std::runtime_error(std::format("unported native capture fade strips ({} for {}x{})",value<int32_t>(rt,object+0xaa0),size[0],size[1]));
-        NativeCaptureFadeDraw draw{.object=object,.colour=value<uint32_t>(rt,object+0xa0),.depth=value<uint32_t>(rt,object+0xc0),.width=size[0],.height=size[1]};
+        NativeCaptureFadeDraw draw{.object=object,.colour=value<uint32_t>(rt,object+0xa0),.depth=value<uint32_t>(rt,object+0xc0),.width=size[0],.height=size[1],
+                                   .strips=value<int32_t>(rt,object+0xaa0)};
+        if(value<uint32_t>(rt,object)==kPauseClass){
+            // 452040: alpha = cvt.w.s(+ab0 / 10.0), its low byte in RGBAQ.A.
+            const float alpha=std::bit_cast<float>(value<uint32_t>(rt,object+0xab0))/10.f;
+            if(!(alpha>=0.f && alpha<256.f))throw std::runtime_error(std::format("unported native pause copy alpha {}",alpha));
+            draw.trailAlpha=uint8_t(int32_t(alpha));
+        }
         // The image claimed at capture and copied at the fade's first builder.
         const auto image=fades.image(object);
         if(!image)throw std::runtime_error("native capture fade drawn before its copy");
@@ -105,7 +145,7 @@ std::optional<bool> nativeCaptureFadeInstruction(R5900Context *c,Runtime *rt,uin
     // (register header, 3d3500 defaults, terminator: 0x11 qwords, no draw). The
     // patched tail calls the real completion 21c9a0(object) instead of queueing it.
     const auto object=c->r[4].uw[0];
-    if(value<uint32_t>(rt,object)!=kClass || value<int32_t>(rt,object+0xa98)!=0)
+    if(!fadeClass(value<uint32_t>(rt,object)) || value<int32_t>(rt,object+0xa98)!=0)
         throw std::runtime_error("native capture fade submit has original packets");
     if(const auto draw=fades.submit(object)){
         const auto writer=value<uint32_t>(rt,object+0xc4),begin=value<uint32_t>(rt,writer+12),end=value<uint32_t>(rt,writer+8);

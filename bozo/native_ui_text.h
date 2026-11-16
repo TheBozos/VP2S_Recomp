@@ -81,6 +81,24 @@ struct NativeBarInputs {
     unsigned log2Width=8,log2Height=8;
 };
 NativeUiText nativeBar(const NativeBarInputs &,std::shared_ptr<const bozo::render::Texture> picture);
+// Field pause logo (element class 166ef0, build 4514f0): at 4516f0 the builder
+// holds x (f21) = 512 (73 + layer x)/640 + originX and y (f20) = 512.96 (79 +
+// layer y)/480 + originY, the colour (s4: 808080, alpha int(layer +e0)), depth
+// (layer +c4) and the field HUD sheet's rect +30.
+struct NativePauseLogoInputs {
+    uint32_t x=0,y=0,colour=0,depth=0;
+    std::array<uint16_t,6> rect{};
+    unsigned log2Width=8,log2Height=8;
+};
+NativeUiText nativePauseLogo(const NativePauseLogoInputs &,std::shared_ptr<const bozo::render::Texture> picture);
+// Field pause bottom bar (element class 1670a0, build 451a60): at 451b64 the
+// builder holds x (f21) = 512 layer x/640 and y (f20) = 512.96 layer y/480,
+// before the screen origin (s2, s1); depth layer +c4.
+struct NativePauseBarInputs {
+    uint32_t x=0,y=0,depth=0;
+    int32_t originX=0x700,originY=0x700;
+};
+NativeUiText nativePauseBar(const NativePauseBarInputs &);
 // Name-plate geometry from the scalars builder 465150 computed when it enters
 // path A (465e3e8): X (f24), Y (f23), length L (f28), all PS2 float words; the
 // colour (s6), depth (fp), the frame size and the resource image's sub-image

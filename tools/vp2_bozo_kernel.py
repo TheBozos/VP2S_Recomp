@@ -394,6 +394,14 @@ def overlay_adaptations(name,data):
                                (0x4489b0,0x448f80,'6fe80836105b67750347fece9b6667950b00f5cc99c6455278a7b584eaa9f9ce'),
                                # Capture fade 1610f0: +9c 3d2400, submit 3d2520, builder 3d2630, update 3d2cd0.
                                (0x3d2400,0x3d30c0,'0ca4e7f7226fec364d6c5f33e46a513669fc475adf4b839db93a109a2af5c65a'),
+                               # Field pause frozen frame 1670d0 (fade subclass): +9c copies 452040, update 4523f0.
+                               (0x452040,0x4523f0,'7cec9a2bcda7e797857fac18535678abca12297a21fee1650ba5fc3b3c748888'),
+                               (0x4523f0,0x452498,'3ad73a9f1dcdb3404d8b22630a94ce04d49359906e82ca7b5595ccbc7af7ad20'),
+                               # Field pause logo 166ef0 (build 451450 -> 4514f0) and bar 1670a0 (451960 -> 451a60).
+                               (0x451450,0x4514f0,'d253bf4abb6654cd0929b0799d22723f0fb67674d245ae3274d5c5c1c7637e3b'),
+                               (0x4514f0,0x451958,'38f9d686777a41e881d242e5d36b11112a63a82bbd52a7927ca5d3296b4ba9cc'),
+                               (0x451960,0x4519f0,'9f764bf068629871db34c374945fff4085862362552ac8327950421f41273ac6'),
+                               (0x451a60,0x451da0,'c1120f86be995b599a7e06a97a1c4882202fdcff1c92f852fdefb0421a03aeaf'),
                                (0x3d7708,0x3d77cc,'435926535d852e22f0b20b9027f65fd6674acc7a63b6aaedb31e59c63a1cd1c8'),
                                (0x3d5670,0x3d57ec,'250a2389769015fbda23859f5082b6f69031a706af85f263b765f34130611ecc'),
                                (0x378908,0x3789c8,'25cee96dbb982fe7f31c806c09286d7d6d1630101851998b42a1431e9cf4fd17'),
@@ -663,6 +671,9 @@ def overlay_adaptations(name,data):
         (0x25aa10,0x25aa40,'d75aad57b1cf26127f35bdf8a0eec8259d79c6b1cb8cbbabe269467dac4546ef'),
         (0x25aa40,0x25be00,'0df64feffaf54ce1d51dfb4bd13f04e1a4160b445284eb62d1aa8b3618c9ff04'),
         (0x2f0de0,0x2f0e70,'1898503143ca6ccba1d99bc209d3a7fd3c9e9a0babc361b702fb1267df6eb301'),
+        # Text 15a350 (sibling of 15a450): destructor 2eeb80 (base 2e9490, not 2f0de0), one-time build +20 2eed90.
+        (0x2eeb80,0x2eebe0,'5d3e38a3c66e8a1540baabbbcfba6f862216e21f18335b643bcdf81b55beac6d'),
+        (0x2eed90,0x2eef58,'df356d98a21046526011282a4a71210424dcd59c883b0a70956df4090fcce1da'),
         (0x29af80,0x29b2c4,'ef3a9f1a6cae966ab8a687451e72ac175d88b8e9883d09449949ca5c3389d0bf'),
         (0x29c990,0x29cb18,'361b601c33bd3f57fd190aef95f4716cd08b5bbdf401f852b6e80eb96933e9e2'),
         (0x2bef20,0x2bf0dc,'2562b94cada2f70f71933a401cc6eacc7c1eb0a71f60dafc6b7179d58fdb0fb7'),
@@ -908,7 +919,7 @@ def overlay_native_sites(name,data):
         _,segments,_=elf_parts(data);lo,hi=0x374be0,0x375240
         s=next(s for s in segments if s[0]==1 and s[2]<=lo<hi<=s[2]+s[4]);at=s[1]+lo-s[2]
         if hashlib.sha256(data[at:at+hi-lo]).hexdigest()!='b993fd5a68cebb93c65d37fb69ebe90cba67c410408b0f9530e30a4dfd9a470e':raise ValueError('USA screen zoom overlay source mismatch')
-        return 'native 0x374c04\nnative 0x374c10\nnative 0x40b040\nnative 0x3d93f4\nnative 0x3d38d4\nnative 0x3d363c\nnative 0x3d364c\nnative 0x3d49b0\nnative 0x447af0\nnative 0x447b84\nnative 0x447d60\nnative 0x447a48\nnative 0x447f50\nnative 0x443238\nnative 0x4653e8\nnative 0x465b38\nnative 0x465f08\nnative 0x449790\nnative 0x448d70\nnative 0x3d2d7c\nnative 0x3d2630\nnative 0x3d2698\nnative 0x3d2520\n'+''.join(f'native 0x{pc:x}\n' for pc in (0x3e5ca4,0x3e5ca8,0x3e5cac,0x3e5cb4,0x3e5cb8,0x3e5cc0,*range(0x3e7edc,0x3e7f38,4),*range(0x3e7fa0,0x3e7ffc,4)))
+        return 'native 0x374c04\nnative 0x374c10\nnative 0x40b040\nnative 0x3d93f4\nnative 0x3d38d4\nnative 0x3d363c\nnative 0x3d364c\nnative 0x3d49b0\nnative 0x447af0\nnative 0x447b84\nnative 0x447d60\nnative 0x447a48\nnative 0x447f50\nnative 0x443238\nnative 0x4653e8\nnative 0x465b38\nnative 0x465f08\nnative 0x449790\nnative 0x448d70\nnative 0x4516f0\nnative 0x451b64\nnative 0x3d2d7c\nnative 0x3d2630\nnative 0x3d2698\nnative 0x3d2520\n'+''.join(f'native 0x{pc:x}\n' for pc in (0x3e5ca4,0x3e5ca8,0x3e5cac,0x3e5cb4,0x3e5cb8,0x3e5cc0,*range(0x3e7edc,0x3e7f38,4),*range(0x3e7fa0,0x3e7ffc,4)))
     if name=='mod002':
         _,segments,_=elf_parts(data);lo,hi=0x3622e8,0x362338
         s=next(s for s in segments if s[0]==1 and s[2]<=lo<hi<=s[2]+s[4]);at=s[1]+lo-s[2]
@@ -961,6 +972,6 @@ def overlay_native_sites(name,data):
         0x208a94,0x29af80,0x29b2a8,0x29caf8,0x2205c0,0x220ce0,0x29e43c,0x29e444,
         0x22106c,0x221294,0x221308,0x221540,0x221704,0x221718,0x221748,0x2088f0,
         0x221698,0x22169c,0x21c9dc,0x21c9e0,0x21c9e8,0x21c9ec,0x21ca1c,0x21ca20,0x21ca24,0x21ca28,0x2cb490,0x2f3714,0x2ea9a0,
-        0x2e74f0,0x2e7520,0x2e7550,0x2e757c,0x2e75a0,0x2f0de0,0x2e83e4,0x2ec9e4,0x2ec308,0x2ec320,
+        0x2e74f0,0x2e7520,0x2e7550,0x2e757c,0x2e75a0,0x2f0de0,0x2eeb80,0x2e83e4,0x2ec9e4,0x2ec308,0x2ec320,
         0x2efe40,0x2effe8,0x2eb3a0,0x2eb5c4,0x2ebac4,0x2ebb0c,0x2ebb58,0x2ebb9c,0x2ebba8,0x2bbfc0,0x2bc1d0,0x2bc1e0,0x2ba670,0x1ef6f8,0x1ef914,0x1f0438,0x1f04a0,0x1efa30,
         0x1f4590,0x1f4940,0x2bdac0,0x2bd9b0,0x2bd5d8,0x2be3d0,0x2bea60,0x239f70,0x239ff0,0x25aa30,0x25aa40,0x25bad0,0x25bdcc,0x25adbc,0x214388,0x2f2df0,0x2f2fb8,0x2f2d70))+'stub 0x2b90a0\nstub 0x2b9560\nstub 0x1f04c8\nstub 0x1f82c0\n'

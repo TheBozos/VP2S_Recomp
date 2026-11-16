@@ -234,9 +234,12 @@ public:
         const auto vertices=vp2s::nativeCaptureFadeVertices(draw);
         const float identity[16]={1,0,0,0,0,1,0,0,0,0,1,0,0,0,0,1};
         bozo::render::Renderer::instance().draw(material,identity,vertices.data(),vertices.size());
+        // The field pause's copies (452040): the same sprite state, after the strips.
+        if(const auto trail=vp2s::nativeCaptureFadeTrail(draw);!trail.empty())
+            bozo::render::Renderer::instance().draw(material,identity,trail.data(),trail.size());
         static const unsigned long long rectsFrom=[]{const char *v=std::getenv("VP2S_BOZO_TRACE_RECTS_FROM");return v?std::strtoull(v,nullptr,10):~0ull;}();
         if(native.framesEnded()>=rectsFrom)
-            std::fprintf(stderr,"[vp2s:screen] native capture fade object=%x image=%u colour=%08x frame=%llu\n",draw.object,draw.image,draw.colour,(unsigned long long)native.framesEnded());
+            std::fprintf(stderr,"[vp2s:screen] native capture fade object=%x image=%u colour=%08x copies alpha=%u frame=%llu\n",draw.object,draw.image,draw.colour,draw.trailAlpha,(unsigned long long)native.framesEnded());
     }
     vp2s::NativeScreenZooms screenZooms;
     unsigned screenZoomDraws=0;
@@ -781,6 +784,22 @@ int main(int argc,char **argv) {
             auto previous=host.native.onFrame;
             host.native.onFrame=[previous](uint64_t frame,const R5900Context *ctx){profileFrame=frame;profileContext=ctx;if(previous)previous(frame,ctx);};
             profiler.start(out,from?std::stoull(from):0);
+        }
+#endif
+#ifdef VP2S_BOZO_CAPTURE
+        if(const char *every=std::getenv("VP2S_BOZO_CAPTURE_EVERY"); every && !capturePath.empty()){
+            // Diagnostic only: a numbered capture every N frames from VP2S_BOZO_CAPTURE_FROM,
+            // so one long route run shows what each scripted input did.
+            const uint64_t step=std::max<uint64_t>(1,std::stoull(every));
+            const char *fromText=std::getenv("VP2S_BOZO_CAPTURE_FROM");const uint64_t from=fromText?std::stoull(fromText):0;
+            const auto stem=capturePath.size()>4 && capturePath.ends_with(".png")?capturePath.substr(0,capturePath.size()-4):capturePath;
+            auto previous=host.native.onFrame;
+            host.native.onFrame=[previous,step,from,stem](uint64_t frame,const R5900Context *ctx){
+                if(previous)previous(frame,ctx);
+                if(frame<from || (frame-from)%step)return;
+                try{vp2s::captureNativeFrame(stem+"_"+std::to_string(frame)+".png");}
+                catch(const std::exception &e){std::fprintf(stderr,"[vp2s:diagnostic] capture at frame %llu unavailable: %s\n",static_cast<unsigned long long>(frame),e.what());}
+            };
         }
 #endif
         uint64_t frames=0;

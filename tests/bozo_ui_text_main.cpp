@@ -115,7 +115,17 @@ int main(int argc,char **argv){try{
     after.texts.finish(stack,object);auto held=after.texts.text(object);
     after.texts.enter(&rt,stack,object,0,0);after.texts.activate(stack,object,0,0);after.texts.finish(stack,object);
     check(held->inlineImages && !after.texts.text(object)->inlineImages && !after.texts.outstanding());
-    after.texts.release(object);put(rt,object,0x15a690u);
+    after.texts.release(object);
+    {   // 15a350 (sibling text): same emitter lifetime; released at its own destructor 2eeb80.
+        put(rt,object,0x15a350u);after.texts.enter(&rt,stack,object,0,0);after.texts.activate(stack,object,0,0);after.texts.finish(stack,object);
+        check(after.texts.text(object)!=nullptr);
+        R5900Context dying{};dying.pc=0x2eeb80;dying.r[4].ud[0]=object;
+        put(rt,object,0x15a450u);rejects([&]{vp2s::nativeUiTextInstruction(&dying,&rt,0x2eeb80);});check(after.texts.text(object)!=nullptr);
+        put(rt,object,0x15a350u);auto early=dying;early.pc=0x2eeb84;rejects([&]{vp2s::nativeUiTextInstruction(&early,&rt,0x2eeb80);});
+        check(vp2s::nativeUiTextInstruction(&dying,&rt,0x2eeb80)==false && !after.texts.text(object));
+        R5900Context none{};none.pc=0x2eeb80;check(vp2s::nativeUiTextInstruction(&none,&rt,0x2eeb80)==false);
+    }
+    put(rt,object,0x15a690u);
     rejects([&]{after.texts.enter(&rt,stack,object,0,0);});
     check(!after.texts.outstanding());
     const auto geometry=(std::filesystem::path(argv[1])/"geometry").string();Host glyphBefore(geometry.c_str()),glyphAfter(geometry.c_str());
@@ -205,6 +215,20 @@ int main(int argc,char **argv){try{
         put(layerRam,0x1678e8u+0x14,0x447680u);rejects([&]{layerAfter.texts.layer(&layerRam,layer);});put(layerRam,0x1678e8u+0x14,0x2eca00u);   // another completion
         put(layerRam,0x466c20u,0u);rejects([&]{layerAfter.texts.layer(&layerRam,layer);});put(layerRam,0x466c20u,0x0c000000u|(0x2ef0f0u>>2));    // teardown not the base
         put(layerRam,0x3b3154u,0x2484ffd0u);rejects([&]{layerAfter.texts.layer(&layerRam,layer);});put(layerRam,0x3b3154u,0x2484ffe0u);            // another adjustment
+        {   // The field pause layer 166fe0: the event layer's job entries, base teardown.
+            put(layerRam,0x166ffcu+0x18,0x3b3150u);put(layerRam,0x166ffcu+0x10,0x2ef0f0u);
+            put(layerRam,0x167078u+0x0c,0x3b31c0u);put(layerRam,0x167078u+0x10,0x3b31d0u);put(layerRam,0x167078u+0x14,0x2eca00u);
+            put(layerRam,0x3b31d0u,0x08000000u|(0x2eca00u>>2));put(layerRam,0x3b31d4u,0x2484ffe0u);
+            types(0x166fe0u,0x166ffcu,0x167078u);layerAfter.texts.layer(&layerRam,layer);
+            put(layerRam,0x167078u+0x14,0x44a540u);rejects([&]{layerAfter.texts.layer(&layerRam,layer);});put(layerRam,0x167078u+0x14,0x2eca00u);   // another completion
+            put(layerRam,0x166ffcu+0x10,0x466ef0u);rejects([&]{layerAfter.texts.layer(&layerRam,layer);});put(layerRam,0x166ffcu+0x10,0x2ef0f0u);   // another teardown
+            put(layerRam,0x3b31d4u,0x2484ffd0u);rejects([&]{layerAfter.texts.layer(&layerRam,layer);});put(layerRam,0x3b31d4u,0x2484ffe0u);            // another adjustment
+            types(0x166fe0u,0x16786cu,0x167078u);rejects([&]{layerAfter.texts.layer(&layerRam,layer);});                                          // mixed tuple
+            put(layerRam,0x166f3cu+0x18,0x3b3150u);put(layerRam,0x166f3cu+0x10,0x2ef0f0u);
+            put(layerRam,0x166fb8u+0x0c,0x3b31c0u);put(layerRam,0x166fb8u+0x10,0x3b31d0u);put(layerRam,0x166fb8u+0x14,0x2eca00u);
+            types(0x166f20u,0x166f3cu,0x166fb8u);layerAfter.texts.layer(&layerRam,layer);                                                       // the sibling
+            types(0x166f20u,0x166ffcu,0x166fb8u);rejects([&]{layerAfter.texts.layer(&layerRam,layer);});                                          // mixed siblings
+        }
         // mod003 layer 165d30: base teardown, own bracketing completion 44a540.
         put(layerRam,0x165d4cu+0x18,0x3b3150u);put(layerRam,0x165dc8u+0x0c,0x3b31c0u);put(layerRam,0x165dc8u+0x14,0x44a540u);put(layerRam,0x165d4cu+0x10,0x2ef0f0u);
         put(layerRam,0x44a58cu,0x0c000000u|(0x2eca00u>>2));
@@ -292,6 +316,25 @@ int main(int argc,char **argv){try{
                 check(s.fixedCorners[0][0]==xs[k][0] && s.fixedCorners[3][0]==xs[k][1] && s.fixedCorners[0][1]==35304 && s.fixedCorners[3][1]==35896);
                 check(s.uv[0]==float(us[k][0])/4096.f && s.uv[2]==float(us[k][1])/4096.f && s.uv[1]==float(0x0458)/4096.f && s.uv[3]==float(0x0658)/4096.f);
                 check(s.colour==0x0c808080u && s.depth==0xffff32u);}
+        }
+        {   // Field pause logo (4514f0): layer at (0, 0), rect +30 40x20 at u 0x100..0x300.
+            vp2s::NativePauseLogoInputs l;l.x=W(512.f*73.f/640.f+1792.f);l.y=W(512.96f*79.f/480.f+1792.f);l.colour=0x40808080u;l.depth=0xffff10u;
+            l.rect={0x100,0x200,0x300,0x400,40,20};
+            const auto t=vp2s::nativePauseLogo(l,nullptr);check(t.icons.size()==1 && t.alphaTriangles.empty());const auto &s=t.icons[0];
+            const float x=std::bit_cast<float>(l.x),y=std::bit_cast<float>(l.y);
+            check(s.fixedCorners[0][0]==int32_t(16*x) && s.fixedCorners[0][1]==int32_t(16*y) && s.fixedCorners[3][0]==int32_t(16*(x+40)) && s.fixedCorners[3][1]==int32_t(16*(y+20)));
+            check(s.uv[0]==0x100/4096.f && s.uv[1]==0x200/4096.f && s.uv[2]==0x300/4096.f && s.uv[3]==0x400/4096.f && s.colour==0x40808080u && s.depth==0xffff10u);
+        }
+        {   // Field pause bar (451a60): x 0, y 384 (scaled), origin (1792, 1792).
+            vp2s::NativePauseBarInputs b;b.x=W(0.f);b.y=W(384.f);b.depth=0xffff20u;b.originX=1792;b.originY=1792;
+            const auto t=vp2s::nativePauseBar(b);check(t.icons.empty() && t.alphaTriangles.size()==6+12);
+            const auto &v=t.alphaTriangles;
+            check(v[0].x==1792 && v[0].y==2176 && v[4].x==2304 && v[4].y==2304 && v[0].rgba==0x80000000u && v[0].z==float(0xffff20u));
+            // Strip D(1792,2176) D(1792,2180) L(1952,..) L D(2688 = 512 + Y, the game's own end) D at depth ffffaa.
+            check(v[6].x==1792 && v[6].y==2176 && v[7].y==2180 && v[8].x==1952 && v[8].rgba==0x802b51bdu && v[6].rgba==0x802b1243u && v[6].z==float(0xffffaa));
+            check(v[15].x==1952 && v[16].x==2688 && v[16].y==2176 && v[17].x==2688 && v[17].y==2180 && v[17].rgba==0x802b1243u);
+            // The rectangle takes int(y); the strip keeps the fraction in 1/16 pixels.
+            b.y=W(384.5f);const auto h=vp2s::nativePauseBar(b).alphaTriangles;check(h[0].y==2176 && h[2].y==2304 && h[6].y==2176.5f && h[7].y==2180.5f);
         }
         // Without the half-width flag the cap is 0.85*w wide.
         in.narrowCap=false;const auto wide=vp2s::nativeNamePlate(in,nullptr);

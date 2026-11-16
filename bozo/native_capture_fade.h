@@ -4,19 +4,32 @@
 #include <array>
 #include <map>
 #include <optional>
+#include <vector>
 namespace vp2s {
 // Capture fade (mod003 class 0x1610f0, a fade 0x161230 subclass): the frame as
 // it was when the fade began, redrawn over the new scene under the fade colour.
 // The original reads the GS frame back into EE strips (3d2cd0) and uploads them
-// again (3d2630). Natively the previous presentation is copied once into a kept
-// engine image, then drawn 1:1: TEX0.TCC 0 (vertex alpha), modulate, ALPHA 0x44,
+// again (3d2630). Natively the previous presentation (the frame on screen when
+// the capture is decided) is copied at once into a kept engine image, then drawn 1:1: TEX0.TCC 0 (vertex alpha), modulate, ALPHA 0x44,
 // depth test always, depth write masked.
+//
+// The field pause's frozen frame (class 0x1670d0) is a subclass with the same
+// capture, builder and submit. Its +9c method (452040), called after each
+// strip's sprite, adds 16 copies of that strip: colour 0x505050, alpha
+// trunc(+ab0 / 10) (its update 4523f0 ramps +ab0 by 8 between 0 and 128),
+// copy k moved by (-k, -2k), except that the last strip's right edge stays.
 struct NativeCaptureFadeDraw {
     uint32_t object=0,colour=0,depth=0;
     uint8_t image=0;
     int32_t width=0,height=0;
+    int32_t strips=0;     // 64-pixel strips (+aa0)
+    uint8_t trailAlpha=0; // the pause's copies; 0 draws none
 };
 std::array<bozo::render::Vertex,6> nativeCaptureFadeVertices(const NativeCaptureFadeDraw &);
+// The pause's 16 copies in drawing order (empty without them). Per pixel the
+// game's strip-by-strip order equals copy-by-copy order: copies move only left
+// and up, so no later strip's sprite covers an earlier strip's copy.
+std::vector<bozo::render::Vertex> nativeCaptureFadeTrail(const NativeCaptureFadeDraw &);
 class NativeCaptureFades {
     struct Snapshot {uint32_t object=0;uint64_t used=0;bool copied=false;};
     std::array<Snapshot,7> images{};
@@ -26,7 +39,7 @@ class NativeCaptureFades {
 public:
     static constexpr uint8_t kFirstImage=9; // engine images 9..15
     uint8_t capture(uint32_t object);
-    // The image still waiting for its copy (made in the frame the fade's builder draws into).
+    // The image still waiting for its copy (taken at the capture site, 3d2d7c).
     std::optional<uint8_t> pendingCopy(uint32_t object);
     std::optional<uint8_t> image(uint32_t object); // the copied snapshot
     void build(const NativeCaptureFadeDraw &);

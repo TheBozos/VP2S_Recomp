@@ -123,6 +123,17 @@ int main(int argc,char **argv){try{
                 put(rt,owner+0x8c4,uint32_t(0));put(rt,owner+0x8d4,child);put(rt,child+8,child);   // a list that never ends
                 rejects([&]{models.capture(&rt,assets,textures,scene,object);});++emptyCases;
                 put(rt,current+0x40a8,object);}
+            // Shadow classes (slot +60 = 2b86f0): their own model is a shadow volume
+            // that writes only frame alpha, so it submits no colour batches.
+            // The model pointer is cleared: the shadow path never reads it, a normal class rejects.
+            put(rt,object+0x7bc,uint32_t(0));
+            for(uint32_t cls:{0x159880u,0x1599a0u}){
+                put(rt,object,cls);put(rt,cls+0x60,uint32_t(0x2b86f0));
+                {const auto r=models.capture(&rt,assets,textures,scene,object);check(r.object==object && r.camera==camera && r.batches.empty());++emptyCases;}
+                put(rt,cls+0x60,uint32_t(0x23c6c0));rejects([&]{models.capture(&rt,assets,textures,scene,object);});++emptyCases;
+                put(rt,cls+0x60,uint32_t(0));put(rt,object,uint32_t(0));}
+            put(rt,object,uint32_t(0x1546d0));put(rt,0x1546d0+0x60,uint32_t(0x23c6c0));rejects([&]{models.capture(&rt,assets,textures,scene,object);});++emptyCases;
+            put(rt,0x1546d0+0x60,uint32_t(0));put(rt,object,uint32_t(0));put(rt,object+0x7bc,empty);
             put(rt,empty-0x10,uint32_t(0));rejects([&]{models.capture(&rt,assets,textures,scene,object);});put(rt,empty-0x10,uint32_t(0x00535046));
             assets.overwrite(empty+0x5f,1);rejects([&]{models.capture(&rt,assets,textures,scene,object);});provenance();
             assets.overwrite(empty+0x10,1);rejects([&]{models.capture(&rt,assets,textures,scene,object);});provenance();

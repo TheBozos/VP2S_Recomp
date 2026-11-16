@@ -2042,6 +2042,8 @@ constexpr MacroIdiom macroIdioms[]={
     // value: 2.0 there); MULAw.xyz ACC = b*1; MADDx.xyz vf1 = ACC + a*s; SQC2 vf1
     // -> {b + a*s (xyz), a.w}.
     {"scaledsum",{-2,-3,0x48a21800,0x4bc011bf,0x4bc30848,-101},6},
+    // the same with s from v1 (mod003 38cea0, twice; an MFC1 f0 precedes the QMTC2).
+    {"scaledsum",{-2,-3,0x48a31800,0x4bc011bf,0x4bc30848,-101},6},
     // row point (mod001 2b802c): LQC2 vf15 (point), vf11..vf14 (rows); ADDw.xyz vf31 = 1;
     // MUL vf11..vf14 *= vf15; per row ADDA/MADDA/MADD with 1*: x ((x+y)+1z)+1w,
     // y ((y+x)+1z)+1w, z ((z+y)+1x)+1w, w ((w+y)+1z)+1x; SQC2 vf5.
@@ -2144,7 +2146,9 @@ bool nativeMacroIdiom(R5900Context *c,Runtime *rt,uint32_t pc){
 // particle: LQC2 vf1 (position), vf2 (velocity); VADDA.xyz ACC = vf1 + vf0;
 // VMADDx.xyz vf1 = ACC + vf2*vf3.x; SQC2 vf1 twice -> {p + v*dt (xyz), p.w}.
 // Every site and its exact word are listed; the result exists only after both
-// loads of the same particle, and only stores read it.
+// loads of the same particle, and only stores read it. Its copy 38d900 (a
+// second particle class: record strides x4/x32 instead of x8/x16, VU0 words
+// identical) has every site 0x28630 higher.
 struct ParticleSite{uint32_t pc,word;char role;};   // q: dt, p/v: loads, a: ACC, m: result, s: store
 constexpr ParticleSite particleSites[]={
     {0x365350,0x48a31800,'q'},{0x36554c,0x48b11800,'q'},
@@ -2155,8 +2159,10 @@ constexpr ParticleSite particleSites[]={
 struct ParticleState{uint32_t dt=0;bool step=false;VuWords position{},velocity{},result{};uint8_t have=0;};
 ParticleState &particleState(const Runtime *rt){static std::map<const Runtime *,ParticleState> states;return states[rt];}
 bool nativeParticleStep(R5900Context *c,Runtime *rt,uint32_t pc){
-    if(!rt || pc<0x365350 || pc>0x365914)return false;
-    const ParticleSite *site=nullptr;for(const auto &s:particleSites)if(s.pc==pc)site=&s;
+    constexpr uint32_t kCopy=0x38d900-0x3652d0;
+    const uint32_t listed=pc>=0x365350+kCopy && pc<=0x365914+kCopy?pc-kCopy:pc;
+    if(!rt || listed<0x365350 || listed>0x365914)return false;
+    const ParticleSite *site=nullptr;for(const auto &s:particleSites)if(s.pc==listed)site=&s;
     if(!site)return false;
     uint32_t word=0;if(const auto *p=rt->memory.hostPointer(pc,4))std::memcpy(&word,p,4);
     if(word!=site->word)return false;   // another overlay at these addresses
@@ -2182,23 +2188,28 @@ bool nativeParticleStep(R5900Context *c,Runtime *rt,uint32_t pc){
 // vf26 = min(vf26, vf1) (364ac4); VMAX.xyz vf27 = max(vf27, vf1) (364ac8).
 // vf26/vf27 are the driver's box (loaded at 22ec9c/22eca0, published at 22efd8):
 // the point joins NativeParticles' explicit bounds of that driver frame (sp+40).
+// A second emitter method, 38cea0 (a leaf: the driver frame is its sp), has the
+// same three words at 38cfec/38d010/38d018 (VMAX in the delay slot of beqz a3).
 struct ParticleBoxState{bool loaded=false,included=false;uint32_t frame=0,emitter=0;std::array<float,4> point{};};
 ParticleBoxState &particleBoxState(const Runtime *rt){static std::map<const Runtime *,ParticleBoxState> states;return states[rt];}
 bool nativeParticleBox(R5900Context *c,Runtime *rt,uint32_t pc){
-    constexpr std::pair<uint32_t,uint32_t> sites[]={{0x364a84,0xd8c10000},{0x364ac4,0x4bc1d6af},{0x364ac8,0x4bc1deeb}};
-    const auto site=std::find_if(std::begin(sites),std::end(sites),[&](const auto &s){return s.first==pc;});
-    if(!rt || site==std::end(sites))return false;
+    struct Box{uint32_t load,min,max,frameOffset;};
+    constexpr Box boxes[]={{0x364a84,0x364ac4,0x364ac8,0x40},{0x38cfec,0x38d010,0x38d018,0}};
+    constexpr uint32_t words[3]={0xd8c10000,0x4bc1d6af,0x4bc1deeb};
+    const Box *box=nullptr;unsigned role=0;
+    for(const auto &b:boxes){if(pc==b.load){box=&b;role=0;}else if(pc==b.min){box=&b;role=1;}else if(pc==b.max){box=&b;role=2;}}
+    if(!rt || !box)return false;
     uint32_t word=0;if(const auto *p=rt->memory.hostPointer(pc,4))std::memcpy(&word,p,4);
-    if(word!=site->second)return false;   // another overlay at these addresses
+    if(word!=words[role])return false;   // another overlay at these addresses
     auto *d=dynamic_cast<bozo::ee::Dispatcher *>(rt->services);auto *particles=d?dynamic_cast<ParticleOwner *>(&d->host()):nullptr;
     if(!c || !particles)throw std::runtime_error("native particle box requires its bounds owner");
-    auto &st=particleBoxState(rt);const auto frame=c->r[29].uw[0]+0x40,emitter=c->r[4].uw[0];
-    if(pc==0x364a84){
+    auto &st=particleBoxState(rt);const auto frame=c->r[29].uw[0]+box->frameOffset,emitter=c->r[4].uw[0];
+    if(role==0){
         particles->nativeParticles().validateEmitter(frame,emitter);
         std::memcpy(st.point.data(),record(rt,c->r[6].uw[0],16),16);st=ParticleBoxState{true,false,frame,emitter,st.point};return true;}
-    if(!st.loaded || st.frame!=frame || st.emitter!=emitter || st.included!=(pc==0x364ac8))
+    if(!st.loaded || st.frame!=frame || st.emitter!=emitter || st.included!=(role==2))
         throw std::runtime_error(std::format("native particle box at {:x} out of order",pc));
-    if(pc==0x364ac4){particles->nativeParticles().includePoint(frame,emitter,st.point);st.included=true;}
+    if(role==1){particles->nativeParticles().includePoint(frame,emitter,st.point);st.included=true;}
     else st=ParticleBoxState{};
     return true;
 }
@@ -2557,6 +2568,31 @@ bool nativeMathInstruction(uint8_t *,R5900Context *c,Runtime *rt,uint32_t pc){
             __m128 input;std::memcpy(&input,record(rt,object+0xb0,16),16);float values[4];std::memcpy(values,&input,16);
             for(float v:values){const auto magnitude=std::bit_cast<uint32_t>(v)&0x7fffffff;if(magnitude>=0x7f800000 || magnitude>std::bit_cast<uint32_t>(1.e8f))throw std::runtime_error("unqualified object yaw quaternion");}
             const auto result=math::quaternionMatrix(input);const auto row=(pc-0x396acc)/4;std::memcpy(record(rt,stack+0x20+16*row,16),&result[row],16);
+        }return true;
+    }
+    // Effect 15e870 rotation blocks: nine identical program-0x720 blocks in
+    // mod003 (417f50 twice with s2, 412870 twice and 431000/4335xx with s0,
+    // 4197xx with s3). Each builds a 15e870 object from its owner: owner
+    // +a0/+b0 copied to obj+70/+80, LQC2 vf5 from obj+80, program 0x720,
+    // CFC2.I t1/vi0, rows SQC2 vf8..vf10 to obj+30. Between the load and the
+    // stores the EE code writes only obj+60..6c. The recompiled block starts
+    // after the allocator call (block-5c) or at the null check it branches to
+    // (block-1c); no branch lies inside. Every block's bytes are guarded.
+    struct EffectBlock{uint32_t at;unsigned object;};
+    constexpr EffectBlock effectBlocks[]={{0x412bcc,16},{0x412ddc,16},{0x41861c,18},{0x418814,18},{0x419884,19},
+                                          {0x43128c,16},{0x4314d4,16},{0x433614,16},{0x433904,16}};
+    const EffectBlock *effect=nullptr;for(const auto &b:effectBlocks)if(pc>=b.at && pc<=b.at+0x54)effect=&b;
+    if(const uint32_t block=effect?effect->at:0;
+       block && (pc==block || pc==block+8 || pc==block+0x44 || pc==block+0x4c || pc==block+0x50 || pc==block+0x54)){
+        if(!c || (c->pc!=block-0x5c && c->pc!=block-0x1c))throw std::runtime_error("native effect rotation escaped its routine");
+        const auto object=c->r[effect->object].uw[0];
+        if(pc==block){if(c->r[3].uw[0]!=object+0x80)throw std::runtime_error("effect rotation quaternion source mismatch");}
+        else if(pc==block+0x44)c->r[9].ud[0]=0;
+        else if(pc>=block+0x4c){
+            if(c->r[2].uw[0]!=object+0x30)throw std::runtime_error("effect rotation destination mismatch");
+            __m128 input;std::memcpy(&input,record(rt,object+0x80,16),16);float values[4];std::memcpy(values,&input,16);
+            for(float v:values){const auto magnitude=std::bit_cast<uint32_t>(v)&0x7fffffff;if(magnitude>=0x7f800000 || magnitude>std::bit_cast<uint32_t>(1.e8f))throw std::runtime_error("unqualified effect rotation quaternion");}
+            const auto result=math::quaternionMatrix(input);const auto row=(pc-block-0x4c)/4;std::memcpy(record(rt,object+0x30+16*row,16),&result[row],16);
         }return true;
     }
     if(nativeParticleCallbackInstruction(c,rt,pc))return true;

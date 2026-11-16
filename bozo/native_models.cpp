@@ -6,6 +6,7 @@
 #include <algorithm>
 #include <bit>
 #include <cmath>
+#include <cstdio>
 #include <cstring>
 #include <fstream>
 #include <format>
@@ -13,6 +14,8 @@
 #include <set>
 #include <source_location>
 namespace vp2s {
+namespace {bool traceModels=false;}
+void setNativeModelTrace(bool on){traceModels=on;}
 struct NativeModels::Mesh {
     struct Vertex {float p[4],n[3],uv[2];uint8_t colour[4];};
     struct Bone {int32_t a;float wa;int32_t b;float wb;};
@@ -200,6 +203,16 @@ NativeModelSubmission NativeModels::capture(Runtime *rt,NativeAssets &assets,Nat
     const auto current=word(0x35ddf8);const auto layer=byte(object+0x65);
     if(layer>1 || byte(current+0x40dc+layer)!=1 || !composedBy(rt,word(current+0x40a8+4*layer),object))
         throw std::runtime_error("native model has no pending scene ownership");
+    // Shadow classes 159880 and 1599a0: their slot +60 (2b86f0, where ordinary
+    // models have 23c6c0) builds the object's own model packet with 2b6640
+    // (VU1 set 0xa, entry 0x6f0) as a shadow volume. On the GS it writes only
+    // the frame's alpha (FBMSK ffffff, a stencil count read back as PSMT4HH),
+    // never colour. Drawing it as a lit mesh laid a black alpha-64 film over the
+    // character (Alicia's hair near-black). The ground shadow it feeds is not ported.
+    if(const auto cls=word(object);cls==0x159880 || cls==0x1599a0){
+        if(word(cls+0x60)!=0x2b86f0)throw std::runtime_error(std::format("native shadow class {:x} without its 2b86f0 set-up",cls));
+        return NativeModelSubmission{object,camera->object};
+    }
     const auto model=word(object+0x7bc),count=word(model+0x34),list=word(object+0x77c);
     if(count>4096)throw std::runtime_error(std::format("native model mesh count outside bounds: model={:08x} count={}",model,count));
     if(!count){
@@ -406,6 +419,21 @@ NativeModelSubmission NativeModels::capture(Runtime *rt,NativeAssets &assets,Nat
                 const float area=(p[0]/p[3]-q[0]/q[3])*(q[1]/q[3]-r[1]/r[3])-(p[1]/p[3]-q[1]/q[3])*(q[0]/q[3]-r[0]/r[3]);
                 if(!std::signbit(area*((k&1)?-1.0f:1.0f)))continue;}
             batch.vertices.push_back(vertices[a]);batch.vertices.push_back(vertices[(k&1)?c:b]);batch.vertices.push_back(vertices[(k&1)?b:c]);}first+=length;}
+        if(traceModels && !batch.vertices.empty()){
+            double tex[3]{},col[4]{};float x0=1e9,y0=1e9,x1=-1e9,y1=-1e9;
+            if(batch.texture){for(auto v:batch.texture->rgba)for(unsigned c=0;c<3;++c)tex[c]+=(v>>(8*c))&255;for(auto &t:tex)t/=double(batch.texture->rgba.size());}
+            for(const auto &v:batch.vertices){for(unsigned c=0;c<4;++c)col[c]+=(v.rgba>>(8*c))&255;
+                const auto &M=batch.matrix;const float w=M[3]*v.x+M[7]*v.y+M[11]*v.z+M[15];if(w<=0)continue;
+                const float sx=(M[0]*v.x+M[4]*v.y+M[8]*v.z+M[12])/w,sy=(M[1]*v.x+M[5]*v.y+M[9]*v.z+M[13])/w;
+                x0=std::min(x0,sx);y0=std::min(y0,sy);x1=std::max(x1,sx);y1=std::max(y1,sy);}
+            for(auto &c:col)c/=double(batch.vertices.size());
+            uint32_t tag=0,index=0,slot=0,part=0;
+            if(material[1] && block){slot=uint32_t(value<int32_t>(rt,block+0x98));const auto ix=value<int16_t>(rt,manager+0x2670+2*slot);tag=word(manager+0x1008+16*ix);index=word(manager+8+16*ix);part=word(block+0x9c);}
+            std::fprintf(stderr,"[vp2s:model] object=%x mesh=%u/%x block=%x mode=%u tfx=%u tex=%08x:%x part=%u texmean=%.0f,%.0f,%.0f rgba=%.0f,%.0f,%.0f,%.0f box=%.0f,%.0f,%.0f,%.0f tris=%zu algs=",
+                object,i,mesh,block,material[4],material[3],tag,index,part,tex[0],tex[1],tex[2],col[0],col[1],col[2],col[3],x0,y0,x1,y1,batch.vertices.size()/3);
+            for(auto a:m.algorithms)std::fprintf(stderr,"%d.",a);
+            std::fprintf(stderr," obj=%.2f,%.2f,%.2f amb=%.2f,%.2f,%.2f class=%x o66=%u m3f=%u m57=%u blend=%u/%u%u%u%u\n",objectColour[0],objectColour[1],objectColour[2],ambient[0],ambient[1],ambient[2],
+                word(object),byte(object+0x66),byte(model+0x3f),byte(model+0x57),material[0],material[7],material[8],material[9],material[10]);}
         if(!batch.vertices.empty())out.batches.push_back(std::move(batch));
     }
     return out;

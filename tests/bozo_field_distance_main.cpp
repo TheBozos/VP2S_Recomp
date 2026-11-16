@@ -652,6 +652,35 @@ int main(){try{
         check(rejected && !std::memcmp(&bad,&bad0,sizeof(bad)) && !std::memcmp(snapshot.data(),rt.memory.flat(),snapshot.size()));++yawRejects;
     }
     std::printf("%u mod003 396a80 object-yaw rotations match the engine VU0 oracle (%u rejections)\n",yawRotations,yawRejects);
+    // mod003 effect 15e870 rotation blocks (nine copies; object in s0, s2 or s3):
+    // quaternion at obj+80, program 0x720, rows to obj+30.
+    constexpr std::pair<uint32_t,unsigned> effectBlocks[9]={{0x412bcc,16},{0x412ddc,16},{0x41861c,18},{0x418814,18},{0x419884,19},{0x43128c,16},{0x4314d4,16},{0x433614,16},{0x433904,16}};
+    unsigned effectRotations=0,effectRejects=0;
+    for(unsigned seed=0;seed<256;++seed){
+        auto &rt=adapted.runtime();std::memset(rt.memory.flat(),0x31+seed,bozo::kFlatBytes);const uint32_t aliases[]={0,0x20000000,0x30000000,0x80000000,0xa0000000};
+        const uint32_t object=0x1a0000|aliases[(seed/4)%5],block=effectBlocks[seed%9].first;const unsigned reg=effectBlocks[seed%9].second;
+        uint32_t q[4];for(unsigned i=0;i<4;++i)q[i]=((seed*5953+i*2909)&0x807fffff)|((117+(seed+i)%10)<<23);
+        if(seed%8==0){q[0]=q[1]=q[2]=0;q[3]=0x3f800000;}
+        std::memcpy(rt.memory.hostPointer(object+0x80,16),q,16);
+        const auto ram=std::vector<uint8_t>(rt.memory.flat(),rt.memory.flat()+bozo::kFlatBytes);
+        R5900Context c{};for(unsigned i=1;i<32;++i)c.r[i].ud[0]=0x5433000000000000ull+seed*32+i;c.pc=seed&2?block-0x5c:block-0x1c;c.r[reg].ud[0]=object;
+        c.r[3].ud[0]=object+0x80;
+        auto expect=c;expect.r[9].ud[0]=0;
+        for(uint32_t pc:{block,block+8,block+0x44})check(vp2s::nativeMathInstruction(rt.memory.flat(),&c,&rt,pc));
+        c.r[2].ud[0]=object+0x30;expect.r[2].ud[0]=object+0x30;
+        for(uint32_t pc:{block+0x4c,block+0x50,block+0x54})check(vp2s::nativeMathInstruction(rt.memory.flat(),&c,&rt,pc));
+        check(!std::memcmp(&expect,&c,sizeof(c)));
+        const auto rows=movementRotationOracle(q);check(!std::memcmp(rows.data(),rt.memory.hostPointer(object+0x30,48),48));
+        std::memcpy(rt.memory.hostPointer(object+0x30,48),ram.data()+((object+0x30)&0x1ffffff),48);check(!std::memcmp(ram.data(),rt.memory.flat(),ram.size()));
+        ++effectRotations;
+        R5900Context bad=c;uint32_t pc=block+0x4c;
+        if(seed%4==0)bad.r[2].uw[0]+=16;else if(seed%4==1){pc=block;bad.r[3].uw[0]=object+0x70;}else if(seed%4==2)bad.pc=0x417f50;
+        else{const uint32_t inf=0x7f800000;std::memcpy(rt.memory.hostPointer(object+0x84,4),&inf,4);}
+        const auto snapshot=std::vector<uint8_t>(rt.memory.flat(),rt.memory.flat()+bozo::kFlatBytes);const auto bad0=bad;bool rejected=false;
+        try{vp2s::nativeMathInstruction(rt.memory.flat(),&bad,&rt,pc);}catch(const std::runtime_error &){rejected=true;}
+        check(rejected && !std::memcmp(&bad,&bad0,sizeof(bad)) && !std::memcmp(snapshot.data(),rt.memory.flat(),snapshot.size()));++effectRejects;
+    }
+    std::printf("%u mod003 effect rotations (nine blocks) match the engine VU0 oracle (%u rejections)\n",effectRotations,effectRejects);
     // mod003 3d15c0: three program-0x720 blocks, quaternion captured at the load
     // (SP+1e0, SP+1d0, *(s2+84)+b0), rows at SP+230, SP+1f0, SP+1f0.
     unsigned bodyRotations=0;

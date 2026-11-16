@@ -161,6 +161,14 @@ int main(){try{
         check(grown.minimum[0]==-4 && grown.maximum[0]==2 && grown.minimum[1]==1 && grown.maximum[1]==7 && grown.minimum[2]==1 && grown.maximum[2]==2 && grown.maximum[3]==.5f);
         m.r[4].uw[0]=0x190010;order=false;try{math(0x364a84);}catch(const std::runtime_error &){order=true;}check(order);
         write(rt,0x364ac4,uint32_t(0));check(!math(0x364ac4));
+        // 38cea0, a leaf method: the same words at 38cfec/38d010/38d018, frame = its sp.
+        for(const auto &[pc,w]:{std::pair{0x38cfecu,0xd8c10000u},{0x38d010u,0x4bc1d6afu},{0x38d018u,0x4bc1deebu}})write(rt,pc,w);
+        m.r[29].uw[0]=frame;m.r[4].uw[0]=0x190000;write(rt,0x1d0000,std::array<float,4>{5,-3,2.5f,9});
+        order=false;try{math(0x38d018);}catch(const std::runtime_error &){order=true;}check(order);
+        check(math(0x38cfec) && math(0x38d010) && math(0x38d018));
+        const auto leaf=now.particles.bounds(frame,0x190000);
+        check(leaf.minimum[0]==-4 && leaf.maximum[0]==5 && leaf.minimum[1]==-3 && leaf.maximum[1]==7 && leaf.maximum[2]==2.5f);
+        m.r[29].uw[0]=frame-0x40;order=false;try{math(0x38cfec);}catch(const std::runtime_error &){order=true;}check(order);   // wrong frame
         now.particles=vp2s::NativeParticles{};
     }
     {auto &rt=b.runtime();initialize(rt,0);now.particles=vp2s::NativeParticles{};now.assets=vp2s::NativeAssets{};

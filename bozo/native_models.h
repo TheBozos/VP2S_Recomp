@@ -48,6 +48,8 @@ public:
     virtual void drawNativeModel(const NativeModelSubmission &)=0;
 };
 std::optional<bool> nativeModelInstruction(R5900Context *,Runtime *,uint32_t pc);
+// Diagnostic (VP2S_BOZO_TRACE_MODELS_AT): print every model batch while set.
+void setNativeModelTrace(bool on);
 // VU1 set-up routine 20 (code 0x1078 in the model programs): sphere-map
 // texture coordinates. n is the object-space vertex normal, eye the unit
 // object-space eye direction (VU row 72), rotation the object rotation with

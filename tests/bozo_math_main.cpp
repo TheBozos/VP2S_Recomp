@@ -1529,7 +1529,27 @@ int main(){try{
         if(std::memcmp(got,expect,16)){std::fprintf(stderr,"scaled sum seed%u %08x %08x %08x %08x / %08x %08x %08x %08x\n",seed,got[0],got[1],got[2],got[3],expect[0],expect[1],expect[2],expect[3]);check(false);}
         ++sumCases;
     }
-    std::printf("%u scaled-sum blocks (QMTC2 scale) match the VU0 oracle\n",sumCases);
+    // The same with the scale from v1 (mod003 38cf0c..38cf28, the game's words):
+    // LQC2 vf1 (v1), vf2 (a3); MFC1 v1 = f0; QMTC2 v1; MULAw; MADDx; SQC2 vf1 -> a3.
+    for(unsigned seed=0;seed<128;++seed){
+        auto &r=native.runtime();std::memset(r.memory.flat(),0x47+seed,bozo::kFlatBytes);
+        uint32_t state=seed*2246822519u+3;const auto rnd=[&](){state=state*1664525u+1013904223u;return state>>8;};
+        const uint32_t code=0x1c4000+64*(rnd()%64),aAt=0x1d0000+16*(rnd()%256),bAt=0x1e0000+16*(rnd()%256);
+        const uint32_t words[8]={0xd8610000,0xd8e20000,0x44030000,0,0x48a31800,0x4bc011bf,0x4bc30848,0xf8e10000};
+        std::memcpy(r.memory.hostPointer(code,32),words,32);
+        uint32_t a[4],b[4];for(unsigned i=0;i<4;++i){a[i]=(rnd()&0x807fffffu)|((100+rnd()%50)<<23);b[i]=(rnd()&0x807fffffu)|((100+rnd()%50)<<23);}
+        const uint32_t scale=(rnd()&0x807fffffu)|((110+rnd()%30)<<23);
+        std::memcpy(r.memory.hostPointer(aAt,16),a,16);std::memcpy(r.memory.hostPointer(bAt,16),b,16);
+        R5900Context x{};x.r[3].ud[0]=aAt;x.r[7].ud[0]=bAt;
+        for(const unsigned i:{0u,1u})if(!vp2s::nativeMathInstruction(r.memory.flat(),&x,&r,code+4*i)){std::fprintf(stderr,"scaled sum v1 word %u unclaimed\n",i);check(false);}
+        x.r[3].uw[0]=scale;x.r[3].uw[1]=rnd();x.r[3].uw[2]=rnd();x.r[3].uw[3]=rnd();   // MFC1 v1 = f0
+        for(const unsigned i:{4u,5u,6u,7u})if(!vp2s::nativeMathInstruction(r.memory.flat(),&x,&r,code+4*i)){std::fprintf(stderr,"scaled sum v1 word %u unclaimed\n",i);check(false);}
+        uint32_t got[4],expect[4];std::memcpy(got,r.memory.hostPointer(bAt,16),16);
+        for(unsigned i=0;i<3;++i){uint32_t f=0;expect[i]=bozo::ps2f::addNearest(bozo::ps2f::mul(b[i],0x3f800000,f),bozo::ps2f::mul(a[i],scale,f),f);}expect[3]=a[3];
+        if(std::memcmp(got,expect,16)){std::fprintf(stderr,"scaled sum v1 seed%u %08x %08x %08x %08x / %08x %08x %08x %08x\n",seed,got[0],got[1],got[2],got[3],expect[0],expect[1],expect[2],expect[3]);check(false);}
+        ++sumCases;
+    }
+    std::printf("%u scaled-sum blocks (QMTC2 scale from v0 or v1) match the VU0 oracle\n",sumCases);
     // Particle draw setup (mod001 22f3a4..22f3bc and 22f404..22f410), the game's words:
     // a*b + c with its store in the delay slot of b 22f418, and the plain product.
     unsigned setupCases=0;
@@ -1555,7 +1575,7 @@ int main(){try{
         ++setupCases;
     }
     std::printf("%u particle draw-setup blocks (a*b+c after b, a*b) match the VU0 oracle\n",setupCases);
-    // Particle step (mod003 3652d0): the game's site words at their addresses; four
+    // Particle step (mod003 3652d0 and its copy 38d900): the game's site words at their addresses; four
     // loop variants, dt from v1 or s1, two stores per particle, out-of-order rejects.
     unsigned particleCases=0;
     {struct Variant{uint32_t q,p,v,a,m,s1,s2;};
@@ -1567,11 +1587,12 @@ int main(){try{
         {0x3655e8,0xda610000},{0x3655f0,0xdaa20000},{0x3656f4,0x4bc00abc},{0x3656f8,0x4bc31048},{0x365704,0xfa410000},{0x36570c,0xfa610000},
         {0x3657e4,0xda610000},{0x3657e8,0xda020000},{0x3658fc,0x4bc00abc},{0x365900,0x4bc31048},{0x36590c,0xfa010000},{0x365914,0xfa610000}};
      const auto field=[](uint32_t w,unsigned shift){return (w>>shift)&31;};
-     for(unsigned seed=0;seed<64;++seed){
-        auto &r=native.runtime();std::memset(r.memory.flat(),0x5c+seed,bozo::kFlatBytes);for(const auto &[pc,w]:words)std::memcpy(r.memory.hostPointer(pc,4),&w,4);
+     for(unsigned seed=0;seed<128;++seed){
+        const uint32_t k=seed>=64?0x38d900-0x3652d0:0;   // the 38d900 copy: every site shifted
+        auto &r=native.runtime();std::memset(r.memory.flat(),0x5c+seed,bozo::kFlatBytes);for(const auto &[pc,w]:words)std::memcpy(r.memory.hostPointer(pc+k,4),&w,4);
         uint32_t state=seed*2654435761u+9;const auto rnd=[&](){state=state*1664525u+1013904223u;return state>>8;};
         const auto value=[&](){return (rnd()&0x807fffffu)|((105+rnd()%40)<<23);};
-        const auto &var=variants[seed%4];const uint32_t dt=seed%8==1?0:value();
+        const auto var=[&]{auto v=variants[seed%4];for(auto *f:{&v.q,&v.p,&v.v,&v.a,&v.m,&v.s1,&v.s2})*f+=k;return v;}();const uint32_t dt=seed%8==1?0:value();
         R5900Context x{};const auto qw=[&](uint32_t pc){uint32_t w;std::memcpy(&w,r.memory.hostPointer(pc,4),4);return w;};
         x.r[field(qw(var.q),16)].uw[0]=dt;x.r[field(qw(var.q),16)].uw[3]=rnd();check(vp2s::nativeMathInstruction(r.memory.flat(),&x,&r,var.q));
         for(unsigned n=0;n<3;++n){

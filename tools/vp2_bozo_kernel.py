@@ -387,6 +387,20 @@ def overlay_adaptations(name,data):
                                (0x410c30,0x410da0,'d744a9e5b51513944c7eae5e644b42f3dd642a611c190fb3af40195f76291b14'),
                                # Object yaw 396a80 (program-0x720 block, then 410df0 and atan2).
                                (0x396a80,0x396b2c,'992694f1522b2f2232e23f55442299d5d2fe9d6391a787c179ca604145d58d95'),
+                               # Effect 15e870 built by 417f50 (two program-0x720 blocks, rows to s2+30).
+                               (0x417f50,0x4189d8,'995bcc3867456b61e2ba846d5e696d67c15edc4874c85ea3999ab550f3e60a3f'),
+                               # The same rotation block elsewhere (allocator return .. third row store).
+                               (0x412b70,0x412c24,'5860e5c9494723e62f04e156dd8a32bd968d79f82b2fd2805222acb01210f56e'),
+                               (0x412d80,0x412e34,'9498fbc8118d1365a8dc6e9f980e22ce55c8dd6f7f45b197b818308f8339cdd5'),
+                               (0x419828,0x4198dc,'d79d3adf5529f95284a6f0dca20ef09d00b78def0eac9f405730f95c8b007b09'),
+                               (0x431230,0x4312e4,'1211efd710d21ad07d85d25529264d0f4fe78d5cf604a5ea3e2e779b2ba8078d'),
+                               (0x431478,0x43152c,'2e058382728ee53fea3427fa321b2665f799bc76f4972941bc8630686fc7a480'),
+                               (0x4335b8,0x43366c,'8510fe9304d7d0d88e134ad9048a35523bd48c0cbb90a1559aa429a2b808439f'),
+                               (0x4338a8,0x43395c,'4ad9586ba1652999a9925489b494a6de55165745a2bd84443f2880bfb536d0a4'),
+                               # Particle step copy 38d900 (3652d0's VU0 sites +0x28630, strides x4/x32).
+                               (0x38d900,0x38df90,'e92fd43817328c8624afdcf10fa7bc10c482e30d14cac8e0a6737879d1789c4b'),
+                               # Emitter method 38cea0 (two v1 scaled sums, then the particle box words).
+                               (0x38cea0,0x38d0a0,'496b8d46f1c01dc5c23b15468dde55107541658cd1cb7d4b93ee177e415c8d65'),
                                # Event title ornament 165e00: build method 4494f0, builder 449580 (layer +c4 method).
                                (0x4494f0,0x449580,'04b9a1af16c422102a8f8ce4e4ec1a512c975aad962f6041977a4abfe9a43320'),
                                (0x449580,0x449cc0,'8d3f4712fa16f316978e60cef4e04eaadf12a4961e0ef7bc2169db44ad4043ab'),

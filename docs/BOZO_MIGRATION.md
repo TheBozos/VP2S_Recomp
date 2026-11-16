@@ -12,6 +12,69 @@ The earlier VP2S face/shading and general brightness comparisons remain open.
 
 ## Build and evidence
 
+### Alicia's hair: shadow volumes drawn as colour; effect rotations and particles (2026-11-16)
+
+**Hair (user report).** In the field, Alicia's hair was near-black from the
+front. PCSX2 (slot 1 Logun state, Waiting Area) shows it light blonde.
+- `VP2S_BOZO_TRACE_MODELS_AT=<frame>` (diagnostic, new) prints every model
+  batch of one frame: object, mesh, texture key and palette part, mean texel
+  and vertex colour, GS screen box, routines, class, selector flags, blend.
+  Run at least two frames past it (it switches on at the end of the previous frame).
+- The hair texture (33317076:4c), its palette and its vertex colours
+  (47,49,48,127) match the PCSX2 dump exactly.
+- Over her draws object `999540`, class `1599a0`: untextured, black,
+  alpha 64, blend (Cs-Cd)As+Cd, covering her down to the ground.
+- **What that object is.** Classes `159880` and `1599a0` have slot `+60` =
+  `2b86f0` (ordinary models: `23c6c0`). It builds the object's own model
+  packet with `2b6640`: VU1 set 0xa, entry 0x6f0, TEX2 PSMT4HH over the
+  frame. Both job vtables (`154794`, `159a64`) are identical: a queued job only
+  kicks the packet already built at `+720`. So the queued model is a shadow
+  volume, and on the GS it writes only frame alpha (PCSX2: 580 volume
+  triangles with FBMSK ffffff, no black colour draw over her).
+- **Fix.** `NativeModels::capture` submits no colour batches for those two
+  classes; a class that matches but lacks `2b86f0` rejects. The ground shadow
+  the volume feeds (stencil count, darkening) is still not ported.
+- Hair mean over the same box: before (41,38,32), after (121,111,85),
+  PCSX2 (105,98,80) (PCSX2's frame is softer).
+- Test: `bozo_models_main` checks both classes with the model pointer
+  cleared (never read), a wrong slot rejects, and an ordinary class still
+  reaches the model path.
+
+**Effect rotation (route boundary `418814`).** After the house, Circle builds
+a `15e870` object in `417f50` from its owner `s1`: owner `+a0/+b0` copied to
+`+70/+80`, then two identical program-0x720 blocks (LQC2 vf5 from `s2+80`,
+VCALLMS 0x720, CFC2.I, SQC2 vf8..vf10 to `s2+30`). Native: the quaternion
+matrix of `s2+80` (only `s2+60..6c` are written between the load and the
+stores). The recompiled block enters after the allocator call (block-5c) or
+at the null check (block-1c). The same block (identical from the allocator
+return to the third store, temp registers aside) appears nine times in mod003:
+`412bcc`, `412ddc`, `43128c`, `4314d4`, `433614`, `433904` (object in s0),
+`41861c`, `418814` (s2), `419884` (s3); a mod001..4 scan found no others of
+that shape (`379234` differs and is not claimed). All nine are handled from
+one table; each block's bytes (block-5c .. block+58) are guarded, plus the
+whole of `417f50`. Test in `bozo_field_distance_main` cycles all nine
+(256 oracle cases, 256 rejections).
+
+**Particles after the swing (boundaries `38d980`, `38cf0c`).**
+- `38d900` is a copy of the particle step `3652d0` (p + v*dt): every VU0 site
+  is 0x28630 higher with the same words; only the record strides differ
+  (x4/x32 instead of x8/x16). `nativeParticleStep` maps the copy onto the
+  same site table. Guard `(0x38d900,0x38df90)`; the math test runs all four
+  loops at both addresses.
+- `38cea0` is another emitter method (a leaf, called from the driver at
+  `22ed38`): two scaled sums `b + a*s` with s from v1 (MFC1 f0, QMTC2 v1), a
+  new `scaledsum` word set beside the v0 one; then the particle box words at
+  `38cfec`/`38d010`/`38d018` (VMAX in the delay slot of `beqz a3`).
+  `nativeParticleBox` now takes a frame offset per method (0x40 for `3649f0`,
+  0 for this leaf). Guard `(0x38cea0,0x38d0a0)`; tests: 128 v1 scaled sums
+  against the ps2f oracle, and the leaf box (bounds, order, wrong frame).
+
+**Route script.** Continues after 35000: TRIANGLE 35100, DOWN 35600,
+CROSS 35800 (heads outside), CIRCLE 36200 and 36400, UP 300 at 36700,
+DOWN 420 at 37100, CROSS 37600. Run with `--frames 38500`.
+
+**Result:** the route runs all 38500 frames (rc 0, capture serial 26545): out of the house, two sword swings, back in and out; Alicia's hair is blonde throughout. All 89 suites pass.
+
 ### Extended route: the field pause and a house (2026-11-16)
 
 **Route script.** `tools/pad_scripts/bozo_logun_armory.txt` now continues

@@ -786,6 +786,11 @@ int main(int argc,char **argv) {
             profiler.start(out,from?std::stoull(from):0);
         }
 #endif
+        if(const char *at=std::getenv("VP2S_BOZO_TRACE_MODELS_AT")){
+            // Diagnostic only: every model batch (texture, palette, colours, box) of one frame.
+            const uint64_t traced=std::stoull(at);auto previous=host.native.onFrame;
+            host.native.onFrame=[previous,traced](uint64_t frame,const R5900Context *ctx){if(previous)previous(frame,ctx);vp2s::setNativeModelTrace(frame+1==traced);};
+        }
 #ifdef VP2S_BOZO_CAPTURE
         if(const char *every=std::getenv("VP2S_BOZO_CAPTURE_EVERY"); every && !capturePath.empty()){
             // Diagnostic only: a numbered capture every N frames from VP2S_BOZO_CAPTURE_FROM,

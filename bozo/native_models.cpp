@@ -22,6 +22,8 @@ struct NativeModels::Mesh {
     std::array<uint32_t,11> material{};
     bool hasMaterial=false;
     int32_t scroll=-1;
+    // Routine 26's data row: alpha base (.x), alpha on (.y), alpha scale (.w).
+    struct Reflection {float base=0;int32_t on=0;float scale=0;} reflection;
     std::vector<uint16_t> strips;
     std::vector<Vertex> vertices;
     std::vector<Bone> bones;
@@ -59,6 +61,19 @@ std::array<int32_t,3> sphereMapTexture(const std::array<float,3> &n,const std::a
     const auto fixed=[](float x){const double s=std::trunc(double(x)*4096);return int32_t(std::clamp(s,-2147483648.0,2147483647.0));};
     return {fixed(v[0]+.5f*q),fixed(v[2]+.5f*q),fixed(q)};
 }
+ReflectionTexture reflectionTexture(const std::array<float,3> &n,const std::array<float,3> &p,const std::array<float,3> &eye,
+                                    const float (&rotation)[3][3],float base,int32_t on,float scale){
+    const std::array<float,3> d{eye[0]-p[0],eye[1]-p[1],eye[2]-p[2]};
+    const float length=std::sqrt(d[0]*d[0]+d[1]*d[1]+d[2]*d[2]),inv=length!=0?1/length:0;   // ERLENG
+    const float c=(n[0]*d[0]+n[1]*d[1])+n[2]*d[2];
+    std::array<float,3> r{},v{};for(unsigned k=0;k<3;++k)r[k]=(n[k]*c+n[k]*c)-d[k];
+    for(unsigned j=0;j<3;++j)v[j]=(rotation[j][0]*r[0]+rotation[j][1]*r[1])+rotation[j][2]*r[2];v[1]=-v[1];
+    const float x=v[0]*inv,y=1+v[1]*inv,z=v[2]*inv,q=std::sqrt(std::fabs(y));   // VU SQRT takes |x|
+    const auto fixed=[](float f){const double s=std::trunc(double(f)*4096);return int32_t(std::clamp(s,-2147483648.0,2147483647.0));};
+    ReflectionTexture out{{fixed(x+1.41421f*q),fixed(z+1.41421f*q),fixed(2.82843f*q)},std::nullopt};
+    if(on){const float f=1-c*inv,a=base+scale*(f*f);out.alpha=int32_t(std::clamp(std::trunc(double(a)),-2147483648.0,2147483647.0));}   // FTOI0
+    return out;
+}
 std::shared_ptr<const NativeModels::Pack> NativeModels::load(const AssetOrigin &origin){
     if(origin.kind!=AssetOrigin::Kind::Part)throw std::runtime_error("native mesh has no decoded asset-part provenance");
     const auto key=std::pair{origin.disc,origin.part};if(auto it=packs.find(key);it!=packs.end())return it->second;
@@ -76,6 +91,7 @@ std::shared_ptr<const NativeModels::Pack> NativeModels::load(const AssetOrigin &
         if(s[0]>1 || s[1]>1 || s[2]>1 || s[3]>3 || s[4]>3 || s[5]>1 || s[6]>1 || s[7]>2 || s[8]>2 || s[9]>2 || s[10]>2)
             throw std::runtime_error("invalid semantic native material");
         r.array(m->strips,ns);r.array(m->vertices,nv);if(m->has(4))r.array(m->bones,nv);
+        if(m->has(26))m->reflection=r.take<Mesh::Reflection>();
         if(m->has(48))m->scroll=r.take<int32_t>();
         m->sourceSize=r.take<uint32_t>();r.array(m->sources,nv);
         uint64_t total=0;for(auto n:m->strips)total+=n;if(total!=nv)throw std::runtime_error("native strip extent mismatch");
@@ -273,7 +289,7 @@ NativeModelSubmission NativeModels::capture(Runtime *rt,NativeAssets &assets,Nat
             if(shown)throw std::runtime_error(std::format("native generated mesh {:x} changed after publication:{}",mesh,detail));
             held=g->second.mesh;}
         const auto &m=*held;
-        for(auto algorithm:m.algorithms)if(algorithm!=-1 && algorithm!=0 && algorithm!=2 && algorithm!=4 && algorithm!=6 && algorithm!=8 && algorithm!=12 && algorithm!=14 && algorithm!=18 && algorithm!=28 && algorithm!=32 && algorithm!=36 && algorithm!=20 && algorithm!=44 && algorithm!=46 && algorithm!=48)
+        for(auto algorithm:m.algorithms)if(algorithm!=-1 && algorithm!=0 && algorithm!=2 && algorithm!=4 && algorithm!=6 && algorithm!=8 && algorithm!=12 && algorithm!=14 && algorithm!=18 && algorithm!=28 && algorithm!=32 && algorithm!=36 && algorithm!=20 && algorithm!=26 && algorithm!=44 && algorithm!=46 && algorithm!=48)
             throw std::runtime_error(std::format("unported native mesh algorithm {}",algorithm));
         if(m.hasMaterial)material=m.material;
         else if(origin && block>=0x40 && block-0x40!=mesh){const auto owner=assets.origin(block-0x40);if(owner && owner->disc==origin->disc && owner->part==origin->part){
@@ -328,6 +344,16 @@ NativeModelSubmission NativeModels::capture(Runtime *rt,NativeAssets &assets,Nat
                 if(m.has(48)){const auto scrollAfter=std::find(m.algorithms.begin(),m.algorithms.end(),48)>std::find(m.algorithms.begin(),m.algorithms.end(),20);
                     if(scrollAfter)for(unsigned c=0;c<2;++c)stq[c]=int32_t(std::trunc((double(stq[c])/4096+scroll[c])*4096));}
                 vout.u=stq[2]?float(stq[0])/float(stq[2]):.5f;vout.v=stq[2]?float(stq[1])/float(stq[2]):.5f;}
+            float alphaRow=v.colour[3];
+            if(m.has(26)){
+                // Routine 26 runs after the skinning it follows (it reads the skinned
+                // normal and position); with 20, 36 or 48 it would share the UV row.
+                const auto at=std::find(m.algorithms.begin(),m.algorithms.end(),26);
+                if(m.has(20) || m.has(36) || m.has(48) || std::find(at,m.algorithms.end(),2)!=m.algorithms.end() || std::find(at,m.algorithms.end(),4)!=m.algorithms.end())
+                    throw std::runtime_error("unqualified native routine 26 combination");
+                const auto t=reflectionTexture(n,p,eye,rotation,m.reflection.base,m.reflection.on,m.reflection.scale);
+                vout.u=t.stq[2]?float(t.stq[0])/float(t.stq[2]):.5f;vout.v=t.stq[2]?float(t.stq[1])/float(t.stq[2]):.5f;
+                if(t.alpha)alphaRow=float(*t.alpha);}
             std::array<float,4> factor{1,1,1,objectColour[3]};
             if(material[4]==0){factor=objectColour;if(!tableA && !plain)factor[0]=factor[1]=factor[2]=0;}
             else if(material[4]==1){for(unsigned c=0;c<3;++c){factor[c]=ambient[c];for(unsigned l=0;l<4;++l)factor[c]+=colours[l][c]*std::max(0.0f,dot(directions[l],n));}}
@@ -370,7 +396,7 @@ NativeModelSubmission NativeModels::capture(Runtime *rt,NativeAssets &assets,Nat
                     float sp=std::max(0.0f,dot(half,n));for(int32_t r=0;r<power;++r)sp*=sp;const float specular=sp*cone*strength;diffuse*=weights[1];
                     for(unsigned c=0;c<3;++c)factor[c]+=l.colour[c]*diffuse+l.colour[c]*specular;}
             }
-            vout.rgba=0;for(unsigned c=0;c<4;++c){finite(factor[c]);const auto lit=uint32_t(std::clamp(v.colour[c]*factor[c],0.0f,limit[c]>0?std::min(limit[c],255.0f):255.0f));vout.rgba|=lit<<(8*c);}
+            vout.rgba=0;for(unsigned c=0;c<4;++c){finite(factor[c]);const auto lit=uint32_t(std::clamp((c==3?alphaRow:float(v.colour[c]))*factor[c],0.0f,limit[c]>0?std::min(limit[c],255.0f):255.0f));vout.rgba|=lit<<(8*c);}
             for(auto f:{vout.x,vout.y,vout.z,vout.u,vout.v,vout.fog})finite(f);
         }
         const bool cull=(block?word(block+0x90)==0:bool(material[5])) && !byte(object+0x210);size_t first=0;

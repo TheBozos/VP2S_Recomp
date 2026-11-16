@@ -12,6 +12,56 @@ The earlier VP2S face/shading and general brightness comparisons remain open.
 
 ## Build and evidence
 
+### VU1 set-up routine 26: reflection map from the eye's position (2026-11-16)
+
+Disc mesh `6e2785b8/0+6cb80` (routines [8, 26]) had no converted record:
+the offline converter rejected routine 26. Routine 26 is common: 3,725 disc
+meshes use it, with routine 6 or 8, after skinning 2/4, or alone. Only
+routine 40 now remains unconverted.
+
+**Where.** Table entry 26 (instruction `0x499 + 26`) branches to `0x1220`.
+Its delay slot sets `vf31.xyz = 1` and loads vertex 0's position into
+`vf09`; `vf08` is the object-space eye (HLE `runObjectSetup`). The loop is
+software-pipelined around `ERLENG`/`P`.
+
+**What it computes**, per vertex:
+- d = eye - p, inv = 1/|d|, c = n.d;
+- r = 2c n - d; v = Rn r with v.y negated (rows 73..75);
+- x = v.x inv, y = 1 + v.y inv, z = v.z inv, q = sqrt|y|;
+- S, T, Q = (x + 1.41421 q, z + 1.41421 q, 2.82843 q) as 12-bit fixed
+  point, into the UV row;
+- when the routine's data `.y` is set: colour.w = FTOI0(data.x + data.w
+  (1 - c inv)^2). The program's lighting stage later clamps it (`MINI`
+  with the limit row, then `MAX` 0).
+
+Data rows on disc: (0, off) or, with alpha, (32, 96), (38.4, 89.6),
+(51.2, 96) and (128, 64).
+
+**How it was qualified.** The formula was not taken from the listing
+alone. The routine was lifted from its own microcode with the PS2Recomp
+lifter (a scratch copy whose final `jr` ends the run), linked with the VU1
+core and run as a test-only oracle on random vertices. The prologue first
+disagreed until the table slot's `vf09` preload was supplied; with it,
+every vertex matches and the initial `P` does not matter. 40 oracle cases
+are in `tests/bozo_reflection_oracle.inc`. The models suite checks
+`reflectionTexture` against them: S, T, Q within 2/4096, alpha exact, no
+alpha when off.
+
+**Port.**
+- `tools/vp2_meshes.py` keeps routine 26 and writes its data row
+  (f32 base, i32 on, f32 scale); `tools/vp2_bozo_meshes.py` and the
+  loader carry it.
+- At draw time, after skinning, the native path computes the UV (S/Q,
+  T/Q) and, when on, feeds the alpha into the existing lighting clamp.
+- Combinations with 20, 36, 48, or skinning after 26, reject.
+
+Regenerated packs: 1,354,929 meshes converted; only the 6,461 routine-40
+meshes are still skipped.
+
+**Result:** the armory route runs to its end, all 32000 frames, with no
+boundary (serial 20045). The last frame is a bright town square with
+townspeople. It has not been compared with PCSX2.
+
 ### Generated meshes: the batcher's chunks drawn by the native model path (2026-11-16)
 
 User decision: a native reader for the batcher's sections.

@@ -24,6 +24,8 @@ extension), a list of meshes:
     vertices: f32 position[4] (w: the bone's VU address for routine 2), f32 normal[3], f32 uv[2], u8 rgba[4],
     for routine 4: per vertex i32 bone a, f32 weight a, i32 bone b, f32 weight b.
     for routine 48 (texture scrolling): i32 the offset's row index (the UV offset is .zw of object row 38 + index).
+    for routine 26 (eye-position reflection map): its data row: f32 alpha base (.x), i32 alpha on (.y), f32 alpha
+      scale (.w); the native renderer computes the UV (and the alpha when on) per frame from the eye.
     u32 source mesh byte size, then per vertex u32 normal offset, u32 position offset (relative to the source mesh;
       0xFFFFFFFF when xyz are not three consecutive raw 32-bit words). These locate the game's animated work copy
       directly; no VIF commands are read at runtime.
@@ -174,7 +176,7 @@ def convert(data, at, size):
                 for c in range(3):
                     vu.setf(v, c, vu.i(v, c) / 4096.0)
         # 12..54 except 20, 26, 30, 36, 40, 44, 48: their set-up table entries only return (JR) in every build of the microcode.
-        elif r not in (0, 12, 14, 16, 18, 22, 24, 28, 32, 34, 38, 42, 46, 50, 52, 54, 2, 4, 20, 36, 44, 48):
+        elif r not in (0, 12, 14, 16, 18, 22, 24, 28, 32, 34, 38, 42, 46, 50, 52, 54, 2, 4, 20, 26, 36, 44, 48):
             return None, f'routine {r}'
     out = bytearray()
     has_material = 1 if flags & 1 else 0
@@ -200,6 +202,9 @@ def convert(data, at, size):
         for k in range(count):
             e = base + k
             out += struct.pack('<ifif', vu.i(e, 0), vu.f(e, 1), vu.i(e, 2), vu.f(e, 3))
+    if 26 in routines:
+        base = top + bases[routines.index(26)]
+        out += struct.pack('<fif', vu.f(base, 0), vu.i(base, 1), vu.f(base, 3))
     if 48 in routines:
         out += struct.pack('<i', vu.i(top + bases[routines.index(48)], 0))
     out += struct.pack('<I', size)

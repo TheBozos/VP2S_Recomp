@@ -164,6 +164,23 @@ int main(int argc,char **argv){try{
         // (For unit normals: then |r| = 1 and (v.x/q)^2 = (1 + v.y)/8 <= 1/4.)
         if(seed%3==0 && got[2]>64)for(unsigned c=0;c<2;++c)check(std::fabs(float(got[c])/float(got[2])-.5f)<=.5f+4.f/float(got[2]));
         ++sphereCases;}}
+    // Routine 26 against its own microcode, lifted and run as a test-only oracle
+    // (tests/bozo_reflection_oracle.inc): S, T, Q within 2/4096, alpha exactly.
+    unsigned reflectionCases=0;
+    {struct Case{std::array<float,3> n,p,eye;float c,s;std::array<int32_t,4> out;int32_t on;};
+     static const Case cases[]={
+#include "bozo_reflection_oracle.inc"
+     };
+     for(const auto &k:cases){
+        const float R[3][3]={{k.c,0,k.s},{0,1,0},{-k.s,0,k.c}};float rot[3][3];
+        for(unsigned j=0;j<3;++j)for(unsigned c=0;c<3;++c)rot[j][c]=R[c][j];
+        const auto got=vp2s::reflectionTexture(k.n,k.p,k.eye,rot,40,k.on,60);
+        for(unsigned c=0;c<3;++c)if(std::abs(got.stq[c]-k.out[c])>2){std::fprintf(stderr,"routine 26 case%u lane%u %d / %d\n",reflectionCases,c,got.stq[c],k.out[c]);check(false);}
+        if(k.on){if(!got.alpha || *got.alpha!=k.out[3]){std::fprintf(stderr,"routine 26 case%u alpha %d / %d\n",reflectionCases,got.alpha?*got.alpha:-999,k.out[3]);check(false);}}
+        else check(!got.alpha && k.out[3]==-9);
+        ++reflectionCases;}
+     check(reflectionCases==40);}
+    std::printf("%u VU1 routine-26 reflection vertices match its lifted microcode\n",reflectionCases);
     std::printf("%u VU1 routine-20 sphere-map vertices match the listing; %u native model captures +%u qualified empty FPS models: independent positions/skinning/UV/colour/strip ordering, unused-input isolation, whole RAM/FP preservation and snapshot/asset lifetime\n",sphereCases,cases,emptyCases);
     return 0;
 }catch(const std::exception &e){std::fprintf(stderr,"%s\n",e.what());return 1;}}

@@ -64,6 +64,7 @@
 #include <set>
 
 namespace {
+uint32_t lastImageEnqueue[4]={}; // diagnostic: ra, source, count, owner of the last type-1 enqueue
 class StrictHost final : public bozo::ee::Host,public vp2s::TimerOwner,public vp2s::SettingsOwner,public vp2s::SeedOwner,
     public vp2s::ModuleOwner,public vp2s::BootstrapOwner,public vp2s::RandomOwner,public vp2s::TextureOwner,public vp2s::SceneOwner,
     public vp2s::AssetOwner,public vp2s::DebugFontOwner,public vp2s::StateSetupOwner,public vp2s::ScreenRectOwner,public vp2s::CaptureFadeOwner,public vp2s::ScreenZoomOwner,public vp2s::UiTextOwner,
@@ -224,8 +225,14 @@ public:
         bozo::render::Material material;material.textured=false;material.alphaTest=true;
         material.blend=bozo::render::Material::Blend::Alpha;
         const float identity[16]={1,0,0,0,0,1,0,0,0,0,1,0,0,0,0,1};
-        const auto vertices=vp2s::nativeScreenRectangleVertices(rect);
-        bozo::render::Renderer::instance().draw(material,identity,vertices.data(),vertices.size());
+        if(rect.wipe){
+            // The wipe's Gouraud strip (PRIM 24c) as its 10 triangles.
+            std::vector<bozo::render::Vertex> triangles;for(unsigned k=0;k+2<rect.strip.size();++k)for(unsigned j=0;j<3;++j)triangles.push_back(rect.strip[k+j]);
+            bozo::render::Renderer::instance().draw(material,identity,triangles.data(),triangles.size());
+        }else{
+            const auto vertices=vp2s::nativeScreenRectangleVertices(rect);
+            bozo::render::Renderer::instance().draw(material,identity,vertices.data(),vertices.size());
+        }
         // VP2S_BOZO_TRACE_RECTS_FROM=<frame>: every rectangle from that frame on (fades, curtains).
         static const unsigned long long rectsFrom=[]{const char *v=std::getenv("VP2S_BOZO_TRACE_RECTS_FROM");return v?std::strtoull(v,nullptr,10):~0ull;}();
         if((++screenRectDraws<=4 && std::getenv("VP2S_BOZO_TRACE_QUEUES")) || native.framesEnded()>=rectsFrom)
@@ -488,7 +495,8 @@ public:
         // A generic SDK retirement cannot establish VP2S source ownership.
         // Known producers publish offline assets before retiring their transport.
         if(target==0x122bf8u)
-            throw std::runtime_error(std::format("native VP2S image owner required at {:x} ra={:x}",target,c->r[31].uw[0]));
+            throw std::runtime_error(std::format("native VP2S image owner required at {:x} ra={:x} a0={:x} a1={:x} (last image enqueue ra={:x} source={:x} count={} owner={:x})",target,c->r[31].uw[0],c->r[4].uw[0],c->r[5].uw[0],
+                lastImageEnqueue[0],lastImageEnqueue[1],lastImageEnqueue[2],lastImageEnqueue[3]));
         if(target==0x123220u || target==0x123550u || target==0x1235b8u || target==0x123630u || target==0x1237f0u){
             std::string detail;
             if(c->r[31].uw[0]==0x112fc0){
@@ -641,6 +649,8 @@ bool dispatchNativeInstruction(uint8_t *ram,R5900Context *ctx,Runtime *rt,uint32
             object,word(object),word(object+0x650),model,word(model+0x34),word(object+0x77c),origin?origin->disc:0,origin?origin->part:0,origin?origin->offset:0));
     }
     if(pc==0x1131c0){
+        // The last type-1 (image) enqueue, named by the image-owner boundary (122bf8).
+        if(ctx->r[5].uw[0]==1){lastImageEnqueue[0]=ctx->r[31].uw[0];lastImageEnqueue[1]=ctx->r[7].uw[0];lastImageEnqueue[2]=ctx->r[8].uw[0];lastImageEnqueue[3]=ctx->r[9].uw[0];}
         if(std::getenv("VP2S_BOZO_TRACE_QUEUES")){
             std::fprintf(stderr,"[vp2s:enqueue] ra=%x queue=%x type=%u source=%x count=%u owner=%x\n",
                          ctx->r[31].uw[0],ctx->r[4].uw[0],ctx->r[5].uw[0],ctx->r[7].uw[0],ctx->r[8].uw[0],ctx->r[9].uw[0]);

@@ -401,6 +401,8 @@ def overlay_adaptations(name,data):
                                (0x38d900,0x38df90,'e92fd43817328c8624afdcf10fa7bc10c482e30d14cac8e0a6737879d1789c4b'),
                                # Emitter method 38cea0 (two v1 scaled sums, then the particle box words).
                                (0x38cea0,0x38d0a0,'496b8d46f1c01dc5c23b15468dde55107541658cd1cb7d4b93ee177e415c8d65'),
+                               # Camp menu set-up 45dd30 (its graphics-memory clear's enqueue retires).
+                               (0x45dd30,0x45e350,'8187c54633881d2e1a3ca858acfdf23f673b3d95dddc4b810e463dd8a46a5ff9'),
                                # Event title ornament 165e00: build method 4494f0, builder 449580 (layer +c4 method).
                                (0x4494f0,0x449580,'04b9a1af16c422102a8f8ce4e4ec1a512c975aad962f6041977a4abfe9a43320'),
                                (0x449580,0x449cc0,'8d3f4712fa16f316978e60cef4e04eaadf12a4961e0ef7bc2169db44ad4043ab'),
@@ -475,6 +477,11 @@ def overlay_adaptations(name,data):
                 # Texture uploader 165630: the draw's type-3 enqueue enters its real
                 # completion 443190; 443238 (delay slot) publishes the FIS entries.
                 '00443234 0c044c70 0c110c64\n'
+                # Camp menu set-up 45dd30: its N 256x256 PSMCT24 uploads of a zeroed
+                # 256 KiB buffer only clear physical graphics memory, which native
+                # rendering does not have. Retire only their type-1 enqueue (no owner,
+                # no free flags); the allocations, fill, descriptors and frees stay.
+                '0045e310 0c044c70 00000000\n'
                 # Capture fade 1610f0. Capture (3d2d78) branches to the state-0 tail
                 # 3d3020 (+a0 = +98, state 1): no readback nodes, no strip headers.
                 # The builder keeps its own packet (register header, 3d3500 defaults,

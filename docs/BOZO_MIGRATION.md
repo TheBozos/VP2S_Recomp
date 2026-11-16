@@ -12,6 +12,55 @@ The earlier VP2S face/shading and general brightness comparisons remain open.
 
 ## Build and evidence
 
+### Toward the camp menu: 0x720 idiom, wipe fade, menu graphics clear (2026-11-16)
+
+A route step SELECT at 38600 (camp menu) met four boundaries; three are ported,
+the fourth (menu images) is the next work. The committed route still ends at
+38500.
+
+**Generic 0x720 quaternion idiom (`37e180`).** The program-0x720 block
+(LQC2 vf5; VCALLMS 0x720 at +4/+8; CFC2.I t1,vi0 as the next COP2 word;
+SQC2 vf8..vf10 at 0/16/32 of one base; plain EE words between, no branch,
+jump or other COP2 word) is inlined 39 times across mod001/mod003 (a scan of
+every module). `nativeQuaternionIdiom` recognises it by these words around the
+PC, last in the fallback chain (17 blocks keep their dedicated handlers): the
+quaternion is captured at the load, the rows written at the stores. Test:
+192 synthetic blocks (seed 0 = 37e180's own words; varied bases, call slot,
+gaps, a base and source rewritten before the stores) match the 0x720 oracle;
+a store without its load rejects, a branch inside leaves it unclaimed.
+
+**Fade 161230 mode 4 (`3d363c`).** +f3 = 4 is a slanted gradient wipe
+(builder 3d3ad0..3d4170): progress +a4/+a8 moves 6 edge pairs (115 px apart,
+the last 2w/w further, top edges offset by the height, clamped to
+[0, 4095]); +9c's alpha byte 0x80 runs it leftward from the right edge (colours
++98 -> +9c), otherwise rightward (+9c -> +98); 5 ramp pairs take the first
+colour's RGB with alpha trunc(table 488430[i] * (a_to - a_from)), the last pair
+the second colour; PRIM 24c (Gouraud strip, blended, context 2), ALPHA 0x44.
+`nativeFadeWipe` computes it with ps2f float ops; the lease checks the whole
+256-byte packet extent, +f2/+f4 = 0, no draw flags, the screen box at
++b8/+bc. Test: the game's own packet (camp menu opening, all 12 X values, both
+Y, the 5 alphas and the end colour) matches exactly; the other direction,
+clamping, and the lease rejections.
+Also: a fade whose builder exited early (+63 = 0: no writer, skip, pause gate
+or hidden) has an untouched writer, which 120eb0 leaves alone; its submit now
+draws nothing and completes (`skipFade`).
+
+**Menu graphics clear (`122bf8` from `45e318`).** The camp menu set-up
+45dd30 zero-fills a 256 KiB buffer and queues N 256x256 PSMCT24 type-1 uploads
+of it: a clear of physical graphics memory. Like the boot clear, only its
+enqueue (`45e310`, no owner, no free flags) retires; allocation, fill,
+descriptors and frees stay. Guard `(0x45dd30,0x45e350)`.
+
+**Next: menu images (`122bf8` from `45e9f8`).** 45e870 reads an image file
+(102650) into a buffer and queues its palette (s4+10, when +f4) and pixel
+(s4+80) uploads: a real texture that needs native ownership (FIS identity,
+like 29cc30), then the menu's own draws.
+
+Diagnostic: the image-owner boundary now names the last type-1 enqueue
+(return address, source, count, owner).
+
+**Route:** all 38500 frames (rc 0, capture serial 26545); all 89 suites pass.
+
 ### Alicia's ground shadow: VU1 shadow program 0x6f0 natively (2026-11-16)
 
 **What the PS2 does** (PCSX2 GS dump at the Logun Waiting Area, slot 1 state),

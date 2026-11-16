@@ -223,6 +223,49 @@ int main(int argc,char **argv){try{
         now.rects.cancel(1);now.rects.releaseFade(object);rejected=false;
         try{now.rects.beginFade(&y,1,object);}catch(const std::runtime_error &){rejected=true;}check(rejected && !now.rects.outstanding() && held.colour==colour);
     }
+    // A fade its builder left unbuilt (+63 = 0: skip, pause gate or hidden in +f5): the submit
+    // draws nothing, 120eb0 leaves the untouched writer alone, and the completion returns the object.
+    {auto &u=b.runtime();vp2s::NativeScreenRects rects;constexpr uint32_t object=0x180000,buffer=0x190000;
+        put(u,object,uint32_t(0x161230));put(u,object+0x63,uint8_t(0));put(u,object+0xc4,buffer);put(u,buffer+8,uint32_t(0x1a00b0));put(u,buffer+12,uint32_t(0x1a00b0));
+        check(rects.skipFade(&u,7,object) && rects.skippedFades()==1 && !rects.outstanding() && rects.complete(7)==object && !rects.skippedFades());
+        bool rejected=false;try{rects.skipFade(&u,7,object);rects.skipFade(&u,7,object);}catch(const std::runtime_error &){rejected=true;}check(rejected);rects.complete(7);
+        put(u,buffer+8,uint32_t(0x1a00c0));rejected=false;try{rects.skipFade(&u,8,object);}catch(const std::runtime_error &){rejected=true;}check(rejected && !rects.skippedFades());
+        put(u,buffer+8,uint32_t(0x1a00b0));put(u,object+0xc4,uint32_t(0));rejected=false;try{rects.skipFade(&u,8,object);}catch(const std::runtime_error &){rejected=true;}check(rejected);
+        put(u,object+0xc4,buffer);put(u,object+0x63,uint8_t(1));check(!rects.skipFade(&u,8,object));
+        put(u,object+0x63,uint8_t(0));put(u,object,uint32_t(0x15bc00));check(!rects.skipFade(&u,8,object));++cases;}
+    // Fade mode 4 (wipe): the game's own packet (Logun camp menu, frame ~38600):
+    // from 0, to 0x80000000, p = 0/20, 512x512, depth ffff64, ramp {0, .4, .7, .9, 1}.
+    {vp2s::NativeFadeWipeInputs in{.from=0,.to=0x80000000u,.time=0,.duration=0x41a00000u,.width=512,.height=512,.depth=0xffff64,
+        .ramp={0,0x3ecccccdu,0x3f333333u,0x3f666666u,0x3f800000u}};
+        const auto s=vp2s::nativeFadeWipe(in);
+        const uint32_t x[12]={0x9000,0xb000,0x9730,0xb730,0x9e60,0xbe60,0xa590,0xc590,0xacc0,0xccc0,0xecc0,0xecc0};
+        const uint32_t alpha[5]={0,0x33,0x59,0x73,0x80};
+        for(unsigned k=0;k<12;++k)check(s[k].x*16==float(x[k]) && s[k].y==float(k&1?0x7000/16:0x9000/16) && s[k].z==float(0xffff64));
+        for(unsigned i=0;i<5;++i)check(s[2*i].rgba==alpha[i]<<24 && s[2*i+1].rgba==alpha[i]<<24);check(s[10].rgba==0x80000000u && s[11].rgba==0x80000000u);
+        // The other direction (to's alpha byte not 0x80): from the left past w + 0x1cc, edges 115 to the left, colours swapped.
+        in.from=0x80102030u;in.to=0x40000000u;in.time=0x41200000u;const auto r=vp2s::nativeFadeWipe(in);
+        // travel = 10/20 * (512 + 460 + 512) = 742: a0 = 1792 + (972 - 742) = 2022, then -115 each; last pair -w / -2w.
+        check(r[0].x==2022 && r[1].x==2534 && r[2].x==1907 && r[8].x==1562 && r[10].x==1050 && r[11].x==1050);
+        check((r[0].rgba&0xffffff)==0 && (r[0].rgba>>24)==0 && r[10].rgba==0x80102030u && (r[2].rgba>>24)==uint32_t(int32_t(0.4f*0x40)));
+        // Clamped to [0, 4095]: a travel far past the screen pins every edge at 0.
+        in.time=0x447a0000u;const auto c=vp2s::nativeFadeWipe(in);for(const auto &v:c)check(v.x==0);++cases;}
+    {auto &u=b.runtime();vp2s::NativeScreenRects rects;constexpr uint32_t object=0x180000,buffer=0x190000,base=0x1a0000,scene=0x1b0000,source=0x1d0000;
+        put(u,object,uint32_t(0x161230));put(u,object+0x63,uint8_t(1));put(u,object+0x64,uint8_t(1));put(u,object+0x65,uint8_t(0));put(u,object+0xf1,uint8_t(0));
+        put(u,object+0xf2,uint8_t(0));put(u,object+0xf3,uint8_t(4));put(u,object+0xf4,uint8_t(0));put(u,object+0xf5,uint8_t(1));
+        put(u,object+0x98,uint32_t(0));put(u,object+0x9c,uint32_t(0x80000000u));put(u,object+0xa4,0.f);put(u,object+0xa8,20.f);
+        put(u,object+0xb8,int32_t(512));put(u,object+0xbc,int32_t(512));put(u,object+0xc0,uint32_t(0xffff64));put(u,object+0xc4,buffer);
+        put(u,buffer,base);put(u,buffer+12,base+0x40);put(u,buffer+8,base+0x140);put(u,buffer+16,uint32_t(0x100));
+        put(u,0x35de60,source);put(u,source+0x3c6c,int16_t(512));put(u,source+0x3c6e,int16_t(512));put(u,0x3140f0,uint64_t(0x44));
+        put(u,0x35ddf8,scene);put(u,scene+0x40a8,object);put(u,scene+0x40dc,uint8_t(1));
+        const float ramp[5]={0,.4f,.7f,.9f,1};for(unsigned i=0;i<5;++i)put(u,0x488430+4*i,ramp[i]);
+        const auto rect=rects.beginFade(&u,9,object);check(rect.wipe && rect.strip[0].x==2304 && rects.active(9));rects.cancel(9);
+        const auto rejects=[&](uint32_t at,auto bad,auto good){put(u,at,bad);bool r=false;try{rects.beginFade(&u,9,object);}catch(const std::runtime_error &){r=true;}check(r && !rects.active(9));put(u,at,good);};
+        rejects(buffer+8,uint32_t(base+0x150),uint32_t(base+0x140));   // unowned writer content
+        rejects(object+0xf4,uint8_t(1),uint8_t(0));                    // another blend
+        rejects(object+0xf5,uint8_t(0x10),uint8_t(1));                 // hidden
+        rejects(object+0xb8,int32_t(500),int32_t(512));                // not the screen box
+        rejects(scene+0x40a8,uint32_t(0),object);                      // not the pending owner
+        check(rects.beginFade(&u,9,object).wipe);rects.cancel(9);++cases;}
     auto &rt=b.runtime();put<uint32_t>(rt,0x35df10,0x30180000);put<uint32_t>(rt,0x35df20,0x1000);put<uint32_t>(rt,0x35df1c,0x30180040);put<uint32_t>(rt,0x35df18,0x30180100);
     now.setups.beginDefaults(&rt,1);bool duplicate=false;
     try{now.setups.beginDefaults(&rt,1);}catch(const std::runtime_error &){duplicate=true;}check(duplicate);

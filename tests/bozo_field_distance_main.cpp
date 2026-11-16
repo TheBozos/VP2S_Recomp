@@ -681,6 +681,41 @@ int main(){try{
         check(rejected && !std::memcmp(&bad,&bad0,sizeof(bad)) && !std::memcmp(snapshot.data(),rt.memory.flat(),snapshot.size()));++effectRejects;
     }
     std::printf("%u mod003 effect rotations (nine blocks) match the engine VU0 oracle (%u rejections)\n",effectRotations,effectRejects);
+    // The generic 0x720 idiom: LQC2 vf5, VCALLMS 0x720 (+4 or +8), CFC2.I, SQC2 vf8..vf10 at 0/16/32.
+    // Seed 0 lays out mod003 37e180's own words; the others vary base registers, call slot and gaps.
+    unsigned idiomRotations=0,idiomRejects=0;
+    for(unsigned seed=0;seed<192;++seed){
+        auto &rt=adapted.runtime();std::memset(rt.memory.flat(),0x37+seed,bozo::kFlatBytes);
+        uint32_t state=seed*2654435761u+11;const auto rnd=[&](){state=state*1664525u+1013904223u;return state>>8;};
+        const uint32_t code=0x1c4000+0x100*(rnd()%32);std::vector<uint32_t> words;
+        const auto lq=[](unsigned base,unsigned vf,int16_t off){return 0xd8000000u|base<<21|vf<<16|uint16_t(off);};
+        const auto sq=[](unsigned base,unsigned vf,int16_t off){return 0xf8000000u|base<<21|vf<<16|uint16_t(off);};
+        unsigned loadBase=2,storeBase=2;int16_t loadOff=0;bool slot8=true;unsigned gap=11,pre=1;
+        if(seed){loadBase=1+rnd()%25;storeBase=1+rnd()%25;if(loadBase==9)loadBase=10;if(storeBase==9)storeBase=11;loadOff=int16_t(16*(rnd()%8));slot8=rnd()&1;gap=rnd()%16;pre=rnd()%3;}
+        // seed 0 = 37e180: lqc2 vf5,0(v0); nop; vcallms; 11 plain words; cfc2; addiu v0,sp,0x70; sqc2 x3.
+        words.push_back(lq(loadBase,5,loadOff));if(slot8)words.push_back(0);words.push_back(0x4a003938u);
+        for(unsigned i=0;i<gap;++i)words.push_back(0x3c013f80u+i);   // lui at,... (plain EE words)
+        words.push_back(0x48490001u);for(unsigned i=0;i<pre;++i)words.push_back(0x27a20070u);
+        for(unsigned r=0;r<3;++r)words.push_back(sq(storeBase,8+r,int16_t(16*r)));
+        std::memcpy(rt.memory.hostPointer(code,4*words.size()),words.data(),4*words.size());
+        const uint32_t loadAt=code,callAt=code+(slot8?8:4),cfcAt=callAt+4+4*gap,storeAt=cfcAt+4+4*pre;
+        const uint32_t source=0x1d0000+16*(rnd()%64),destination=0x1e0000+16*(rnd()%64);
+        uint32_t q[4];for(unsigned i=0;i<4;++i)q[i]=((rnd())&0x807fffff)|((117+rnd()%10)<<23);
+        if(seed%8==1){q[0]=q[1]=q[2]=0;q[3]=0x3f800000;}
+        std::memcpy(rt.memory.hostPointer(source+loadOff,16),q,16);
+        R5900Context c{};for(unsigned i=1;i<32;++i)c.r[i].ud[0]=0x5434000000000000ull+seed*32+i;c.r[loadBase].ud[0]=source;
+        check(vp2s::nativeMathInstruction(rt.memory.flat(),&c,&rt,loadAt));
+        // The game may rewrite the base and the quaternion before the stores.
+        const uint32_t junk=0x7fc00000;for(unsigned i=0;i<4;++i)std::memcpy(rt.memory.hostPointer(source+loadOff+4*i,4),&junk,4);
+        check(vp2s::nativeMathInstruction(rt.memory.flat(),&c,&rt,callAt) && vp2s::nativeMathInstruction(rt.memory.flat(),&c,&rt,cfcAt) && c.r[9].ud[0]==0);
+        c.r[storeBase].ud[0]=destination;for(unsigned r=0;r<3;++r)check(vp2s::nativeMathInstruction(rt.memory.flat(),&c,&rt,storeAt+4*r));
+        const auto rows=movementRotationOracle(q);check(!std::memcmp(rows.data(),rt.memory.hostPointer(destination,48),48));++idiomRotations;
+        // A store without its load rejects; a branch inside the block leaves it unclaimed.
+        bool rejected=false;try{vp2s::nativeMathInstruction(rt.memory.flat(),&c,&rt,storeAt);}catch(const std::runtime_error &){rejected=true;}check(rejected);
+        const uint32_t branch=0x10000003u;std::memcpy(rt.memory.hostPointer(callAt+4,4),&branch,4);
+        check(!vp2s::nativeMathInstruction(rt.memory.flat(),&c,&rt,cfcAt));idiomRejects+=2;
+    }
+    std::printf("%u generic 0x720 quaternion blocks match the engine VU0 oracle (%u rejections)\n",idiomRotations,idiomRejects);
     // mod003 3d15c0: three program-0x720 blocks, quaternion captured at the load
     // (SP+1e0, SP+1d0, *(s2+84)+b0), rows at SP+230, SP+1f0, SP+1f0.
     unsigned bodyRotations=0;

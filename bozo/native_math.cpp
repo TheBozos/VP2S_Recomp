@@ -2450,6 +2450,51 @@ bool nativeRotationBlocks(R5900Context *c,Runtime *rt,uint32_t pc){
 // captured at the loads (the store base may be the same register, rewritten).
 struct InverseCapture{std::array<VuWords,4> rows{};uint32_t call=0;unsigned loaded=0;};
 InverseCapture &inverseCapture(const Runtime *rt){static std::map<const Runtime *,InverseCapture> captures;return captures[rt];}
+// VU0 program 0x720 (quaternion -> rotation rows), inlined about 39 times
+// (mod001 215740, mod003 37e180, 3c3d74, 4369c8, ...): LQC2 vf5 (the
+// quaternion), VCALLMS 0x720 one or two words later, then CFC2.I t1,vi0 as
+// the next COP2 word, then SQC2 vf8, vf9, vf10 at 0/16/32 of one base. Plain
+// EE words may stand between them; no branch, jump or other COP2 word does.
+// Entry 0x720 sets VF16 = VF0, so every row lane is defined (W 0). The
+// quaternion is captured at the load (its base may be rewritten before the
+// stores). Recognised by these words around the PC.
+struct QuaternionCapture{VuWords quaternion{};uint32_t load=0;bool loaded=false;};
+QuaternionCapture &quaternionCapture(const Runtime *rt){static std::map<const Runtime *,QuaternionCapture> captures;return captures[rt];}
+bool nativeQuaternionIdiom(R5900Context *c,Runtime *rt,uint32_t pc){
+    if(!rt || (pc&3))return false;
+    const auto word=[&](uint32_t at,uint32_t &out){const auto *p=rt->memory.hostPointer(at,4);if(!p)return false;std::memcpy(&out,p,4);return true;};
+    const auto cop2=[](uint32_t w){const auto op=w>>26;return op==0x12 || op==0x36 || op==0x3e;};
+    const auto control=[](uint32_t w){const auto op=w>>26;return (op>=1 && op<=7) || (op>=0x14 && op<=0x17) || (op==0 && ((w&63)==8 || (w&63)==9)) || (op==0x11 && ((w>>21)&31)==8);};
+    uint32_t self;if(!word(pc,self) || !cop2(self))return false;
+    for(uint32_t load=pc;load+0x80>=pc && load>=4;load-=4){
+        uint32_t w;if(!word(load,w) || w>>26!=0x36 || ((w>>16)&31)!=5)continue;
+        uint32_t call=0;
+        for(uint32_t k=4;k<=8;k+=4){uint32_t x;if(!word(load+k,x))break;if(x==0x4a003938u){call=load+k;break;}if(cop2(x) || control(x))break;}
+        if(!call)continue;
+        uint32_t cfc=0,at=call+4;
+        for(unsigned n=0;n<24;++n,at+=4){uint32_t x;if(!word(at,x))break;if(x==0x48490001u){cfc=at;break;}if(cop2(x) || control(x))break;}
+        if(!cfc)continue;
+        uint32_t store=0;at=cfc+4;
+        for(unsigned n=0;n<4;++n,at+=4){uint32_t x;if(!word(at,x))break;if(x>>26==0x3e && ((x>>16)&31)==8 && !(x&0xffff)){store=at;break;}if(cop2(x) || control(x))break;}
+        if(!store)continue;
+        uint32_t s[3];bool rows=true;
+        for(unsigned r=0;r<3 && rows;++r)rows=word(store+4*r,s[r]) && s[r]>>26==0x3e && ((s[r]>>16)&31)==8+r && (s[r]&0xffff)==16*r && ((s[r]>>21)&31)==((s[0]>>21)&31);
+        if(!rows)continue;
+        const bool atStore=pc>=store && pc<store+12;
+        if(pc!=load && pc!=call && pc!=cfc && !atStore)continue;
+        if(!c)throw std::runtime_error("native quaternion idiom has no CPU record");
+        auto &capture=quaternionCapture(rt);
+        if(pc==load){capture.quaternion=vuWords(rt,c->r[(w>>21)&31].uw[0]+uint32_t(int32_t(int16_t(w&0xffff))));capture.load=load;capture.loaded=true;return true;}
+        if(pc==call)return true;
+        if(pc==cfc){c->r[9].ud[0]=0;return true;}
+        if(!capture.loaded || capture.load!=load)throw std::runtime_error(std::format("native 0x720 quaternion at {:x} stored without its load",load));
+        float values[4];std::memcpy(values,capture.quaternion.data(),16);
+        for(float f:values){const auto m=std::bit_cast<uint32_t>(f)&0x7fffffff;if(m>=0x7f800000 || m>std::bit_cast<uint32_t>(1.e8f))throw std::runtime_error("unqualified 0x720 quaternion");}
+        __m128 input;std::memcpy(&input,values,16);const auto result=math::quaternionMatrix(input);const unsigned row=(pc-store)/4;
+        std::memcpy(record(rt,c->r[(s[row]>>21)&31].uw[0]+16*row,16),&result[row],16);if(row==2)capture.loaded=false;return true;
+    }
+    return false;
+}
 bool nativeInverseIdiom(R5900Context *c,Runtime *rt,uint32_t pc){
     if(!rt || (pc&3))return false;
     const auto word=[&](uint32_t at,uint32_t &out){const auto *p=rt->memory.hostPointer(at,4);if(!p)return false;std::memcpy(&out,p,4);return true;};
@@ -3743,7 +3788,7 @@ bool nativeMathInstruction(uint8_t *,R5900Context *c,Runtime *rt,uint32_t pc){
     default:
         // Inlined-block recognisers last: they read code around the PC, so
         // only sites no specific handler claimed pay for that scan.
-        return nativeParticleStep(c,rt,pc) || nativeParticleBox(c,rt,pc) || nativeLengthIdiom(c,rt,pc) || nativeMacroIdiom(c,rt,pc) || nativeInverseIdiom(c,rt,pc);
+        return nativeParticleStep(c,rt,pc) || nativeParticleBox(c,rt,pc) || nativeLengthIdiom(c,rt,pc) || nativeMacroIdiom(c,rt,pc) || nativeInverseIdiom(c,rt,pc) || nativeQuaternionIdiom(c,rt,pc);
     }
 }
 }

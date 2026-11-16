@@ -96,7 +96,7 @@ public:
     vp2s::NativeMusic &nativeMusic()override{return music;}
     vp2s::NativeFrameFilters frameFilters;
     vp2s::NativeFrameFilters &nativeFrameFilters()override{return frameFilters;}
-    void drawNativeFrameFilter(const vp2s::NativeFrameFilter &filter)override{
+    void drawNativeFrameFilter(const vp2s::NativeFrameFilter &filter)override{flushDeferredModels();
         const auto target=scene.frameTarget();if(!target || target->object!=filter.source)throw std::runtime_error("native frame filter has no source frame");
         auto &renderer=bozo::render::Renderer::instance();
         const float identity[16]={1,0,0,0,0,1,0,0,0,0,1,0,0,0,0,1};
@@ -120,22 +120,46 @@ public:
     vp2s::NativeModels models{std::filesystem::path(VP2S_BOZO_IMAGES).parent_path()/"meshes"};
     vp2s::NativeFrameCopies frameCopies;
     vp2s::NativeFrameCopies &nativeFrameCopies()override{return frameCopies;}
-    void drawNativeFrameCopy(const vp2s::NativeFrameCopy &copy)override{vp2s::drawFrameCopy(copy);}
+    void drawNativeFrameCopy(const vp2s::NativeFrameCopy &copy)override{flushDeferredModels();vp2s::drawFrameCopy(copy);}
     vp2s::NativeDofs dofs;
     vp2s::NativeDofs &nativeDofs()override{return dofs;}
-    void drawNativeDof(const vp2s::NativeDof &effect)override{vp2s::drawDof(effect);}
+    void drawNativeDof(const vp2s::NativeDof &effect)override{flushDeferredModels();vp2s::drawDof(effect);}
     vp2s::NativeFeedbackCopies feedbackCopies;
     vp2s::NativeFeedbackCopies &nativeFeedbackCopies()override{return feedbackCopies;}
-    void drawNativeFeedbackCopy(const vp2s::NativeFeedbackCopy &copy)override{vp2s::drawFeedbackCopy(copy);}
+    void drawNativeFeedbackCopy(const vp2s::NativeFeedbackCopy &copy)override{flushDeferredModels();vp2s::drawFeedbackCopy(copy);}
     vp2s::NativeModels &nativeModels()override{return models;}
-    void drawNativeModel(const vp2s::NativeModelSubmission &submission)override{
+    // Models composed by a shadow owner wait for the owner's shadow pass (see
+    // NativeModelSubmission::deferUntil); any other draw or a frame boundary
+    // draws them first, so nothing else changes order.
+    std::vector<vp2s::NativeModelSubmission> deferredModels;uint32_t deferredOwner=0;
+    void drawModelBatches(const vp2s::NativeModelSubmission &submission){
         for(const auto &batch:submission.batches)bozo::render::Renderer::instance().draw(batch.material,batch.matrix.data(),batch.vertices.data(),batch.vertices.size(),batch.texture);
-        if(std::getenv("VP2S_BOZO_TRACE_QUEUES"))std::fprintf(stderr,"[vp2s:models] native object=%x camera=%x batches=%zu\n",submission.object,submission.camera,submission.batches.size());
+    }
+    void flushDeferredModels(){
+        for(const auto &s:deferredModels)drawModelBatches(s);
+        deferredModels.clear();deferredOwner=0;
+    }
+    void drawNativeModel(const vp2s::NativeModelSubmission &submission)override{
+        if(submission.shadow){
+            if(deferredOwner && deferredOwner!=submission.object)flushDeferredModels();
+            const auto target=scene.frameTarget();if(!target)throw std::runtime_error("native shadow has no active frame");
+            const float identity[16]={1,0,0,0,0,1,0,0,0,0,1,0,0,0,0,1};
+            for(const auto &d:vp2s::nativeShadowPass(submission,target->width,target->height))
+                bozo::render::Renderer::instance().draw(d.material,identity,d.vertices.data(),d.vertices.size());
+            flushDeferredModels();
+        }
+        else if(submission.deferUntil){
+            if(deferredOwner && deferredOwner!=submission.deferUntil)flushDeferredModels();
+            deferredModels.push_back(submission);deferredOwner=submission.deferUntil;
+        }
+        else{flushDeferredModels();drawModelBatches(submission);}
+        if(std::getenv("VP2S_BOZO_TRACE_QUEUES"))std::fprintf(stderr,"[vp2s:models] native object=%x camera=%x batches=%zu shadow=%zu/%zu defer=%x\n",submission.object,submission.camera,
+            submission.batches.size(),submission.shadowIncrement.size()/3,submission.shadowDecrement.size()/3,submission.deferUntil);
     }
     std::set<uint32_t> overlayExternals;
     vp2s::NativeMediaBuffers mediaBuffers;
     vp2s::NativeMediaBuffers &nativeMediaBuffers()override{return mediaBuffers;}
-    void presentNativeMovie(uint32_t object,const bozo::libs::YuvPicture &picture,uint64_t version)override{
+    void presentNativeMovie(uint32_t object,const bozo::libs::YuvPicture &picture,uint64_t version)override{flushDeferredModels();
         const auto target=scene.frameTarget();if(!target)throw std::runtime_error("native movie has no active presentation target");
         bozo::render::Screen screen;screen.width=target->width;screen.height=target->height;
         screen.originX=2048-target->width/2;screen.originY=2048-target->height/2;
@@ -154,7 +178,7 @@ public:
     vp2s::NativeUiTexts uiTexts;
     vp2s::NativeUiTexts &nativeUiTexts()override{return uiTexts;}
     vp2s::NativeGlyphs &nativeGlyphs()override{return glyphs;}
-    void drawNativeUiLayer(const vp2s::NativeUiLayer &layer)override{
+    void drawNativeUiLayer(const vp2s::NativeUiLayer &layer)override{flushDeferredModels();
         if(!scene.frameTarget())throw std::runtime_error("native UI layer has no active frame");
         const float identity[16]={1,0,0,0,0,1,0,0,0,0,1,0,0,0,0,1};
         bozo::render::Material material;material.blend=bozo::render::Material::Blend::Alpha;
@@ -195,7 +219,7 @@ public:
     vp2s::NativeScreenRects screenRects;
     unsigned screenRectDraws=0;
     vp2s::NativeScreenRects &nativeScreenRects()override{return screenRects;}
-    void drawNativeScreenRect(const vp2s::NativeScreenRect &rect)override{
+    void drawNativeScreenRect(const vp2s::NativeScreenRect &rect)override{flushDeferredModels();
         if(!scene.frameTarget())throw std::runtime_error("native screen rectangle has no source frame");
         bozo::render::Material material;material.textured=false;material.alphaTest=true;
         material.blend=bozo::render::Material::Blend::Alpha;
@@ -212,7 +236,7 @@ public:
     vp2s::NativeCaptureFades &nativeCaptureFades()override{return captureFades;}
     // The frame the GS held when the capture fade began: the previous presentation,
     // copied once into a kept engine image at the main frame's own resolution.
-    void copyNativeFrameToImage(uint8_t image)override{
+    void copyNativeFrameToImage(uint8_t image)override{flushDeferredModels();
         if(!scene.frameTarget())throw std::runtime_error("native capture fade has no frame to copy");
         bozo::render::Material material;material.textured=false;material.fromFrame=1;material.source=bozo::render::Material::kPreviousFrame;
         material.target=image;material.nearest=true;material.alphaBlend=false;material.blend=bozo::render::Material::Blend::Opaque;
@@ -224,7 +248,7 @@ public:
         if(std::getenv("VP2S_BOZO_TRACE_QUEUES"))
             std::fprintf(stderr,"[vp2s:screen] native capture copy image=%u frame=%llu\n",image,(unsigned long long)native.framesEnded());
     }
-    void drawNativeCaptureFade(const vp2s::NativeCaptureFadeDraw &draw)override{
+    void drawNativeCaptureFade(const vp2s::NativeCaptureFadeDraw &draw)override{flushDeferredModels();
         const auto target=scene.frameTarget();
         if(!target || int32_t(target->width)!=draw.width || int32_t(target->height)!=draw.height)
             throw std::runtime_error("native capture fade has no matching frame");
@@ -244,7 +268,7 @@ public:
     vp2s::NativeScreenZooms screenZooms;
     unsigned screenZoomDraws=0;
     vp2s::NativeScreenZooms &nativeScreenZooms()override{return screenZooms;}
-    void drawNativeScreenZoom(const vp2s::NativeScreenZoom &zoom)override{
+    void drawNativeScreenZoom(const vp2s::NativeScreenZoom &zoom)override{flushDeferredModels();
         const auto target=scene.frameTarget();
         if(!target || int32_t(target->width)!=zoom.width || int32_t(target->height)!=zoom.height)throw std::runtime_error("native screen zoom has no matching source frame");
         // The previous presentation is the texture (the display buffer the GS
@@ -275,7 +299,7 @@ public:
     vp2s::NativeDepthBlurs depthBlurs;
     unsigned depthBlurDraws=0;
     vp2s::NativeDepthBlurs &nativeDepthBlurs()override{return depthBlurs;}
-    void drawNativeDepthBlur(const vp2s::NativeDepthBlur &blur)override{
+    void drawNativeDepthBlur(const vp2s::NativeDepthBlur &blur)override{flushDeferredModels();
         // Main 1152c0's multi-copy depth blur. The markers live in image 6, drawn
         // with the main frame's depth (the GS writes them into the frame's alpha,
         // which here is the presentation's coverage). Before each copy the frame's
@@ -320,10 +344,10 @@ public:
     vp2s::NativeScene scene;
     vp2s::NativeScene &nativeScene()override{return scene;}
     vp2s::NativeFramePublisher publisher;
-    void beginNativeFrame(const vp2s::NativeFrameTarget &target)override{
+    void beginNativeFrame(const vp2s::NativeFrameTarget &target)override{flushDeferredModels();
         publisher.next(target);
     }
-    void drawNativeBrightness(const vp2s::NativeBrightness &effect)override{
+    void drawNativeBrightness(const vp2s::NativeBrightness &effect)override{flushDeferredModels();
         const auto target=scene.frameTarget();
         if(!target)throw std::runtime_error("native brightness has no active frame");
         if(!effect.enabled)return;
@@ -819,7 +843,7 @@ int main(int argc,char **argv) {
                 // Explicit diagnostic only: this is an incomplete frame, never
                 // successful boot evidence. The original boundary still fails.
                 try{
-                    bozo::render::Renderer::instance().endFrame();vp2s::captureNativeFrame(capturePath);
+                    host.flushDeferredModels();bozo::render::Renderer::instance().endFrame();vp2s::captureNativeFrame(capturePath);
                     std::fprintf(stderr,"[vp2s:diagnostic] partial frame at rejecting boundary captured; run still failed\n");
                 }catch(const std::exception &e){std::fprintf(stderr,"[vp2s:diagnostic] boundary capture unavailable: %s\n",e.what());}
             }

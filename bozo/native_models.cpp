@@ -193,6 +193,57 @@ bool composedBy(Runtime *rt,uint32_t owner,uint32_t object){
     }
     return false;
 }
+void nativeShadowPrisms(const std::vector<std::array<float,3>> &positions,const std::vector<uint16_t> &strips,const std::array<float,3> &light,
+                        const std::array<float,16> &top,const std::array<float,16> &flat,
+                        std::vector<bozo::render::Vertex> &increment,std::vector<bozo::render::Vertex> &decrement){
+    size_t total=0;for(auto length:strips)total+=length;
+    if(total!=positions.size())throw std::runtime_error("native shadow strips differ from its vertices");
+    using P=std::array<float,3>;
+    const auto sub=[](const P &a,const P &b){return P{a[0]-b[0],a[1]-b[1],a[2]-b[2]};};
+    const auto project=[](const std::array<float,16> &m,const P &p,P &s){
+        float c[4];for(unsigned r=0;r<4;++r)c[r]=m[r]*p[0]+m[4+r]*p[1]+m[8+r]*p[2]+m[12+r];
+        if(!(c[3]>0) || !std::isfinite(c[0]/c[3]) || !std::isfinite(c[1]/c[3]) || !std::isfinite(c[2]/c[3]))return false;
+        s={c[0]/c[3],c[1]/c[3],c[2]/c[3]};return true;};
+    size_t first=0;
+    for(auto length:strips){
+        for(unsigned k=2;k<length;++k){
+            P a=positions[first+k-2],b=positions[first+k-1];const P c=positions[first+k];
+            if((k-2)&1)std::swap(a,b);
+            const P e1=sub(b,a),e2=sub(c,a),n{e1[1]*e2[2]-e1[2]*e2[1],e1[2]*e2[0]-e1[0]*e2[2],e1[0]*e2[1]-e1[1]*e2[0]};
+            if(light[0]*n[0]+light[1]*n[1]+light[2]*n[2]<0)continue;
+            P s[6];if(!project(top,a,s[0]) || !project(top,b,s[1]) || !project(top,c,s[2]) || !project(flat,a,s[3]) || !project(flat,b,s[4]) || !project(flat,c,s[5]))continue;
+            const unsigned order[10]={0,1,2,5,0,3,1,4,5,3};   // a b c c' a a' b b' c' a'
+            for(unsigned i=0;i<8;++i){
+                const P &p0=s[order[i]],&p1=s[order[i+1]],&p2=s[order[i+2]];
+                float area=(p1[0]-p0[0])*(p2[1]-p0[1])-(p1[1]-p0[1])*(p2[0]-p0[0]);if(i&1)area=-area;
+                if(area==0)continue;
+                auto &out=area>0?increment:decrement;
+                // Stored in the strip's own winding (odd triangles' last two swapped): increments
+                // have a positive screen area, decrements a negative one.
+                for(const P *q:{&p0,(i&1)?&p2:&p1,(i&1)?&p1:&p2}){bozo::render::Vertex v;v.x=(*q)[0];v.y=(*q)[1];v.z=(*q)[2];v.rgba=0;out.push_back(v);}
+            }
+        }
+        first+=length;
+    }
+}
+std::vector<NativeShadowDraw> nativeShadowPass(const NativeModelSubmission &s,float width,float height){
+    std::vector<NativeShadowDraw> draws;
+    if(!s.shadow || (s.shadowIncrement.empty() && s.shadowDecrement.empty()))return draws;
+    if(!(width>=1 && height>=1 && width<=2048 && height<=2048))throw std::runtime_error("native shadow pass target outside bounds");
+    bozo::render::Material volume;volume.textured=false;volume.colourMask=0;volume.depthTest=true;volume.depthGreater=true;volume.depthWrite=false;
+    volume.blend=bozo::render::Material::Blend::Opaque;volume.alphaBlend=false;volume.alphaTest=false;volume.stencilClear=true;
+    for(const auto *faces:{&s.shadowIncrement,&s.shadowDecrement}){
+        if(faces->empty())continue;
+        volume.stencilOp=faces==&s.shadowIncrement?bozo::render::Material::StencilOp::IncrementWrap:bozo::render::Material::StencilOp::DecrementWrap;
+        draws.push_back({volume,*faces});volume.stencilClear=false;
+    }
+    bozo::render::Material dark;dark.textured=false;dark.depthTest=false;dark.depthWrite=false;dark.alphaTest=false;dark.stencilNotZero=true;
+    dark.blend=bozo::render::Material::Blend::Alpha;dark.gsBlend=true;dark.blendA=0;dark.blendB=1;dark.blendC=0;dark.blendD=1;dark.blendFix=0x80;
+    const float xy[6][2]={{0,0},{1,0},{0,1},{1,0},{1,1},{0,1}};std::vector<bozo::render::Vertex> quad(6);
+    for(unsigned i=0;i<6;++i){quad[i].x=2048-width/2+xy[i][0]*width;quad[i].y=2048-height/2+xy[i][1]*height;quad[i].rgba=0x3f000000u;}
+    draws.push_back({dark,quad});
+    return draws;
+}
 NativeModelSubmission NativeModels::capture(Runtime *rt,NativeAssets &assets,NativeTextures &textures,const NativeScene &scene,uint32_t object){
     const auto word=[&](uint32_t at,std::source_location source=std::source_location::current()){return value<uint32_t>(rt,at,source);};
     const auto byte=[&](uint32_t at){return value<uint8_t>(rt,at);};
@@ -206,13 +257,13 @@ NativeModelSubmission NativeModels::capture(Runtime *rt,NativeAssets &assets,Nat
     // Shadow classes 159880 and 1599a0: their slot +60 (2b86f0, where ordinary
     // models have 23c6c0) builds the object's own model packet with 2b6640
     // (VU1 set 0xa, entry 0x6f0) as a shadow volume. On the GS it writes only
-    // the frame's alpha (FBMSK ffffff, a stencil count read back as PSMT4HH),
-    // never colour. Drawing it as a lit mesh laid a black alpha-64 film over the
-    // character (Alicia's hair near-black). The ground shadow it feeds is not ported.
-    if(const auto cls=word(object);cls==0x159880 || cls==0x1599a0){
-        if(word(cls+0x60)!=0x2b86f0)throw std::runtime_error(std::format("native shadow class {:x} without its 2b86f0 set-up",cls));
-        return NativeModelSubmission{object,camera->object};
-    }
+    // the frame's alpha (a stencil count), never colour; it becomes stencil
+    // faces here (nativeShadowPrisms). Drawn as a lit mesh it once laid a black
+    // alpha-64 film over the character.
+    const auto cls=word(object);const bool shadowClass=cls==0x159880 || cls==0x1599a0;
+    if(shadowClass && word(cls+0x60)!=0x2b86f0)throw std::runtime_error(std::format("native shadow class {:x} without its 2b86f0 set-up",cls));
+    const auto owner=word(current+0x40a8+4*layer);
+    const auto deferUntil=[&]()->uint32_t{if(shadowClass || owner==object)return 0;const auto c=word(owner);return c==0x159880 || c==0x1599a0?owner:0;}();
     const auto model=word(object+0x7bc),count=word(model+0x34),list=word(object+0x77c);
     if(count>4096)throw std::runtime_error(std::format("native model mesh count outside bounds: model={:08x} count={}",model,count));
     if(!count){
@@ -222,11 +273,11 @@ NativeModelSubmission NativeModels::capture(Runtime *rt,NativeAssets &assets,Nat
             throw std::runtime_error("empty native model lacks complete decoded FPS header");
         // All four original mesh loops test count > 0 before reading a mesh.
         // No vertex, material, skeleton or lighting input is consumed here.
-        return NativeModelSubmission{object,camera->object};
+        NativeModelSubmission empty{object,camera->object};empty.shadow=shadowClass;empty.deferUntil=deferUntil;return empty;
     }
     const auto world=value<Mat>(rt,object+0x90);for(auto f:world)finite(f);
     const auto viewObject=product(camera->view,world),screen=product(camera->screen,viewObject),guard=product(camera->guard,viewObject);
-    NativeModelSubmission out{object,camera->object};
+    NativeModelSubmission out{object,camera->object};out.shadow=shadowClass;out.deferUntil=deferUntil;
     Mat matrix{};const float width=2*(camera->centre[0]-camera->viewport[0]),height=2*(camera->centre[1]-camera->viewport[1]);
     for(const auto &m:{camera->view,camera->screen,camera->guard,viewObject,screen,guard})for(auto f:m)finite(f);
     finite(width);finite(height);
@@ -267,6 +318,22 @@ NativeModelSubmission NativeModels::capture(Runtime *rt,NativeAssets &assets,Nat
     uint32_t boneCount=0,palette=0;const auto skeleton=word(object+0x648);
     if(skeleton){boneCount=word(word(skeleton+0x34)+4);if(boneCount>4096)throw std::runtime_error("native bone count outside bounds");
         palette=word(skeleton+0x4c)+0x40+64*boneCount*(byte(skeleton+0x50)&1);}
+    // Shadow inputs as 2b82f0 leaves them in the object's VU rows: mem[37] the
+    // world light (object set-up 0x238 turns a direction by Rn^T), mem[14].w 0
+    // for a directional light, mem[5..8] (rows, as the world matrix at +90) the
+    // object-to-world matrix flattened along the light onto the ground. The VU
+    // set-up projects it as it does the world matrix: P^T V F (checked against
+    // 23 recorded shadow runs, relative error < 1e-7).
+    std::array<float,3> shadowLight{};Mat shadowFlat{};
+    if(shadowClass){
+        if(word(object+0x31c))throw std::runtime_error("unported native point-light shadow (mem[14].w)");
+        const auto l=row(37);for(unsigned c=0;c<3;++c)shadowLight[c]=rotation[0][c]*l[0]+rotation[1][c]*l[1]+rotation[2][c]*l[2];
+        Mat ground{};for(unsigned r=0;r<4;++r){const auto line=row(5+r);for(unsigned c=0;c<4;++c)ground[4*r+c]=line[c];}
+        const auto flat=product(camera->screen,product(camera->view,ground));
+        for(unsigned c=0;c<4;++c){shadowFlat[4*c]=flat[c]*target->width/width+(1-target->width/width)*camera->centre[0]*flat[12+c];
+            shadowFlat[4*c+1]=flat[4+c]*target->height/height+(1-target->height/height)*camera->centre[1]*flat[12+c];
+            shadowFlat[4*c+2]=flat[8+c];shadowFlat[4*c+3]=flat[12+c];}
+    }
     // This optional working-copy probe inherited a legacy heuristic. The slot
     // also holds ordinary record data, so qualify a complete RAM header before
     // dereferencing it; never wrap an arbitrary value into the address space.
@@ -412,6 +479,9 @@ NativeModelSubmission NativeModels::capture(Runtime *rt,NativeAssets &assets,Nat
             vout.rgba=0;for(unsigned c=0;c<4;++c){finite(factor[c]);const auto lit=uint32_t(std::clamp((c==3?alphaRow:float(v.colour[c]))*factor[c],0.0f,limit[c]>0?std::min(limit[c],255.0f):255.0f));vout.rgba|=lit<<(8*c);}
             for(auto f:{vout.x,vout.y,vout.z,vout.u,vout.v,vout.fog})finite(f);
         }
+        if(shadowClass){
+            std::vector<std::array<float,3>> positions(vertices.size());for(size_t k=0;k<vertices.size();++k)positions[k]={vertices[k].x,vertices[k].y,vertices[k].z};
+            nativeShadowPrisms(positions,m.strips,shadowLight,matrix,shadowFlat,out.shadowIncrement,out.shadowDecrement);continue;}
         const bool cull=(block?word(block+0x90)==0:bool(material[5])) && !byte(object+0x210);size_t first=0;
         for(auto length:m.strips){for(unsigned k=2;k<length;++k){const auto a=first+k-2,b=first+k-1,c=first+k;
             if(outside[a] || outside[b] || outside[c])continue;
@@ -435,6 +505,13 @@ NativeModelSubmission NativeModels::capture(Runtime *rt,NativeAssets &assets,Nat
             std::fprintf(stderr," obj=%.2f,%.2f,%.2f amb=%.2f,%.2f,%.2f class=%x o66=%u m3f=%u m57=%u blend=%u/%u%u%u%u\n",objectColour[0],objectColour[1],objectColour[2],ambient[0],ambient[1],ambient[2],
                 word(object),byte(object+0x66),byte(model+0x3f),byte(model+0x57),material[0],material[7],material[8],material[9],material[10]);}
         if(!batch.vertices.empty())out.batches.push_back(std::move(batch));
+    }
+    if(traceModels && shadowClass){
+        std::fprintf(stderr,"[vp2s:shadow] object=%x light=%.4f,%.4f,%.4f faces=%zu/%zu\n",object,shadowLight[0],shadowLight[1],shadowLight[2],out.shadowIncrement.size()/3,out.shadowDecrement.size()/3);
+        for(unsigned c=0;c<4;++c)std::fprintf(stderr,"[vp2s:shadow]  top col%u %.3f %.3f %.3f %.3f flat col%u %.3f %.3f %.3f %.3f\n",c,matrix[4*c],matrix[4*c+1],matrix[4*c+2],matrix[4*c+3],
+            c,shadowFlat[4*c],shadowFlat[4*c+1],shadowFlat[4*c+2],shadowFlat[4*c+3]);
+        for(size_t k=0;k<std::min<size_t>(out.shadowIncrement.size(),6);++k)
+            std::fprintf(stderr,"[vp2s:shadow]  inc %.2f %.2f %.1f\n",out.shadowIncrement[k].x,out.shadowIncrement[k].y,out.shadowIncrement[k].z);
     }
     return out;
 }

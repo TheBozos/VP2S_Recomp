@@ -125,15 +125,22 @@ int main(int argc,char **argv){try{
                 put(rt,current+0x40a8,object);}
             // Shadow classes (slot +60 = 2b86f0): their own model is a shadow volume
             // that writes only frame alpha, so it submits no colour batches.
-            // The model pointer is cleared: the shadow path never reads it, a normal class rejects.
-            put(rt,object+0x7bc,uint32_t(0));
+            // (Its faces: nativeShadowPrisms, checked below; here an empty FPS model.)
             for(uint32_t cls:{0x159880u,0x1599a0u}){
                 put(rt,object,cls);put(rt,cls+0x60,uint32_t(0x2b86f0));
-                {const auto r=models.capture(&rt,assets,textures,scene,object);check(r.object==object && r.camera==camera && r.batches.empty());++emptyCases;}
+                {const auto r=models.capture(&rt,assets,textures,scene,object);check(r.object==object && r.camera==camera && r.batches.empty() && r.shadow && !r.deferUntil &&
+                    r.shadowIncrement.empty() && r.shadowDecrement.empty());++emptyCases;}
                 put(rt,cls+0x60,uint32_t(0x23c6c0));rejects([&]{models.capture(&rt,assets,textures,scene,object);});++emptyCases;
                 put(rt,cls+0x60,uint32_t(0));put(rt,object,uint32_t(0));}
-            put(rt,object,uint32_t(0x1546d0));put(rt,0x1546d0+0x60,uint32_t(0x23c6c0));rejects([&]{models.capture(&rt,assets,textures,scene,object);});++emptyCases;
-            put(rt,0x1546d0+0x60,uint32_t(0));put(rt,object,uint32_t(0));put(rt,object+0x7bc,empty);
+            put(rt,object,uint32_t(0x1546d0));put(rt,0x1546d0+0x60,uint32_t(0x23c6c0));
+            {const auto r=models.capture(&rt,assets,textures,scene,object);check(!r.shadow && !r.deferUntil);++emptyCases;}
+            put(rt,0x1546d0+0x60,uint32_t(0));put(rt,object,uint32_t(0));
+            // A model composed by a shadow-class owner waits for the owner's shadow pass.
+            {constexpr uint32_t owner=0x1e4000;std::memset(rt.memory.hostPointer(owner,0x900),0,0x900);put(rt,owner,uint32_t(0x1599a0));put(rt,owner+0x8d4,owner+0x8cc);
+                put(rt,owner+0x8c4,object);put(rt,current+0x40a8,owner);
+                check(models.capture(&rt,assets,textures,scene,object).deferUntil==owner);++emptyCases;
+                put(rt,owner,uint32_t(0x153700));rejects([&]{models.capture(&rt,assets,textures,scene,object);});   // not a composite
+                put(rt,current+0x40a8,object);}
             put(rt,empty-0x10,uint32_t(0));rejects([&]{models.capture(&rt,assets,textures,scene,object);});put(rt,empty-0x10,uint32_t(0x00535046));
             assets.overwrite(empty+0x5f,1);rejects([&]{models.capture(&rt,assets,textures,scene,object);});provenance();
             assets.overwrite(empty+0x10,1);rejects([&]{models.capture(&rt,assets,textures,scene,object);});provenance();
@@ -192,6 +199,48 @@ int main(int argc,char **argv){try{
         ++reflectionCases;}
      check(reflectionCases==40);}
     std::printf("%u VU1 routine-26 reflection vertices match its lifted microcode\n",reflectionCases);
+    // Shadow program 0x6f0 faces (nativeShadowPrisms). top: identity; flat: y -> 0, x += y/2.
+    unsigned shadowCases=0;
+    {using P=std::array<float,3>;using V=bozo::render::Vertex;
+        std::array<float,16> top{},flat{};top[0]=top[5]=top[10]=top[15]=1;flat[0]=flat[10]=flat[15]=1;flat[4]=.5f;
+        const auto area=[](const std::vector<V> &t){double s=0;for(size_t i=0;i+2<t.size();i+=3)s+=(t[i+1].x-t[i].x)*(t[i+2].y-t[i].y)-(t[i+1].y-t[i].y)*(t[i+2].x-t[i].x);return s;};
+        const auto has=[](const std::vector<V> &t,const P &a,const P &b,const P &c){
+            for(size_t i=0;i+2<t.size();i+=3){unsigned hit=0;for(const P *p:{&a,&b,&c})for(size_t j=0;j<3;++j)if(t[i+j].x==(*p)[0] && t[i+j].y==(*p)[1] && t[i+j].z==(*p)[2]){++hit;break;}
+                if(hit==3)return true;}return false;};
+        // A planar strip of 4 (two triangles, the second swapped back to the same winding), normal (0,0,1) in the plane z=2.
+        const std::vector<P> quad{{0,4,2},{4,4,2},{0,8,2},{4,8,2}};const std::vector<uint16_t> strip{4};
+        for(int sign:{1,-1}){std::vector<V> inc,dec;vp2s::nativeShadowPrisms(quad,strip,{0,0,float(sign)},top,flat,inc,dec);
+            // (b-a)x(c-a) of (0,4)(4,4)(0,8) is +z: the light along +z keeps both triangles, along -z none.
+            if(sign>0){check(!inc.empty() && !dec.empty() && inc.size()%3==0 && dec.size()%3==0);
+                // Each prism is closed: its screen faces' signed areas cancel, increments against decrements.
+                check(std::fabs(area(inc)+area(dec))<1e-3 && area(inc)>1 && area(dec)<-1);
+                // The first cap (a, b, c) and its flattened copy (a', b', c') are faces; flattening y -> 0, x += y/2.
+                check(has(inc,{0,4,2},{4,4,2},{0,8,2}) || has(dec,{0,4,2},{4,4,2},{0,8,2}));
+                for(const auto *list:{&inc,&dec})for(const auto &v:*list)check(v.rgba==0 && v.z==2);}
+            else check(inc.empty() && dec.empty());
+            ++shadowCases;}
+        // Without the odd-triangle swap the second triangle would face away: both prisms are drawn, 2 x (up to 8) faces.
+        {std::vector<V> inc,dec;vp2s::nativeShadowPrisms(quad,strip,{0,0,1},top,flat,inc,dec);
+            std::vector<V> one,two;vp2s::nativeShadowPrisms({quad[0],quad[1],quad[2]},std::vector<uint16_t>{3},{0,0,1},top,flat,one,two);
+            check(inc.size()+dec.size()>one.size()+two.size());++shadowCases;}
+        // A vertex at w <= 0 drops its triangle; strips that do not cover the vertices reject.
+        {auto behind=top;behind[15]=-1;std::vector<V> inc,dec;vp2s::nativeShadowPrisms(quad,strip,{0,0,1},behind,flat,inc,dec);check(inc.empty() && dec.empty());
+            bool bad=false;try{vp2s::nativeShadowPrisms(quad,std::vector<uint16_t>{3},{0,0,1},top,flat,inc,dec);}catch(const std::runtime_error &){bad=true;}check(bad);shadowCases+=2;}
+        // The pass: stencil cleared by the first counting draw, depth GREATER, no colour or depth writes;
+        // then the darkening quad (black, alpha 0x3f, (Cs - Cd) As + Cd) where the count is not 0.
+        {vp2s::NativeModelSubmission s;s.shadow=true;check(vp2s::nativeShadowPass(s,640,448).empty());
+            vp2s::nativeShadowPrisms(quad,strip,{0,0,1},top,flat,s.shadowIncrement,s.shadowDecrement);
+            const auto d=vp2s::nativeShadowPass(s,640,448);check(d.size()==3);
+            using Op=bozo::render::Material::StencilOp;
+            check(d[0].material.stencilClear && d[0].material.stencilOp==Op::IncrementWrap && d[0].vertices.size()==s.shadowIncrement.size());
+            check(!d[1].material.stencilClear && d[1].material.stencilOp==Op::DecrementWrap && d[1].vertices.size()==s.shadowDecrement.size());
+            for(unsigned i=0;i<2;++i)check(d[i].material.colourMask==0 && d[i].material.depthTest && d[i].material.depthGreater && !d[i].material.depthWrite && !d[i].material.textured);
+            const auto &m=d[2].material;check(m.stencilNotZero && m.stencilOp==Op::None && !m.depthTest && !m.depthWrite && m.gsBlend && m.blendA==0 && m.blendB==1 && m.blendC==0 && m.blendD==1);
+            check(d[2].vertices.size()==6);for(const auto &v:d[2].vertices)check(v.rgba==0x3f000000u && (v.x==2048-320 || v.x==2048+320) && (v.y==2048-224 || v.y==2048+224));
+            s.shadowIncrement.clear();const auto only=vp2s::nativeShadowPass(s,640,448);check(only.size()==2 && only[0].material.stencilClear && only[0].material.stencilOp==Op::DecrementWrap);
+            s.shadow=false;check(vp2s::nativeShadowPass(s,640,448).empty());shadowCases+=4;}
+    }
+    std::printf("%u shadow volume cases (program 0x6f0 faces, the counting/darkening pass)\n",shadowCases);
     std::printf("%u VU1 routine-20 sphere-map vertices match the listing; %u native model captures +%u qualified empty FPS models: independent positions/skinning/UV/colour/strip ordering, unused-input isolation, whole RAM/FP preservation and snapshot/asset lifetime\n",sphereCases,cases,emptyCases);
     return 0;
 }catch(const std::exception &e){std::fprintf(stderr,"%s\n",e.what());return 1;}}

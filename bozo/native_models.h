@@ -3,6 +3,7 @@
 #include "native_scene.h"
 #include "native_textures.h"
 #include "bozo/render/renderer.h"
+#include <array>
 #include <filesystem>
 #include <map>
 #include <optional>
@@ -17,7 +18,36 @@ struct NativeModelBatch {
 struct NativeModelSubmission {
     uint32_t object=0,camera=0;
     std::vector<NativeModelBatch> batches;
+    // A shadow-class object (159880, 1599a0): its model is a shadow volume.
+    // Faces in GS screen space (identity matrix), split by screen winding into
+    // stencil increments and decrements; the host counts them (depth GREATER,
+    // no colour), then darkens where the count is not 0.
+    bool shadow=false;
+    std::vector<bozo::render::Vertex> shadowIncrement,shadowDecrement;
+    // Non-zero: a model composed by this shadow owner, drawn after the owner's
+    // shadow pass. On the GS the caster is drawn first but its frame alpha
+    // (0x7f) keeps it out of its own shadow; drawing it after the darkening
+    // gives the same picture.
+    uint32_t deferUntil=0;
 };
+// The VU1 shadow program 0x6f0 per strip triangle of the set-up vertices
+// (object space): odd triangles swap their first two vertices; a triangle
+// facing away from the light (dot(light, (b-a)x(c-a)) < 0, light in object
+// space, directional) is skipped; a kept one becomes the 10-vertex strip
+// a b c c' a a' b b' c' a', c' its copy through the flattened matrix. Each
+// strip triangle goes to `increment` or `decrement` by its screen winding;
+// a triangle with a vertex at w <= 0 or zero area is not drawn. top and flat
+// are column-major (m[4*c+r]) object-to-GS-screen matrices.
+// The shadow pass of one submission, as draws with the identity matrix over a
+// width x height target centred on 2048: the stencil cleared by the first
+// counting draw; increments then decrements (depth GREATER, no colour or depth
+// writes); then the GS's darkening sprite where the count is not 0: black,
+// alpha 0x3f, (Cs - Cd) * As + Cd. Empty when the volume has no face.
+struct NativeShadowDraw {bozo::render::Material material;std::vector<bozo::render::Vertex> vertices;};
+std::vector<NativeShadowDraw> nativeShadowPass(const NativeModelSubmission &,float width,float height);
+void nativeShadowPrisms(const std::vector<std::array<float,3>> &positions,const std::vector<uint16_t> &strips,const std::array<float,3> &light,
+                        const std::array<float,16> &top,const std::array<float,16> &flat,
+                        std::vector<bozo::render::Vertex> &increment,std::vector<bozo::render::Vertex> &decrement);
 class NativeModels {
 public:
     struct Mesh;

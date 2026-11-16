@@ -12,6 +12,63 @@ The earlier VP2S face/shading and general brightness comparisons remain open.
 
 ## Build and evidence
 
+### Alicia's ground shadow: VU1 shadow program 0x6f0 natively (2026-11-16)
+
+**What the PS2 does** (PCSX2 GS dump at the Logun Waiting Area, slot 1 state),
+per shadow object, on the main frame:
+1. 8 full-screen sprites, alpha only, DATE: pixels with alpha bit 7 set (the
+   shadow receivers: the ground draws alpha 0x80) start at 0x70, others at
+   0x20. Alicia draws alpha 0x7f, so she never receives.
+2. The volume (580 triangles here): the frame's alpha read back as PSMT8H
+   through a CLUT, CSA 0/1 per face by screen winding (A+D TEX2 from
+   mem[40]/mem[41]): +-16 per face, depth GREATER, alpha only.
+3. 8 sprites, black, alpha 0x3f, (Cs-Cd)As+Cd, where alpha bit 7 is set: the
+   darkening (x0.508).
+4. 8 sprites restore the alpha.
+
+**The volume program** (listed from a recorded code image; 0x1408 is only the
+mesh set-up passes). Per strip triangle of the set-up vertices: odd triangles
+swap their first two vertices; n = (b-a)x(c-a); a triangle with
+dot(light, n) < 0 is skipped (directional, mem[14].w = 0); a kept one emits
+the strip a b c c' a a' b b' c' a' (c' through the flattened matrix), every
+unclipped face drawn (the ADC store is in a branch delay slot), interior strip
+edges suppressed (their quads cancel anyway: planar, opposite windings). A
+Python model of this rule matches all 120 recorded shadow runs exactly
+(667 prisms, every vertex within 2/16 pixel).
+
+**Its inputs** (2b82f0 fills the object's VU rows, object+230+16n):
+- mem[37]: the world light; set-up 0x238 turns it by Rn^T into object space.
+- mem[5..8]: rows of the object-to-world matrix flattened along the light onto
+  the ground (world y = 10 in the forest recording). The VU projects it like
+  the world matrix: mem[5..8] at the run = P^T V F, as mem[896..899] = P^T V O
+  (23 recorded runs, relative error < 1e-7).
+
+**Native.** `NativeModels::capture` for classes 159880/1599a0 builds the faces
+(`nativeShadowPrisms`): top through the object's screen matrix, flattened copy
+through camera screen x view x F, both adjusted to the native target like the
+model matrix; faces in GS screen space split by winding into increments and
+decrements. `nativeShadowPass` draws them: stencil cleared by the first, depth
+GREATER, no colour or depth writes; then the black alpha-0x3f quad where the
+stencil is not 0. A point light (mem[14].w != 0) rejects (unverified).
+
+**Receivers.** The engine writes frame alpha 1.0 for opaque draws, so bit 7
+cannot single out receivers. The caster is protected instead by order: models
+composed by a shadow owner (`deferUntil`) are drawn after the owner's shadow
+pass (on the PS2 they are drawn before it, but alpha 0x7f keeps them out). Any
+other host draw or a frame boundary draws deferred models first. Not
+reproduced: other non-receivers inside the volume (e.g. an NPC behind Alicia
+along the light) are darkened natively.
+
+**Result.** Logun Waiting Area, frame 26000: a shadow from Alicia's feet to the
+right, as in PCSX2; median darkening x0.544 there (GS formula x0.508).
+Tests: `bozo_models_main` (faces kept/skipped by the light, strip parity,
+closed prisms' signed areas cancel, w <= 0 and strip mismatch reject; the
+pass's materials, order and quad; shadow-class capture and `deferUntil`).
+Diagnostic: `VP2S_BOZO_TRACE_MODELS_AT` also prints each shadow's light,
+matrices and face counts.
+
+**Route:** all 38500 frames (rc 0, capture serial 26545), cutscenes, town, pause and house unchanged apart from the shadow; all 89 suites pass.
+
 ### Alicia's hair: shadow volumes drawn as colour; effect rotations and particles (2026-11-16)
 
 **Hair (user report).** In the field, Alicia's hair was near-black from the

@@ -29,6 +29,20 @@ backgrounds, panels, selection bars, flat and additive triangles) now uses
 doubled path and are corrected by the same rule. Test: the material's fields
 for both blends.
 
+Checked after the fix: the pause bar's line (24c strip 2b1243 to 2b51bd) peaks
+at bd,51,2b in both PCSX2 and the route (32200); the "Skip this sequence?"
+window background (route 1380) measures 1b,23,3e / 18,1f,3b / 20,2e,46 in
+PCSX2 and 1a,23,3d / 18,1e,3a / 20,2e,47 natively.
+
+**PCSX2 references without focus.** Injected keys reach whatever window the
+user has in front, so PCSX2 is now driven through a virtual pad: ViGEmBus
+(installed) with `tools/vpad.py` (ctypes over ViGEmClient.dll from
+`VPAD_VIGEM_CLIENT`), PCSX2 Pad 1 also bound to SDL-0. `tools/
+pcsx2_vpad_replay.py SCRIPT OUT --until F --capture-from A --capture-to B`
+replays a route pad script in real time (+250 frames for the boot) and saves
+`PrintWindow` captures, with no focus. `tools/pad_script_to_p2m2.py` writes the
+same script as a PCSX2 input recording (playback is GUI-only).
+
 ### The camp menu, native (2026-11-17)
 
 The route now opens the camp menu (SELECT at 38600), moves to Equip, enters and

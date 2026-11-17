@@ -243,6 +243,11 @@ std::array<bozo::render::Vertex,6> nativeUiStripVertices(const NativeUiStrip &st
     for(unsigned i=0;i<6;++i){const auto j=order[i];result[i].x=float(strip.corners[j][0])/16;result[i].y=float(strip.corners[j][1])/16;result[i].z=float(strip.depth);result[i].rgba=strip.colours[j];}
     return result;
 }
+bozo::render::Material nativeUiFlatMaterial(bozo::render::Material::Blend blend){
+    bozo::render::Material material;material.textured=false;material.directColour=true;material.blend=blend;
+    material.alphaTest=blend!=bozo::render::Material::Blend::Additive;material.alphaRef=0;
+    return material;
+}
 std::optional<bool> nativeUiWindowInstruction(R5900Context *c,Runtime *rt,uint32_t pc){
     switch(pc){case 0x2e9640:case 0x2e970c:case 0x2e95d0:case 0x2e9e90:case 0x2ea154:case 0x2ea338:case 0x2ead10:
         case 0x2eae90:case 0x2eb07c:case 0x2eb284:case 0x2eb2ec:case 0x2eb300:case 0x2eb320:case 0x2eb340:case 0x2eb378:

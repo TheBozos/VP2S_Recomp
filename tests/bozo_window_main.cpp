@@ -215,6 +215,12 @@ int main(int argc,char **argv){try{
         check(s.picture->width==512 && s.picture->height==384 && s.picture->rgba.back()==0x80405060u && s.picture->rgba[0]==0x80102030u && s.picture->rgba[512*256]==0x80405060u);
         check(vp2s::nativeMenuBackdrop(&r,textures,backdrop).texts[0]->window->border[0].picture==s.picture);   // composed once
         imageCases+=8;}
+    // Untextured UI primitives (TME=0): vertex RGB as display bytes, the GS
+    // blend kept; PCSX2 shows the camp panel 20,2c,50 at 0x38 over black as
+    // 0f,13,22, not twice that.
+    for(const auto blend:{bozo::render::Material::Blend::Alpha,bozo::render::Material::Blend::Additive}){
+        const auto m=vp2s::nativeUiFlatMaterial(blend);
+        check(!m.textured && m.directColour && m.blend==blend && m.alphaTest==(blend==bozo::render::Material::Blend::Alpha) && m.alphaRef==0);++imageCases;}
     std::printf("%u camp-menu image-list/panel CPU/RAM cases and rejections\n",imageCases);
     after.windows=vp2s::NativeUiWindows{};
     std::puts("64 complete window +64 selection-builder CPU/RAM cases: original scalar geometry/UV/colour, cached rebuild and immutable lifetime; invalid/incomplete/repeated captures reject without RAM writes");return 0;

@@ -61,4 +61,8 @@ std::optional<bool> nativeUiWindowInstruction(R5900Context *,Runtime *,uint32_t)
 NativeUiLayer nativeMenuBackdrop(Runtime *,const NativeTextures &,uint32_t object);
 std::shared_ptr<const bozo::render::Texture> nativeMenuBackdropPicture(const NativeTextureAsset &top,const NativeTextureAsset &bottom);
 std::array<bozo::render::Vertex,6> nativeUiStripVertices(const NativeUiStrip &);
+// The material for an untextured UI primitive (window backgrounds, panels,
+// selection bars, flat and additive triangles): GS PRIM TME=0 takes the vertex
+// RGB as display bytes (0x20 is 0x20, not 0x40), alpha still 0x80 = 1.0.
+bozo::render::Material nativeUiFlatMaterial(bozo::render::Material::Blend);
 }

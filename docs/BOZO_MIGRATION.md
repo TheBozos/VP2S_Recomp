@@ -12,6 +12,23 @@ The earlier VP2S face/shading and general brightness comparisons remain open.
 
 ## Build and evidence
 
+### Camp menu against PCSX2: untextured UI colour (2026-11-17)
+
+PCSX2 (slot 1, SELECT, F8 + GS dump) against the route's frame 39000: the
+layout, backdrop, portraits, panels and text agree (the PCSX2 shot is the
+640x448 frame scaled 1.292 x 1.384, offset 2,2; correlation 0.93). One real
+difference: the menu list was about twice too bright and too blue. The dump
+shows its translucent panel as PRIM 24c (TME=0) colour 20,2c,50 at alpha 0x38:
+over black PCSX2 gives 0f,13,22, native gave 1d,28,47, the panel's RGB doubled.
+For an untextured GS primitive the vertex RGB is the colour itself; only
+texture modulation reads 0x80 as 1.0. Every untextured UI draw (window
+backgrounds, panels, selection bars, flat and additive triangles) now uses
+`nativeUiFlatMaterial`, the engine's `directColour`. Measured after the fix
+(PCSX2 / before / after): strip 0e,13,21 / 1d,28,47 / 0f,14,24; button
+0e,0f,0e / 11,13,16 / 0e,0f,0e. Field windows and the pause bar used the same
+doubled path and are corrected by the same rule. Test: the material's fields
+for both blends.
+
 ### The camp menu, native (2026-11-17)
 
 The route now opens the camp menu (SELECT at 38600), moves to Equip, enters and

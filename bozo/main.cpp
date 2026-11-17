@@ -200,13 +200,12 @@ public:
             }
         }
         if(text->window){
-            material.textured=false;
-            for(const auto &strip:text->window->background){const auto vertices=vp2s::nativeUiStripVertices(strip);bozo::render::Renderer::instance().draw(material,identity,vertices.data(),vertices.size());}
-            material.textured=true;
+            const auto flat=vp2s::nativeUiFlatMaterial(bozo::render::Material::Blend::Alpha);
+            for(const auto &strip:text->window->background){const auto vertices=vp2s::nativeUiStripVertices(strip);bozo::render::Renderer::instance().draw(flat,identity,vertices.data(),vertices.size());}
             for(const auto &sprite:text->window->border){const auto vertices=vp2s::nativeUiSpriteVertices(sprite);bozo::render::Renderer::instance().draw(material,identity,vertices.data(),vertices.size(),sprite.picture);}
         }
         if(!text->additiveTriangles.empty()){
-            auto additive=material;additive.textured=false;additive.alphaTest=false;additive.blend=bozo::render::Material::Blend::Additive;
+            const auto additive=vp2s::nativeUiFlatMaterial(bozo::render::Material::Blend::Additive);
             bozo::render::Renderer::instance().draw(additive,identity,text->additiveTriangles.data(),text->additiveTriangles.size());
         }
         for(const auto &icon:text->icons){
@@ -215,7 +214,7 @@ public:
             bozo::render::Renderer::instance().draw(material,identity,vertices.data(),vertices.size(),icon.picture);
         }
         if(!text->alphaTriangles.empty()){
-            auto flat=material;flat.textured=false;flat.blend=bozo::render::Material::Blend::Alpha;
+            const auto flat=vp2s::nativeUiFlatMaterial(bozo::render::Material::Blend::Alpha);
             bozo::render::Renderer::instance().draw(flat,identity,text->alphaTriangles.data(),text->alphaTriangles.size());
         }
         for(const auto &icon:text->lateIcons){

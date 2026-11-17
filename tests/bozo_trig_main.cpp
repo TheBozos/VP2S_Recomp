@@ -56,15 +56,15 @@ std::array<uint32_t,4> referenceUnit(const uint32_t *input){
     else low=0x7f7fffff;
     std::array<uint32_t,4> out;for(unsigned i=0;i<4;++i)out[i]=exactProduct(input[i],low);return out;
 }
-[[gnu::noinline,gnu::noclone]] ScalarResult reference(float angle,const vp2s::TrigCoefficients &c){
+[[gnu::noinline,gnu::noclone]] ScalarResult reference(float angle,const vp2s::TrigCoefficients &c,unsigned first=0){
     ScalarResult out;out.value={c.sine[3],c.sine[2],0,0};
     const float arguments[2]={subtract(c.halfPi,angle),angle};
     for(unsigned i=0;i<2;++i){
         volatile float turns=multiply(arguments[i],c.inversePi);const int32_t n=static_cast<int32_t>(turns);out.quadrants[i]=n;
         volatile float integer=static_cast<float>(n);const float residual=subtract(arguments[i],multiply(integer,c.pi));
         const float squared=multiply(residual,residual);
-        float term=add(multiply(squared,c.sine[0]),c.sine[1]);
-        for(unsigned j=2;j<6;++j)term=add(multiply(term,squared),c.sine[j]);
+        float term=add(multiply(squared,c.sine[first]),c.sine[first+1]);
+        for(unsigned j=first+2;j<6;++j)term=add(multiply(term,squared),c.sine[j]);
         term=add(multiply(term,squared),1);
         out.value[i+2]=multiply(term,multiply(residual,(n&1)?-1.f:1.f));
     }return out;
@@ -168,6 +168,9 @@ struct Host:bozo::ee::Host,bozo::port::Host,vp2s::SquadOwner {
         }
         if(pc==0x214014){const auto result=reference(c->f[12],read(rt));std::memcpy(rt->memory.hostPointer(0x35db08,8),result.quadrants.data(),8);}
         if(pc==0x2140f0){const auto result=reference(c->f[12],read(rt));std::memcpy(rt->memory.hostPointer(c->r[4].uw[0],16),result.value.data(),16);}
+        // 214100: the same leaf with the short polynomial, quadrants at 35daf0.
+        if(pc==0x214140){const auto result=reference(c->f[12],read(rt),2);std::memcpy(rt->memory.hostPointer(0x35daf8,8),result.quadrants.data(),8);}
+        if(pc==0x214208){const auto result=reference(c->f[12],read(rt),2);std::memcpy(rt->memory.hostPointer(c->r[4].uw[0],16),result.value.data(),16);}
         if(pc==0x214338 || pc==0x2143c4){auto table=read(rt);table.halfPi=value<float>(rt,0x35da9c);const auto result=referenceShort(c->f[12],table);
             if(pc==0x214338)std::memcpy(rt->memory.hostPointer(0x35dadc,4),&result.quadrant,4);
             else std::memcpy(rt->memory.hostPointer(0x35da8c,4),&result.value,4);}
@@ -234,6 +237,42 @@ int main(){try{
         }
     }
     _mm_setcsr(saved);check(old.sites==now.sites && now.sites.size()==30);
+    // 214100 (short sine/cosine pair): the generated original leaf with independent
+    // reference publications against the native leaf, whole CPU/RAM/FP compared.
+    unsigned pairCases=0;
+    for(unsigned mode:{_MM_ROUND_NEAREST,_MM_ROUND_DOWN,_MM_ROUND_UP,_MM_ROUND_TOWARD_ZERO}){
+        for(unsigned seed=0;seed<96;++seed){
+            auto *x=a.runtime().memory.flat(),*y=b.runtime().memory.flat();std::memset(x,0x65,bozo::kFlatBytes);
+            init={};init.r[31].uw[0]=0x170000;a.runtime().functions.generated(0x358490)(x,&init,&a.runtime());
+            std::memcpy(y,x,bozo::kFlatBytes);
+            float angle=(float(int(seed%32)-16)*originalCoefficients.halfPi);
+            if(seed>=32 && seed<64)angle=std::nextafter(angle,seed&1?std::numeric_limits<float>::infinity():-std::numeric_limits<float>::infinity());
+            const uint32_t angleBits=std::bit_cast<uint32_t>(angle);
+            if(!(angleBits&0x7f800000) && (angleBits&0x7fffff))angle=std::bit_cast<float>((angleBits&0x80000000)|0x00800000u);
+            if(seed>=64){random=random*1664525u+1013904223u;angle=float(int32_t(random)%100000)/1024;}
+            if(seed==0)angle=std::bit_cast<float>(0x80000000u);
+            const uint32_t destinations[4]={0x180000,0x70003ff0,0x35da80,0x35daf0};const auto to=destinations[seed%4];
+            R5900Context p{},q{};for(unsigned i=1;i<32;++i){p.r[i].ud[0]=0x1234000000000000ull+seed*32+i;p.r[i].ud[1]=~p.r[i].ud[0];}
+            std::memset(p.vu0_vf,0x4b,sizeof(p.vu0_vf));std::memset(&p.vu0_acc,0x5c,sizeof(p.vu0_acc));
+            p.r[4].ud[0]=to;p.r[31].ud[0]=0x170000;p.f[12]=angle;q=p;
+            const unsigned control=(saved&~(_MM_ROUND_MASK|0x8040|0x3f))|mode|(seed&1?0x8040:0);
+            _mm_setcsr(control);a.runtime().functions.generated(0x214100)(x,&p,&a.runtime());const unsigned expectedControl=_mm_getcsr();
+            _mm_setcsr(control);
+            try{b.runtime().functions.generated(0x214100)(y,&q,&b.runtime());}
+            catch(const std::exception &e){std::fprintf(stderr,"short pair seed=%u mode=%x angle=%08x: %s\n",seed,mode,std::bit_cast<uint32_t>(angle),e.what());throw;}
+            check(_mm_getcsr()==expectedControl);check(!std::memcmp(&p,&q,sizeof(p)) && !std::memcmp(x,y,bozo::kFlatBytes));
+            if(to!=0x35daf0){check(value<uint32_t>(&b.runtime(),0x35daf0)==0x65656565 && value<uint32_t>(&b.runtime(),0x35daf4)==0x65656565);}
+            ++pairCases;
+        }
+        for(unsigned i=0;i<16384;++i){random=random*1664525u+1013904223u;const float angle=float(int32_t(random)%1000000)/8192;
+            const auto expected=reference(angle,originalCoefficients,2);const auto actual=vp2s::shortSineCosine(angle,originalCoefficients);
+            check(!std::memcmp(expected.value.data(),actual.data(),16));
+            // The x^9..x^3 polynomial runs on residuals up to +/-pi: the game's own error reaches ~pi^11/11!.
+            check(std::abs(actual[2]-std::cos(angle))<0.01f && std::abs(actual[3]-std::sin(angle))<0.01f);
+        }
+    }
+    _mm_setcsr(saved);check(old.sites==now.sites && now.sites.size()==55);
+    std::printf("%u short sine/cosine pair (214100) CPU/RAM/FP cases match the reference publications\n",pairCases);
     unsigned shortCases=0;
     for(const uint32_t entry:{0x214300u,0x2144c0u,0x2143e0u,0x214210u}){
     const bool sine=entry!=0x214300 && entry!=0x214210,full=entry==0x2143e0 || entry==0x214210;
@@ -268,7 +307,7 @@ int main(){try{
         }
     }
     }
-    _mm_setcsr(saved);check(old.sites==now.sites && now.sites.size()==132);
+    _mm_setcsr(saved);check(old.sites==now.sites && now.sites.size()==157);
     unsigned inverseCases=0;double inverseError=0;
     const uint32_t edges[]={0,0x80000000,1,0x80000001,0x00800000,0x80800000,0x23000000,0xa3000000,0x23000001,0xa3000001,
         0x3effffff,0xbeffffff,0x3f000000,0xbf000000,0x3f000001,0xbf000001,0x3f7fffff,0xbf7fffff,
@@ -300,7 +339,7 @@ int main(){try{
             const double error=std::abs(double(actual)-double(std::acos(angle)));inverseError=std::max(inverseError,error);check(error<0.000001);
         }
     }
-    _mm_setcsr(saved);check(old.sites==now.sites && now.sites.size()==236);
+    _mm_setcsr(saved);check(old.sites==now.sites && now.sites.size()==261);
     unsigned linearCallers=0,negativeCallers=0,linearRecords=0;
     for(unsigned mode:{_MM_ROUND_NEAREST,_MM_ROUND_DOWN,_MM_ROUND_UP,_MM_ROUND_TOWARD_ZERO})for(unsigned seed=0;seed<128;++seed){
         auto *x=a.runtime().memory.flat(),*y=b.runtime().memory.flat();std::memset(x,0x65,bozo::kFlatBytes);
@@ -324,7 +363,7 @@ int main(){try{
         check(_mm_getcsr()==after && !std::memcmp(&p,&q,sizeof(p)) && !std::memcmp(x,y,bozo::kFlatBytes));
         if(seed&4)++negativeCallers;++linearCallers;
     }
-    check(negativeCallers==256 && old.sites==now.sites && now.sites.size()==255);
+    check(negativeCallers==256 && old.sites==now.sites && now.sites.size()==280);
     unsigned nonlinearCallers=0;
     for(unsigned mode:{_MM_ROUND_NEAREST,_MM_ROUND_DOWN,_MM_ROUND_UP,_MM_ROUND_TOWARD_ZERO})for(unsigned seed=0;seed<128;++seed){
         auto *x=a.runtime().memory.flat(),*y=b.runtime().memory.flat();std::memset(x,0x65,bozo::kFlatBytes);
@@ -345,7 +384,7 @@ int main(){try{
         catch(const std::exception &e){std::fprintf(stderr,"nonlinear quaternion seed=%u mode=%x: %s\n",seed,mode,e.what());throw;}
         check(_mm_getcsr()==after && !std::memcmp(&p,&q,sizeof(p)) && !std::memcmp(x,y,bozo::kFlatBytes));++nonlinearCallers;
     }
-    check(old.sites==now.sites && now.sites.size()==279);
+    check(old.sites==now.sites && now.sites.size()==304);
     for(unsigned mode:{_MM_ROUND_NEAREST,_MM_ROUND_DOWN,_MM_ROUND_UP,_MM_ROUND_TOWARD_ZERO})for(unsigned seed=0;seed<128;++seed){
         auto *x=a.runtime().memory.flat(),*y=b.runtime().memory.flat();std::memset(x,0x65,bozo::kFlatBytes);
         const uint32_t stack=seed&1?0x70003000:0x1ffe000,first=seed&2?0x70000100:0x180000,second=seed%8==3?first:0x190000;
@@ -412,7 +451,7 @@ int main(){try{
             for(unsigned j=0;j<3;++j){const auto error=std::abs(double(actual[j])-double(std::sin(angles[j])));threeSineError=std::max(threeSineError,error);check(error<0.000001);}
         }
     }
-    _mm_setcsr(saved);check(old.sites==now.sites && now.sites.size()==279);
+    _mm_setcsr(saved);check(old.sites==now.sites && now.sites.size()==304);
     unsigned eulerCallers=0;
     for(uint32_t entry:{0x2162c0u,0x2159c0u}){
     const bool positive=entry==0x2159c0;
@@ -439,7 +478,7 @@ int main(){try{
         ++eulerCallers;
     }
     }
-    _mm_setcsr(saved);check(old.sites==now.sites && now.sites.size()==311);
+    _mm_setcsr(saved);check(old.sites==now.sites && now.sites.size()==336);
     unsigned squadCallers=0;
     for(unsigned mode:{_MM_ROUND_NEAREST,_MM_ROUND_DOWN,_MM_ROUND_UP,_MM_ROUND_TOWARD_ZERO})for(unsigned seed=0;seed<128;++seed){
         auto *x=a.runtime().memory.flat(),*y=b.runtime().memory.flat();std::memset(x,0x65,bozo::kFlatBytes);
@@ -473,7 +512,7 @@ int main(){try{
         ++squadCallers;
     }
     check(old.squadPublications==squadCallers*3 && now.squadPublications==old.squadPublications && old.squadLinear && old.squadNonlinear);
-    _mm_setcsr(saved);check(old.sites==now.sites && now.sites.size()==341);
+    _mm_setcsr(saved);check(old.sites==now.sites && now.sites.size()==366);
     {auto &rt=b.runtime();R5900Context c{};c.pc=0x214c40;c.r[29].uw[0]=0x1fff000;c.r[4].uw[0]=0x1c0000;
         for(unsigned j=0;j<4;++j)c.r[5+j].uw[0]=0x180000+j*0x10000;
         const auto frame=c.r[29].uw[0]-0x70;
@@ -523,5 +562,5 @@ int main(){try{
     rejected=false;try{vp2s::fullCosine(std::bit_cast<float>(1u),originalCoefficients);}catch(const std::runtime_error &){rejected=true;}check(rejected);
     {auto table=originalCoefficients;table.halfPi=std::bit_cast<float>(0x7fc05678u);check(vp2s::fullSine(0.f,table).value==0.f);
         table.sine[0]=std::numeric_limits<float>::infinity();rejected=false;try{vp2s::fullSine(.25f,table);}catch(const std::runtime_error &){rejected=true;}check(rejected);}
-    std::printf("%u sine/cosine + %u scalar cosine/sines + %u inverse-cosine + %u linear-quaternion (%u negative-dot) + %u nonlinear-quaternion callers + %u blend records + %u three-sine + %u Euler-quaternion + %u SQUAD callers (%u publications: %u linear/%u nonlinear);458752 polynomial record comparisons,341 sites; inverse-cosine max error %.9g,three-sine max error %.9g; CPU/RAM/FP, signs, endpoints and split-root stores passed\n",cases,shortCases,inverseCases,linearCallers,negativeCallers,nonlinearCallers,linearRecords,threeSineCallers,eulerCallers,squadCallers,old.squadPublications,old.squadLinear,old.squadNonlinear,inverseError,threeSineError);return 0;
+    std::printf("%u sine/cosine + %u scalar cosine/sines + %u inverse-cosine + %u linear-quaternion (%u negative-dot) + %u nonlinear-quaternion callers + %u blend records + %u three-sine + %u Euler-quaternion + %u SQUAD callers (%u publications: %u linear/%u nonlinear);458752 polynomial record comparisons,366 sites; inverse-cosine max error %.9g,three-sine max error %.9g; CPU/RAM/FP, signs, endpoints and split-root stores passed\n",cases,shortCases,inverseCases,linearCallers,negativeCallers,nonlinearCallers,linearRecords,threeSineCallers,eulerCallers,squadCallers,old.squadPublications,old.squadLinear,old.squadNonlinear,inverseError,threeSineError);return 0;
 }catch(const std::exception &e){std::fprintf(stderr,"%s\n",e.what());return 1;}}

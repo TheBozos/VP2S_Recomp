@@ -1586,13 +1586,24 @@ int main(){try{
         {0x3654ac,0xd8610000},{0x3654b0,0xd9220000},{0x3654d0,0x4bc00abc},{0x3654d4,0x4bc31048},{0x3654e0,0xf9210000},{0x3654e4,0xf8610000},
         {0x3655e8,0xda610000},{0x3655f0,0xdaa20000},{0x3656f4,0x4bc00abc},{0x3656f8,0x4bc31048},{0x365704,0xfa410000},{0x36570c,0xfa610000},
         {0x3657e4,0xda610000},{0x3657e8,0xda020000},{0x3658fc,0x4bc00abc},{0x365900,0x4bc31048},{0x36590c,0xfa010000},{0x365914,0xfa610000}};
+     // 409700 (a third class): its own layout, sites listed exactly.
+     const Variant variants409700[4]={{0x409780,0x4097fc,0x409800,0x409828,0x40982c,0x409838,0x40983c},{0x409780,0x4098ec,0x4098f0,0x40991c,0x409920,0x40992c,0x409930},
+                                      {0x4099a8,0x409a58,0x409a60,0x409bbc,0x409bc0,0x409bcc,0x409bd4},{0x4099a8,0x409ca8,0x409cac,0x409e1c,0x409e20,0x409e2c,0x409e34}};
+     const std::pair<uint32_t,uint32_t> words409700[]={{0x409780,0x48a31800},{0x4099a8,0x48b01800},
+        {0x4097fc,0xd9410000},{0x409800,0xd8620000},{0x409828,0x4bc00abc},{0x40982c,0x4bc31048},{0x409838,0xf8610000},{0x40983c,0xf9410000},
+        {0x4098ec,0xd8610000},{0x4098f0,0xd9220000},{0x40991c,0x4bc00abc},{0x409920,0x4bc31048},{0x40992c,0xf9210000},{0x409930,0xf8610000},
+        {0x409a58,0xdac10000},{0x409a60,0xda020000},{0x409bbc,0x4bc00abc},{0x409bc0,0x4bc31048},{0x409bcc,0xfa010000},{0x409bd4,0xfac10000},
+        {0x409ca8,0xdaa10000},{0x409cac,0xda020000},{0x409e1c,0x4bc00abc},{0x409e20,0x4bc31048},{0x409e2c,0xfa010000},{0x409e34,0xfaa10000}};
      const auto field=[](uint32_t w,unsigned shift){return (w>>shift)&31;};
-     for(unsigned seed=0;seed<128;++seed){
-        const uint32_t k=seed>=64?0x38d900-0x3652d0:0;   // the 38d900 copy: every site shifted
-        auto &r=native.runtime();std::memset(r.memory.flat(),0x5c+seed,bozo::kFlatBytes);for(const auto &[pc,w]:words)std::memcpy(r.memory.hostPointer(pc+k,4),&w,4);
+     for(unsigned seed=0;seed<192;++seed){
+        const bool third=seed>=128;
+        const uint32_t k=seed>=64 && !third?0x38d900-0x3652d0:0;   // the 38d900 copy: every site shifted
+        auto &r=native.runtime();std::memset(r.memory.flat(),0x5c+seed,bozo::kFlatBytes);
+        if(third){for(const auto &[pc,w]:words409700)std::memcpy(r.memory.hostPointer(pc,4),&w,4);}
+        else for(const auto &[pc,w]:words)std::memcpy(r.memory.hostPointer(pc+k,4),&w,4);
         uint32_t state=seed*2654435761u+9;const auto rnd=[&](){state=state*1664525u+1013904223u;return state>>8;};
         const auto value=[&](){return (rnd()&0x807fffffu)|((105+rnd()%40)<<23);};
-        const auto var=[&]{auto v=variants[seed%4];for(auto *f:{&v.q,&v.p,&v.v,&v.a,&v.m,&v.s1,&v.s2})*f+=k;return v;}();const uint32_t dt=seed%8==1?0:value();
+        const auto var=[&]{auto v=third?variants409700[seed%4]:variants[seed%4];for(auto *f:{&v.q,&v.p,&v.v,&v.a,&v.m,&v.s1,&v.s2})*f+=k;return v;}();const uint32_t dt=seed%8==1?0:value();
         R5900Context x{};const auto qw=[&](uint32_t pc){uint32_t w;std::memcpy(&w,r.memory.hostPointer(pc,4),4);return w;};
         x.r[field(qw(var.q),16)].uw[0]=dt;x.r[field(qw(var.q),16)].uw[3]=rnd();check(vp2s::nativeMathInstruction(r.memory.flat(),&x,&r,var.q));
         for(unsigned n=0;n<3;++n){
@@ -1616,7 +1627,7 @@ int main(){try{
         // Different code at the same address (another overlay) is not claimed here.
         const uint32_t other=0;std::memcpy(r.memory.hostPointer(var.m,4),&other,4);check(!vp2s::nativeMathInstruction(r.memory.flat(),&x,&r,var.m));
      }}
-    std::printf("%u particle steps (four loops, two stores) match the VU0 oracle\n",particleCases);
+    std::printf("%u particle steps (three classes, four loops, two stores) match the VU0 oracle\n",particleCases);
     // Row point and homogeneous divide (mod001 2b802c / 2b80a0), the game's words.
     unsigned rowCases=0;
     for(unsigned seed=0;seed<256;++seed){

@@ -1,6 +1,7 @@
 #include "native_particles.h"
 #include "native_math.h"
 #include "native_float_oracle.h"
+#include "bozo/ops_vu0.h"
 #include "bozo/ee/dispatcher.h"
 #include "bozo/port.h"
 #include "particles_original_functions.h"
@@ -169,6 +170,130 @@ int main(){try{
         const auto leaf=now.particles.bounds(frame,0x190000);
         check(leaf.minimum[0]==-4 && leaf.maximum[0]==5 && leaf.minimum[1]==-3 && leaf.maximum[1]==7 && leaf.maximum[2]==2.5f);
         m.r[29].uw[0]=frame-0x40;order=false;try{math(0x38cfec);}catch(const std::runtime_error &){order=true;}check(order);   // wrong frame
+        now.particles=vp2s::NativeParticles{};
+    }
+    // mod003 40b080, the trail emitter: every VU0 site with the game's word at its address. A
+    // test-only oracle executes each word through the engine's VU0 reference ops (bozo::vu0) on
+    // its own copy of RAM; the native semantic step must leave identical records, outputs,
+    // stack publications and box, over all six mode branches, the three trail kinds and 0..2
+    // curve rows, two particles per call.
+    {auto &y=b.runtime(),&x=a.runtime();initialize(y,0);now.particles=vp2s::NativeParticles{};now.assets=vp2s::NativeAssets{};
+        R5900Context c{};c.pc=0x22eadc;c.r[21].uw[0]=0x180000;c.r[29].uw[0]=0x1fff000;write(y,0x1fff0e0,uint32_t(0x200020));
+        check(*vp2s::nativeParticleInstruction(&c,&y,0x22eae0));const auto frame=c.r[29].uw[0];
+        write(y,0x35dbc0,std::array<float,4>{1e9f,1e9f,1e9f,0});write(y,0x35dbe0,std::array<float,4>{-1e9f,-1e9f,-1e9f,.5f});c.r[3].uw[0]=0x35dbc0;c.r[2].uw[0]=0x35dbe0;
+        check(*vp2s::nativeParticleInstruction(&c,&y,0x22ec9c));check(*vp2s::nativeParticleInstruction(&c,&y,0x22eca0));
+        // The game's words (from the mod003 listing) at their addresses.
+        const std::pair<uint32_t,uint32_t> words[]={
+            {0x40b124,0x48a22800},{0x40b12c,0xd8540000},{0x40b168,0x4be00798},{0x40b170,0xd85d0000},
+            {0x40b258,0xda410000},{0x40b260,0xda220000},{0x40b268,0xd9040000},{0x40b270,0xdac30000},{0x40b278,0xda060000},{0x40b280,0xd8670000},{0x40b288,0xd8480000},
+            {0x40b318,0xd88b0000},{0x40b324,0x48a46000},{0x40b328,0x4bc00abc},{0x40b32c,0x4bcc5848},
+            {0x40b364,0x4bc00abc},{0x40b368,0x4bc0a0bf},{0x40b36c,0x4bc51048},{0x40b370,0x4bfe32bc},{0x40b374,0x4be53988},{0x40b378,0x4bc022bc},{0x40b37c,0x4bc51108},
+            {0x40b380,0x4bc012bc},{0x40b384,0x4bc51888},{0x40b388,0x4a251084},{0x40b38c,0x4be03190},{0x40b390,0x4a252100},{0x40b394,0x4be039bf},{0x40b398,0x4be541c8},
+            {0x40b39c,0x4bc1d6af},{0x40b3a0,0x4bfd3194},{0x40b3a4,0x4bc1deeb},{0x40b3a8,0xfae10000},{0x40b3ac,0xfae60010},
+            {0x40b410,0xf9040000},{0x40b414,0xfa410000},{0x40b418,0xfa220000},{0x40b41c,0xfa060000},{0x40b420,0xf8670000},
+            {0x40b488,0xf9040000},{0x40b48c,0xfa410000},{0x40b490,0xfa220000},{0x40b494,0xfa060000},{0x40b498,0xf8670000},
+            {0x40b510,0x4bc007c3},{0x40b514,0xf9040000},{0x40b518,0x4bc4212a},{0x40b51c,0xfa410000},{0x40b520,0xfa220000},{0x40b524,0xfa060000},{0x40b528,0xf8670000},
+            {0x40b52c,0x4b04203d},{0x40b530,0x4b04f90a},{0x40b53c,0xf8440000},
+            {0x40b5ac,0xd8480000},{0x40b5b0,0xd8490010},{0x40b5b4,0xd84a0020},{0x40b5b8,0xd84b0030},{0x40b5bc,0x4be141bc},{0x40b5c0,0x4be148bd},{0x40b5c4,0x4be150be},{0x40b5c8,0x4be05c8b},
+            {0x40b5cc,0xf9040000},{0x40b5d0,0xfa410000},{0x40b5d4,0xfa220000},{0x40b5d8,0xfa060000},{0x40b5dc,0xf8670000},{0x40b5e4,0xf8520000},
+            {0x40b650,0xf9040000},{0x40b654,0xfa410000},{0x40b658,0xfa220000},{0x40b65c,0xfa060000},{0x40b660,0xf8670000},
+            {0x40b6f0,0xf9040000},{0x40b6f4,0xfa410000},{0x40b6f8,0xfa220000},{0x40b6fc,0xfa060000},{0x40b700,0xf8670000},
+            {0x40b738,0xd8810000},{0x40b748,0x48a21800},{0x40b74c,0x4be40b3c},{0x40b768,0xd8420000},{0x40b76c,0x4be111ac},{0x40b770,0x4be1133c},{0x40b774,0x4bc007c3},
+            {0x40b778,0x4bc631ea},{0x40b77c,0x4b07383d},{0x40b780,0x4b07f9ca},{0x40b784,0x4a6703be},{0x40b788,0x4a0003bf},{0x40b78c,0x4bc0321c},{0x40b790,0x4bc022bc},
+            {0x40b794,0x4bc030bf},{0x40b798,0x4bc34108},{0x40b79c,0xf8440000},{0x40b7a0,0x4bc4d6af},{0x40b7a4,0x4bc4deeb},
+            {0x40b7d8,0xd8810000},{0x40b7e8,0x48a21800},{0x40b7ec,0x4be40b3c},{0x40b808,0xd8420000},{0x40b80c,0x4be111ac},{0x40b810,0x4be1133c},{0x40b814,0x4bc007c3},
+            {0x40b818,0x4bc631ea},{0x40b81c,0x4b07383d},{0x40b820,0x4b07f9ca},{0x40b824,0x4a6703be},{0x40b828,0x4a0003bf},{0x40b82c,0x4bc0319c},{0x40b830,0x4bc022bc},
+            {0x40b834,0x4bc33108},{0x40b838,0xf8440000},{0x40b83c,0x4bc4d6af},{0x40b840,0x4bc4deeb},
+            {0x40b878,0xd8810000},{0x40b888,0x48a21800},{0x40b88c,0x4be40b3c},{0x40b8a8,0xd8420000},{0x40b8ac,0x4be111ac},{0x40b8b0,0x4be1133c},{0x40b8b4,0x4bc022bc},
+            {0x40b8b8,0x4bc33108},{0x40b8bc,0xf8440000},{0x40b8c0,0x4bc4d6af},{0x40b8c4,0x4bc4deeb}};
+        for(const auto &[pc,w]:words)write(y,pc,w);
+        // Test-only oracle: one COP2 macro word through the engine's VU0 reference.
+        R5900Context o{};uint32_t q=0;
+        const auto oracle=[&](uint32_t w){
+            namespace v=bozo::vu0;auto &vf=o.vu0_vf;auto &acc=o.vu0_acc;const unsigned op=w>>26;
+            const auto ea=[&]{return o.r[(w>>21)&31].uw[0]+uint32_t(int32_t(int16_t(w&0xffff)));};
+            if(op==0x36){const unsigned t=(w>>16)&31;if(t)std::memcpy(vf[t].u,x.memory.hostPointer(ea(),16),16);return;}
+            if(op==0x3e){std::memcpy(x.memory.hostPointer(ea(),16),vf[(w>>16)&31].u,16);return;}
+            check(op==0x12);
+            if(!(w&(1u<<25))){check(((w>>21)&31)==5);const unsigned d=(w>>11)&31;if(d)std::memcpy(vf[d].u,o.r[(w>>16)&31].uw,16);return;}
+            const unsigned dest=(w>>21)&15,ft=(w>>16)&31,fs=(w>>11)&31,fd=(w>>6)&31,f=w&63;
+            if(f>=0x3c){const unsigned sub=((w>>6)&31)<<2|(f&3);
+                if(sub<=3)v::add(&o,acc,vf[fs],v::bc(vf[ft],sub&3),dest);
+                else if(sub>=8 && sub<=0xb)v::madd(&o,acc,acc,vf[fs],v::bc(vf[ft],sub&3),dest);
+                else if(sub>=0x18 && sub<=0x1b)v::mul(&o,acc,vf[fs],v::bc(vf[ft],sub&3),dest);
+                else if(sub==0x28)v::add(&o,acc,vf[fs],vf[ft],dest);
+                else if(sub==0x30){auto d=vf[ft];v::move(d,vf[fs],dest);if(ft)vf[ft]=d;}
+                else if(sub==0x3a)q=v::rsqrt(&o,vf[fs].u[(w>>21)&3],vf[ft].u[(w>>23)&3]);
+                else check(sub==0x3b);
+                return;}
+            auto d=vf[fd];
+            if(f<0x1c){const auto t=v::bc(vf[ft],f&3);
+                switch(f>>2){case 0:v::add(&o,d,vf[fs],t,dest);break;case 1:v::sub(&o,d,vf[fs],t,dest);break;case 2:v::madd(&o,d,acc,vf[fs],t,dest);break;
+                    case 4:v::max(d,vf[fs],t,dest);break;case 5:v::mini(d,vf[fs],t,dest);break;case 6:v::mul(&o,d,vf[fs],t,dest);break;default:check(false);}}
+            else switch(f){case 0x1c:v::mul(&o,d,vf[fs],v::broadcast(q),dest);break;case 0x28:v::add(&o,d,vf[fs],vf[ft],dest);break;case 0x2a:v::mul(&o,d,vf[fs],vf[ft],dest);break;
+                case 0x2b:v::max(d,vf[fs],vf[ft],dest);break;case 0x2c:v::sub(&o,d,vf[fs],vf[ft],dest);break;case 0x2f:v::mini(d,vf[fs],vf[ft],dest);break;default:check(false);}
+            if(fd)vf[fd]=d;
+        };
+        R5900Context m{};
+        const auto run=[&](uint32_t pc){
+            std::memcpy(o.r,m.r,sizeof(m.r));std::memcpy(o.f,m.f,sizeof(m.f));oracle(read<uint32_t>(y,pc));
+            check(vp2s::nativeMathInstruction(y.memory.flat(),&m,&y,pc));};
+        o.vu0_vf[0].u[3]=0x3f800000u;
+        std::memcpy(o.vu0_vf[26].u,y.memory.hostPointer(0x35dbc0,16),16);std::memcpy(o.vu0_vf[27].u,y.memory.hostPointer(0x35dbe0,16),16);
+        constexpr uint32_t E=0x190000,B=0x1c0000,T=0x1c8000,O=0x1d0000;const uint32_t S=frame-0x170;
+        unsigned trailCases=0,points=0;
+        for(unsigned seed=0;seed<72;++seed){
+            uint32_t state=seed*2246822519u+5;const auto rnd=[&](){state=state*1664525u+1013904223u;return state>>8;};
+            const auto value=[&](unsigned lo=105,unsigned span=40){return (rnd()&0x807fffffu)|((lo+rnd()%span)<<23);};
+            const auto vec=[&](uint32_t at){for(unsigned i=0;i<4;++i)write(y,at+4*i,value());};
+            const uint32_t dt=value(118,6)&0x7fffffffu;write(y,0x35dee8,dt);vec(E+0xc0);write(y,E+0x54,value(122,6));
+            write(y,E+0x14,B);write(y,E+0x68,T);for(unsigned i=0;i<4;++i)vec(E+0x80+16*i);for(unsigned i=0;i<16;++i)vec(T+16*i);
+            for(unsigned i=0;i<4;++i)write(y,S+0x160+4*i,0x437f0000u);
+            for(uint32_t at=B;at<B+0xb0*10;at+=16)vec(at);for(uint32_t at=O;at<O+0x30*8;at+=16)vec(at);
+            std::memcpy(x.memory.flat(),y.memory.flat(),bozo::kFlatBytes);
+            const auto random=[&](unsigned r,uint32_t low){m.r[r].uw[0]=low;for(unsigned i=1;i<4;++i)m.r[r].uw[i]=rnd();};
+            m=R5900Context{};m.r[29].uw[0]=S;m.r[21].uw[0]=E;
+            random(2,dt);run(0x40b124);m.r[2].uw[0]=E+0xc0;run(0x40b12c);run(0x40b168);m.r[2].uw[0]=S+0x160;run(0x40b170);
+            const unsigned mode=std::array{1u,3u,2u,5u,6u,0u}[seed%6],trail=seed%4,rows=(seed/4)%3,n=2+seed%3;
+            for(unsigned k=0;k<2;++k){
+                const unsigned index=seed%5+3*k;const uint32_t rec=B+index*0xb0,out=O+k*0x30*4;
+                m.r[20].uw[0]=index;m.r[18].uw[0]=rec+0x10;m.r[17].uw[0]=rec+0x30;m.r[8].uw[0]=rec+0x50;m.r[22].uw[0]=rec+0x40;m.r[16].uw[0]=rec+0x20;m.r[3].uw[0]=rec+0x60;m.r[2].uw[0]=rec+0x70;
+                for(uint32_t pc=0x40b258;pc<=0x40b288;pc+=8)run(pc);
+                for(unsigned j=0;j<rows;++j){const unsigned t1=j+seed%5;m.r[9].uw[0]=t1;m.r[4].uw[0]=T+16*t1;run(0x40b318);
+                    const auto fraction=value(115,8)&0x7fffffffu;m.f[1]=std::bit_cast<float>(fraction);random(4,fraction);run(0x40b324);run(0x40b328);run(0x40b32c);}
+                for(uint32_t pc=0x40b364;pc<=0x40b3a4;pc+=4)run(pc);
+                m.r[23].uw[0]=out;run(0x40b3a8);run(0x40b3ac);
+                const auto stores=[&](uint32_t first){for(unsigned i=0;i<5;++i)run(first+4*i);};
+                if(mode==1)stores(0x40b410);else if(mode==3)stores(0x40b488);else if(mode==6)stores(0x40b650);else if(mode==0)stores(0x40b6f0);
+                else if(mode==2){for(uint32_t pc:{0x40b510u,0x40b514u,0x40b518u,0x40b51cu,0x40b520u,0x40b524u,0x40b528u,0x40b52cu,0x40b530u})run(pc);m.r[2].uw[0]=S+0x150;run(0x40b53c);}
+                else{m.r[2].uw[0]=E+0x80;for(uint32_t pc=0x40b5ac;pc<=0x40b5c8;pc+=4)run(pc);stores(0x40b5cc);m.r[2].uw[0]=S+0x140;run(0x40b5e4);}
+                if(trail){
+                    const uint32_t head=trail==2?0x40b738:trail==1?0x40b7d8:0x40b878,first=trail==2?0x40b768:trail==1?0x40b808:0x40b8a8,last=trail==2?0x40b7a4:trail==1?0x40b840:0x40b8c4;
+                    m.r[19].uw[0]=n;m.r[23].uw[0]=out+n*0x30;m.r[4].uw[0]=out;run(head);random(2,read<uint32_t>(y,E+0x54));run(head+0x10);run(head+0x14);
+                    for(unsigned i=1;i<n;++i){m.r[3].uw[0]=i;m.r[2].uw[0]=out+i*0x30;for(uint32_t pc=first;pc<=last;pc+=4)run(pc);++points;}
+                }
+            }
+            // Identical records, outputs, publications and box.
+            check(!std::memcmp(x.memory.hostPointer(B,0xb0*10),y.memory.hostPointer(B,0xb0*10),0xb0*10));
+            check(!std::memcmp(x.memory.hostPointer(O,0x30*8),y.memory.hostPointer(O,0x30*8),0x30*8));
+            check(!std::memcmp(x.memory.hostPointer(S+0x140,0x20),y.memory.hostPointer(S+0x140,0x20),0x20));
+            const auto box=now.particles.bounds(frame,E);
+            for(unsigned i=0;i<3;++i)check(std::bit_cast<uint32_t>(box.minimum[i])==o.vu0_vf[26].u[i] && std::bit_cast<uint32_t>(box.maximum[i])==o.vu0_vf[27].u[i]);
+            trailCases+=2;
+        }
+        // Out of order (a main site before the loads), a wrong record address, and another word reject.
+        m=R5900Context{};m.r[29].uw[0]=S;m.r[21].uw[0]=E;m.r[2].uw[0]=read<uint32_t>(y,0x35dee8);
+        check(vp2s::nativeMathInstruction(y.memory.flat(),&m,&y,0x40b124));
+        bool rejected=false;try{vp2s::nativeMathInstruction(y.memory.flat(),&m,&y,0x40b12c);}catch(const std::runtime_error &){rejected=true;}check(rejected);   // drift source not +c0
+        m.r[2].uw[0]=read<uint32_t>(y,0x35dee8);check(vp2s::nativeMathInstruction(y.memory.flat(),&m,&y,0x40b124));
+        m.r[2].uw[0]=E+0xc0;check(vp2s::nativeMathInstruction(y.memory.flat(),&m,&y,0x40b12c));
+        rejected=false;try{vp2s::nativeMathInstruction(y.memory.flat(),&m,&y,0x40b364);}catch(const std::runtime_error &){rejected=true;}check(rejected);
+        m.r[2].uw[0]=read<uint32_t>(y,0x35dee8);check(vp2s::nativeMathInstruction(y.memory.flat(),&m,&y,0x40b124));m.r[2].uw[0]=E+0xc0;
+        check(vp2s::nativeMathInstruction(y.memory.flat(),&m,&y,0x40b12c) && vp2s::nativeMathInstruction(y.memory.flat(),&m,&y,0x40b168));
+        m.r[2].uw[0]=S+0x160;check(vp2s::nativeMathInstruction(y.memory.flat(),&m,&y,0x40b170));
+        m.r[20].uw[0]=1;m.r[18].uw[0]=B+0xb0+0x20;rejected=false;try{vp2s::nativeMathInstruction(y.memory.flat(),&m,&y,0x40b258);}catch(const std::runtime_error &){rejected=true;}check(rejected);
+        write(y,0x40b364,uint32_t(0));check(!vp2s::nativeMathInstruction(y.memory.flat(),&m,&y,0x40b364));
+        std::printf("%u trail emitter particles (%u trail points, six modes, three trail kinds, curves) match the VU0 reference\n",trailCases,points);
         now.particles=vp2s::NativeParticles{};
     }
     {auto &rt=b.runtime();initialize(rt,0);now.particles=vp2s::NativeParticles{};now.assets=vp2s::NativeAssets{};

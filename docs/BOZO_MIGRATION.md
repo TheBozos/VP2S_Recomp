@@ -12,6 +12,44 @@ The earlier VP2S face/shading and general brightness comparisons remain open.
 
 ## Build and evidence
 
+### Past the street exit: a particle step copy, the trail emitter, a short sine pair (2026-11-17)
+
+The route now continues past the camp menu: RIGHT at 41500 leaves the street
+through its exit into the inn square (new area, loads and draws natively),
+then UP at 41650 walks toward the inn. Three VU0 boundaries met there are
+native, each with tests; the route then stops at the particle draw (below).
+
+**Particle step 409700** (mod003, called from 3f4df4). A third class's copy
+of 3652d0's step `p.xyz += v*dt` (records of 0xb0, position +80, velocity
++90): the same VU0 words in its own layout, so its 26 sites are listed
+exactly (`particleSites409700`). Guard 409700..409e88. Test: 64 more seeds
+(four loops, dt from v1 or s0, two stores) against the VU0 oracle: 576 steps.
+
+**Trail emitter 40b080** (mod003, an emitter method of the driver 22ed38,
+driver frame = sp + 170). 126 VU0 instructions, ported as one semantic step
+per particle (`nativeTrailEmitter`): the record set (+10 position, +20
+colour, +30 velocity, +40 acceleration, +50 anchor with age in W, +60 colour
+rate, +70 rate change), the optional 1/60 curve (emitter+68 rows times the
+scalar fraction), the step (P = (p + drift) + v*dt, colour clamped to 0..255,
+anchor, velocity and its W countdown, rate), the output pair, the six mode
+branches' record stores, mode 2's |anchor|^2 and mode 5's emitter+80 matrix
+publications on the stack (the scalar code decides deletion), and the three
+trail rebuilds (+d7 = 1, 2, or a non-unit +54) that walk the particle's output
+points with RSQRT normalisation. Every point and trail anchor joins the
+driver's box. Each site checks its word, order and the address it reads or
+writes. Guard 40b080..40b984. Test (particles suite): a test-only oracle runs
+every site's own word through the engine's VU0 reference (`bozo::vu0`) on a
+separate RAM; 144 particles over all modes, trail kinds and 0..2 curve rows
+(216 trail points) leave identical records, outputs, publications and box.
+
+**Short sine/cosine 214100** (mod001). 213fd0's leaf with the polynomial
+started two terms later (x^9..x^3; quadrants at 35daf0):
+`shortSineCosine`. Guard 214100..21420c; the trig fixture compiles the leaf
+and every VU0 word must be bound. Test: 384 generated-leaf cases (four
+rounding modes, DAZ/FTZ, quarter-turn edges) with CPU/RAM/FP identical to the
+reference publications, and 65536 arithmetic cases (its error against
+sin/cos stays under 0.01, the polynomial's own reach at |r| near pi).
+
 ### Camp menu against PCSX2: untextured UI colour (2026-11-17)
 
 PCSX2 (slot 1, SELECT, F8 + GS dump) against the route's frame 39000: the

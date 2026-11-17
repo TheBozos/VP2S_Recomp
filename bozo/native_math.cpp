@@ -2156,13 +2156,28 @@ constexpr ParticleSite particleSites[]={
     {0x3654ac,0xd8610000,'p'},{0x3654b0,0xd9220000,'v'},{0x3654d0,0x4bc00abc,'a'},{0x3654d4,0x4bc31048,'m'},{0x3654e0,0xf9210000,'s'},{0x3654e4,0xf8610000,'s'},
     {0x3655e8,0xda610000,'p'},{0x3655f0,0xdaa20000,'v'},{0x3656f4,0x4bc00abc,'a'},{0x3656f8,0x4bc31048,'m'},{0x365704,0xfa410000,'s'},{0x36570c,0xfa610000,'s'},
     {0x3657e4,0xda610000,'p'},{0x3657e8,0xda020000,'v'},{0x3658fc,0x4bc00abc,'a'},{0x365900,0x4bc31048,'m'},{0x36590c,0xfa010000,'s'},{0x365914,0xfa610000,'s'}};
+// A third particle class's step, 409700 (called from 3f4df4; records of 0xb0
+// bytes, position at +80, velocity at +90): the same VU0 words in its own
+// layout (each load pair 8 bytes later than 3652d0's), so its sites are listed
+// exactly. dt: 409780 from v1 = *(35dee8), 4099a8 from s0.
+constexpr ParticleSite particleSites409700[]={
+    {0x409780,0x48a31800,'q'},{0x4099a8,0x48b01800,'q'},
+    {0x4097fc,0xd9410000,'p'},{0x409800,0xd8620000,'v'},{0x409828,0x4bc00abc,'a'},{0x40982c,0x4bc31048,'m'},{0x409838,0xf8610000,'s'},{0x40983c,0xf9410000,'s'},
+    {0x4098ec,0xd8610000,'p'},{0x4098f0,0xd9220000,'v'},{0x40991c,0x4bc00abc,'a'},{0x409920,0x4bc31048,'m'},{0x40992c,0xf9210000,'s'},{0x409930,0xf8610000,'s'},
+    {0x409a58,0xdac10000,'p'},{0x409a60,0xda020000,'v'},{0x409bbc,0x4bc00abc,'a'},{0x409bc0,0x4bc31048,'m'},{0x409bcc,0xfa010000,'s'},{0x409bd4,0xfac10000,'s'},
+    {0x409ca8,0xdaa10000,'p'},{0x409cac,0xda020000,'v'},{0x409e1c,0x4bc00abc,'a'},{0x409e20,0x4bc31048,'m'},{0x409e2c,0xfa010000,'s'},{0x409e34,0xfaa10000,'s'}};
 struct ParticleState{uint32_t dt=0;bool step=false;VuWords position{},velocity{},result{};uint8_t have=0;};
 ParticleState &particleState(const Runtime *rt){static std::map<const Runtime *,ParticleState> states;return states[rt];}
 bool nativeParticleStep(R5900Context *c,Runtime *rt,uint32_t pc){
     constexpr uint32_t kCopy=0x38d900-0x3652d0;
-    const uint32_t listed=pc>=0x365350+kCopy && pc<=0x365914+kCopy?pc-kCopy:pc;
-    if(!rt || listed<0x365350 || listed>0x365914)return false;
-    const ParticleSite *site=nullptr;for(const auto &s:particleSites)if(s.pc==listed)site=&s;
+    if(!rt)return false;
+    const ParticleSite *site=nullptr;
+    if(pc>=0x409780 && pc<=0x409e34){for(const auto &s:particleSites409700)if(s.pc==pc)site=&s;}
+    else{
+        const uint32_t listed=pc>=0x365350+kCopy && pc<=0x365914+kCopy?pc-kCopy:pc;
+        if(listed<0x365350 || listed>0x365914)return false;
+        for(const auto &s:particleSites)if(s.pc==listed)site=&s;
+    }
     if(!site)return false;
     uint32_t word=0;if(const auto *p=rt->memory.hostPointer(pc,4))std::memcpy(&word,p,4);
     if(word!=site->word)return false;   // another overlay at these addresses
@@ -2212,6 +2227,189 @@ bool nativeParticleBox(R5900Context *c,Runtime *rt,uint32_t pc){
     if(role==1){particles->nativeParticles().includePoint(frame,emitter,st.point);st.included=true;}
     else st=ParticleBoxState{};
     return true;
+}
+// Trail emitter step (mod003 40b080, an emitter method called from the driver at
+// 22ed38; driver frame = sp + 170). Per live particle of 0xb0 bytes (record R =
+// [emitter+14] + index*b0): position +10, colour +20, velocity +30, accel +40,
+// anchor +50 (w: age), colour rate +60, rate change +70. dt = *(35dee8) (QMTC2
+// vf5), drift = emitter+c0 (vf20), clamp = the 255s at sp+160 (vf29).
+//   optional curve (emitter+68 table, 1/60 rows): p.xyz = (p + 0) + row * f
+//   P.xyz = ((p + 0) + drift*1) + v*dt            -> out[0], record +10
+//   C     = min(max((c + 0) + rate*dt, 0), 255)   -> out[0]+10, record +20
+//   A.xyz = (a + 0) + v*dt,  A.w = a.w + dt        -> record +50
+//   V.xyz = (v + 0) + accel*dt, V.w = v.w - dt     -> record +30
+//   R     = rate*1 + change*dt                     -> record +60
+// P joins the driver's box (VMINI/VMAX vf26/vf27). Mode +d0: 2 publishes
+// (|A|^2 as (x2+y2)+1*z2, y2, z2, A.w) at sp+150; 5 publishes the emitter+80
+// rows applied to P (x, y, z, then row 3 * 1) at sp+140; the scalar code
+// decides deletion. Trail +d7 (1, 2) or a non-unit +54 (3) rebuilds the
+// particle's output points 1..n-1 from out[0]: d = next - prev; kinds 1/2
+// normalise d with RSQRT (Q = 1/sqrt((x2+y2)+1*z2)); anchor.xyz += kind 2:
+// d*1 + dir*len, kind 1: dir*len, kind 3: d*len; each new anchor is stored
+// and joins the box. len = emitter+54. Sequential VU0 macro semantics (ps2f,
+// nearest; MAX/MINI with ps2f::max/min).
+struct TrailSite{uint32_t pc,word;char role;uint8_t param;};
+constexpr TrailSite trailSites[]={
+    {0x40b124,0x48a22800,'T',0},{0x40b12c,0xd8540000,'T',1},{0x40b168,0x4be00798,'T',2},{0x40b170,0xd85d0000,'T',3},
+    {0x40b258,0xda410000,'L',0},{0x40b260,0xda220000,'L',1},{0x40b268,0xd9040000,'L',2},{0x40b270,0xdac30000,'L',3},
+    {0x40b278,0xda060000,'L',4},{0x40b280,0xd8670000,'L',5},{0x40b288,0xd8480000,'L',6},
+    {0x40b318,0xd88b0000,'E',0},{0x40b324,0x48a46000,'E',1},{0x40b328,0x4bc00abc,'E',2},{0x40b32c,0x4bcc5848,'E',3},
+    {0x40b364,0x4bc00abc,'k',0},{0x40b368,0x4bc0a0bf,'k',1},{0x40b36c,0x4bc51048,'k',2},{0x40b370,0x4bfe32bc,'k',3},{0x40b374,0x4be53988,'k',4},
+    {0x40b378,0x4bc022bc,'k',5},{0x40b37c,0x4bc51108,'k',6},{0x40b380,0x4bc012bc,'k',7},{0x40b384,0x4bc51888,'k',8},{0x40b388,0x4a251084,'k',9},
+    {0x40b38c,0x4be03190,'k',10},{0x40b390,0x4a252100,'k',11},{0x40b394,0x4be039bf,'k',12},{0x40b398,0x4be541c8,'k',13},{0x40b39c,0x4bc1d6af,'k',14},
+    {0x40b3a0,0x4bfd3194,'k',15},{0x40b3a4,0x4bc1deeb,'k',16},
+    {0x40b3a8,0xfae10000,'O',0},{0x40b3ac,0xfae60010,'O',1},
+    // Record stores, the same five in every mode branch (1, 3, 2, 5, 6, other).
+    {0x40b410,0xf9040000,'R',0},{0x40b414,0xfa410000,'R',1},{0x40b418,0xfa220000,'R',2},{0x40b41c,0xfa060000,'R',3},{0x40b420,0xf8670000,'R',4},
+    {0x40b488,0xf9040000,'R',0},{0x40b48c,0xfa410000,'R',1},{0x40b490,0xfa220000,'R',2},{0x40b494,0xfa060000,'R',3},{0x40b498,0xf8670000,'R',4},
+    {0x40b514,0xf9040000,'R',0},{0x40b51c,0xfa410000,'R',1},{0x40b520,0xfa220000,'R',2},{0x40b524,0xfa060000,'R',3},{0x40b528,0xf8670000,'R',4},
+    {0x40b5cc,0xf9040000,'R',0},{0x40b5d0,0xfa410000,'R',1},{0x40b5d4,0xfa220000,'R',2},{0x40b5d8,0xfa060000,'R',3},{0x40b5dc,0xf8670000,'R',4},
+    {0x40b650,0xf9040000,'R',0},{0x40b654,0xfa410000,'R',1},{0x40b658,0xfa220000,'R',2},{0x40b65c,0xfa060000,'R',3},{0x40b660,0xf8670000,'R',4},
+    {0x40b6f0,0xf9040000,'R',0},{0x40b6f4,0xfa410000,'R',1},{0x40b6f8,0xfa220000,'R',2},{0x40b6fc,0xfa060000,'R',3},{0x40b700,0xf8670000,'R',4},
+    // Mode 2: ones, square (after the anchor store), (x2+y2), +1*z2, publish.
+    {0x40b510,0x4bc007c3,'2',0},{0x40b518,0x4bc4212a,'2',1},{0x40b52c,0x4b04203d,'2',2},{0x40b530,0x4b04f90a,'2',3},{0x40b53c,0xf8440000,'2',4},
+    // Mode 5: four rows, the product chain, publish.
+    {0x40b5ac,0xd8480000,'5',0},{0x40b5b0,0xd8490010,'5',1},{0x40b5b4,0xd84a0020,'5',2},{0x40b5b8,0xd84b0030,'5',3},
+    {0x40b5bc,0x4be141bc,'5',4},{0x40b5c0,0x4be148bd,'5',5},{0x40b5c4,0x4be150be,'5',6},{0x40b5c8,0x4be05c8b,'5',7},{0x40b5e4,0xf8520000,'5',8},
+    // Trails: head, len, anchor = head (param = kind), then per point: load ('p'), steps ('i'), store ('a'), box ('b').
+    {0x40b738,0xd8810000,'h',2},{0x40b748,0x48a21800,'n',2},{0x40b74c,0x4be40b3c,'v',2},{0x40b768,0xd8420000,'p',2},
+    {0x40b76c,0x4be111ac,'i',1},{0x40b770,0x4be1133c,'i',2},{0x40b774,0x4bc007c3,'i',3},{0x40b778,0x4bc631ea,'i',4},{0x40b77c,0x4b07383d,'i',5},{0x40b780,0x4b07f9ca,'i',6},
+    {0x40b784,0x4a6703be,'i',7},{0x40b788,0x4a0003bf,'i',8},{0x40b78c,0x4bc0321c,'i',9},{0x40b790,0x4bc022bc,'i',10},{0x40b794,0x4bc030bf,'i',11},{0x40b798,0x4bc34108,'i',12},
+    {0x40b79c,0xf8440000,'a',13},{0x40b7a0,0x4bc4d6af,'b',14},{0x40b7a4,0x4bc4deeb,'b',15},
+    {0x40b7d8,0xd8810000,'h',1},{0x40b7e8,0x48a21800,'n',1},{0x40b7ec,0x4be40b3c,'v',1},{0x40b808,0xd8420000,'p',1},
+    {0x40b80c,0x4be111ac,'i',1},{0x40b810,0x4be1133c,'i',2},{0x40b814,0x4bc007c3,'i',3},{0x40b818,0x4bc631ea,'i',4},{0x40b81c,0x4b07383d,'i',5},{0x40b820,0x4b07f9ca,'i',6},
+    {0x40b824,0x4a6703be,'i',7},{0x40b828,0x4a0003bf,'i',8},{0x40b82c,0x4bc0319c,'i',9},{0x40b830,0x4bc022bc,'i',10},{0x40b834,0x4bc33108,'i',11},
+    {0x40b838,0xf8440000,'a',12},{0x40b83c,0x4bc4d6af,'b',13},{0x40b840,0x4bc4deeb,'b',14},
+    {0x40b878,0xd8810000,'h',3},{0x40b888,0x48a21800,'n',3},{0x40b88c,0x4be40b3c,'v',3},{0x40b8a8,0xd8420000,'p',3},
+    {0x40b8ac,0x4be111ac,'i',1},{0x40b8b0,0x4be1133c,'i',2},{0x40b8b4,0x4bc022bc,'i',3},{0x40b8b8,0x4bc33108,'i',4},
+    {0x40b8bc,0xf8440000,'a',5},{0x40b8c0,0x4bc4d6af,'b',6},{0x40b8c4,0x4bc4deeb,'b',7}};
+struct TrailState{
+    unsigned setup=0;uint32_t frame=0,emitter=0,dt=0;VuWords drift{},clamp{};
+    uint32_t record=0,output=0;unsigned loads=0,curve=0,main=0,outputs=0,records=0,extra=0,extraStep=0;
+    VuWords p{},v{},a{},accel{},colour{},rate{},change{},row{},P{},C{},A{},V{},R{},published{};std::array<VuWords,4> rows{};uint32_t fraction=0;
+    unsigned trail=0,trailStep=0,trailIndex=0;uint32_t length=0,next=0;VuWords head{},prev{},anchor{};
+};
+TrailState &trailState(const Runtime *rt){static std::map<const Runtime *,TrailState> states;return states[rt];}
+bool nativeTrailEmitter(R5900Context *c,Runtime *rt,uint32_t pc){
+    if(!rt || pc<0x40b124 || pc>0x40b8c4)return false;
+    const TrailSite *site=nullptr;for(const auto &s:trailSites)if(s.pc==pc)site=&s;
+    if(!site)return false;
+    uint32_t word=0;if(const auto *p=rt->memory.hostPointer(pc,4))std::memcpy(&word,p,4);
+    if(word!=site->word)return false;   // another overlay at these addresses
+    auto *d=dynamic_cast<bozo::ee::Dispatcher *>(rt->services);auto *particles=d?dynamic_cast<ParticleOwner *>(&d->host()):nullptr;
+    if(!c || !particles)throw std::runtime_error("native trail emitter requires its bounds owner");
+    struct ArithmeticScope{unsigned saved=_mm_getcsr();~ArithmeticScope(){_mm_setcsr(saved);}} arithmetic;
+    auto &st=trailState(rt);
+    const auto fail=[&](const char *what){st=TrailState{};throw std::runtime_error(std::format("native trail emitter at {:x}: {}",pc,what));};
+    const auto reg=[&](unsigned r){return c->r[r].uw[0];};
+    const auto address=[&]{return reg((word>>21)&31)+uint32_t(int32_t(int16_t(word&0xffff)));};
+    const auto put=[&](uint32_t at,const VuWords &v){std::memcpy(record(rt,at,16),v.data(),16);};
+    const auto field=[&](uint32_t at){const auto *p=rt->memory.hostPointer(at,4);if(!p)fail("scalar field outside RAM");uint32_t v;std::memcpy(&v,p,4);return v;};
+    constexpr uint32_t one=0x3f800000u;
+    const auto vmax=[](uint32_t a,uint32_t b){return bozo::ps2f::max(a,b);};
+    const auto vmin=[](uint32_t a,uint32_t b){return bozo::ps2f::min(a,b);};
+    const auto include=[&](const VuWords &v){std::array<float,4> f;for(unsigned i=0;i<4;++i)f[i]=std::bit_cast<float>(v[i]);particles->nativeParticles().includePoint(st.frame,st.emitter,f);};
+    const auto sumSquares=[&](const VuWords &v){return vuAdd(vuAdd(vuMul(v[0],v[0]),vuMul(v[1],v[1])),vuMul(one,vuMul(v[2],v[2])));};
+    if(site->role=='T'){
+        if(site->param==0){
+            st=TrailState{};st.frame=reg(29)+0x170;st.emitter=reg(21);particles->nativeParticles().validateEmitter(st.frame,st.emitter);
+            if(reg(2)!=field(0x35dee8))fail("timestep source");st.dt=reg(2);st.setup=1;return true;}
+        if(st.setup!=site->param || reg(21)!=st.emitter || reg(29)+0x170!=st.frame)fail("set-up order");
+        if(site->param==1){if(reg(2)!=st.emitter+0xc0)fail("drift source");st.drift=vuWords(rt,address());}
+        if(site->param==3){if(reg(2)!=reg(29)+0x160)fail("clamp source");st.clamp=vuWords(rt,address());}
+        ++st.setup;return true;
+    }
+    if(st.setup!=4 || reg(21)!=st.emitter || reg(29)+0x170!=st.frame)fail("site outside its set-up call");
+    switch(site->role){
+    case 'L':{
+        constexpr uint32_t offsets[7]={0x10,0x30,0x50,0x40,0x20,0x60,0x70};
+        if(site->param==0){
+            if(st.loads && st.records!=5)fail("particle left unfinished");
+            const auto setup=std::tuple{st.setup,st.frame,st.emitter,st.dt,st.drift,st.clamp};
+            st=TrailState{};std::tie(st.setup,st.frame,st.emitter,st.dt,st.drift,st.clamp)=setup;
+            st.record=field(st.emitter+0x14)+reg(20)*0xb0;
+        }else if(st.loads!=site->param)fail("record load order");
+        if(address()!=st.record+offsets[site->param])fail("record field address");
+        VuWords *targets[7]={&st.p,&st.v,&st.a,&st.accel,&st.colour,&st.rate,&st.change};*targets[site->param]=vuWords(rt,address());
+        ++st.loads;return true;}
+    case 'E':
+        if(st.loads!=7 || st.main || st.curve!=site->param)fail("curve order");
+        if(site->param==0){if(address()!=field(st.emitter+0x68)+reg(9)*16)fail("curve row address");st.row=vuWords(rt,address());}
+        if(site->param==1){if(reg(4)!=std::bit_cast<uint32_t>(c->f[1]))fail("curve fraction source");st.fraction=reg(4);}
+        if(site->param==3){for(unsigned i=0;i<3;++i)st.p[i]=vuAdd(vuAdd(st.p[i],0),vuMul(st.row[i],st.fraction));st.curve=0;return true;}
+        ++st.curve;return true;
+    case 'k':
+        if(st.loads!=7 || st.curve || st.main!=site->param)fail("main step order");
+        if(site->param==0){
+            for(unsigned i=0;i<3;++i){
+                st.P[i]=vuAdd(vuAdd(vuAdd(st.p[i],0),vuMul(st.drift[i],one)),vuMul(st.v[i],st.dt));
+                st.A[i]=vuAdd(vuAdd(st.a[i],0),vuMul(st.v[i],st.dt));
+                st.V[i]=vuAdd(vuAdd(st.v[i],0),vuMul(st.accel[i],st.dt));}
+            st.P[3]=st.p[3];st.A[3]=vuAdd(st.a[3],st.dt);st.V[3]=vuSub(st.v[3],st.dt);
+            for(unsigned i=0;i<4;++i){
+                st.C[i]=vmin(vmax(vuAdd(vuAdd(st.colour[i],0),vuMul(st.rate[i],st.dt)),0),st.clamp[0]);
+                st.R[i]=vuAdd(vuMul(st.rate[i],one),vuMul(st.change[i],st.dt));}
+        }
+        if(site->param==14)include(st.P);
+        ++st.main;return true;
+    case 'O':
+        if(st.main!=17 || st.outputs!=site->param)fail("output order");
+        if(site->param==0){if(address()!=reg(23))fail("output address");st.output=address();put(st.output,st.P);}
+        else{if(address()!=st.output+0x10)fail("output address");put(address(),st.C);}
+        ++st.outputs;return true;
+    case 'R':{
+        constexpr uint32_t offsets[5]={0x50,0x10,0x30,0x20,0x60};
+        if(st.outputs!=2 || st.records!=site->param)fail("record store order");
+        if((st.extra==2 && st.extraStep!=(site->param?2:1)) || (st.extra==5 && st.extraStep!=8))fail("record store inside a mode step");
+        if(address()!=st.record+offsets[site->param])fail("record store address");
+        const VuWords *sources[5]={&st.A,&st.P,&st.V,&st.C,&st.R};put(address(),*sources[site->param]);
+        ++st.records;return true;}
+    case '2':
+        if(st.outputs!=2)fail("mode 2 order");
+        if(site->param==0){if(st.records || st.extra)fail("mode 2 order");st.extra=2;st.extraStep=1;return true;}
+        if(st.extra!=2 || st.extraStep!=site->param || (site->param==1 && st.records!=1) || (site->param>=2 && st.records!=5))fail("mode 2 order");
+        if(site->param==3){st.published=st.A;st.published[0]=sumSquares(st.A);for(unsigned i=1;i<3;++i)st.published[i]=vuMul(st.A[i],st.A[i]);}
+        if(site->param==4){if(address()!=reg(29)+0x150)fail("mode 2 publication address");put(address(),st.published);st.extra=st.extraStep=0;return true;}
+        ++st.extraStep;return true;
+    case '5':
+        if(st.outputs!=2)fail("mode 5 order");
+        if(site->param==0){if(st.records || st.extra)fail("mode 5 order");st.extra=5;st.extraStep=0;}
+        if(st.extra!=5 || st.extraStep!=site->param || (site->param<8 && st.records) || (site->param==8 && st.records!=5))fail("mode 5 order");
+        if(site->param<4){if(reg(2)!=st.emitter+0x80 || address()!=st.emitter+0x80+0x10*site->param)fail("mode 5 row address");st.rows[site->param]=vuWords(rt,address());}
+        if(site->param==7)for(unsigned i=0;i<4;++i)
+            st.published[i]=vuAdd(vuAdd(vuAdd(vuMul(st.rows[0][i],st.P[0]),vuMul(st.rows[1][i],st.P[1])),vuMul(st.rows[2][i],st.P[2])),vuMul(st.rows[3][i],one));
+        if(site->param==8){if(address()!=reg(29)+0x140)fail("mode 5 publication address");put(address(),st.published);st.extra=st.extraStep=0;return true;}
+        ++st.extraStep;return true;
+    case 'h':
+        if(st.records!=5 || st.extra || st.trail)fail("trail before the particle's records");
+        if(address()!=reg(23)-reg(19)*0x30 || address()!=st.output)fail("trail head address");
+        st.head=vuWords(rt,address());st.trail=site->param;st.trailStep=1;return true;
+    case 'n':
+        if(st.trail!=site->param || st.trailStep!=1)fail("trail length order");
+        if(reg(2)!=field(st.emitter+0x54))fail("trail length source");st.length=reg(2);st.trailStep=2;return true;
+    case 'v':
+        if(st.trail!=site->param || st.trailStep!=2)fail("trail anchor order");
+        st.anchor=st.prev=st.head;st.trailStep=0;st.trailIndex=0;return true;
+    case 'p':{
+        const unsigned last=site->param==2?16:site->param==1?15:8;
+        if(st.trail!=site->param || (st.trailStep!=0 && st.trailStep!=last) || reg(3)!=st.trailIndex+1)fail("trail point order");
+        if(address()!=st.output+reg(3)*0x30)fail("trail point address");
+        const auto next=vuWords(rt,address());VuWords delta{},direction{};
+        for(unsigned i=0;i<4;++i)delta[i]=vuSub(next[i],st.prev[i]);st.prev=next;
+        if(site->param!=3){uint32_t flags=0;const auto root=bozo::ps2f::rsqrt(one,sumSquares(delta),flags);
+            for(unsigned i=0;i<3;++i)direction[i]=vuMul(delta[i],root);}
+        for(unsigned i=0;i<3;++i){
+            const auto start=vuAdd(st.anchor[i],0);
+            st.anchor[i]=site->param==2?vuAdd(vuAdd(start,vuMul(delta[i],one)),vuMul(direction[i],st.length)):
+                         site->param==1?vuAdd(start,vuMul(direction[i],st.length)):vuAdd(start,vuMul(delta[i],st.length));}
+        st.next=address();st.trailIndex=reg(3);st.trailStep=1;return true;}
+    case 'i':case 'a':case 'b':
+        if(!st.trail || st.trailStep!=site->param)fail("trail step order");
+        if(site->role=='a'){if(address()!=st.next)fail("trail store address");put(address(),st.anchor);}
+        if(site->role=='b' && word==0x4bc4d6af)include(st.anchor);
+        ++st.trailStep;return true;
+    }
+    return false;
 }
 // VU0 program 0x2d0 (mode 0): in-place 4x4 Gauss-Jordan inverse of rows
 // vf1..vf4, no row swaps. Each pivot is first clamped away from zero by the
@@ -3788,7 +3986,7 @@ bool nativeMathInstruction(uint8_t *,R5900Context *c,Runtime *rt,uint32_t pc){
     default:
         // Inlined-block recognisers last: they read code around the PC, so
         // only sites no specific handler claimed pay for that scan.
-        return nativeParticleStep(c,rt,pc) || nativeParticleBox(c,rt,pc) || nativeLengthIdiom(c,rt,pc) || nativeMacroIdiom(c,rt,pc) || nativeInverseIdiom(c,rt,pc) || nativeQuaternionIdiom(c,rt,pc);
+        return nativeParticleStep(c,rt,pc) || nativeParticleBox(c,rt,pc) || nativeTrailEmitter(c,rt,pc) || nativeLengthIdiom(c,rt,pc) || nativeMacroIdiom(c,rt,pc) || nativeInverseIdiom(c,rt,pc) || nativeQuaternionIdiom(c,rt,pc);
     }
 }
 }

@@ -30,6 +30,12 @@ constexpr std::array<uint32_t,30> sites{
     0x214008,0x21400c,0x214010,0x214014,0x214018,0x214058,0x2140b0,0x2140b4,
     0x2140b8,0x2140bc,0x2140c0,0x2140c4,0x2140c8,0x2140cc,0x2140d0,0x2140d4,
     0x2140d8,0x2140dc,0x2140e0,0x2140e4,0x2140e8,0x2140f0};
+// 214100: 213fd0's leaf with the short polynomial (x^9..x^3) and its quadrant
+// pair at 35daf0 (Z/W). Every VU0 word, sorted.
+constexpr std::array<uint32_t,25> shortPairSites{
+    0x214110,0x214114,0x214118,0x214124,0x214128,0x21412c,0x214130,0x214134,0x214138,0x21413c,
+    0x214140,0x214144,0x214184,0x2141d8,0x2141dc,0x2141e0,0x2141e4,0x2141e8,0x2141ec,0x2141f0,
+    0x2141f4,0x2141f8,0x2141fc,0x214200,0x214208};
 constexpr std::array<uint32_t,24> cosineSites{
     0x214310,0x214314,0x214318,0x214324,0x214328,0x21432c,0x214330,0x214334,
     0x214338,0x21433c,0x214360,0x214388,0x214390,0x214394,0x214398,0x2143a4,
@@ -135,19 +141,24 @@ TrigReduction reduceSineCosine(float angle,const TrigCoefficients &c){
         result.residual[i]=difference(arguments[i],product(integer,c.pi));
     }return result;
 }
-std::array<float,4> sineCosine(float angle,const TrigCoefficients &c){
-    for(float v:c.sine)qualified(v);const auto reduced=reduceSineCosine(angle,c);
+namespace {
+// The pair of 213fd0 (all six terms, x^13..x^3) and 214100 (first = 2: x^9..x^3).
+std::array<float,4> sineCosineTerms(float angle,const TrigCoefficients &c,unsigned first){
+    for(unsigned k=first;k<6;++k)qualified(c.sine[k]);const auto reduced=reduceSineCosine(angle,c);
     std::array<float,4> out{c.sine[3],c.sine[2],0,0};
     for(unsigned i=0;i<2;++i){
         const float r=reduced.residual[i],square=product(r,r);
-        float polynomial=sum(product(square,c.sine[0]),c.sine[1]);
-        for(unsigned k=2;k<6;++k)polynomial=sum(product(polynomial,square),c.sine[k]);
+        float polynomial=sum(product(square,c.sine[first]),c.sine[first+1]);
+        for(unsigned k=first+2;k<6;++k)polynomial=sum(product(polynomial,square),c.sine[k]);
         polynomial=sum(product(polynomial,square),1.f);
         const float sign=(uint32_t(reduced.quadrants[i])&1)?-1.f:1.f;
         out[i+2]=product(polynomial,product(r,sign));
         if(!std::isfinite(out[i+2]))throw std::runtime_error("unqualified native trigonometric polynomial overflow");
     }return out;
 }
+}
+std::array<float,4> sineCosine(float angle,const TrigCoefficients &c){return sineCosineTerms(angle,c,0);}
+std::array<float,4> shortSineCosine(float angle,const TrigCoefficients &c){return sineCosineTerms(angle,c,2);}
 NativeCosine shortCosine(float angle,const TrigCoefficients &c){
     qualified(angle);qualified(c.pi);qualified(c.inversePi);qualified(c.halfPi);
     for(unsigned i=2;i<6;++i)qualified(c.sine[i]);
@@ -267,6 +278,15 @@ bool nativeTrigInstruction(uint8_t *,R5900Context *c,Runtime *rt,uint32_t pc){
         }
         // Retire the temporary scalar sign store too: the final original store
         // restored the old Z coefficient. The native polynomial owns the sign.
+        return true;
+    }
+    if(std::binary_search(shortPairSites.begin(),shortPairSites.end(),pc)){
+        if(!c || c->pc!=0x214100)throw std::runtime_error("unported interior short sine/cosine invocation");
+        if(pc==0x214140){const auto reduced=reduceSineCosine(c->f[12],coefficients(rt));
+            // Only Z/W are quadrant results; the inherited X/Y bytes stay as in 213fd0.
+            std::memcpy(record(rt,0x35daf0,16)+8,reduced.quadrants.data(),8);}
+        else if(pc==0x214208){const auto result=shortSineCosine(c->f[12],coefficients(rt));
+            std::memcpy(record(rt,c->r[4].uw[0],16),result.data(),16);}
         return true;
     }
     if(std::binary_search(cosineSites.begin(),cosineSites.end(),pc)){

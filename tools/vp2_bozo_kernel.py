@@ -399,6 +399,10 @@ def overlay_adaptations(name,data):
                                (0x4338a8,0x43395c,'4ad9586ba1652999a9925489b494a6de55165745a2bd84443f2880bfb536d0a4'),
                                # Particle step copy 38d900 (3652d0's VU0 sites +0x28630, strides x4/x32).
                                (0x38d900,0x38df90,'e92fd43817328c8624afdcf10fa7bc10c482e30d14cac8e0a6737879d1789c4b'),
+                               # Particle step 409700 (a third class; same VU0 words, own layout).
+                               (0x409700,0x409e88,'6ba21b22c83e0df61b32912a1a1090647f90a9ade092a83fabee1d65b8fbc1fd'),
+                               # Trail emitter 40b080 (every VU0 site native: nativeTrailEmitter).
+                               (0x40b080,0x40b984,'cd162384071e4ac2ea8f23819ed7c7601c0b03bf49168d10fe735aa8f42bcca2'),
                                # Emitter method 38cea0 (two v1 scaled sums, then the particle box words).
                                (0x38cea0,0x38d0a0,'496b8d46f1c01dc5c23b15468dde55107541658cd1cb7d4b93ee177e415c8d65'),
                                # Camp menu set-up 45dd30 (its graphics-memory clear's enqueue retires).
@@ -730,6 +734,7 @@ def overlay_adaptations(name,data):
         (0x2bef20,0x2bf0dc,'2562b94cada2f70f71933a401cc6eacc7c1eb0a71f60dafc6b7179d58fdb0fb7'),
         (0x248fc0,0x24926c,'c80605a259562aba190d4009dda4f3f913e461937e47c6e4dca959f8f81624cc'),
         (0x213fd0,0x2140f4,'929eb425f5d11c4d38fd2c0d2c18b8bad91718a8fe3845ba40df7e08a9392768'),
+        (0x214100,0x21420c,'7fcf2b872a034412c64daabcc62b90dc5e5540c0fb98d74cd66b4155fba71f2f'),
         (0x214e40,0x2150f0,'c83bfc3a70b84ef6ccb1de817de8490cc12fe95f428f6519c4f3ed0700c9af5f'),
         (0x214c40,0x214e40,'d9106bc728de471b557f7f136424ebe55e3d59a694b9ff7f0ba9e91807180a0e'),
         (0x22e650,0x22f0d4,'4b641be6f4d9b2450646a7b89b06f0b1446d290c4e91ccbd192fbb16a76bd9d9'),

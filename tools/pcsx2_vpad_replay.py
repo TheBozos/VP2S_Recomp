@@ -1,7 +1,9 @@
 """Replay a Bozo route pad script in PCSX2 through a virtual pad, capturing
 the window with PrintWindow: no focus, no key injection (the user keeps the PC).
 
-PCSX2 Pad 1 is bound to SDL-0 (the virtual XInput pad) besides the keyboard.
+The pad is a virtual DualShock 4 hidden by HidHide from every program but
+PCSX2 (tools/vpad.py refuses to press otherwise; tools/vpad_isolation_check.py
+verifies it). PCSX2 Pad 1 is bound to it through SDL besides the keyboard.
 Frames are real time (1/59.94 s) from launch, shifted by --offset (PCSX2 boot).
   python tools/pcsx2_vpad_replay.py SCRIPT OUTDIR --until F [--offset 250]
          [--capture-from A --capture-to B --capture-every N]
@@ -50,12 +52,16 @@ def main():
     ap.add_argument('--offset', type=int, default=250)
     ap.add_argument('--capture-from', type=int, default=0); ap.add_argument('--capture-to', type=int, default=None)
     ap.add_argument('--capture-every', type=int, default=30)
+    ap.add_argument('--dump-at', type=int, action='append', default=[],
+                    help='press Guide (bound to GSDumpSingleFrame) at this script frame')
     a = ap.parse_args()
     os.makedirs(a.outdir, exist_ok=True)
     presses = [p for p in parse(open(a.script, encoding='utf-8').read()) if p[0] < a.until]
     events = []
     for start, duration, name in presses:
         events += [(start, name, True), (start + duration, name, False)]
+    for f in a.dump_at:
+        events += [(f, 'GUIDE', True), (f + 6, 'GUIDE', False)]
     to = a.capture_to if a.capture_to is not None else a.until
     events += [(f, None, None) for f in range(a.capture_from, to + 1, a.capture_every)]
     events.sort(key=lambda e: (e[0], e[1] is None))

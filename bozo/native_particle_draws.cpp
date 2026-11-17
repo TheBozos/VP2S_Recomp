@@ -58,8 +58,10 @@ NativeModelSubmission NativeParticleDraws::capture(Runtime *rt,NativeAssets &ass
     NativeModelSubmission submission{object,camera->object};if(!total)return submission;
     const auto kinds=value<uint32_t>(owner,0x628);const auto origin=assets.origin(kinds);if(!origin)throw std::runtime_error("native particle kinds lack allocation provenance");
     const auto &m=material(*origin);auto *kindData=record(rt,kinds,m.extent);
-    if(assets.origin(kinds,m.extent)!=origin || unsigned(kindData[0])*kindData[1]!=m.kinds || owner[0x210] || value<uint16_t>(owner,0x634)!=0 || m.wrapU>1 || m.wrapV>1)
-        throw std::runtime_error("unported native particle template/material variant");
+    if(assets.origin(kinds,m.extent)!=origin)throw std::runtime_error("native particle kinds extend beyond their converted template");
+    if(unsigned(kindData[0])*kindData[1]!=m.kinds || owner[0x210] || value<uint16_t>(owner,0x634)!=0 || m.wrapU>1 || m.wrapV>1)
+        throw std::runtime_error(std::format("unported native particle template/material variant (grid {}x{} for {} kinds, +210={}, +634={:x}, wrap {}/{}, object {:x}, kinds {:x})",
+            kindData[0],kindData[1],m.kinds,owner[0x210],value<uint16_t>(owner,0x634),m.wrapU,m.wrapV,object,kinds));
     const auto fis=value<uint32_t>(owner,0x658);auto *descriptor=record(rt,fis,16);const TextureKey key{value<uint32_t>(descriptor,4),value<uint32_t>(descriptor,8)};
     const auto manager=word(rt,0x35de38);const auto slot=int16_t(word(rt,manager+0x2670)&0xffff);
     if(slot<0 || slot>=256 || word(rt,manager+0x1008+16*slot)!=key.tag || word(rt,manager+8+16*slot)!=key.index)throw std::runtime_error("native particle FIS identity differs from selected game texture");

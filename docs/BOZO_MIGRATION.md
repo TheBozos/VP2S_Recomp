@@ -50,6 +50,18 @@ rounding modes, DAZ/FTZ, quarter-turn edges) with CPU/RAM/FP identical to the
 reference publications, and 65536 arithmetic cases (its error against
 sin/cos stays under 0.01, the polynomial's own reach at |r| near pi).
 
+**Where the route stops now: the particle draw 22f160**, object 9e53e0 (the
+trail emitter's), template c7d120 (grid 1x2, two kinds, 64x32 texture). Its
+rejection is now specific: the converted "wrap" field is 2 (U) / 0 (V), while
+only 0/1 are admitted. That field comes from the template's first VU1 qword
+(+20, here words 2, 1, 5, 0), which the converter read as a CLAMP register.
+The template's GIF packet holds only TEX0 and ALPHA, and VU1 program 0x6e0
+reads its control words with ILW from that block (xtop, ilw vi14+0), so the
+qword is more likely the program's own control header than CLAMP. Region
+clamp is therefore not ported on that reading; next: settle the qword's
+meaning from 0x6e0 itself (or a PCSX2 GS dump of this scene) before
+extending the material conversion.
+
 ### Camp menu against PCSX2: untextured UI colour (2026-11-17)
 
 PCSX2 (slot 1, SELECT, F8 + GS dump) against the route's frame 39000: the

@@ -1,4 +1,5 @@
 #include "native_ui_text.h"
+#include "native_ui_windows.h"
 #include "bozo/ee/dispatcher.h"
 #include "bozo/port.h"
 #include "button_original_functions.h"
@@ -12,8 +13,9 @@ void check(bool ok,std::source_location loc=std::source_location::current()){
     if(!ok)throw std::runtime_error("native button assertion at "+std::to_string(loc.line()));
 }
 template<class T>void put(Runtime &rt,uint32_t at,T v){std::memcpy(rt.memory.hostPointer(at,sizeof(T)),&v,sizeof(T));}
-struct Host:bozo::ee::Host,bozo::port::Host,vp2s::UiSpriteOwner,vp2s::TextureOwner,vp2s::UiTextOwner {
-    vp2s::NativeUiSprites sprites;vp2s::NativeTextures textures;bool pause=false;struct Pause{};
+struct Host:bozo::ee::Host,bozo::port::Host,vp2s::UiSpriteOwner,vp2s::TextureOwner,vp2s::UiTextOwner,vp2s::UiWindowOwner {
+    vp2s::NativeUiSprites sprites;vp2s::NativeTextures textures;bool pause=false;struct Pause{};vp2s::NativeUiWindows windows;
+    vp2s::NativeUiWindows &nativeUiWindows()override{return windows;}
     vp2s::NativeUiTexts texts;vp2s::NativeGlyphs glyphs;
     explicit Host(const std::filesystem::path &path):textures(path,path/"manifest.txt"){}
     vp2s::NativeUiSprites &nativeUiSprites()override{return sprites;}
@@ -140,6 +142,42 @@ int main(int argc,char **argv){try{
         check(!after.texts.text(element) && !after.sprites.button(element+0x50) && !after.sprites.button(element+0xb8));
         check(!std::memcmp(bytes.data(),b.memory.flat(),bytes.size()) && held->icons[0].picture->rgba[0]==0x80402041);
     }
+    // Sprite element 15a200 in a camp menu layer (build 2eaa90, sprite writer
+    // 2eb3a0 returning to 2eab28): its DTT-bound sprite resolves the menu image
+    // published under the record's (page, format, palette page) handle.
+    after.textures.publishMenuPage(0x1000,0x2c,0x3e4c,{0x00494853,0x41});unsigned elementCases=0;
+    for(unsigned seed=0;seed<32;++seed){
+        auto &a=old.runtime(),&b=native.runtime();std::memset(a.memory.flat(),0,bozo::kFlatBytes);
+        constexpr uint32_t element=0x1f0000,layer=0x1f1000;const uint32_t sprite=element+0x50;
+        put(a,0x35e170,manager);put(a,manager+0x840,16.f);put(a,manager+0x844,16.f);put(a,manager+0x848,27648.f);put(a,manager+0x84c,29184.f);
+        put(a,element,seed&4?0x168410u:0x15a200u);put(a,element+0x14,layer);  // 168410: the mod003 subclass, same base buildput(a,element+0x18,2.25f+float(seed)/8);put(a,element+0x1c,3.5f+float(seed)/4);
+        put(a,element+0x28,128.f-float(seed));put(a,element+0x2c,4u);put(a,element+0x48,0x1f3000u);put(a,element+0xb8,dtt);
+        put(a,layer,0x152060u);put(a,layer+0x10,seed&1?0x167470u:seed&2?0x167380u:0x167730u);put(a,layer+0x40,10.f);put(a,layer+0x44,20.f);put(a,layer+0xe0,128.f);put(a,layer+0xc4,0xff0000u);
+        put(a,dtt,0x545444u);put(a,dtt+0x10,uint16_t(1));
+        put(a,dtt+0x14,uint16_t(0x400));put(a,dtt+0x16,uint16_t(0x800));put(a,dtt+0x18,uint16_t(0xc00));put(a,dtt+0x1a,uint16_t(0x1000));
+        put(a,dtt+0x1c,uint16_t(16));put(a,dtt+0x1e,uint16_t(24));
+        put(a,sprite+4,dtt);put(a,sprite+8,dtt+0x14);put(a,sprite+0x56,uint16_t(1));put(a,sprite+0x64,int8_t(-1));
+        put(a,sprite+0x5a,uint16_t(0x1000));put(a,sprite+0x5c,uint16_t(0x3e4c));put(a,sprite+0x5e,uint8_t(8));put(a,sprite+0x5f,uint8_t(0x2c));
+        put(a,sprite+0x60,uint8_t(4));put(a,sprite+0x61,uint8_t(4));
+        put(a,sprite+0x2c,1.f);put(a,sprite+0x30,1.f);for(uint32_t at:{0x40u,0x44u,0x48u,0x4cu})put(a,sprite+at,128.f);
+        std::memcpy(b.memory.flat(),a.memory.flat(),bozo::kFlatBytes);R5900Context x{},y{};
+        x.r[4].ud[0]=element;x.r[29].ud[0]=seed&2?0x70003f00:0x1fff000;x.r[31].ud[0]=0x170000;y=x;
+        run(old,x,0x2eaa90);run(native,y,0x2eaa90);x.cycleLimit=y.cycleLimit;
+        check(!std::memcmp(&x,&y,sizeof(x)) && !std::memcmp(a.memory.flat(),b.memory.flat(),bozo::kFlatBytes));
+        const auto held=after.windows.window(element);check(held && held->background.empty() && held->border.size()==1 && !after.sprites.outstanding());
+        const auto &s=held->border[0];check(s.picture && s.picture->rgba[0]==0x80402041u && s.uv==std::array<float,4>{.25f,.5f,.75f,1.f} && s.depth==0xff0004);
+        const uint32_t destructor=seed&4?0x462a60:0x2eaa20;R5900Context dying{};dying.pc=destructor;dying.r[4].uw[0]=element;
+        check(vp2s::nativeUiSpriteInstruction(&dying,&b,destructor)==false && !after.windows.window(element) && !after.sprites.button(sprite));++elementCases;
+        // An unpublished handle or an owner that is no UI layer rejects before any capture.
+        for(unsigned spoil=0;spoil<2;++spoil){
+            std::memcpy(b.memory.flat(),a.memory.flat(),bozo::kFlatBytes);put(b,element+0x3b,uint8_t(0));
+            if(spoil)put(b,layer,0x15a1e0u);else put(b,sprite+0x5c,uint16_t(0x3e40));
+            y={};y.r[4].ud[0]=element;y.r[29].ud[0]=0x1fff000;y.r[31].ud[0]=0x170000;
+            bool caught=false;try{run(native,y,0x2eaa90);}catch(const std::exception &){caught=true;}check(caught && !after.windows.window(element));++elementCases;
+            after.sprites=vp2s::NativeUiSprites{};
+        }
+    }
+    std::printf("%u camp-menu sprite-element CPU/RAM cases and rejections\n",elementCases);
     auto &rt=native.runtime();constexpr uint32_t text=0x1f0000,stack=0x1fff000;
     auto rejects=[](auto action){bool rejected=false;try{action();}catch(const std::exception &){rejected=true;}check(rejected);};
     after.sprites.beginText(stack,text);check(after.sprites.buildingText(text));

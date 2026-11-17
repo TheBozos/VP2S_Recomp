@@ -28,6 +28,18 @@ int main(){try{
     a.discRead(0x110000,1,88); // The decode keeps its accepted source identity across yields/rebinding.
     a.finish(0x1ff000,true,1024);
     check(a.origin(0x120005)==Origin{Kind::Part,9*2048+224,7,5});
+    {   // A part read from inside a decoded part gets a derived identity: stable
+        // for the same parent bytes and index, distinct for another index or
+        // another place in the parent, and never equal to a disc-backed part.
+        vp2s::NativeAssets n;n.discRead(0x140000,4,30);n.begin(0x1fe000,0x140000,0x150000,2);n.finish(0x1fe000,true,4096);
+        n.begin(0x1fe000,0x150040,0x160000,5);n.finish(0x1fe000,true,512);
+        n.begin(0x1fe000,0x150040,0x170000,5);n.finish(0x1fe000,true,512);
+        n.begin(0x1fe000,0x150040,0x180000,6);n.finish(0x1fe000,true,512);
+        n.begin(0x1fe000,0x150080,0x190000,5);n.finish(0x1fe000,true,512);
+        const auto nested=n.origin(0x160000);check(nested && nested->kind==Kind::Part && nested->part==5 && (nested->disc>>63) && nested->offset==0);
+        check(n.origin(0x170010)==Origin{Kind::Part,nested->disc,5,16});
+        check(n.origin(0x180000)->disc==nested->disc && n.origin(0x180000)->part==6 && n.origin(0x190000)->disc!=nested->disc);
+        check(n.origin(0x150000)==Origin{Kind::Part,30*2048,2,0});}
     a.begin(0x1ff000,0x110000,0x120000,8);a.finish(0x1ff000,false,1024);
     check(a.origin(0x120005)->part==7 && a.pendingCount()==0);
     a.begin(0x1ff000,0x110000,0x120000,8,0x180000);a.finish(0x1ff000,true,1024);

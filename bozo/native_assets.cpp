@@ -94,7 +94,16 @@ std::optional<AssetOrigin> NativeAssets::origin(uint32_t at,uint32_t bytes)const
 }
 void NativeAssets::begin(uint32_t stack,uint32_t chain,uint32_t destination,uint32_t part,uint32_t job){
     if(calls.contains(stack))throw std::runtime_error("active asset invocation stack reused");
-    auto source=origin(chain);if(source && source->kind!=AssetOrigin::Kind::Disc)source.reset();
+    auto source=origin(chain);
+    // A part of a part (a file loaded from a resource that was itself loaded
+    // as a part, such as the camp menu's portraits): its chain lies in decoded
+    // memory, so name it by that memory's own identity. Bit 63 keeps these
+    // derived names apart from every disc byte offset.
+    if(source && source->kind==AssetOrigin::Kind::Part){
+        uint64_t h=source->disc*0x9e3779b97f4a7c15ull^(uint64_t(source->part)<<32|source->offset);
+        h^=h>>29;h*=0xbf58476d1ce4e5b9ull;h^=h>>32;
+        source=AssetOrigin{AssetOrigin::Kind::Disc,h|1ull<<63,0,0};
+    }
     calls.emplace(stack,Invocation{source,storageAddress(destination),part,job});
 }
 void NativeAssets::finish(uint32_t stack,bool success,uint32_t size){

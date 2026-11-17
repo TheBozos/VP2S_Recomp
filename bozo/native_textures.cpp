@@ -93,6 +93,18 @@ void NativeTextures::publishImage(uint32_t object,TextureKey key){
     auto asset=load(key);images[object]=std::move(asset);++publications;
 }
 void NativeTextures::releaseImage(uint32_t object){images.erase(object);}
+void NativeTextures::beginMenuLoad(uint32_t object,uint32_t page,uint32_t format,uint32_t palette){menuLoads[object]=MenuLoad{page,format,palette};}
+NativeTextures::MenuLoad NativeTextures::takeMenuLoad(uint32_t object){
+    auto it=menuLoads.find(object);if(it==menuLoads.end())throw std::runtime_error("native menu image publication has no recorded load call");
+    auto result=it->second;menuLoads.erase(it);return result;
+}
+void NativeTextures::publishMenuPage(uint16_t page,uint8_t format,uint16_t palette,TextureKey key){
+    auto asset=load(key);menuPages[(uint32_t(page)<<8)|format]=MenuPage{std::move(asset),palette};++publications;
+}
+std::shared_ptr<const NativeTextureAsset> NativeTextures::menuPage(uint16_t page,uint8_t format,uint16_t palette)const{
+    auto it=menuPages.find((uint32_t(page)<<8)|format);
+    return it==menuPages.end() || it->second.palette!=palette?nullptr:it->second.asset;
+}
 std::shared_ptr<const NativeTextureAsset> NativeTextures::imageAsset(uint32_t object)const{
     auto it=images.find(object);return it==images.end()?nullptr:it->second;
 }
@@ -131,6 +143,45 @@ std::optional<bool> nativeTextureUploaderInstruction(R5900Context *c,Runtime *rt
     }
     c->r[8].ud[0]=0;c->r[4].sd[0]=int32_t(object);
     return true; // The patched call enters the real completion 443190 with the uploader.
+}
+// mod003 class 167368: the camp menu's image loader (four, built by 45d940
+// with (page, format, palette page) = (800, 24, R+94), (1000, 24, none),
+// (800, 2c, R+98), (1000, 2c, R+9c)). 45e870 loads one FIS file into a heap
+// buffer (+f0, through the tracked file reader 102650), fills a palette
+// descriptor (+10, when +f4) and a pixel descriptor (+80), then queued both as
+// type-1 graphics-memory uploads. The images are deleted right after (45db60),
+// and the menu's draws name them only by that handle: the layer constructor
+// 464240 writes the record (800, 2c, R+98) its 15aa20 elements copy into their
+// sprite (+5a page, +5c palette page, +5f format). Natively both enqueues
+// (45e9f0, 45ea10) are patched out and this site (45ea18, after them) publishes
+// the file's texture under that game-assigned handle; the ready check 45e7f0
+// then finds nothing queued. The handle is the call's own arguments, recorded
+// at its entry (a3 page, a2 format, t0 palette page: s1 is reused for the
+// picture width before 45ea18), and cross-checked against s2/s3 there.
+std::optional<bool> nativeMenuImageInstruction(R5900Context *c,Runtime *rt,uint32_t pc){
+    if(pc!=0x45ea18 && pc!=0x45e870)return std::nullopt;
+    auto *d=rt?dynamic_cast<bozo::ee::Dispatcher *>(rt->services):nullptr;
+    auto *textures=d?dynamic_cast<TextureOwner *>(&d->host()):nullptr;auto *assets=d?dynamic_cast<AssetOwner *>(&d->host()):nullptr;
+    if(!textures || !assets || !c)throw std::runtime_error("native menu image has no texture owner");
+    if(pc==0x45e870){
+        if(c->pc!=pc)throw std::runtime_error("native menu image load requires its entry");
+        textures->nativeTextures().beginMenuLoad(c->r[4].uw[0],c->r[7].uw[0],c->r[6].uw[0],c->r[8].uw[0]&0xffff);return false;
+    }
+    const auto object=c->r[20].uw[0];
+    record(rt,object,0x100);
+    if(read<uint32_t>(rt,object)!=0x167368)throw std::runtime_error(std::format("unowned native menu image {:x} (class {:x})",object,read<uint32_t>(rt,object)));
+    const auto fis=read<uint32_t>(rt,object+0xf0);record(rt,fis,0x30);
+    const auto origin=assets->nativeAssets().origin(fis);
+    if(!origin || read<uint32_t>(rt,fis)!=0x534946 || read<uint32_t>(rt,object+0x70)!=fis+0x10+read<uint32_t>(rt,fis+0x24)+0x80)
+        throw std::runtime_error(std::format("native menu image {:x} has no decoded FIS file (buffer {:x})",object,fis));
+    const auto load=textures->nativeTextures().takeMenuLoad(object);
+    const auto page=load.page,format=load.format,palette=load.palette;const bool hasPalette=read<uint8_t>(rt,object+0xf4);
+    if(c->r[18].uw[0]!=page || c->r[19].uw[0]!=format || page>=0x4000 || (format!=0x24 && format!=0x2c) || hasPalette!=(palette!=0))
+        throw std::runtime_error(std::format("native menu image {:x} has an unported handle (page {:x}, format {:x}, palette {:x})",object,page,format,palette));
+    const TextureKey key{read<uint32_t>(rt,fis+0x14),read<uint32_t>(rt,fis+0x18)};
+    textures->nativeTextures().publishMenuPage(uint16_t(page),uint8_t(format),uint16_t(palette),key);
+    if(std::getenv("VP2S_BOZO_TRACE_QUEUES"))std::fprintf(stderr,"[vp2s:texture] native menu image %x page=%x format=%x palette=%x key=%08x:%x\n",object,page,format,palette,key.tag,key.index);
+    return false;
 }
 std::optional<bool> nativeFixedImageInstruction(R5900Context *c,Runtime *rt,uint32_t pc){
     const bool resource=pc==0x447af0 || pc==0x447b84 || pc==0x447d60 || pc==0x447a48 || pc==0x447f50;

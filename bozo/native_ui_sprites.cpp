@@ -1,5 +1,7 @@
 #include "native_ui_sprites.h"
 #include "native_ui_text.h"
+#include "native_ui_windows.h"
+#include "native_assets.h"
 #include "bozo/ee/dispatcher.h"
 #include <format>
 #include <cstring>
@@ -80,7 +82,7 @@ void NativeUiSprites::finishSprite(uint32_t stack){
     text.sprites.push_back(std::move(it->second.sprite));spriteBuilds.erase(it);
 }
 std::optional<bool> nativeUiSpriteInstruction(R5900Context *c,Runtime *rt,uint32_t pc){
-    if(pc!=0x2ec308 && pc!=0x2ec320 && pc!=0x2efe40 && pc!=0x2effe8 && pc!=0x2eb3a0 && pc!=0x2eb5c4 && pc!=0x2ebac4 && pc!=0x2ebb0c && pc!=0x2ebb58 && pc!=0x2ebb9c && pc!=0x2ebba8 && pc!=0x2f2df0 && pc!=0x2f2fb8 && pc!=0x2f2d70)return std::nullopt;
+    if(pc!=0x2eab28 && pc!=0x2eaa20 && pc!=0x462a60 && pc!=0x2f1050 && pc!=0x47a1c0 && pc!=0x2ec308 && pc!=0x2ec320 && pc!=0x2efe40 && pc!=0x2effe8 && pc!=0x2eb3a0 && pc!=0x2eb5c4 && pc!=0x2ebac4 && pc!=0x2ebb0c && pc!=0x2ebb58 && pc!=0x2ebb9c && pc!=0x2ebba8 && pc!=0x2f2df0 && pc!=0x2f2fb8 && pc!=0x2f2d70)return std::nullopt;
     auto *d=rt?dynamic_cast<bozo::ee::Dispatcher *>(rt->services):nullptr;
     auto *owner=d?dynamic_cast<UiSpriteOwner *>(&d->host()):nullptr;
     auto *textures=d?dynamic_cast<TextureOwner *>(&d->host()):nullptr;
@@ -106,9 +108,69 @@ std::optional<bool> nativeUiSpriteInstruction(R5900Context *c,Runtime *rt,uint32
         if((textClass!=0x15a450 && textClass!=0x15a2f0 && textClass!=0x165ae0) || !texts->nativeUiTexts().text(element))throw std::runtime_error("unported native button text class/lifetime");
         if(pc==0x2efe40){if(c->pc!=pc || sp<0xa0 || (sp&15))throw std::runtime_error("native text icons require original entry");sprites.beginText(sp-0xa0,element);}
         else texts->nativeUiTexts().icons(element,sprites.finishText(sp,element));
+    }else if(pc==0x2eab28 || pc==0x2eaa20 || pc==0x462a60 || pc==0x2f1050 || pc==0x47a1c0){
+        // Sprite element 15a200 (build 2eaa90 calls the sprite writer 2eb3a0
+        // once with its sprite +50 and returns to 2eab28; destructor 2eaa20).
+        auto *windows=dynamic_cast<UiWindowOwner *>(&d->host());if(!windows)throw std::runtime_error("native sprite element has no window owner");
+        // Its mod003 subclass 168410 (destructor 462a60 inlines the base one),
+        // and the FIS sprite element 168440 (base 15a4b0: build 2f0fa0 returns
+        // from the writer to 2f1050; destructor 47a1c0).
+        const bool done=pc==0x2eab28 || pc==0x2f1050;
+        const auto element=c->r[done?16:4].uw[0];
+        if(!done && !element)return false;
+        const auto cls=value<uint32_t>(rt,element);
+        const bool fisElement=pc==0x2f1050 || pc==0x47a1c0;
+        const bool known=fisElement?cls==0x168440:pc==0x462a60?cls==0x168410:(cls==0x15a200 || cls==0x168410);
+        if(!known)
+            throw std::runtime_error("native sprite element has another class");
+        if(!done){if(c->pc!=pc || sprites.buildingText(element))throw std::runtime_error("native sprite element destroyed during capture");
+            windows->nativeUiWindows().release(element);sprites.reset(element+0x50);}
+        else windows->nativeUiWindows().spriteElement(element,sprites.finishText(sp,element));
     }else if(pc==0x2eb3a0){
         const auto caller=c->r[31].uw[0];const bool image=caller==0x2f2efc || caller==0x2f2f8c;
-        if(c->pc!=pc || (caller!=0x2eff74 && !image) || c->r[8].uw[0])throw std::runtime_error(std::format("unported native sprite caller/colour multiplier: caller={:x} sprite={:x} colour={:x} x={:x} y={:x} depth={:x}",caller,c->r[4].uw[0],c->r[8].uw[0],c->r[5].uw[0],c->r[6].uw[0],c->r[7].uw[0]));
+        if(caller==0x2f1050){
+            // FIS sprite element 168440: 2ebbe0 bound its sprite to the element's
+            // own FIS file (+b8, read through the tracked loader into +cc), with
+            // the texture cache's bookkeeping and an upload packet in the
+            // element's buffer that native drawing never submits. The picture
+            // is that file under its key; the DTT (+bc) gives the parts.
+            const auto element=c->r[16].uw[0],sprite=c->r[4].uw[0],fis=value<uint32_t>(rt,element+0xb8),dtt=value<uint32_t>(rt,element+0xbc);
+            const auto parts=value<uint32_t>(rt,sprite+8),entries=uint32_t(value<uint16_t>(rt,sprite+0x56));
+            if(c->pc!=pc || value<uint32_t>(rt,element)!=0x168440 || sprite!=element+0x50 || value<uint32_t>(rt,sprite)!=fis || value<uint32_t>(rt,fis)!=0x534946 ||
+               value<uint32_t>(rt,sprite+4)!=dtt || value<uint32_t>(rt,dtt)!=0x545444 || parts!=dtt+0x14 || !entries || entries!=value<uint16_t>(rt,dtt+0x10))
+                throw std::runtime_error("native FIS sprite element lost its file/DTT binding");
+            auto *assets=dynamic_cast<AssetOwner *>(&d->host());
+            if(!assets || !assets->nativeAssets().origin(fis))throw std::runtime_error("native FIS sprite element has no decoded file owner");
+            auto asset=textures->nativeTextures().load({value<uint32_t>(rt,fis+0x14),value<uint32_t>(rt,fis+0x18)});
+            const auto tw=value<uint8_t>(rt,sprite+0x60),th=value<uint8_t>(rt,sprite+0x61);
+            if(tw>10 || th>10 || asset->width!=1u<<tw || asset->height!=1u<<th)throw std::runtime_error(std::format("native FIS sprite {}x{} differs from its record ({}, {})",asset->width,asset->height,tw,th));
+            sprites.bindSheet(std::make_shared<NativeButtonSheet>(NativeButtonSheet{sprite,dtt,parts,entries,0,std::move(asset)}));
+            sprites.beginText(sp,element);
+        }
+        if(caller==0x2eab28){
+            // Sprite element 15a200 in a camp menu layer. With a DTT (+b8) its
+            // sprite was bound by 2ec200 to the element's texture record +bc
+            // (page, palette page, width, format, log2 size): the picture is the
+            // camp menu image published under that handle. Without one it is a
+            // button sheet bound at 2ec308.
+            const auto element=c->r[16].uw[0],sprite=c->r[4].uw[0],layer=value<uint32_t>(rt,element+0x14);
+            const auto family=value<uint32_t>(rt,layer+0x10);
+            if(c->pc!=pc || (value<uint32_t>(rt,element)!=0x15a200 && value<uint32_t>(rt,element)!=0x168410) || sprite!=element+0x50 || value<uint32_t>(rt,layer)!=0x152060)
+                throw std::runtime_error(std::format("unported native sprite element: element={:x} class={:x} layer type={:x}",element,value<uint32_t>(rt,element),family));
+            if(const auto dtt=value<uint32_t>(rt,element+0xb8)){
+                const auto parts=value<uint32_t>(rt,sprite+8),entries=uint32_t(value<uint16_t>(rt,sprite+0x56));
+                if(value<uint32_t>(rt,sprite+4)!=dtt || value<uint32_t>(rt,dtt)!=0x545444 || parts!=dtt+0x14 || !entries || entries!=value<uint16_t>(rt,dtt+0x10))
+                    throw std::runtime_error("native sprite element lost its DTT binding");
+                const auto page=value<uint16_t>(rt,sprite+0x5a),palette=value<uint16_t>(rt,sprite+0x5c);
+                const auto format=value<uint8_t>(rt,sprite+0x5f),tw=value<uint8_t>(rt,sprite+0x60),th=value<uint8_t>(rt,sprite+0x61);
+                auto asset=textures->nativeTextures().menuPage(page,format,palette);
+                if(!asset)throw std::runtime_error(std::format("native sprite element names no published menu image (page {:x} format {:x} palette {:x})",page,format,palette));
+                if(tw>10 || th>10 || asset->width!=1u<<tw || asset->height!=1u<<th)throw std::runtime_error("native sprite element image size differs from its record");
+                sprites.bindSheet(std::make_shared<NativeButtonSheet>(NativeButtonSheet{sprite,dtt,parts,entries,0,std::move(asset)}));
+            }else if(!sprites.button(sprite))throw std::runtime_error("native sprite element has no bound sheet");
+            sprites.beginText(sp,element);
+        }
+        if(c->pc!=pc || (caller!=0x2eff74 && caller!=0x2eab28 && caller!=0x2f1050 && !image) || c->r[8].uw[0])throw std::runtime_error(std::format("unported native sprite caller/colour multiplier: caller={:x} sprite={:x} colour={:x} x={:x} y={:x} depth={:x}",caller,c->r[4].uw[0],c->r[8].uw[0],c->r[5].uw[0],c->r[6].uw[0],c->r[7].uw[0]));
         if(image){const auto element=c->r[18].uw[0];
             if(value<uint32_t>(rt,element)!=0x15a690 || c->r[4].uw[0]!=element+(caller==0x2f2efc?0xb8:0x50) || !sprites.buildingText(element))
                 throw std::runtime_error("native image sprite escaped its original element builder");

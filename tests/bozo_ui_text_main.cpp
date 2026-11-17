@@ -216,18 +216,25 @@ int main(int argc,char **argv){try{
         put(layerRam,0x466c20u,0u);rejects([&]{layerAfter.texts.layer(&layerRam,layer);});put(layerRam,0x466c20u,0x0c000000u|(0x2ef0f0u>>2));    // teardown not the base
         put(layerRam,0x3b3154u,0x2484ffd0u);rejects([&]{layerAfter.texts.layer(&layerRam,layer);});put(layerRam,0x3b3154u,0x2484ffe0u);            // another adjustment
         {   // The field pause layer 166fe0: the event layer's job entries, base teardown.
-            put(layerRam,0x166ffcu+0x18,0x3b3150u);put(layerRam,0x166ffcu+0x10,0x2ef0f0u);
-            put(layerRam,0x167078u+0x0c,0x3b31c0u);put(layerRam,0x167078u+0x10,0x3b31d0u);put(layerRam,0x167078u+0x14,0x2eca00u);
+            // Layers are recognised by these entries (every layer/object/job slot
+            // but the destructors), not by their type addresses: the camp menu's
+            // four layer types carry the same set.
+            const auto entries=[&](uint32_t l,uint32_t o,uint32_t j){
+                for(auto [at,v]:{std::pair{0xcu,0x2c00a0u},{0x10u,0x2c0070u},{0x14u,0x2c0040u},{0x18u,0x2bffe0u}})put(layerRam,l+at,v);
+                for(auto [at,v]:{std::pair{0xcu,0x35edd0u},{0x14u,0x35ee90u},{0x1cu,0x374990u},{0x18u,0x3b3150u},{0x10u,0x2ef0f0u}})put(layerRam,o+at,v);
+                for(auto [at,v]:{std::pair{0x8u,0x3748e0u},{0x18u,0x2ec9c0u},{0x1cu,0x2ec9a0u},{0xcu,0x3b31c0u},{0x10u,0x3b31d0u},{0x14u,0x2eca00u}})put(layerRam,j+at,v);};
+            entries(0x166fe0u,0x166ffcu,0x167078u);entries(0x1682f0u,0x16830cu,0x168388u);
             put(layerRam,0x3b31d0u,0x08000000u|(0x2eca00u>>2));put(layerRam,0x3b31d4u,0x2484ffe0u);
             types(0x166fe0u,0x166ffcu,0x167078u);layerAfter.texts.layer(&layerRam,layer);
             put(layerRam,0x167078u+0x14,0x44a540u);rejects([&]{layerAfter.texts.layer(&layerRam,layer);});put(layerRam,0x167078u+0x14,0x2eca00u);   // another completion
             put(layerRam,0x166ffcu+0x10,0x466ef0u);rejects([&]{layerAfter.texts.layer(&layerRam,layer);});put(layerRam,0x166ffcu+0x10,0x2ef0f0u);   // another teardown
             put(layerRam,0x3b31d4u,0x2484ffd0u);rejects([&]{layerAfter.texts.layer(&layerRam,layer);});put(layerRam,0x3b31d4u,0x2484ffe0u);            // another adjustment
             types(0x166fe0u,0x16786cu,0x167078u);rejects([&]{layerAfter.texts.layer(&layerRam,layer);});                                          // mixed tuple
-            put(layerRam,0x166f3cu+0x18,0x3b3150u);put(layerRam,0x166f3cu+0x10,0x2ef0f0u);
-            put(layerRam,0x166fb8u+0x0c,0x3b31c0u);put(layerRam,0x166fb8u+0x10,0x3b31d0u);put(layerRam,0x166fb8u+0x14,0x2eca00u);
+            entries(0x166f20u,0x166f3cu,0x166fb8u);
             types(0x166f20u,0x166f3cu,0x166fb8u);layerAfter.texts.layer(&layerRam,layer);                                                       // the sibling
-            types(0x166f20u,0x166ffcu,0x166fb8u);rejects([&]{layerAfter.texts.layer(&layerRam,layer);});                                          // mixed siblings
+            types(0x1682f0u,0x16830cu,0x168388u);layerAfter.texts.layer(&layerRam,layer);                                                       // a camp menu layer
+            put(layerRam,0x1682f0u+0x10,0x2c0071u);rejects([&]{layerAfter.texts.layer(&layerRam,layer);});put(layerRam,0x1682f0u+0x10,0x2c0070u); // another layer entry
+            put(layerRam,0x168388u+0x1c,0u);rejects([&]{layerAfter.texts.layer(&layerRam,layer);});put(layerRam,0x168388u+0x1c,0x2ec9a0u);       // another job entry
         }
         // mod003 layer 165d30: base teardown, own bracketing completion 44a540.
         put(layerRam,0x165d4cu+0x18,0x3b3150u);put(layerRam,0x165dc8u+0x0c,0x3b31c0u);put(layerRam,0x165dc8u+0x14,0x44a540u);put(layerRam,0x165d4cu+0x10,0x2ef0f0u);

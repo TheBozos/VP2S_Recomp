@@ -12,6 +12,79 @@ The earlier VP2S face/shading and general brightness comparisons remain open.
 
 ## Build and evidence
 
+### The camp menu, native (2026-11-17)
+
+The route now opens the camp menu (SELECT at 38600), moves to Equip, enters and
+backs out, closes it and walks on: it runs to 41500 (serial 26545 at 38500 as
+before). The menu is drawn natively from the game's own scalars; nine
+boundaries were ported, each with tests.
+
+**Menu images (loader 167368, `45e870`).** The menu set-up 45d940 loads four
+FIS files through four short-lived image objects, each queuing a palette and a
+pixel type-1 upload, then deletes them; the draws name the pictures only by
+the game's own handle (page, format, palette page): (800, 24, R+94),
+(1000, 24, none), (800, 2c, R+98), (1000, 2c, R+9c) (24/2c = the four-bit
+high/low nibble formats). Both enqueues (45e9f0, 45ea10) are patched out; the
+entry 45e870 records the call's handle (a3, a2, t0; s1 is reused for the width
+before the end) and 45ea18 publishes the decoded file under it
+(`NativeTextures::publishMenuPage`; the ready check 45e7f0 then finds nothing
+queued). Test: 14 publications and rejections (another class, not a FIS file,
+another file's descriptor, no buffer, no recorded call, s2/s3 differing from
+the call, palette flag without a page, no decoded provenance).
+
+**Image lists 15aa20 (build `30c5a0`, quad list 2ead10 returning to
+30c628).** The sprite's record (+5a page, +5c palette page, +5f format, +60/+61
+log2 size, copied by 2ec200 from the layer's record, e.g. 464240's
+(800, 2c, R+98)) resolves the published menu image; the quad captures of the
+window border path fill the element's own snapshot. Destructor 30c530
+releases it. Test: 32 seeds run the original and the native-site build with
+identical CPU/RAM, picture/UV/depth checks; an unpublished handle, a size that
+differs from the record and an owner that is no UI layer reject.
+
+**Sprite elements 15a200 and subclass 168410 (build `2eaa90`, writer 2eb3a0
+returning to 2eab28).** With a DTT (+b8) the sprite's handle resolves the menu
+image, otherwise the button sheet bound at 2ec308 stays; the one sprite becomes
+the element's snapshot. Destructors 2eaa20 / 462a60 (the subclass inlines the
+base teardown). Test: 32 seeds, both classes, three layer types, CPU/RAM
+identical, picture and UV; rejections as above.
+
+**FIS sprite element 168440 (base 15a4b0, build `2f0fa0`, writer return
+2f1050).** 2ebbe0 binds the sprite to the element's own FIS file (+b8, the
+portrait loaded by 479ee0 into +cc), with texture-cache bookkeeping and an
+upload packet in the element's buffer that native drawing never submits. The
+picture is that file under its key, the DTT (+bc) gives the parts; destructor
+47a1c0. The portrait is a part of the camp resource, itself a part:
+**`NativeAssets::begin`** now names a part whose chain lies in decoded memory
+by that memory's own identity (bit 63 set, never a disc offset). Test: nested
+identities are stable per parent bytes and index, distinct otherwise.
+
+**Panel 167560 (build `460d20`, site 460f24)** and **scissor 15a420 (build
+`2ef5b0`, site 2ef780).** The panel's corner, depth and alpha scalars are
+still in t1/t4/a2 at its "built" store; with the element colours they make one
+Gouraud strip. The scissor's compiled SCISSOR value (t2) becomes the element's
+frame-pixel clip; the layer draw maps it through the frame origin to the
+engine's `setClip` and clears the clip at layer start and end. Tests: the
+panel's strip and rejections; 32 scissor seeds (whole frame, layer offset,
+clamping) CPU/RAM identical.
+
+**Camp menu layers.** Four layer types (167730, 167470, 167380, 1682f0) carry
+the pause layer's entries; layers are now recognised by every layer/object/job
+slot but the destructors, not by type address. Test: a camp menu layer is
+accepted, a different layer or job slot rejects.
+
+**Backdrop 1672d0 (submit `45e570`).** Its build 45e5b0 writes one full-frame
+SPRITE from page 800, PSMT4HL, a CLUT loaded from +c4, UV (0.5, 0.5) to
+(511.5, 383.5). That surface is the first menu image (512x256) with the second
+(512x128, no palette of its own) 256 rows below it, both through the first
+image's palette: natively one 512x384 picture composed from the two offline
+assets (`nativeMenuBackdropPicture`, cached per pair). The submit's
+UI-producer call is patched to the scene completion 21c9a0; its delay slot
+draws the sprite. Test: corners, UVs, colour, the composed rows (the second
+part's own palette is ignored), the cached picture, and rejections (class,
+not built, not the scene's pending layer, unpublished palette, wrong sizes).
+
+Hidden for now and unported: the gradient bar 1683e0 (build 4799c0).
+
 ### Toward the camp menu: 0x720 idiom, wipe fade, menu graphics clear (2026-11-16)
 
 A route step SELECT at 38600 (camp menu) met four boundaries; three are ported,

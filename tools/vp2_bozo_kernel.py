@@ -403,6 +403,19 @@ def overlay_adaptations(name,data):
                                (0x38cea0,0x38d0a0,'496b8d46f1c01dc5c23b15468dde55107541658cd1cb7d4b93ee177e415c8d65'),
                                # Camp menu set-up 45dd30 (its graphics-memory clear's enqueue retires).
                                (0x45dd30,0x45e350,'8187c54633881d2e1a3ca858acfdf23f673b3d95dddc4b810e463dd8a46a5ff9'),
+                               # Camp menu image 167368: ready 45e7f0, load/upload 45e870.
+                               (0x45e870,0x45eb10,'9f4b76086d83612610bbeb916e79427db0d6530501a3fa71a60289c8d31e6d5f'),
+                               # Camp menu backdrop 1672d0: completion 45e550, submit 45e570, build 45e5b0.
+                               (0x45e550,0x45e740,'69593059f0b4b98852a402aa08a81f83c069d1406d7bdbb005f77b766b447b9d'),
+                               # Camp menu panel 167560: destructor 460050, build 460d20 (site 460f24).
+                               (0x460050,0x4600c0,'3b272c95626d8615c39b8f3dd65065e340cf8a873b1674b077a570d0e43180dd'),
+                               (0x460d20,0x460f30,'9499000e7ed3e4745519620e0430f7685b9b9ac9e720884e0674796ec109eb90'),
+                               # Camp menu sprite elements: 168410 destructor 462a60 and build 479cc0 (base 2eaa90);
+                               # 168440 destructor 47a1c0 and build 479e70 (base 2f0fa0).
+                               (0x462a60,0x462ac8,'d3d89ab3a17419f5edd3ae755bc70e9918ca208340413262cf9b4a0f53e1ddab'),
+                               (0x479cc0,0x479cf4,'1c36ae76eaeab0c9747c19212c513b302da939d7b1574d090089bc23deea9142'),
+                               (0x47a1c0,0x47a248,'09d3e5d6631155dba7179d39ff6abf0d05fce324ee79cc36cfac2f4f7168317d'),
+                               (0x479e70,0x479edc,'61508a22ca1bd723a2faa64c26f7bcba01214071c2031d593517cb247816885c'),
                                # Event title ornament 165e00: build method 4494f0, builder 449580 (layer +c4 method).
                                (0x4494f0,0x449580,'04b9a1af16c422102a8f8ce4e4ec1a512c975aad962f6041977a4abfe9a43320'),
                                (0x449580,0x449cc0,'8d3f4712fa16f316978e60cef4e04eaadf12a4961e0ef7bc2169db44ad4043ab'),
@@ -482,6 +495,15 @@ def overlay_adaptations(name,data):
                 # rendering does not have. Retire only their type-1 enqueue (no owner,
                 # no free flags); the allocations, fill, descriptors and frees stay.
                 '0045e310 0c044c70 00000000\n'
+                # Camp menu image 167368 (45e870): its palette and pixel type-1 enqueues
+                # retire; 45ea18 publishes the loaded FIS file
+                # under the menu's own (page, format) handle;
+                # the ready check 45e7f0 then finds nothing queued.
+                '0045e9f0 0c044c70 00000000\n'
+                '0045ea10 0c044c70 00000000\n'
+                # Camp menu backdrop 1672d0: its submit's UI-producer call enters the
+                # scene completion 21c9a0; 45e594 (delay slot) draws the sprite natively.
+                '0045e590 0c0bbce4 0c087268\n'
                 # Capture fade 1610f0. Capture (3d2d78) branches to the state-0 tail
                 # 3d3020 (+a0 = +98, state 1): no readback nodes, no strip headers.
                 # The builder keeps its own packet (register header, 3d3500 defaults,
@@ -670,6 +692,14 @@ def overlay_adaptations(name,data):
         (0x2ead10,0x2eb3a0,'e4ab374a171d1c857267fd7fac3c7f35cf92c1f81d30f0988b3d85bf5ccbd78b'),
         (0x357900,0x357960,'462a6e78b8921044746093d1279f2e1fa139896c45bacee515d4504e946a0a24'),
         (0x30ed90,0x30ee00,'99dd9b859b2f98960359a3d9f43a0f78761f81ebe207c707331e026607154550'),
+        # Camp menu image list 15aa20: destructor 30c530 (native release site), build 30c5a0.
+        (0x30c530,0x30c670,'aa804d4a2062d4f71024c7c8fb36b3d95a3d45c007629645dc65a2bd879e3b83'),
+        # Sprite element 15a200: destructor 2eaa20 and build 2eaa90 (return site 2eab28).
+        (0x2eaa20,0x2eab68,'c9c47a3cd55ac5a1d146db010db0cdde6a6084f2cc38b944175c37bce0cad793'),
+        # Scissor element 15a420: destructor 2ef540, build 2ef5b0 (site 2ef780).
+        (0x2ef540,0x2ef790,'00b49df34b798490492cf1cbec3da0252e2309d87ef0a5c0b17f4091095af683'),
+        # FIS sprite element (base 15a4b0) build 2f0fa0, writer return 2f1050.
+        (0x2f0fa0,0x2f1098,'114a20145afcf7b4bfa73b8f1ed846d10f43c90a945c3e7da5ec4dce8c801959'),
         (0x30ee00,0x30f0c0,'15d8bbc42064f45964cc032ed2db9a95beeb2530a0c24e0ead872528eae453e4'),
         # Depth probe (lens-flare visibility): owner/consumer 253360, readback node
         # class 159010 (enqueue 29a4b0, request 29a520, promotion 29a5d0, notify 299c00).
@@ -940,7 +970,7 @@ def overlay_native_sites(name,data):
         _,segments,_=elf_parts(data);lo,hi=0x374be0,0x375240
         s=next(s for s in segments if s[0]==1 and s[2]<=lo<hi<=s[2]+s[4]);at=s[1]+lo-s[2]
         if hashlib.sha256(data[at:at+hi-lo]).hexdigest()!='b993fd5a68cebb93c65d37fb69ebe90cba67c410408b0f9530e30a4dfd9a470e':raise ValueError('USA screen zoom overlay source mismatch')
-        return 'native 0x374c04\nnative 0x374c10\nnative 0x40b040\nnative 0x3d93f4\nnative 0x3d38d4\nnative 0x3d363c\nnative 0x3d364c\nnative 0x3d49b0\nnative 0x447af0\nnative 0x447b84\nnative 0x447d60\nnative 0x447a48\nnative 0x447f50\nnative 0x443238\nnative 0x4653e8\nnative 0x465b38\nnative 0x465f08\nnative 0x449790\nnative 0x448d70\nnative 0x4516f0\nnative 0x451b64\nnative 0x3d2d7c\nnative 0x3d2630\nnative 0x3d2698\nnative 0x3d2520\n'+''.join(f'native 0x{pc:x}\n' for pc in (0x3e5ca4,0x3e5ca8,0x3e5cac,0x3e5cb4,0x3e5cb8,0x3e5cc0,*range(0x3e7edc,0x3e7f38,4),*range(0x3e7fa0,0x3e7ffc,4)))
+        return 'native 0x374c04\nnative 0x374c10\nnative 0x40b040\nnative 0x3d93f4\nnative 0x3d38d4\nnative 0x3d363c\nnative 0x3d364c\nnative 0x3d49b0\nnative 0x447af0\nnative 0x447b84\nnative 0x447d60\nnative 0x447a48\nnative 0x447f50\nnative 0x443238\nnative 0x45e870\nnative 0x45ea18\nnative 0x45e594\nnative 0x460050\nnative 0x460f24\nnative 0x462a60\nnative 0x47a1c0\nnative 0x4653e8\nnative 0x465b38\nnative 0x465f08\nnative 0x449790\nnative 0x448d70\nnative 0x4516f0\nnative 0x451b64\nnative 0x3d2d7c\nnative 0x3d2630\nnative 0x3d2698\nnative 0x3d2520\n'+''.join(f'native 0x{pc:x}\n' for pc in (0x3e5ca4,0x3e5ca8,0x3e5cac,0x3e5cb4,0x3e5cb8,0x3e5cc0,*range(0x3e7edc,0x3e7f38,4),*range(0x3e7fa0,0x3e7ffc,4)))
     if name=='mod002':
         _,segments,_=elf_parts(data);lo,hi=0x3622e8,0x362338
         s=next(s for s in segments if s[0]==1 and s[2]<=lo<hi<=s[2]+s[4]);at=s[1]+lo-s[2]
@@ -987,12 +1017,12 @@ def overlay_native_sites(name,data):
         0x23729c,0x2372b8,0x2372bc,0x2372c0,0x2372c4,0x2372c8,
         0x21822c,0x237568,0x23756c,0x237574,0x23757c,0x2375a4,
         0x2075bc,0x2075cc,0x30ce84,0x306a10,0x306b84,0x306bc4,0x306c58,
-        0x30ee00,0x30ef20,0x30ef2c,0x30ef44,0x30ef78,0x30efb8,0x30eff4,0x30f028,0x30f070,0x30ed90,
+        0x30ee00,0x30ef20,0x30ef2c,0x30ef44,0x30ef78,0x30efb8,0x30eff4,0x30f028,0x30f070,0x30ed90,0x30c530,
         0x214540,0x2e9640,0x2e970c,0x2e95d0,0x2e9e90,0x2ea154,0x2ea338,0x2ead10,0x2eae90,0x2eb07c,0x2eb284,0x2eb2ec,0x2eb300,0x2eb320,0x2eb340,0x2eb378,
         0x29e1a0,0x2c3cb4,0x29cc30,0x29cd7c,0x29cf14,0x29cf30,0x29cc00,0x29e160,
         0x208a94,0x29af80,0x29b2a8,0x29caf8,0x2205c0,0x220ce0,0x29e43c,0x29e444,
         0x22106c,0x221294,0x221308,0x221540,0x221704,0x221718,0x221748,0x2088f0,
         0x221698,0x22169c,0x21c9dc,0x21c9e0,0x21c9e8,0x21c9ec,0x21ca1c,0x21ca20,0x21ca24,0x21ca28,0x2cb490,0x2f3714,0x2ea9a0,
         0x2e74f0,0x2e7520,0x2e7550,0x2e757c,0x2e75a0,0x2f0de0,0x2eeb80,0x2e83e4,0x2ec9e4,0x2ec308,0x2ec320,
-        0x2efe40,0x2effe8,0x2eb3a0,0x2eb5c4,0x2ebac4,0x2ebb0c,0x2ebb58,0x2ebb9c,0x2ebba8,0x2bbfc0,0x2bc1d0,0x2bc1e0,0x2ba670,0x1ef6f8,0x1ef914,0x1f0438,0x1f04a0,0x1efa30,
+        0x2efe40,0x2effe8,0x2eb3a0,0x2eab28,0x2eaa20,0x2f1050,0x2ef780,0x2ef540,0x2eb5c4,0x2ebac4,0x2ebb0c,0x2ebb58,0x2ebb9c,0x2ebba8,0x2bbfc0,0x2bc1d0,0x2bc1e0,0x2ba670,0x1ef6f8,0x1ef914,0x1f0438,0x1f04a0,0x1efa30,
         0x1f4590,0x1f4940,0x2bdac0,0x2bd9b0,0x2bd5d8,0x2be3d0,0x2bea60,0x239f70,0x239ff0,0x25aa30,0x25aa40,0x25bad0,0x25bdcc,0x25adbc,0x214388,0x2f2df0,0x2f2fb8,0x2f2d70))+'stub 0x2b90a0\nstub 0x2b9560\nstub 0x1f04c8\nstub 0x1f82c0\n'

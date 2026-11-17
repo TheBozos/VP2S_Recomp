@@ -38,6 +38,12 @@ class NativeTextures {
     std::map<uint32_t,Invocation> pending; // Per-host active stack frame, erased on every return.
     std::map<uint16_t,std::shared_ptr<const NativeTextureAsset>> palettes,pixels;
     std::map<uint32_t,std::shared_ptr<const NativeTextureAsset>> images; // Game image objects, never hardware addresses.
+    struct MenuPage {std::shared_ptr<const NativeTextureAsset> asset;uint16_t palette=0;};
+    std::map<uint32_t,MenuPage> menuPages;
+public:
+    struct MenuLoad {uint32_t page=0,format=0,palette=0;};
+private:
+    std::map<uint32_t,MenuLoad> menuLoads; // Camp menu loader calls in flight (entry 45e870 to publication 45ea18). // The camp menu's own (page, format) handles; see nativeMenuImageInstruction.
     uint64_t publications=0;
 public:
     explicit NativeTextures(std::filesystem::path directory={},std::filesystem::path manifest={});
@@ -48,6 +54,10 @@ public:
     void publishImage(uint32_t object,TextureKey);
     void releaseImage(uint32_t object);
     std::shared_ptr<const NativeTextureAsset> imageAsset(uint32_t object)const;
+    void beginMenuLoad(uint32_t object,uint32_t page,uint32_t format,uint32_t palette);
+    MenuLoad takeMenuLoad(uint32_t object);
+    void publishMenuPage(uint16_t page,uint8_t format,uint16_t palette,TextureKey);
+    std::shared_ptr<const NativeTextureAsset> menuPage(uint16_t page,uint8_t format,uint16_t palette)const;
     void finish(uint32_t stack);
     std::shared_ptr<const NativeTextureAsset> pixelAsset(uint16_t slot)const;
     std::shared_ptr<const NativeTextureAsset> paletteAsset(uint16_t slot)const;
@@ -62,4 +72,5 @@ public:
 bool nativeTextureInstruction(uint8_t *,R5900Context *,Runtime *,uint32_t pc);
 std::optional<bool> nativeFixedImageInstruction(R5900Context *,Runtime *,uint32_t pc);
 std::optional<bool> nativeTextureUploaderInstruction(R5900Context *,Runtime *,uint32_t pc);
+std::optional<bool> nativeMenuImageInstruction(R5900Context *,Runtime *,uint32_t pc);
 }

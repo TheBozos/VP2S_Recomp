@@ -184,7 +184,15 @@ public:
         const float identity[16]={1,0,0,0,0,1,0,0,0,0,1,0,0,0,0,1};
         bozo::render::Material material;material.blend=bozo::render::Material::Blend::Alpha;
         material.alphaTest=true;material.alphaRef=0;
-        for(const auto &text:layer.texts){material.blend=bozo::render::Material::Blend::Alpha;for(const auto &glyph:text->glyphs){
+        // A scissor element (15a420) clips everything after it in this layer;
+        // the layer starts and ends unclipped. Frame pixels map onto primitive
+        // coordinates from the frame's origin, as the presenter expects.
+        auto &renderer=bozo::render::Renderer::instance();renderer.clearClip();
+        const float originX=2048.f-float(scene.frameTarget()->width/2),originY=2048.f-float(scene.frameTarget()->height/2);
+        for(const auto &text:layer.texts){
+        if(text->window && text->window->scissor){const auto &s=*text->window->scissor;
+            renderer.setClip(originX+float(s[0]),originY+float(s[1]),originX+float(s[2]+1),originY+float(s[3]+1));continue;}
+        material.blend=bozo::render::Material::Blend::Alpha;for(const auto &glyph:text->glyphs){
             for(bool shadow:{true,false}){
                 if(shadow && !glyph.shadow)continue;
                 const auto vertices=vp2s::nativeUiGlyphVertices(glyph,shadow);
@@ -215,6 +223,7 @@ public:
             const auto vertices=vp2s::nativeUiSpriteVertices(icon);
             bozo::render::Renderer::instance().draw(material,identity,vertices.data(),vertices.size(),icon.picture);
         }}
+        renderer.clearClip();
         if(std::getenv("VP2S_BOZO_TRACE_QUEUES"))std::fprintf(stderr,"[vp2s:UI] native layer=%x texts=%zu frame=%llu\n",layer.layer,layer.texts.size(),static_cast<unsigned long long>(native.framesEnded()));
     }
     vp2s::NativeScreenRects screenRects;
@@ -623,6 +632,7 @@ bool dispatchNativeInstruction(uint8_t *ram,R5900Context *ctx,Runtime *rt,uint32
     if(auto handled=vp2s::nativeDepthProbeInstruction(ctx,rt,pc))return *handled;
     if(auto handled=vp2s::nativeFixedImageInstruction(ctx,rt,pc))return *handled;
     if(auto handled=vp2s::nativeTextureUploaderInstruction(ctx,rt,pc))return *handled;
+    if(auto handled=vp2s::nativeMenuImageInstruction(ctx,rt,pc))return *handled;
     if(auto handled=vp2s::nativeNamePlateInstruction(ctx,rt,pc))return *handled;
     if(auto handled=vp2s::nativeTextureManagerInstruction(ctx,rt,pc))return *handled;
     if(auto handled=vp2s::nativeVisibilityInstruction(ctx,rt,pc))return *handled;

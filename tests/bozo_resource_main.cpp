@@ -163,5 +163,40 @@ int main(int argc,char **argv){try{
         now.assets.overwrite(buffer,now.decoded.size());rejectUploader([](R5900Context &){});           // no decoded provenance
         check(vp2s::nativeTextureUploaderInstruction(nullptr,&r,0x443200)==std::nullopt);
         std::printf("%u texture-uploader publications and rejections\n",cases);}
+    // Camp menu image loader 167368 (45e870 after its two patched enqueues,
+    // 45ea18): the loaded FIS file is published under the game's own handle
+    // (s2 page, s3 format, s1 palette page); nothing else changes. A draw
+    // naming another page, format or palette page finds nothing.
+    {constexpr uint32_t menu=0x1e8000;unsigned cases=0;
+        now.assets.begin(1,source,buffer,0);now.assets.finish(1,true,now.decoded.size());
+        put(r,buffer+0x24,0x40u);
+        put(r,menu,0x167368u);put(r,menu+0xf0,buffer);put(r,menu+0x70,buffer+0x10+0x40+0x80);put<uint8_t>(r,menu+0xf4,1);
+        // Entry 45e870 records the call's handle (a3 page, a2 format, t0 palette page).
+        const auto enter=[&](uint32_t page,uint32_t format,uint32_t palette){R5900Context e{};e.pc=0x45e870;e.r[4].ud[0]=menu;e.r[7].ud[0]=page;e.r[6].ud[0]=format;e.r[8].ud[0]=palette;
+            const auto kept=e;check(vp2s::nativeMenuImageInstruction(&e,&r,0x45e870)==false && !std::memcmp(&kept,&e,sizeof(e)));};
+        R5900Context m{};m.r[20].ud[0]=menu;m.r[2].ud[0]=0x77;m.r[18].ud[0]=0x800;m.r[19].ud[0]=0x2c;m.r[17].ud[0]=0x200; // s1 holds the width by then
+        enter(0x800,0x2c,0x3e48);auto saved=m;std::vector<uint8_t> ram(r.memory.flat(),r.memory.flat()+bozo::kFlatBytes);
+        check(vp2s::nativeMenuImageInstruction(&m,&r,0x45ea18)==false);
+        check(!std::memcmp(&saved,&m,sizeof(m)) && !std::memcmp(ram.data(),r.memory.flat(),ram.size()));++cases;
+        auto image=now.textures.menuPage(0x800,0x2c,0x3e48);check(image && image->key.tag==0x12345678 && image->key.index==1);
+        check(!now.textures.menuPage(0x800,0x24,0x3e48) && !now.textures.menuPage(0x1000,0x2c,0x3e48) && !now.textures.menuPage(0x800,0x2c,0x3e40) && !now.textures.imageAsset(menu));cases+=3;
+        // Without a palette (+f4 clear) the handle's palette page is 0.
+        put<uint8_t>(r,menu+0xf4,0);m.r[18].ud[0]=0x1000;m.r[19].ud[0]=0x24;enter(0x1000,0x24,0);
+        check(vp2s::nativeMenuImageInstruction(&m,&r,0x45ea18)==false && now.textures.menuPage(0x1000,0x24,0));++cases;
+        put<uint8_t>(r,menu+0xf4,1);m.r[18].ud[0]=0x800;m.r[19].ud[0]=0x2c;
+        uint32_t palette=0x3e48;
+        const auto rejectMenu=[&](const std::function<void(R5900Context &)> &spoil,const std::function<void()> &restore){enter(0x800,0x2c,palette);R5900Context u=m;spoil(u);
+            rejects([&]{vp2s::nativeMenuImageInstruction(&u,&r,0x45ea18);});restore();palette=0x3e48;++cases;};
+        rejects([&]{R5900Context u=m;vp2s::nativeMenuImageInstruction(&u,&r,0x45ea18);});++cases;                 // no recorded load call
+        rejectMenu([](R5900Context &u){u.r[18].ud[0]=0x1000;},[]{});                                         // s2 differs from the call's page
+        rejectMenu([&](R5900Context &){put(r,menu,0x165630u);},[&]{put(r,menu,0x167368u);});                 // another class
+        rejectMenu([&](R5900Context &){put(r,buffer,0x12345u);},[&]{put(r,buffer,0x534946u);});              // not a FIS file
+        rejectMenu([&](R5900Context &){put(r,menu+0x70,buffer);},[&]{put(r,menu+0x70,buffer+0xd0);});        // descriptor of another file
+        rejectMenu([&](R5900Context &){put(r,menu+0xf0,0u);},[&]{put(r,menu+0xf0,buffer);});                 // no buffer
+        rejectMenu([](R5900Context &u){u.r[19].ud[0]=0x13;},[]{});                                           // s3 differs from the call's format
+        palette=0;rejectMenu([](R5900Context &){},[]{});                                                     // palette flag without a page
+        now.assets.overwrite(buffer,now.decoded.size());rejectMenu([](R5900Context &){},[]{});              // no decoded provenance
+        check(vp2s::nativeMenuImageInstruction(nullptr,&r,0x45ea14)==std::nullopt);
+        std::printf("%u camp-menu image publications and rejections\n",cases);}
     std::puts("64 FIS load/free/reload/failure + original draw/scene completion CPU/RAM cases, resumable contracts, immutable assets and provenance rejection; no device consumer");return 0;
 }catch(const std::exception &e){std::fprintf(stderr,"%s\n",e.what());return 1;}}

@@ -1,12 +1,15 @@
 #pragma once
 #include "native_ui_text.h"
+#include <optional>
 namespace vp2s {
 struct NativeUiStrip {
     std::array<std::array<int32_t,2>,4> corners{};
     std::array<uint32_t,4> colours{};
     uint32_t depth=0;
 };
-struct NativeUiWindow {uint32_t element=0;std::vector<NativeUiStrip> background;std::vector<NativeUiSprite> border;};
+struct NativeUiWindow {uint32_t element=0;std::vector<NativeUiStrip> background;std::vector<NativeUiSprite> border;
+    // Scissor element 15a420: the drawing rectangle in frame pixels (x0, y0, x1, y1 inclusive) from here on.
+    std::optional<std::array<int32_t,4>> scissor;};
 class NativeUiWindows {
     struct Build {NativeUiWindow window;bool background=false,border=false;};
     struct Background {uint32_t parentStack=0,element=0;bool captured=false;};
@@ -15,7 +18,10 @@ class NativeUiWindows {
         std::shared_ptr<const NativeButtonSheet> sheet;
         std::optional<NativeUiSprite> quad;
         unsigned uvMask=0;bool coloured=false;
+        uint32_t element=0;bool image=false; // Camp menu image list (15aa20): its own capture, no window.
     };
+    std::map<uint32_t,NativeUiWindow> imageBuilds; // Per quad-list stack.
+    std::vector<NativeUiSprite> &quadTarget(const Quads &);
     std::map<uint32_t,Build> builds;
     std::map<uint32_t,Background> backgrounds;
     std::map<uint32_t,Quads> quads;
@@ -29,6 +35,7 @@ public:
     void background(Runtime *,uint32_t stack,const std::array<uint32_t,3> &colours,uint32_t edge,uint32_t depth);
     void endBackground(uint32_t stack);
     void beginQuads(Runtime *,NativeUiSprites &,uint32_t stack,uint32_t sprite,uint32_t caller);
+    void beginImageQuads(Runtime *,const NativeTextures &,uint32_t stack,uint32_t sprite,uint32_t element);
     void colour(uint32_t stack,uint32_t colour);
     void quad(Runtime *,uint32_t stack,uint32_t part,uint32_t csa,uint32_t list);
     void corners(uint32_t stack,int32_t x0,int32_t y0,int32_t x1,int32_t y1,uint32_t depth);
@@ -41,6 +48,9 @@ public:
     void selectionColour(uint32_t stack,uint32_t alpha,uint32_t depth);
     void selectionCoordinate(uint32_t stack,unsigned index,int32_t coordinate);
     void finishSelection(uint32_t stack,uint32_t element);
+    void panel(Runtime *,uint32_t element,uint64_t lowerRight,uint64_t upperLeft,uint32_t alpha);
+    void spriteElement(uint32_t element,std::vector<NativeUiSprite> sprites);
+    void scissor(Runtime *,uint32_t element,uint64_t registerValue);
 };
 class UiWindowOwner {
 public:
@@ -48,5 +58,7 @@ public:
     virtual NativeUiWindows &nativeUiWindows()=0;
 };
 std::optional<bool> nativeUiWindowInstruction(R5900Context *,Runtime *,uint32_t);
+NativeUiLayer nativeMenuBackdrop(Runtime *,const NativeTextures &,uint32_t object);
+std::shared_ptr<const bozo::render::Texture> nativeMenuBackdropPicture(const NativeTextureAsset &top,const NativeTextureAsset &bottom);
 std::array<bozo::render::Vertex,6> nativeUiStripVertices(const NativeUiStrip &);
 }

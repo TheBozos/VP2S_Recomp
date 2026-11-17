@@ -21,6 +21,7 @@ class NativeUiSprites {
 public:
     void bindButton(Runtime *,NativeTextures &,uint32_t sprite,int32_t button);
     void reset(uint32_t sprite);
+    void bindSheet(std::shared_ptr<const NativeButtonSheet> sheet){const auto sprite=sheet->sprite;sheets[sprite]=std::move(sheet);}
     std::shared_ptr<const NativeButtonSheet> button(uint32_t sprite)const;
     void beginText(uint32_t stack,uint32_t element);
     std::vector<NativeUiSprite> finishText(uint32_t stack,uint32_t element);

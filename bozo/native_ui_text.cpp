@@ -211,8 +211,13 @@ NativeUiLayer NativeUiTexts::layer(Runtime *rt,uint32_t layer)const{
     // (3b31c0, 3b31d0 -> 2eca00, the base completion 2eca00) and the base teardown
     // 2ef0f0 as object +10; only its destructors (+8) are its own.
     // Its sibling 166f20/166f3c/166fb8 (the pause's second layer) has the same entries.
-    const bool pause=((layerType==0x166fe0 && objectType==0x166ffc && jobType==0x167078) ||
-                      (layerType==0x166f20 && objectType==0x166f3c && jobType==0x166fb8)) &&
+    // The camp menu's layers (types 167730, 167470, 167380, 1682f0, each with
+    // its own object/job types) carry exactly these entries too: the entries,
+    // not the type addresses, define the layer, so any layer with them is one.
+    const auto slots=[&](uint32_t type,std::initializer_list<std::pair<uint32_t,uint32_t>> expected){
+        for(const auto &[at,entry]:expected)if(value<uint32_t>(rt,type+at)!=entry)return false;return true;};
+    const bool pause=slots(layerType,{{0xc,0x2c00a0},{0x10,0x2c0070},{0x14,0x2c0040},{0x18,0x2bffe0}}) &&
+        slots(objectType,{{0xc,0x35edd0},{0x14,0x35ee90},{0x1c,0x374990}}) && slots(jobType,{{0x8,0x3748e0},{0x18,0x2ec9c0},{0x1c,0x2ec9a0}}) &&
         value<uint32_t>(rt,objectType+0x18)==0x3b3150 && value<uint32_t>(rt,objectType+0x10)==0x2ef0f0 &&
         value<uint32_t>(rt,jobType+0x0c)==0x3b31c0 && value<uint32_t>(rt,jobType+0x10)==0x3b31d0 && value<uint32_t>(rt,jobType+0x14)==0x2eca00 &&
         thunk(0x3b3150,0x2ec9c0,0xffe0) && thunk(0x3b31c0,0x2ec9a0,0xff50) && thunk(0x3b31d0,0x2eca00,0xffe0);
@@ -230,7 +235,9 @@ NativeUiLayer NativeUiTexts::layer(Runtime *rt,uint32_t layer)const{
         record(rt,element,0x40);
         if(value<uint32_t>(rt,element+0x14)!=layer)throw std::runtime_error("native UI element has a different layer owner");
         if(!value<uint8_t>(rt,element+0x39) || !value<uint8_t>(rt,element+0x3d) || !value<uint8_t>(rt,element+0x3b))continue;
-        if(value<uint32_t>(rt,element)==0x15a1b0 || value<uint32_t>(rt,element)==0x15ac30){
+        if(value<uint32_t>(rt,element)==0x15a1b0 || value<uint32_t>(rt,element)==0x15ac30 ||
+           value<uint32_t>(rt,element)==0x15aa20 || value<uint32_t>(rt,element)==0x167560 || value<uint32_t>(rt,element)==0x15a200 ||
+           value<uint32_t>(rt,element)==0x168410 || value<uint32_t>(rt,element)==0x168440 || value<uint32_t>(rt,element)==0x15a420){
             auto *d=dynamic_cast<bozo::ee::Dispatcher *>(rt->services);auto *o=d?dynamic_cast<UiWindowOwner *>(&d->host()):nullptr;
             const auto captured=o?o->nativeUiWindows().window(element):nullptr;
             if(!captured)throw std::runtime_error("native window has no finished scalar snapshot");

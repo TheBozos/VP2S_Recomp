@@ -1,4 +1,4 @@
-"""Offline fixed particle-template materials -> named native draw semantics.
+"""Offline fixed particle-template materials -> named native draw semantics (VPP2).
 
 This converter reads the shipped template layout, never a live transport chain.
 No console register words or addresses are retained in the output.
@@ -21,15 +21,19 @@ def convert(data):
         wide=lambda offset:struct.unpack_from('<Q',data,at+offset)[0]
         if word(0xbc)!=(0x6c0002e9|((5*n)<<16)):continue
         if any(wide(offset)!=reg for offset,reg in ((0x28,5),(0x48,6),(0x58,6),(0x78,0x42),(0x88,0x42),(0x98,0x42),(0xa8,0x42))):continue
-        texture=wide(0x40);wrap=wide(0x20)
-        fields=[at,n,0xc0+80*n,(texture>>34)&1,(texture>>35)&3,wrap&3,(wrap>>2)&3]
+        # VU1 program 0x6e0's pass header (its first qword, 0x2e0): x passes, each kicked
+        # once more over every point with the kind base advanced by z qwords (z = 5,
+        # one kind: pinned by the guard above) and ALPHA variant x; y kept raw.
+        texture=wide(0x40);passes=word(0x20);second=word(0x24)
+        if not 1<=passes<=4:continue
+        fields=[at,n,0xc0+80*n,(texture>>34)&1,(texture>>35)&3,passes,second]
         for offset in (0x70,0x80,0x90,0xa0):
             blend=wide(offset);factors=[blend&3,(blend>>2)&3,(blend>>4)&3,(blend>>6)&3,(blend>>32)&255]
             if any(v>2 for v in factors[:4]):break
             fields+=factors
         if len(fields)!=27:continue
         records.append(struct.pack('<27I',*fields))
-    return struct.pack('<4sI',b'VPP1',len(records))+b''.join(records)
+    return struct.pack('<4sI',b'VPP2',len(records))+b''.join(records)
 
 def main():
     p=argparse.ArgumentParser(description=__doc__);p.add_argument('--assets',type=Path,required=True);p.add_argument('--out',type=Path,required=True);a=p.parse_args()

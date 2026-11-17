@@ -34,11 +34,11 @@ const NativeParticleDraws::Material &NativeParticleDraws::material(const AssetOr
     if(found==materials.end()){
         const auto file=root/std::format("{:010x}_{:03}.pmat",origin.disc,origin.part);std::ifstream in(file,std::ios::binary);
         const auto take=[&](){uint32_t v;if(!in.read(reinterpret_cast<char *>(&v),4))throw std::runtime_error("missing/truncated native particle material conversion: "+file.string());return v;};
-        if(take()!=0x31505056)throw std::runtime_error("native particle material version mismatch");const auto count=take();if(count>65536)throw std::runtime_error("native particle material count outside bounds");
+        if(take()!=0x32505056)throw std::runtime_error("native particle material version mismatch");const auto count=take();if(count>65536)throw std::runtime_error("native particle material count outside bounds");
         std::map<uint32_t,Material> pack;
-        for(unsigned i=0;i<count;++i){const auto offset=take();Material m;m.kinds=take();m.extent=take();m.textureAlpha=take();m.function=take();m.wrapU=take();m.wrapV=take();
+        for(unsigned i=0;i<count;++i){const auto offset=take();Material m;m.kinds=take();m.extent=take();m.textureAlpha=take();m.function=take();m.passes=take();m.second=take();
             for(auto &blend:m.blends)for(auto &factor:blend)factor=take();
-            if(!m.kinds || m.kinds>16 || m.extent!=0xc0+80*m.kinds || m.textureAlpha>1 || m.function>3 || m.wrapU>3 || m.wrapV>3)throw std::runtime_error("invalid native particle material semantics");
+            if(!m.kinds || m.kinds>16 || m.extent!=0xc0+80*m.kinds || m.textureAlpha>1 || m.function>3 || !m.passes || m.passes>4)throw std::runtime_error("invalid native particle material semantics");
             for(const auto &b:m.blends){for(unsigned j=0;j<4;++j)if(b[j]>2)throw std::runtime_error("invalid native particle blend factor");if(b[4]>255)throw std::runtime_error("invalid native particle blend constant");}
             if(!pack.emplace(offset,m).second)throw std::runtime_error("duplicate native particle material offset");
         }
@@ -59,16 +59,18 @@ NativeModelSubmission NativeParticleDraws::capture(Runtime *rt,NativeAssets &ass
     const auto kinds=value<uint32_t>(owner,0x628);const auto origin=assets.origin(kinds);if(!origin)throw std::runtime_error("native particle kinds lack allocation provenance");
     const auto &m=material(*origin);auto *kindData=record(rt,kinds,m.extent);
     if(assets.origin(kinds,m.extent)!=origin)throw std::runtime_error("native particle kinds extend beyond their converted template");
-    if(unsigned(kindData[0])*kindData[1]!=m.kinds || owner[0x210] || value<uint16_t>(owner,0x634)!=0 || m.wrapU>1 || m.wrapV>1)
-        throw std::runtime_error(std::format("unported native particle template/material variant (grid {}x{} for {} kinds, +210={}, +634={:x}, wrap {}/{}, object {:x}, kinds {:x})",
-            kindData[0],kindData[1],m.kinds,owner[0x210],value<uint16_t>(owner,0x634),m.wrapU,m.wrapV,object,kinds));
+    if(unsigned(kindData[0])*kindData[1]!=m.kinds || owner[0x210] || value<uint16_t>(owner,0x634)!=0)
+        throw std::runtime_error(std::format("unported native particle template/material variant (grid {}x{} for {} kinds, +210={}, +634={:x}, object {:x}, kinds {:x})",
+            kindData[0],kindData[1],m.kinds,owner[0x210],value<uint16_t>(owner,0x634),object,kinds));
     const auto fis=value<uint32_t>(owner,0x658);auto *descriptor=record(rt,fis,16);const TextureKey key{value<uint32_t>(descriptor,4),value<uint32_t>(descriptor,8)};
     const auto manager=word(rt,0x35de38);const auto slot=int16_t(word(rt,manager+0x2670)&0xffff);
     if(slot<0 || slot>=256 || word(rt,manager+0x1008+16*slot)!=key.tag || word(rt,manager+8+16*slot)!=key.index)throw std::runtime_error("native particle FIS identity differs from selected game texture");
     const auto texture=textures.load(key);const auto palette=texture->format==0x14?kindData[2]:0;
     NativeModelBatch batch;batch.texture=texture->picture(palette);auto &mat=batch.material;
-    mat.textured=true;mat.textureAlpha=m.textureAlpha;mat.textureFunction=static_cast<bozo::render::Material::TextureFunction>(m.function);mat.clampU=m.wrapU;mat.clampV=m.wrapV;
-    mat.alphaBlend=true;mat.blend=bozo::render::Material::Blend::Alpha;mat.gsBlend=true;mat.blendA=m.blends[0][0];mat.blendB=m.blends[0][1];mat.blendC=m.blends[0][2];mat.blendD=m.blends[0][3];mat.blendFix=m.blends[0][4];
+    // The template carries no CLAMP: U clamps and V repeats as the earlier
+    // single-pass draws did (the game's own CLAMP for these kicks is unverified).
+    mat.textured=true;mat.textureAlpha=m.textureAlpha;mat.textureFunction=static_cast<bozo::render::Material::TextureFunction>(m.function);mat.clampU=true;mat.clampV=false;
+    mat.alphaBlend=true;mat.blend=bozo::render::Material::Blend::Alpha;mat.gsBlend=true;
     mat.depthTest=true;mat.depthWrite=false;mat.alphaTest=false;
     // Screen depth coefficients are in the game's projected depth domain and can
     // exceed the spatial-input bound. They are coefficients, not positions.
@@ -83,13 +85,17 @@ NativeModelSubmission NativeParticleDraws::capture(Runtime *rt,NativeAssets &ass
     for(float coefficient:batch.matrix)if(!std::isfinite(coefficient))throw std::runtime_error("native particle screen transform overflow");
     const auto colour=value<std::array<float,4>>(owner,0x300),limit=value<std::array<float,4>>(owner,0x230);const auto identity=value<uint32_t>(owner,0x310);
     if(identity>1)throw std::runtime_error("unported native particle lighting mode");if(!identity)for(unsigned i=0;i<4;++i){number(colour[i]);number(limit[i]);if(colour[i]<0 || limit[i]<0 || limit[i]>255)throw std::runtime_error("native particle colour/limit invalid");}
+    // VU1 0x6e0 kicks every point once per pass: pass p draws kind + p with ALPHA variant p,
+    // all points of a pass before the next pass.
+    for(unsigned pass=0;pass<m.passes;++pass){
+    mat.blendA=m.blends[pass][0];mat.blendB=m.blends[pass][1];mat.blendC=m.blends[pass][2];mat.blendD=m.blends[pass][3];mat.blendFix=m.blends[pass][4];batch.vertices.clear();
     auto cursor=base+0x20;uint32_t seen=0;
     for(unsigned chunk=0;chunk<chunks;++chunk){
         if(cursor>base+span-0x20)throw std::runtime_error("native particle chunk outside completed buffer");auto *header=record(rt,cursor,0x20);
         const auto count=value<uint32_t>(header,0x10),extent=value<uint32_t>(header,0x14),group=value<uint32_t>(header,0x18);
         if(!count || count>48 || extent!=count*3+2 || group!=1 || count>total-seen || uint64_t(cursor)+32+48*count>uint64_t(base)+span)throw std::runtime_error("unported/incomplete native particle quad group");
         auto *points=record(rt,cursor+0x20,count*48);
-        for(unsigned p=0;p<count;++p){const auto *point=points+48*p;const auto kind=value<uint32_t>(point,44);if(kind>=m.kinds)throw std::runtime_error("native particle sprite kind outside template");auto *shape=kindData+0xc0+80*kind;
+        for(unsigned p=0;p<count;++p){const auto *point=points+48*p;const auto kind=value<uint32_t>(point,44)+pass;if(kind>=m.kinds || kind<pass)throw std::runtime_error("native particle sprite kind outside template");auto *shape=kindData+0xc0+80*kind;
             std::array<float,4> position=value<std::array<float,4>>(point,0);for(unsigned i=0;i<3;++i)number(position[i]);position[3]=1;const auto eye=transform(toView,position);
             const auto angle=number(value<float>(point,32)),sx=number(value<float>(point,36)),sy=number(value<float>(point,40)),c=std::cos(angle),s=std::sin(angle);
             const float x[2]={number(value<float>(shape,0)),number(value<float>(shape,16))},y[2]={number(value<float>(shape,4)),number(value<float>(shape,20))};
@@ -110,7 +116,9 @@ NativeModelSubmission NativeParticleDraws::capture(Runtime *rt,NativeAssets &ass
         }
         seen+=count;cursor+=32+48*count;
     }
-    if(seen!=total)throw std::runtime_error("native particle draw point count mismatch");if(!batch.vertices.empty())submission.batches.push_back(std::move(batch));return submission;
+    if(seen!=total)throw std::runtime_error("native particle draw point count mismatch");if(!batch.vertices.empty())submission.batches.push_back(batch);
+    }
+    return submission;
 }
 std::optional<bool> nativeParticleDrawInstruction(R5900Context *c,Runtime *rt,uint32_t pc){
     if(pc!=0x22f160)return std::nullopt;auto *d=rt?dynamic_cast<bozo::ee::Dispatcher *>(rt->services):nullptr;

@@ -50,17 +50,27 @@ rounding modes, DAZ/FTZ, quarter-turn edges) with CPU/RAM/FP identical to the
 reference publications, and 65536 arithmetic cases (its error against
 sin/cos stays under 0.01, the polynomial's own reach at |r| near pi).
 
-**Where the route stops now: the particle draw 22f160**, object 9e53e0 (the
-trail emitter's), template c7d120 (grid 1x2, two kinds, 64x32 texture). Its
-rejection is now specific: the converted "wrap" field is 2 (U) / 0 (V), while
-only 0/1 are admitted. That field comes from the template's first VU1 qword
-(+20, here words 2, 1, 5, 0), which the converter read as a CLAMP register.
-The template's GIF packet holds only TEX0 and ALPHA, and VU1 program 0x6e0
-reads its control words with ILW from that block (xtop, ilw vi14+0), so the
-qword is more likely the program's own control header than CLAMP. Region
-clamp is therefore not ported on that reading; next: settle the qword's
-meaning from 0x6e0 itself (or a PCSX2 GS dump of this scene) before
-extending the material conversion.
+**Particle templates: VU1 0x6e0's pass header (VPP2).** The route then
+stopped at the trail emitter's draw (22f160): its template's first VU1 qword
+(+20, uploaded to VU address 2e0) held 2 where the converter, reading it as a
+CLAMP register, admitted only 0/1. Program 0x6e0 itself settles it: after
+each XGKICK it increments vi4 and ends when vi4 = ILW.x 2e0, otherwise it adds
+ILW.z 2e0 to the kind base vi3 (from 2e9) and runs every point again, and it
+loads its ALPHA from 2e5 + vi4. So x is a pass count (1..4) and z the kind
+stride per pass (5 qwords, one kind: already pinned by the converter's guard);
+the template's GIF packet has only TEX0 and ALPHA, no CLAMP. `VPP2` records
+passes (and the raw y word); the draw emits one batch per pass, pass p using
+kind + p and ALPHA variant p, all points of a pass before the next. Of the
+4071 converted templates 3582 have one pass, 427 two, 59 three, 3 four (the
+old draw drew only the first pass of those). U clamp / V repeat stays as the
+single-pass draws had it: the game's CLAMP for these kicks is not in the
+template and is unverified. Tests: converter (pass bounds 1..4), a two-pass
+draw (both batches, blends, each pass's kind shape) and a kind running past
+the template in pass 1 rejecting.
+
+**Route:** to 43600 (rc 0): out of the street, across the inn square, into
+the inn (41800) to the counter beside its save-point ornament and its
+two-pass trail particles. All 89 suites pass. Not compared with PCSX2 yet.
 
 ### Camp menu against PCSX2: untextured UI colour (2026-11-17)
 

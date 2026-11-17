@@ -25,7 +25,7 @@ using Mat=std::array<float,16>;
 const Mat identity{1,0,0,0,0,1,0,0,0,0,1,0,0,0,0,1};
 void files(const std::filesystem::path &dir){
     std::filesystem::create_directories(dir);
-    {std::ofstream f(dir/"0000004000_001.pmat",std::ios::binary);write(f,uint32_t(0x31505056));write(f,uint32_t(1));
+    {std::ofstream f(dir/"0000004000_001.pmat",std::ios::binary);write(f,uint32_t(0x32505056));write(f,uint32_t(1));
         const std::array<uint32_t,27> fields{0x20,1,0x110,1,0,1,0,0,1,0,1,0,2,2,0,1,0,2,2,0,1,0,2,2,0,1,0};write(f,fields);}
     {std::ofstream f(dir/"manifest.txt");f<<"VPNT1\n11223344 5 c_0000000000000000.tex\n";}
     {std::ofstream f(dir/"c_0000000000000000.tex",std::ios::binary);write(f,std::array<uint32_t,3>{2,2,0});write(f,std::array<uint32_t,4>{0x800000ff,0x8000ff00,0x80ff0000,0x80ffffff});write(f,std::array<uint32_t,256>{});}
@@ -188,6 +188,26 @@ int main(int argc,char **argv){try{
         const auto fp=_mm_getcsr();const auto before=std::vector<uint8_t>(rt.memory.flat(),rt.memory.flat()+bozo::kFlatBytes);const auto active=particles.outstanding();bool rejected=false;
         try{draws.capture(&rt,assets,textures,scene,particles,object);}catch(const std::runtime_error &){rejected=true;}
         check(rejected && _mm_getcsr()==fp && active==particles.outstanding() && !std::memcmp(before.data(),rt.memory.flat(),before.size()));
+    }
+    // Two passes (VU1 0x6e0's pass header x = 2): every point is drawn again with the next
+    // kind and ALPHA variant 1, all of pass 0 before pass 1; a kind that runs past the
+    // template in a later pass rejects.
+    {const auto two=dir/"two";files(two);
+     {std::ofstream f(two/"0000004000_001.pmat",std::ios::binary);write(f,uint32_t(0x32505056));write(f,uint32_t(1));
+         const std::array<uint32_t,27> fields{0x20,2,0x160,1,0,2,1,0,1,0,1,0,2,2,0,1,0x40,2,2,0,1,0,2,2,0,1,0};write(f,fields);}
+     vp2s::NativeParticleDraws passes(two);vp2s::NativeTextures twoTextures(two,two/"manifest.txt");
+     initialize(rt,scene,assets,1);put(rt,kinds+1,uint8_t(2));
+     const std::array<float,20> second{-.5f,-.5f,0,1,.5f,.5f,0,1,0,0,1,1,1,1,1,1,1,1,1,1};put(rt,kinds+0xc0+80,second);
+     assets=vp2s::NativeAssets{};assets.discRead(0x140000,1,8);assets.begin(0x1f0000,0x140000,kinds-0x20,1);assets.finish(0x1f0000,true,0x180);
+     const auto result=passes.capture(&rt,assets,twoTextures,scene,particles,object);check(result.batches.size()==2);
+     const auto &first=result.batches[0],&next=result.batches[1];check(first.vertices.size()==6 && next.vertices.size()==6);
+     check(first.material.blendA==0 && first.material.blendB==1 && next.material.blendA==2 && next.material.blendB==2 && next.material.blendFix==0x40);
+     const unsigned strip[]={0,1,2,1,3,2};
+     for(unsigned j=0;j<6;++j){const auto k=strip[j];const float x=k&1?1.f:-1.f,y=k>>1?1.f:-1.f;
+         check(std::abs(first.vertices[j].x-.125f*x)<1.e-6f && std::abs(first.vertices[j].y-.25f*y)<1.e-6f);
+         check(std::abs(next.vertices[j].x-.25f*x)<1.e-6f && std::abs(next.vertices[j].y-.5f*y)<1.e-6f);}
+     put(rt,0x210000u+0x20+32+44,uint32_t(1));bool rejected=false;
+     try{passes.capture(&rt,assets,twoTextures,scene,particles,object);}catch(const std::runtime_error &){rejected=true;}check(rejected);
     }
     // Negative point colours (the town's alpha -1.0 at a particle's end of life), as the
     // VU1 program draws them: tint*colour, min 255, FTOI0, GIF low byte; with tints

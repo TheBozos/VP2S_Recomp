@@ -12,6 +12,22 @@ The earlier VP2S face/shading and general brightness comparisons remain open.
 
 ## Build and evidence
 
+### Every module that loads at 0x48ef00 is compiled (2026-11-18)
+
+The event after leaving Solde (Dylan: "The name's Rufus") faulted at frame
+50666: the field module jumped to `0x48ef80` and found no compiled code.
+Ten extracted modules load at `0x48ef00` (mod004 to mod013), and only mod004
+was in the compiled set. Every ELF has an analysis export, so the default
+`--inputs` of `tools/vp2_bozo.py` now includes mod005 to mod013. All nine
+generate with no untranslated instructions. The runtime picks the loaded one
+by its 64-byte header identity, as for mod004. Their VU sites stay guarded
+(mod005 9, mod010 44, mod011 18, mod013 9). After `--stage generate`, the
+port needs a CMake reconfigure (`-DVP2S_BOZO_CODE=ON`) to pick up the new
+sources. All 89 suites pass.
+
+Route: past frame 50666. It then stops at the glow's unported small-radius
+path (`2d5e80`).
+
 ### Leaving Solde: the gradient fade, fade mode 1 (2026-11-18)
 
 "Yes" on "Leave Solde?" (CROSS at 45800) starts a fade (class `161230`) in

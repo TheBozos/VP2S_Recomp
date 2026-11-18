@@ -118,7 +118,7 @@ def generate(args, build, data, engine_build, env):
 def main():
     ap = argparse.ArgumentParser(description=__doc__)
     ap.add_argument('--build', type=Path, default=ROOT/'build_usa')
-    ap.add_argument('--inputs', default='main,mod001,mod002,mod003,mod004')
+    ap.add_argument('--inputs', default='main,mod001,mod002,mod003,mod004,mod005,mod006,mod007,mod008,mod009,mod010,mod011,mod012,mod013')
     ap.add_argument('--stage', choices=['tools', 'generate', 'build', 'run', 'all'], default='build')
     ap.add_argument('--jobs', type=int, default=4)
     ap.add_argument('--ffmpeg', default=os.environ.get('BOZO_FFMPEG_ROOT', 'D:/tmb_kit/kit/ffmpeg'))

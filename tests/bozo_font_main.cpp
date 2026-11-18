@@ -265,7 +265,24 @@ int main(int argc,char **argv){try{
         rejects(object+0xf5,uint8_t(0x10),uint8_t(1));                 // hidden
         rejects(object+0xb8,int32_t(500),int32_t(512));                // not the screen box
         rejects(scene+0x40a8,uint32_t(0),object);                      // not the pending owner
-        check(rects.beginFade(&u,9,object).wipe);rects.cancel(9);++cases;}
+        check(rects.beginFade(&u,9,object).wipe);rects.cancel(9);++cases;
+        // Mode 1 (3d38e0): a two-colour Gouraud quad from +d0..+ec (each +0x800), colours a/b
+        // alternating (+f2 = 0: a = +a0, b = +98; else a = +9c, b = +a0), depth +c0 + +f1; 128 bytes.
+        put(u,object+0xf3,uint8_t(1));put(u,buffer+8,base+0xc0);put(u,object+0xf1,uint8_t(3));
+        put(u,object+0x98,uint32_t(0x11223344u));put(u,object+0x9c,uint32_t(0x55667788u));put(u,object+0xa0,uint32_t(0x80000000u));
+        const int32_t xy[8]={-256,-224,256,-224,-256,224,256,224};for(unsigned i=0;i<8;++i)put(u,object+0xd0+4*i,xy[i]);
+        {const auto q=rects.beginFade(&u,9,object);check(q.wipe && q.stripVertices==4 && rects.active(9));rects.cancel(9);
+            // Strip order (+d0, +d8, +e8, +e0): (-256,-224) a, (256,-224) b, (256,224) a, (-256,224) b.
+            const float ex[4]={1792,2304,2304,1792},ey[4]={1824,1824,2272,2272};
+            for(unsigned i=0;i<4;++i)check(q.strip[i].x==ex[i] && q.strip[i].y==ey[i] && q.strip[i].z==float(0xffff67) && q.strip[i].rgba==((i&1)?0x11223344u:0x80000000u));}
+        put(u,object+0xf2,uint8_t(1));
+        {const auto q=rects.beginFade(&u,9,object);check(q.strip[0].rgba==0x55667788u && q.strip[1].rgba==0x80000000u);rects.cancel(9);put(u,object+0xf2,uint8_t(0));}
+        rejects(buffer+8,uint32_t(base+0x140),uint32_t(base+0xc0));    // the wipe's length: unowned content
+        rejects(object+0xf4,uint8_t(1),uint8_t(0));                    // another blend
+        rejects(object+0xf5,uint8_t(0x10),uint8_t(1));                 // hidden
+        rejects(object+0xd0,int32_t(0x800),int32_t(-256));             // past the GS range
+        rejects(scene+0x40a8,uint32_t(0),object);                      // not the pending owner
+        put(u,object+0xf3,uint8_t(4));put(u,buffer+8,base+0x140);put(u,object+0xf1,uint8_t(0));++cases;}
     auto &rt=b.runtime();put<uint32_t>(rt,0x35df10,0x30180000);put<uint32_t>(rt,0x35df20,0x1000);put<uint32_t>(rt,0x35df1c,0x30180040);put<uint32_t>(rt,0x35df18,0x30180100);
     now.setups.beginDefaults(&rt,1);bool duplicate=false;
     try{now.setups.beginDefaults(&rt,1);}catch(const std::runtime_error &){duplicate=true;}check(duplicate);

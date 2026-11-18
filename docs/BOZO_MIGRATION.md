@@ -12,6 +12,30 @@ The earlier VP2S face/shading and general brightness comparisons remain open.
 
 ## Build and evidence
 
+### Leaving Solde: the gradient fade, fade mode 1 (2026-11-18)
+
+"Yes" on "Leave Solde?" (CROSS at 45800) starts a fade (class `161230`) in
+mode 1 (`+f3` = 1, `+f4` = 0), which native rejected (it had modes 0 and 4).
+The builder `3d3660` takes mode 1 at `3d38e0`:
+- ALPHA_2 from the `+f4` = 0 entry `3140f0` (0x44), as the other modes.
+- One REGLIST packet (`120fa0`, 6 qwords): PRIM `0x24c` (Gouraud triangle
+  strip, blended, context 2) and four RGBAQ/XYZ2 pairs.
+- Colours: `+f2` = 0 gives a = `+a0`, b = `+98`; otherwise a = `+9c`,
+  b = `+a0`. The vertices are (`+d0`,`+d4`) a, (`+d8`,`+dc`) b,
+  (`+e8`,`+ec`) a, (`+e0`,`+e4`) b, each plus 0x800. Depth is `+c0` + `+f1`.
+
+That makes a two-colour gradient quad. Native builds it in `beginFade` and
+draws it through the wipe's strip path (`NativeScreenRect::stripVertices` = 4).
+The checks are those of the wipe: the pending scene owner, the blend entry,
+exactly 128 bytes in the writer, and vertices inside the GS range.
+
+Tests (font suite): strip order, positions, colours for both `+f2` values
+and depth, plus rejections for the wipe's length, another blend, hidden,
+out of range and not the pending owner. Route: to 47600 (rc 0). The fade
+goes to black, then the event plays natively: "I'll guide you to the Royal
+Underground Path", Alicia's close-ups, and Dylan's arrival ("Hm? Oh,
+nobody"). Not compared with PCSX2 yet.
+
 ### Leaving Solde: the town exit prompt's layer (2026-11-18)
 
 The pad script now walks out of the inn (DOWN at 43700), back across the inn

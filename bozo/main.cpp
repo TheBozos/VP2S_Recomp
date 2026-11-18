@@ -241,8 +241,8 @@ public:
         material.blend=bozo::render::Material::Blend::Alpha;
         const float identity[16]={1,0,0,0,0,1,0,0,0,0,1,0,0,0,0,1};
         if(rect.wipe){
-            // The wipe's Gouraud strip (PRIM 24c) as its 10 triangles.
-            std::vector<bozo::render::Vertex> triangles;for(unsigned k=0;k+2<rect.strip.size();++k)for(unsigned j=0;j<3;++j)triangles.push_back(rect.strip[k+j]);
+            // The fade's Gouraud strip (PRIM 24c) as triangles: 10 for the wipe, 2 for mode 1.
+            std::vector<bozo::render::Vertex> triangles;for(unsigned k=0;k+2<rect.stripVertices && k+2<rect.strip.size();++k)for(unsigned j=0;j<3;++j)triangles.push_back(rect.strip[k+j]);
             bozo::render::Renderer::instance().draw(material,identity,triangles.data(),triangles.size());
         }else{
             const auto vertices=vp2s::nativeScreenRectangleVertices(rect);

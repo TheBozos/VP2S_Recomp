@@ -93,6 +93,34 @@ NativeScreenRect NativeScreenRects::beginFade(Runtime *rt,uint32_t stack,uint32_
         NativeScreenRect rect{.object=object,.colour=in.to,.depth=in.depth,.sourceWidth=in.width,.sourceHeight=in.height,.wipe=true,.strip=nativeFadeWipe(in)};
         calls.emplace(stack,Lease{rect,buffer,begin,end});return rect;
     }
+    if(value<uint32_t>(rt,object)==0x161230 && value<uint8_t>(rt,object+0xf3)==1){
+        // Mode 1 (3d38e0): ALPHA_2 from the +f4 = 0 entry 3140f0 (0x44), then one
+        // REGLIST packet (120fa0, 6 qwords): PRIM 24c and four RGBAQ/XYZ2 pairs,
+        // a two-colour Gouraud quad. Colours: +f2 = 0 gives a = +a0, b = +98,
+        // otherwise a = +9c, b = +a0; vertices (+d0,+d4) a, (+d8,+dc) b,
+        // (+e8,+ec) a, (+e0,+e4) b, each +0x800; depth +c0 + +f1. 128 bytes.
+        if(calls.contains(stack))throw std::runtime_error("native fade publication stack reused");
+        if(!value<uint8_t>(rt,object+0x63) || value<uint8_t>(rt,object+0x64)!=1 || value<uint8_t>(rt,object+0xf4) ||
+           (value<uint8_t>(rt,object+0xf5)&kFadeDrawFlags) || value<uint64_t>(rt,0x3140f0)!=0x44)
+            throw std::runtime_error("native gradient fade has no completed builder");
+        const auto scene=value<uint32_t>(rt,0x35ddf8);const auto layer=value<uint8_t>(rt,object+0x65);
+        if(layer>1 || value<uint32_t>(rt,scene+0x40a8+layer*4)!=object || value<uint8_t>(rt,scene+0x40dc+layer)!=1)
+            throw std::runtime_error("native fade has no pending scene owner");
+        const bool swapped=value<uint8_t>(rt,object+0xf2)!=0;
+        const uint32_t a=value<uint32_t>(rt,object+(swapped?0x9c:0xa0)),b=value<uint32_t>(rt,object+(swapped?0xa0:0x98));
+        const uint32_t depth=value<uint32_t>(rt,object+0xc0)+value<uint8_t>(rt,object+0xf1);
+        if(depth>0xffffff)throw std::runtime_error("native gradient fade depth outside 24 bits");
+        const auto buffer=value<uint32_t>(rt,object+0xc4),base=value<uint32_t>(rt,buffer),begin=value<uint32_t>(rt,buffer+12),end=value<uint32_t>(rt,buffer+8);
+        if(uint64_t(base)+0x40!=begin || uint64_t(begin)+128!=end || uint64_t(end)+16>uint64_t(base)+uint64_t(value<uint32_t>(rt,buffer+16))*8)
+            throw std::runtime_error("native gradient fade writer has additional/unowned content");
+        NativeScreenRect rect{.object=object,.colour=a,.depth=depth,.wipe=true,.stripVertices=4};
+        const uint32_t corners[4]={0xd0,0xd8,0xe8,0xe0};
+        for(unsigned i=0;i<4;++i){const int32_t x=value<int32_t>(rt,object+corners[i]),y=value<int32_t>(rt,object+corners[i]+4);
+            // XYZ2 keeps 12.4 bits: the game's (v + 0x800) << 4 must fit 16 bits.
+            if(x<-0x800 || x>=0x800 || y<-0x800 || y>=0x800)throw std::runtime_error("native gradient fade vertex outside the GS range");
+            auto &v=rect.strip[i];v.x=float(x+0x800);v.y=float(y+0x800);v.z=float(depth);v.rgba=(i&1)?b:a;}
+        calls.emplace(stack,Lease{rect,buffer,begin,end});return rect;
+    }
     if(calls.contains(stack))throw std::runtime_error("native fade publication stack reused");
     auto it=fades.find(object);
     if(it==fades.end() || value<uint32_t>(rt,object)!=0x161230 || !value<uint8_t>(rt,object+0x63) || value<uint8_t>(rt,object+0x64)!=1 ||

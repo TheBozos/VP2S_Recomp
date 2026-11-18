@@ -6,8 +6,9 @@ struct NativeScreenRect {
     uint32_t object=0,colour=0,depth=0;
     int32_t x=0,y=0,right=0,bottom=0;
     int32_t sourceWidth=0,sourceHeight=0;
-    // Fade mode 4 (+f3 = 4): a slanted gradient wipe, drawn as this Gouraud strip.
-    bool wipe=false;
+    // Fade modes 4 (+f3 = 4, a slanted gradient wipe, 12 vertices) and 1 (a
+    // two-colour gradient quad, 4 vertices): drawn as this Gouraud strip.
+    bool wipe=false;uint8_t stripVertices=12;
     std::array<bozo::render::Vertex,12> strip{};
 };
 std::array<bozo::render::Vertex,6> nativeScreenRectangleVertices(const NativeScreenRect &);

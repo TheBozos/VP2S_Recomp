@@ -1,4 +1,5 @@
 #include "native_textures.h"
+#include "native_picture_source.h"
 #include "native_scene.h"
 #include "native_assets.h"
 #include "bozo/ee/dispatcher.h"
@@ -35,7 +36,7 @@ std::shared_ptr<const bozo::render::Texture> NativeTextureAsset::picture(unsigne
         // it here so partial coverage is scaled once, at presentation.
         result->rgba[i]=value;
     }
-    pictures[csa]=result;return result;
+    pictures[csa]=result;notePicture(result,PictureSource{.kind=PictureSource::Kind::Asset,.asset=key,.part=csa});return result;
 }
 NativeTextures::NativeTextures(std::filesystem::path directory,std::filesystem::path manifest):root(std::move(directory)){
     if(manifest.empty())return; // Synthetic tests may deliberately have no source.
@@ -268,5 +269,21 @@ bool nativeTextureInstruction(uint8_t *,R5900Context *c,Runtime *rt,uint32_t pc)
         if(std::getenv("VP2S_BOZO_TRACE_QUEUES"))std::fprintf(stderr,"[vp2s:texture] native %s slot=%u, descriptor released by compiled free\n",palette?"palette":"pixels",c->r[palette?21:20].uw[0]);
     }
     return true;
+}
+void stateAsset(bozo::state::Archive &a,NativeTextures &textures,std::shared_ptr<const NativeTextureAsset> &asset){
+    bool has=asset!=nullptr;TextureKey key=has?asset->key:TextureKey{};   // before `has` is read back
+    bozo::state::io(a,has);io(a,key);
+    if(a.loading())asset=has?textures.load(key):nullptr;
+}
+void NativeTextures::serialize(bozo::state::Archive &a){
+    namespace st=bozo::state;
+    if(a.loading())loaded.clear();
+    state::map(a,pending,[&](Invocation &v){stateAsset(a,*this,v.asset);st::fields(a,v.palette,v.pixels);});
+    state::map(a,palettes,[&](auto &v){stateAsset(a,*this,v);});
+    state::map(a,pixels,[&](auto &v){stateAsset(a,*this,v);});
+    state::map(a,images,[&](auto &v){stateAsset(a,*this,v);});
+    state::map(a,menuPages,[&](MenuPage &v){stateAsset(a,*this,v.asset);st::io(a,v.palette);});
+    state::map(a,menuLoads,[&](MenuLoad &v){st::fields(a,v.page,v.format,v.palette);});
+    st::io(a,publications);
 }
 }

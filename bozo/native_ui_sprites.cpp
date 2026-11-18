@@ -35,6 +35,13 @@ void NativeUiSprites::bindButton(Runtime *rt,NativeTextures &textures,uint32_t s
     auto result=std::make_shared<NativeButtonSheet>(NativeButtonSheet{sprite,dtt,parts,count,uint32_t(button),textures.load(key)});
     sheets[sprite]=std::move(result);
 }
+void NativeUiSprites::serialize(bozo::state::Archive &a,NativeTextures &textures){
+    if(outstanding())throw std::runtime_error("native UI sprite state saved with a build in flight");
+    state::map(a,sheets,[&](std::shared_ptr<const NativeButtonSheet> &p){
+        NativeButtonSheet s=p?*p:NativeButtonSheet{};
+        bozo::state::fields(a,s.sprite,s.dtt,s.parts,s.count,s.button);stateAsset(a,textures,s.asset);
+        if(a.loading())p=std::make_shared<NativeButtonSheet>(std::move(s));});
+}
 std::shared_ptr<const NativeButtonSheet> NativeUiSprites::button(uint32_t sprite)const{
     auto it=sheets.find(sprite);return it==sheets.end()?nullptr:it->second;
 }

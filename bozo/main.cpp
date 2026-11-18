@@ -45,6 +45,7 @@
 #include "native_procedural_draws.h"
 #include "native_music.h"
 #include "native_ui_windows.h"
+#include "native_state_ui.h"
 #include "native_load_progress.h"
 #ifdef VP2S_BOZO_CAPTURE
 #include "native_capture.h"
@@ -802,16 +803,22 @@ int main(int argc,char **argv) {
         else if(arg=="--card-dir" && i+1<argc)options.cardDir=argv[++i];
         else if(arg=="--frames" && i+1<argc)options.frames=std::stoul(argv[++i]);
         else if(arg=="--pad-script" && i+1<argc)options.padScript=argv[++i];
+        else if(arg=="--load-state" && i+1<argc)options.loadState=argv[++i];
+        else if(arg=="--load-state-at" && i+1<argc)options.loadStateFrame=std::stoul(argv[++i]);
+        else if(arg=="--save-state" && i+1<argc)options.saveState=argv[++i];
+        else if(arg=="--save-state-at" && i+1<argc)options.saveStateFrame=std::stoul(argv[++i]);
 #ifdef VP2S_BOZO_CAPTURE
         else if(arg=="--capture" && i+1<argc)capturePath=argv[++i];
 #endif
-        else { std::fprintf(stderr,"usage: vp2s-bozo-headless --iso FILE [--card-dir PRIVATE_DIR] [--frames N] [--pad-script FILE]\n");
+        else { std::fprintf(stderr,"usage: vp2s-bozo-headless --iso FILE [--card-dir PRIVATE_DIR] [--frames N] [--pad-script FILE]\n"
+                                   "       [--load-state FILE [--load-state-at FRAME]] [--save-state FILE --save-state-at FRAME]\n");
 #ifdef VP2S_BOZO_CAPTURE
             std::fprintf(stderr,"GPU build also accepts --capture OUTPUT.png (hidden window, no host input)\n");
 #endif
             return 2; }
     }
     if(options.iso.empty()) {std::fprintf(stderr,"user-owned USA ISO required\n");return 2;}
+    options.gameTag="SLUS-21452";
     try {
         StrictHost host(options);
         bozo::ee::Dispatcher dispatcher(host);
@@ -827,6 +834,23 @@ int main(int argc,char **argv) {
             throw std::runtime_error(error);
         vp2sBozoRegisterImages(dispatcher.runtime(),VP2S_BOZO_IMAGES,[&](uint32_t pc){host.overlayExternals.insert(pc);dispatcher.bindLibrary(pc);});
         vp2s::installNativeMusic(dispatcher.runtime());
+        // Save states (--save-state FILE --save-state-at N, --load-state FILE [--load-state-at N]):
+        // VP2S's own part. The engine saves EE memory, the dispatcher, the kernel, its libraries
+        // and its host; VP2S adds the IOP modules' host, the SDK clock and the native owners that
+        // keep what the game told them once (docs/BOZO_MIGRATION.md, save states). Owners with a
+        // capture in flight make a save wait. VP2S_STATE_TRACE=1 names each owner as it is saved
+        // or loaded (a failed load then names its owner).
+        host.native.stateSections()->add({"vp2s",[&](bozo::state::Archive &a){host.dbc->serialize(a);
+                auto &c=host.sdkClock;bozo::state::fields(a,c.initialized,c.running,c.epoch,c.base,c.deadlineSerial);
+                static const bool trace=std::getenv("VP2S_STATE_TRACE")!=nullptr;
+                const auto step=[&](const char *name){if(trace)std::fprintf(stderr,"[state] vp2s %s\n",name);};
+                step("assets");host.assets.serialize(a);step("models");host.models.serialize(a);
+                step("textures");host.textures.serialize(a);step("sprites");host.sprites.serialize(a,host.textures);
+                const vp2s::PictureContext pictures{host.textures,host.glyphs};
+                step("windows");host.windows.serialize(a,pictures);step("texts");host.uiTexts.serialize(a,pictures);step("done");},
+            [&]{for(auto why:{host.dbc->unsaveable(),host.sprites.unsaveable(),host.windows.unsaveable(),host.uiTexts.unsaveable()})
+                    if(!why.empty())return why;return std::string();}});
+        host.native.onStateMessage=[](bool,const std::string &message){std::fprintf(stderr,"[state] %s\n",message.c_str());};
 #ifdef _WIN32
         SamplingProfiler profiler;
         if(const char *out=std::getenv("VP2S_BOZO_PROFILE")){

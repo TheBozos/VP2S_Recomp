@@ -2,6 +2,7 @@
 #include "native_ui_text.h"
 #include <optional>
 namespace vp2s {
+struct PictureContext;
 struct NativeUiStrip {
     std::array<std::array<int32_t,2>,4> corners{};
     std::array<uint32_t,4> colours{};
@@ -51,6 +52,9 @@ public:
     void panel(Runtime *,uint32_t element,uint64_t lowerRight,uint64_t upperLeft,uint32_t alpha);
     void spriteElement(uint32_t element,std::vector<NativeUiSprite> sprites);
     void scissor(Runtime *,uint32_t element,uint64_t registerValue);
+    // Save states (native_state_ui.cpp): the finished windows; captures in flight make a save wait.
+    void serialize(bozo::state::Archive &,const PictureContext &);
+    std::string unsaveable()const{return imageBuilds.empty() && builds.empty() && backgrounds.empty() && quads.empty() && selections.empty()?"":"a native UI window capture is in flight";}
 };
 class UiWindowOwner {
 public:

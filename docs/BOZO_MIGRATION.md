@@ -12,6 +12,48 @@ The earlier VP2S face/shading and general brightness comparisons remain open.
 
 ## Build and evidence
 
+### Save states (2026-11-18)
+
+VP2S implements BozoEngine's save states (engine `docs/save-states.md`). Options:
+`--save-state FILE --save-state-at FRAME` and `--load-state FILE [--load-state-at FRAME]`.
+The game tag is `SLUS-21452`. The engine saves guest memory, the dispatcher and its own
+devices at the dispatcher's safe point. VP2S adds one section, `vp2s`, covering:
+- DBC and the SDK clock;
+- asset provenance: ranges, calls, jobs, steps;
+- generated model meshes;
+- textures: pending loads, palettes, pixels, images, menu pages, publications;
+- UI button sheets, windows, texts and name plates.
+
+Every owner saves all of its fields, including records keyed by a guest stack, because a guest
+call can be suspended between two of an owner's hooks.
+
+Engine pictures cannot be written to a file. Each picture VP2S makes comes from one of three
+factories over offline data:
+- a texture asset's palette part;
+- a glyph of a converted font;
+- the camp-menu backdrop built from two assets.
+
+The factories record each picture's source (`native_picture_source.h`). A held picture is
+saved as its source and made again on load. Texture assets are saved as their `TextureKey`,
+fonts as their `GlyphFontKey`. Owners with a build or capture in flight report the state
+unsaveable, and the engine retries at the next safe point. `VP2S_STATE_TRACE=1` names each
+owner as it is saved or loaded, which finds the owner a failed load is missing.
+
+Check: `tools/bozo_state_check.sh BINARY SAVE_AT END OUTDIR`. The first run saves at SAVE_AT
+and runs to END. A second process loads the state and runs to END. EE RAM at END and the last
+frame must be identical. Results, all identical in RAM and pixels:
+
+| Save at | Run to | Scene |
+|---|---|---|
+| 3000 | 3100 | Boot |
+| 41500 | 42000 | Inn |
+| 50600 | 50660 | Rufus event |
+
+A load at 41700 (`--load-state-at`) of the 41500 state also matched the uninterrupted run's RAM.
+The owners were found one failed load at a time: the SDK clock, asset provenance, button
+sheets, then name plates. Route checks now start from named states near the scene under test
+instead of replaying from boot.
+
 ### The Rufus event: small-radius glow, mod010's layer copies, an omitted lookup (2026-11-18)
 
 Three boundaries, in route order, after the event that follows leaving Solde:

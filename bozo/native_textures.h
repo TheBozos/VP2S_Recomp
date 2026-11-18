@@ -1,4 +1,5 @@
 #pragma once
+#include "native_state.h"
 #include <mutex>
 #include "bozo/runtime.h"
 #include "bozo/render/texture.h"
@@ -14,6 +15,7 @@ struct TextureKey {
     auto operator<=>(const TextureKey &)const=default;
 };
 inline constexpr TextureKey kStaticScenePalette{0x50325056,0x314200};
+inline void io(bozo::state::Archive &a,TextureKey &k){bozo::state::fields(a,k.tag,k.index);}
 struct NativeTextureAsset {
     TextureKey key;
     uint64_t identity=0;
@@ -61,6 +63,9 @@ public:
     void finish(uint32_t stack);
     std::shared_ptr<const NativeTextureAsset> pixelAsset(uint16_t slot)const;
     std::shared_ptr<const NativeTextureAsset> paletteAsset(uint16_t slot)const;
+    // Save states: every published asset as its key (assets are offline files, loaded again by
+    // key); the decoded-file cache is dropped on load.
+    void serialize(bozo::state::Archive &);
     size_t outstanding()const{return pending.size();}
     uint64_t publicationCount()const{return publications;}
 };
@@ -73,4 +78,6 @@ bool nativeTextureInstruction(uint8_t *,R5900Context *,Runtime *,uint32_t pc);
 std::optional<bool> nativeFixedImageInstruction(R5900Context *,Runtime *,uint32_t pc);
 std::optional<bool> nativeTextureUploaderInstruction(R5900Context *,Runtime *,uint32_t pc);
 std::optional<bool> nativeMenuImageInstruction(R5900Context *,Runtime *,uint32_t pc);
+// A held asset saved as its key and loaded again through `textures`.
+void stateAsset(bozo::state::Archive &,NativeTextures &,std::shared_ptr<const NativeTextureAsset> &);
 }

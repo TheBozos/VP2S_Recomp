@@ -1,5 +1,6 @@
 #pragma once
 #include "bozo/runtime.h"
+#include "native_state.h"
 #include <map>
 #include <optional>
 #include <vector>
@@ -12,6 +13,7 @@ struct AssetOrigin {
     uint32_t part=0,offset=0;
     bool operator==(const AssetOrigin &)const=default;
 };
+inline void io(bozo::state::Archive &a,AssetOrigin &o){bozo::state::fields(a,o.kind,o.disc,o.part,o.offset);}
 class NativeAssets {
     struct Range {uint32_t begin,end;AssetOrigin origin;};
     struct Invocation {std::optional<AssetOrigin> chain;uint32_t destination,part,job;};
@@ -35,6 +37,8 @@ public:
     void finishStep(uint32_t stack,bool complete);
     size_t pendingCount()const{return calls.size()+steps.size();}
     size_t jobCount()const{return jobs.size();}
+    // Save states: every range, call, job and step (native_state.h).
+    void serialize(bozo::state::Archive &);
 };
 class AssetOwner {
 public:

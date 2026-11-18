@@ -161,3 +161,16 @@ std::optional<bool> nativeAssetInstruction(uint8_t *,R5900Context *c,Runtime *rt
     return false; // All CPU instructions, including the load at each return, remain compiled game code.
 }
 }
+
+namespace vp2s {
+void NativeAssets::serialize(bozo::state::Archive &a){
+    auto n=bozo::state::count(a,ranges.size());if(a.loading())ranges.resize(n);
+    for(auto &r:ranges)bozo::state::fields(a,r.begin,r.end,r.origin);
+    const auto byKey=[&](auto &m,auto each){auto k=bozo::state::count(a,m.size());
+        if(a.loading()){m.clear();for(uint64_t i=0;i<k;++i){uint32_t key=0;bozo::state::io(a,key);each(m[key]);}}
+        else for(auto &[key,v]:m){uint32_t copy=key;bozo::state::io(a,copy);each(v);}};
+    byKey(calls,[&](Invocation &v){state::optional(a,v.chain);bozo::state::fields(a,v.destination,v.part,v.job);});
+    byKey(jobs,[&](Decode &v){bozo::state::fields(a,v.destination,v.size);state::optional(a,v.origin);});
+    bozo::state::io(a,steps);
+}
+}

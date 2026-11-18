@@ -33,6 +33,18 @@ struct NativeModels::Mesh {
     std::vector<Source> sources;
     bool has(int n)const{return std::find(algorithms.begin(),algorithms.end(),n)!=algorithms.end();}
 };
+void NativeModels::serialize(bozo::state::Archive &a){
+    namespace st=bozo::state;
+    const auto mesh=[&](Mesh &m){
+        st::fields(a,m.group,m.sourceSize,m.algorithms,m.material,m.hasMaterial,m.scroll,m.strips);
+        st::pod(a,m.reflection);
+        const auto podVector=[&](auto &v){auto n=st::count(a,v.size());if(a.loading())v.resize(n);for(auto &e:v)st::pod(a,e);};
+        podVector(m.vertices);podVector(m.bones);podVector(m.sources);};
+    auto n=st::count(a,generated.size());
+    if(a.loading()){generated.clear();
+        for(uint64_t i=0;i<n;++i){uint32_t at=0;st::io(a,at);auto m=std::make_shared<Mesh>();mesh(*m);auto &g=generated[at];g.mesh=std::move(m);st::io(a,g.bytes);}}
+    else for(auto &[at,g]:generated){uint32_t key=at;st::io(a,key);Mesh copy=*g.mesh;mesh(copy);st::io(a,g.bytes);}
+}
 namespace {
 struct Reader {
     std::vector<uint8_t> data;size_t at=0;

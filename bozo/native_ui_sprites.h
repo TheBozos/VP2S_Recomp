@@ -30,6 +30,10 @@ public:
     void corner(uint32_t stack,unsigned index,int32_t x,int32_t y,const std::array<float,4> &uv);
     void finishSprite(uint32_t stack);
     size_t outstanding()const{return textBuilds.size()+spriteBuilds.size();}
+    // Save states: the button sheets (bound once, at UI setup) with their texture by key.
+    // Builds in flight hold engine pictures: a save waits until there are none.
+    void serialize(bozo::state::Archive &,NativeTextures &);
+    std::string unsaveable()const{return outstanding()?"a native button/text-icon build is in flight":"";}
     bool buildingText(uint32_t element)const;
 };
 class UiSpriteOwner {

@@ -1,4 +1,5 @@
 #pragma once
+#include "native_state.h"
 #include "native_assets.h"
 #include "native_scene.h"
 #include "native_textures.h"
@@ -70,6 +71,9 @@ public:
     // composes; values are read from the writer's records, never interpreted.
     void publishGeneratedMesh(Runtime *,const std::vector<std::pair<uint32_t,uint32_t>> &sections);
     size_t generatedMeshes()const{return generated.size();}
+    // Save states: the generated meshes (told once, at publication) are saved; the
+    // disc packs are an immutable cache of converted disc files and stay.
+    void serialize(bozo::state::Archive &);
 };
 class ModelOwner {
 public:

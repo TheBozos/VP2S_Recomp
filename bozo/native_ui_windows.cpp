@@ -1,4 +1,5 @@
 #include "native_ui_windows.h"
+#include "native_picture_source.h"
 #include "bozo/ee/dispatcher.h"
 #include <cstring>
 #include <stdexcept>
@@ -196,7 +197,8 @@ std::shared_ptr<const bozo::render::Texture> nativeMenuBackdropPicture(const Nat
     result->key=((top.identity*0x9e3779b97f4a7c15ull)^bottom.identity)|1ull<<63;result->version=result->key;result->asset=true;
     for(size_t i=0;i<512*256;++i)result->rgba[i]=top.palette[top.texels.at(i)];
     for(size_t i=0;i<size_t(512)*bottom.height;++i)result->rgba[512*256+i]=top.palette[bottom.texels.at(i)];
-    cache[key]=result;return result;
+    cache[key]=result;
+    notePicture(result,PictureSource{.kind=PictureSource::Kind::Backdrop,.asset=top.key,.second=bottom.key});return result;
 }
 // mod003 class 1672d0, the camp menu backdrop (a scene layer object like the
 // fixed image 15a6f0). Its build 45e5b0 writes, once (+c8), one SPRITE (PRIM

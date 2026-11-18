@@ -4,6 +4,7 @@
 #include "bozo/render/renderer.h"
 #include <array>
 namespace vp2s {
+struct PictureContext;
 struct NativeUiWindow;
 struct NativeUiGlyphPlacement {
     std::array<int32_t,4> fixedBox{};
@@ -49,6 +50,9 @@ public:
     std::shared_ptr<const NativeUiText> plate(uint32_t element)const{auto it=plates.find(element);return it==plates.end()?nullptr:it->second;}
     NativeUiLayer layer(Runtime *,uint32_t layer)const;
     size_t outstanding()const{return builds.size();}
+    // Save states (native_state_ui.cpp): texts and plates; a build in flight makes a save wait.
+    void serialize(bozo::state::Archive &,const PictureContext &);
+    std::string unsaveable()const{return builds.empty()?"":"a native UI text build is in flight";}
 };
 std::array<bozo::render::Vertex,6> nativeUiGlyphVertices(const NativeUiGlyph &,bool shadow);
 std::array<bozo::render::Vertex,6> nativeUiSpriteVertices(const NativeUiSprite &);

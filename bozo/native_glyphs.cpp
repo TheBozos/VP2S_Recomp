@@ -1,4 +1,5 @@
 #include "native_glyphs.h"
+#include "native_picture_source.h"
 #include <algorithm>
 #include <atomic>
 #include <cstring>
@@ -24,7 +25,8 @@ std::shared_ptr<const bozo::render::Texture> NativeGlyphFont::picture(uint32_t g
     texture->key=(uint64_t(1)<<63)|(identity<<20)|key;texture->version=identity;
     const size_t pixels=size_t(cellWidth)*cellHeight,first=(size_t(palettePart-1)*count+glyph)*pixels;
     if(first>rgba.size() || pixels>rgba.size()-first)throw std::runtime_error("native glyph pixels outside converted font");
-    texture->rgba.assign(rgba.begin()+first,rgba.begin()+first+pixels);pictures[key]=texture;return texture;
+    texture->rgba.assign(rgba.begin()+first,rgba.begin()+first+pixels);pictures[key]=texture;
+    notePicture(texture,PictureSource{.kind=PictureSource::Kind::Glyph,.font=this->key,.index=glyph,.part=palettePart});return texture;
 }
 NativeGlyphs::NativeGlyphs(std::filesystem::path directory):root(std::move(directory)){
     if(root.empty())return;
@@ -50,7 +52,7 @@ std::shared_ptr<const NativeGlyphFont> NativeGlyphs::load(GlyphFontKey key){
     const uint64_t words=uint64_t(h[2])*h[4]*h[5]*2;
     if(words>128*1024*1024/4)throw std::runtime_error("native glyph pack exceeds converted size bound");
     auto font=std::make_shared<NativeGlyphFont>();font->width=h[0];font->height=h[1];font->count=h[2];font->stride=h[3];
-    font->cellWidth=h[4];font->cellHeight=h[5];font->border=h[6];font->lineHeight=h[7];font->identity=serial.fetch_add(1);
+    font->cellWidth=h[4];font->cellHeight=h[5];font->border=h[6];font->lineHeight=h[7];font->identity=serial.fetch_add(1);font->key=key;
     font->rgba.resize(words);
     if(!input.read(reinterpret_cast<char *>(font->rgba.data()),words*4) || input.peek()!=std::char_traits<char>::eof())
         throw std::runtime_error("native glyph pack payload size mismatch");

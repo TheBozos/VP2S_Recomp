@@ -290,7 +290,7 @@ NativeModelSubmission NativeModels::capture(Runtime *rt,NativeAssets &assets,Nat
         for(unsigned c=0;c<3;++c)rotation[r][c]=length?world[4*r+c]/length:0;}
     for(unsigned i=0;i<4;++i){const auto d=row(i+1);colours[i]=row(i+5);for(unsigned c=0;c<3;++c)directions[i][c]=rotation[0][c]*d[0]+rotation[1][c]*d[1]+rotation[2][c]*d[2];}
     const auto ambient=row(19),objectColour=row(13),limit=row(0);
-    const bool tableA=word(object+0x31c)!=0,plain=word(object+0x310)!=0;
+    const bool tableA=word(object+0x31c)!=0;
     // The light-table word mem[14] is object+310: x plain, y table B (point
     // lights), z table C (spot lights), w table A. Table A alone changes only
     // mode 0 (the object colour is kept). With A, B and C add lights to the
@@ -391,6 +391,9 @@ NativeModelSubmission NativeModels::capture(Runtime *rt,NativeAssets &assets,Nat
             const auto index=value<int16_t>(rt,manager+0x2670+2*slot);if(index<0)throw std::runtime_error("native mesh texture not registered");
             const TextureKey key{word(manager+0x1008+16*index),word(manager+8+16*index)};batch.texture=textures.load(key)->picture(word(block+0x9c));}
         mat.textured=bool(batch.texture);
+        // The GS draws an untextured vertex colour as it is (0..255), not as 0x80 = 1
+        // modulation: the inn's save-point light column (3e/3f/61) was twice as bright.
+        mat.directColour=!mat.textured;
         const bool editable=working && mesh>=model && !m.has(6) && !m.has(8);
         const auto source=editable?work+mesh-model:0;
         std::array<float,2> scroll{};if(m.has(48)){if(m.scroll<0 || m.scroll>=16)throw std::runtime_error("native UV scroll index outside bounds");const auto q=row(38+m.scroll);scroll={q[2],q[3]};}
@@ -435,7 +438,13 @@ NativeModelSubmission NativeModels::capture(Runtime *rt,NativeAssets &assets,Nat
                 vout.u=t.stq[2]?float(t.stq[0])/float(t.stq[2]):.5f;vout.v=t.stq[2]?float(t.stq[1])/float(t.stq[2]):.5f;
                 if(t.alpha)alphaRow=float(*t.alpha);}
             std::array<float,4> factor{1,1,1,objectColour[3]};
-            if(material[4]==0){factor=objectColour;if(!tableA && !plain)factor[0]=factor[1]=factor[2]=0;}
+            // Mode 0 keeps the object colour (row 13) with or without table A. Without A
+            // and with plain (mem[14].x) clear, the model program's table-D entry
+            // (image 02a71b3e: 2b10 "b 2b50" with "ibeq vi2,vi0 -> 2b68" in its delay
+            // slot) runs the 2b68 loop: ITOF0 colour, MUL by mem[13], MINI by mem[0].
+            // The inn's save-point light column (object colour 3e/3f/61, alpha 2b) is
+            // that case; it was drawn black.
+            if(material[4]==0)factor=objectColour;
             else if(material[4]==1){for(unsigned c=0;c<3;++c){factor[c]=ambient[c];for(unsigned l=0;l<4;++l)factor[c]+=colours[l][c]*std::max(0.0f,dot(directions[l],n));}}
             else if(material[4]==3){
                 if(!block)throw std::runtime_error("native specular light table without a mesh block");
@@ -482,13 +491,16 @@ NativeModelSubmission NativeModels::capture(Runtime *rt,NativeAssets &assets,Nat
         if(shadowClass){
             std::vector<std::array<float,3>> positions(vertices.size());for(size_t k=0;k<vertices.size();++k)positions[k]={vertices[k].x,vertices[k].y,vertices[k].z};
             nativeShadowPrisms(positions,m.strips,shadowLight,matrix,shadowFlat,out.shadowIncrement,out.shadowDecrement);continue;}
-        const bool cull=(block?word(block+0x90)==0:bool(material[5])) && !byte(object+0x210);size_t first=0;
+        const bool cull=(block?word(block+0x90)==0:bool(material[5])) && !byte(object+0x210);size_t first=0;unsigned guarded=0,culled=0;
         for(auto length:m.strips){for(unsigned k=2;k<length;++k){const auto a=first+k-2,b=first+k-1,c=first+k;
-            if(outside[a] || outside[b] || outside[c])continue;
+            if(outside[a] || outside[b] || outside[c]){++guarded;continue;}
             if(cull && projected[a][3]>0 && projected[b][3]>0 && projected[c][3]>0){const auto &p=projected[a],&q=projected[b],&r=projected[c];
                 const float area=(p[0]/p[3]-q[0]/q[3])*(q[1]/q[3]-r[1]/r[3])-(p[1]/p[3]-q[1]/q[3])*(q[0]/q[3]-r[0]/r[3]);
-                if(!std::signbit(area*((k&1)?-1.0f:1.0f)))continue;}
+                if(!std::signbit(area*((k&1)?-1.0f:1.0f))){++culled;continue;}}
             batch.vertices.push_back(vertices[a]);batch.vertices.push_back(vertices[(k&1)?c:b]);batch.vertices.push_back(vertices[(k&1)?b:c]);}first+=length;}
+        if(traceModels && batch.vertices.empty())
+            std::fprintf(stderr,"[vp2s:model-empty] object=%x mesh=%u/%x vertices=%zu guarded=%u culled=%u textured=%u blend=%u/%u%u%u%u class=%x\n",
+                object,i,mesh,m.vertices.size(),guarded,culled,material[1],material[0],material[7],material[8],material[9],material[10],word(object));
         if(traceModels && !batch.vertices.empty()){
             double tex[3]{},col[4]{};float x0=1e9,y0=1e9,x1=-1e9,y1=-1e9;
             if(batch.texture){for(auto v:batch.texture->rgba)for(unsigned c=0;c<3;++c)tex[c]+=(v>>(8*c))&255;for(auto &t:tex)t/=double(batch.texture->rgba.size());}

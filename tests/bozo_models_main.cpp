@@ -15,11 +15,11 @@ template<class F>void rejects(F f){bool yes=false;try{f();}catch(const std::runt
 constexpr uint32_t object=0x160000,model=0x150000,camera=0x170000,target=0x180000,current=0x190000;
 using Mat=std::array<float,16>;
 const Mat identity{1,0,0,0,0,1,0,0,0,0,1,0,0,0,0,1};
-void fixture(const std::filesystem::path &dir,int algorithm){
+void fixture(const std::filesystem::path &dir,int algorithm,uint32_t mode=2){
     std::filesystem::create_directories(dir);std::ofstream f(dir/"0000004000_001.mesh",std::ios::binary);
     for(uint32_t n:{0x314e5056,1,0x60,4,1,1})write(f,n);
     write(f,std::array<int32_t,4>{algorithm,48,0,0});write(f,uint32_t(1));
-    write(f,std::array<uint32_t,11>{0,0,0,0,2,0,0,0,1,0,1});write(f,uint16_t(4));
+    write(f,std::array<uint32_t,11>{0,0,0,0,mode,0,0,0,1,0,1});write(f,uint16_t(4));
     const float xy[4][2]={{-.5f,-.5f},{.5f,-.5f},{-.5f,.5f},{.5f,.5f}};
     for(unsigned k=0;k<4;++k){write(f,std::array<float,4>{xy[k][0],xy[k][1],.5f,656});write(f,std::array<float,3>{0,0,1});
         write(f,std::array<float,2>{float(k&1),float(k>>1)});write(f,uint32_t(0x80402010));}
@@ -63,7 +63,7 @@ int main(int argc,char **argv){try{
                 put(rt,object+0x630,nonModels[(seed/2)%10]);put(rt,0x1e0034,uint32_t(2));}
             const auto before=std::vector<uint8_t>(rt.memory.flat(),rt.memory.flat()+bozo::kFlatBytes);
             const auto result=models.capture(&rt,assets,textures,scene,object);check(result.batches.size()==1);
-            const auto &batch=result.batches[0];check(batch.vertices.size()==6 && !batch.texture && !batch.material.textured && batch.material.depthWrite);
+            const auto &batch=result.batches[0];check(batch.vertices.size()==6 && !batch.texture && !batch.material.textured && batch.material.directColour && batch.material.depthWrite);
             check(batch.matrix[0]==100 && batch.matrix[5]==100 && batch.matrix[12]==2048 && batch.matrix[13]==2048);
             const unsigned indices[6]={0,1,2,1,3,2};const float extent=morph?.4f:.5f;
             for(unsigned j=0;j<6;++j){const auto k=indices[j];const auto &v=batch.vertices[j];
@@ -89,7 +89,14 @@ int main(int argc,char **argv){try{
                 {const auto lit=models.capture(&rt,assets,textures,scene,object);check(lit.batches.size()==1 && lit.batches[0].vertices[0].rgba==0x402010u);} // alpha cleared above
                 put(rt,object+0x314,uint32_t(1));rejects([&]{models.capture(&rt,assets,textures,scene,object);});put(rt,object+0x314,uint32_t(0));
                 put(rt,object+0x318,uint32_t(2));rejects([&]{models.capture(&rt,assets,textures,scene,object);});put(rt,object+0x318,uint32_t(0));
-                put(rt,object+0x31c,uint32_t(0));}
+                put(rt,object+0x31c,uint32_t(0));
+                // Mode 0 keeps the object colour (row 13) with plain clear and no table A
+                // (VU1 2b68: colour * mem[13], min mem[0]), with plain set, and with table A.
+                if(algorithm==0){fixture(dir/"mode0",0,0);vp2s::NativeModels flat(dir/"mode0");
+                    put(rt,object+0x300,std::array<float,4>{.5f,.25f,1,0});
+                    for(uint32_t plainWord:{0u,1u})for(uint32_t tableWord:{0u,1u}){put(rt,object+0x310,plainWord);put(rt,object+0x31c,tableWord);
+                        const auto lit=flat.capture(&rt,assets,textures,scene,object);check(lit.batches.size()==1 && lit.batches[0].vertices[0].rgba==0x400808u);}
+                    put(rt,object+0x300,std::array<float,4>{1,1,1,0});put(rt,object+0x310,uint32_t(1));put(rt,object+0x31c,uint32_t(0));}}
             put(rt,model+0x59,uint8_t(1));put(rt,model+0x96,uint16_t(1));put(rt,object+0x7a4,uint16_t(1));
             check(models.capture(&rt,assets,textures,scene,object).batches.empty());put(rt,object+0x7a4,uint16_t(0));
             put(rt,current+0x40dc,uint8_t(0));rejects([&]{models.capture(&rt,assets,textures,scene,object);});put(rt,current+0x40dc,uint8_t(1));

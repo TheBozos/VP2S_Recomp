@@ -12,6 +12,37 @@ The earlier VP2S face/shading and general brightness comparisons remain open.
 
 ## Build and evidence
 
+### Inn save-point light column: mode 0 keeps the object colour (2026-11-18)
+
+PCSX2 draws a translucent blue column over the inn's save point; native drew
+nothing visible there. The column is an ordinary model (object `9e1a90`,
+class `1546d0`, model `c6fe10`, generated meshes `c6fe70` and `c70410`):
+untextured Gouraud strips, ALPHA 0x48 (`Cs*As + Cd`), lighting mode 0, no
+light table A, plain flag (`object+310`) clear. Its object colour (row 13) is
+(0.246, 0.249, 0.381, 0.171), which is the dump's vertex colour 3e/3f/61,
+alpha 2b. Native drew it, but black and doubled:
+
+- **Mode 0 colour.** Native, like the old port's `runLighting`, zeroed RGB
+  in mode 0 without table A and with plain clear. The model program says
+  otherwise. In code image 02a71b3e, the no-table-A mode table at `2b10` is
+  `b 2b50` with `ibeq vi2 (plain), vi0 -> 2b68` in its delay slot. With
+  plain clear it runs the `2b68` loop: `ITOF0` of the vertex colour, `MUL` by
+  `mem[13]` (`vf31`), `MINI` by `mem[0]`. So mode 0 now always keeps the
+  object colour. (The plain-set branch returns through `2cf8`, which is not
+  read yet; it keeps its existing behaviour.)
+- **Untextured colour.** The GS draws an untextured vertex colour as it is.
+  The renderer treats vertex colour as 0x80 = 1 unless `directColour` is set,
+  so untextured model meshes were twice as bright. They now set it.
+
+Tests (models suite): a mode-0 copy of the fixture mesh keeps the object
+colour for plain 0/1 and table A 0/1; untextured batches carry
+`directColour`. Route, frame 41950 against PCSX2's OSD-free 41850 shot (mean
+RGB): column base 18/21/16 before, 39/40/46 now, PCSX2 36/38/43; top
+18/19/16 before, 25/26/27 now, PCSX2 22/23/23. Only the column's pixels
+change. A new diagnostic line, `[vp2s:model-empty]` (with
+`VP2S_BOZO_TRACE_MODELS_AT`), names meshes whose triangles are all guarded or
+culled.
+
 ### Inn glow: the game's work size, gains and truncating lerp chain (2026-11-18)
 
 The inn's glow (effect A, +dfbc) was drawn with the harbour's fixed values and
@@ -48,8 +79,7 @@ The rest of the window gap is the passes the GS also truncates (level copy,
 composite) and its sampling positions: a model of the native passes with
 those floors gives 4.2.
 
-Still different from PCSX2 in the inn, not the glow: the blue light column at
-the save-point ornament. (The ceiling looked brighter in PCSX2's 41950 shot
+The blue light column at the save-point ornament is fixed (next entry). (The ceiling looked brighter in PCSX2's 41950 shot
 only because PCSX2's on-screen "saved as" messages cover its top left; the
 OSD-free 41850 shot of the same static view matches native there within
 1..3 levels.)

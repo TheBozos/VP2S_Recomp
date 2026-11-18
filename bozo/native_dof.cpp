@@ -20,29 +20,46 @@ float finite(Runtime *rt,uint32_t at,float low,float high){const auto f=value<fl
 // the EE: g[i] = exp(-1.625 i^2 / r^2) until g < 1.96e-4 (at most 255 taps),
 // normalised by 1 + 2 sum g; taps >= 1/255 kept; neighbours paired into one
 // bilinear fetch at 1 + 2j + g2/(g1+g2) (1/16 px) with integer 128ths, and the
-// pair alphas corrected for the lerps that follow. The draw order is far pair
-// first, negative offset first; each lerp is C += (S(offset) - C) * a/128 over
-// a base copy. Returns the effective symmetric integer-tap kernel.
-std::array<float,17> glowKernel(float r,uint8_t &radius){
+// pair alphas corrected for the lerps that follow. Returns the taps in draw
+// order (far pair first, negative offset first); each is drawn as the GS lerp
+// C += (S(offset) - C) * alpha/128 over a base copy, in 8-bit integers.
+std::vector<NativeGlowTap> glowChain(float r){
     std::array<float,256> g{};g[0]=1;volatile float sum=1;const volatile float k=-1.625f/(r*r);unsigned n=1;
     for(;n<255;++n){volatile float arg=k*float(n*n);const float v=std::exp(float(arg));g[n]=v;sum=sum+2*v;if(v<1.96e-4f)break;}
     unsigned kept=0;for(unsigned i=0;i<=n;++i){volatile float q=g[i]/sum;g[i]=q;if(q<1.f/255)break;++kept;}
     if(kept==n+1)--kept;unsigned pairs=std::min<unsigned>(2*(kept/2),32);
-    struct Tap{int sixteenths;float alpha;};std::vector<std::pair<Tap,Tap>> made;float f=1;int previous=0;
+    std::vector<std::pair<NativeGlowTap,NativeGlowTap>> made;float f=1;int previous=0;
     for(unsigned t=0;t<pairs;t+=2){const int far=int(128*g[t+2]+0.5f),near=int(128*g[t+1]+0.5f),both=far+near;
+        if(!both)throw std::runtime_error("native glow tap pair without weight");
         int a0;if(t==0)a0=both;else{f*=128.f/float(128-previous);a0=int(f*float(both)+0.5f);}
         f*=128.f/float(128-a0);const int a2=int(f*float(both)+0.5f);
-        const int offset=both?16+32*int(t/2)+(far*16)/both:255;made.push_back({{offset,a0/128.f},{-offset,a2/128.f}});previous=a2;}
-    std::array<double,34> w{};w[16]=1;   // index 16 = centre, -16..+17
-    const auto lerp=[&](int sixteenths,float alpha){for(auto &x:w)x*=1-alpha;
-        const int whole=sixteenths>=0?sixteenths/16:-((-sixteenths)/16);const float frac=float(std::abs(sixteenths)%16)/16;
-        const int next=sixteenths>=0?whole+1:whole-1;
-        if(std::abs(whole)>16 || std::abs(next)>16)throw std::runtime_error("native glow tap outside the kernel");
-        w[16+whole]+=alpha*(1-frac);w[16+next]+=alpha*frac;};
-    for(auto it=made.rbegin();it!=made.rend();++it){lerp(it->second.sixteenths,it->second.alpha);lerp(it->first.sixteenths,it->first.alpha);}
-    std::array<float,17> kernel{};radius=0;
-    for(unsigned i=0;i<=16;++i){kernel[i]=float(i?(w[16+i]+w[16-i])/2:w[16]);if(kernel[i]>1e-6f)radius=uint8_t(i);}
-    return kernel;
+        if(a0<0 || a0>128 || a2<0 || a2>128)throw std::runtime_error("native glow tap alpha outside 0..128");
+        const int offset=16+32*int(t/2)+(far*16)/both;made.push_back({{offset,a0},{-offset,a2}});previous=a2;}
+    std::vector<NativeGlowTap> chain;
+    for(auto it=made.rbegin();it!=made.rend();++it){chain.push_back(it->second);chain.push_back(it->first);}
+    return chain;
+}
+// 2d4ca0: strength s = +dfc4. Above 2 it is split into a level-0 factor s/2
+// and a blur gain s/(s/2); the level-0 copy (ALPHA 0x08, Cs*As + Cs) has
+// vertex colour int(64*f + 0.5), so twice that over 128. 2e6360 spreads the
+// blur gain g over the vertical, then the horizontal pass colour: 255 while
+// g/2 > 1 (g halves), 128 at g == 1, else int(128*g + 0.5) and g becomes 1.
+NativeGlowGains glowGains(float strength){
+    PreserveFp arithmetic;NativeGlowGains out;
+    float level=1;volatile float blur=strength;
+    if(!(blur<=2.f)){volatile float half=blur/2.f;level=half;blur=blur/half;}
+    if(!(level<=4.f))throw std::runtime_error("unported native glow multi-pass level gain (2d4dc4)");
+    {volatile float c=64.f*level+0.5f;out.level=2.f*float(std::min(255,int(float(c))))/128.f;}
+    float g=std::max(0.f,float(blur));
+    const auto colour=[](float v){volatile float c=128.f*v+0.5f;return float(std::min(255,int(float(c))))/128.f;};
+    if(g<1.f){out.vertical=colour(g);return out;}
+    for(float *slot:{&out.vertical,&out.horizontal}){
+        volatile float half=0.5f*g;
+        if(!(half<=1.f)){*slot=255.f/128;volatile float next=g*0.5f;g=next;}
+        else if(g==1.f)*slot=1;
+        else{*slot=colour(g);g=1;}
+    }
+    return out;
 }
 void NativeDofs::begin(Runtime *rt,const NativeScene &scene,uint32_t stack,uint32_t object){
     owner(rt,object);if(builds.contains(stack))throw std::runtime_error("DOF builder stack reused");
@@ -181,7 +198,14 @@ void NativeDofs::finish(Runtime *rt,const NativeScene &scene,uint32_t stack,uint
             volatile float radius=finite(rt,object+0xdfc0,0,1000)*float(workWidth)/float(baseWidth);radius=std::min(float(radius),50.f);
             if(!(radius>3))throw std::runtime_error("unported native glow small-radius path (2d5e80)");
             radius=radius*0.4f;
-            effect.glowKernel=glowKernel(radius,effect.glowRadius);
+            effect.glowTaps=glowChain(radius);
+            // 2d6ea0: levels from the fitted work image +13204 x +13200 (the
+            // inn: 128x64 fitted to 90x64), not the 128x89 base.
+            const auto workHeight=value<int32_t>(rt,object+0x13200);
+            if(workWidth>512 || workHeight<=0 || workHeight>512)throw std::runtime_error("unqualified native glow work size");
+            effect.glowWidth=uint32_t(workWidth);effect.glowHeight=uint32_t(workHeight);
+            const auto gains=glowGains(finite(rt,object+0xdfc4,0,100));
+            effect.glowLevelGain=gains.level;effect.glowHorizontal=gains.horizontal;effect.glowVertical=gains.vertical;
         }
         ready[object]=std::move(effect);
     }
@@ -244,19 +268,29 @@ void drawDof(const NativeDof &effect){
             renderer.draw(composite,id,vertices,6);
         }else quad(composite,rgba);
     }
-    if(effect.glowA){
-        // Effect A as the GS dump shows it: the frame copy (image 7, before the
-        // 2x brightness pass) less the threshold, as three levels (full, half,
-        // quarter), each blurred by the game's tap kernel and added at weight/128.
-        const uint32_t width=effect.width,height=effect.height;
-        auto threshold=image(7,5,width,height);threshold.levels.enabled=true;std::fill_n(threshold.levels.low,3,effect.glowThreshold);quad(threshold);
+    static const bool skipGlow=std::getenv("VP2S_BOZO_GLOW_SKIP")!=nullptr;   // diagnostic comparison only
+    if(effect.glowA && !skipGlow){
+        // Effect A as the GS dumps show it: the frame copy (image 7, before the
+        // 2x brightness pass) halved (a 2x2 box, the game's 512 -> 256 strips),
+        // resampled to the base size less the threshold (the threshold is
+        // convex, so the box before it matters), copied into
+        // the work image (level 0, x level gain), halved twice; each level is
+        // blurred along x, then y, by the game's lerp chain (8-bit truncating
+        // steps, colour from 2e6360) and added at weight/128.
+        quad(image(7,4,effect.frame->width/2,effect.frame->height/2));
+        auto threshold=image(4,3,effect.width,effect.height);threshold.levels.enabled=true;std::fill_n(threshold.levels.low,3,effect.glowThreshold);quad(threshold);
+        const uint32_t width=effect.glowWidth,height=effect.glowHeight;
+        auto first=image(3,5,width,height);first.levels.enabled=true;std::fill_n(first.levels.gain,3,effect.glowLevelGain);quad(first);
         quad(image(5,2,width/2,height/2));quad(image(2,1,width/4,height/4));
+        if(effect.glowTaps.size()>32)throw std::runtime_error("native glow chain longer than 32 taps");
+        const auto chain=[&](float colour,std::array<float,2> step){auto p=std::make_shared<Material::ImageProcessing>();
+            p->chainTaps=uint8_t(effect.glowTaps.size());p->chainColour=std::round(colour*128);p->step=step;
+            for(size_t i=0;i<effect.glowTaps.size();++i){p->chainOffset[i]=effect.glowTaps[i].sixteenths/16.f;p->chainAlpha[i]=float(effect.glowTaps[i].alpha);}
+            return p;};
         const uint8_t levels[3]={5,2,1};
         for(unsigned level=0;level<3;++level){const uint32_t w=width>>level,h=height>>level;
-            auto horizontal=std::make_shared<Material::ImageProcessing>();horizontal->radius=effect.glowRadius;horizontal->weights=effect.glowKernel;horizontal->step={1.f/w,0};
-            auto pass=image(levels[level],4,w,h);pass.imageProcessing=horizontal;quad(pass);
-            auto vertical=std::make_shared<Material::ImageProcessing>(*horizontal);vertical->step={0,1.f/h};
-            pass=image(4,3,w,h);pass.imageProcessing=vertical;quad(pass);
+            auto pass=image(levels[level],4,w,h);pass.imageProcessing=chain(effect.glowHorizontal,{1.f/w,0});quad(pass);
+            pass=image(4,3,w,h);pass.imageProcessing=chain(effect.glowVertical,{0,1.f/h});quad(pass);
             auto add=image(3,0,0,0);add.blend=Material::Blend::Additive;add.colourMask=7;add.levels.enabled=true;
             std::fill_n(add.levels.gain,3,effect.glowWeight);quad(add);}
     }

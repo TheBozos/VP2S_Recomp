@@ -71,7 +71,8 @@ class Gs:
                                        alpha=self.r.get(0x42 + ctx, 0), tex0=self.r.get(6 + ctx, 0), test=self.r.get(0x47 + ctx, 0),
                                        fogcol=self.r.get(0x3d, 0), fba=self.r.get(0x4a + ctx, 0), framereg=self.r.get(0x4c + ctx, 0),
                                        zbuf=self.r.get(0x4e + ctx, 0), pabe=self.r.get(0x49, 0), colclamp=self.r.get(0x46, 0),
-                                       tex1=self.r.get(0x14 + ctx, 0), xyoff=self.r.get(0x18 + ctx, 0), dthe=self.r.get(0x45, 0)))
+                                       tex1=self.r.get(0x14 + ctx, 0), xyoff=self.r.get(0x18 + ctx, 0), dthe=self.r.get(0x45, 0),
+                                       clamp=self.r.get(8 + ctx, 0), scissor=self.r.get(0x40 + ctx, 0)))
             if prim_type in (0, 1, 3, 6):
                 self.verts = []
             elif prim_type == 2 or prim_type == 4:

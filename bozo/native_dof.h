@@ -8,12 +8,17 @@ struct NativeDofBlock {
     bool depthLimit=false;
     std::array<float,256> weights{};
 };
+// One lerp of the game's glow blur: offset in 1/16 texels, alpha in 128ths.
+struct NativeGlowTap{int sixteenths=0,alpha=0;};
 struct NativeDof {
     uint32_t object=0,source=0,width=0,height=0;
     float gain=0,depthScale=0;
     // Effect A (post +dfbc, 2d6ea0/2d4ca0): threshold/weight /255 and /128,
-    // and the symmetric kernel of the game's Gaussian lerp-tap chain.
-    bool glowA=false;float glowThreshold=0,glowWeight=0;uint8_t glowRadius=0;std::array<float,17> glowKernel{};
+    // and the taps of the game's Gaussian lerp chain (2e6070).
+    bool glowA=false;float glowThreshold=0,glowWeight=0;std::vector<NativeGlowTap> glowTaps;
+    // 2d6ea0: the levels are the fitted work image (+13204 x +13200), halved;
+    // 2d4ca0/2e6360: gains of the level-0 copy and of the two blur passes.
+    uint32_t glowWidth=0,glowHeight=0;float glowLevelGain=1,glowHorizontal=1,glowVertical=1;
     // Effect B (post +130e0, 2d71e0/2d7a30): per rotation, the four corners of
     // the 445 image in the (work+1) x (rows+1) work image, truncated as the
     // game's xy/uv; threshold /255, rotate-in and rotate-back gains.
@@ -43,6 +48,11 @@ public:
     virtual NativeDofs &nativeDofs()=0;
     virtual void drawNativeDof(const NativeDof &)=0;
 };
+// Effect A's gains from +dfc4 (2d4ca0, 2e6360): level-0 copy, horizontal and vertical blur passes.
+struct NativeGlowGains{float level=1,horizontal=1,vertical=1;};
+NativeGlowGains glowGains(float strength);
+// Effect A's blur taps for radius r (2e6070), in draw order.
+std::vector<NativeGlowTap> glowChain(float r);
 void drawDof(const NativeDof &);
 std::optional<bool> nativeDofInstruction(R5900Context *,Runtime *,uint32_t);
 }

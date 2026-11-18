@@ -124,7 +124,14 @@ public:
     void drawNativeFrameCopy(const vp2s::NativeFrameCopy &copy)override{flushDeferredModels();vp2s::drawFrameCopy(copy);}
     vp2s::NativeDofs dofs;
     vp2s::NativeDofs &nativeDofs()override{return dofs;}
-    void drawNativeDof(const vp2s::NativeDof &effect)override{flushDeferredModels();vp2s::drawDof(effect);}
+    void drawNativeDof(const vp2s::NativeDof &effect)override{
+        flushDeferredModels();
+        static const unsigned long long traceFrom=[]{const char *v=std::getenv("VP2S_BOZO_TRACE_DOF");return v?std::strtoull(v,nullptr,10):~0ull;}();
+        if(native.framesEnded()>=traceFrom)
+            std::fprintf(stderr,"[vp2s:dof] frame=%llu size=%ux%u gain=%g blocks=%zu glowA=%d thr=%g weight=%g taps=%zu work=%ux%u gains=%g/%g/%g glareB=%d thr=%g in=%g out=%g work=%u rows=%u rotations=%zu\n",
+                static_cast<unsigned long long>(native.framesEnded()),effect.width,effect.height,effect.gain,effect.blocks.size(),effect.glowA,effect.glowThreshold*255.f,effect.glowWeight*128.f,
+                effect.glowTaps.size(),effect.glowWidth,effect.glowHeight,effect.glowLevelGain,effect.glowHorizontal,effect.glowVertical,effect.glareB,effect.glareThreshold*255.f,effect.glareIn,effect.glareOut*128.f,effect.glareWork,effect.glareRows,effect.glareCorners.size());
+        vp2s::drawDof(effect);}
     vp2s::NativeFeedbackCopies feedbackCopies;
     vp2s::NativeFeedbackCopies &nativeFeedbackCopies()override{return feedbackCopies;}
     void drawNativeFeedbackCopy(const vp2s::NativeFeedbackCopy &copy)override{flushDeferredModels();vp2s::drawFeedbackCopy(copy);}
@@ -868,6 +875,11 @@ int main(int argc,char **argv) {
             }
 #endif
             throw;
+        }
+        // Diagnostic only: EE RAM at the frame limit too, for state comparisons at a chosen frame.
+        if(const char *ramPath=std::getenv("VP2S_BOZO_END_RAM")){
+            if(FILE *out=std::fopen(ramPath,"wb")){std::fwrite(dispatcher.runtime().memory.flat(),1,0x2000000,out);std::fclose(out);
+                std::fprintf(stderr,"[vp2s:diagnostic] EE RAM at the frame limit written to %s\n",ramPath);}
         }
 #ifdef VP2S_BOZO_CAPTURE
         if(!capturePath.empty())vp2s::captureNativeFrame(capturePath);

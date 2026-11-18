@@ -69,6 +69,23 @@ void run(bozo::ee::Dispatcher &d,R5900Context &c,uint32_t pc){
 }
 }
 int main(){try{
+    {   // Effect A gains (2d4ca0/2e6360), as the inn and harbour GS dumps show them.
+        const auto inn=vp2s::glowGains(3.5f);   // level copy at vertex 0x70, vertical 0xff, horizontal 0x80
+        check(inn.level==2.f*112/128 && inn.vertical==255.f/128 && inn.horizontal==1);
+        const auto one=vp2s::glowGains(1.f);check(one.level==1 && one.vertical==1 && one.horizontal==1);
+        const auto mid=vp2s::glowGains(1.5f);check(mid.level==1 && mid.vertical==192.f/128 && mid.horizontal==1);
+        const auto low=vp2s::glowGains(0.5f);check(low.level==1 && low.vertical==64.f/128 && low.horizontal==1);
+        const auto two=vp2s::glowGains(2.f);check(two.level==1 && two.vertical==255.f/128 && two.horizontal==1);
+        const auto top=vp2s::glowGains(8.f);check(top.level==2.f*255/128 && top.vertical==255.f/128 && top.horizontal==1);
+        rejects([]{vp2s::glowGains(9.f);});
+        // Effect A's blur taps (2e6070) for the inn's radius: the d_41950 dump's horizontal pass draws, after the
+        // base copy, lerps at ST offsets -7, +7, -5.31, +5.31, -3.38, +3.38, -1.44, +1.44 texels with vertex alphas
+        // 07 06 1d 18 2c 21 29 1f.
+        const auto taps=vp2s::glowChain(5.1f);
+        const int sixteenths[8]={-112,112,-85,85,-54,54,-23,23},alphas[8]={7,6,0x1d,0x18,0x2c,0x21,0x29,0x1f};
+        check(taps.size()==8);
+        for(unsigned i=0;i<8 && i<taps.size();++i)check(taps[i].sixteenths==sixteenths[i] && taps[i].alpha==alphas[i]);
+    }
     Host old,now;old.reference=true;bozo::ee::Dispatcher a(old),b(now);
     std::vector<BozoFunctionEntry> af,bf;std::vector<BozoResumeEntry> ar,br;
 #define ADD(to,res,prefix) to.insert(to.end(),prefix##_function_table,prefix##_function_table+prefix##_function_count);res.insert(res.end(),prefix##_resume_table,prefix##_resume_table+prefix##_resume_count)

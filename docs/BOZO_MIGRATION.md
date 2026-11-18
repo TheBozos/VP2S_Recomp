@@ -12,6 +12,45 @@ The earlier VP2S face/shading and general brightness comparisons remain open.
 
 ## Build and evidence
 
+### Inn glow: the game's work size, gains and truncating lerp chain (2026-11-18)
+
+The inn's glow (effect A, +dfbc) was drawn with the harbour's fixed values and
+came out about twice as bright as PCSX2 at the left window. The inn's GS dump
+(d_41950, primitives 15637..15769) and the EE settle each step:
+
+- **Work size** (2d6ea0): the levels are the fitted work image +13204 x +13200
+  (inn 91x64, halved twice), not the 128x89 base.
+- **Gains** (2d4ca0, 2e6360; `glowGains`): +dfc4 = 3.5 gives a level-0 copy at
+  vertex 0x70 doubled by ALPHA (x1.75), the horizontal pass at 0x80 and the
+  vertical at 0xff. Above 4 a multi-pass path (2d4dc4) is rejected.
+- **Downsample**: the frame copy is halved by 512 -> 256 strips (a 2x2 box)
+  before it is resampled to 128x89 and thresholded; the threshold is convex,
+  so the box changes the result.
+- **Blur** (2e6070; `glowChain`): each pass is a base copy and eight lerps
+  `C = floor((S - C) * a / 128) + C` (offsets -7, +7, -5.31, +5.31, -3.38,
+  +3.38, -1.44, +1.44 texels; alphas 07 06 1d 18 2c 21 29 1f). Each step
+  truncates in 8 bits, so no linear kernel reproduces it: a float kernel was
+  the main excess. The engine draws it exactly
+  (`Material::ImageProcessing::chainTaps`, BozoEngine branch
+  `codex/vp2s-glow-lerp-chain`).
+
+Evidence: a test-only replay of the dump's post sprites with GS rules
+(paged memory, region clamp, scissor, integer blend), on native's glow-free
+frame, gives window +24 against PCSX2's +26. With float blending it gives
+twice as much, which is what native did. Tests: `glowGains` and `glowChain`
+against the dump's colours, taps and order (frame-copy CPU suite); the engine's
+GPU test checks the chain against a CPU reference of the same integer steps,
+and four admission guards.
+
+Route, frame 41950 against PCSX2 (mean RGB): left window 100/104/90 before,
+89/95/81 now, PCSX2 81/86/73; glow added over the frame 8.4 before, 5.1 now.
+The rest of the window gap is the passes the GS also truncates (level copy,
+composite) and its sampling positions: a model of the native passes with
+those floors gives 4.2.
+
+Still different from PCSX2 in the inn, not the glow: the ceiling (47 in
+PCSX2, 29 native) and the blue light column at the save-point ornament.
+
 ### Past the street exit: a particle step copy, the trail emitter, a short sine pair (2026-11-17)
 
 The route now continues past the camp menu: RIGHT at 41500 leaves the street

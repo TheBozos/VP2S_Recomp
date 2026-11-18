@@ -12,6 +12,24 @@ The earlier VP2S face/shading and general brightness comparisons remain open.
 
 ## Build and evidence
 
+### Leaving Solde: the town exit prompt's layer (2026-11-18)
+
+The pad script now walks out of the inn (DOWN at 43700), back across the inn
+square, and left to the city's west edge (LEFT at 45200). There the game
+shows an "Exit" prompt, then "Leave Solde? Yes / No". The prompt's UI layer
+(types `15fc60`/`15fc7c`/`15fcf8`) stopped the route. Its entries are the
+pause/camp-menu set except the producer: object `+18` is thunk `3b31b0`, and
+job `+18` is `3afca0`, which calls `FlushCache(0)` (`137460`, a native kernel
+call) and then the base producer `2ec9c0`. The layer check now admits that
+producer pair, with the thunk and both `jal` words checked (the argument is
+`daddu a0, zero, zero`, `0000202d`). Nothing else differs, so no new drawing.
+
+Tests (UI text suite): the exit layer is admitted with the real words, and
+rejected when the call, its argument, the producer or the thunk differ, or
+with half of the producer pair. Route: to 46600 (rc 0), the "Leave Solde?"
+dialog drawn natively. `tools/pad_scripts/bozo_logun_armory.txt` is the
+route's script again (it had stopped at 41650).
+
 ### Inn save-point light column: mode 0 keeps the object colour (2026-11-18)
 
 PCSX2 draws a translucent blue column over the inn's save point; native drew

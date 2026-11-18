@@ -235,6 +235,17 @@ int main(int argc,char **argv){try{
             types(0x1682f0u,0x16830cu,0x168388u);layerAfter.texts.layer(&layerRam,layer);                                                       // a camp menu layer
             put(layerRam,0x1682f0u+0x10,0x2c0071u);rejects([&]{layerAfter.texts.layer(&layerRam,layer);});put(layerRam,0x1682f0u+0x10,0x2c0070u); // another layer entry
             put(layerRam,0x168388u+0x1c,0u);rejects([&]{layerAfter.texts.layer(&layerRam,layer);});put(layerRam,0x168388u+0x1c,0x2ec9a0u);       // another job entry
+            // The town exit prompt 15fc60: the same entries but a producer 3afca0 (object +18
+            // thunk 3b31b0) that calls FlushCache(0) and then the base producer 2ec9c0.
+            entries(0x15fc60u,0x15fc7cu,0x15fcf8u);put(layerRam,0x15fc7cu+0x18,0x3b31b0u);put(layerRam,0x15fcf8u+0x18,0x3afca0u);
+            put(layerRam,0x3b31b0u,0x080ebf28u);put(layerRam,0x3b31b4u,0x2484ffe0u);
+            put(layerRam,0x3afcb0u,0x0c04dd18u);put(layerRam,0x3afcb4u,0x0000202du);put(layerRam,0x3afcb8u,0x0c0bb270u);
+            types(0x15fc60u,0x15fc7cu,0x15fcf8u);layerAfter.texts.layer(&layerRam,layer);
+            for(auto [at,bad]:{std::pair{0x3afcb0u,0x0c04dd1cu},{0x3afcb4u,0x0000282du},{0x3afcb8u,0x0c0bb268u},{0x3b31b0u,0x080ebf2cu}}){
+                uint32_t good;std::memcpy(&good,layerRam.memory.hostPointer(at,4),4);
+                put(layerRam,at,bad);rejects([&]{layerAfter.texts.layer(&layerRam,layer);});put(layerRam,at,good);}                       // another call, argument, producer or thunk
+            put(layerRam,0x15fcf8u+0x18,0x2ec9c0u);rejects([&]{layerAfter.texts.layer(&layerRam,layer);});put(layerRam,0x15fcf8u+0x18,0x3afca0u); // half the pair
+            types(0x166fe0u,0x166ffcu,0x167078u);
         }
         // mod003 layer 165d30: base teardown, own bracketing completion 44a540.
         put(layerRam,0x165d4cu+0x18,0x3b3150u);put(layerRam,0x165dc8u+0x0c,0x3b31c0u);put(layerRam,0x165dc8u+0x14,0x44a540u);put(layerRam,0x165d4cu+0x10,0x2ef0f0u);

@@ -216,11 +216,19 @@ NativeUiLayer NativeUiTexts::layer(Runtime *rt,uint32_t layer)const{
     // not the type addresses, define the layer, so any layer with them is one.
     const auto slots=[&](uint32_t type,std::initializer_list<std::pair<uint32_t,uint32_t>> expected){
         for(const auto &[at,entry]:expected)if(value<uint32_t>(rt,type+at)!=entry)return false;return true;};
+    // The town exit prompt's layer (15fc60/15fc7c/15fcf8, "Exit" at the city's
+    // left edge) has these entries too, except that its producer is 3afca0
+    // (object +18 = thunk 3b31b0): FlushCache(0) (137460, a native kernel call),
+    // then the base producer 2ec9c0. Both jal words are checked.
+    const auto jal=[&](uint32_t at,uint32_t target){return value<uint32_t>(rt,at)==(0x0c000000u|(target>>2));};
+    const bool flushingProducer=value<uint32_t>(rt,objectType+0x18)==0x3b31b0 && value<uint32_t>(rt,jobType+0x18)==0x3afca0 &&
+        thunk(0x3b31b0,0x3afca0,0xffe0) && jal(0x3afcb0,0x137460) && value<uint32_t>(rt,0x3afcb4)==0x0000202du && jal(0x3afcb8,0x2ec9c0);
+    const bool baseProducer=value<uint32_t>(rt,objectType+0x18)==0x3b3150 && value<uint32_t>(rt,jobType+0x18)==0x2ec9c0 && thunk(0x3b3150,0x2ec9c0,0xffe0);
     const bool pause=slots(layerType,{{0xc,0x2c00a0},{0x10,0x2c0070},{0x14,0x2c0040},{0x18,0x2bffe0}}) &&
-        slots(objectType,{{0xc,0x35edd0},{0x14,0x35ee90},{0x1c,0x374990}}) && slots(jobType,{{0x8,0x3748e0},{0x18,0x2ec9c0},{0x1c,0x2ec9a0}}) &&
-        value<uint32_t>(rt,objectType+0x18)==0x3b3150 && value<uint32_t>(rt,objectType+0x10)==0x2ef0f0 &&
+        slots(objectType,{{0xc,0x35edd0},{0x14,0x35ee90},{0x1c,0x374990}}) && slots(jobType,{{0x8,0x3748e0},{0x1c,0x2ec9a0}}) &&
+        (baseProducer || flushingProducer) && value<uint32_t>(rt,objectType+0x10)==0x2ef0f0 &&
         value<uint32_t>(rt,jobType+0x0c)==0x3b31c0 && value<uint32_t>(rt,jobType+0x10)==0x3b31d0 && value<uint32_t>(rt,jobType+0x14)==0x2eca00 &&
-        thunk(0x3b3150,0x2ec9c0,0xffe0) && thunk(0x3b31c0,0x2ec9a0,0xff50) && thunk(0x3b31d0,0x2eca00,0xffe0);
+        thunk(0x3b31c0,0x2ec9a0,0xff50) && thunk(0x3b31d0,0x2eca00,0xffe0);
     if(value<uint32_t>(rt,layer)!=0x152060 || (!base && !story && !field && !message && !event && !bracketed && !pause) ||
        value<uint8_t>(rt,layer+0x83)!=1 || value<uint8_t>(rt,layer+0xca)!=2)
         throw std::runtime_error(std::format("unported native UI layer type/build mode: layer={:x} types={:x}/{:x}/{:x}/{:x} mode83={} modeca={}",

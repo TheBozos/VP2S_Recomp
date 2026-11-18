@@ -115,6 +115,11 @@ def overlay_entries(name,data):
         if hashlib.sha256(span(0x386f60,0x387000)).hexdigest()!='d2fbfa9082025640baebbb8d01fb1416e16d4f88aac0750dd60d011c09654610':
             raise ValueError('USA omitted destructor 386f60 mismatch')
         entries.append(dict(Name='virtual_destructor_00386f60',Start='0x386f60',End='0x387000'))
+        # Omitted leaf lookup (walks the 16-byte records at *(a0+600)+8 for key a1,
+        # -1 ends; returns the record or 0), reached from mod010 4906cc's event code.
+        if hashlib.sha256(span(0x3ed310,0x3ed380)).hexdigest()!='61d87acc1951ab91c033812a0c55336f8fa52e6d0b53446c0033453bf3220899':
+            raise ValueError('USA omitted lookup 3ed310 mismatch')
+        entries.append(dict(Name='record_lookup_003ed310',Start='0x3ed310',End='0x3ed380'))
         # One scalar state machine with a 7-way computed jump (table 48d9c0).
         # The export ended its first fragment at the jump and omitted case 0
         # (443780..443800); expose the whole original function.

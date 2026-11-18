@@ -12,6 +12,43 @@ The earlier VP2S face/shading and general brightness comparisons remain open.
 
 ## Build and evidence
 
+### The Rufus event: small-radius glow, mod010's layer copies, an omitted lookup (2026-11-18)
+
+Three boundaries, in route order, after the event that follows leaving Solde:
+
+**Small-radius glow (`2d5e80`).** `2d6ea0` computes the radius `+13208` =
+`+dfc0` x work width / `+131ac`, capped at 50. Above 3 it is scaled by 0.4 and
+`2d4ca0` draws three levels. Otherwise `2d5e80` draws one level, its blur a
+VU1 job (post `+dfe0`, kick `2e64b0`). The job's taps come from the same
+builder `2e6070` (`glowChain`), and the level is added straight to the frame.
+PCSX2 GS dumps (`build_usa/p2m2/glow_small`, replay `--dump-at`, d_50820):
+- threshold 25 on 128x89;
+- level copy at 0x40, doubled;
+- horizontal lerps at -1 texel (alpha 15) and +1 (alpha 12), colour 0x80;
+- vertical colour 0xff;
+- composite onto the frame at 0x4c.
+
+`glowChain(1)` gives exactly those taps (the pair's far weight rounds to 0).
+The weight differs from the large path: `2d6664` scales `+dfc8` by the DOF
+gain itself (38 x 2 = 76 = 0x4c), not by gain/3. Native trace: threshold 25,
+taps 2, work 128x89, gains 1/1/1.99, weight 76. Test: `glowChain(1)` against
+the dump's taps.
+
+**mod010's UI layer (`1693d0`/`1693ec`/`169468`).** Its entries are copies of
+the pause/prompt layer's helpers (return 3, empty, the colour setter) and of
+its thunks (`495140` -> `2ec9c0`, `495150` -> `2ec9a0`, `495160` -> `2eca00`),
+at mod010 addresses. The layer check now admits those entries by their code:
+the helper's exact words, or a thunk's target and adjustment. Tests: mod010's
+copies admitted; a changed helper word or thunk rejected.
+
+**Omitted lookup `3ed310`.** mod010's event code calls mod003 `3ed310`, a leaf
+that walks the 16-byte records at `*(a0+600)+8` for key `a1` (-1 ends) and
+returns the record or 0. It lies in a gap of the analysis export, so it is now
+its own entry in `overlay_entries` with a byte signature.
+
+Route: past these three. It next stops at mod010's guarded VU0 site `491f44`
+(entry `491f40`).
+
 ### Every module that loads at 0x48ef00 is compiled (2026-11-18)
 
 The event after leaving Solde (Dylan: "The name's Rufus") faulted at frame

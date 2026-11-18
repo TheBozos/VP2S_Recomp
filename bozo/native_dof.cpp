@@ -187,18 +187,26 @@ void NativeDofs::finish(Runtime *rt,const NativeScene &scene,uint32_t stack,uint
         effect.glowA=value<uint8_t>(rt,object+0xdfbc)!=0;
         if(effect.glowA){
             effect.glowThreshold=value<uint8_t>(rt,object+0xdfc9)/255.f;
-            // 2d58c8: weight = +dfc8, scaled by the DOF gain / 3 when +dfb4.
-            unsigned weight=value<uint8_t>(rt,object+0xdfc8);
-            if(value<uint8_t>(rt,object+0xdfb4)){volatile float scaled=float(weight)*(effect.gain/3.f);weight=std::min(255u,unsigned(int(scaled)));}
-            effect.glowWeight=weight/128.f;
             // 2d6ea0: radius = +dfc0 * work width / +131ac, at most 50; above 3
             // it is scaled by 0.4 and blurred by 2d4ca0 (else 2d5e80).
             const auto workWidth=value<int32_t>(rt,object+0x13204),baseWidth=value<int32_t>(rt,object+0x131ac);
             if(workWidth<=0 || baseWidth<=0)throw std::runtime_error("unqualified native glow work width");
             volatile float radius=finite(rt,object+0xdfc0,0,1000)*float(workWidth)/float(baseWidth);radius=std::min(float(radius),50.f);
-            if(!(radius>3))throw std::runtime_error("unported native glow small-radius path (2d5e80)");
-            radius=radius*0.4f;
+            // At most 3 the radius stays as it is and 2d5e80 draws one level (no
+            // halving pyramid), its blur a VU1 job whose taps come from the same
+            // builder 2e6070 (kick 2e64b0), added straight to the frame. Above 3:
+            // radius x 0.4 and 2d4ca0's three levels.
+            if(!(radius>0))throw std::runtime_error("unported native glow without a blur radius");
+            effect.glowSmall=!(radius>3);
+            // Weight +dfc8, scaled when +dfb4: 2d58c8 (three levels) by the DOF gain
+            // (+131e0) / 3; 2d6664 (one level) by the gain itself. Truncated, at most 255.
+            unsigned weight=value<uint8_t>(rt,object+0xdfc8);
+            if(value<uint8_t>(rt,object+0xdfb4)){volatile float scaled=float(weight)*(effect.glowSmall?effect.gain:effect.gain/3.f);
+                weight=std::min(255u,unsigned(int(scaled)));}
+            effect.glowWeight=weight/128.f;
+            if(!effect.glowSmall)radius=radius*0.4f;
             effect.glowTaps=glowChain(radius);
+            if(effect.glowTaps.empty())throw std::runtime_error("unported native glow with no blur taps (2e64b0 skip)");
             // 2d6ea0: levels from the fitted work image +13204 x +13200 (the
             // inn: 128x64 fitted to 90x64), not the 128x89 base.
             const auto workHeight=value<int32_t>(rt,object+0x13200);
@@ -281,14 +289,14 @@ void drawDof(const NativeDof &effect){
         auto threshold=image(4,3,effect.width,effect.height);threshold.levels.enabled=true;std::fill_n(threshold.levels.low,3,effect.glowThreshold);quad(threshold);
         const uint32_t width=effect.glowWidth,height=effect.glowHeight;
         auto first=image(3,5,width,height);first.levels.enabled=true;std::fill_n(first.levels.gain,3,effect.glowLevelGain);quad(first);
-        quad(image(5,2,width/2,height/2));quad(image(2,1,width/4,height/4));
+        if(!effect.glowSmall){quad(image(5,2,width/2,height/2));quad(image(2,1,width/4,height/4));}
         if(effect.glowTaps.size()>32)throw std::runtime_error("native glow chain longer than 32 taps");
         const auto chain=[&](float colour,std::array<float,2> step){auto p=std::make_shared<Material::ImageProcessing>();
             p->chainTaps=uint8_t(effect.glowTaps.size());p->chainColour=std::round(colour*128);p->step=step;
             for(size_t i=0;i<effect.glowTaps.size();++i){p->chainOffset[i]=effect.glowTaps[i].sixteenths/16.f;p->chainAlpha[i]=float(effect.glowTaps[i].alpha);}
             return p;};
         const uint8_t levels[3]={5,2,1};
-        for(unsigned level=0;level<3;++level){const uint32_t w=width>>level,h=height>>level;
+        for(unsigned level=0;level<(effect.glowSmall?1u:3u);++level){const uint32_t w=width>>level,h=height>>level;
             auto pass=image(levels[level],4,w,h);pass.imageProcessing=chain(effect.glowHorizontal,{1.f/w,0});quad(pass);
             pass=image(4,3,w,h);pass.imageProcessing=chain(effect.glowVertical,{0,1.f/h});quad(pass);
             auto add=image(3,0,0,0);add.blend=Material::Blend::Additive;add.colourMask=7;add.levels.enabled=true;

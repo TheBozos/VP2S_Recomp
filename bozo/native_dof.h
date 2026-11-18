@@ -16,6 +16,8 @@ struct NativeDof {
     // Effect A (post +dfbc, 2d6ea0/2d4ca0): threshold/weight /255 and /128,
     // and the taps of the game's Gaussian lerp chain (2e6070).
     bool glowA=false;float glowThreshold=0,glowWeight=0;std::vector<NativeGlowTap> glowTaps;
+    // 2d5e80 (radius at most 3): one level, added straight to the frame.
+    bool glowSmall=false;
     // 2d6ea0: the levels are the fitted work image (+13204 x +13200), halved;
     // 2d4ca0/2e6360: gains of the level-0 copy and of the two blur passes.
     uint32_t glowWidth=0,glowHeight=0;float glowLevelGain=1,glowHorizontal=1,glowVertical=1;

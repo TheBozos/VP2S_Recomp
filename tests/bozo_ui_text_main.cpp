@@ -223,6 +223,12 @@ int main(int argc,char **argv){try{
                 for(auto [at,v]:{std::pair{0xcu,0x2c00a0u},{0x10u,0x2c0070u},{0x14u,0x2c0040u},{0x18u,0x2bffe0u}})put(layerRam,l+at,v);
                 for(auto [at,v]:{std::pair{0xcu,0x35edd0u},{0x14u,0x35ee90u},{0x1cu,0x374990u},{0x18u,0x3b3150u},{0x10u,0x2ef0f0u}})put(layerRam,o+at,v);
                 for(auto [at,v]:{std::pair{0x8u,0x3748e0u},{0x18u,0x2ec9c0u},{0x1cu,0x2ec9a0u},{0xcu,0x3b31c0u},{0x10u,0x3b31d0u},{0x14u,0x2eca00u}})put(layerRam,j+at,v);};
+            // The helpers' code (mod003 35edd0 returns 3, 35ee90/3748e0 empty, 374990 the colour setter).
+            const auto words=[&](uint32_t at,std::initializer_list<uint32_t> w){for(auto x:w){put(layerRam,at,x);at+=4;}};
+            const auto helpers=[&](uint32_t three,uint32_t none,uint32_t colour,uint32_t jobNone){
+                words(three,{0x03e00008u,0x24020003u});words(none,{0x03e00008u,0u});words(jobNone,{0x03e00008u,0u});
+                words(colour,{0x24030001u,0xa0830050u,0xe48c0020u,0x3c033f80u,0xe48d0024u,0xe48e0028u,0x03e00008u,0xac83002cu});};
+            helpers(0x35edd0u,0x35ee90u,0x374990u,0x3748e0u);
             entries(0x166fe0u,0x166ffcu,0x167078u);entries(0x1682f0u,0x16830cu,0x168388u);
             put(layerRam,0x3b31d0u,0x08000000u|(0x2eca00u>>2));put(layerRam,0x3b31d4u,0x2484ffe0u);
             types(0x166fe0u,0x166ffcu,0x167078u);layerAfter.texts.layer(&layerRam,layer);
@@ -245,6 +251,20 @@ int main(int argc,char **argv){try{
                 uint32_t good;std::memcpy(&good,layerRam.memory.hostPointer(at,4),4);
                 put(layerRam,at,bad);rejects([&]{layerAfter.texts.layer(&layerRam,layer);});put(layerRam,at,good);}                       // another call, argument, producer or thunk
             put(layerRam,0x15fcf8u+0x18,0x2ec9c0u);rejects([&]{layerAfter.texts.layer(&layerRam,layer);});put(layerRam,0x15fcf8u+0x18,0x3afca0u); // half the pair
+            // mod010's layer 1693d0: its own copies of the helpers (494c10, 494c60, 494d40, 494c90)
+            // and thunks (495140 -> 2ec9c0, 495150 -> 2ec9a0, 495160 -> 2eca00), admitted by their code.
+            {constexpr uint32_t l=0x1693d0u,o=0x1693ecu,j=0x169468u;
+                for(auto [at,v]:{std::pair{0xcu,0x2c00a0u},{0x10u,0x2c0070u},{0x14u,0x2c0040u},{0x18u,0x2bffe0u}})put(layerRam,l+at,v);
+                for(auto [at,v]:{std::pair{0xcu,0x494c10u},{0x14u,0x494c60u},{0x1cu,0x494d40u},{0x18u,0x495140u},{0x10u,0x2ef0f0u}})put(layerRam,o+at,v);
+                for(auto [at,v]:{std::pair{0x8u,0x494c90u},{0x18u,0x2ec9c0u},{0x1cu,0x2ec9a0u},{0xcu,0x495150u},{0x10u,0x495160u},{0x14u,0x2eca00u}})put(layerRam,j+at,v);
+                helpers(0x494c10u,0x494c60u,0x494d40u,0x494c90u);
+                words(0x495140u,{0x08000000u|(0x2ec9c0u>>2),0x2484ffe0u});words(0x495150u,{0x08000000u|(0x2ec9a0u>>2),0x2484ff50u});
+                words(0x495160u,{0x08000000u|(0x2eca00u>>2),0x2484ffe0u});
+                types(l,o,j);layerAfter.texts.layer(&layerRam,layer);
+                for(auto [at,bad]:{std::pair{0x494c14u,0x24020004u},{0x494d48u,0u},{0x494c94u,0x24020001u},{0x495140u,0x08000000u|(0x2ec9a0u>>2)},{0x495154u,0x2484ffe0u}}){
+                    uint32_t good;std::memcpy(&good,layerRam.memory.hostPointer(at,4),4);
+                    put(layerRam,at,bad);rejects([&]{layerAfter.texts.layer(&layerRam,layer);});put(layerRam,at,good);}                // another helper or thunk
+            }
             types(0x166fe0u,0x166ffcu,0x167078u);
         }
         // mod003 layer 165d30: base teardown, own bracketing completion 44a540.

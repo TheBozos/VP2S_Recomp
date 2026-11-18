@@ -223,12 +223,21 @@ NativeUiLayer NativeUiTexts::layer(Runtime *rt,uint32_t layer)const{
     const auto jal=[&](uint32_t at,uint32_t target){return value<uint32_t>(rt,at)==(0x0c000000u|(target>>2));};
     const bool flushingProducer=value<uint32_t>(rt,objectType+0x18)==0x3b31b0 && value<uint32_t>(rt,jobType+0x18)==0x3afca0 &&
         thunk(0x3b31b0,0x3afca0,0xffe0) && jal(0x3afcb0,0x137460) && value<uint32_t>(rt,0x3afcb4)==0x0000202du && jal(0x3afcb8,0x2ec9c0);
-    const bool baseProducer=value<uint32_t>(rt,objectType+0x18)==0x3b3150 && value<uint32_t>(rt,jobType+0x18)==0x2ec9c0 && thunk(0x3b3150,0x2ec9c0,0xffe0);
+    // Overlays carry their own copies of these entries (mod010's layer 1693d0:
+    // helpers at 494c10.., thunks at 495140..): an entry is admitted by its code,
+    // the helper's exact words or a thunk's target and adjustment, wherever it is.
+    const auto code=[&](uint32_t entry,std::initializer_list<uint32_t> words){uint32_t at=entry;
+        for(auto word:words){if(value<uint32_t>(rt,at)!=word)return false;at+=4;}return true;};
+    const auto returns3=[&](uint32_t at){return code(at,{0x03e00008u,0x24020003u});};
+    const auto empty=[&](uint32_t at){return code(at,{0x03e00008u,0x00000000u});};
+    const auto colourSetter=[&](uint32_t at){return code(at,{0x24030001u,0xa0830050u,0xe48c0020u,0x3c033f80u,0xe48d0024u,0xe48e0028u,0x03e00008u,0xac83002cu});};
+    const auto thunkAt=[&](uint32_t slot,uint32_t target,uint16_t adjust){const auto at=value<uint32_t>(rt,slot);return at>=0x100000 && at<0x2000000 && thunk(at,target,adjust);};
+    const bool baseProducer=thunkAt(objectType+0x18,0x2ec9c0,0xffe0) && value<uint32_t>(rt,jobType+0x18)==0x2ec9c0;
     const bool pause=slots(layerType,{{0xc,0x2c00a0},{0x10,0x2c0070},{0x14,0x2c0040},{0x18,0x2bffe0}}) &&
-        slots(objectType,{{0xc,0x35edd0},{0x14,0x35ee90},{0x1c,0x374990}}) && slots(jobType,{{0x8,0x3748e0},{0x1c,0x2ec9a0}}) &&
-        (baseProducer || flushingProducer) && value<uint32_t>(rt,objectType+0x10)==0x2ef0f0 &&
-        value<uint32_t>(rt,jobType+0x0c)==0x3b31c0 && value<uint32_t>(rt,jobType+0x10)==0x3b31d0 && value<uint32_t>(rt,jobType+0x14)==0x2eca00 &&
-        thunk(0x3b31c0,0x2ec9a0,0xff50) && thunk(0x3b31d0,0x2eca00,0xffe0);
+        returns3(value<uint32_t>(rt,objectType+0xc)) && empty(value<uint32_t>(rt,objectType+0x14)) && colourSetter(value<uint32_t>(rt,objectType+0x1c)) &&
+        empty(value<uint32_t>(rt,jobType+0x8)) && value<uint32_t>(rt,jobType+0x1c)==0x2ec9a0 &&
+        (baseProducer || flushingProducer) && value<uint32_t>(rt,objectType+0x10)==0x2ef0f0 && value<uint32_t>(rt,jobType+0x14)==0x2eca00 &&
+        thunkAt(jobType+0x0c,0x2ec9a0,0xff50) && thunkAt(jobType+0x10,0x2eca00,0xffe0);
     if(value<uint32_t>(rt,layer)!=0x152060 || (!base && !story && !field && !message && !event && !bracketed && !pause) ||
        value<uint8_t>(rt,layer+0x83)!=1 || value<uint8_t>(rt,layer+0xca)!=2)
         throw std::runtime_error(std::format("unported native UI layer type/build mode: layer={:x} types={:x}/{:x}/{:x}/{:x} mode83={} modeca={}",

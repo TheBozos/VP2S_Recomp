@@ -85,6 +85,10 @@ int main(){try{
         const int sixteenths[8]={-112,112,-85,85,-54,54,-23,23},alphas[8]={7,6,0x1d,0x18,0x2c,0x21,0x29,0x1f};
         check(taps.size()==8);
         for(unsigned i=0;i<8 && i<taps.size();++i)check(taps[i].sixteenths==sixteenths[i] && taps[i].alpha==alphas[i]);
+        // A small radius (2d5e80's VU1 job, same builder): the d_50820 dump's pass draws, after the
+        // base copy, a lerp at -1 texel with alpha 15 then +1 with alpha 12 (the far weight rounds to 0).
+        const auto small=vp2s::glowChain(1.f);
+        check(small.size()==2 && small[0].sixteenths==-16 && small[0].alpha==0x15 && small[1].sixteenths==16 && small[1].alpha==0x12);
     }
     Host old,now;old.reference=true;bozo::ee::Dispatcher a(old),b(now);
     std::vector<BozoFunctionEntry> af,bf;std::vector<BozoResumeEntry> ar,br;

@@ -48,8 +48,11 @@ The rest of the window gap is the passes the GS also truncates (level copy,
 composite) and its sampling positions: a model of the native passes with
 those floors gives 4.2.
 
-Still different from PCSX2 in the inn, not the glow: the ceiling (47 in
-PCSX2, 29 native) and the blue light column at the save-point ornament.
+Still different from PCSX2 in the inn, not the glow: the blue light column at
+the save-point ornament. (The ceiling looked brighter in PCSX2's 41950 shot
+only because PCSX2's on-screen "saved as" messages cover its top left; the
+OSD-free 41850 shot of the same static view matches native there within
+1..3 levels.)
 
 ### Past the street exit: a particle step copy, the trail emitter, a short sine pair (2026-11-17)
 

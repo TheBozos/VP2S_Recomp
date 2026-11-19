@@ -325,6 +325,17 @@ NativeUiText nativeNamePlate(const NativeNamePlateInputs &in,std::shared_ptr<con
         s.fixedCorners={std::array<int32_t,2>{x0,y0},{x1,y0},{x0,y1},{x1,y1}};
         s.uv={float(t[0])/texW,float(t[1])/texH,float(t[2])/texW,float(t[3])/texH};out.icons.push_back(std::move(s));};
     const auto X=in.x,Y=in.y,L=in.length;
+    if(in.pathB){
+        // 465b38: rect +140 over [X, X+L] (reversed when mirrored) and rows [Y-4, Y-4+h];
+        // then the cap, rect +150, 0.85*h150 wide (x0.75 with the flag), at the far end over
+        // the same rows. No strips; the tail at 465ee0 is shared with path A.
+        const auto f20=A(X,L);const auto f26=in.mirror?f20:X,far=in.mirror?X:f20;
+        const auto f28=S(Y,k4),f27=A(f28,U(r3[5]));const auto y0=I(M(k16,f28)),y1=I(M(k16,f27));
+        sprite(I(M(k16,f26)),y0,I(M(k16,far)),y1,r3);
+        const auto cap=in.narrowCap?M(k075,M(k085,U(r2[5]))):M(k085,U(r2[5]));
+        sprite(I(M(k16,far)),y0,I(M(k16,in.mirror?S(far,cap):A(far,cap))),y1,r2);
+        if(!in.icon)return out;
+    }else{
     const auto f20=A(X,L);auto f25=S(Y,k4);auto f26=A(k16,f20);const auto f27=A(f25,U(r1[5]));
     const auto row1y0=I(M(k16,f25));
     sprite(I(M(k16,X)),row1y0,I(M(k16,f26)),I(M(k16,f27)),r1);
@@ -346,15 +357,19 @@ NativeUiText nativeNamePlate(const NativeNamePlateInputs &in,std::shared_ptr<con
         const auto a=v(x0,y0),b=v(x1,y0),c=v(x0,y1),d=v(x1,y1);out.alphaTriangles.insert(out.alphaTriangles.end(),{a,b,c,b,d,c});};
     strip(I(A(k2,s27)),I(s2),I(A(k2,s26)),I(A(k2,s2)),0x010101u);
     strip(I(s27),I(s25),I(s26),I(s2),0xf8f8f8u);
+    }
     if(in.icon){
         // x0 = 16+X, x1 = x0 + 0.85*w (w x0.75 with the flag); y0 = ((Y + s0/2) - 0.85*h/2) - 8, y1 = y0 + h.
         const auto &r=in.iconRect;
         const auto iu=D(F::fromInt(1u<<in.iconLog2Width),W(256.f)),iv=D(F::fromInt(1u<<in.iconLog2Height),W(256.f));
         const std::array<int32_t,4> t{I(M(iu,U(r[0]))),I(M(iv,U(r[1]))),I(M(iu,U(r[2]))),I(M(iv,U(r[3])))};
         auto w=U(r[4]);if(in.narrowCap)w=M(w,k075);
-        const auto x0=A(k16,X),x1=A(x0,M(k085,w));
         const auto half=in.textSize>=0?in.textSize>>1:(in.textSize+1)>>1;
-        const auto y0=S(S(A(Y,F::fromInt(uint32_t(half))),D(M(k085,U(r[5])),k2)),W(8.f)),y1=A(y0,U(r[5]));
+        // Mirrored (layer +2ac bit 0, 4660f4): at the far end, x0 = (X+L) - (16 + w), width w (no 0.85),
+        // y0 = (Y + s0/2) - (h >> 1) (integer halving, no -8).
+        const auto x0=in.mirror?S(A(X,L),A(k16,w)):A(k16,X),x1=in.mirror?A(x0,w):A(x0,M(k085,w));
+        const auto y0=in.mirror?S(A(Y,F::fromInt(uint32_t(half))),F::fromInt(uint32_t(r[5]>>1))):S(S(A(Y,F::fromInt(uint32_t(half))),D(M(k085,U(r[5])),k2)),W(8.f));
+        const auto y1=A(y0,U(r[5]));
         const uint32_t alpha=(F::toInt(M(in.alpha,in.alphaScale))&0xff)<<24;
         const float iw=float(1u<<in.iconLog2Width)*16,ih=float(1u<<in.iconLog2Height)*16;
         NativeUiSprite s;s.colour=alpha|0x808080u;s.depth=in.depth;s.picture=std::move(iconPicture);
@@ -546,7 +561,6 @@ std::optional<bool> nativeNamePlateInstruction(R5900Context *c,Runtime *rt,uint3
         return false; // The original builder continues; its packet is never sent.
     }
     if(pc!=0x4653e8 && pc!=0x465b38 && pc!=0x465f08)return std::nullopt;
-    if(pc==0x465b38)throw std::runtime_error("unported native name plate: narrow path 465b38");
     if(pc==0x465f08){
         // The tail is reached exactly when the capture at 4653e8 decided it is.
         auto *dd=rt?dynamic_cast<bozo::ee::Dispatcher *>(rt->services):nullptr;auto *o=dd?dynamic_cast<UiTextOwner *>(&dd->host()):nullptr;
@@ -576,6 +590,9 @@ std::optional<bool> nativeNamePlateInstruction(R5900Context *c,Runtime *rt,uint3
     const uint32_t offsets[3]={0xb0,0x140,0x150};
     for(unsigned k=0;k<3;++k)for(unsigned i=0;i<6;++i)in.rects[k][i]=value<uint16_t>(rt,table+offsets[k]+2*i);
     in.narrowCap=(value<uint8_t>(rt,value<uint32_t>(rt,0x48e04c)+3)>>4)&1;
+    // 4653cc/4653e0: path B when the text size s0 < 29 or layer +2ac bit 0 (mirrored).
+    in.pathB=pc==0x465b38;in.mirror=value<uint8_t>(rt,layer+0x2ac)&1;
+    if(in.pathB!=(c->r[16].sw[0]<29 || in.mirror))throw std::runtime_error("native name plate path differs from its condition");
     const auto context=value<uint32_t>(rt,0x35de60);in.frameWidth=value<int16_t>(rt,context+0x3c6c);in.frameHeight=value<int16_t>(rt,context+0x3c6e);
     if((in.colour&0x00ffffffu)!=0x808080u)throw std::runtime_error("unqualified native name plate colour");
     // The tail's conditions, evaluated as 465ee0 does (nothing changes them in between).
@@ -592,7 +609,6 @@ std::optional<bool> nativeNamePlateInstruction(R5900Context *c,Runtime *rt,uint3
             const auto rect=value<uint32_t>(rt,layer+0x268);record(rt,rect,12);for(unsigned i=0;i<6;++i)in.iconRect[i]=value<uint16_t>(rt,rect+2*i);
             if(!icon || icon->width!=(1u<<in.iconLog2Width) || icon->height!=(1u<<in.iconLog2Height) || ((tex0>>56)&0x1f))
                 throw std::runtime_error("native name plate image has no published uploader entry");
-            if(value<uint8_t>(rt,layer+0x2ac)&1)throw std::runtime_error("unported native name plate: narrow image tail");
             iconPicture=icon->picture(0);
         }
     }

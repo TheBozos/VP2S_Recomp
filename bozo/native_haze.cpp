@@ -60,8 +60,8 @@ NativeHaze nativeHaze(Runtime *rt,const NativeScene &scene,uint32_t object){
     NativeHaze haze;haze.object=object;haze.frame=scene.frameTarget();
     if(!haze.frame)throw std::runtime_error("native haze has no frame");
     const auto width=value<int32_t>(rt,object+0xa8),height=value<int32_t>(rt,object+0xac);
-    if(width<=0 || width%64 || width>2048 || height<=0 || height>2048 || float(width)!=haze.frame->width || float(height)!=haze.frame->height)
-        throw std::runtime_error(std::format("native haze size {}x{} differs from the frame",width,height));
+    if(width<=0 || width%64 || width>2048 || height<=0 || height>2048 || float(width)!=haze.frame->width || !(std::abs(float(height)-haze.frame->height)<1.f))   // the frame height is scaled (512.96)
+        throw std::runtime_error(std::format("native haze size {}x{} differs from the frame {}x{}",width,height,haze.frame->width,haze.frame->height));
     // The packet's depth index assumes a 24-bit Z (0x31) read at shift 5.
     const int depthFormat=value<int16_t>(rt,value<uint32_t>(rt,object+0x94)+0x3c74),shift=value<uint8_t>(rt,object+0x18951);
     if(depthFormat!=0x31 || shift!=5)throw std::runtime_error(std::format("unported native haze depth variant (format {:x}, shift {})",depthFormat,shift));

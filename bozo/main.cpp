@@ -39,6 +39,8 @@
 #include "native_frame_copy.h"
 #include "native_dof.h"
 #include "native_haze.h"
+#include "native_scene_clip.h"
+#include "native_map_panel.h"
 #include "native_feedback.h"
 #include "native_particles.h"
 #include "native_particle_draws.h"
@@ -72,7 +74,7 @@ class StrictHost final : public bozo::ee::Host,public vp2s::TimerOwner,public vp
     public vp2s::AssetOwner,public vp2s::DebugFontOwner,public vp2s::StateSetupOwner,public vp2s::ScreenRectOwner,public vp2s::CaptureFadeOwner,public vp2s::ScreenZoomOwner,public vp2s::UiTextOwner,
     public vp2s::UiSpriteOwner,public vp2s::MediaBufferOwner,public vp2s::ModelOwner,public vp2s::FrameFilterOwner,public vp2s::MusicOwner,
     public vp2s::UiWindowOwner,public vp2s::LoadProgressOwner,public vp2s::MotionOwner,public vp2s::FrameCopyOwner,public vp2s::DofOwner,public vp2s::FeedbackOwner,public vp2s::SquadOwner,
-    public vp2s::ParticleOwner,public vp2s::ParticleUpdateOwner,public vp2s::ParticleDrawOwner,public vp2s::ProceduralOwner,public vp2s::ProceduralDrawOwner,public vp2s::DepthBlurOwner,public vp2s::DepthProbeOwner,public vp2s::HazeOwner {
+    public vp2s::ParticleOwner,public vp2s::ParticleUpdateOwner,public vp2s::ParticleDrawOwner,public vp2s::ProceduralOwner,public vp2s::ProceduralDrawOwner,public vp2s::DepthBlurOwner,public vp2s::DepthProbeOwner,public vp2s::HazeOwner,public vp2s::SceneClipOwner,public vp2s::MapPanelOwner {
 public:
     vp2s::NativeProceduralDraws proceduralDraws;
     vp2s::NativeProceduralDraws &nativeProceduralDraws()override{return proceduralDraws;}
@@ -134,7 +136,14 @@ public:
                 static_cast<unsigned long long>(native.framesEnded()),effect.width,effect.height,effect.gain,effect.blocks.size(),effect.glowA,effect.glowThreshold*255.f,effect.glowWeight*128.f,
                 effect.glowTaps.size(),effect.glowWidth,effect.glowHeight,effect.glowLevelGain,effect.glowHorizontal,effect.glowVertical,effect.glareB,effect.glareThreshold*255.f,effect.glareIn,effect.glareOut*128.f,effect.glareWork,effect.glareRows,effect.glareCorners.size());
         vp2s::drawDof(effect);}
-    void drawNativeHaze(const vp2s::NativeHaze &haze)override{flushDeferredModels();vp2s::drawHaze(haze);}
+    void drawNativeHaze(const vp2s::NativeHaze &haze)override{flushDeferredModels();vp2s::drawHaze(haze);
+        if(std::getenv("VP2S_BOZO_TRACE_QUEUES"))std::fprintf(stderr,"[vp2s:haze] native object=%x vertices=%zu frame=%llu\n",haze.object,haze.vertices.size(),static_cast<unsigned long long>(native.framesEnded()));}
+    void drawNativeMapPanel(const vp2s::NativeMapPanel &panel)override{flushDeferredModels();vp2s::drawMapPanel(panel);}
+    // A scene SCISSOR (class 1597e0) clips every later draw of the frame, as on the GS; earlier deferred models
+    // are drawn first, and the next native frame starts unclipped.
+    void setNativeSceneClip(const vp2s::NativeSceneClip &clip)override{flushDeferredModels();const auto target=scene.frameTarget();
+        const float originX=2048.f-float(target->width/2),originY=2048.f-float(target->height/2);const auto &r=clip.rect;
+        bozo::render::Renderer::instance().setClip(originX+float(r[0]),originY+float(r[1]),originX+float(r[2]+1),originY+float(r[3]+1));}
     vp2s::NativeFeedbackCopies feedbackCopies;
     vp2s::NativeFeedbackCopies &nativeFeedbackCopies()override{return feedbackCopies;}
     void drawNativeFeedbackCopy(const vp2s::NativeFeedbackCopy &copy)override{flushDeferredModels();vp2s::drawFeedbackCopy(copy);}
@@ -370,7 +379,7 @@ public:
     vp2s::NativeScene &nativeScene()override{return scene;}
     vp2s::NativeFramePublisher publisher;
     void beginNativeFrame(const vp2s::NativeFrameTarget &target)override{flushDeferredModels();
-        publisher.next(target);
+        publisher.next(target);bozo::render::Renderer::instance().clearClip();
     }
     void drawNativeBrightness(const vp2s::NativeBrightness &effect)override{flushDeferredModels();
         const auto target=scene.frameTarget();
@@ -630,6 +639,8 @@ bool dispatchNativeInstruction(uint8_t *ram,R5900Context *ctx,Runtime *rt,uint32
     if(auto handled=vp2s::nativeFrameCopyInstruction(ctx,rt,pc))return *handled;
     if(auto handled=vp2s::nativeDofInstruction(ctx,rt,pc))return *handled;
     if(auto handled=vp2s::nativeHazeInstruction(ctx,rt,pc))return *handled;
+    if(auto handled=vp2s::nativeSceneClipInstruction(ctx,rt,pc))return *handled;
+    if(auto handled=vp2s::nativeMapPanelInstruction(ctx,rt,pc))return *handled;
     if(auto handled=vp2s::nativeFeedbackInstruction(ctx,rt,pc))return *handled;
     if(auto handled=vp2s::nativeParticleInstruction(ctx,rt,pc))return *handled;
     if(auto handled=vp2s::nativeUiSpriteInstruction(ctx,rt,pc))return *handled;

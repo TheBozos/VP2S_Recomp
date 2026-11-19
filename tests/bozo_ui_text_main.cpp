@@ -312,6 +312,23 @@ int main(int argc,char **argv){try{
         check(a[0].x==1654 && a[0].y==2227 && a[4].x==1774 && a[4].y==2229 && a[0].rgba==0x80010101u);
         check(a[6].x==1652 && a[6].y==2225 && a[10].x==1772 && a[10].y==2227 && a[6].rgba==0x80f8f8f8u);
         check(plate.lateIcons.empty());
+        // Path B (465b38): X 100, Y 50, L 20 (exact floats), rect +140 h 0x22, rect +150 h 0x22 -> cap
+        // 0.85*34 = 28.9 (x0.75 = 21.675). Rows 16*46 .. 16*80; body [X, X+L], cap after it;
+        // mirrored: body reversed and the cap before X. No strips.
+        {auto b=in;b.pathB=true;b.x=W(100.f);b.y=W(50.f);b.length=W(20.f);
+            for(const bool mirror:{false,true}){b.mirror=mirror;const auto p=vp2s::nativeNamePlate(b,nullptr);
+                check(p.icons.size()==2 && p.alphaTriangles.empty() && p.lateIcons.empty());
+                const auto &body=p.icons[0],&cap=p.icons[1];
+                check(body.fixedCorners[0][1]==736 && body.fixedCorners[3][1]==1280 && cap.fixedCorners[0][1]==736 && cap.fixedCorners[3][1]==1280);
+                const int32_t near=mirror?1920:1600,far=mirror?1600:1920,capEnd=mirror?int32_t(16*(100-21.675f)):int32_t(16*(120+21.675f));
+                check(body.fixedCorners[0][0]==near && body.fixedCorners[3][0]==far && cap.fixedCorners[0][0]==far && std::abs(cap.fixedCorners[3][0]-capEnd)<=1);
+                check(body.uv[0]==float(0x0008)/4096.f && body.uv[3]==float(0x0fc8)/4096.f && cap.uv[0]==float(0x0e98)/4096.f);}
+            // Mirrored tail: w 32 x0.75 = 24, h 32, s0 20: x (120 - 40) .. 104, y (50 + 10 - 16) .. +32.
+            b.mirror=true;b.icon=true;b.textSize=20;b.alpha=W(128.f);b.alphaScale=W(1.f);b.iconRect={0x0008,0x0008,0x0208,0x0208,32,32};
+            b.iconLog2Width=7;b.iconLog2Height=7;const auto t=vp2s::nativeNamePlate(b,nullptr,nullptr);
+            check(t.icons.size()==2 && t.lateIcons.size()==1);const auto &s=t.lateIcons[0];
+            check(s.fixedCorners[0][0]==16*80 && s.fixedCorners[3][0]==16*104 && s.fixedCorners[0][1]==16*44 && s.fixedCorners[3][1]==16*76);
+        }
         // The uploader-image tail: 16+X .. +0.85*w (x0.75 with the flag), y from Y + s0/2 - 0.85*h/2 - 8, height h.
         {auto tail=in;tail.icon=true;tail.textSize=41;tail.alpha=W(128.f);tail.alphaScale=W(0.5f);
             tail.iconRect={0x0008,0x0008,0x0208,0x0208,32,32};tail.iconLog2Width=7;tail.iconLog2Height=7;

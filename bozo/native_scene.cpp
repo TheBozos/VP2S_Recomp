@@ -162,10 +162,18 @@ bool nativeSceneInstruction(uint8_t *,R5900Context *c,Runtime *rt,uint32_t pc){
         record(rt,c->r[4].uw[0],0x40e0);return true;
     }
     const bool frustumSite=(!(pc&3) && pc>=0x207cc8 && pc<=0x207d64) || pc==0x207d6c;
-    if(pc!=0x208a94 && pc!=0x2088f0 && !frustumSite)return false;
+    if(pc!=0x208a94 && pc!=0x2088f0 && pc!=0x2085c4 && !frustumSite)return false;
     auto *dispatcher=rt?dynamic_cast<bozo::ee::Dispatcher *>(rt->services):nullptr;
     auto *owner=dispatcher?dynamic_cast<SceneOwner *>(&dispatcher->host()):nullptr;
     if(!owner || !c)throw std::runtime_error("native camera publication requires a scene owner");
+    if(pc==0x2085c4){
+        // 2085a0 copies the clear colour (+5a0) into the job's record and queues the
+        // same camera job again: the native camera is published again instead.
+        const auto camera=c->r[4].uw[0];
+        if(c->pc!=0x2085a0 || !camera || c->r[5].uw[0]!=word(rt,camera+0x8e0))throw std::runtime_error("native camera resubmission requires its complete owner");
+        owner->nativeScene().publishCamera(rt,camera);
+        c->r[4].sd[0]=static_cast<int32_t>(word(rt,0x35dde0));return true; // Retain the original scalar delay-slot load.
+    }
     if(pc==0x2088f0){
         const auto camera=c->r[4].uw[0];
         if(c->pc!=0x2088d0 || !camera || c->r[5].uw[0]!=camera+0x220)throw std::runtime_error("native camera draw producer requires its complete owner");

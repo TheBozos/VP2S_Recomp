@@ -254,7 +254,7 @@ class KernelGuardTests(unittest.TestCase):
         words={0x3d7718:0x3c011000,0x3d771c:0x8c360000,0x3d7740:0x3c011000,0x3d7744:0x8c220000,
                0x3d7748:0x00561023,0x3d774c:0x2c41003f,0x3d7750:0x10200005,0x3d7760:0x1000fff7}
         self.assertEqual(overlay_adaptations('mod003',data),'003d9238 ac220010 00000000\n00420ed8 0c04343c 00000000\n00420ee0 3c010001 10000013\n00420ee4 24060002 00000000\n003d95b0 ac200000 00000000\n003d5694 0c04896e 00000000\n003d5794 0c048afe 00000000\n003d57a0 0c04896e 00000000\n'+''.join(f'{pc:08x} {word:08x} 00000000\n' for pc,word in words.items())+
-            '003d3648 dfbf0000 0c0f4d38\n003d364c 03e00008 00000000\n003d3650 27bd0010 dfbf0000\n003d3654 00000000 03e00008\n003d3658 00000000 27bd0010\n00447d5c 0c044c70 0c111e78\n00447a44 0c044c70 0c111e78\n00443234 0c044c70 0c110c64\n0045e310 0c044c70 00000000\n0045e9f0 0c044c70 00000000\n0045ea10 0c044c70 00000000\n0045e590 0c0bbce4 0c087268\n003d2d78 3c010036 100000a9\n003d27b8 8e0509c4 10000121\n003d2600 0c044c70 0c087268\n003d2604 0007393e 2664ff70\n')
+            '003d3648 dfbf0000 0c0f4d38\n003d364c 03e00008 00000000\n003d3650 27bd0010 dfbf0000\n003d3654 00000000 03e00008\n003d3658 00000000 27bd0010\n00447d5c 0c044c70 0c111e78\n00447a44 0c044c70 0c111e78\n00443234 0c044c70 0c110c64\n0045e310 0c044c70 00000000\n0045e9f0 0c044c70 00000000\n0045ea10 0c044c70 00000000\n0045e590 0c0bbce4 0c087268\n003d2d78 3c010036 100000a9\n003d27b8 8e0509c4 10000121\n003d2600 0c044c70 0c087268\n003d2604 0007393e 2664ff70\n004541b4 0c0807c8 0c11505c\n')
         _,segments,_=elf_parts(data);lo,hi=0x3d7708,0x3d77cc
         s=next(s for s in segments if s[0]==1 and s[2]<=lo<hi<=s[2]+s[4])
         for pc in range(lo,hi,4):
@@ -326,7 +326,7 @@ class KernelGuardTests(unittest.TestCase):
 
     def test_field_debug_font_owner(self):
         data=(IMAGE.parent/'mod003.elf').read_bytes();_,segments,_=elf_parts(data)
-        self.assertEqual(overlay_native_sites('mod003',data),'native 0x374c04\nnative 0x374c10\nnative 0x40b040\nnative 0x3d93f4\nnative 0x3d38d4\nnative 0x3d363c\nnative 0x3d364c\nnative 0x3d49b0\nnative 0x447af0\nnative 0x447b84\nnative 0x447d60\nnative 0x447a48\nnative 0x447f50\nnative 0x443238\nnative 0x45e870\nnative 0x45ea18\nnative 0x45e594\nnative 0x460050\nnative 0x460f24\nnative 0x462a60\nnative 0x47a1c0\nnative 0x4653e8\nnative 0x465b38\nnative 0x465f08\nnative 0x449790\nnative 0x448d70\nnative 0x4516f0\nnative 0x451b64\nnative 0x3d2d7c\nnative 0x3d2630\nnative 0x3d2698\nnative 0x3d2520\n'+''.join(f'native 0x{pc:x}\n' for pc in (0x3e5ca4,0x3e5ca8,0x3e5cac,0x3e5cb4,0x3e5cb8,0x3e5cc0,*range(0x3e7edc,0x3e7f38,4),*range(0x3e7fa0,0x3e7ffc,4))))
+        self.assertEqual(overlay_native_sites('mod003',data),'native 0x374c04\nnative 0x374c10\nnative 0x40b040\nnative 0x3d93f4\nnative 0x3d38d4\nnative 0x3d363c\nnative 0x3d364c\nnative 0x3d49b0\nnative 0x447af0\nnative 0x447b84\nnative 0x447d60\nnative 0x447a48\nnative 0x447f50\nnative 0x443238\nnative 0x45e870\nnative 0x45ea18\nnative 0x45e594\nnative 0x460050\nnative 0x460f24\nnative 0x462a60\nnative 0x47a1c0\nnative 0x4653e8\nnative 0x465b38\nnative 0x465f08\nnative 0x449790\nnative 0x448d70\nnative 0x4516f0\nnative 0x451b64\nnative 0x3d2d7c\nnative 0x3d2630\nnative 0x3d2698\nnative 0x3d2520\nnative 0x4541b8\n'+''.join(f'native 0x{pc:x}\n' for pc in (0x3e5ca4,0x3e5ca8,0x3e5cac,0x3e5cb4,0x3e5cb8,0x3e5cc0,*range(0x3e7edc,0x3e7f38,4),*range(0x3e7fa0,0x3e7ffc,4))))
         lo,hi=0x3d93dc,0x3d9400;s=next(s for s in segments if s[0]==1 and s[2]<=lo<hi<=s[2]+s[4])
         for pc in range(lo,hi,4):
             changed=bytearray(data);changed[s[1]+pc-s[2]]^=1
@@ -560,6 +560,7 @@ class KernelGuardTests(unittest.TestCase):
             '00205a9c 0c0807c8 0c081698',
             '0022f15c 0c0807c8 0c08bc48',
             '002e0b8c 0c0807c8 0c0b82d4',  # haze enqueue enters its completion 2e0b50
+            '002b5b4c 0c0807c8 0c0ad6c4',  # scene scissor enqueue enters its completion 2b5b10
             '00247698 0c0807c8 0c091d8c',
             '0022ee50 1a600009 10000009',
             '0022f048 1a600009 10000009',
@@ -578,6 +579,7 @@ class KernelGuardTests(unittest.TestCase):
             '002bef34 4080c000 00000000','002bef38 4080c004 00000000',
             '002bef3c 4080c005 00000000','002bef40 4080c006 00000000','002bef44 4080c007 00000000',
             '00208a90 0c0807c8 00000000',
+            '002085c0 0c0807c8 00000000',  # camera job resubmission publishes natively
             '0029cd7c 00a0302d 0220202d','0029cd80 0c044c70 0c0402cc',
             '0029cf14 00a0302d 0260202d','0029cf18 0c044c70 0c0402cc',
             '0029cc00 00a0302d 0220202d','0029cc04 0c044c70 0c0402cc',
@@ -602,6 +604,7 @@ class KernelGuardTests(unittest.TestCase):
         0x247700,0x247a90,0x247ac0,0x24769c,
         0x2dbde0,0x2dbeb4,0x2dc6c8,0x2dbdd0,0x2dc700,
         0x2d9360,0x2cd020,0x2d18a0,0x2da980,0x2d9350,0x2da9b0,
+        0x2e0b90,0x2b5b50,0x2085c4,
         0x205ab0,0x206808,0x205aa0,0x206830,
         *range(0x252ec8,0x252f24,4),0x252fdc,0x252fe0,0x252fe4,0x252fec,0x252ff0,0x252ff8,
         0x2bf040,0x2bf058,

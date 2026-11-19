@@ -12,6 +12,64 @@ The earlier VP2S face/shading and general brightness comparisons remain open.
 
 ## Build and evidence
 
+### Lost Forest: scissor, camera job, map panel, short name plate (2026-11-19)
+
+**Correction to the haze commit (089d69c).** Its call patch `2e0b8c` was not
+paired with a mod001 native site. An ordinary EE instruction such as the delay
+slot `2e0b90` reaches the native dispatcher only when its pc is in the
+module's native-site list; the VU0 sites dispatch on their own. So the original
+`lw a0` ran, and the completion `2e0b50` received the queue pointer instead of
+the object, while no haze was drawn. Natively there was also a frame-size
+mismatch: the frame target's height is scaled (512.96), so the check now
+allows less than one pixel. With `0x2e0b90`, `0x2b5b50` and `0x2085c4` in the
+mod001 list (the kernel test pins it), the haze draws every forest frame
+(5702 draws to 60000) and the forest shows PCSX2's red veil.
+
+**Scene scissor, class `1597e0`.** Builder `2b5b60`. Its packet is only a
+SCISSOR write: x0 = `+a4`, x1 = `+ac`, y0 = `+a8`, y1 = `+b0`; in the forest
+24..179 x 24..139, the minimap. A source object (`+94`) instead takes the
+rectangle from `112960`, which is not ported. In PCSX2 that scissor stays set
+to the end of the frame. Natively:
+- the enqueue `2b5b30` becomes the completion `2b5b10` (patch `2b5b4c`);
+- site `2b5b50` flushes deferred models, then sets the renderer clip;
+- the next native frame starts unclipped (`beginNativeFrame`).
+
+**Camera job resubmission, `2085a0`.** It copies the clear colour into the
+camera job's record and queues job `153140` again (`2085c0`). The main enqueue
+`208a90` was already retired. This one is retired too, and `2085c4` publishes
+the native camera again.
+
+**Field map panel, mod003 class `167200`.** Builder `4541d0`: the minimap's
+backdrop, all screen-space prims, ALPHA_2 0x44, Z `fd67eb`:
+- opacity `+b0`: the panel alpha is (uint)opacity, the border alpha
+  (uint)(0.75 * opacity); zero draws nothing;
+- rectangle 24..180 x 24..140 plus `+94`/`+98`. With `(+a4)->+1683` bit 2 it
+  grows by `+b4`: 24-24t, 180+332t, 140+373.96t, truncated;
+- a gradient strip from (b7,81,4d) at the top to (7a,54,26) at the bottom;
+- four 2-pixel border strips in (28,10,10).
+The enqueue `454190` becomes the completion `454170` (patch `4541b4`), with
+mod003 native site `4541b8`. The test reproduces the PCSX2 forest prims
+exactly (opacity 89.5).
+
+**Name plate path B, `465b38`.** Taken when the text size is under 29 or layer
+`+2ac` bit 0 is set (mirrored). It draws two sprites and no strips:
+- rect `+140` over [X, X+L] (reversed when mirrored), rows Y-4 .. Y-4+h140;
+- the cap, rect `+150`, 0.85·h150 wide (x0.75 with the flag; path B reads the
+  height field, path A the width), at the far end.
+The mirrored image tail (`4660f4`) puts the image at x0 = (X+L) - (16+w) with
+width w (no 0.85), and y0 = (Y + s0/2) - (h >> 1).
+
+Tests:
+- scene effects: scissor rect and 7 rejections; a synthetic haze object end to
+  end (192 vertices, the 64-entry table, 12 rejections); the map panel and its
+  growth (6 rejections);
+- UI text: path B plain and mirrored, and the mirrored tail;
+- all 91 suites pass.
+
+Route: from `forest_54270` it reaches 60000 with no boundary. The minimap's
+content is still wrong: a flat orange block where PCSX2 shows the map and the
+"E" marker. That draw is not identified yet.
+
 ### Lost Forest haze, native (2026-11-19)
 
 Object `5ba2c0` (class `15a020`) is the forest's atmospheric haze. PCSX2 shows

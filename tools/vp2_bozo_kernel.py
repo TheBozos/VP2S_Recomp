@@ -453,7 +453,9 @@ def overlay_adaptations(name,data):
                                (0x3d3660,0x3d44e4,'c7d0d58342fcb2eb8e696c6afc145c73ad44f487a94acf685078c1d7a5eec94a'),
                                (0x3d49b0,0x3d4af0,'3ee241a66da54d7847e111212bc57e162a559141b1093ace33ce0a314948ed10'),
                                (0x4479e0,0x447f50,'3dff331f2b436cc1b41965930174f4b18a70a204e69488ae0263232a22827f3b'),
-                               (0x447f50,0x4480a8,'fd4a4ee0d65621b54a09bfe7315461f498a1b0de0167ad1450531b0c967d4093')):
+                               (0x447f50,0x4480a8,'fd4a4ee0d65621b54a09bfe7315461f498a1b0de0167ad1450531b0c967d4093'),
+                               # Field map panel 167200: kick 454120, completion 454170, enqueue 454190, builder 4541d0.
+                               (0x454120,0x454720,'91965f0ed898e219fe95a29489500fe387ffd3802580df2ce18a515032cdf210')):
             s=next(s for s in segments if s[0]==1 and s[2]<=lo<hi<=s[2]+s[4]);at=s[1]+lo-s[2]
             if hashlib.sha256(data[at:at+hi-lo]).hexdigest()!=expected:raise ValueError('USA native field initialization source mismatch')
         # Each initializer has returned before this delay. It polls only timer0,
@@ -518,7 +520,10 @@ def overlay_adaptations(name,data):
                 '003d2d78 3c010036 100000a9\n'
                 '003d27b8 8e0509c4 10000121\n'
                 '003d2600 0c044c70 0c087268\n'
-                '003d2604 0007393e 2664ff70\n')
+                '003d2604 0007393e 2664ff70\n'
+                # Field map panel 167200: its enqueue enters the completion 454170;
+                # 4541b8 (delay slot) draws the gradient panel and border natively.
+                '004541b4 0c0807c8 0c11505c\n')
     if name=='mod002':
         _,segments,_=elf_parts(data);lo,hi=0x3617f0,0x362764
         s=next(s for s in segments if s[0]==1 and s[2]<=lo<hi<=s[2]+s[4]);at=s[1]+lo-s[2]
@@ -684,6 +689,11 @@ def overlay_adaptations(name,data):
         (0x2e1a7c,0x2e31fc,'0f3cd67db8bf217d8d72ee023e7712e76c19cf65cffe76ce2bcf1e78c1b59c08'),
         (0x2e0b50,0x2e0b6c,'e6e81f90b768228012c77b0ff794a4068ceb0187abc59dc45364159a238dd8ae'),
         (0x2e0b70,0x2e0ba0,'d75aad57b1cf26127f35bdf8a0eec8259d79c6b1cb8cbbabe269467dac4546ef'),
+        (0x2085a0,0x2085d4,'0fbb487f47527fcdb7a6bdd89e6ba09dfd6054d4c1cc0f58ef185eb482a365e6'),
+        # Scene scissor 1597e0: completion 2b5b10, enqueue 2b5b30, builder 2b5b60.
+        (0x2b5b10,0x2b5b2c,'e6e81f90b768228012c77b0ff794a4068ceb0187abc59dc45364159a238dd8ae'),
+        (0x2b5b30,0x2b5b60,'d75aad57b1cf26127f35bdf8a0eec8259d79c6b1cb8cbbabe269467dac4546ef'),
+        (0x2b5b60,0x2b5ca0,'041e313b9171651020d8e1e61b05b0c3a83bfe888f564ad7e687cc3f69343480'),
         (0x2d9360,0x2da9a8,'41fef5550eda7e9b62d9c20827b3e5e86c3b82b7f4c0061f80ddb90612845297'),
         (0x2cd020,0x2d18d4,'618be48d56debcac8ef3fd9d80ae23483f060a7939fc8d450772d444e91e7d61'),
         (0x2d9310,0x2d932c,'e6e81f90b768228012c77b0ff794a4068ceb0187abc59dc45364159a238dd8ae'),
@@ -917,6 +927,8 @@ def overlay_adaptations(name,data):
             '0022f15c 0c0807c8 0c08bc48\n'
             # Lost Forest haze: drawn natively at 2e0b90, then its real completion.
             '002e0b8c 0c0807c8 0c0b82d4\n'
+            # Scene scissor: set natively at 2b5b50, then its real completion.
+            '002b5b4c 0c0807c8 0c0ad6c4\n'
             '00247698 0c0807c8 0c091d8c\n'
             # Explicit particle records are already published synchronously.
             # Remove both device polls, without fabricating completion bits.
@@ -963,6 +975,9 @@ def overlay_adaptations(name,data):
             '002bef40 4080c006 00000000\n'
             '002bef44 4080c007 00000000\n'
             '00208a90 0c0807c8 00000000\n'
+            # Camera job resubmission 2085a0 (clear colour): the native camera is
+            # published again at 2085c4; no job is queued.
+            '002085c0 0c0807c8 00000000\n'
             # Publish the immutable offline asset at its CPU producer, then
             # free the unused descriptor through the original game heap call.
             # Do not submit a DMA job or fabricate its completion.
@@ -984,7 +999,7 @@ def overlay_native_sites(name,data):
         _,segments,_=elf_parts(data);lo,hi=0x374be0,0x375240
         s=next(s for s in segments if s[0]==1 and s[2]<=lo<hi<=s[2]+s[4]);at=s[1]+lo-s[2]
         if hashlib.sha256(data[at:at+hi-lo]).hexdigest()!='b993fd5a68cebb93c65d37fb69ebe90cba67c410408b0f9530e30a4dfd9a470e':raise ValueError('USA screen zoom overlay source mismatch')
-        return 'native 0x374c04\nnative 0x374c10\nnative 0x40b040\nnative 0x3d93f4\nnative 0x3d38d4\nnative 0x3d363c\nnative 0x3d364c\nnative 0x3d49b0\nnative 0x447af0\nnative 0x447b84\nnative 0x447d60\nnative 0x447a48\nnative 0x447f50\nnative 0x443238\nnative 0x45e870\nnative 0x45ea18\nnative 0x45e594\nnative 0x460050\nnative 0x460f24\nnative 0x462a60\nnative 0x47a1c0\nnative 0x4653e8\nnative 0x465b38\nnative 0x465f08\nnative 0x449790\nnative 0x448d70\nnative 0x4516f0\nnative 0x451b64\nnative 0x3d2d7c\nnative 0x3d2630\nnative 0x3d2698\nnative 0x3d2520\n'+''.join(f'native 0x{pc:x}\n' for pc in (0x3e5ca4,0x3e5ca8,0x3e5cac,0x3e5cb4,0x3e5cb8,0x3e5cc0,*range(0x3e7edc,0x3e7f38,4),*range(0x3e7fa0,0x3e7ffc,4)))
+        return 'native 0x374c04\nnative 0x374c10\nnative 0x40b040\nnative 0x3d93f4\nnative 0x3d38d4\nnative 0x3d363c\nnative 0x3d364c\nnative 0x3d49b0\nnative 0x447af0\nnative 0x447b84\nnative 0x447d60\nnative 0x447a48\nnative 0x447f50\nnative 0x443238\nnative 0x45e870\nnative 0x45ea18\nnative 0x45e594\nnative 0x460050\nnative 0x460f24\nnative 0x462a60\nnative 0x47a1c0\nnative 0x4653e8\nnative 0x465b38\nnative 0x465f08\nnative 0x449790\nnative 0x448d70\nnative 0x4516f0\nnative 0x451b64\nnative 0x3d2d7c\nnative 0x3d2630\nnative 0x3d2698\nnative 0x3d2520\nnative 0x4541b8\n'+''.join(f'native 0x{pc:x}\n' for pc in (0x3e5ca4,0x3e5ca8,0x3e5cac,0x3e5cb4,0x3e5cb8,0x3e5cc0,*range(0x3e7edc,0x3e7f38,4),*range(0x3e7fa0,0x3e7ffc,4)))
     if name=='mod002':
         _,segments,_=elf_parts(data);lo,hi=0x3622e8,0x362338
         s=next(s for s in segments if s[0]==1 and s[2]<=lo<hi<=s[2]+s[4]);at=s[1]+lo-s[2]
@@ -1019,6 +1034,8 @@ def overlay_native_sites(name,data):
         0x247700,0x247a90,0x247ac0,0x24769c,
         0x2dbde0,0x2dbeb4,0x2dc6c8,0x2dbdd0,0x2dc700,
         0x2d9360,0x2cd020,0x2d18a0,0x2da980,0x2d9350,0x2da9b0,
+        # Lost Forest haze enqueue 2e0b90, scene scissor 2b5b50, camera job resubmission 2085c4.
+        0x2e0b90,0x2b5b50,0x2085c4,
         0x205ab0,0x206808,0x205aa0,0x206830,
         *range(0x252ec8,0x252f24,4),0x252fdc,0x252fe0,0x252fe4,0x252fec,0x252ff0,0x252ff8,
         0x2bf040,0x2bf058,

@@ -114,6 +114,8 @@ struct NativeNamePlateInputs {
     std::array<std::array<uint16_t,6>,3> rects{};   // +b0, +140, +150
     unsigned log2Width=8,log2Height=8;
     bool narrowCap=false;
+    // Path B (465b38): short plates (int(512*size/640) < 29) or mirrored ones (layer +2ac bit 0).
+    bool pathB=false,mirror=false;
     // Tail (465f08..4662f8, path A): the event texture uploader's image. Drawn when
     // layer +270 is set and the uploader (+26c) reports its upload done.
     bool icon=false;

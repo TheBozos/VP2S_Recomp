@@ -153,7 +153,9 @@ void NativeModels::publishGeneratedMesh(Runtime *rt,const std::vector<std::pair<
     if(material){
         const auto rows=lane(0x6c0f8007u,16);const auto row=[&](unsigned r,unsigned c){return value<uint32_t>(rt,rows+16*(r-7)+4*c);};
         const auto alpha=row(8,0),mode=row(8,1),tex=row(9,1),prim=(row(13,1)>>15)&0x7ff,cull=row(15,0);
-        m->hasMaterial=true;m->material={uint32_t(bool(prim&64)),uint32_t(bool(prim&16)),uint32_t(bool(tex&4)),(tex>>3)&3,mode,uint32_t(cull==0),uint32_t(bool(prim&32)),
+        m->hasMaterial=true;// material[6]: bit 0 PRIM.FGE; bits 1 / 2 a LINE STRIP / LINE primitive (PRIM & 7 = 2 / 1), drawn as segments.
+        m->material={uint32_t(bool(prim&64)),uint32_t(bool(prim&16)),uint32_t(bool(tex&4)),(tex>>3)&3,mode,uint32_t(cull==0),
+            uint32_t(bool(prim&32))|((prim&7)==2?2u:0u)|((prim&7)==1?4u:0u),
             alpha&3,(alpha>>2)&3,(alpha>>4)&3,(alpha>>6)&3};
         const auto &x=m->material;
         if(x[4]>3 || x[7]>2 || x[8]>2 || x[9]>2 || x[10]>2)throw std::runtime_error("invalid generated native material");
@@ -290,12 +292,16 @@ NativeModelSubmission NativeModels::capture(Runtime *rt,NativeAssets &assets,Nat
     const auto world=value<Mat>(rt,object+0x90);for(auto f:world)finite(f);
     const auto viewObject=product(camera->view,world),screen=product(camera->screen,viewObject),guard=product(camera->guard,viewObject);
     NativeModelSubmission out{object,camera->object};out.shadow=shadowClass;out.deferUntil=deferUntil;
-    Mat matrix{};const float width=2*(camera->centre[0]-camera->viewport[0]),height=2*(camera->centre[1]-camera->viewport[1]);
+    // The camera draws into the frame whose GS origin is its viewport (+260): the frame is
+    // 2*(2048 - origin) wide, scaled to the native target about the frame centre 2048.
+    // An off-centre camera (the forest minimap: centre 1894,1907) keeps its own centre
+    // inside that frame; its centre is not the frame's.
+    Mat matrix{};const float width=2*(2048.f-camera->viewport[0]),height=2*(2048.f-camera->viewport[1]);
     for(const auto &m:{camera->view,camera->screen,camera->guard,viewObject,screen,guard})for(auto f:m)finite(f);
     finite(width);finite(height);
     if(width<=16 || height<=16 || width>=4096 || height>=4096)throw std::runtime_error("native model camera viewport outside bounds");
-    for(unsigned c=0;c<4;++c){matrix[4*c]=screen[c]*target->width/width+(1-target->width/width)*camera->centre[0]*screen[12+c];
-        matrix[4*c+1]=screen[4+c]*target->height/height+(1-target->height/height)*camera->centre[1]*screen[12+c];
+    for(unsigned c=0;c<4;++c){matrix[4*c]=screen[c]*target->width/width+(1-target->width/width)*2048.f*screen[12+c];
+        matrix[4*c+1]=screen[4+c]*target->height/height+(1-target->height/height)*2048.f*screen[12+c];
         matrix[4*c+2]=screen[8+c];matrix[4*c+3]=screen[12+c];}
     std::array<std::array<float,3>,4> directions{};std::array<std::array<float,4>,4> colours{};
     float rotation[3][3];for(unsigned r=0;r<3;++r){const float length=std::sqrt(world[4*r]*world[4*r]+world[4*r+1]*world[4*r+1]+world[4*r+2]*world[4*r+2]);
@@ -342,8 +348,8 @@ NativeModelSubmission NativeModels::capture(Runtime *rt,NativeAssets &assets,Nat
         const auto l=row(37);for(unsigned c=0;c<3;++c)shadowLight[c]=rotation[0][c]*l[0]+rotation[1][c]*l[1]+rotation[2][c]*l[2];
         Mat ground{};for(unsigned r=0;r<4;++r){const auto line=row(5+r);for(unsigned c=0;c<4;++c)ground[4*r+c]=line[c];}
         const auto flat=product(camera->screen,product(camera->view,ground));
-        for(unsigned c=0;c<4;++c){shadowFlat[4*c]=flat[c]*target->width/width+(1-target->width/width)*camera->centre[0]*flat[12+c];
-            shadowFlat[4*c+1]=flat[4+c]*target->height/height+(1-target->height/height)*camera->centre[1]*flat[12+c];
+        for(unsigned c=0;c<4;++c){shadowFlat[4*c]=flat[c]*target->width/width+(1-target->width/width)*2048.f*flat[12+c];
+            shadowFlat[4*c+1]=flat[4+c]*target->height/height+(1-target->height/height)*2048.f*flat[12+c];
             shadowFlat[4*c+2]=flat[8+c];shadowFlat[4*c+3]=flat[12+c];}
     }
     // This optional working-copy probe inherited a legacy heuristic. The slot
@@ -396,7 +402,7 @@ NativeModelSubmission NativeModels::capture(Runtime *rt,NativeAssets &assets,Nat
         // ST RGBAQ XYZF2); the converted (disc) material has it clear. This is the
         // town/harbour distance haze (PCSX2: almost every scene prim has FGE).
         const bool liveTag=block>=0x100000 && word(block+0x70)==0x8000 && word(block+0x78)==0x412;
-        const bool fogEnabled=liveTag?((word(block+0x74)>>15)&0x20)!=0:material[6]!=0;
+        const bool fogEnabled=liveTag?((word(block+0x74)>>15)&0x20)!=0:(material[6]&1)!=0;
         mat.fog=fogEnabled && camera->fog[1]!=0;mat.fogColour=camera->clearColour;
         if(material[1]){if(!block || !manager)throw std::runtime_error("native textured mesh missing material/manager");
             const auto slot=value<int32_t>(rt,block+0x98);if(slot<0 || slot>=256)throw std::runtime_error("native mesh texture slot outside range");
@@ -504,6 +510,12 @@ NativeModelSubmission NativeModels::capture(Runtime *rt,NativeAssets &assets,Nat
             std::vector<std::array<float,3>> positions(vertices.size());for(size_t k=0;k<vertices.size();++k)positions[k]={vertices[k].x,vertices[k].y,vertices[k].z};
             nativeShadowPrisms(positions,m.strips,shadowLight,matrix,shadowFlat,out.shadowIncrement,out.shadowDecrement);continue;}
         const bool cull=(block?word(block+0x90)==0:bool(material[5])) && !byte(object+0x210);size_t first=0;unsigned guarded=0,culled=0;
+        if(material[6]&6){
+            // The GS's LINE STRIP (each vertex continues the line) or LINE (pairs), one pixel wide.
+            mat.lines=true;const bool strip=material[6]&2;
+            for(auto length:m.strips){for(unsigned k=1;k<length;k+=strip?1:2){const auto a=first+k-1,b=first+k;
+                if(outside[a] || outside[b]){++guarded;continue;}batch.vertices.push_back(vertices[a]);batch.vertices.push_back(vertices[b]);}first+=length;}
+        }else
         for(auto length:m.strips){for(unsigned k=2;k<length;++k){const auto a=first+k-2,b=first+k-1,c=first+k;
             if(outside[a] || outside[b] || outside[c]){++guarded;continue;}
             if(cull && projected[a][3]>0 && projected[b][3]>0 && projected[c][3]>0){const auto &p=projected[a],&q=projected[b],&r=projected[c];

@@ -12,6 +12,32 @@ The earlier VP2S face/shading and general brightness comparisons remain open.
 
 ## Build and evidence
 
+### Forest minimap: line meshes, off-centre camera (2026-11-19)
+
+The minimap is a native model, object `eeb2d0` (class `1546d0`), with seven
+generated meshes drawn through camera `ed6870`: the map quad (4-bit texture),
+two icon meshes, the green arrow, the arrow's outline, the view-rectangle
+outline and a single segment. PCSX2 draws the outlines as GS lines (PRIM 0x42,
+LINE STRIP). Two native faults made the minimap one orange block:
+- **Lines.** The generated-mesh importer kept PRIM's ABE/TME/FGE bits but not
+  its type, so every mesh became triangle strips, and the (144,82,35) outline
+  was filled over the arrow and icons. `material[6]` now carries bit 0 FGE,
+  bit 1 LINE STRIP and bit 2 LINE (spare bits, so the save-state layout is
+  unchanged). Line meshes are drawn as segments through the engine's new
+  `Material::lines` (BozoEngine PR #109, GL_LINES).
+- **Off-centre camera.** The model, particle and procedural draws took the
+  camera's frame size as 2*(centre - viewport origin) and scaled around the
+  centre. That is right for centred cameras (centre 2048). The minimap camera
+  has its origin at the frame's (1792, 1792) but its centre at (1894, 1907), so
+  its frame came out as 204x230 and was blown up 2.5x. The frame is now
+  2*(2048 - origin), scaled about 2048: unchanged for every centred camera, and
+  1x for the minimap.
+
+The forest minimap now shows PCSX2's layout: the map region with its shadow
+edge, the "E" icon, the green arrow and the thin orange view rectangle. The
+arrow looks slightly narrower than PCSX2's diamond (not measured yet). All 91
+suites pass.
+
 ### Lost Forest: scissor, camera job, map panel, short name plate (2026-11-19)
 
 **Correction to the haze commit (089d69c).** Its call patch `2e0b8c` was not

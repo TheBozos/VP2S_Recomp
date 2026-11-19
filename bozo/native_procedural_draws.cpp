@@ -26,9 +26,9 @@ void NativeProceduralDraws::beginMesh(Runtime *rt,const R5900Context *c,const Na
     auto found=active.find(frame);if(found!=active.end() && (found->second.object!=object || found->second.frame!=target || found->second.camera!=camera || found->second.mesh))throw std::runtime_error("procedural mesh overlaps active owner");
     Mesh mesh;mesh.count=count;mesh.fan=fan;auto &m=mesh.batch.material;m.fromFrame=1;m.source=5;m.textured=false;m.textureAlpha=false;m.textureFunction=bozo::render::Material::TextureFunction::Modulate;
     m.alphaBlend=blend;m.blend=blend?bozo::render::Material::Blend::Alpha:bozo::render::Material::Blend::Opaque;m.depthTest=!always;m.depthWrite=!noWrite;m.alphaTest=false;
-    const float width=2*(camera->centre[0]-camera->viewport[0]),height=2*(camera->centre[1]-camera->viewport[1]);
+    const float width=2*(2048.f-camera->viewport[0]),height=2*(2048.f-camera->viewport[1]);
     if(!std::isfinite(width) || !std::isfinite(height) || width<=16 || height<=16 || width>=4096 || height>=4096)throw std::runtime_error("procedural mesh viewport invalid");
-    mesh.batch.matrix={target->width/width,0,0,0,0,target->height/height,0,0,0,0,1,0,(1-target->width/width)*camera->centre[0],(1-target->height/height)*camera->centre[1],0,1};
+    mesh.batch.matrix={target->width/width,0,0,0,0,target->height/height,0,0,0,0,1,0,(1-target->width/width)*2048.f,(1-target->height/height)*2048.f,0,1};
     if(found==active.end())found=active.emplace(frame,Draw{object,target,camera}).first;found->second.mesh=std::move(mesh);
 }
 void NativeProceduralDraws::vertex(Runtime *rt,const R5900Context *c){

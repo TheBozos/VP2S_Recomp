@@ -80,10 +80,10 @@ NativeModelSubmission NativeParticleDraws::capture(Runtime *rt,NativeAssets &ass
         const auto bits=std::bit_cast<uint32_t>(v)&0x7fffffff;
         if(bits>=0x7f800000 || (bits && bits<0x00800000) || std::abs(v)>1.e12f)throw std::runtime_error("unqualified native particle matrix coefficient");}
     for(float centre:camera->centre)number(centre);
-    const auto toView=product(camera->view,world);const auto width=2*(camera->centre[0]-camera->viewport[0]),height=2*(camera->centre[1]-camera->viewport[1]);
+    const auto toView=product(camera->view,world);const auto width=2*(2048.f-camera->viewport[0]),height=2*(2048.f-camera->viewport[1]);
     if(width<=16 || height<=16 || width>=4096 || height>=4096)throw std::runtime_error("native particle camera viewport invalid");
-    for(unsigned column=0;column<4;++column){batch.matrix[4*column]=camera->screen[column]*target->width/width+(1-target->width/width)*camera->centre[0]*camera->screen[12+column];
-        batch.matrix[4*column+1]=camera->screen[4+column]*target->height/height+(1-target->height/height)*camera->centre[1]*camera->screen[12+column];batch.matrix[4*column+2]=camera->screen[8+column];batch.matrix[4*column+3]=camera->screen[12+column];}
+    for(unsigned column=0;column<4;++column){batch.matrix[4*column]=camera->screen[column]*target->width/width+(1-target->width/width)*2048.f*camera->screen[12+column];
+        batch.matrix[4*column+1]=camera->screen[4+column]*target->height/height+(1-target->height/height)*2048.f*camera->screen[12+column];batch.matrix[4*column+2]=camera->screen[8+column];batch.matrix[4*column+3]=camera->screen[12+column];}
     for(float coefficient:batch.matrix)if(!std::isfinite(coefficient))throw std::runtime_error("native particle screen transform overflow");
     const auto colour=value<std::array<float,4>>(owner,0x300),limit=value<std::array<float,4>>(owner,0x230);const auto identity=value<uint32_t>(owner,0x310);
     if(identity>1)throw std::runtime_error("unported native particle lighting mode");if(!identity)for(unsigned i=0;i<4;++i){number(colour[i]);number(limit[i]);if(colour[i]<0 || limit[i]<0 || limit[i]>255)throw std::runtime_error("native particle colour/limit invalid");}

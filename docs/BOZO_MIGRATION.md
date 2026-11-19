@@ -12,6 +12,42 @@ The earlier VP2S face/shading and general brightness comparisons remain open.
 
 ## Build and evidence
 
+### Lost Forest entry: three mod001 VU0 sites (2026-11-19)
+
+The pad script now presses CROSS at 54100, 54500 and 55000 on the world map to
+enter the Lost Forest. A named state `build_usa/states/worldmap_54000.state`
+(private) starts on the map. Entering the forest stops at three VU0 sites, in
+the area/transition code of mod001 (`2dfeb8..2e31f8`):
+
+- **`2dfeb8` two-point projection (block `2e0184`).** LQC2 vf1..vf4 load the
+  rows at `SP+120`, which an MMI transpose just before has written. Then twice
+  (`2e0248`, `2e02e8`): vf5 = `SP+160`, program 0, vf6 to `SP+170`. Only
+  FPU/integer code runs between the sites, so the rows stay in the registers;
+  they are captured at their loads. Program 0's arithmetic is now shared with
+  the flare projection (`program0Projection`). 1024 projections against a ps2f
+  oracle (rows overwritten in RAM after the loads), 6 rejections.
+- **`2df060` exponential ramp (block `2df0e8`).** It builds a 256-entry table
+  at `s0` with VU0 macro code. With q = max(vf25.x / (i·vf25.z + vf25.y),
+  vf26.x) and x = (s1+13470)·q per lane, it evaluates the 13-term series
+  e(x) = 1 + x + Σ c·xⁿ (coefficients at `3578b0`). Each entry is
+  FTOI0(min(vf24·(1 − 1/e).xyz | vf24.w/e.w, 255)), where vf24 = (255,255,255,128).
+  i is vf13.x, which equals the loop counter a1. The loop writes none of the
+  inputs, so the native code at the QMFC2 (`2df384`) rereads them from RAM, and
+  no state crosses the loop's back edge (a save point). The MMI pack and the
+  store stay compiled. 16384 entries against a ps2f oracle, 4 rejections.
+- **`2e1a7c` grid point.** vf1 = `SP+200`, vf2 = `SP+1f0`, vf4 = `s5+188f0`
+  load once before the loop `2e2190..2e2d90`. Each pass writes
+  ((vf4 + vf0) + vf1·p.x) + vf2·p.y to `SP+210`, with p = `SP+1e0`. The loop
+  writes none of the three records and keeps s5/sp. Its callees (`2f3a60`,
+  `2f3900`, `2f39c0`, `2c6b40`, `2f3b00`) have no COP2, so the store rereads
+  the records. 1024 points against a ps2f oracle, 4 rejections.
+
+Route: from the world-map state, the CROSS presses fade the map out, and the
+run reaches object `5ba2c0`'s VIF1 kick `2e0b10` (D1_QWC `10009020`; chain from
+`a0+100`, CHCR `105`) through the draw queue (ra `202094`). As with the particle
+draw, this needs a native draw from the object's records before the enqueue,
+not a DMA replay.
+
 ### World-map particle draw bucket (2026-11-19)
 
 The world-map particle (object `1335110`, class `154180`) has `+210 = 2`.

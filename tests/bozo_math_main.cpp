@@ -804,6 +804,163 @@ int main(int argc,char **argv){try{
         }
     }
     std::printf("%u flare projection cases and 5 rejections passed\n",flareCases);
+    // Two-point projection (mod001 2dfeb8, block 2e0184): rows SP+120 loaded once
+    // as program 0's column registers, then two projections of SP+160 to SP+170
+    // with the point rewritten in between (FPU code); ps2f oracle.
+    unsigned pairCases=0;
+    {auto &rt=native.runtime();
+        const auto mul=[](uint32_t a,uint32_t b){uint32_t f=0;return bozo::ps2f::mul(a,b,f);};
+        const auto add=[](uint32_t a,uint32_t b){uint32_t f=0;return bozo::ps2f::addNearest(a,b,f);};
+        uint64_t state=0x2545f4914f6cdd1dull;const auto next=[&](){state^=state<<13;state^=state>>7;state^=state<<17;return state;};
+        const auto value=[&](float range){return float(int64_t(next()%2000001)-1000000)/1000000.f*range;};
+        const auto oracle=[&](const uint32_t (&m)[4][4],const uint32_t (&v)[4],uint32_t (&expected)[4]){
+            uint32_t p[4],flags=0;
+            for(unsigned i=0;i<4;++i)p[i]=add(add(add(mul(m[0][i],v[0]),mul(m[1][i],v[1])),mul(m[2][i],v[2])),mul(m[3][i],v[3]));
+            const auto savedCsr=_mm_getcsr();const auto q=bozo::ps2f::div(0x3f800000,p[3],flags);_mm_setcsr(savedCsr);
+            for(unsigned i=0;i<3;++i)expected[i]=mul(p[i],q);expected[3]=mul(0x3f800000,q);
+        };
+        const auto project=[&](R5900Context &c,uint32_t stack,uint32_t load,uint32_t call,uint32_t status,uint32_t store){
+            c.r[3].uw[0]=stack+0x160;check(vp2s::nativeMathInstruction(rt.memory.flat(),&c,&rt,load));
+            check(vp2s::nativeMathInstruction(rt.memory.flat(),&c,&rt,call));c.r[9].ud[0]=0x1234;
+            check(vp2s::nativeMathInstruction(rt.memory.flat(),&c,&rt,status));check(c.r[9].ud[0]==0);
+            c.r[3].uw[0]=stack+0x170;check(vp2s::nativeMathInstruction(rt.memory.flat(),&c,&rt,store));
+        };
+        for(unsigned rounding:{_MM_ROUND_NEAREST,_MM_ROUND_DOWN,_MM_ROUND_UP,_MM_ROUND_TOWARD_ZERO})for(unsigned seed=0;seed<128;++seed){
+            const uint32_t stack=seed&1?0x70002c00:0x1ffd000;R5900Context c{};c.r[29].uw[0]=stack;
+            float rows[16],points[2][4];for(float &x:rows)x=value(4.f);rows[15]=std::fabs(rows[15])+2.f;
+            for(unsigned k=0;k<3;++k)rows[4*k+3]=value(1.e-4f);   // keep p.w away from zero
+            for(auto &point:points){for(unsigned i=0;i<3;++i)point[i]=value(3000.f);point[3]=1.f;}
+            if(seed%8==5)rows[6]=std::bit_cast<float>(0x80000077u);   // a denormal input reads as zero
+            std::memcpy(rt.memory.hostPointer(stack+0x120,64),rows,64);
+            uint32_t m[4][4];std::memcpy(m,rows,64);if(seed%8==5)m[1][2]=0;
+            _MM_SET_ROUNDING_MODE(rounding);const auto csr=_mm_getcsr();
+            for(uint32_t pc:{0x2e0234u,0x2e0238u,0x2e023cu,0x2e0240u}){c.r[3].uw[0]=stack+0x120;check(vp2s::nativeMathInstruction(rt.memory.flat(),&c,&rt,pc));}
+            // The rows are registers after the loads: later RAM writes must not reach them.
+            std::memset(rt.memory.hostPointer(stack+0x120,64),0xa5,64);
+            for(unsigned k=0;k<2;++k){
+                std::memcpy(rt.memory.hostPointer(stack+0x160,16),points[k],16);uint32_t v[4],expected[4];std::memcpy(v,points[k],16);oracle(m,v,expected);
+                if(k==0)project(c,stack,0x2e0248,0x2e0254,0x2e0258,0x2e0260);else project(c,stack,0x2e02e8,0x2e02f4,0x2e02f8,0x2e0300);
+                check(!std::memcmp(rt.memory.hostPointer(stack+0x170,16),expected,16));++pairCases;
+            }
+            check(_mm_getcsr()==csr);_MM_SET_ROUNDING_MODE(_MM_ROUND_NEAREST);
+        }
+        // Rejections: wrong row/point source, wrong destination, a store without a
+        // fresh point, a store without the rows, zero depth.
+        const uint32_t stack=0x1ffd000;
+        for(unsigned which=0;which<6;++which){R5900Context c{};c.r[29].uw[0]=stack;bool rejected=false;
+            float rows[16]={1,0,0,0,0,1,0,0,0,0,1,0,0,0,0,which==5?0.f:1.f},point[4]={1,2,3,1};
+            std::memcpy(rt.memory.hostPointer(stack+0x120,64),rows,64);std::memcpy(rt.memory.hostPointer(stack+0x160,16),point,16);
+            const auto rowsLoad=[&](){for(uint32_t pc:{0x2e0234u,0x2e0238u,0x2e023cu,0x2e0240u}){c.r[3].uw[0]=stack+0x120;vp2s::nativeMathInstruction(rt.memory.flat(),&c,&rt,pc);}};
+            try{
+                if(which==0){c.r[3].uw[0]=stack+0x130;vp2s::nativeMathInstruction(rt.memory.flat(),&c,&rt,0x2e0234);}
+                else if(which==1){rowsLoad();c.r[3].uw[0]=stack+0x150;vp2s::nativeMathInstruction(rt.memory.flat(),&c,&rt,0x2e0248);}
+                else if(which==2){rowsLoad();c.r[3].uw[0]=stack+0x160;vp2s::nativeMathInstruction(rt.memory.flat(),&c,&rt,0x2e0248);
+                    c.r[3].uw[0]=stack+0x180;vp2s::nativeMathInstruction(rt.memory.flat(),&c,&rt,0x2e0260);}
+                else if(which==3){rowsLoad();c.r[3].uw[0]=stack+0x160;vp2s::nativeMathInstruction(rt.memory.flat(),&c,&rt,0x2e0248);
+                    c.r[3].uw[0]=stack+0x170;vp2s::nativeMathInstruction(rt.memory.flat(),&c,&rt,0x2e0260);vp2s::nativeMathInstruction(rt.memory.flat(),&c,&rt,0x2e0300);}
+                else if(which==4){c.r[3].uw[0]=stack+0x120;vp2s::nativeMathInstruction(rt.memory.flat(),&c,&rt,0x2e0234);
+                    c.r[3].uw[0]=stack+0x160;vp2s::nativeMathInstruction(rt.memory.flat(),&c,&rt,0x2e0248);
+                    c.r[3].uw[0]=stack+0x170;vp2s::nativeMathInstruction(rt.memory.flat(),&c,&rt,0x2e0260);}
+                else{rowsLoad();c.r[3].uw[0]=stack+0x160;vp2s::nativeMathInstruction(rt.memory.flat(),&c,&rt,0x2e0248);
+                    c.r[3].uw[0]=stack+0x170;vp2s::nativeMathInstruction(rt.memory.flat(),&c,&rt,0x2e0260);}
+            }catch(const std::runtime_error &){rejected=true;}
+            check(rejected);
+        }
+    }
+    std::printf("%u pair projection cases and 6 rejections passed\n",pairCases);
+    // Exponential ramp (mod001 2df060, block 2df0e8): 256 entries of
+    // FTOI0(min(vf24*(1-1/e(x)).xyz | vf24.w/e(x.w), 255)) with the 13-term series
+    // of 3578b0; independent ps2f oracle, all inputs read from RAM at 2df384.
+    unsigned rampEntries=0;
+    {auto &rt=native.runtime();
+        namespace F=bozo::ps2f;
+        uint64_t state=0x5851f42d4c957f2dull;const auto next=[&](){state^=state<<13;state^=state>>7;state^=state<<17;return state;};
+        const auto value=[&](float lo,float hi){return lo+float(next()%1000001)/1000000.f*(hi-lo);};
+        const auto bits=[](float v){return std::bit_cast<uint32_t>(v);};
+        constexpr uint32_t object=0x1500000,table=0x1600000,coefficients=0x3578b0;
+        const auto put=[&](uint32_t at,const float (&v)[4]){std::memcpy(rt.memory.hostPointer(at,16),v,16);};
+        for(unsigned rounding:{_MM_ROUND_NEAREST,_MM_ROUND_DOWN,_MM_ROUND_UP,_MM_ROUND_TOWARD_ZERO})for(unsigned seed=0;seed<16;++seed){
+            const uint32_t stack=seed&1?0x70002c00:0x1ffd000;R5900Context c{};c.r[29].uw[0]=stack;c.r[17].uw[0]=object;c.r[16].uw[0]=table;
+            float k[12];double factorial=1;for(unsigned n=2;n<14;++n){factorial*=n;k[n-2]=float((seed&2?1.:.98)/factorial);}
+            const float one[4]={1,1,1,1},scale[4]={255,255,255,128},base[4]={value(0,.5f),value(0,.5f),value(0,.5f),value(-.2f,.2f)};
+            const float params[4]={value(.001f,.05f),value(.05f,1),value(0,.02f),1},floorValue[4]={seed&4?value(0,.05f):0.f,99,99,99};
+            put(stack+0x50,one);put(stack+0x40,scale);put(object+0x13470,base);put(stack+0x60,floorValue);put(stack+0x30,params);
+            for(unsigned r=0;r<3;++r){const float row[4]={k[4*r],k[4*r+1],k[4*r+2],k[4*r+3]};put(coefficients+16*r,row);}
+            _MM_SET_ROUNDING_MODE(rounding);const auto csr=_mm_getcsr();
+            const std::pair<uint32_t,unsigned> loads[]={{0x2df210,6},{0x2df214,3},{0x2df228,4},{0x2df22c,3},{0x2df238,3},{0x2df23c,3},{0x2df240,3},{0x2df2b0,5}};
+            const uint32_t sources[]={stack+0x50,stack+0x40,object+0x13470,stack+0x60,coefficients,coefficients,coefficients,stack+0x30};
+            for(unsigned i=0;i<8;++i){c.r[loads[i].second].uw[0]=sources[i];check(vp2s::nativeMathInstruction(rt.memory.flat(),&c,&rt,loads[i].first));}
+            for(uint32_t pc=0x2df2b4;pc<0x2df384;pc+=4)if(pc!=0x2df2b8 && pc!=0x2df2bc)check(vp2s::nativeMathInstruction(rt.memory.flat(),&c,&rt,pc));
+            for(unsigned index=0;index<256;++index){
+                c.r[5].uw[0]=index;c.r[4].ud[0]=c.r[4].ud[1]=0x5555555555555555ull;check(vp2s::nativeMathInstruction(rt.memory.flat(),&c,&rt,0x2df384));
+                uint32_t f=0;const auto denominator=F::addNearest(F::mul(F::fromInt(index),bits(params[2]),f),bits(params[1]),f);
+                const auto saved=_mm_getcsr();const auto q=F::max(F::addNearest(0,F::div(bits(params[0]),denominator,f),f),bits(floorValue[0]));_mm_setcsr(saved);
+                for(unsigned lane=0;lane<4;++lane){
+                    const auto x=F::mul(bits(base[lane]),q,f);uint32_t p2=F::mul(x,x,f);const auto p4=F::mul(p2,p2,f);uint32_t p3=F::mul(p2,x,f),p5=F::mul(p4,x,f),p4b=p4;
+                    uint32_t acc=F::addNearest(x,0x3f800000,f);
+                    for(unsigned r=0;r<3;++r){if(r){p2=F::mul(p2,p4,f);p3=F::mul(p3,p4,f);p4b=F::mul(p4b,p4,f);p5=F::mul(p5,p4,f);}
+                        acc=F::addNearest(acc,F::mul(p2,bits(k[4*r]),f),f);acc=F::addNearest(acc,F::mul(p3,bits(k[4*r+1]),f),f);
+                        acc=F::addNearest(acc,F::mul(p4b,bits(k[4*r+2]),f),f);acc=F::addNearest(acc,F::mul(p5,bits(k[4*r+3]),f),f);}
+                    const auto s2=_mm_getcsr();const auto reciprocal=F::div(0x3f800000,acc,f);_mm_setcsr(s2);
+                    const auto v=lane<3?F::subNearest(0x3f800000,F::addNearest(0,reciprocal,f),f):F::mul(0x3f800000,reciprocal,f);
+                    const auto expected=F::toInt(F::min(F::mul(bits(scale[lane]),v,f),bits(255.f)));
+                    check(c.r[4].uw[lane]==expected);
+                }
+                ++rampEntries;
+            }
+            check(_mm_getcsr()==csr);_MM_SET_ROUNDING_MODE(_MM_ROUND_NEAREST);
+        }
+        // Rejections: a moved input, the index past the loop, an output table over the
+        // inputs, a zero step denominator.
+        const uint32_t stack=0x1ffd000;
+        for(unsigned which=0;which<4;++which){R5900Context c{};c.r[29].uw[0]=stack;c.r[17].uw[0]=object;c.r[16].uw[0]=which==2?stack:table;c.r[5].uw[0]=which==1?256:0;
+            const float params[4]={1,0,0,1};if(which==3)put(stack+0x30,params);
+            bool rejected=false;
+            try{if(which==0){c.r[6].uw[0]=stack+0x40;vp2s::nativeMathInstruction(rt.memory.flat(),&c,&rt,0x2df210);}
+                else vp2s::nativeMathInstruction(rt.memory.flat(),&c,&rt,0x2df384);}catch(const std::runtime_error &){rejected=true;}
+            check(rejected);
+        }
+    }
+    std::printf("%u exponential ramp entries and 4 rejections passed\n",rampEntries);
+    // Grid point (mod001 2e1a7c): basis rows loaded once before the loop, then per
+    // pass ((origin + vf0) + u*p.x) + v*p.y to SP+210; independent ps2f oracle.
+    unsigned gridPoints=0;
+    {auto &rt=native.runtime();namespace F=bozo::ps2f;
+        uint64_t state=0x14057b7ef767814full;const auto next=[&](){state^=state<<13;state^=state>>7;state^=state<<17;return state;};
+        const auto value=[&](float range){return float(int64_t(next()%2000001)-1000000)/1000000.f*range;};
+        const auto bits=[](float v){return std::bit_cast<uint32_t>(v);};
+        constexpr uint32_t s5=0x1400000;
+        for(unsigned rounding:{_MM_ROUND_NEAREST,_MM_ROUND_DOWN,_MM_ROUND_UP,_MM_ROUND_TOWARD_ZERO})for(unsigned seed=0;seed<32;++seed){
+            const uint32_t stack=seed&1?0x70002000:0x1ffd000;R5900Context c{};c.r[29].uw[0]=stack;c.r[21].uw[0]=s5;
+            float u[4],v[4],origin[4];for(float &x:u)x=value(64.f);for(float &x:v)x=value(64.f);for(float &x:origin)x=value(4096.f);
+            if(seed%8==7)u[2]=std::bit_cast<float>(0x00000042u);   // denormal reads as zero
+            std::memcpy(rt.memory.hostPointer(stack+0x200,16),u,16);std::memcpy(rt.memory.hostPointer(stack+0x1f0,16),v,16);std::memcpy(rt.memory.hostPointer(s5+0x188f0,16),origin,16);
+            if(seed%8==7)u[2]=0;
+            _MM_SET_ROUNDING_MODE(rounding);const auto csr=_mm_getcsr();
+            c.r[10].uw[0]=stack+0x200;c.r[9].uw[0]=stack+0x1f0;c.r[8].uw[0]=s5+0x188f0;
+            for(uint32_t pc:{0x2e215cu,0x2e2160u,0x2e2164u})check(vp2s::nativeMathInstruction(rt.memory.flat(),&c,&rt,pc));
+            for(unsigned pass=0;pass<8;++pass){
+                const float point[4]={value(32.f),value(32.f),std::bit_cast<float>(0x7fc00000u),std::bit_cast<float>(0x7f800000u)};   // z/w unused
+                std::memcpy(rt.memory.hostPointer(stack+0x1e0,16),point,16);
+                c.r[2].uw[0]=stack+0x1e0;for(uint32_t pc:{0x2e2500u,0x2e2504u,0x2e2508u,0x2e250cu})check(vp2s::nativeMathInstruction(rt.memory.flat(),&c,&rt,pc));
+                c.r[2].uw[0]=stack+0x210;check(vp2s::nativeMathInstruction(rt.memory.flat(),&c,&rt,0x2e2514));
+                uint32_t expected[4],f=0;
+                for(unsigned i=0;i<4;++i)expected[i]=F::addNearest(F::addNearest(F::addNearest(bits(origin[i]),i==3?0x3f800000u:0u,f),F::mul(bits(u[i]),bits(point[0]),f),f),F::mul(bits(v[i]),bits(point[1]),f),f);
+                check(!std::memcmp(rt.memory.hostPointer(stack+0x210,16),expected,16));++gridPoints;
+            }
+            check(_mm_getcsr()==csr);_MM_SET_ROUNDING_MODE(_MM_ROUND_NEAREST);
+        }
+        // Rejections: moved basis, moved point, moved destination, origin over the frame.
+        const uint32_t stack=0x1ffd000;
+        for(unsigned which=0;which<4;++which){R5900Context c{};c.r[29].uw[0]=stack;c.r[21].uw[0]=which==3?stack+0x1e0-0x188f0:s5;bool rejected=false;
+            try{if(which==0){c.r[9].uw[0]=stack+0x200;vp2s::nativeMathInstruction(rt.memory.flat(),&c,&rt,0x2e2160);}
+                else if(which==1){c.r[2].uw[0]=stack+0x1f0;vp2s::nativeMathInstruction(rt.memory.flat(),&c,&rt,0x2e2500);}
+                else{c.r[2].uw[0]=which==2?stack+0x220:stack+0x210;vp2s::nativeMathInstruction(rt.memory.flat(),&c,&rt,0x2e2514);}
+            }catch(const std::runtime_error &){rejected=true;}
+            check(rejected);
+        }
+    }
+    std::printf("%u grid points and 4 rejections passed\n",gridPoints);
     unsigned contactCases=0,contacts=0;
     for(unsigned rounding:{_MM_ROUND_NEAREST,_MM_ROUND_DOWN,_MM_ROUND_UP,_MM_ROUND_TOWARD_ZERO})for(unsigned seed=0;seed<128;++seed){
         auto &a=old.runtime();auto &b=native.runtime();std::memset(a.memory.flat(),0x33+seed,bozo::kFlatBytes);

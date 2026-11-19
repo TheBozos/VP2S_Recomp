@@ -673,6 +673,21 @@ bool nativeCameraProjection(R5900Context *c,Runtime *rt,uint32_t pc){
 // captured at their loads; a path that leaves before the store (no intensity)
 // just drops them.
 struct FlareProjection{float rows[4][4]{};unsigned loaded=0;bool point=false;float v[4]{};};
+// Common-math program 0 on directly loaded column registers: ACC = vf1*v.x +
+// vf2*v.y + vf3*v.z, p = ACC + vf4*v.w, Q = 1/p.w, (p.x*Q, p.y*Q, p.z*Q, Q).
+std::array<float,4> program0Projection(const FlareProjection &state,const char *what){
+    std::array<float,4> result;
+    {music::NearestRounding rounding;
+        float p[4];
+        for(unsigned i=0;i<4;++i)
+            p[i]=pairSum(pairSum(pairSum(pairProduct(state.rows[0][i],state.v[0]),pairProduct(state.rows[1][i],state.v[1])),pairProduct(state.rows[2][i],state.v[2])),pairProduct(state.rows[3][i],state.v[3]));
+        if((std::bit_cast<uint32_t>(p[3])&0x7fffffff)==0)throw std::runtime_error(std::format("native {} projection has zero depth",what));
+        volatile float q=1.f/p[3];const auto reciprocal=pairNormal(q);
+        for(unsigned i=0;i<3;++i)result[i]=pairProduct(p[i],reciprocal);result[3]=pairProduct(1.f,reciprocal);
+        for(float x:result)if(!std::isfinite(x))throw std::runtime_error(std::format("native {} projection overflow",what));
+    }
+    return result;
+}
 FlareProjection &flareProjection(const Runtime *rt){static std::map<const Runtime *,FlareProjection> states;return states[rt];}
 bool nativeFlareProjection(R5900Context *c,Runtime *rt,uint32_t pc){
     const bool row=pc>=0x256068 && pc<=0x256074 && !(pc&3);
@@ -693,17 +708,127 @@ bool nativeFlareProjection(R5900Context *c,Runtime *rt,uint32_t pc){
     if(pc==0x256180){c->r[9].ud[0]=0;return true;}
     if(base!=stack+0x2c0)throw std::runtime_error("native flare projection destination mismatch");
     if(state.loaded!=15 || !state.point)throw std::runtime_error("native flare projection stored without its matrix and light");
-    float result[4];
-    {music::NearestRounding rounding;
-        float p[4];
-        for(unsigned i=0;i<4;++i)
-            p[i]=pairSum(pairSum(pairSum(pairProduct(state.rows[0][i],state.v[0]),pairProduct(state.rows[1][i],state.v[1])),pairProduct(state.rows[2][i],state.v[2])),pairProduct(state.rows[3][i],state.v[3]));
-        if((std::bit_cast<uint32_t>(p[3])&0x7fffffff)==0)throw std::runtime_error("native flare projection has zero depth");
-        volatile float q=1.f/p[3];const auto reciprocal=pairNormal(q);
-        for(unsigned i=0;i<3;++i)result[i]=pairProduct(p[i],reciprocal);result[3]=pairProduct(1.f,reciprocal);
-        for(float x:result)if(!std::isfinite(x))throw std::runtime_error("native flare projection overflow");
+    const auto result=program0Projection(state,"flare");std::memcpy(record(rt,base,16),result.data(),16);state.loaded=0;state.point=false;return true;
+}
+// Two-point projection, mod001 2dfeb8 (block 2e0184). The MMI transpose before
+// it writes the rows at SP+120; LQC2 vf1..vf4 load them (2e0234..2e0240). Then
+// twice (2e0248 / 2e02e8): LQC2 vf5 = SP+160, VCALLMS 0, CFC2.I t1/vi0, SQC2
+// vf6 to SP+170. Only FPU/integer code runs between the sites, so vf1..vf4 hold
+// the same rows for both calls: they are captured at their loads and kept.
+FlareProjection &pairProjection(const Runtime *rt){static std::map<const Runtime *,FlareProjection> states;return states[rt];}
+bool nativePairProjection(R5900Context *c,Runtime *rt,uint32_t pc){
+    const bool row=pc>=0x2e0234 && pc<=0x2e0240 && !(pc&3),load=pc==0x2e0248 || pc==0x2e02e8,call=pc==0x2e0254 || pc==0x2e02f4;
+    const bool status=pc==0x2e0258 || pc==0x2e02f8,store=pc==0x2e0260 || pc==0x2e0300;
+    if(!row && !load && !call && !status && !store)return false;
+    if(!c)throw std::runtime_error("native pair projection has no CPU record");
+    const auto stack=c->r[29].uw[0],base=c->r[3].uw[0];auto &state=pairProjection(rt);
+    if(row){
+        if(base!=stack+0x120)throw std::runtime_error("native pair projection matrix source mismatch");
+        const unsigned k=(pc-0x2e0234)/4;if(k==0){state.loaded=0;state.point=false;}
+        std::memcpy(state.rows[k],record(rt,base+16*k,16),16);for(float &x:state.rows[k])x=vu0Input(x);
+        state.loaded|=1u<<k;return true;
     }
-    std::memcpy(record(rt,base,16),result,16);state.loaded=0;state.point=false;return true;
+    if(load){
+        if(base!=stack+0x160)throw std::runtime_error("native pair projection point source mismatch");
+        std::memcpy(state.v,record(rt,base,16),16);for(float &x:state.v)x=vu0Input(x);state.point=true;return true;
+    }
+    if(call)return true;
+    if(status){c->r[9].ud[0]=0;return true;}
+    if(base!=stack+0x170)throw std::runtime_error("native pair projection destination mismatch");
+    if(state.loaded!=15 || !state.point)throw std::runtime_error("native pair projection stored without its matrix and point");
+    const auto result=program0Projection(state,"pair");std::memcpy(record(rt,base,16),result.data(),16);state.point=false;return true;
+}
+// Exponential ramp, mod001 2df060 (block 2df0e8). The loads put (1,1,1,1) SP+50
+// in vf23, (255,255,255,128) SP+40 in vf24, s1+13470 in vf1, SP+60 in vf26
+// (X used), the coefficient rows 3578b0 in vf20..vf22 and SP+30 in vf25; vf13 =
+// 0. Then 256 times (2df2c0..2df384), with i = vf13.x = a1:
+//   q = max(vf25.x / (i*vf25.z + vf25.y), vf26.x); x = vf1*q (all lanes);
+//   e = ((((1+x) + x2*c0 + x3*c1 + x4*c2 + x5*c3) + x6*c4 ... ) + x13*c11), with
+//   x2=x*x, x4=x2*x2, x3=x2*x, x5=x4*x, then each power times x4 for the next four;
+//   r = 1/e per lane; xyz = vf23 - r; out = FTOI0(min(vf24*(xyz, r.w), vf24.x));
+//   QMFC2.I a0 = out (the MMI pack and the store to s0[i] stay compiled).
+// No VU state survives an iteration except the counter, so the native QMFC2
+// rereads the inputs, which the loop never writes; an output table that would
+// overlap them is refused.
+bool nativeExponentialRamp(R5900Context *c,Runtime *rt,uint32_t pc){
+    if(pc<0x2df210 || pc>0x2df384 || (pc&3))return false;
+    static constexpr uint32_t loads[]={0x2df210,0x2df214,0x2df228,0x2df22c,0x2df238,0x2df23c,0x2df240,0x2df2b0};
+    const bool load=std::find(std::begin(loads),std::end(loads),pc)!=std::end(loads);
+    if(!load && pc!=0x2df2b4 && pc<0x2df2c0)return false;   // 2df2b8/2df2bc: EE branch and delay slot
+    if(!c)throw std::runtime_error("native exponential ramp has no CPU record");
+    const auto stack=c->r[29].uw[0],object=c->r[17].uw[0],coefficients=0x3578b0u;
+    if(load){
+        const unsigned reg=pc==0x2df210?6:pc==0x2df228?4:pc==0x2df2b0?5:3;
+        const uint32_t expected=pc==0x2df210?stack+0x50:pc==0x2df214?stack+0x40:pc==0x2df228?object+0x13470:pc==0x2df22c?stack+0x60:pc==0x2df2b0?stack+0x30:coefficients;
+        if(c->r[reg].uw[0]!=expected)throw std::runtime_error("native exponential ramp input source mismatch");return true;
+    }
+    if(pc!=0x2df384)return true;
+    const auto index=c->r[5].uw[0],table=c->r[16].uw[0];if(index>=256)throw std::runtime_error("native exponential ramp index outside its loop");
+    const auto overlaps=[](uint32_t a,uint32_t an,uint32_t b,uint32_t bn){return (a&0x1fffffff)<(b&0x1fffffff)+bn && (b&0x1fffffff)<(a&0x1fffffff)+an;};
+    if(overlaps(table,0x400,stack+0x30,0x40) || overlaps(table,0x400,object+0x13470,16) || overlaps(table,0x400,coefficients,0x30))
+        throw std::runtime_error("native exponential ramp table aliases its inputs");
+    const auto vector=[&](uint32_t at){std::array<float,4> v;std::memcpy(v.data(),record(rt,at,16),16);for(float &x:v)x=vu0Input(x);return v;};
+    const auto one=vector(stack+0x50),scale=vector(stack+0x40),base=vector(object+0x13470),params=vector(stack+0x30);
+    float floor;std::memcpy(&floor,record(rt,stack+0x60,4),4);floor=vu0Input(floor);
+    std::array<std::array<float,4>,3> k;for(unsigned r=0;r<3;++r)k[r]=vector(coefficients+16*r);
+    uint32_t out[4];
+    {music::NearestRounding rounding;
+        const auto quotient=[](float a,float b,const char *what){
+            if((std::bit_cast<uint32_t>(b)&0x7fffffff)==0)throw std::runtime_error(std::format("native exponential ramp divides by zero ({})",what));
+            volatile float q=a/b;const auto v=pairNormal(q);if(!std::isfinite(v))throw std::runtime_error("native exponential ramp quotient overflow");return v;};
+        // VU MAX: ordered as signed magnitudes, so -0 < +0.
+        const auto maximum=[](float a,float b){const auto ia=std::bit_cast<int32_t>(a),ib=std::bit_cast<int32_t>(b);
+            const auto key=[](int32_t v){return v<0?-(v&0x7fffffff)-1:v;};return key(ia)>=key(ib)?a:b;};
+        const auto denominator=pairSum(pairProduct(float(index),params[2]),params[1]);
+        const auto q=maximum(pairSum(0.f,quotient(params[0],denominator,"step")),floor);
+        for(unsigned lane=0;lane<4;++lane){
+            const auto x=pairProduct(base[lane],q);
+            auto x2=pairProduct(x,x);const auto x4=pairProduct(x2,x2);auto x3=pairProduct(x2,x);auto x5=pairProduct(x4,x);auto x4b=x4;
+            auto acc=pairSum(x,1.f);
+            for(unsigned r=0;r<3;++r){
+                if(r){x2=pairProduct(x2,x4);x3=pairProduct(x3,x4);x4b=pairProduct(x4b,x4);x5=pairProduct(x5,x4);}
+                acc=pairSum(acc,pairProduct(x2,k[r][0]));acc=pairSum(acc,pairProduct(x3,k[r][1]));
+                acc=pairSum(acc,pairProduct(x4b,k[r][2]));acc=pairSum(acc,pairProduct(x5,k[r][3]));
+            }
+            if(!std::isfinite(acc))throw std::runtime_error("native exponential ramp series overflow");
+            const auto reciprocal=quotient(1.f,acc,"series");
+            // ADDq.x/y/z write 0+Q, MULq.w writes 1*Q; SUB.xyz then takes vf23 - vf12.
+            const auto value=lane<3?pairSum(one[lane],-pairSum(0.f,reciprocal)):pairProduct(1.f,reciprocal);
+            auto scaled=pairProduct(scale[lane],value);if(!std::isfinite(scaled))throw std::runtime_error("native exponential ramp output overflow");
+            if(scaled>scale[0])scaled=scale[0];
+            // FTOI0: truncate toward zero, saturating.
+            out[lane]=scaled>=2147483648.f?0x7fffffffu:scaled<=-2147483648.f?0x80000000u:uint32_t(int32_t(scaled));
+        }
+    }
+    std::memcpy(c->r[4].uw,out,16);return true;
+}
+// Grid point, mod001 2e1a7c (block 2e1a7c). Before the loop 2e2190..2e2d90, LQC2
+// loads vf1 = SP+200, vf2 = SP+1f0, vf4 = s5+188f0 (2e215c..2e2164). Each pass:
+// LQC2 vf3 = SP+1e0 (2e2500), ACC = vf4 + vf0, ACC += vf1*vf3.x, vf10 = ACC +
+// vf2*vf3.y, SQC2 vf10 to SP+210 (2e2514). The loop writes none of the three
+// records, keeps s5/sp and calls no VU0 code (2f3a60, 2f3900, 2f39c0, 2c6b40,
+// 2f3b00), so the native store rereads them; overlapping records are refused.
+bool nativeGridPoint(R5900Context *c,Runtime *rt,uint32_t pc){
+    const bool rows=pc==0x2e215c || pc==0x2e2160 || pc==0x2e2164,body=pc==0x2e2500 || pc==0x2e2504 || pc==0x2e2508 || pc==0x2e250c;
+    if(!rows && !body && pc!=0x2e2514)return false;
+    if(!c)throw std::runtime_error("native grid point has no CPU record");
+    const auto stack=c->r[29].uw[0],field=c->r[21].uw[0]+0x188f0;
+    if(rows){const unsigned reg=pc==0x2e215c?10:pc==0x2e2160?9:8;const uint32_t expected=pc==0x2e215c?stack+0x200:pc==0x2e2160?stack+0x1f0:field;
+        if(c->r[reg].uw[0]!=expected)throw std::runtime_error("native grid point basis source mismatch");return true;}
+    if(body){if(pc==0x2e2500 && c->r[2].uw[0]!=stack+0x1e0)throw std::runtime_error("native grid point source mismatch");return true;}
+    if(c->r[2].uw[0]!=stack+0x210)throw std::runtime_error("native grid point destination mismatch");
+    const auto overlaps=[](uint32_t a,uint32_t an,uint32_t b,uint32_t bn){return (a&0x1fffffff)<(b&0x1fffffff)+bn && (b&0x1fffffff)<(a&0x1fffffff)+an;};
+    if(overlaps(field,16,stack+0x1e0,0x40))throw std::runtime_error("native grid point origin aliases its frame");
+    const auto vector=[&](uint32_t at,unsigned lanes){std::array<float,4> v{};std::memcpy(v.data(),record(rt,at,16),16);for(unsigned i=0;i<lanes;++i)v[i]=vu0Input(v[i]);return v;};
+    const auto u=vector(stack+0x200,4),v=vector(stack+0x1f0,4),origin=vector(field,4),point=vector(stack+0x1e0,2);
+    std::array<float,4> out;
+    {music::NearestRounding rounding;
+        for(unsigned i=0;i<4;++i){
+            auto acc=pairSum(origin[i],i==3?1.f:0.f);acc=pairSum(acc,pairProduct(u[i],point[0]));out[i]=pairSum(acc,pairProduct(v[i],point[1]));
+            if(!std::isfinite(out[i]))throw std::runtime_error("native grid point overflow");
+        }
+    }
+    std::memcpy(record(rt,stack+0x210,16),out.data(),16);return true;
 }
 // Object matrix composition, mod003 39f0d0: when s0+290 bit 0 (B = s0+210)
 // and/or bit 1 (B = s0+250, the rotation 39f300 publishes) is set, the
@@ -2811,6 +2936,9 @@ bool nativeMathInstruction(uint8_t *,R5900Context *c,Runtime *rt,uint32_t pc){
     if(nativeObjectCompose(c,rt,pc))return true;
     if(nativeCameraProjection(c,rt,pc))return true;
     if(nativeFlareProjection(c,rt,pc))return true;
+    if(nativePairProjection(c,rt,pc))return true;
+    if(nativeExponentialRamp(c,rt,pc))return true;
+    if(nativeGridPoint(c,rt,pc))return true;
     if(pc==0x38011c || pc==0x380124 || pc==0x380154 || pc==0x38015c || pc==0x380160 || pc==0x380164){
         if(!c || c->pc!=0x380118 || c->r[31].uw[0]!=0x380118)throw std::runtime_error("native movement rotation escaped scalar quaternion builder");
         const auto stack=c->r[29].uw[0];

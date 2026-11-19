@@ -38,6 +38,7 @@
 #include "native_frame_filter.h"
 #include "native_frame_copy.h"
 #include "native_dof.h"
+#include "native_haze.h"
 #include "native_feedback.h"
 #include "native_particles.h"
 #include "native_particle_draws.h"
@@ -71,7 +72,7 @@ class StrictHost final : public bozo::ee::Host,public vp2s::TimerOwner,public vp
     public vp2s::AssetOwner,public vp2s::DebugFontOwner,public vp2s::StateSetupOwner,public vp2s::ScreenRectOwner,public vp2s::CaptureFadeOwner,public vp2s::ScreenZoomOwner,public vp2s::UiTextOwner,
     public vp2s::UiSpriteOwner,public vp2s::MediaBufferOwner,public vp2s::ModelOwner,public vp2s::FrameFilterOwner,public vp2s::MusicOwner,
     public vp2s::UiWindowOwner,public vp2s::LoadProgressOwner,public vp2s::MotionOwner,public vp2s::FrameCopyOwner,public vp2s::DofOwner,public vp2s::FeedbackOwner,public vp2s::SquadOwner,
-    public vp2s::ParticleOwner,public vp2s::ParticleUpdateOwner,public vp2s::ParticleDrawOwner,public vp2s::ProceduralOwner,public vp2s::ProceduralDrawOwner,public vp2s::DepthBlurOwner,public vp2s::DepthProbeOwner {
+    public vp2s::ParticleOwner,public vp2s::ParticleUpdateOwner,public vp2s::ParticleDrawOwner,public vp2s::ProceduralOwner,public vp2s::ProceduralDrawOwner,public vp2s::DepthBlurOwner,public vp2s::DepthProbeOwner,public vp2s::HazeOwner {
 public:
     vp2s::NativeProceduralDraws proceduralDraws;
     vp2s::NativeProceduralDraws &nativeProceduralDraws()override{return proceduralDraws;}
@@ -133,6 +134,7 @@ public:
                 static_cast<unsigned long long>(native.framesEnded()),effect.width,effect.height,effect.gain,effect.blocks.size(),effect.glowA,effect.glowThreshold*255.f,effect.glowWeight*128.f,
                 effect.glowTaps.size(),effect.glowWidth,effect.glowHeight,effect.glowLevelGain,effect.glowHorizontal,effect.glowVertical,effect.glareB,effect.glareThreshold*255.f,effect.glareIn,effect.glareOut*128.f,effect.glareWork,effect.glareRows,effect.glareCorners.size());
         vp2s::drawDof(effect);}
+    void drawNativeHaze(const vp2s::NativeHaze &haze)override{flushDeferredModels();vp2s::drawHaze(haze);}
     vp2s::NativeFeedbackCopies feedbackCopies;
     vp2s::NativeFeedbackCopies &nativeFeedbackCopies()override{return feedbackCopies;}
     void drawNativeFeedbackCopy(const vp2s::NativeFeedbackCopy &copy)override{flushDeferredModels();vp2s::drawFeedbackCopy(copy);}
@@ -627,6 +629,7 @@ bool dispatchNativeInstruction(uint8_t *ram,R5900Context *ctx,Runtime *rt,uint32
     if(auto handled=vp2s::nativeFrameFilterInstruction(ctx,rt,pc))return *handled;
     if(auto handled=vp2s::nativeFrameCopyInstruction(ctx,rt,pc))return *handled;
     if(auto handled=vp2s::nativeDofInstruction(ctx,rt,pc))return *handled;
+    if(auto handled=vp2s::nativeHazeInstruction(ctx,rt,pc))return *handled;
     if(auto handled=vp2s::nativeFeedbackInstruction(ctx,rt,pc))return *handled;
     if(auto handled=vp2s::nativeParticleInstruction(ctx,rt,pc))return *handled;
     if(auto handled=vp2s::nativeUiSpriteInstruction(ctx,rt,pc))return *handled;

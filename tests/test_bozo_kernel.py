@@ -559,6 +559,7 @@ class KernelGuardTests(unittest.TestCase):
             '002d934c 0c0807c8 0c0b64c4',
             '00205a9c 0c0807c8 0c081698',
             '0022f15c 0c0807c8 0c08bc48',
+            '002e0b8c 0c0807c8 0c0b82d4',  # haze enqueue enters its completion 2e0b50
             '00247698 0c0807c8 0c091d8c',
             '0022ee50 1a600009 10000009',
             '0022f048 1a600009 10000009',

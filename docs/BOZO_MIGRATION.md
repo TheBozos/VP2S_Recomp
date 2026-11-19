@@ -12,6 +12,70 @@ The earlier VP2S face/shading and general brightness comparisons remain open.
 
 ## Build and evidence
 
+### Lost Forest haze, native (2026-11-19)
+
+Object `5ba2c0` (class `15a020`) is the forest's atmospheric haze. PCSX2 shows
+it inside the forest as a strong reddish veil with light shafts. The game builds
+it in mod001 `2dfeb8..2e31f8` and draws it as GS passes over 64x128 tiles
+(VIF1 chain from `+100`):
+
+1. The Z24 buffer is copied tile by tile into a scratch image, then reshuffled
+   through 16-bit views: blue = Z bits 16..23, doubled five times with clamping,
+   plus 0x10·Ad/128, where alpha holds Z bits 15..14 when bit 15 is set. Natively
+   this is `hazeRampIndex(z)`, a pure function of Z >> 14 that saturates at 255
+   from Z ≥ 2^19.
+2. The scratch is read back as 8-bit texels through a CLUT. The CLUT is the
+   256-entry exponential ramp `+134c4` that `2df060` builds; the game pre-swizzles
+   it for CSM1, so lookup k gives `table[k]`.
+3. A VU1 program (uploaded at `0x6e0`; `MSCAL 1050`, `MSCALF d88`/`1048`) builds
+   per tile a 3x5 vertex grid (32 px cells) from the tile records
+   (`+13940 + row*0x1400 + col*0x200`: screen origin/step, world base and
+   column/row steps). Each vertex gets an in-scattering colour. The final strips
+   texture the ramp image modulated by that colour, then ALPHA 9:
+   out = T.rgb·V/128 + scene·T.a/128.
+
+The vertex colour, decoded from the VU1 path that the flags select (`8.x` = 0,
+`11.y` = 0, `11.z` = 1; constants block `+18b30`). With r = point − camera
+(qword 2) and L the light direction (qword 1):
+- cos = max(r·L/|r|, L.w)
+- s = |r.y|/|r|
+- S = (q4·7.x(1+cos²) + q5·7.y/(7.z + 7.w·cos)^1.5)·q3
+- colour = min(255, 128·S·max(1 + q9·exp(q10/(q10+s)), 0)), alpha 0x80
+
+ERLENG is the reciprocal length. FMAND (shown with a wrong immediate by
+`vu_disasm.py`) is MAC & vi02: exp of a negative argument is 1/exp(|x|). A
+scratchpad analysis interpreter of the program confirms the formula exactly on
+451 captured vertices with an injected light colour, and on 6 synthetic cases.
+
+Native: the enqueue `2e0b70`'s call becomes the class completion `2e0b50`
+(patch `2e0b8c`). The delay slot `2e0b90` draws one frame-sized grid with the
+engine's new `depthColours` lookup (64 RGBA entries by Z >> 14, BozoEngine
+PR #108) and `DestinationBySource`. No transfer is queued, and no GS register or
+packet word is read. Admitted:
+- 24-bit Z (format `0x31`) at shift 5;
+- ramp alpha ≤ 0x80;
+- 128-pixel tile rows covering the frame, and 2x5 tile grids at 32 px.
+
+Anything else is refused. The haze test covers:
+- all 2^24 depth indices against a step-by-step transcription of the GS passes;
+- 6 vertex colours (all exact);
+- 4 rejections.
+The kernel signatures gained the patch line, and source guards cover
+`2df060`, `2dfeb8`, `2e1a7c`, `2e0b50` and `2e0b70`.
+
+In this entry frame the light colour (q3) is zero, so the tint is zero and only
+the ramp attenuates. The forest's first haze frames fall during the black
+transition (frames ~54260+), so there is no visual comparison yet.
+
+Route: from `build_usa/states/forest_54270.state` (private), the haze passes
+at 54281 and the run stops at class `1597e0`'s kick `2b5ad0` (normal-mode
+VIF1 of `+a0`, QWC `+9c`; enqueue `2b5b30`, completion `2b5b10`). All 90
+suites pass.
+
+Capture note: denser `VP2S_BOZO_CAPTURE_EVERY` makes the fade at 54200 darker
+(75 / 50 / 14 mean for every 100 from 54000 / every 10 / every 100 from 54200).
+Runs with the same capture settings are identical. Not investigated yet.
+
 ### Lost Forest entry: three mod001 VU0 sites (2026-11-19)
 
 The pad script now presses CROSS at 54100, 54500 and 55000 on the world map to

@@ -677,6 +677,13 @@ def overlay_adaptations(name,data):
         (0x2dbd90,0x2dbdac,'e6e81f90b768228012c77b0ff794a4068ceb0187abc59dc45364159a238dd8ae'),
         (0x2dbdb0,0x2dbde0,'d75aad57b1cf26127f35bdf8a0eec8259d79c6b1cb8cbbabe269467dac4546ef'),
         (0x2d9330,0x2d9360,'d75aad57b1cf26127f35bdf8a0eec8259d79c6b1cb8cbbabe269467dac4546ef'),
+        # Lost Forest haze 15a020: ramp 2df060, area builder 2dfeb8, tile grid 2e1a7c,
+        # completion 2e0b50 and the enqueue 2e0b70 whose call becomes that completion.
+        (0x2df060,0x2df3c0,'4c4d34a8b67d0328191505f4e15fc2c969b7318e978614ae15536b3201881769'),
+        (0x2dfeb8,0x2e0b04,'91c3cb5693c2fbcc22cb8af007b763022931daee0538a7c7b821f05b33e70fe3'),
+        (0x2e1a7c,0x2e31fc,'0f3cd67db8bf217d8d72ee023e7712e76c19cf65cffe76ce2bcf1e78c1b59c08'),
+        (0x2e0b50,0x2e0b6c,'e6e81f90b768228012c77b0ff794a4068ceb0187abc59dc45364159a238dd8ae'),
+        (0x2e0b70,0x2e0ba0,'d75aad57b1cf26127f35bdf8a0eec8259d79c6b1cb8cbbabe269467dac4546ef'),
         (0x2d9360,0x2da9a8,'41fef5550eda7e9b62d9c20827b3e5e86c3b82b7f4c0061f80ddb90612845297'),
         (0x2cd020,0x2d18d4,'618be48d56debcac8ef3fd9d80ae23483f060a7939fc8d450772d444e91e7d61'),
         (0x2d9310,0x2d932c,'e6e81f90b768228012c77b0ff794a4068ceb0187abc59dc45364159a238dd8ae'),
@@ -908,6 +915,8 @@ def overlay_adaptations(name,data):
             '002d934c 0c0807c8 0c0b64c4\n'
             '00205a9c 0c0807c8 0c081698\n'
             '0022f15c 0c0807c8 0c08bc48\n'
+            # Lost Forest haze: drawn natively at 2e0b90, then its real completion.
+            '002e0b8c 0c0807c8 0c0b82d4\n'
             '00247698 0c0807c8 0c091d8c\n'
             # Explicit particle records are already published synchronously.
             # Remove both device polls, without fabricating completion bits.

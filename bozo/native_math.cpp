@@ -2348,14 +2348,14 @@ constexpr ParticleSite particleSites409700[]={
 struct ParticleState{uint32_t dt=0;bool step=false;VuWords position{},velocity{},result{};uint8_t have=0;};
 ParticleState &particleState(const Runtime *rt){static std::map<const Runtime *,ParticleState> states;return states[rt];}
 bool nativeParticleStep(R5900Context *c,Runtime *rt,uint32_t pc){
-    constexpr uint32_t kCopy=0x38d900-0x3652d0;
+    // Byte-identical copies of 3652d0: 38d900 (+28630) and the forest emitter 44b8f0 (+e6620).
+    constexpr uint32_t kCopies[]={0,0x38d900-0x3652d0,0x44b8f0-0x3652d0};
     if(!rt)return false;
     const ParticleSite *site=nullptr;
     if(pc>=0x409780 && pc<=0x409e34){for(const auto &s:particleSites409700)if(s.pc==pc)site=&s;}
     else{
-        const uint32_t listed=pc>=0x365350+kCopy && pc<=0x365914+kCopy?pc-kCopy:pc;
-        if(listed<0x365350 || listed>0x365914)return false;
-        for(const auto &s:particleSites)if(s.pc==listed)site=&s;
+        for(const auto copy:kCopies){const uint32_t listed=pc-copy;
+            if(listed>=0x365350 && listed<=0x365914)for(const auto &s:particleSites)if(s.pc==listed)site=&s;}
     }
     if(!site)return false;
     uint32_t word=0;if(const auto *p=rt->memory.hostPointer(pc,4))std::memcpy(&word,p,4);
@@ -2388,7 +2388,8 @@ struct ParticleBoxState{bool loaded=false,included=false;uint32_t frame=0,emitte
 ParticleBoxState &particleBoxState(const Runtime *rt){static std::map<const Runtime *,ParticleBoxState> states;return states[rt];}
 bool nativeParticleBox(R5900Context *c,Runtime *rt,uint32_t pc){
     struct Box{uint32_t load,min,max,frameOffset;};
-    constexpr Box boxes[]={{0x364a84,0x364ac4,0x364ac8,0x40},{0x38cfec,0x38d010,0x38d018,0}};
+    // A third, 44aef0 (the forest emitter class; frame 0x40 as 3649f0).
+    constexpr Box boxes[]={{0x364a84,0x364ac4,0x364ac8,0x40},{0x38cfec,0x38d010,0x38d018,0},{0x44af7c,0x44afa4,0x44afa8,0x40}};
     constexpr uint32_t words[3]={0xd8c10000,0x4bc1d6af,0x4bc1deeb};
     const Box *box=nullptr;unsigned role=0;
     for(const auto &b:boxes){if(pc==b.load){box=&b;role=0;}else if(pc==b.min){box=&b;role=1;}else if(pc==b.max){box=&b;role=2;}}

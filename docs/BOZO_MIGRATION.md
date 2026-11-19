@@ -33,6 +33,46 @@ refusal message now names the class, mode, `+b04`, index and `+af9`.
 Porting mode 6 means transcribing image 9's point path, as was done for
 image 6. It is not started.
 
+**Mode 6, ported.** Image 9 differs from image 6 only in its corner geometry.
+Colour (point colour × the kind's tint, MINI 255), the eye-space point (rows
+77..80), the projection (52..55), the guard test (56..59; FCAND turns any
+corner outside into ADC on that triangle) and the 4-corner strip are the same.
+- The record reads (ax +32, ay +36, scale +40, kind +44).
+- Each corner (x, y, z), with z from the shape rows +8 / +24, turns by ax in
+  x/y with a uniform scale, then by ay: y' = cos(ay) y and z' = sin(ay) y +
+  cos(ay) z. The program's row for z in y is vf00.y = 0, so y has no z term.
+- ax/ay add VU row 37 (header +260/+264): the camera angles when emitter +afb /
+  +afc is set. That part is not ported; either flag refuses.
+
+The producer admits mode 6 (same chunk path). The forest emitter class also
+needed:
+- its motion step `44b8f0`: a byte-identical copy of `3652d0` at +e6620, now in
+  the copy list with `38d900`;
+- its bounds box `44aef0`: 3649f0's three box words at `44af7c`/`44afa4`/
+  `44afa8`, frame 0x40.
+Both have source guards.
+
+**Haze, shift 8 and a finer grid.** Deeper in the forest the haze runs with
+shift 8. The shared builder `2c5580` then emits 8 doubling sprites and an add of
+0x80·Ad/128 with all of blue writable. In general: shift doublings, add
+2^(shift-1)·Ad/128 into the low shift bits of blue. So for shift 8 every Z ≥
+2^16 is 255 and below that the index is 0, 0x80 or 0xc0. `hazeRampIndex(z,
+shift)` admits the observed 5 and 8. The tile records then hold a 4x8 grid of
+16 px cells instead of 2x4 at 32. The grid is now cells x, (y-1) cells down, and
+must fill 64x128.
+
+Tests:
+- particle draws: a mode-6 point checked to the corner, plus the refusal for
+  camera offsets;
+- math: the step's 44b8f0 copy (32 of 192 cases);
+- particles: the third box;
+- haze: shift 8 against the step-by-step GS transcription;
+- all 91 suites pass.
+
+Route: from the private `forest_60300` state it walks on into the next area
+(black transition). It stops at the DOF's "glare-before-glow order" refusal
+(`2da980`).
+
 ### Forest minimap: line meshes, off-centre camera (2026-11-19)
 
 The minimap is a native model, object `eeb2d0` (class `1546d0`), with seven

@@ -175,6 +175,15 @@ int main(int argc,char **argv){try{
             const auto first=batch.vertices[0];put(rt,(seed&1?0x210000u:0x200000u)+0x40,99.f);check(batch.vertices[0].x==first.x && batch.vertices[0].rgba==first.rgba);vertices+=batch.vertices.size();}
         ++cases;
     }
+    // Mode 6 (VU1 image 9): the record's +32 ax 0, +36 ay .5, +40 scale 1; shape z .1 / .3.
+    // Corners: x' = x, y' = cos(ay) y, z' = .5 + sin(ay) y + cos(ay) z (no z term in y).
+    {initialize(rt,scene,assets,1);put(rt,object+0xaff,uint8_t(6));put(rt,kinds+0xc0+8,.1f);put(rt,kinds+0xc0+24,.3f);
+     const auto tilted=draws.capture(&rt,assets,textures,scene,particles,object);check(tilted.batches.size()==1 && tilted.batches[0].vertices.size()==6);
+     const unsigned strip[]={0,1,2,1,3,2};const float xs[2]={-.25f,.25f},ys[2]={-.25f,.25f},zs[2]={.1f,.3f};
+     for(unsigned j=0;j<6;++j){const auto k=strip[j];const auto &v=tilted.batches[0].vertices[j];
+        check(std::abs(v.x-xs[k&1])<1.e-6f && std::abs(v.y-std::cos(.5f)*ys[k>>1])<1.e-6f && std::abs(v.z-(.5f+std::sin(.5f)*ys[k>>1]+std::cos(.5f)*zs[k>>1]))<1.e-6f);}
+     // Camera angle offsets (+afb / +afc) are not ported.
+     put(rt,object+0xafb,uint8_t(1));bool refused=false;try{draws.capture(&rt,assets,textures,scene,particles,object);}catch(const std::runtime_error &){refused=true;}check(refused);}
     for(unsigned which=0;which<28;++which){initialize(rt,scene,assets,1);particles=vp2s::NativeParticles{};constexpr uint32_t chunk=0x210020,point=chunk+32;
         if(which==0)put(rt,object,uint32_t(0));else if(which==1)put(rt,object+0xaff,uint8_t(2));else if(which==2)put(rt,object+0xb04,uint8_t(1));
         else if(which==3)put(rt,current+0x40dd,uint8_t(0));else if(which==4)put(rt,object+0xabc,uint32_t(2));else if(which==5)put(rt,chunk+0x10,uint32_t(49));else if(which==6)put(rt,chunk+0x18,uint32_t(2));

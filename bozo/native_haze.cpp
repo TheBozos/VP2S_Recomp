@@ -14,7 +14,8 @@ std::array<float,4> quad(Runtime *rt,uint32_t at){return value<std::array<float,
 float finite(float v){if(!std::isfinite(v) || std::abs(v)>1.e12f)throw std::runtime_error("unqualified native haze input");return v;}
 constexpr uint32_t kClass=0x15a020,kNode=0x15a09c;
 }
-unsigned hazeRampIndex(uint32_t z){
+unsigned hazeRampIndex(uint32_t z,unsigned shift){
+    if(shift<1 || shift>8)throw std::runtime_error("native haze shift outside 1..8");
     // Pass 1 copies the depth tile as colour (blue = Z bits 16..23, alpha 0).
     // Pass 2 views it as 16-bit pixels: sprites shifted by 8 columns copy each
     // pixel's low half onto its high half, bits 14..15 only, where bit 15 is set
@@ -22,10 +23,10 @@ unsigned hazeRampIndex(uint32_t z){
     // sprites double blue with clamping; one ALPHA 0x58 sprite adds 0x10 * Ad /
     // 128 to blue's low five bits. Pass 3 reads blue through the ramp.
     z&=0xffffff;const unsigned b=(z>>16)&0xff;
-    unsigned blue=std::min(255u,b<<5);
+    unsigned blue=std::min(255u,b<<shift);
     const unsigned alpha=(z&0x8000)?(0x80u|((z&0x4000)?0x40u:0u)):0u;
-    const unsigned sum=std::min(255u,blue+((0x10u*alpha)>>7));
-    return (blue&0xe0u)|(sum&0x1fu);
+    const unsigned mask=(1u<<shift)-1,sum=std::min(255u,blue+(((1u<<(shift-1))*alpha)>>7));
+    return (blue&~mask&0xffu)|(sum&mask);
 }
 uint32_t hazeVertexColour(const std::array<std::array<float,4>,25> &c,const std::array<float,4> &point){
     // VU1 1410/15f0, 17f8, 18c8 (the vertex pipelines one call behind; each
@@ -64,11 +65,11 @@ NativeHaze nativeHaze(Runtime *rt,const NativeScene &scene,uint32_t object){
         throw std::runtime_error(std::format("native haze size {}x{} differs from the frame {}x{}",width,height,haze.frame->width,haze.frame->height));
     // The packet's depth index assumes a 24-bit Z (0x31) read at shift 5.
     const int depthFormat=value<int16_t>(rt,value<uint32_t>(rt,object+0x94)+0x3c74),shift=value<uint8_t>(rt,object+0x18951);
-    if(depthFormat!=0x31 || shift!=5)throw std::runtime_error(std::format("unported native haze depth variant (format {:x}, shift {})",depthFormat,shift));
+    if(depthFormat!=0x31 || (shift!=5 && shift!=8))throw std::runtime_error(std::format("unported native haze depth variant (format {:x}, shift {})",depthFormat,shift));
     // The ramp (2df060's table), RGBA bytes; alpha above 0x80 has no native form.
     std::array<uint32_t,256> ramp;for(unsigned i=0;i<256;++i){ramp[i]=value<uint32_t>(rt,object+0x134c4+4*i);
         if((ramp[i]>>24)>0x80)throw std::runtime_error("native haze ramp alpha above 0x80");}
-    for(unsigned k=0;k<64;++k){const auto entry=ramp[hazeRampIndex(k<<14)];
+    for(unsigned k=0;k<64;++k){const auto entry=ramp[hazeRampIndex(k<<14,shift)];
         for(unsigned i=0;i<3;++i)haze.colours[4*k+i]=float((entry>>(8*i))&0xff)/255.f;haze.colours[4*k+3]=float(entry>>24)/128.f;}
     // The VU1 constants (25 qwords) and its branch flags.
     std::array<std::array<float,4>,25> constants;for(unsigned i=0;i<25;++i)constants[i]=quad(rt,object+0x18b30+16*i);
@@ -88,19 +89,22 @@ NativeHaze nativeHaze(Runtime *rt,const NativeScene &scene,uint32_t object){
         covered+=tileHeight;
         for(unsigned column=0;column<columns;++column){
             const uint32_t record=object+0x13940+row*0x1400+column*0x200;
-            if(value<uint32_t>(rt,record)!=2 || value<uint32_t>(rt,record+4)!=5)throw std::runtime_error("unported native haze tile grid");
+            // The cell grid: x cells across and (y - 1) cells down, each step px (2x4 at 32 at the
+            // entry, 4x8 at 16 deeper in); the VU1 row past the 128 rows is cut by the tile scissor.
+            const auto cellsX=value<uint32_t>(rt,record),cellsY=value<uint32_t>(rt,record+4)-1;
+            if(cellsX<1 || cellsX>16 || cellsY<1 || cellsY>16)throw std::runtime_error("unported native haze tile grid");
             const auto screen=quad(rt,record+16),step=quad(rt,record+32);
             if(!row && !column){x0=screen[0];y0=screen[1];}
-            if(screen[0]!=x0+64.f*float(column) || screen[1]!=y0+float(offset) || step[0]!=32 || step[1]!=32)
+            if(screen[0]!=x0+64.f*float(column) || screen[1]!=y0+float(offset) || step[0]*float(cellsX)!=64.f || step[1]*float(cellsY)!=128.f)
                 throw std::runtime_error("native haze tile outside its grid");
             const auto base=quad(rt,record+80),across=quad(rt,record+96),down=quad(rt,record+112);
-            uint32_t colour[3][5];
-            for(unsigned i=0;i<3;++i)for(unsigned j=0;j<5;++j){std::array<float,4> point;
+            uint32_t colour[17][17];
+            for(unsigned i=0;i<=cellsX;++i)for(unsigned j=0;j<=cellsY;++j){std::array<float,4> point;
                 for(unsigned l=0;l<3;++l)point[l]=finite(base[l])+float(i)*finite(across[l])+float(j)*finite(down[l]);point[3]=1;
                 colour[i][j]=hazeVertexColour(constants,point);}
-            const auto vertex=[&](unsigned i,unsigned j){bozo::render::Vertex v;v.x=originX+float(64*column+32*i);
-                v.y=originY+float(offset)+float(32*j);v.rgba=colour[i][j];return v;};
-            for(unsigned i=0;i<2;++i)for(unsigned j=0;j<4;++j)
+            const auto vertex=[&](unsigned i,unsigned j){bozo::render::Vertex v;v.x=originX+float(64*column)+step[0]*float(i);
+                v.y=originY+float(offset)+step[1]*float(j);v.rgba=colour[i][j];return v;};
+            for(unsigned i=0;i<cellsX;++i)for(unsigned j=0;j<cellsY;++j)
                 for(const auto &[a,b]:{std::pair{i,j},std::pair{i+1,j},std::pair{i,j+1},std::pair{i+1,j},std::pair{i+1,j+1},std::pair{i,j+1}})
                     haze.vertices.push_back(vertex(a,b));
         }

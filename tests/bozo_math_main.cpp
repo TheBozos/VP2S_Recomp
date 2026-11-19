@@ -1796,7 +1796,7 @@ int main(int argc,char **argv){try{
         ++setupCases;
     }
     std::printf("%u particle draw-setup blocks (a*b+c after b, a*b) match the VU0 oracle\n",setupCases);
-    // Particle step (mod003 3652d0 and its copy 38d900): the game's site words at their addresses; four
+    // Particle step (mod003 3652d0 and its copies 38d900, 44b8f0): the game's site words at their addresses; four
     // loop variants, dt from v1 or s1, two stores per particle, out-of-order rejects.
     unsigned particleCases=0;
     {struct Variant{uint32_t q,p,v,a,m,s1,s2;};
@@ -1818,7 +1818,8 @@ int main(int argc,char **argv){try{
      const auto field=[](uint32_t w,unsigned shift){return (w>>shift)&31;};
      for(unsigned seed=0;seed<192;++seed){
         const bool third=seed>=128;
-        const uint32_t k=seed>=64 && !third?0x38d900-0x3652d0:0;   // the 38d900 copy: every site shifted
+        // The 38d900 copy (seeds 64..95) and the forest emitter's 44b8f0 copy (96..127): every site shifted.
+        const uint32_t k=seed>=64 && !third?(seed>=96?0x44b8f0-0x3652d0:0x38d900-0x3652d0):0;
         auto &r=native.runtime();std::memset(r.memory.flat(),0x5c+seed,bozo::kFlatBytes);
         if(third){for(const auto &[pc,w]:words409700)std::memcpy(r.memory.hostPointer(pc,4),&w,4);}
         else for(const auto &[pc,w]:words)std::memcpy(r.memory.hostPointer(pc+k,4),&w,4);

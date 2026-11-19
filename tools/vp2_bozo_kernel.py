@@ -399,6 +399,10 @@ def overlay_adaptations(name,data):
                                (0x4338a8,0x43395c,'4ad9586ba1652999a9925489b494a6de55165745a2bd84443f2880bfb536d0a4'),
                                # Particle step copy 38d900 (3652d0's VU0 sites +0x28630, strides x4/x32).
                                (0x38d900,0x38df90,'e92fd43817328c8624afdcf10fa7bc10c482e30d14cac8e0a6737879d1789c4b'),
+                               # Particle box 44aef0 (the forest emitter class; 3649f0's three box words).
+                               (0x44aef0,0x44b168,'d74fd89c4aa18e4cbcd84901ec1eb10355fa93b697f1b800312d18f47753e47f'),
+                               # Particle step copy 44b8f0 (the forest emitter; 3652d0's words at +e6620).
+                               (0x44b8f0,0x44bf68,'a25e6e8d237ead5f043d1a4eab883a371814431d874b7b7a98468ba30a12b999'),
                                # Particle step 409700 (a third class; same VU0 words, own layout).
                                (0x409700,0x409e88,'6ba21b22c83e0df61b32912a1a1090647f90a9ade092a83fabee1d65b8fbc1fd'),
                                # Trail emitter 40b080 (every VU0 site native: nativeTrailEmitter).

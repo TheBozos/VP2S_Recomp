@@ -19,7 +19,7 @@ bool overlaps(uint8_t *a,size_t na,uint8_t *b,size_t nb){const auto x=reinterpre
 }
 void NativeParticles::begin(Runtime *rt,R5900Context *c){
     const auto stack=c->r[29].uw[0],object=c->r[21].uw[0],index=c->r[30].uw[0];auto *frame=record(rt,stack,0x160),*owner=record(rt,object,0xb10);
-    if(c->pc!=0x22eadc || word(owner,0)!=0x154180 || owner[0xaff]!=3 || owner[0xb04] || index>1 || owner[0xaf9]!=index)
+    if(c->pc!=0x22eadc || word(owner,0)!=0x154180 || (owner[0xaff]!=3 && owner[0xaff]!=6) || owner[0xb04] || index>1 || owner[0xaf9]!=index)
         throw std::runtime_error(std::format("unqualified native particle producer (object {:x} class {:x} mode {} b04 {} index {} af9 {})",object,word(owner,0),owner[0xaff],owner[0xb04],index,owner[0xaf9]));
     const auto first=NativeAssets::address(word(owner,0xaa0)),second=NativeAssets::address(word(owner,0xaa4));
     if(second<=first || second-first<0x20 || second-first>0x1000000)throw std::runtime_error("invalid native particle buffer halves");
@@ -37,7 +37,7 @@ void NativeParticles::publish(Runtime *rt,R5900Context *c,NativeAssets &assets){
     auto &build=it->second;auto *owner=record(rt,build.object,0xb10),*frame=record(rt,stack,0x160);
     const auto source=c->r[16].uw[0],count=c->r[2].uw[0],group=c->r[18].uw[0],qwords=c->r[5].uw[0];
     const auto span=build.limit-build.base,first=build.base-build.index*span;
-    if(build.pending || c->r[21].uw[0]!=build.object || word(owner,0)!=0x154180 || owner[0xaff]!=3 || word(owner,0xa90)!=build.emitter ||
+    if(build.pending || c->r[21].uw[0]!=build.object || word(owner,0)!=0x154180 || (owner[0xaff]!=3 && owner[0xaff]!=6) || word(owner,0xa90)!=build.emitter ||
        c->r[30].uw[0]!=build.index || owner[0xaf9]!=build.index || owner[0xb04] ||
        NativeAssets::address(word(owner,0xaa0))!=first || NativeAssets::address(word(owner,0xaa4))!=first+span ||
        source!=bozo::kScratchpadBase+(build.chunks&1?0xa00:0) || c->r[19].uw[0]!=build.chunks+1 ||

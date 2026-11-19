@@ -170,6 +170,12 @@ int main(){try{
         const auto leaf=now.particles.bounds(frame,0x190000);
         check(leaf.minimum[0]==-4 && leaf.maximum[0]==5 && leaf.minimum[1]==-3 && leaf.maximum[1]==7 && leaf.maximum[2]==2.5f);
         m.r[29].uw[0]=frame-0x40;order=false;try{math(0x38cfec);}catch(const std::runtime_error &){order=true;}check(order);   // wrong frame
+        // 44aef0 (forest emitter class): the same words at 44af7c/44afa4/44afa8, frame 0x40 as 3649f0.
+        for(const auto &[pc,w]:{std::pair{0x44af7cu,0xd8c10000u},{0x44afa4u,0x4bc1d6afu},{0x44afa8u,0x4bc1deebu}})write(rt,pc,w);
+        m.r[29].uw[0]=frame-0x40;m.r[4].uw[0]=0x190000;write(rt,0x1d0000,std::array<float,4>{0,11,-1,9});
+        check(math(0x44af7c) && math(0x44afa4) && math(0x44afa8));
+        const auto third=now.particles.bounds(frame,0x190000);
+        check(third.minimum[0]==-4 && third.maximum[1]==11 && third.minimum[2]==-1 && third.maximum[0]==5);
         now.particles=vp2s::NativeParticles{};
     }
     // mod003 40b080, the trail emitter: every VU0 site with the game's word at its address. A

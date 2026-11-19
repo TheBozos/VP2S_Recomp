@@ -49,7 +49,7 @@ const NativeParticleDraws::Material &NativeParticleDraws::material(const AssetOr
 NativeModelSubmission NativeParticleDraws::capture(Runtime *rt,NativeAssets &assets,NativeTextures &textures,const NativeScene &scene,const NativeParticles &particles,uint32_t object){
     music::CodecRounding arithmetic;particles.validateDraw(object);auto *owner=record(rt,object,0xb10);
     const auto camera=scene.drawingCamera();const auto target=scene.frameTarget();const auto current=word(rt,0x35ddf8);const unsigned layer=owner[0x65];
-    if(!camera || !target || layer>1 || word(rt,current+0x40a8+4*layer)!=object || *rt->memory.hostPointer(current+0x40dc+layer,1)!=1 || !owner[0x63] || value<uint32_t>(owner,0)!=0x154180 || owner[0xaff]!=3 || owner[0xb04] || owner[0xaf9]>1)
+    if(!camera || !target || layer>1 || word(rt,current+0x40a8+4*layer)!=object || *rt->memory.hostPointer(current+0x40dc+layer,1)!=1 || !owner[0x63] || value<uint32_t>(owner,0)!=0x154180 || (owner[0xaff]!=3 && owner[0xaff]!=6) || owner[0xb04] || owner[0xaf9]>1)
         throw std::runtime_error("native particle draw has no admitted scene/point owner");
     const auto first=NativeAssets::address(value<uint32_t>(owner,0xaa0)),second=NativeAssets::address(value<uint32_t>(owner,0xaa4));
     if(second<=first || second-first<0x20 || second-first>0x1000000)throw std::runtime_error("native particle draw buffer halves invalid");
@@ -87,6 +87,12 @@ NativeModelSubmission NativeParticleDraws::capture(Runtime *rt,NativeAssets &ass
     for(float coefficient:batch.matrix)if(!std::isfinite(coefficient))throw std::runtime_error("native particle screen transform overflow");
     const auto colour=value<std::array<float,4>>(owner,0x300),limit=value<std::array<float,4>>(owner,0x230);const auto identity=value<uint32_t>(owner,0x310);
     if(identity>1)throw std::runtime_error("unported native particle lighting mode");if(!identity)for(unsigned i=0;i<4;++i){number(colour[i]);number(limit[i]);if(colour[i]<0 || limit[i]<0 || limit[i]>255)throw std::runtime_error("native particle colour/limit invalid");}
+    // Mode 6 selects VU1 image 9 (table 3141a0 entry 9 via 22ddf0: mode + 3) instead of 6:
+    // the point record reads (ax, ay, scale, kind); see the corner loop. Its angle offsets
+    // (VU row 37 = header +260/+264, the camera angles when emitter +afb / +afc) are not
+    // ported: with either flag set the draw refuses.
+    const bool tilted=owner[0xaff]==6;
+    if(tilted && (owner[0xafb] || owner[0xafc]))throw std::runtime_error("unported native particle mode 6 camera angle offsets");
     // VU1 0x6e0 kicks every point once per pass: pass p draws kind + p with ALPHA variant p,
     // all points of a pass before the next pass.
     for(unsigned pass=0;pass<m.passes;++pass){
@@ -111,7 +117,17 @@ NativeModelSubmission NativeParticleDraws::capture(Runtime *rt,NativeAssets &ass
                 if(!identity)channel=std::clamp(channel*colour[i],0.f,limit[i]);channel=std::min(channel*tint,255.f);
                 const int32_t fixed=channel<=-2147483648.f?INT32_MIN:int32_t(channel);rgba|=(uint32_t(fixed)&0xffu)<<(8*i);}
             bozo::render::Vertex corners[4];bool outside[4];
-            for(unsigned i=0;i<4;++i){auto &out=corners[i];out.x=eye[0]+c*sx*x[i&1]+s*sy*y[i>>1];out.y=eye[1]-s*sx*x[i&1]+c*sy*y[i>>1];out.z=eye[2];out.u=u[i&1];out.v=v[i>>1];out.rgba=rgba;
+            // Image 9 (mode 6): +32 ax, +36 ay, +40 a uniform scale. Each corner (x, y, z),
+            // z from the shape rows (+8 / +24), turns by ax in x/y (scaled), then by ay:
+            // y' = cos(ay) y, z' = sin(ay) y + cos(ay) z (the program's row for z in y is
+            // vf00.y = 0), all added to the eye-space point (VU 0b18..0c88).
+            const float z[2]={tilted?number(value<float>(shape,8)):0.f,tilted?number(value<float>(shape,24)):0.f};
+            const float ca=std::cos(sx),sa=std::sin(sx);
+            for(unsigned i=0;i<4;++i){auto &out=corners[i];
+                if(tilted){const float px=sy*(c*x[i&1]+s*y[i>>1]),py=sy*(-s*x[i&1]+c*y[i>>1]);
+                    out.x=eye[0]+px;out.y=eye[1]+ca*py;out.z=eye[2]+sa*py+ca*z[i>>1];}
+                else{out.x=eye[0]+c*sx*x[i&1]+s*sy*y[i>>1];out.y=eye[1]-s*sx*x[i&1]+c*sy*y[i>>1];out.z=eye[2];}
+                out.u=u[i&1];out.v=v[i>>1];out.rgba=rgba;
                 for(float f:{out.x,out.y,out.z,out.u,out.v})if(!std::isfinite(f))throw std::runtime_error("native particle vertex overflow");
                 const auto clip=transform(camera->guard,{out.x,out.y,out.z,1});outside[i]=std::abs(clip[0])>std::abs(clip[3]) || std::abs(clip[1])>std::abs(clip[3]) || std::abs(clip[2])>std::abs(clip[3]);}
             for(const auto triangle:{std::array<unsigned,3>{0,1,2},std::array<unsigned,3>{1,3,2}})if(!outside[triangle[0]] && !outside[triangle[1]] && !outside[triangle[2]])for(auto i:triangle)batch.vertices.push_back(corners[i]);

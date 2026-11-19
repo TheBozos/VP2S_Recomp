@@ -12,15 +12,15 @@
 namespace {
 void check(bool v,std::source_location at=std::source_location::current()){if(!v)throw std::runtime_error("haze assertion at "+std::to_string(at.line()));}
 // The GS passes as byte operations, step by step (independent of hazeRampIndex).
-unsigned gsIndex(uint32_t z){
+unsigned gsIndex(uint32_t z,unsigned shift=5){
     uint8_t blue=uint8_t(z>>16),alpha=0;                     // pass 1: Z24 copied as colour, TEXA alpha 0
     const uint16_t low=uint16_t(z),high=uint16_t(blue|alpha<<8);
     uint16_t written=high;
     if(low&0x8000)written=uint16_t((high&0x3fff)|(low&0xc000)); // pass 2: As 0x80 copies bits 14..15 (FBMSK 0x3fff)
     blue=uint8_t(written);alpha=uint8_t(written>>8);
-    for(int i=0;i<5;++i)blue=uint8_t(std::min(255,2*blue));   // ALPHA 0x49 (Cd*As + Cd, As 0x80), clamped
-    const unsigned added=std::min(255u,unsigned(blue)+((0x10u*alpha)>>7)); // ALPHA 0x58 (Cs*Ad + Cd)
-    return (blue&0xe0u)|(added&0x1fu);                       // FBMSK: blue's low five bits only
+    for(unsigned i=0;i<shift;++i)blue=uint8_t(std::min(255,2*blue));   // ALPHA 0x49 (Cd*As + Cd, As 0x80), clamped
+    const unsigned added=std::min(255u,unsigned(blue)+((0x10u<<(shift-5)>>0)*alpha>>7)); // ALPHA 0x58 (Cs*Ad + Cd), Cs = 2^(shift-1)
+    const unsigned mask=(1u<<shift)-1;return (blue&~mask&0xffu)|(added&mask);   // FBMSK: blue's low shift bits only
 }
 }
 int main(){try{
@@ -30,6 +30,9 @@ int main(){try{
         for(uint32_t z=k<<14;z<(k+1)<<14;++z)check(vp2s::hazeRampIndex(z)==expected && gsIndex(z)==expected);}
     check(vp2s::hazeRampIndex(0)==0 && vp2s::hazeRampIndex(0x8000)==0x10 && vp2s::hazeRampIndex(0xc000)==0x18 && vp2s::hazeRampIndex(0x70000)==0xe0);
     check(saturated==1024-32);
+    // Shift 8 (deeper in the forest: 8 doublings, add 0x80 * Ad / 128, all of blue writable).
+    for(uint32_t k=0;k<1024;++k){const unsigned expected=gsIndex(k<<14,8);for(uint32_t z=k<<14;z<(k+1)<<14;z+=97)check(vp2s::hazeRampIndex(z,8)==expected);}
+    check(vp2s::hazeRampIndex(0,8)==0 && vp2s::hazeRampIndex(0x8000,8)==0x80 && vp2s::hazeRampIndex(0xc000,8)==0xc0 && vp2s::hazeRampIndex(0x10000,8)==255);
     // Vertex colours: synthetic constants, expected bytes from the VU1 program.
     std::array<std::array<float,4>,25> c{};
     c[1]={0.3f,-0.8f,-0.52f,-1};c[2]={-50,-20,-80,1};c[3]={180,120,60,0};c[4]={0.0008f,0.0013f,0.0026f,0};c[5]={0.03f,0.009f,0.005f,1.5f};

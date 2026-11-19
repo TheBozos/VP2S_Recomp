@@ -5,6 +5,8 @@
 #include "native_frustum.h"
 #include "bozo/ee/dispatcher.h"
 #include "bozo/ops_fpu.h"
+#include "bozo/hash.h"
+#include "bozo/state.h"
 #include "../port/vp2s_math.h"
 #include <cstring>
 #include <map>
@@ -1754,6 +1756,9 @@ constexpr RootLengthSite rootLengthSites[]={
     {0x42d390,0x42d3b0,3,29,0x100,2,29,0x70},   // mod003 42d280: SP+100 -> SP+70
     {0x3d0514,0x3d0534,4,20,0x20,3,29,0xa0},    // mod003 3cfde0: s4+20 -> SP+a0
 };
+// Code in the shared overlay area (0x48ef00, mod004..mod013): a site there is
+// served only while RAM holds its module's block (FNV-1a 64 of [lo,hi)).
+bool overlayCode(Runtime *rt,uint32_t lo,uint32_t hi,uint64_t expected){return bozo::hash::fnv1a64(record(rt,lo,hi-lo),hi-lo)==expected;}
 bool nativeRootLength(R5900Context *c,Runtime *rt,uint32_t pc){
     const auto site=std::find_if(std::begin(rootLengthSites),std::end(rootLengthSites),[&](const auto &s){return pc>=s.first && pc<=s.store;});
     if(site==std::end(rootLengthSites) || (pc&3))return false;
@@ -1793,6 +1798,55 @@ bool nativeVisibilityLoop(R5900Context *c,Runtime *rt,uint32_t pc){
         const auto d=vuAdd(vuAdd(m[order[i][0]],m[order[i][1]]),vuMul(0x3f800000u,m[order[i][2]]));
         negative=negative || (vuAdd(d,s[3])&0x80000000u);}
     c->r[3].ud[0]=negative?0x80:0;return true;
+}
+// mod010 48fa10 marker projection (code block 491f40..4923a0, checked in RAM:
+// mod004..mod013 share these addresses). After 207cc0(camera) the case loads
+// LQC2 vf24..27 = camera+3f0 rows R0..R3 and runs program 0x1f0 on camera+2f0
+// into vf1..4, copied to vf20..23; only 0xb60 reads VU registers afterwards,
+// and it reads vf24..27, vf5 and vf0. Then for 64 records (s1 += 0x40, the
+// loop counter reuses s0, so the camera is gone) LQC2 vf5 = *s1, VCALLMS 0xb60,
+// CFC2.I t1 = VI0, SQC2 vf6 -> SP+170. Program 0xb60 (VU0 micro listing):
+// p = ((R0*v.x + R1*v.y) + R2*v.z) + R3*1 (MULAx/MADDAy/MADDAz/MADDw), DIV Q =
+// 1/p.z, MOVE.w vf6 = v.w, MULQ.xy: vf6 = (p.x*Q, p.y*Q, p.z, v.w). Its frustum
+// half (vf10..19, vf28..31, VI2/VI3) is not read here. The rows live across
+// calls and the loop's dispatcher checkpoint, so they are kept per runtime
+// from their loads (serialized in save states) and used by each projection.
+struct MarkerRows{std::array<VuWords,4> rows{};unsigned loaded=0;bool point=false;VuWords v{};};
+MarkerRows &markerRows(const Runtime *rt){static std::map<const Runtime *,MarkerRows> states;return states[rt];}
+constexpr uint32_t markerCodeLo=0x491f40,markerCodeHi=0x4923a0;constexpr uint64_t markerCode=0x3a0229bb90002a3aull;
+bool nativeMarkerProjection(R5900Context *c,Runtime *rt,uint32_t pc){
+    const bool rows=pc>=0x491f44 && pc<=0x491f50,unused=(pc>=0x491f90 && pc<=0x491f9c) || (pc>=0x491fa8 && pc<=0x491fb8);
+    const bool projection=pc==0x492380 || pc==0x49238c || pc==0x492390 || pc==0x492398;
+    if(!(rows || unused || projection) || (pc&3))return false;
+    // The code is checked at the first row load and at each point load; the
+    // sites in between follow them in straight-line code.
+    auto &state=markerRows(rt);const unsigned k=(pc-0x491f44)/4;
+    if((pc==0x491f44 || pc==0x492380) && !overlayCode(rt,markerCodeLo,markerCodeHi,markerCode))return false;
+    if(rows && k && !(state.loaded&(1u<<(k-1))))return false;
+    if(unused && (state.loaded&15)!=15)return false;
+    if((pc==0x49238c || pc==0x492390 || pc==0x492398) && !state.point)return false;
+    if(!c)throw std::runtime_error("native marker projection has no CPU record");
+    const auto camera=c->r[16].uw[0];
+    if(rows){
+        if(c->r[2].uw[0]!=camera+0x3f0)throw std::runtime_error("native marker projection rows escaped the camera");
+        if(k==0)state=MarkerRows{};
+        state.rows[k]=vuWords(rt,camera+0x3f0+16*k);state.loaded|=1u<<k;return true;
+    }
+    if(unused){if(pc==0x491f90 && c->r[3].uw[0]!=camera+0x2f0)throw std::runtime_error("native marker transpose escaped the camera");return true;}
+    if(pc==0x492380){
+        if((state.loaded&15)!=15)throw std::runtime_error("native marker projection without its camera rows");
+        state.v=vuWords(rt,c->r[17].uw[0]);state.point=true;return true;
+    }
+    if(pc==0x49238c)return true;
+    if(pc==0x492390){c->r[9].ud[0]=0;return true;}
+    const auto stack=c->r[29].uw[0];
+    if(c->r[3].uw[0]!=stack+0x170)throw std::runtime_error("native marker projection destination mismatch");
+    if(!state.point)throw std::runtime_error("native marker projection stored without its point");
+    VuWords out;const auto &R=state.rows;const auto &v=state.v;
+    for(unsigned i=0;i<4;++i)out[i]=vuAdd(vuAdd(vuAdd(vuMul(R[0][i],v[0]),vuMul(R[1][i],v[1])),vuMul(R[2][i],v[2])),vuMul(R[3][i],0x3f800000u));
+    uint32_t f=0;const auto q=bozo::ps2f::div(0x3f800000u,out[2],f);
+    out[0]=vuMul(out[0],q);out[1]=vuMul(out[1],q);out[3]=v[3];
+    std::memcpy(record(rt,stack+0x170,16),out.data(),16);state.point=false;return true;
 }
 // mod001 2156d0 quaternion normalize leaf: *a0 through program 0x670 (sum
 // ((x2+y2)+1*z2)+1*w2, RSQRT, all lanes * Q) back to *a0 (the SQC2 sits in the
@@ -2748,7 +2802,7 @@ BoxFrustumStores boxFrustumStores(const std::array<std::array<uint32_t,4>,5> &bo
 bool nativeMathInstruction(uint8_t *,R5900Context *c,Runtime *rt,uint32_t pc){
     if(nativeSkinUpload(c,rt,pc) || nativeSoftSkin(c,rt,pc))return true;
     if(nativeFacingPath(c,rt,pc) || nativeRotationBlocks(c,rt,pc))return true;
-    if(nativeProjectionBlocks(c,rt,pc) || nativeBoneAim(c,rt,pc) || nativeChainBlocks(c,rt,pc) || nativeCapsulePair(c,rt,pc) || nativePlaneContact(c,rt,pc) || nativeRangeTest(c,rt,pc) || nativeMatrixBuild(c,rt,pc) || nativeCullTransform(c,rt,pc) || nativeBoxFrustum(c,rt,pc) || nativeListBoxQuery(c,rt,pc) || nativeHitFrame(c,rt,pc) || nativePlaneDistance(c,rt,pc) || nativeSphereSweep(c,rt,pc) || nativeSegmentApproach(c,rt,pc) || nativeWorldPosition(c,rt,pc) || nativeCameraTarget(c,rt,pc) || nativeRootLength(c,rt,pc) || nativeVisibilityLoop(c,rt,pc) || nativeQuaternionLeaf(c,rt,pc) || nativeBonePalette(c,rt,pc))return true;
+    if(nativeProjectionBlocks(c,rt,pc) || nativeBoneAim(c,rt,pc) || nativeChainBlocks(c,rt,pc) || nativeCapsulePair(c,rt,pc) || nativePlaneContact(c,rt,pc) || nativeRangeTest(c,rt,pc) || nativeMatrixBuild(c,rt,pc) || nativeCullTransform(c,rt,pc) || nativeBoxFrustum(c,rt,pc) || nativeListBoxQuery(c,rt,pc) || nativeHitFrame(c,rt,pc) || nativePlaneDistance(c,rt,pc) || nativeSphereSweep(c,rt,pc) || nativeSegmentApproach(c,rt,pc) || nativeWorldPosition(c,rt,pc) || nativeCameraTarget(c,rt,pc) || nativeRootLength(c,rt,pc) || nativeVisibilityLoop(c,rt,pc) || nativeMarkerProjection(c,rt,pc) || nativeQuaternionLeaf(c,rt,pc) || nativeBonePalette(c,rt,pc))return true;
     if(nativeLeafSphere(c,rt,pc) || nativeLeafBox(c,rt,pc) || nativeSegmentBox(c,rt,pc) || nativeHitPointTransform(c,rt,pc))return true;
     if(nativeLengthSite(c,rt,pc) || nativeRecordDot(c,rt,pc) || nativePackedQuaternion(c,rt,pc))return true;
     if(nativeObjectOverlap(c,rt,pc))return true;
@@ -3988,5 +4042,10 @@ bool nativeMathInstruction(uint8_t *,R5900Context *c,Runtime *rt,uint32_t pc){
         // only sites no specific handler claimed pay for that scan.
         return nativeParticleStep(c,rt,pc) || nativeParticleBox(c,rt,pc) || nativeTrailEmitter(c,rt,pc) || nativeLengthIdiom(c,rt,pc) || nativeMacroIdiom(c,rt,pc) || nativeInverseIdiom(c,rt,pc) || nativeQuaternionIdiom(c,rt,pc);
     }
+}
+// Save states: the marker projection rows kept between their loads and the
+// projections (a dispatcher safe point can fall in between).
+void serializeMathState(bozo::state::Archive &a,const Runtime *rt){
+    auto &m=markerRows(rt);for(auto &row:m.rows)bozo::state::io(a,row);bozo::state::fields(a,m.loaded,m.point);bozo::state::io(a,m.v);
 }
 }

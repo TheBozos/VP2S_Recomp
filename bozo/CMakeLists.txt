@@ -768,7 +768,7 @@ if(VP2S_BOZO_CODE)
   if(MINGW)
     target_link_options(vp2s-bozo-math-check PRIVATE -static)
   endif()
-  add_test(NAME vp2s-bozo-math-records COMMAND vp2s-bozo-math-check)
+  add_test(NAME vp2s-bozo-math-records COMMAND vp2s-bozo-math-check "${VP2S_BOZO_DATA}/images/mod010.elf")
   foreach(VARIANT original adapted)
     set(DISTANCE_DIR "${CMAKE_CURRENT_BINARY_DIR}/field-distance-reference/${VARIANT}")
     add_custom_command(OUTPUT "${DISTANCE_DIR}/distance_${VARIANT}_000.cpp" "${DISTANCE_DIR}/distance_${VARIANT}_table.cpp" "${DISTANCE_DIR}/distance_${VARIANT}_functions.h"

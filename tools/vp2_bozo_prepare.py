@@ -128,6 +128,16 @@ def overlay_entries(name,data):
             if hashlib.sha256(span(lo,hi)).hexdigest()!=expected:
                 raise ValueError('USA event state machine 443720 signature mismatch')
         entries.append(dict(Name='event_state_00443720',Start='0x443720',End='0x443a70'))
+    if name=='mod010':
+        # Omitted virtual leaves 4949b0..494ab0, reached only through vtables
+        # built at run time (no static reference): empty, +4a0 setter, return 0,
+        # clear *t2, empty (4949f0: vtable +74, called by mod003 383de0 during
+        # the Rufus event), clear +2bc bit 6, empty, three-float zero test, return 0.
+        if hashlib.sha256(span(0x4949b0,0x494ab0)).hexdigest()!='d3376c1a470dcb5067358d7d4a3d6e781660be7b97e443b076de1b79637ee29c':
+            raise ValueError('USA mod010 virtual leaves 4949b0 mismatch')
+        for lo,hi in ((0x4949b0,0x4949c0),(0x4949c0,0x4949d0),(0x4949d0,0x4949e0),(0x4949e0,0x4949f0),(0x4949f0,0x494a00),
+                      (0x494a00,0x494a20),(0x494a20,0x494a30),(0x494a30,0x494aa0),(0x494aa0,0x494ab0)):
+            entries.append(dict(Name=f'virtual_leaf_{lo:08x}',Start=hex(lo),End=hex(hi)))
     return entries
 
 

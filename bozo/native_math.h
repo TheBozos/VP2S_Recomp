@@ -1,6 +1,7 @@
 #pragma once
 #include <optional>
 #include "bozo/runtime.h"
+#include "bozo/state.h"
 #include <array>
 #include <map>
 namespace vp2s {
@@ -58,6 +59,8 @@ public:
 // Game record algorithms shared with the existing native port, through Bozo's
 // memory/CPU ABI. No vector bank, microprogram or transport is provided.
 bool nativeMathInstruction(uint8_t *,R5900Context *,Runtime *,uint32_t pc);
+// Native math state that lives between guest instructions (save states).
+void serializeMathState(bozo::state::Archive &,const Runtime *);
 // Box pair separating-axis test mod001 1f82c0 (stubbed): served at its call from
 // the shape-pair dispatch with the vf1..vf9 that object-pair block 1f8aa0 loaded.
 bool nativeBoxPairLibrary(R5900Context *,Runtime *,uint32_t target);

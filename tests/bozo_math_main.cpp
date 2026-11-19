@@ -457,7 +457,7 @@ struct Host:bozo::ee::Host,bozo::port::Host {
     void fault(bozo::ee::Dispatcher &,R5900Context *,const std::string &s)override{throw std::runtime_error(s);}
 };
 }
-int main(){try{
+int main(int argc,char **argv){try{
     Host host;bozo::ee::Dispatcher old(host),native(host);
     old.setFunctions(math_original_function_table,math_original_function_count,math_original_resume_table,math_original_resume_count);
     native.setFunctions(math_adapted_function_table,math_adapted_function_count,math_adapted_resume_table,math_adapted_resume_count);
@@ -1354,6 +1354,70 @@ int main(){try{
         visible+=vi2==0;++visibilityCases;
     }
     std::printf("%u mod001 220d20 visibility tests (%u inside) match the 0xb60 listing\n",visibilityCases,visible);
+    // mod010 48fa10 marker projection: camera rows from their loads, the stored
+    // half of program 0xb60 (vf6 = (p.x/p.z, p.y/p.z, p.z, v.w), p = R*(v,1)) to
+    // SP+170; then the s0+100 length to SP+90 (the length idiom). The code comes from the
+    // private mod010 image (argument); without them, or with one byte changed,
+    // the sites are not claimed (another overlay at the same addresses).
+    unsigned markerCases=0;
+    {
+        if(argc<2)throw std::runtime_error("usage: vp2s-bozo-math-check <mod010.elf>");
+        std::vector<uint8_t> elf;{FILE *f=std::fopen(argv[1],"rb");if(!f)throw std::runtime_error("mod010 image missing");
+            uint8_t buf[4096];size_t n;while((n=std::fread(buf,1,sizeof buf,f))>0)elf.insert(elf.end(),buf,buf+n);std::fclose(f);}
+        const auto u32=[&](size_t at){uint32_t v;std::memcpy(&v,elf.data()+at,4);return v;};
+        const auto u16=[&](size_t at){uint16_t v;std::memcpy(&v,elf.data()+at,2);return v;};
+        const auto block=[&](Runtime &r,uint32_t lo,uint32_t hi){
+            for(unsigned i=0;i<u16(0x2c);++i){const size_t ph=u32(0x1c)+i*u16(0x2a);
+                if(u32(ph)==1 && u32(ph+8)<=lo && hi<=u32(ph+8)+u32(ph+16)){std::memcpy(r.memory.hostPointer(lo,hi-lo),elf.data()+u32(ph+4)+lo-u32(ph+8),hi-lo);return;}}
+            throw std::runtime_error("mod010 image lacks the marker code");};
+        const auto M=[](uint32_t a,uint32_t b){uint32_t f=0;return bozo::ps2f::mul(a,b,f);};
+        const auto A=[](uint32_t a,uint32_t b){uint32_t f=0;return bozo::ps2f::addNearest(a,b,f);};
+        using V=std::array<uint32_t,4>;
+        for(unsigned seed=0;seed<256;++seed){
+            auto &r=native.runtime();std::memset(r.memory.flat(),0x21+seed,bozo::kFlatBytes);
+            block(r,0x491f40,0x4923a0);block(r,0x492f80,0x492fb0);
+            const uint32_t camera=seed&1?0x1e5000:0x1c4c40,stack=0x1fff000,points=0x1e7000;
+            uint32_t state=seed*2654435761u+7;const auto next=[&](int lo,int span){state=state*1664525u+1013904223u;return ((state>>8)&0x807fffffu)|uint32_t((lo+int((state>>4)%unsigned(span)))<<23);};
+            const auto put=[&](uint32_t at,uint32_t v){std::memcpy(r.memory.hostPointer(at,4),&v,4);};
+            const auto get=[&](uint32_t at){uint32_t v;std::memcpy(&v,r.memory.hostPointer(at,4),4);return v;};
+            for(unsigned i=0;i<16;++i){put(camera+0x2f0+4*i,next(120,10));put(camera+0x3f0+4*i,next(120,10));}
+            const unsigned count=1+seed%4;for(unsigned i=0;i<count;++i)for(unsigned k=0;k<4;++k)put(points+0x40*i+4*k,next(118,12));
+            if(seed%16==5)put(points+8,0);   // p.z from the rows alone
+            R5900Context x{};for(unsigned i=1;i<32;++i){x.r[i].ud[0]=0xa1b2000000000000ull+seed*32+i;x.r[i].ud[1]=~x.r[i].ud[0];}
+            x.r[16].ud[0]=camera;x.r[2].ud[0]=camera+0x3f0;x.r[3].ud[0]=camera+0x2f0;x.r[29].ud[0]=stack;
+            V R[4];for(unsigned k=0;k<4;++k)std::memcpy(R[k].data(),r.memory.hostPointer(camera+0x3f0+16*k,16),16);
+            std::vector<uint8_t> before(r.memory.flat(),r.memory.flat()+bozo::kFlatBytes);auto y=x;
+            for(uint32_t pc=0x491f44;pc<=0x491f50;pc+=4)check(vp2s::nativeMathInstruction(r.memory.flat(),&y,&r,pc));
+            for(uint32_t pc:{0x491f90u,0x491f94u,0x491f98u,0x491f9cu,0x491fa8u,0x491facu,0x491fb0u,0x491fb4u,0x491fb8u})check(vp2s::nativeMathInstruction(r.memory.flat(),&y,&r,pc));
+            check(!std::memcmp(&x,&y,sizeof(x)) && !std::memcmp(before.data(),r.memory.flat(),before.size()));
+            // A changed camera record after the loads does not change the rows (they are registers).
+            for(unsigned i=0;i<16;++i)put(camera+0x3f0+4*i,next(126,1));
+            for(unsigned i=0;i<count;++i){
+                y.r[16].ud[0]=i;y.r[17].ud[0]=points+0x40*i;y.r[3].ud[0]=stack+0x170;
+                V v;std::memcpy(v.data(),r.memory.hostPointer(points+0x40*i,16),16);V p;
+                for(unsigned l=0;l<4;++l)p[l]=A(A(A(M(R[0][l],v[0]),M(R[1][l],v[1])),M(R[2][l],v[2])),M(R[3][l],0x3f800000u));
+                uint32_t f=0;const auto q=bozo::ps2f::div(0x3f800000u,p[2],f);const V expected{M(p[0],q),M(p[1],q),p[2],v[3]};
+                for(uint32_t pc:{0x492380u,0x49238cu,0x492390u,0x492398u})check(vp2s::nativeMathInstruction(r.memory.flat(),&y,&r,pc));
+                check(y.r[9].ud[0]==0 && y.r[9].ud[1]==x.r[9].ud[1]);
+                for(unsigned l=0;l<4;++l)if(get(stack+0x170+4*l)!=expected[l]){std::fprintf(stderr,"marker seed%u item%u lane%u %08x/%08x\n",seed,i,l,get(stack+0x170+4*l),expected[l]);check(false);}
+                ++markerCases;
+            }
+            // The length after the loop: (sqrt((x2+y2)+1*z2), y2, z2, raw w) of s0+100 at SP+90.
+            const uint32_t object=0x1d0000+0x40*seed;for(unsigned k=0;k<4;++k)put(object+0x100+4*k,next(115,15));
+            y.r[16].ud[0]=object;y.r[17].ud[0]=object+0x100;y.r[3].ud[0]=stack+0x90;
+            V s;std::memcpy(s.data(),r.memory.hostPointer(object+0x100,16),16);V sq{M(s[0],s[0]),M(s[1],s[1]),M(s[2],s[2]),s[3]};
+            uint32_t f=0;const V length{A(0,bozo::ps2f::sqrt(A(A(sq[0],sq[1]),M(0x3f800000u,sq[2])),f)),sq[1],sq[2],s[3]};
+            for(uint32_t pc=0x492f88;pc<=0x492fa8;pc+=4)check(vp2s::nativeMathInstruction(r.memory.flat(),&y,&r,pc));
+            for(unsigned l=0;l<4;++l)check(get(stack+0x90+4*l)==length[l]);
+            // Another overlay's code at these addresses: nothing is claimed.
+            const uint32_t changed=0x491f40+4*(seed%280);put(changed,get(changed)^0x100);y=x;
+            check(!vp2s::nativeMathInstruction(r.memory.flat(),&y,&r,0x491f44));
+        }
+        // A runtime that never loaded the rows (and has no mod010 code) claims no projection site.
+        auto &o=old.runtime();std::memset(o.memory.flat(),0,bozo::kFlatBytes);R5900Context z{};
+        for(uint32_t pc:{0x491f48u,0x491f90u,0x492380u,0x49238cu,0x492390u,0x492398u})check(!vp2s::nativeMathInstruction(o.memory.flat(),&z,&o,pc));
+    }
+    std::printf("%u mod010 48fa10 marker projections match the 0xb60 listing (rows kept from their loads)\n",markerCases);
     // mod001 2156d0: program 0x670 from its listing, in place; CFC2 reads VI0.
     unsigned quaternionLeafCases=0;
     for(unsigned seed=0;seed<512;++seed){

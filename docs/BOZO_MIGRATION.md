@@ -12,6 +12,61 @@ The earlier VP2S face/shading and general brightness comparisons remain open.
 
 ## Build and evidence
 
+### mod010 48fa10 marker projection (2026-11-19)
+
+The case at `491f40` of mod010's `48fa10` calls `207cc0(camera)` and loads
+two camera matrices:
+- LQC2 vf24..27 = camera `+3f0`, rows R0..R3;
+- program 0x1f0 on camera `+2f0` into vf1..4, copied to vf20..23.
+
+Then, for 64 records (`s1 += 0x40`), it runs: LQC2 vf5 = `*s1`, VCALLMS 0xb60,
+CFC2.I t1 = VI0, SQC2 vf6 to SP+170. The loop counter reuses s0, so the camera
+pointer is gone by then.
+
+Program 0xb60 was read from VU0 micro memory in a PCSX2 state
+(`vu0MicroMem.bin`), the first full listing of it here. Its first half computes
+`p = ((R0*v.x + R1*v.y) + R2*v.z) + R3*1`, `Q = 1/p.z`, then `vf6 = (p.x*Q,
+p.y*Q, p.z, v.w)`. The frustum half (the visibility loop's VI2) and vf20..23
+are not read here.
+
+The native port keeps the rows from their loads per runtime and serves each
+projection from them, in `ps2f`:
+- **Rows survive the loop.** They live across calls and the loop's dispatcher
+  checkpoint, so the save-state section saves them.
+- **The module is checked.** mod004..mod013 share these addresses, so the sites
+  are served only while RAM holds mod010's block `491f40..4923a0`, checked by
+  FNV-1a 64 at the first row load and at each point load.
+- **The length after the loop needs nothing new.** The `s0+100` length at
+  `492f88` is the known length idiom, already served.
+
+Tests (`vp2s-bozo-math-records`, given the private mod010 image to copy its
+code into test RAM):
+- 640 projections match the listing, with the rows kept from their loads;
+- the loads change no RAM or CPU state;
+- a changed word in the block, or a runtime without the rows, is not claimed.
+
+**mod010's virtual leaves (`4949b0..494ab0`).** The next stop was a jump to
+`4949f0`, vtable `+74` of the object mod003 `383de0` updates. Nine small leaves
+there have no static reference, because their vtables are built at run time, so
+the export omitted them. `vp2_bozo_prepare.py` admits all nine, checked by one
+sha256 over the span:
+- three empty methods, two that return 0, and one that clears `*t2`;
+- the `+4a0` setter;
+- clearing bit 6 of `+2bc`;
+- the zero test of the three floats at `+1f0`.
+
+**Save states wait for every open native record.** A save now also waits while
+any of these owners has open work that later publishes into guest memory:
+particle builds and updates, squads, motion updates, media buffers, screen
+rectangles, screen zooms, state setups and debug fonts. Before this, only UI
+owners were checked. The named state `build_usa/states/rufus_50600.state`
+(private, not committed) loads and matches the uninterrupted run at 50700 in
+RAM and pixels.
+
+Route: from the Rufus state, it passes the event, leaves for the world map
+(Solde and the Lost Forest) and stops at frame 50765, on an unported particle
+variant: object `1335110`, `+210 = 2`, one 1x1 kind (site `22f160`).
+
 ### Save states (2026-11-18)
 
 VP2S implements BozoEngine's save states (engine `docs/save-states.md`). Options:

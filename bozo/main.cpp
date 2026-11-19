@@ -847,9 +847,16 @@ int main(int argc,char **argv) {
                 step("assets");host.assets.serialize(a);step("models");host.models.serialize(a);
                 step("textures");host.textures.serialize(a);step("sprites");host.sprites.serialize(a,host.textures);
                 const vp2s::PictureContext pictures{host.textures,host.glyphs};
-                step("windows");host.windows.serialize(a,pictures);step("texts");host.uiTexts.serialize(a,pictures);step("done");},
+                step("windows");host.windows.serialize(a,pictures);step("texts");host.uiTexts.serialize(a,pictures);step("math");vp2s::serializeMathState(a,&dispatcher.runtime());step("done");},
             [&]{for(auto why:{host.dbc->unsaveable(),host.sprites.unsaveable(),host.windows.unsaveable(),host.uiTexts.unsaveable()})
-                    if(!why.empty())return why;return std::string();}});
+                    if(!why.empty())return why;
+                // Owners whose open records later publish into guest memory: a save waits for them.
+                const std::pair<const char *,size_t> open[]={{"particle build",host.particles.outstanding()},{"particle update",host.particleUpdates.outstanding()},
+                    {"squad",host.squads.outstanding()},{"motion update",host.motion.outstanding()},{"media buffer",host.mediaBuffers.outstanding()},
+                    {"screen rectangle",host.screenRects.outstanding()},{"screen zoom",host.screenZooms.outstanding()},
+                    {"state setup",host.stateSetups.outstanding()},{"debug font",host.fonts.outstanding()}};
+                for(const auto &[name,count]:open)if(count)return std::format("a native {} is in flight",name);
+                return std::string();}});
         host.native.onStateMessage=[](bool,const std::string &message){std::fprintf(stderr,"[state] %s\n",message.c_str());};
 #ifdef _WIN32
         SamplingProfiler profiler;

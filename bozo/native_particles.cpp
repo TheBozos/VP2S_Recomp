@@ -1,6 +1,7 @@
 #include "native_particles.h"
 #include "bozo/ee/dispatcher.h"
 #include <cstring>
+#include <format>
 #include <bit>
 #include <algorithm>
 #include <cmath>
@@ -19,7 +20,7 @@ bool overlaps(uint8_t *a,size_t na,uint8_t *b,size_t nb){const auto x=reinterpre
 void NativeParticles::begin(Runtime *rt,R5900Context *c){
     const auto stack=c->r[29].uw[0],object=c->r[21].uw[0],index=c->r[30].uw[0];auto *frame=record(rt,stack,0x160),*owner=record(rt,object,0xb10);
     if(c->pc!=0x22eadc || word(owner,0)!=0x154180 || owner[0xaff]!=3 || owner[0xb04] || index>1 || owner[0xaf9]!=index)
-        throw std::runtime_error("unqualified native particle producer");
+        throw std::runtime_error(std::format("unqualified native particle producer (object {:x} class {:x} mode {} b04 {} index {} af9 {})",object,word(owner,0),owner[0xaff],owner[0xb04],index,owner[0xaf9]));
     const auto first=NativeAssets::address(word(owner,0xaa0)),second=NativeAssets::address(word(owner,0xaa4));
     if(second<=first || second-first<0x20 || second-first>0x1000000)throw std::runtime_error("invalid native particle buffer halves");
     const auto span=second-first,base=index?second:first,limit=base+span,emitter=word(owner,0xa90);

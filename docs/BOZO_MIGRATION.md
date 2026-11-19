@@ -12,6 +12,27 @@ The earlier VP2S face/shading and general brightness comparisons remain open.
 
 ## Build and evidence
 
+### Forest walk: particle mode 6 (2026-11-19)
+
+The pad script now holds RIGHT at 60100, 61100 and 62100 inside the Lost Forest
+(the minimap's entrance "E" is on the left). A private named state,
+`build_usa/states/forest_60000.state`, starts there.
+
+Running right stops at once on particle emitter `c5ab60` (class `154180`),
+which is in mode 6 (`+aff`); the producer and draw admit mode 3 only. The
+refusal message now names the class, mode, `+b04`, index and `+af9`.
+- **Producer (`22e650`).** Modes 3, 5 and 6 take the same chunk-size path
+  (`22eb68`, 0x12 / group); only mode 5 has extra cases (`22e6b0`, `22e2e8`).
+- **Draw header (`22ddf0`).** Its jump table `356350` maps the mode to s3 =
+  mode + 3, which `29e2a0`/`29e280` use to pick the VU1 microcode image (table
+  `3141a0`). Mode 3 is image 6 (`326940`, 0x147 qwords); mode 6 is image 9
+  (`32b5f0`, 0x16f qwords). Both load at `0x6e0`, but image 9's point loop
+  differs throughout: its subroutines move (`1830` -> `1ab0`, `1400` -> `1680`)
+  and the sin/cos rotation block is rewritten.
+
+Porting mode 6 means transcribing image 9's point path, as was done for
+image 6. It is not started.
+
 ### Forest minimap: line meshes, off-centre camera (2026-11-19)
 
 The minimap is a native model, object `eeb2d0` (class `1546d0`), with seven

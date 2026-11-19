@@ -159,7 +159,8 @@ int main(int argc,char **argv){try{
     Runtime rt;vp2s::NativeScene scene;vp2s::NativeAssets assets;vp2s::NativeParticles particles;
     vp2s::NativeParticleDraws draws(dir);vp2s::NativeTextures textures(dir,dir/"manifest.txt");const auto saved=_mm_getcsr();unsigned cases=0,vertices=0;
     for(unsigned mode:{_MM_ROUND_NEAREST,_MM_ROUND_DOWN,_MM_ROUND_UP,_MM_ROUND_TOWARD_ZERO})for(unsigned seed=0;seed<128;++seed){
-        initialize(rt,scene,assets,seed);const auto before=std::vector<uint8_t>(rt.memory.flat(),rt.memory.flat()+bozo::kFlatBytes);
+        // +210 only selects the sorted draw bucket (22fa50 writes +60); the quads must not change.
+        initialize(rt,scene,assets,seed);if(seed&16)put(rt,object+0x210,uint8_t(seed&32?2:1));const auto before=std::vector<uint8_t>(rt.memory.flat(),rt.memory.flat()+bozo::kFlatBytes);
         const auto control=(saved&~(_MM_ROUND_MASK|0x8040|0x3f))|mode|(seed&8?0x8040:0);_mm_setcsr(control);
         const auto result=draws.capture(&rt,assets,textures,scene,particles,object);check(_mm_getcsr()==control);_mm_setcsr(saved);
         check(result.object==object && result.camera==camera && !std::memcmp(before.data(),rt.memory.flat(),before.size()));const unsigned count=seed%5;
@@ -179,7 +180,7 @@ int main(int argc,char **argv){try{
         else if(which==3)put(rt,current+0x40dd,uint8_t(0));else if(which==4)put(rt,object+0xabc,uint32_t(2));else if(which==5)put(rt,chunk+0x10,uint32_t(49));else if(which==6)put(rt,chunk+0x18,uint32_t(2));
         else if(which==7)put(rt,chunk+0x14,uint32_t(6));else if(which==8)put(rt,point+44,uint32_t(1));else if(which==9)put(rt,kinds+0xc0+40,.5f);
         else if(which==10)put(rt,point+28,uint32_t(0x7fa01234));else if(which==11)put(rt,point+32,uint32_t(0x7fa01234));else if(which==12)put(rt,point+36,uint32_t(1));
-        else if(which==13)put(rt,object+0x210,uint8_t(1));else if(which==14)put(rt,object+0x634,uint16_t(1));else if(which==15)put(rt,fis+4,uint32_t(0));
+        else if(which==13)put(rt,object+0x634,uint16_t(4));else if(which==14)put(rt,object+0x634,uint16_t(1));else if(which==15)put(rt,fis+4,uint32_t(0));
         else if(which==16)assets.overwrite(kinds+0x20,1);else if(which==17)put(rt,manager+0x2670,int16_t(256));else if(which==18)put(rt,object+0xaa4,uint32_t(0x200000));
         else if(which==19)put(rt,object+0xaf9,uint8_t(2));else if(which==20)put(rt,object+0x30c,-1.f);else if(which==21)put(rt,kinds+0xc0+64,-1.f);else if(which==22)put(rt,object+0x310,uint32_t(2));
         else if(which==23){R5900Context c{};c.pc=0x22eadc;c.r[21].uw[0]=object;c.r[29].uw[0]=0x1ffe000;c.r[30].uw[0]=0;put(rt,0x1ffe0e0,uint32_t(0x200020));put(rt,object+0xa90,uint32_t(0x1d0000));particles.begin(&rt,&c);}

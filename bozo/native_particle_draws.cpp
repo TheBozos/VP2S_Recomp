@@ -59,9 +59,11 @@ NativeModelSubmission NativeParticleDraws::capture(Runtime *rt,NativeAssets &ass
     const auto kinds=value<uint32_t>(owner,0x628);const auto origin=assets.origin(kinds);if(!origin)throw std::runtime_error("native particle kinds lack allocation provenance");
     const auto &m=material(*origin);auto *kindData=record(rt,kinds,m.extent);
     if(assets.origin(kinds,m.extent)!=origin)throw std::runtime_error("native particle kinds extend beyond their converted template");
-    if(unsigned(kindData[0])*kindData[1]!=m.kinds || owner[0x210] || value<uint16_t>(owner,0x634)!=0)
-        throw std::runtime_error(std::format("unported native particle template/material variant (grid {}x{} for {} kinds, +210={}, +634={:x}, object {:x}, kinds {:x})",
-            kindData[0],kindData[1],m.kinds,owner[0x210],value<uint16_t>(owner,0x634),object,kinds));
+    // +210 is not a draw input: 22fa50 turns it into draw bucket +60 = 2, and the
+    // bucket lists (21ea80) only order the 22f140 calls; this draw never reads it.
+    if(unsigned(kindData[0])*kindData[1]!=m.kinds || value<uint16_t>(owner,0x634)!=0)
+        throw std::runtime_error(std::format("unported native particle template/material variant (grid {}x{} for {} kinds, +634={:x}, object {:x}, kinds {:x})",
+            kindData[0],kindData[1],m.kinds,value<uint16_t>(owner,0x634),object,kinds));
     const auto fis=value<uint32_t>(owner,0x658);auto *descriptor=record(rt,fis,16);const TextureKey key{value<uint32_t>(descriptor,4),value<uint32_t>(descriptor,8)};
     const auto manager=word(rt,0x35de38);const auto slot=int16_t(word(rt,manager+0x2670)&0xffff);
     if(slot<0 || slot>=256 || word(rt,manager+0x1008+16*slot)!=key.tag || word(rt,manager+8+16*slot)!=key.index)throw std::runtime_error("native particle FIS identity differs from selected game texture");

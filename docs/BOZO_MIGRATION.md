@@ -12,6 +12,32 @@ The earlier VP2S face/shading and general brightness comparisons remain open.
 
 ## Build and evidence
 
+### World-map particle draw bucket (2026-11-19)
+
+The world-map particle (object `1335110`, class `154180`) has `+210 = 2`.
+The native draw at `22f160` refused any nonzero `+210`, but the draw never
+reads it:
+
+- `22fa50` turns it into the draw bucket: `+60 = (+210 ? 2 : 0)`, unless the
+  later cases (`+6a` bit `0x1000`, mode 5, `+b00`) override it.
+- `21ea80` puts objects with a nonzero bucket on per-bucket lists, which
+  `21e7f0` sorts before the `22f140` calls. The bucket only changes call order,
+  and the native submissions keep that order.
+- In the `22f140` builder, `+210` is read only on the path without a kinds
+  template (`22f898`, writing `+104` of the packet). The admitted draw always
+  has a kinds template; there `+104` comes from the template's `+c..+f`.
+- The other `+210` readers (`225290`, `225590`) are effect-manager loops that
+  stay compiled.
+
+`+634 != 0` (template load state) is still refused. The particle test now draws
+128 seeds with `+210` set to 1 or 2 and checks the same quads. The rejection case
+that used `+210` now uses `+634 = 4`.
+
+Route: from `build_usa/states/rufus_50600.state`, it passes 50765 and reaches
+frame 54000 with no boundary. The world map (Solde, Lost Forest, with the place
+description box) renders. The pad script ends at 45800, so the run idles on the
+map. Going further needs new input to enter the Lost Forest.
+
 ### mod010 48fa10 marker projection (2026-11-19)
 
 The case at `491f40` of mod010's `48fa10` calls `207cc0(camera)` and loads

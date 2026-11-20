@@ -714,6 +714,59 @@ int main(int argc,char **argv){try{
         check(rejected && _mm_getcsr()==fp && !std::memcmp(&before,&c,sizeof(c)) && !std::memcmp(ram.data(),rt.memory.flat(),ram.size()));
     }}
     std::printf("%u object overlap cases (spill, basis scales, %u touching spheres) and6 readonly rejections passed\n",overlapCases,touching);
+    {   // Object pair set-up 1f9130 (mod003 398324): its two 0x7f0 basis-length sites
+        // against the ps2f reference (nearest even), the register loads, and rejections.
+        auto &rt=native.runtime();constexpr uint32_t stack=0x70003870,first=0x180000,second=0x184000;unsigned setupCases=0;
+        const auto mul=[](uint32_t a,uint32_t b){uint32_t f=0;return bozo::ps2f::mul(a,b,f);};
+        const auto add=[](uint32_t a,uint32_t b){uint32_t f=0;return bozo::ps2f::addNearest(a,b,f);};
+        for(unsigned seed=0;seed<64;++seed){
+            uint32_t state=seed*2654435761u+3;const auto next=[&](int lo,int span){state=state*1664525u+1013904223u;
+                return ((state>>8)&0x807fffffu)|uint32_t((lo+int((state>>4)%unsigned(span)))<<23);};
+            for(uint32_t object:{first,second})for(unsigned i=0;i<12;++i){const uint32_t v=next(118,14);std::memcpy(rt.memory.hostPointer(object+0x90+4*i,4),&v,4);}
+            R5900Context c{};c.r[29].uw[0]=stack;c.r[17].uw[0]=first;c.r[16].uw[0]=second;c.r[9].ud[0]=0x1234;
+            for(unsigned pass=0;pass<2;++pass){const uint32_t object=pass?second:first,out=stack+(pass?0x30:0x40);
+                c.r[6].uw[0]=object+0x90;c.r[3].uw[0]=out;
+                for(uint32_t pc:pass?std::array{0x1f9368u,0x1f936cu,0x1f9370u,0x1f9378u,0x1f937cu,0x1f9384u}:std::array{0x1f92f0u,0x1f92f4u,0x1f92f8u,0x1f9300u,0x1f9304u,0x1f930cu})
+                    check(vp2s::nativeMathInstruction(rt.memory.flat(),&c,&rt,pc));
+                check(c.r[9].ud[0]==0);
+                uint32_t rows[3][4],expected[3],actual[3],flags=0;std::memcpy(rows,rt.memory.hostPointer(object+0x90,48),48);std::memcpy(actual,rt.memory.hostPointer(out,12),12);
+                const auto saved=_mm_getcsr();
+                for(unsigned i=0;i<3;++i)expected[i]=add(0,bozo::ps2f::sqrt(add(add(mul(rows[0][i],rows[0][i]),mul(rows[1][i],rows[1][i])),mul(rows[2][i],rows[2][i])),flags));
+                _mm_setcsr(saved);check(!std::memcmp(expected,actual,12));
+            }
+            c.r[5].uw[0]=first+0x150;c.r[4].uw[0]=second+0x150;c.r[3].uw[0]=stack+0x50;
+            for(uint32_t pc=0x1f93c4;pc<=0x1f93e4;pc+=4)check(vp2s::nativeMathInstruction(rt.memory.flat(),&c,&rt,pc));
+            ++setupCases;
+        }
+        {   // mod003 397780 keeps these registers across its virtual calls: spill to sp+3a0,
+            // restore, vf8 from sp+460; a second spill shows the restored set with the new row.
+            for(unsigned i=0;i<9;++i){const uint32_t s=0xf8600000u|((i+1)<<16)|i*0x10,l=0xd8400000u|((i+1)<<16)|i*0x10;
+                std::memcpy(rt.memory.hostPointer(0x3984f4+4*i,4),&s,4);std::memcpy(rt.memory.hostPointer(0x3985e0+4*i,4),&l,4);}
+            const uint32_t moveWord=0xd8480000u;std::memcpy(rt.memory.hostPointer(0x398608,4),&moveWord,4);
+            R5900Context c{};c.r[29].uw[0]=stack;c.r[3].uw[0]=stack+0x3a0;c.r[2].uw[0]=stack+0x3a0;
+            for(uint32_t pc=0x3984f4;pc<=0x398514;pc+=4)check(vp2s::nativeMathInstruction(rt.memory.flat(),&c,&rt,pc));
+            check(!std::memcmp(rt.memory.hostPointer(stack+0x3a0,64),rt.memory.hostPointer(first+0x150,64),64));
+            check(!std::memcmp(rt.memory.hostPointer(stack+0x3e0,64),rt.memory.hostPointer(second+0x150,64),64));
+            check(!std::memcmp(rt.memory.hostPointer(stack+0x420,16),rt.memory.hostPointer(stack+0x50,16),16));
+            const std::array<uint32_t,4> moved{0x41200000,0x41a00000,0x41f00000,0x3f800000};std::memcpy(rt.memory.hostPointer(stack+0x460,16),moved.data(),16);
+            for(uint32_t pc=0x3985e0;pc<=0x398600;pc+=4)check(vp2s::nativeMathInstruction(rt.memory.flat(),&c,&rt,pc));
+            c.r[2].uw[0]=stack+0x460;check(vp2s::nativeMathInstruction(rt.memory.flat(),&c,&rt,0x398608));
+            std::vector<uint8_t> earlier(rt.memory.hostPointer(stack+0x3a0,0x90),rt.memory.hostPointer(stack+0x3a0,0x90)+0x90);std::memcpy(earlier.data()+0x70,moved.data(),16);
+            for(uint32_t pc=0x3984f4;pc<=0x398514;pc+=4)check(vp2s::nativeMathInstruction(rt.memory.flat(),&c,&rt,pc));
+            check(!std::memcmp(earlier.data(),rt.memory.hostPointer(stack+0x3a0,0x90),0x90));
+            c.r[3].uw[0]=stack+0x3b0;bool rejected=false;try{vp2s::nativeMathInstruction(rt.memory.flat(),&c,&rt,0x3984f4);}catch(const std::runtime_error &){rejected=true;}check(rejected);
+            const uint32_t other=0;std::memcpy(rt.memory.hostPointer(0x3984f4,4),&other,4);check(!vp2s::nativeMathInstruction(rt.memory.flat(),&c,&rt,0x3984f4));   // another overlay
+        }
+        for(unsigned which=0;which<4;++which){R5900Context c{};c.r[29].uw[0]=stack;c.r[17].uw[0]=first;c.r[16].uw[0]=second;
+            uint32_t pc=0x1f930c;c.r[6].uw[0]=first+0x90;c.r[3].uw[0]=stack+0x40;
+            if(which==0)c.r[6].uw[0]=second+0x90;else if(which==1)c.r[3].uw[0]=stack+0x30;
+            else{pc=0x1f93e4;c.r[5].uw[0]=first+0x150;c.r[4].uw[0]=second+0x150;c.r[3].uw[0]=stack+0x50;if(which==2)c.r[5].uw[0]=second+0x150;else c.r[3].uw[0]=stack+0x40;}
+            const auto before=c;const auto ram=std::vector<uint8_t>(rt.memory.flat(),rt.memory.flat()+bozo::kFlatBytes);bool rejected=false;
+            try{vp2s::nativeMathInstruction(rt.memory.flat(),&c,&rt,pc);}catch(const std::runtime_error &){rejected=true;}
+            check(rejected && !std::memcmp(&before,&c,sizeof(c)) && !std::memcmp(ram.data(),rt.memory.flat(),ram.size()));
+        }
+        std::printf("%u object pair set-ups (1f9130: both basis lengths, register loads), the 397780 spill/restore round trip and 6 rejections passed\n",setupCases);
+    }
     unsigned projectionCases=0,projectedPoints=0;
     for(unsigned part=0;part<2;++part)for(unsigned rounding:{_MM_ROUND_NEAREST,_MM_ROUND_DOWN,_MM_ROUND_UP,_MM_ROUND_TOWARD_ZERO})for(unsigned seed=0;seed<96;++seed){
         auto &a=old.runtime();auto &b=native.runtime();std::memset(a.memory.flat(),0x29+seed,bozo::kFlatBytes);

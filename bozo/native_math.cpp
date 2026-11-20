@@ -559,6 +559,71 @@ float vu0Input(float v){const auto bits=std::bit_cast<uint32_t>(v);
     return pairNormal(v);}
 struct ObjectPairRegisters{std::array<std::array<uint32_t,4>,8> rows{};std::array<uint32_t,4> scale{};bool valid=false;};
 ObjectPairRegisters &objectPairRegisters(const Runtime *rt){static std::map<const Runtime *,ObjectPairRegisters> states;return states[rt];}
+// Common-math 0x7f0 on an object's basis rows +90..+b0: the per-axis lengths
+// (column norms) to out.xyz. The micro program leaves W as inherited register
+// state; no reader.
+void objectBasisLengths(Runtime *rt,uint32_t object,uint32_t out){
+    float rows[3][4];std::memcpy(rows,record(rt,object+0x90,48),48);
+    for(auto &row:rows)for(unsigned i=0;i<3;++i)row[i]=vu0Input(row[i]);
+    float lengths[3];
+    {music::NearestRounding rounding;
+        for(unsigned i=0;i<3;++i){
+            auto squared=pairSum(pairSum(pairProduct(rows[0][i],rows[0][i]),pairProduct(rows[1][i],rows[1][i])),pairProduct(rows[2][i],rows[2][i]));
+            volatile float root=std::sqrt(squared);lengths[i]=pairSum(0.f,root);
+        }}
+    std::memcpy(record(rt,out,12),lengths,12);
+}
+// Object pair set-up, mod001 1f9130 (called from mod003 398324): the same two
+// 0x7f0 basis-length calls (first a0's object s1 -> sp+40, then a1's s0 ->
+// sp+30; scalar code takes each maximum to +204), then it leaves vf1..vf4 =
+// s1+150, vf5..vf8 = s0+150 and vf9 = (s1+204, s0+204, stack, stack) for the
+// shape test its caller runs: recorded as the object-pair registers.
+bool nativeObjectPairSetup(R5900Context *c,Runtime *rt,uint32_t pc){
+    const bool firstScale=pc==0x1f92f0 || pc==0x1f92f4 || pc==0x1f92f8 || pc==0x1f9300 || pc==0x1f9304 || pc==0x1f930c;
+    const bool secondScale=pc==0x1f9368 || pc==0x1f936c || pc==0x1f9370 || pc==0x1f9378 || pc==0x1f937c || pc==0x1f9384;
+    const bool load=pc>=0x1f93c4 && pc<=0x1f93e4 && (pc&3)==0;
+    if(!(firstScale || secondScale || load))return false;
+    if(!c)throw std::runtime_error("native object pair set-up has no CPU record");
+    const auto stack=c->r[29].uw[0],first=c->r[17].uw[0],second=c->r[16].uw[0];
+    if(firstScale || secondScale){
+        const auto object=firstScale?first:second;const auto out=stack+(firstScale?0x40:0x30);
+        if(c->r[6].uw[0]!=object+0x90)throw std::runtime_error("native object pair basis mismatch");
+        if(pc==0x1f9304 || pc==0x1f937c){c->r[9].ud[0]=0;return true;}
+        if(pc!=0x1f930c && pc!=0x1f9384)return true;
+        if(c->r[3].uw[0]!=out)throw std::runtime_error("native object pair scale destination mismatch");
+        objectBasisLengths(rt,object,out);return true;
+    }
+    if(c->r[5].uw[0]!=first+0x150 || c->r[4].uw[0]!=second+0x150 || c->r[3].uw[0]!=stack+0x50)
+        throw std::runtime_error("native object pair set-up escaped its records");
+    if(pc!=0x1f93e4)return true;
+    auto &regs=objectPairRegisters(rt);
+    std::memcpy(regs.rows[0].data(),record(rt,first+0x150,64),64);std::memcpy(regs.rows[4].data(),record(rt,second+0x150,64),64);
+    std::memcpy(regs.scale.data(),record(rt,stack+0x50,16),16);regs.valid=true;
+    return true;
+}
+// The mod003 push-out loop 397780 (map 79) keeps the object-pair registers
+// across two virtual calls: SQC2 vf1..vf9 to sp+3a0 (3984f4..398514), LQC2
+// them back (3985e0..398600), then LQC2 vf8 from sp+460 (398608: the second
+// object's position row, as its +20 method moved it) before 1f88d0 runs the
+// shape test on them. The spill writes the registers' words, as the original.
+bool nativeObjectPairSpill(R5900Context *c,Runtime *rt,uint32_t pc){
+    const bool spill=pc>=0x3984f4 && pc<=0x398514,restore=pc>=0x3985e0 && pc<=0x398600,moved=pc==0x398608;
+    if(!(spill || restore || moved) || (pc&3) || !rt)return false;
+    const unsigned index=spill?(pc-0x3984f4)/4:restore?(pc-0x3985e0)/4:7;
+    const uint32_t expected=moved?0xd8480000u:(spill?0xf8600000u|((index+1)<<16):0xd8400000u|((index+1)<<16))|(moved?0:index*0x10);
+    uint32_t word=0;if(const auto *p=rt->memory.hostPointer(pc,4))std::memcpy(&word,p,4);
+    if(word!=expected)return false;   // another overlay at these addresses
+    if(!c)throw std::runtime_error("native object pair spill has no CPU record");
+    const auto stack=c->r[29].uw[0];auto &regs=objectPairRegisters(rt);
+    const auto base=c->r[spill?3:2].uw[0];
+    if(base!=stack+(moved?0x460:0x3a0))throw std::runtime_error("native object pair spill escaped its frame");
+    auto *row=index<8?regs.rows[index].data():regs.scale.data();
+    if(spill){if(!regs.valid)throw std::runtime_error("native object pair spill without registers");std::memcpy(record(rt,base+index*16,16),row,16);return true;}
+    if(moved){if(!regs.valid)throw std::runtime_error("native object pair row without registers");std::memcpy(row,record(rt,base,16),16);return true;}
+    if(index==0)regs.valid=false;
+    std::memcpy(row,record(rt,base+index*16,16),16);if(index==8)regs.valid=true;
+    return true;
+}
 bool nativeObjectOverlap(R5900Context *c,Runtime *rt,uint32_t pc){
     const bool spill=pc>=0x1f8b34 && pc<=0x1f8b54,restore=(pc>=0x1f8e70 && pc<=0x1f8e90) || (pc>=0x1f8fec && pc<=0x1f900c)
         || (pc>=0x1f907c && pc<=0x1f909c) || (pc>=0x1f90dc && pc<=0x1f90fc);
@@ -579,16 +644,7 @@ bool nativeObjectOverlap(R5900Context *c,Runtime *rt,uint32_t pc){
         if(pc==0x1f8d14 || pc==0x1f8d8c){c->r[9].ud[0]=0;return true;}
         if(pc!=0x1f8d1c && pc!=0x1f8d94)return true;
         if(c->r[2].uw[0]!=out)throw std::runtime_error("native object scale destination mismatch");
-        float rows[3][4];std::memcpy(rows,record(rt,object+0x90,48),48);
-        for(auto &row:rows)for(unsigned i=0;i<3;++i)row[i]=vu0Input(row[i]);
-        float lengths[3];
-        {music::NearestRounding rounding;
-            for(unsigned i=0;i<3;++i){
-                auto squared=pairSum(pairSum(pairProduct(rows[0][i],rows[0][i]),pairProduct(rows[1][i],rows[1][i])),pairProduct(rows[2][i],rows[2][i]));
-                volatile float root=std::sqrt(squared);lengths[i]=pairSum(0.f,root);
-            }}
-        // The micro program leaves W as inherited register state; no reader.
-        std::memcpy(record(rt,out,12),lengths,12);return true;
+        objectBasisLengths(rt,object,out);return true;
     }
     if(c->r[4].uw[0]!=c->r[20].uw[0]+0x10 || c->r[3].uw[0]!=c->r[19].uw[0]+0x10 || c->r[6].uw[0]!=first+0x150 || c->r[5].uw[0]!=second+0x150)
         throw std::runtime_error("native object overlap escaped its records");
@@ -3018,6 +3074,8 @@ bool nativeMathInstruction(uint8_t *,R5900Context *c,Runtime *rt,uint32_t pc){
     if(nativeLeafSphere(c,rt,pc) || nativeLeafBox(c,rt,pc) || nativeSegmentBox(c,rt,pc) || nativeHitPointTransform(c,rt,pc))return true;
     if(nativeLengthSite(c,rt,pc) || nativeRecordDot(c,rt,pc) || nativePackedQuaternion(c,rt,pc))return true;
     if(nativeObjectOverlap(c,rt,pc))return true;
+    if(nativeObjectPairSetup(c,rt,pc))return true;
+    if(nativeObjectPairSpill(c,rt,pc))return true;
     if(nativeUvAnimation(c,rt,pc))return true;
     if(nativeSegmentContact(c,rt,pc))return true;
     if(nativeObjectCompose(c,rt,pc))return true;

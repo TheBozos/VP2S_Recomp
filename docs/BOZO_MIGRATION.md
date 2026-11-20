@@ -12,6 +12,38 @@ The earlier VP2S face/shading and general brightness comparisons remain open.
 
 ## Build and evidence
 
+### Map 79: walking to the ghost (2026-11-20)
+
+From the map-79 state, a pad script (`frame:BUTTON/frames`, absolute frames)
+pages through the photon tutorial with CROSS (two topics, done by frame
+~62400; later CROSS presses fire photons) and then walks. LEFT leads to the
+map exit ("Leave the Lost Forest?"); RIGHT from frame 63400 reaches the
+user's PCSX2 slot-1 position, the ghost on Alicia's left. Three stops:
+- Record placement `30ce84` (object init `30ce70`, the 16-offset jitter):
+  the object can live on the scratchpad stack (`0x70003dd0`, the
+  "Photons" prompt). The check now accepts EE RAM or scratchpad.
+- Object pair set-up `1f9130` (mod001, called from mod003 `398324`): a
+  sibling of the overlap `1f8aa0`. Two `0x7f0` basis-length calls (object
+  `s1` to `sp+40`, `s0` to `sp+30`; scalar code keeps each maximum at
+  `+204`), then vf1..vf4 = `s1+150`, vf5..vf8 = `s0+150`, vf9 = the two
+  radii at `sp+50`, recorded as the object-pair registers for the box-pair
+  test `1f82c0`. The basis-length code is shared with `1f8aa0`
+  (`objectBasisLengths`); signature `1f9130..1f93fc`.
+- The mod003 push-out loop `397780` keeps those registers across two
+  virtual calls: SQC2 vf1..vf9 to `sp+3a0`, LQC2 back, then vf8 from `sp+460`
+  (the second object's moved position row) before `1f88d0` runs the shape
+  test. Native: the spill writes the registers' words, the restore reloads
+  them from RAM, the row is replaced (signature `397780..399244`).
+The math suite checks 64 set-ups against the ps2f reference, the spill /
+restore / row round trip and six rejections.
+
+**Result:** the next stop is a device write to `0x10009020` (VIF1 `QWC`) at
+`308bd0`: the kick of a VU1 job (vtable `15a8d8`, object `+90`, enqueued on
+the VIF1 queue `*(35dde0)` by `308c30`) that sends its own DMA chain at
+`job+150`. Its class (methods `3071b0..30aa60`, build `3094d0`) also uses
+the depth-readback node (`29a520`): a new native draw to port. No battle
+yet.
+
 ### Map 79: orbit emitter 40b990 and the photon tutorial window (2026-11-20)
 
 Continuing toward a forest encounter on map 79 (`--warp 79` from

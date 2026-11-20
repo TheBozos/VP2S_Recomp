@@ -45,7 +45,9 @@ std::optional<bool> nativeLoadProgressInstruction(R5900Context *c,Runtime *rt,ui
     }
     if(pc==0x30ce84){
         const auto base=c->r[16].uw[0];
-        if(base<0x100000 || (base&3) || uint64_t(base)+0x18c>0x2000000)throw std::runtime_error("native record placement outside its owned object");
+        // The object is in EE RAM or on the scratchpad stack (map 79's photon prompt: 0x70003dd0).
+        const bool ram=base>=0x100000 && uint64_t(base)+0x18c<=0x2000000,scratch=base>=0x70000000 && uint64_t(base)+0x18c<=0x70004000;
+        if((!ram && !scratch) || (base&3))throw std::runtime_error("native record placement outside its owned object");
         // A 0x78-byte payload fits at any of the sixteen original offsets,
         // before the object's pointer field at +0x188. The CPU stores/clears it.
         c->r[2].sd[0]=int32_t(base+16*(seed->initializationJitter()&15u));return true;

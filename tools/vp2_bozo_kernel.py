@@ -409,6 +409,8 @@ def overlay_adaptations(name,data):
                                (0x409fb0,0x40a6f8,'6182e94ad4abc49efb6883140f4adb5a17492a8041f49bffaac4c539ff4cfabf'),
                                # Trail emitter 40b080 (every VU0 site native: nativeTrailEmitter).
                                (0x40b080,0x40b984,'cd162384071e4ac2ea8f23819ed7c7601c0b03bf49168d10fe735aa8f42bcca2'),
+                               # Push-out loop 397780 (object-pair register spill/restore: nativeObjectPairSpill).
+                               (0x397780,0x399244,'098f9f69c875468cb4d60225f86e7d945e5972689650f89c57fcd096884169a3'),
                                # Orbit emitter 40b990 (the trail step on 0x120 records plus an orbit; nativeTrailEmitter).
                                (0x40b990,0x40c434,'16ae90f7674292db1984373db6f7893630b2b4055bdb52445af37ad4bb1660ab'),
                                # Emitter method 38cea0 (two v1 scaled sums, then the particle box words).
@@ -571,6 +573,8 @@ def overlay_adaptations(name,data):
         (0x252e30,0x253344,'0aa2f411a373a9d07357735229c7599e0d2f7ec1dbec3a6371e03c683b5bd448'),
         (0x1f6f40,0x1f739c,'64aa600e45325da65e5dbde01bf3d555bfcf683fd446955177b2c987b40246ee'),
         (0x1f8aa0,0x1f9128,'6b6f4904da15dc26a04bab0d45b242ed8137e59f6eb8f3a5da5fad53e50e1e91'),
+        # Object pair set-up 1f9130 (called from mod003 398324; nativeObjectPairSetup).
+        (0x1f9130,0x1f93fc,'11ee4f5e3ae1f5fe25e007568d07e583af81d936efec4290329e9125d18f849a'),
         # Box pair separating-axis test (stubbed; native nativeBoxPairLibrary).
         (0x1f82c0,0x1f8840,'cf218f2e44a527d27dc92bd7ec367edfe15f2570f62dc77072b7a299795e6cbd'),
         (0x209aa0,0x20a4bc,'475ada92e212bc095a32fa12a341da89bf20261019a6a7873e42a55a090ca0b6'),

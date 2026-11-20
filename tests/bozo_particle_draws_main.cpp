@@ -25,8 +25,8 @@ using Mat=std::array<float,16>;
 const Mat identity{1,0,0,0,0,1,0,0,0,0,1,0,0,0,0,1};
 void files(const std::filesystem::path &dir){
     std::filesystem::create_directories(dir);
-    {std::ofstream f(dir/"0000004000_001.pmat",std::ios::binary);write(f,uint32_t(0x32505056));write(f,uint32_t(1));
-        const std::array<uint32_t,27> fields{0x20,1,0x110,1,0,1,0,0,1,0,1,0,2,2,0,1,0,2,2,0,1,0,2,2,0,1,0};write(f,fields);}
+    {std::ofstream f(dir/"0000004000_001.pmat",std::ios::binary);write(f,uint32_t(0x33505056));write(f,uint32_t(1));
+        const std::array<uint32_t,28> fields{0x20,1,0x110,1,0,1,0,1,0,1,0,1,0,2,2,0,1,0,2,2,0,1,0,2,2,0,1,0};write(f,fields);}
     {std::ofstream f(dir/"manifest.txt");f<<"VPNT1\n11223344 5 c_0000000000000000.tex\n";}
     {std::ofstream f(dir/"c_0000000000000000.tex",std::ios::binary);write(f,std::array<uint32_t,3>{2,2,0});write(f,std::array<uint32_t,4>{0x800000ff,0x8000ff00,0x80ff0000,0x80ffffff});write(f,std::array<uint32_t,256>{});}
 }
@@ -203,8 +203,8 @@ int main(int argc,char **argv){try{
     // kind and ALPHA variant 1, all of pass 0 before pass 1; a kind that runs past the
     // template in a later pass rejects.
     {const auto two=dir/"two";files(two);
-     {std::ofstream f(two/"0000004000_001.pmat",std::ios::binary);write(f,uint32_t(0x32505056));write(f,uint32_t(1));
-         const std::array<uint32_t,27> fields{0x20,2,0x160,1,0,2,1,0,1,0,1,0,2,2,0,1,0x40,2,2,0,1,0,2,2,0,1,0};write(f,fields);}
+     {std::ofstream f(two/"0000004000_001.pmat",std::ios::binary);write(f,uint32_t(0x33505056));write(f,uint32_t(1));
+         const std::array<uint32_t,28> fields{0x20,2,0x160,1,0,2,1,1,0,1,0,1,0,2,2,0,1,0x40,2,2,0,1,0,2,2,0,1,0};write(f,fields);}
      vp2s::NativeParticleDraws passes(two);vp2s::NativeTextures twoTextures(two,two/"manifest.txt");
      initialize(rt,scene,assets,1);put(rt,kinds+1,uint8_t(2));
      const std::array<float,20> second{-.5f,-.5f,0,1,.5f,.5f,0,1,0,0,1,1,1,1,1,1,1,1,1,1};put(rt,kinds+0xc0+80,second);
@@ -218,6 +218,20 @@ int main(int argc,char **argv){try{
          check(std::abs(next.vertices[j].x-.25f*x)<1.e-6f && std::abs(next.vertices[j].y-.5f*y)<1.e-6f);}
      put(rt,0x210000u+0x20+32+44,uint32_t(1));bool rejected=false;
      try{passes.capture(&rt,assets,twoTextures,scene,particles,object);}catch(const std::runtime_error &){rejected=true;}check(rejected);
+    }
+    // Two kinds per pass (header z = 10 qwords, as aea42754/0+d20's z = 25 is five): a
+    // 2x2 grid where pass 1 draws kind + 2; a point of kind 2 then runs past the template and rejects.
+    {const auto wide=dir/"wide";files(wide);
+     {std::ofstream f(wide/"0000004000_001.pmat",std::ios::binary);write(f,uint32_t(0x33505056));write(f,uint32_t(1));
+         const std::array<uint32_t,28> fields{0x20,4,0x200,1,0,2,2,2,0,1,0,1,0,2,2,0,1,0x40,2,2,0,1,0,2,2,0,1,0};write(f,fields);}
+     vp2s::NativeParticleDraws strided(wide);vp2s::NativeTextures wideTextures(wide,wide/"manifest.txt");
+     initialize(rt,scene,assets,1);put(rt,kinds,uint8_t(2));put(rt,kinds+1,uint8_t(2));
+     const std::array<float,20> other{-.5f,-.5f,0,1,.5f,.5f,0,1,0,0,1,1,1,1,1,1,1,1,1,1};put(rt,kinds+0xc0+160,other);
+     assets=vp2s::NativeAssets{};assets.discRead(0x140000,1,8);assets.begin(0x1f0000,0x140000,kinds-0x20,1);assets.finish(0x1f0000,true,0x220);
+     const auto result=strided.capture(&rt,assets,wideTextures,scene,particles,object);check(result.batches.size()==2);
+     const auto &next=result.batches[1];check(next.vertices.size()==6 && std::abs(std::abs(next.vertices[0].x)-.25f)<1.e-6f && std::abs(std::abs(next.vertices[0].y)-.5f)<1.e-6f);
+     put(rt,0x210000u+0x20+32+44,uint32_t(2));bool rejected=false;
+     try{strided.capture(&rt,assets,wideTextures,scene,particles,object);}catch(const std::runtime_error &){rejected=true;}check(rejected);
     }
     // Negative point colours (the town's alpha -1.0 at a particle's end of life), as the
     // VU1 program draws them: tint*colour, min 255, FTOI0, GIF low byte; with tints

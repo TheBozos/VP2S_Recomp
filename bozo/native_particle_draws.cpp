@@ -34,11 +34,11 @@ const NativeParticleDraws::Material &NativeParticleDraws::material(const AssetOr
     if(found==materials.end()){
         const auto file=root/std::format("{:010x}_{:03}.pmat",origin.disc,origin.part);std::ifstream in(file,std::ios::binary);
         const auto take=[&](){uint32_t v;if(!in.read(reinterpret_cast<char *>(&v),4))throw std::runtime_error("missing/truncated native particle material conversion: "+file.string());return v;};
-        if(take()!=0x32505056)throw std::runtime_error("native particle material version mismatch");const auto count=take();if(count>65536)throw std::runtime_error("native particle material count outside bounds");
+        if(take()!=0x33505056)throw std::runtime_error("native particle material version mismatch");const auto count=take();if(count>65536)throw std::runtime_error("native particle material count outside bounds");
         std::map<uint32_t,Material> pack;
-        for(unsigned i=0;i<count;++i){const auto offset=take();Material m;m.kinds=take();m.extent=take();m.textureAlpha=take();m.function=take();m.passes=take();m.second=take();
+        for(unsigned i=0;i<count;++i){const auto offset=take();Material m;m.kinds=take();m.extent=take();m.textureAlpha=take();m.function=take();m.passes=take();m.second=take();m.stride=take();
             for(auto &blend:m.blends)for(auto &factor:blend)factor=take();
-            if(!m.kinds || m.kinds>16 || m.extent!=0xc0+80*m.kinds || m.textureAlpha>1 || m.function>3 || !m.passes || m.passes>4)throw std::runtime_error("invalid native particle material semantics");
+            if(!m.kinds || m.kinds>16 || m.extent!=0xc0+80*m.kinds || m.textureAlpha>1 || m.function>3 || !m.passes || m.passes>4 || !m.stride || m.stride>16)throw std::runtime_error("invalid native particle material semantics");
             for(const auto &b:m.blends){for(unsigned j=0;j<4;++j)if(b[j]>2)throw std::runtime_error("invalid native particle blend factor");if(b[4]>255)throw std::runtime_error("invalid native particle blend constant");}
             if(!pack.emplace(offset,m).second)throw std::runtime_error("duplicate native particle material offset");
         }
@@ -93,7 +93,7 @@ NativeModelSubmission NativeParticleDraws::capture(Runtime *rt,NativeAssets &ass
     // ported: with either flag set the draw refuses.
     const bool tilted=owner[0xaff]==6;
     if(tilted && (owner[0xafb] || owner[0xafc]))throw std::runtime_error("unported native particle mode 6 camera angle offsets");
-    // VU1 0x6e0 kicks every point once per pass: pass p draws kind + p with ALPHA variant p,
+    // VU1 0x6e0 kicks every point once per pass: pass p draws kind + p * stride with ALPHA variant p,
     // all points of a pass before the next pass.
     for(unsigned pass=0;pass<m.passes;++pass){
     mat.blendA=m.blends[pass][0];mat.blendB=m.blends[pass][1];mat.blendC=m.blends[pass][2];mat.blendD=m.blends[pass][3];mat.blendFix=m.blends[pass][4];batch.vertices.clear();
@@ -103,7 +103,7 @@ NativeModelSubmission NativeParticleDraws::capture(Runtime *rt,NativeAssets &ass
         const auto count=value<uint32_t>(header,0x10),extent=value<uint32_t>(header,0x14),group=value<uint32_t>(header,0x18);
         if(!count || count>48 || extent!=count*3+2 || group!=1 || count>total-seen || uint64_t(cursor)+32+48*count>uint64_t(base)+span)throw std::runtime_error("unported/incomplete native particle quad group");
         auto *points=record(rt,cursor+0x20,count*48);
-        for(unsigned p=0;p<count;++p){const auto *point=points+48*p;const auto kind=value<uint32_t>(point,44)+pass;if(kind>=m.kinds || kind<pass)throw std::runtime_error("native particle sprite kind outside template");auto *shape=kindData+0xc0+80*kind;
+        for(unsigned p=0;p<count;++p){const auto *point=points+48*p;const auto kind=uint64_t(value<uint32_t>(point,44))+uint64_t(pass)*m.stride;if(kind>=m.kinds)throw std::runtime_error("native particle sprite kind outside template");auto *shape=kindData+0xc0+80*kind;
             std::array<float,4> position=value<std::array<float,4>>(point,0);for(unsigned i=0;i<3;++i)number(position[i]);position[3]=1;const auto eye=transform(toView,position);
             const auto angle=number(value<float>(point,32)),sx=number(value<float>(point,36)),sy=number(value<float>(point,40)),c=std::cos(angle),s=std::sin(angle);
             const float x[2]={number(value<float>(shape,0)),number(value<float>(shape,16))},y[2]={number(value<float>(shape,4)),number(value<float>(shape,20))};

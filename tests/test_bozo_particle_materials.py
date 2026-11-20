@@ -14,22 +14,30 @@ def template():
 
 class MaterialTests(unittest.TestCase):
     def test_named_semantics(self):
-        packed=convert(template());self.assertEqual(len(packed),116);self.assertEqual(packed[:8],struct.pack('<4sI',b'VPP2',1))
-        values=struct.unpack_from('<27I',packed,8)
-        self.assertEqual(values[:7],(0,1,0x110,1,0,2,3));self.assertEqual(values[7:12],(0,1,0,1,0));self.assertEqual(values[12:17],(2,2,0,1,0))
+        packed=convert(template());self.assertEqual(len(packed),120);self.assertEqual(packed[:8],struct.pack('<4sI',b'VPP3',1))
+        values=struct.unpack_from('<28I',packed,8)
+        self.assertEqual(values[:8],(0,1,0x110,1,0,2,3,1));self.assertEqual(values[8:13],(0,1,0,1,0));self.assertEqual(values[13:18],(2,2,0,1,0))
     def test_pass_count_bounds(self):
         for passes in (0,5):
-            d=template();struct.pack_into('<I',d,0x20,passes);self.assertEqual(convert(d),struct.pack('<4sI',b'VPP2',0))
-        d=template();struct.pack_into('<I',d,0x20,4);self.assertEqual(struct.unpack_from('<27I',convert(d),8)[5],4)
+            d=template();struct.pack_into('<I',d,0x20,passes);self.assertEqual(convert(d),struct.pack('<4sI',b'VPP3',0))
+        d=template();struct.pack_into('<I',d,0x20,4);self.assertEqual(struct.unpack_from('<28I',convert(d),8)[5],4)
+    def test_kind_stride_per_pass(self):
+        # z = 25 qwords: five kinds per pass (a 5x2 grid, two passes).
+        d=bytearray(0xc0+80*10);d[:0xc0]=template()[:0xc0];d[0]=5;d[1]=2
+        struct.pack_into('<I',d,0xbc,0x6c3202e9);struct.pack_into('<I',d,0x28,25)
+        self.assertEqual(struct.unpack_from('<28I',convert(d),8)[5:8],(2,3,5))
+        for z,passes in ((24,2),(0,1)):   # not whole kinds, none
+            e=bytearray(d);struct.pack_into('<II',e,0x20,passes,3);struct.pack_into('<I',e,0x28,z);self.assertEqual(convert(e),struct.pack('<4sI',b'VPP3',0))
+        e=bytearray(d);struct.pack_into('<I',e,0x2c,1);self.assertEqual(convert(e),struct.pack('<4sI',b'VPP3',0))
     def test_physical_addresses_disappear(self):
         a=template();b=template();struct.pack_into('<I',b,0x40,0x12345678);self.assertEqual(convert(a),convert(b))
     def test_missing_or_truncated_shape(self):
-        for d in (b'',template()[:-1],b'xxxx'+template()):self.assertEqual(convert(d),struct.pack('<4sI',b'VPP2',0))
+        for d in (b'',template()[:-1],b'xxxx'+template()):self.assertEqual(convert(d),struct.pack('<4sI',b'VPP3',0))
     def test_register_identity_and_count_guards(self):
-        for at,value in ((0x28,6),(0x48,5),(0x78,6),(0xbc,0x6c0a02e9),(0x1c,0x6c0802e0)):
-            d=template();struct.pack_into('<I',d,at,value);self.assertEqual(convert(d),struct.pack('<4sI',b'VPP2',0))
+        for at,value in ((0x28,6),(0x28,0),(0x48,5),(0x78,6),(0xbc,0x6c0a02e9),(0x1c,0x6c0802e0)):
+            d=template();struct.pack_into('<I',d,at,value);self.assertEqual(convert(d),struct.pack('<4sI',b'VPP3',0))
     def test_offsets_and_independent_records(self):
         d=bytearray(0x20)+template()+bytearray(0x10)+template();p=convert(d)
-        self.assertEqual(struct.unpack_from('<I',p,4)[0],2);self.assertEqual(struct.unpack_from('<I',p,8)[0],0x20);self.assertEqual(struct.unpack_from('<I',p,116)[0],0x140)
+        self.assertEqual(struct.unpack_from('<I',p,4)[0],2);self.assertEqual(struct.unpack_from('<I',p,8)[0],0x20);self.assertEqual(struct.unpack_from('<I',p,120)[0],0x140)
 
 if __name__=='__main__':unittest.main()

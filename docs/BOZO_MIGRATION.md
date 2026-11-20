@@ -12,6 +12,34 @@ The earlier VP2S face/shading and general brightness comparisons remain open.
 
 ## Build and evidence
 
+### Particle templates with several kinds per pass (VPP3, 2026-11-20)
+
+Particle template `aea42754/0+d20` (the forest spawn's effect) had no converted
+material. Its VU1 0x6e0 pass header (`+20`) is x = 2 passes, y = 5, z = 25.
+The converter pinned z = 5. Per the earlier analysis of 0x6e0, z is the
+qwords added to the kind base vi3 after each pass, and a kind is 5 qwords.
+z = 25 therefore means pass p draws kind + 5p: the template is a 5x2 grid,
+and the second pass uses the second row. In every converted template y equals
+z / 5, so y is the number of kinds per pass.
+
+**Changes:**
+- **Converter (`tools/vp2_bozo_particle_materials.py`).** It now writes
+  `VPP3`, with a stride (z / 5) after y. A template is rejected only when z is
+  0, not a multiple of 5, or has a high word. Admitted templates rise from
+  4071 to 6707 (strides 1..16). In all of them every pass fits inside the
+  template.
+- **Draw.** Pass p uses kind + p · stride, and a kind past the template
+  rejects.
+
+Tests:
+- The converter tests add a stride case (5x2 grid, z = 25) and z rejections.
+- The particle-draw suite adds a two-kinds-per-pass draw (pass 1 draws
+  kind 2's shape) and a kind running past the template.
+
+**Result:** the particle draw passes. From `forest_60300` the route now stops
+at disc mesh `aea42754/0+121d0` (routines [8, 40]). Routine 40 is the last
+set-up routine the mesh converter rejects.
+
 ### DOF order, saturating 216e04, unset collider planes (2026-11-20)
 
 **DOF glare before glow.** The refusal is removed. `+130fc` marks buffer 428 as

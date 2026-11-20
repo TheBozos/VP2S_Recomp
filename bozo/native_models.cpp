@@ -408,9 +408,12 @@ NativeModelSubmission NativeModels::capture(Runtime *rt,NativeAssets &assets,Nat
             // Except the material block's +5c (mesh +9c), the palette entry the game
             // assigns after publication and this path reads live (below).
             std::string detail;unsigned shown=0;
+            // And PRIM.FGE in the material's GIF tags (rows 13 and 14, mesh +b4 / +c4): the
+            // battle switches fog on after publication; the draw reads row 13's tag live.
             for(size_t at=0;at+4<=g->second.bytes.size();at+=4){
                 if(at==0x9c && g->second.mesh->hasMaterial)continue;
                 uint32_t was,is;std::memcpy(&was,g->second.bytes.data()+at,4);std::memcpy(&is,now+at,4);
+                if((at==0xb4 || at==0xc4) && g->second.mesh->hasMaterial && (was^is)==0x00100000u)continue;
                 if(was!=is && shown++<6)detail+=std::format(" +{:x}: {:08x}->{:08x}",at,was,is);}
             if(shown)throw std::runtime_error(std::format("native generated mesh {:x} changed after publication:{}",mesh,detail));
             held=g->second.mesh;}

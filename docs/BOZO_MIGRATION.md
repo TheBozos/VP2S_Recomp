@@ -12,6 +12,29 @@ The earlier VP2S face/shading and general brightness comparisons remain open.
 
 ## Build and evidence
 
+### Battle segment tests, live fog bit, segment ends (2026-11-20)
+
+The battle runs to frame 63400 from the map 79 state.
+- **Segment registers:** mod028 `4f58f0` loads vf1..vf4 (object rows) and vf5
+  (scale, offset) for mod001's segment tests (`1f5ba0`). They are recorded in
+  `objectPairRegisters` (rows[0..4]).
+- **Segment/sphere `1f59c0`:** a quadratic in program order. `DIV` 1/(2a);
+  the discriminant takes four `MSUB`s; `SQRT`; then both roots, x lanes only.
+- **Segment/box `1f5640`:** both points in box space (row dot products in
+  the VU lane orders) and the extents widened by vf5.y; the slab tests after
+  it stay scalar.
+- **Directions and distances:** `4f5b28` normalised direction; `3d7b34`
+  distance; `4f5a68` basis lengths.
+- **Segment ends `3e47b0`:** two lerped ends, optionally offset by R·p. On the
+  rotation path the offset is the `ACC` lanes left by its row block, without
+  the translation term.
+- **Live fog bit:** the battle sets PRIM.FGE in a published mesh's material
+  tags (mesh `+b4`/`+c4`). The draw already reads row 13's tag live, so the
+  immutability check now allows that bit to change.
+- **Next:** a battle vertex-animation element (class `172b10`, mod028 `+10`
+  method `498940`) with attribute set 5 (positions and bit 4) in the
+  animator `219210`.
+
 ### Battle collisions, packed meshes, more mod028 blocks (2026-11-20)
 
 The battle now runs to frame 63395 from the map 79 state; captures are written

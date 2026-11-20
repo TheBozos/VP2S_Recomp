@@ -646,8 +646,9 @@ bool nativeObjectPairSpill(R5900Context *c,Runtime *rt,uint32_t pc){
 //   mod001 239b54: 239b20 (scene object +50 method, called from 2203b8), object a0
 //                  (base v0), output sp+0; it checks the lengths are 1 within 0.002.
 //   mod028 4f56f8: battle shape test 4f5630, object s4 (base a2), output sp+60.
+//   mod028 4f5a68: battle segment test 4f58f0, object s2 (base a2), output sp+c0.
 struct BasisLengthSite{uint32_t load,call,store;unsigned object,base,output;uint32_t offset;};
-constexpr BasisLengthSite basisLengthSites[]={{0x43c120,0x43c130,0x43c13c,16,4,3,0x70},{0x239b54,0x239b64,0x239b70,4,2,2,0},{0x4f56f8,0x4f5708,0x4f5714,20,6,3,0x60}};
+constexpr BasisLengthSite basisLengthSites[]={{0x43c120,0x43c130,0x43c13c,16,4,3,0x70},{0x239b54,0x239b64,0x239b70,4,2,2,0},{0x4f56f8,0x4f5708,0x4f5714,20,6,3,0x60},{0x4f5a68,0x4f5a78,0x4f5a84,18,6,3,0xc0}};
 bool nativeBattleBasisLengths(R5900Context *c,Runtime *rt,uint32_t pc){
     if(!rt || (pc&3))return false;
     const auto site=std::find_if(std::begin(basisLengthSites),std::end(basisLengthSites),[&](auto &s){return pc>=s.load && pc<=s.store;});
@@ -1391,9 +1392,9 @@ uint32_t vuSub(uint32_t a,uint32_t b){uint32_t f=0;return bozo::ps2f::subNearest
 //   382154 (in 38204c): A = t4, B = t2, OUT = t3.
 //   37a820 (in 37a7d8): A = a0 (s0+1f0), B = v0 (s0+200), OUT = v1 (sp+60).
 //   38256c, 3825a8 (in 382470): A = a2, B = v1, OUT = a1; 3826d0: length of t1 to t0;
-//   382798: length of t1 to a3.
+//   382798: length of t1 to a3; 3d7b34 (in 3d76a0): A = a0, B = v0, OUT = v1.
 struct DistanceSite{uint32_t lo;unsigned a,b,out;};
-constexpr DistanceSite distanceSites[]={{0x3fd3f8,5,3,4},{0x382154,12,10,11},{0x37a820,4,2,3},{0x38256c,6,3,5},{0x3825a8,6,3,5},{0x3826d0,9,0,8},{0x382798,9,0,7}};
+constexpr DistanceSite distanceSites[]={{0x3fd3f8,5,3,4},{0x382154,12,10,11},{0x37a820,4,2,3},{0x38256c,6,3,5},{0x3825a8,6,3,5},{0x3826d0,9,0,8},{0x382798,9,0,7},{0x3d7b34,4,2,3}};
 bool nativeBattlePointDistance(R5900Context *c,Runtime *rt,uint32_t pc){
     constexpr uint32_t middle[]={0x4bd9c62c,0x4bd8c62a,0x4bc00643,0x4b18c03d,0x4b18ce0a,0x4a1803bd,0x4a0003bf,0x4b000620};
     if((pc&3) || !rt)return false;
@@ -1437,6 +1438,24 @@ bool nativeBattleTrackBlocks(R5900Context *c,Runtime *rt,uint32_t pc){
     }
     return true;
 }
+// Battle segment direction, mod028 4f58f0 (4f5b28..4f5b54): sp+d0 = (s0 - s3).xyz *
+// 1/sqrt((x^2+y^2) + 1*z^2) (RSQRT), w = s3.w; the same block as 4f44f0's direction.
+bool nativeBattleSegmentDirection(R5900Context *c,Runtime *rt,uint32_t pc){
+    constexpr std::pair<uint32_t,uint32_t> sites[]={{0x4f5b28,0xda7a0000},{0x4f5b2c,0xda1b0000},{0x4f5b30,0x4bc007c3},{0x4f5b38,0x4bdadeac},{0x4f5b3c,0x4bdad6ea},{0x4f5b40,0x4b1bd83d},{0x4f5b44,0x4b1bfeca},{0x4f5b48,0x4a7b03be},{0x4f5b4c,0x4a0003bf},{0x4f5b50,0x4bc0d69c},{0x4f5b54,0xf85a0000}};
+    if((pc&3) || !rt || pc<0x4f5b28 || pc>0x4f5b54)return false;
+    const auto site=std::find_if(std::begin(sites),std::end(sites),[&](auto &x){return x.first==pc;});
+    if(site==std::end(sites))return false;
+    uint32_t word=0;if(const auto *p=rt->memory.hostPointer(pc,4))std::memcpy(&word,p,4);
+    if(word!=site->second)return false;   // another overlay at these addresses
+    if(!c)throw std::runtime_error("native battle segment direction has no CPU record");
+    if(pc!=0x4f5b54)return true;
+    if(c->r[2].uw[0]!=c->r[29].uw[0]+0xd0)throw std::runtime_error("native battle segment direction escaped its frame");
+    constexpr uint32_t one=0x3f800000u;
+    uint32_t from[4],to[4],d[4],sq[3];std::memcpy(from,record(rt,c->r[19].uw[0],16),16);std::memcpy(to,record(rt,c->r[16].uw[0],16),16);
+    for(unsigned i=0;i<3;++i){d[i]=vuSub(to[i],from[i]);sq[i]=vuMul(d[i],d[i]);}
+    uint32_t flags=0;const auto q=bozo::ps2f::rsqrt(one,vuAdd(vuAdd(sq[0],sq[1]),vuMul(one,sq[2])),flags);
+    for(unsigned i=0;i<3;++i)d[i]=vuMul(d[i],q);d[3]=from[3];std::memcpy(record(rt,c->r[2].uw[0],16),d,16);return true;
+}
 // Battle approach, mod028 4f44f0 (twice, the second copy 108 later, word for word; ps2f):
 //   4f4514..4f4540: sp+80 = (s4 - s1).xyz * 1/sqrt((x^2+y^2) + 1*z^2) (RSQRT), w = s1.w.
 //   4f4550..4f456c: s1.xyz = s1*1 + v1 * t0 (QMTC2 vf3 = t0; v1 = sp+80, t0 = 50), in place.
@@ -1465,6 +1484,48 @@ bool nativeBattleApproach(R5900Context *c,Runtime *rt,uint32_t pc){
         std::memcpy(record(rt,c->r[17].uw[0],16),point,16);return true;
     }
     return true;
+}
+// Battle segment ends, mod028 3e47b0 (per element s5 of 0x30 bytes; ps2f):
+//   3e48bc..3e48d8: d = a0 - s5; vf1 = d*v1.x + s5*1, vf2 = a0 - d*v1.y (xyz; w as loaded).
+//   with s3+2c set, 3e48f0..3e494c: p = s3+10, rows = s1+90; vf11..vf14 = rows * p (lanes);
+//     ACC.x = (x+y) + 1*z of row 0, ACC.y = (y+x) + 1*z of row 1, ACC.z = (z+y) + 1*x of
+//     row 2 (the MADDw writes to vf5 leave ACC); vf1 += ACC, vf2 += ACC (MADDw.xyz, *1).
+//   3e4954/3e4958: vf1 to s5, vf2 to s5+10 (v0, set at 3e4950 on both paths).
+// The ends are held per call frame from 3e48d8 to the stores (no calls in between).
+std::map<std::pair<const Runtime *,uint32_t>,std::array<std::array<uint32_t,4>,2>> &battleSegmentEnds(){
+    static std::map<std::pair<const Runtime *,uint32_t>,std::array<std::array<uint32_t,4>,2>> m;return m;}
+bool nativeBattleSegmentEnds(R5900Context *c,Runtime *rt,uint32_t pc){
+    constexpr std::pair<uint32_t,uint32_t> sites[]={{0x3e48bc,0xdaa10000},{0x3e48c0,0xd8820000},{0x3e48c4,0x4bc1112c},{0x3e48c8,0xd8630000},{0x3e48cc,0x4bc321bc},{0x3e48d0,0x4bc32119},{0x3e48d4,0x4bc0084b},{0x3e48d8,0x4bc410ac},
+        {0x3e48f0,0xd84f0000},{0x3e48f4,0xd86b0000},{0x3e48f8,0xd86c0010},{0x3e48fc,0xd86d0020},{0x3e4900,0xd86e0030},{0x3e4904,0x4bc007c3},{0x3e4908,0x4bef5aea},{0x3e490c,0x4bef632a},{0x3e4910,0x4bef6b6a},{0x3e4914,0x4bef73aa},{0x3e4918,0x4b0b583d},{0x3e491c,0x4b0bf8be},{0x3e4920,0x4b0bf94b},{0x3e4924,0x4a8c603c},{0x3e4928,0x4a8cf8be},{0x3e492c,0x4a8cf94b},{0x3e4930,0x4a4d683d},{0x3e4934,0x4a4df8bc},{0x3e4938,0x4a4df94b},{0x3e493c,0x4a2e703d},{0x3e4940,0x4a2e00be},{0x3e4944,0x4a2e00bc},{0x3e4948,0x4bc0084b},{0x3e494c,0x4bc0108b},{0x3e4954,0xfaa10000},{0x3e4958,0xf8420000}};
+    if((pc&3) || !rt || pc<0x3e48bc || pc>0x3e4958)return false;
+    const auto site=std::find_if(std::begin(sites),std::end(sites),[&](auto &x){return x.first==pc;});
+    if(site==std::end(sites))return false;
+    uint32_t word=0;if(const auto *p=rt->memory.hostPointer(pc,4))std::memcpy(&word,p,4);
+    if(word!=site->second)return false;   // another overlay at these addresses
+    if(!c)throw std::runtime_error("native battle segment ends have no CPU record");
+    using Words=std::array<uint32_t,4>;
+    const auto load=[&](uint32_t at){Words v;std::memcpy(v.data(),record(rt,at,16),16);return v;};
+    constexpr uint32_t one=0x3f800000u;
+    auto &states=battleSegmentEnds();const auto key=std::make_pair(static_cast<const Runtime *>(rt),c->r[29].uw[0]);
+    if(pc==0x3e48d8){
+        auto start=load(c->r[21].uw[0]),end=load(c->r[4].uw[0]);const auto t=load(c->r[3].uw[0]);
+        for(unsigned i=0;i<3;++i){const auto d=vuSub(end[i],start[i]);start[i]=vuAdd(vuMul(d,t[0]),vuMul(start[i],one));end[i]=vuSub(end[i],vuMul(d,t[1]));}
+        states[key]={start,end};return true;
+    }
+    if(pc<0x3e4948)return true;
+    auto it=states.find(key);if(it==states.end())throw std::runtime_error("native battle segment ends have no first block");
+    if(pc==0x3e4948 || pc==0x3e494c){
+        if(pc==0x3e494c)return true;   // both ends take the same ACC at 3e4948
+        const auto point=load(c->r[2].uw[0]);uint32_t m[3][3];
+        for(unsigned r=0;r<3;++r){const auto row=load(c->r[3].uw[0]+16*r);for(unsigned i=0;i<3;++i)m[r][i]=vuMul(row[i],point[i]);}
+        const uint32_t acc[3]={vuAdd(vuAdd(m[0][0],m[0][1]),vuMul(one,m[0][2])),vuAdd(vuAdd(m[1][1],m[1][0]),vuMul(one,m[1][2])),vuAdd(vuAdd(m[2][2],m[2][1]),vuMul(one,m[2][0]))};
+        for(auto &end:it->second)for(unsigned i=0;i<3;++i)end[i]=vuAdd(acc[i],vuMul(end[i],one));
+        return true;
+    }
+    const auto element=c->r[21].uw[0];
+    if(pc==0x3e4954){std::memcpy(record(rt,element,16),it->second[0].data(),16);return true;}
+    if(c->r[2].uw[0]!=element+0x10)throw std::runtime_error("native battle segment end escaped its element");
+    std::memcpy(record(rt,element+0x10,16),it->second[1].data(),16);states.erase(it);return true;
 }
 // Battle box sphere, mod028 3fd5f0(a0 box: min +0, max +10): LQC2 vf27 = sp+0 (x = 0.5),
 // vf28 = min, vf29 = max; vf31.xyz = (max+min)*0.5, vf30.xyz = (max-min)*0.5, vf28 = vf30^2;
@@ -1645,6 +1706,93 @@ bool nativeBattleShapes(R5900Context *c,Runtime *rt,uint32_t pc){
         store(pc==0x1f81bc?stack:stack+0x10,out);return true;}
     default:return true;   // loads and intermediate steps: the results are computed at the stores
     }
+}
+// Segment against battle shapes: mod028 4f58f0 loads vf5 = s3+20 (x: the object's scale
+// +204, y: s3+24) and vf1..vf4 = the rows of s2+150 (4f5ab8..4f5ac8: objectPairRegisters
+// rows[4] and rows[0..3]) and calls mod001 1f5ba0 per segment; kind 1 shapes run the
+// segment/sphere test 1f59c0(a0 sphere, a1 start p0, a2 end p1), ps2f in program order:
+//   c = rows . a0 (xyzw), r = a0.w*vf5.x + 1*vf5.y; d = p1 - p0;
+//   a = (d.x^2+d.y^2) + 1*d.z^2; b = (2(d*(p0-c))).x + .y + 1*.z;
+//   k = ((((c.x^2+c.y^2) + 1*c.z^2) + 1*p0.x^2 + 1*p0.y^2 + 1*p0.z^2) - 1*(2 p0.c)) - 1*r^2;
+//   disc = b*b - a*k - a*k - a*k - k*a (four MSUBs); sp+20.x = disc;
+//   m = -1 * (1/(2a)); s = sqrt(disc); sp+0.x = m*b + m*s; sp+10.x = m*b - m*s.
+// Only the x lanes are defined (the rest are register leftovers no reader takes).
+bool nativeSegmentSphere(R5900Context *c,Runtime *rt,uint32_t pc){
+    constexpr std::pair<uint32_t,uint32_t> sites[]={{0x1f59c4,0xd8860000},{0x1f59c8,0xd8a90000},{0x1f59cc,0xd8ca0000},{0x1f59d0,0x4bc00747},{0x1f59d4,0x4be609bc},{0x1f59d8,0x4be610bd},{0x1f59dc,0x4be618be},{0x1f59e0,0x4be021cb},{0x1f59e4,0x4a2531bc},{0x1f59e8,0x4a2501c9},{0x1f59ec,0x4bc9522c},{0x1f59f0,0x4bc74d2c},{0x1f59f4,0x4bc74daa},{0x1f59f8,0x4bc007c3},{0x1f59fc,0x4bc73dea},{0x1f5a00,0x4a2739ea},{0x1f5a04,0x4bc842ea},{0x1f5a08,0x4bd4456a},{0x1f5a0c,0x4b16b03d},{0x1f5a10,0x4b16fd8a},{0x1f5a14,0x4b0b583d},{0x1f5a18,0x4bd5ad68},{0x1f5a1c,0x4b0bfaca},{0x1f5a20,0x4b16b5a8},{0x1f5a24,0x4bc94e2a},{0x1f5a28,0x4b15a83d},{0x1f5a2c,0x4b0b5be8},{0x1f5a30,0x4b15fb0a},{0x1f5a34,0x4b17b83d},{0x1f5a38,0x4b17f8be},{0x1f5a3c,0x4a6f03bc},{0x1f5a40,0x4b18f8bc},{0x1f5a44,0x4b18f8bd},{0x1f5a48,0x4b18f8be},{0x1f5a4c,0x4b16f8fc},{0x1f5a50,0x4b07fb4f},{0x1f5a54,0x4b0c62be},{0x1f5a58,0x4b0d5afd},{0x1f5a5c,0x4b0d5afd},{0x1f5a60,0x4b0d5afd},{0x1f5a64,0x4b0b6bad},{0x1f5a68,0x4b00ebdc},{0x1f5a70,0x4a0e03bd},{0x1f5a74,0xf84e0000},
+        {0x1f5ae0,0x4b0c7abe},{0x1f5ae4,0x4b007c61},{0x1f5ae8,0x4b0c7abe},{0x1f5aec,0x4b007ca5},{0x1f5af0,0xf8710000},{0x1f5af4,0xf8520000},
+        {0x4f5ab8,0xd8850000},{0x4f5abc,0xd8610000},{0x4f5ac0,0xd8620010},{0x4f5ac4,0xd8630020},{0x4f5ac8,0xd8640030}};
+    if((pc&3) || !rt || !((pc>=0x1f59c4 && pc<=0x1f5af4) || (pc>=0x4f5ab8 && pc<=0x4f5ac8)))return false;
+    const auto site=std::find_if(std::begin(sites),std::end(sites),[&](auto &x){return x.first==pc;});
+    if(site==std::end(sites))return false;
+    uint32_t word=0;if(const auto *p=rt->memory.hostPointer(pc,4))std::memcpy(&word,p,4);
+    if(word!=site->second)return false;   // another overlay at these addresses
+    if(!c)throw std::runtime_error("native segment test has no CPU record");
+    using Words=std::array<uint32_t,4>;
+    const auto load=[&](uint32_t at){Words v;std::memcpy(v.data(),record(rt,at,16),16);return v;};
+    auto &regs=objectPairRegisters(rt);
+    if(pc==0x4f5ac8){
+        if(c->r[4].uw[0]!=c->r[19].uw[0]+0x20 || c->r[3].uw[0]!=c->r[18].uw[0]+0x150)throw std::runtime_error("native segment registers escaped their records");
+        regs.rows[4]=load(c->r[4].uw[0]);for(unsigned i=0;i<4;++i)regs.rows[i]=load(c->r[3].uw[0]+16*i);regs.valid=true;return true;
+    }
+    if(pc!=0x1f5a74 && pc!=0x1f5af0 && pc!=0x1f5af4)return true;
+    if(!regs.valid)throw std::runtime_error("native segment/sphere test has no registers");
+    constexpr uint32_t one=0x3f800000u;
+    const auto v6=load(c->r[4].uw[0]),p0=load(c->r[5].uw[0]),p1=load(c->r[6].uw[0]);const auto &s5=regs.rows[4];
+    Words centre;for(unsigned k=0;k<4;++k)centre[k]=vuAdd(vuAdd(vuAdd(vuMul(regs.rows[0][k],v6[0]),vuMul(regs.rows[1][k],v6[1])),vuMul(regs.rows[2][k],v6[2])),vuMul(regs.rows[3][k],one));
+    auto radius=vuAdd(vuMul(v6[3],s5[0]),vuMul(one,s5[1]));radius=vuMul(radius,radius);
+    uint32_t d[3],toward[3],product[3],c2[3],d2[3],mixed[3],p2[3];
+    for(unsigned i=0;i<3;++i){d[i]=vuSub(p1[i],p0[i]);toward[i]=vuSub(p0[i],centre[i]);product[i]=vuMul(p0[i],centre[i]);c2[i]=vuMul(centre[i],centre[i]);
+        d2[i]=vuMul(d[i],d[i]);mixed[i]=vuMul(d[i],toward[i]);mixed[i]=vuAdd(mixed[i],mixed[i]);p2[i]=vuMul(p0[i],p0[i]);}
+    auto pc2=vuAdd(vuAdd(product[0],product[1]),vuMul(one,product[2]));pc2=vuAdd(pc2,pc2);
+    const auto a=vuAdd(vuAdd(d2[0],d2[1]),vuMul(one,d2[2]));const auto twiceA=vuAdd(a,a);
+    const auto b=vuAdd(vuAdd(mixed[0],mixed[1]),vuMul(one,mixed[2]));
+    uint32_t flags=0;const auto inverse=bozo::ps2f::div(one,twiceA,flags);
+    auto acc=vuAdd(vuAdd(c2[0],c2[1]),vuMul(one,c2[2]));
+    for(unsigned i=0;i<3;++i)acc=vuAdd(acc,vuMul(one,p2[i]));
+    acc=vuSub(acc,vuMul(one,pc2));const auto k=vuSub(acc,vuMul(one,radius));
+    acc=vuMul(b,b);for(unsigned i=0;i<3;++i)acc=vuSub(acc,vuMul(a,k));const auto disc=vuSub(acc,vuMul(k,a));
+    if(pc==0x1f5a74){if(c->r[2].uw[0]!=c->r[29].uw[0]+0x20)throw std::runtime_error("native segment/sphere escaped its frame");
+        std::memcpy(record(rt,c->r[2].uw[0],16),&disc,4);return true;}
+    const auto m=vuMul(vuSub(0,one),inverse);flags=0;const auto root=bozo::ps2f::sqrt(disc,flags);
+    const auto base=vuMul(m,b),offset=vuMul(m,root);
+    const auto out=pc==0x1f5af0?vuAdd(base,offset):vuSub(base,offset);const auto at=c->r[pc==0x1f5af0?3:2].uw[0];
+    if(at!=c->r[29].uw[0]+(pc==0x1f5af0?0u:0x10u))throw std::runtime_error("native segment/sphere roots escaped their frame");
+    std::memcpy(record(rt,at,16),&out,4);return true;
+}
+// Segment/box, mod001 1f5640(a0 box centre, a1 half extents, a2 p0, a3 p1) on the segment
+// registers (vf1..vf4 = rows[0..3], vf5 = rows[4]; see nativeSegmentSphere), ps2f:
+//   c = rows . a0 (xyzw); sp+80 = a1 + vf5.y (xyz; w = a1.w);
+//   sp+70 = (p0 - c) against each row: x = (r0x+r0y) + 1*r0z, y = (r1y+r1x) + 1*r1z,
+//   z = (r2z+r2x) + 1*r2y of the lane products; sp+60 the same for p1 - p0.
+// Only xyz of sp+70 / sp+60 are defined (w: register leftovers, not read). The slab
+// tests after it are scalar (1f6670).
+bool nativeBattleSegmentBox(R5900Context *c,Runtime *rt,uint32_t pc){
+    constexpr std::pair<uint32_t,uint32_t> sites[]={{0x1f565c,0xd88f0000},{0x1f5660,0xd8cc0000},{0x1f5664,0xd8eb0000},{0x1f5668,0xd8b10000},{0x1f566c,0x4bef09bc},{0x1f5670,0x4bef10bd},{0x1f5674,0x4bef18be},{0x1f5678,0x4be023cb},{0x1f567c,0x4bcf62ac},{0x1f5680,0x4bc58c41},{0x1f56ac,0xf8510000},{0x1f56b0,0x4bcc5aec},{0x1f56b4,0x4bc1552a},{0x1f56b8,0x4bc2556a},{0x1f56bc,0x4bc355aa},{0x1f56c0,0x4bc007c3},{0x1f56c4,0x4b14a03d},{0x1f56c8,0x4b14fb8a},{0x1f56cc,0x4a95a83c},{0x1f56d0,0x4a95fb8a},{0x1f56d4,0x4bc15d2a},{0x1f56d8,0x4a56b03c},{0x1f56dc,0x4a56fb89},{0x1f56e0,0x4bc25d6a},{0x1f56e4,0x4bc35daa},{0x1f56e8,0x4b14a03d},{0x1f56ec,0x4b14fb4a},{0x1f56f0,0x4a95a83c},{0x1f56f4,0x4a95fb4a},{0x1f56f8,0x4a56b03c},{0x1f56fc,0x4a56fb49},{0x1f5708,0xf86e0000},{0x1f570c,0xf84d0000}};
+    if((pc&3) || !rt || pc<0x1f565c || pc>0x1f570c)return false;
+    const auto site=std::find_if(std::begin(sites),std::end(sites),[&](auto &x){return x.first==pc;});
+    if(site==std::end(sites))return false;
+    uint32_t word=0;if(const auto *p=rt->memory.hostPointer(pc,4))std::memcpy(&word,p,4);
+    if(word!=site->second)return false;   // another overlay at these addresses
+    if(!c)throw std::runtime_error("native segment/box test has no CPU record");
+    if(pc!=0x1f56ac && pc!=0x1f5708 && pc!=0x1f570c)return true;
+    auto &regs=objectPairRegisters(rt);if(!regs.valid)throw std::runtime_error("native segment/box test has no registers");
+    using Words=std::array<uint32_t,4>;
+    const auto load=[&](uint32_t at){Words v;std::memcpy(v.data(),record(rt,at,16),16);return v;};
+    constexpr uint32_t one=0x3f800000u;const auto stack=c->r[29].uw[0];
+    if(pc==0x1f56ac){
+        if(c->r[2].uw[0]!=stack+0x80)throw std::runtime_error("native segment/box extents escaped their frame");
+        auto e=load(c->r[5].uw[0]);for(unsigned i=0;i<3;++i)e[i]=vuAdd(e[i],regs.rows[4][1]);std::memcpy(record(rt,stack+0x80,16),e.data(),16);return true;
+    }
+    const bool start=pc==0x1f5708;const auto out=c->r[start?3:2].uw[0];
+    if(out!=stack+(start?0x70u:0x60u))throw std::runtime_error("native segment/box point escaped its frame");
+    const auto centre=load(c->r[4].uw[0]),p0=load(c->r[6].uw[0]),p1=load(c->r[7].uw[0]);
+    Words world;for(unsigned k=0;k<4;++k)world[k]=vuAdd(vuAdd(vuAdd(vuMul(regs.rows[0][k],centre[0]),vuMul(regs.rows[1][k],centre[1])),vuMul(regs.rows[2][k],centre[2])),vuMul(regs.rows[3][k],one));
+    uint32_t v[3];for(unsigned i=0;i<3;++i)v[i]=start?vuSub(p0[i],world[i]):vuSub(p1[i],p0[i]);
+    uint32_t result[3];
+    for(unsigned r=0;r<3;++r){uint32_t m[3];for(unsigned i=0;i<3;++i)m[i]=vuMul(v[i],regs.rows[r][i]);
+        constexpr unsigned order[3][3]={{0,1,2},{1,0,2},{2,0,1}};
+        result[r]=vuAdd(vuAdd(m[order[r][0]],m[order[r][1]]),vuMul(one,m[order[r][2]]));}
+    std::memcpy(record(rt,out,16),result,12);return true;
 }
 bool nativeBoxPairLibrary(R5900Context *c,Runtime *rt,uint32_t target){
     if(target!=0x1f82c0)return false;
@@ -3516,6 +3664,10 @@ bool nativeMathInstruction(uint8_t *,R5900Context *c,Runtime *rt,uint32_t pc){
     if(nativeBattleShapes(c,rt,pc))return true;
     if(nativeBattleTrackBlocks(c,rt,pc))return true;
     if(nativeBattleApproach(c,rt,pc))return true;
+    if(nativeBattleSegmentEnds(c,rt,pc))return true;
+    if(nativeBattleSegmentDirection(c,rt,pc))return true;
+    if(nativeSegmentSphere(c,rt,pc))return true;
+    if(nativeBattleSegmentBox(c,rt,pc))return true;
     if(nativeBattleShapePoint(c,rt,pc))return true;
     if(nativeBattleBoxCorners(c,rt,pc))return true;
     if(nativeBattleBoxWorld(c,rt,pc))return true;

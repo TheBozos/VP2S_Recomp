@@ -795,6 +795,16 @@ int main(int argc,char **argv){try{
             d.r[2].uw[0]=stack;check(vp2s::nativeMathInstruction(rt.memory.flat(),&d,&rt,0x239b70));
             std::memcpy(out,rt.memory.hostPointer(stack,16),16);check(out[0]==5 && out[1]==2 && out[2]==5 && std::bit_cast<uint32_t>(out[3])==0x5a5a5a5au);
         }
+        {   // mod028 3fd3f8 point distance: a0 = (|a1 - v1|, dy^2, dz^2, a1.w).
+            constexpr uint32_t words[]={0xd8b80000,0xd8790000,0x4bd9c62c,0x4bd8c62a,0x4bc00643,0x4b18c03d,0x4b18ce0a,0x4a1803bd,0x4a0003bf,0x4b000620,0xf8980000};
+            std::memcpy(rt.memory.hostPointer(0x3fd3f8,sizeof(words)),words,sizeof(words));
+            constexpr uint32_t a=0x1a0000,b=0x1a0010,out=0x1fff000;const float pa[4]={4,6,0,7},pb[4]={1,2,0,9};
+            std::memcpy(rt.memory.hostPointer(a,16),pa,16);std::memcpy(rt.memory.hostPointer(b,16),pb,16);
+            R5900Context c{};c.r[5].uw[0]=a;c.r[3].uw[0]=b;c.r[4].uw[0]=out;
+            for(uint32_t pc=0x3fd3f8;pc<=0x3fd420;pc+=4)check(vp2s::nativeMathInstruction(rt.memory.flat(),&c,&rt,pc));
+            float o[4];std::memcpy(o,rt.memory.hostPointer(out,16),16);check(o[0]==5 && o[1]==16 && o[2]==0 && o[3]==7);
+            c.r[3].uw[0]=0;bool bad=false;try{vp2s::nativeMathInstruction(rt.memory.flat(),&c,&rt,0x3fd3f8);}catch(const std::runtime_error &){bad=true;}check(bad);
+        }
         {   // mod028 3fd5f0 box sphere: a0+20 = ((max+min)/2, |(max-min)/2|).
             constexpr uint32_t words[]={0xd93b0000,0xd89c0000,0xd91d0000,0x4bdcefe8,0x4bdcefac,0x4bdbffd8,0x4bdbf798,0x4bdef72a,
                 0x4a3c01bc,0x4a3c00bd,0x4a3c074a,0x4bfd03be,0x4a0003bf,0x4a20efdc,0xf8ff0000};

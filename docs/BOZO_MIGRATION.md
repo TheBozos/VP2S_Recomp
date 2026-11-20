@@ -12,6 +12,24 @@ The earlier VP2S face/shading and general brightness comparisons remain open.
 
 ## Build and evidence
 
+### Native memmove with provenance; battle reaches its shape tests (2026-11-20)
+
+- **`memmove` (main `132d38..132e40`)** is now native. It is retired like the
+  other overridden SDK functions: a stub on every word and a hash guard; the
+  entry is `nativeMemmove` in `bozo/native_kernel.cpp`. The bytes move with
+  overlap allowed, and their asset provenance moves with them, as `memcpy`'s
+  does. Before this, a FIS file copied with it had no origin. The battle
+  copies portraits that way (mod028 `4f2f70`), and the copy is then uploaded
+  by the battle image loader. The kernel suite checks the overlap and the
+  moved origin.
+- **Distance sites** are a table: `3fd3f8` and `382154` (`t4 - t2` to `t3`).
+- **Next boundary:** mod028 `4f5630`, an object pair test against battle
+  shapes. It runs the basis lengths of `s4+90` to `sp+60`, a sphere overlap
+  (rows `s4+150` · `s1+10`, minus `s0`), then on overlap leaves vf1..vf4 =
+  `s4+150` rows, vf5..vf8 = `s0+10..30` and (0, 0, 0, 1), and vf9 = `s0+40`
+  for mod001 `1f73a0`. That dispatches by shape kind to `248560`, `1f8100` and
+  `1f8840`, none of which are ported yet.
+
 ### Battle module 133, battle meshes, more mod028 sites (2026-11-20)
 
 - **Module 133** (`0x85`): loaded into mod112's slot at `0x532200` (text

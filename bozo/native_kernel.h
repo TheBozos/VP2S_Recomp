@@ -8,6 +8,7 @@ void installNativeKernelBindings(bozo::port::Registry &registry);
 // Only the original native main-thread stack/heap setup uses raw syscalls.
 void validateNativeKernelCall(const R5900Context *,uint32_t kind);
 void initNativeSyscallServices(uint8_t *,R5900Context *,Runtime *);
+void nativeMemmove(uint8_t *,R5900Context *,Runtime *);
 // This retires installation only. Runtime alarm/deadline APIs remain unsupported.
 void retireAlarmFirmwareInstaller(uint8_t *,R5900Context *,Runtime *);
 void initNativeTimer(uint8_t *,R5900Context *,Runtime *);

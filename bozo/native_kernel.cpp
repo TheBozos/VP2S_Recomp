@@ -1,4 +1,5 @@
 #include "native_kernel.h"
+#include "native_assets.h"
 #include "bozo/ee/dispatcher.h"
 #include <cstdio>
 #include <cstring>
@@ -21,6 +22,22 @@ void nativeWorkStack(R5900Context *c,Runtime *rt,uint32_t pc){
             throw std::runtime_error("native work-stack return is outside its work frame");
         d->kernel().resumeThreadStack(c->r[17].uw[0]);
     }else throw std::runtime_error("unqualified native work-stack site");
+}
+// libc memmove (132d38): the bytes move as the original moves them (overlap allowed), and
+// their asset provenance moves with them, as memcpy's (132c88) does. The battle copies a
+// FIS file with it before uploading it (mod028 4f2f70).
+void nativeMemmove(uint8_t *,R5900Context *ctx,Runtime *rt){
+    auto *d=rt?dynamic_cast<bozo::ee::Dispatcher *>(rt->services):nullptr;
+    auto *assets=d?dynamic_cast<AssetOwner *>(&d->host()):nullptr;
+    if(!ctx || !assets || ctx->pc!=0x132d38u)throw std::runtime_error("native memmove requires its asset owner");
+    const uint32_t to=ctx->r[4].uw[0],from=ctx->r[5].uw[0],bytes=ctx->r[6].uw[0];
+    if(bytes){
+        if(bytes>0x2000000u)throw std::runtime_error(std::format("native memmove of {:x} bytes (ra {:x})",bytes,ctx->r[31].uw[0]));
+        auto *destination=rt->memory.hostPointer(to,bytes);const auto *source=rt->memory.hostPointer(from,bytes);
+        if(!destination || !source)throw std::runtime_error(std::format("native memmove outside guest memory ({:x} <- {:x}, {:x})",to,from,bytes));
+        assets->nativeAssets().copy(to,from,bytes,0);std::memmove(destination,source,bytes);
+    }
+    ctx->r[2].sd[0]=int32_t(to);ctx->pc=ctx->r[31].uw[0];
 }
 void validateNativeKernelCall(const R5900Context *ctx,uint32_t kind){
     if(kind!=3)return; // Bound SDK calls keep their image-specific registry guards.
@@ -99,6 +116,8 @@ void installNativeKernelBindings(bozo::port::Registry &registry) {
     for(uint32_t pc=0x13f608u;pc<0x13f69cu;pc+=4) registry.registerFunction(pc,&rejectFirmwareEntry);
     for(uint32_t pc=0x137580u;pc<0x1375c0u;pc+=4) registry.registerFunction(pc,&rejectFirmwareEntry);
     registry.registerFunction(0x141448u,&initNativeSyscallServices);
+    registry.registerFunction(0x132d38u,&nativeMemmove);
+    for(uint32_t pc=0x132d3cu;pc<0x132e40u;pc+=4) registry.registerFunction(pc,&rejectFirmwareEntry);
     registry.registerFunction(0x141a38u,&retireAlarmFirmwareInstaller);
     registry.registerFunction(0x141bb0u,&initNativeTimer);
     registry.registerFunction(0x141df0u,&startNativeTimer);

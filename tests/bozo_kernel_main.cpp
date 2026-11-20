@@ -1,21 +1,26 @@
 // Native SDK boundary tests: no game instructions, firmware image or device model.
 #include "native_kernel.h"
+#include "native_assets.h"
 #include "bozo/ee/dispatcher.h"
 #include <cstdio>
 #include <cstring>
 #include <stdexcept>
 #include <vector>
+#include <source_location>
+#include <string>
 
 namespace {
-void require(bool condition) { if(!condition) throw std::runtime_error("native kernel boundary mismatch"); }
+void require(bool condition,std::source_location at=std::source_location::current()) { if(!condition) throw std::runtime_error("native kernel boundary mismatch at line "+std::to_string(at.line())); }
 template<class Fn> void rejected(Fn fn) {
     bool failed=false;
     try { fn(); } catch(const std::runtime_error &) { failed=true; }
     require(failed);
 }
-class Host final : public bozo::ee::Host {
+class Host final : public bozo::ee::Host,public vp2s::AssetOwner {
 public:
     unsigned callbacks=0;
+    vp2s::NativeAssets assets;
+    vp2s::NativeAssets &nativeAssets() override { return assets; }
     void kernelCallBegin(bozo::ee::Dispatcher &,R5900Context *ctx,uint32_t,uint32_t kind)override{
         try{vp2s::validateNativeKernelCall(ctx,kind);}catch(...){++callbacks;throw;}
     }
@@ -117,13 +122,14 @@ int main() {
         unsigned guarded=0;
         for(const auto &entry:registry.functions()) {
             if(entry.address==0x1401b8 || entry.address==0x13fba8 || entry.address==0x13f608 || entry.address==0x13f680 ||
-               entry.address==0x137580 || entry.address==0x137590 || entry.address==0x1375a0 || entry.address==0x1375b0 || entry.address==0x137a30 || entry.address==0x13a3f0)continue;
+               entry.address==0x137580 || entry.address==0x137590 || entry.address==0x1375a0 || entry.address==0x1375b0 || entry.address==0x137a30 || entry.address==0x13a3f0 ||
+               entry.address==0x132d38)continue;
             if(entry.address==0x141448 || entry.address==0x141a38 || entry.address==0x141bb0 || entry.address==0x141df0 || entry.address==0x1423f8 || entry.address==0x141f00 || entry.address==0x142150 || entry.address==0x137280 || entry.address==0x137290 || entry.address==0x140b70) continue;
             ctx.pc=entry.address;
             rejected([&]{entry.function(nullptr,&ctx,&rt);});
             ++guarded;
         }
-        require(guarded==1782 && !registry.find(0x141548)); // SetSyscall is not bypassed
+        require(guarded==1847 && !registry.find(0x141548)); // SetSyscall is not bypassed
         for(uint32_t number:{116u,0xfcu,0xfeu,0xfdu,0xffu,0x12cu,8u,0x54u,0x55u,0x56u,0x57u,0x58u,0x59u}) {
             ctx.pc=0x14154c; ctx.r[3].uw[0]=number;
             ctx.r[4].uw[0]=0x83; ctx.r[5].uw[0]=0x1413c0;
@@ -134,7 +140,16 @@ int main() {
         for(uint32_t number:{60u,61u}){ctx.r[3].uw[0]=number;vp2s::validateNativeKernelCall(&ctx,3);}
         require(host.callbacks==13 && !std::memcmp(before.data(),rt.memory.flat(),bozo::kFlatBytes));
         require(k.handlerQueued() && k.sequence()==sequence && k.nextEvent()==event);
-        std::puts("native installer/cache visibility, 48 context cases, RAM/kernel preservation, 1782 guards and unsupported runtime syscall rejection pass");
+        {   // memmove (132d38): overlapping move, the bytes' asset provenance moves with them.
+            require(registry.find(0x132d38)==&vp2s::nativeMemmove);
+            std::memcpy(rt.memory.hostPointer(0x180000,8),"abcdefgh",8);host.assets.discRead(0x180000,1,7);
+            R5900Context m{};m.pc=0x132d38;m.r[4].uw[0]=0x180002;m.r[5].uw[0]=0x180000;m.r[6].uw[0]=6;m.r[31].uw[0]=0x170000;
+            vp2s::nativeMemmove(nullptr,&m,&rt);
+            require(!std::memcmp(rt.memory.hostPointer(0x180000,8),"ababcdef",8) && m.r[2].uw[0]==0x180002 && m.pc==0x170000);
+            const auto origin=host.assets.origin(0x180002);
+            require(origin && origin->kind==vp2s::AssetOrigin::Kind::Disc && origin->disc==7*2048);
+        }
+        std::puts("native installer/cache visibility, 48 context cases, RAM/kernel preservation, 1847 guards, memmove provenance and unsupported runtime syscall rejection pass");
         return 0;
     } catch(const std::exception &e) { std::fprintf(stderr,"%s\n",e.what()); return 1; }
 }

@@ -1382,6 +1382,32 @@ VuWords vuWords(Runtime *rt,uint32_t at){VuWords v;std::memcpy(v.data(),record(r
 uint32_t vuMul(uint32_t a,uint32_t b){uint32_t f=0;return bozo::ps2f::mul(a,b,f);}
 uint32_t vuAdd(uint32_t a,uint32_t b){uint32_t f=0;return bozo::ps2f::addNearest(a,b,f);}
 uint32_t vuSub(uint32_t a,uint32_t b){uint32_t f=0;return bozo::ps2f::subNearest(a,b,f);}
+// Battle point distance blocks (mod028): vf24 = A - B (xyz), squared; vf24.x = (x+y) + 1*z;
+// Q = SQRT; vf24.x = 0 + Q; SQC2 vf24 to OUT: (length, dy^2, dz^2, A.w). ps2f, nearest.
+//   3fd3f8 (in 3fd198): A = a1, B = v1 (s0+50 + 16*a2, or 0 when a2 is outside s0's +40
+//                       entries: address 0 is refused), OUT = a0.
+//   382154 (in 38204c): A = t4, B = t2, OUT = t3.
+struct DistanceSite{uint32_t lo;unsigned a,b,out;};
+constexpr DistanceSite distanceSites[]={{0x3fd3f8,5,3,4},{0x382154,12,10,11}};
+bool nativeBattlePointDistance(R5900Context *c,Runtime *rt,uint32_t pc){
+    constexpr uint32_t middle[]={0x4bd9c62c,0x4bd8c62a,0x4bc00643,0x4b18c03d,0x4b18ce0a,0x4a1803bd,0x4a0003bf,0x4b000620};
+    if((pc&3) || !rt)return false;
+    const auto site=std::find_if(std::begin(distanceSites),std::end(distanceSites),[&](auto &s){return pc>=s.lo && pc<=s.lo+40;});
+    if(site==std::end(distanceSites))return false;
+    const unsigned slot=(pc-site->lo)/4;
+    const uint32_t expected=slot==0?0xd8180000u|(site->a<<21):slot==1?0xd8190000u|(site->b<<21):slot==10?0xf8180000u|(site->out<<21):middle[slot-2];
+    uint32_t word=0;if(const auto *p=rt->memory.hostPointer(pc,4))std::memcpy(&word,p,4);
+    if(word!=expected)return false;   // another overlay at these addresses
+    if(!c)throw std::runtime_error("native battle point distance has no CPU record");
+    if(!c->r[site->b].uw[0])throw std::runtime_error("native battle point distance reads address 0 (index outside its table): undefined natively");
+    if(slot!=10)return true;
+    uint32_t a[4],b[4];std::memcpy(a,record(rt,c->r[site->a].uw[0],16),16);std::memcpy(b,record(rt,c->r[site->b].uw[0],16),16);
+    constexpr uint32_t one=0x3f800000u;uint32_t out[4];
+    for(unsigned i=0;i<3;++i){const auto d=vuSub(a[i],b[i]);out[i]=vuMul(d,d);}
+    const auto length2=vuAdd(vuAdd(out[0],out[1]),vuMul(one,out[2]));
+    uint32_t flags=0;out[0]=vuAdd(0,bozo::ps2f::sqrt(length2,flags));out[3]=a[3];
+    std::memcpy(record(rt,c->r[site->out].uw[0],16),out,16);return true;
+}
 // Battle box sphere, mod028 3fd5f0(a0 box: min +0, max +10): LQC2 vf27 = sp+0 (x = 0.5),
 // vf28 = min, vf29 = max; vf31.xyz = (max+min)*0.5, vf30.xyz = (max-min)*0.5, vf28 = vf30^2;
 // ACC.w = 1*x, +1*y, vf29.w = +1*z; RSQRT Q = 1/sqrt(vf29.w); vf31.w = vf29.w*Q; SQC2 vf31 to
@@ -3313,6 +3339,7 @@ bool nativeMathInstruction(uint8_t *,R5900Context *c,Runtime *rt,uint32_t pc){
     if(nativeBattleShapeOrigin(c,rt,pc))return true;
     if(nativeBattleVertexPack(c,rt,pc))return true;
     if(nativeBattleBoxSphere(c,rt,pc))return true;
+    if(nativeBattlePointDistance(c,rt,pc))return true;
     if(nativeBattleShapePoint(c,rt,pc))return true;
     if(nativeBattleBoxCorners(c,rt,pc))return true;
     if(nativeBattleBoxWorld(c,rt,pc))return true;

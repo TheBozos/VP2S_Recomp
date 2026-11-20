@@ -27,6 +27,8 @@ struct NativeUiText {uint32_t element=0;bool inlineImages=false;std::vector<Nati
     std::vector<NativeUiSprite> lateIcons;};               // textured, drawn after alphaTriangles (name plate event image)
 std::vector<bozo::render::Vertex> nativeChapterBar(Runtime *,uint32_t element);
 struct NativeUiLayer {uint32_t layer=0,object=0;std::vector<std::shared_ptr<const NativeUiText>> texts;};
+// The emitter-built text classes the native UI admits (15a450 and its subclasses, 15a350).
+bool nativeUiTextClass(uint32_t type);
 class NativeUiTexts {
     struct Build {
         NativeUiText text;

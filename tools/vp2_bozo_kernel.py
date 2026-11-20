@@ -409,6 +409,8 @@ def overlay_adaptations(name,data):
                                (0x409fb0,0x40a6f8,'6182e94ad4abc49efb6883140f4adb5a17492a8041f49bffaac4c539ff4cfabf'),
                                # Trail emitter 40b080 (every VU0 site native: nativeTrailEmitter).
                                (0x40b080,0x40b984,'cd162384071e4ac2ea8f23819ed7c7601c0b03bf49168d10fe735aa8f42bcca2'),
+                               # Orbit emitter 40b990 (the trail step on 0x120 records plus an orbit; nativeTrailEmitter).
+                               (0x40b990,0x40c434,'16ae90f7674292db1984373db6f7893630b2b4055bdb52445af37ad4bb1660ab'),
                                # Emitter method 38cea0 (two v1 scaled sums, then the particle box words).
                                (0x38cea0,0x38d0a0,'496b8d46f1c01dc5c23b15468dde55107541658cd1cb7d4b93ee177e415c8d65'),
                                # Camp menu set-up 45dd30 (its graphics-memory clear's enqueue retires).
@@ -727,6 +729,8 @@ def overlay_adaptations(name,data):
         (0x2ef540,0x2ef790,'00b49df34b798490492cf1cbec3da0252e2309d87ef0a5c0b17f4091095af683'),
         # FIS sprite element (base 15a4b0) build 2f0fa0, writer return 2f1050.
         (0x2f0fa0,0x2f1098,'114a20145afcf7b4bfa73b8f1ed846d10f43c90a945c3e7da5ec4dce8c801959'),
+        # Button sprite element 15a4e0: destructor 2f11c0, build 2f1230 (writer return 2f12cc).
+        (0x2f11c0,0x2f1310,'d4235f8475a3432f091cab8334fdb533984fceb1545650f2c37e170255f016f2'),
         (0x30ee00,0x30f0c0,'15d8bbc42064f45964cc032ed2db9a95beeb2530a0c24e0ead872528eae453e4'),
         # Depth probe (lens-flare visibility): owner/consumer 253360, readback node
         # class 159010 (enqueue 29a4b0, request 29a520, promotion 29a5d0, notify 299c00).
@@ -1064,5 +1068,5 @@ def overlay_native_sites(name,data):
         0x22106c,0x221294,0x221308,0x221540,0x221704,0x221718,0x221748,0x2088f0,
         0x221698,0x22169c,0x21c9dc,0x21c9e0,0x21c9e8,0x21c9ec,0x21ca1c,0x21ca20,0x21ca24,0x21ca28,0x2cb490,0x2f3714,0x2ea9a0,
         0x2e74f0,0x2e7520,0x2e7550,0x2e757c,0x2e75a0,0x2f0de0,0x2eeb80,0x2e83e4,0x2ec9e4,0x2ec308,0x2ec320,
-        0x2efe40,0x2effe8,0x2eb3a0,0x2eab28,0x2eaa20,0x2f1050,0x2ef780,0x2ef540,0x2eb5c4,0x2ebac4,0x2ebb0c,0x2ebb58,0x2ebb9c,0x2ebba8,0x2bbfc0,0x2bc1d0,0x2bc1e0,0x2ba670,0x1ef6f8,0x1ef914,0x1f0438,0x1f04a0,0x1efa30,
+        0x2efe40,0x2effe8,0x2eb3a0,0x2eab28,0x2eaa20,0x2f1050,0x2f12cc,0x2f11c0,0x2ef780,0x2ef540,0x2eb5c4,0x2ebac4,0x2ebb0c,0x2ebb58,0x2ebb9c,0x2ebba8,0x2bbfc0,0x2bc1d0,0x2bc1e0,0x2ba670,0x1ef6f8,0x1ef914,0x1f0438,0x1f04a0,0x1efa30,
         0x1f4590,0x1f4940,0x2bdac0,0x2bd9b0,0x2bd5d8,0x2be3d0,0x2bea60,0x239f70,0x239ff0,0x25aa30,0x25aa40,0x25bad0,0x25bdcc,0x25adbc,0x214388,0x2f2df0,0x2f2fb8,0x2f2d70))+'stub 0x2b90a0\nstub 0x2b9560\nstub 0x1f04c8\nstub 0x1f82c0\n'

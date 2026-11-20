@@ -2473,16 +2473,75 @@ constexpr TrailSite trailSites[]={
     {0x40b878,0xd8810000,'h',3},{0x40b888,0x48a21800,'n',3},{0x40b88c,0x4be40b3c,'v',3},{0x40b8a8,0xd8420000,'p',3},
     {0x40b8ac,0x4be111ac,'i',1},{0x40b8b0,0x4be1133c,'i',2},{0x40b8b4,0x4bc022bc,'i',3},{0x40b8b8,0x4bc33108,'i',4},
     {0x40b8bc,0xf8440000,'a',5},{0x40b8c0,0x4bc4d6af,'b',6},{0x40b8c4,0x4bc4deeb,'b',7}};
+// Orbit emitter step (mod003 40b990, called from the same driver 22ed38; frame
+// = sp + 1e0). The trail emitter's step on records of 0x120 bytes, plus an
+// orbit: radius +b0 (vf9), angles +80 (vf10), radius rate +c0 (vf11), angle
+// rate +90 (vf13), radius accel +d0 (vf12), angle accel +a0 (vf14), last offset
+// +e0. Before the main step (after the position load):
+//   radius.xyz = (radius + 0) + radiusRate*dt -> +b0
+//   angles.xyz = (angles + 0) + angleRate*dt  -> +80
+// then scalar code (sine/cosine 213fd0) writes the new offset to +e0 and the
+// change since the last one to sp+1a0 (vf15), which joins P and A:
+//   P.xyz = (((p + 0) + offset*1) + drift*1) + v*dt
+//   A.xyz = ((a + 0) + offset*1) + v*dt
+// and after the clamp: radiusRate.xyz += radiusAccel*dt, angleRate.xyz +=
+// angleAccel*dt, stored with the records (+c0, +90; before the rows in mode 5).
+// Output = *(sp+160) (advanced by the point count s6*0x30 before the trail);
+// mode 2 publishes at sp+190, mode 5 at sp+180. Curve index a3, trails as 40b080.
+constexpr TrailSite orbitSites[]={
+    {0x40ba48,0x48a22800,'T',0},{0x40ba50,0xd8540000,'T',1},{0x40ba8c,0x4be00798,'T',2},{0x40ba94,0xd85d0000,'T',3},
+    {0x40bb68,0xda410000,'L',0},
+    {0x40bb80,0xd8490000,'W',0},{0x40bb88,0xd84a0000,'W',1},{0x40bb90,0xdaeb0000,'W',2},{0x40bb98,0xdbcd0000,'W',3},
+    {0x40bba4,0x4bc04abc,'W',4},{0x40bba8,0x4bc55a48,'W',5},{0x40bbac,0x4bc052bc,'W',6},{0x40bbb0,0x4bc56a88,'W',7},
+    {0x40bbb8,0xf8490000,'W',8},{0x40bbc0,0xf84a0000,'W',9},
+    {0x40bc54,0xda220000,'L',1},{0x40bc5c,0xd9040000,'L',2},{0x40bc6c,0xd8430000,'L',3},{0x40bc74,0xda060000,'L',4},{0x40bc7c,0xd8670000,'L',5},
+    {0x40bc84,0xd8480000,'L',6},{0x40bc8c,0xd84f0000,'L',7},{0x40bc94,0xd84c0000,'L',8},{0x40bc9c,0xd84e0000,'L',9},{0x40bca0,0xdaeb0000,'L',10},{0x40bca4,0xdbcd0000,'L',11},
+    {0x40bd30,0xd8900000,'E',0},{0x40bd3c,0x48a48800,'E',1},{0x40bd40,0x4bc00abc,'E',2},{0x40bd44,0x4bd18048,'E',3},
+    {0x40bd7c,0x4bc00abc,'k',0},{0x40bd80,0x4bc078bf,'k',1},{0x40bd84,0x4bc0a0bf,'k',2},{0x40bd88,0x4bc51048,'k',3},{0x40bd8c,0x4bfe32bc,'k',4},{0x40bd90,0x4be53988,'k',5},
+    {0x40bd94,0x4bc022bc,'k',6},{0x40bd98,0x4bc078bf,'k',7},{0x40bd9c,0x4bc51108,'k',8},{0x40bda0,0x4bc012bc,'k',9},{0x40bda4,0x4bc51888,'k',10},{0x40bda8,0x4a251084,'k',11},
+    {0x40bdac,0x4be03190,'k',12},{0x40bdb0,0x4a252100,'k',13},{0x40bdb4,0x4be039bf,'k',14},{0x40bdb8,0x4be541c8,'k',15},{0x40bdbc,0x4bc1d6af,'k',16},{0x40bdc0,0x4bfd3194,'k',17},
+    {0x40bdc4,0x4bc1deeb,'k',18},{0x40bdc8,0x4bc05abc,'k',19},{0x40bdcc,0x4bc562c8,'k',20},{0x40bdd0,0x4bc06abc,'k',21},{0x40bdd4,0x4bc57348,'k',22},
+    {0x40bddc,0xf8810000,'O',0},{0x40bde4,0xf8860010,'O',1},
+    // Record stores (param = A, P, V, C, R, radius rate, angle rate) in each mode branch.
+    {0x40be50,0xf9040000,'R',0},{0x40be54,0xfa410000,'R',1},{0x40be58,0xfa220000,'R',2},{0x40be5c,0xfa060000,'R',3},{0x40be60,0xf8670000,'R',4},{0x40be64,0xfaeb0000,'R',5},{0x40be68,0xfbcd0000,'R',6},
+    {0x40bed8,0xf9040000,'R',0},{0x40bedc,0xfa410000,'R',1},{0x40bee0,0xfa220000,'R',2},{0x40bee4,0xfa060000,'R',3},{0x40bee8,0xf8670000,'R',4},{0x40beec,0xfaeb0000,'R',5},{0x40bef0,0xfbcd0000,'R',6},
+    {0x40bf6c,0xf9040000,'R',0},{0x40bf74,0xfa410000,'R',1},{0x40bf78,0xfa220000,'R',2},{0x40bf7c,0xfa060000,'R',3},{0x40bf80,0xf8670000,'R',4},{0x40bf84,0xfaeb0000,'R',5},{0x40bf88,0xfbcd0000,'R',6},
+    {0x40c010,0xfaeb0000,'R',5},{0x40c014,0xfbcd0000,'R',6},
+    {0x40c03c,0xf9040000,'R',0},{0x40c040,0xfa410000,'R',1},{0x40c044,0xfa220000,'R',2},{0x40c048,0xfa060000,'R',3},{0x40c04c,0xf8670000,'R',4},
+    {0x40c0c8,0xf9040000,'R',0},{0x40c0cc,0xfa410000,'R',1},{0x40c0d0,0xfa220000,'R',2},{0x40c0d4,0xfa060000,'R',3},{0x40c0d8,0xf8670000,'R',4},{0x40c0dc,0xfaeb0000,'R',5},{0x40c0e0,0xfbcd0000,'R',6},
+    {0x40c178,0xf9040000,'R',0},{0x40c17c,0xfa410000,'R',1},{0x40c180,0xfa220000,'R',2},{0x40c184,0xfa060000,'R',3},{0x40c188,0xf8670000,'R',4},{0x40c18c,0xfaeb0000,'R',5},{0x40c190,0xfbcd0000,'R',6},
+    {0x40bf68,0x4bc007c3,'2',0},{0x40bf70,0x4bc4212a,'2',1},{0x40bf8c,0x4b04203d,'2',2},{0x40bf90,0x4b04f90a,'2',3},{0x40bf9c,0xf8440000,'2',4},
+    {0x40c01c,0xd8480000,'5',0},{0x40c020,0xd8490010,'5',1},{0x40c024,0xd84a0020,'5',2},{0x40c028,0xd84b0030,'5',3},
+    {0x40c02c,0x4be141bc,'5',4},{0x40c030,0x4be148bd,'5',5},{0x40c034,0x4be150be,'5',6},{0x40c038,0x4be05c8b,'5',7},{0x40c054,0xf8520000,'5',8},
+    {0x40c1cc,0xd8810000,'h',2},{0x40c1dc,0x48a21800,'n',2},{0x40c1e0,0x4be40b3c,'v',2},{0x40c200,0xd8420000,'p',2},
+    {0x40c204,0x4be111ac,'i',1},{0x40c208,0x4be1133c,'i',2},{0x40c20c,0x4bc007c3,'i',3},{0x40c210,0x4bc631ea,'i',4},{0x40c214,0x4b07383d,'i',5},{0x40c218,0x4b07f9ca,'i',6},
+    {0x40c21c,0x4a6703be,'i',7},{0x40c220,0x4a0003bf,'i',8},{0x40c224,0x4bc0321c,'i',9},{0x40c228,0x4bc022bc,'i',10},{0x40c22c,0x4bc030bf,'i',11},{0x40c230,0x4bc34108,'i',12},
+    {0x40c234,0xf8440000,'a',13},{0x40c238,0x4bc4d6af,'b',14},{0x40c23c,0x4bc4deeb,'b',15},
+    {0x40c274,0xd8810000,'h',1},{0x40c284,0x48a21800,'n',1},{0x40c288,0x4be40b3c,'v',1},{0x40c2a8,0xd8420000,'p',1},
+    {0x40c2ac,0x4be111ac,'i',1},{0x40c2b0,0x4be1133c,'i',2},{0x40c2b4,0x4bc007c3,'i',3},{0x40c2b8,0x4bc631ea,'i',4},{0x40c2bc,0x4b07383d,'i',5},{0x40c2c0,0x4b07f9ca,'i',6},
+    {0x40c2c4,0x4a6703be,'i',7},{0x40c2c8,0x4a0003bf,'i',8},{0x40c2cc,0x4bc0319c,'i',9},{0x40c2d0,0x4bc022bc,'i',10},{0x40c2d4,0x4bc33108,'i',11},
+    {0x40c2d8,0xf8440000,'a',12},{0x40c2dc,0x4bc4d6af,'b',13},{0x40c2e0,0x4bc4deeb,'b',14},
+    {0x40c31c,0xd8810000,'h',3},{0x40c32c,0x48a21800,'n',3},{0x40c330,0x4be40b3c,'v',3},{0x40c350,0xd8420000,'p',3},
+    {0x40c354,0x4be111ac,'i',1},{0x40c358,0x4be1133c,'i',2},{0x40c35c,0x4bc022bc,'i',3},{0x40c360,0x4bc33108,'i',4},
+    {0x40c364,0xf8440000,'a',5},{0x40c368,0x4bc4d6af,'b',6},{0x40c36c,0x4bc4deeb,'b',7}};
+// The two layouts: first/last site, frame = sp + frame, record stride, loads,
+// main-step sites, record stores, mode 2/5 publication (sp+), curve index reg.
+struct TrailLayout{uint32_t lo,hi,frame,stride;const TrailSite *begin,*end;bool orbit;unsigned loads,main,records;uint32_t mode2,mode5;unsigned curveIndex;};
+constexpr TrailLayout trailLayouts[]={
+    {0x40b124,0x40b8c4,0x170,0xb0,std::begin(trailSites),std::end(trailSites),false,7,17,5,0x150,0x140,9},
+    {0x40ba48,0x40c36c,0x1e0,0x120,std::begin(orbitSites),std::end(orbitSites),true,12,23,7,0x190,0x180,7}};
 struct TrailState{
-    unsigned setup=0;uint32_t frame=0,emitter=0,dt=0;VuWords drift{},clamp{};
-    uint32_t record=0,output=0;unsigned loads=0,curve=0,main=0,outputs=0,records=0,extra=0,extraStep=0;
+    const TrailLayout *layout=nullptr;unsigned setup=0;uint32_t frame=0,emitter=0,dt=0;VuWords drift{},clamp{};
+    uint32_t record=0,output=0;unsigned loads=0,orbit=0,curve=0,main=0,outputs=0,stored=0,extra=0,extraStep=0;
     VuWords p{},v{},a{},accel{},colour{},rate{},change{},row{},P{},C{},A{},V{},R{},published{};std::array<VuWords,4> rows{};uint32_t fraction=0;
+    VuWords radius{},angles{},radiusRate{},angleRate{},radiusAccel{},angleAccel{},offset{},RR{},AR{};
     unsigned trail=0,trailStep=0,trailIndex=0;uint32_t length=0,next=0;VuWords head{},prev{},anchor{};
 };
 TrailState &trailState(const Runtime *rt){static std::map<const Runtime *,TrailState> states;return states[rt];}
 bool nativeTrailEmitter(R5900Context *c,Runtime *rt,uint32_t pc){
-    if(!rt || pc<0x40b124 || pc>0x40b8c4)return false;
-    const TrailSite *site=nullptr;for(const auto &s:trailSites)if(s.pc==pc)site=&s;
+    if(!rt)return false;
+    const TrailLayout *layout=nullptr;const TrailSite *site=nullptr;
+    for(const auto &l:trailLayouts)if(pc>=l.lo && pc<=l.hi)for(auto *s=l.begin;s!=l.end;++s)if(s->pc==pc){layout=&l;site=s;}
     if(!site)return false;
     uint32_t word=0;if(const auto *p=rt->memory.hostPointer(pc,4))std::memcpy(&word,p,4);
     if(word!=site->word)return false;   // another overlay at these addresses
@@ -2500,80 +2559,97 @@ bool nativeTrailEmitter(R5900Context *c,Runtime *rt,uint32_t pc){
     const auto vmin=[](uint32_t a,uint32_t b){return bozo::ps2f::min(a,b);};
     const auto include=[&](const VuWords &v){std::array<float,4> f;for(unsigned i=0;i<4;++i)f[i]=std::bit_cast<float>(v[i]);particles->nativeParticles().includePoint(st.frame,st.emitter,f);};
     const auto sumSquares=[&](const VuWords &v){return vuAdd(vuAdd(vuMul(v[0],v[0]),vuMul(v[1],v[1])),vuMul(one,vuMul(v[2],v[2])));};
+    const auto scaled=[&](const VuWords &base,const VuWords &rate){VuWords r=base;for(unsigned i=0;i<3;++i)r[i]=vuAdd(vuAdd(base[i],0),vuMul(rate[i],st.dt));return r;};
+    const auto outputBase=[&]{return layout->orbit?field(reg(29)+0x160):reg(23);};
+    const unsigned allStored=(1u<<layout->records)-1;
     if(site->role=='T'){
         if(site->param==0){
-            st=TrailState{};st.frame=reg(29)+0x170;st.emitter=reg(21);particles->nativeParticles().validateEmitter(st.frame,st.emitter);
+            st=TrailState{};st.layout=layout;st.frame=reg(29)+layout->frame;st.emitter=reg(21);particles->nativeParticles().validateEmitter(st.frame,st.emitter);
             if(reg(2)!=field(0x35dee8))fail("timestep source");st.dt=reg(2);st.setup=1;return true;}
-        if(st.setup!=site->param || reg(21)!=st.emitter || reg(29)+0x170!=st.frame)fail("set-up order");
+        if(st.layout!=layout || st.setup!=site->param || reg(21)!=st.emitter || reg(29)+layout->frame!=st.frame)fail("set-up order");
         if(site->param==1){if(reg(2)!=st.emitter+0xc0)fail("drift source");st.drift=vuWords(rt,address());}
-        if(site->param==3){if(reg(2)!=reg(29)+0x160)fail("clamp source");st.clamp=vuWords(rt,address());}
+        if(site->param==3){if(reg(2)!=st.frame-0x10)fail("clamp source");st.clamp=vuWords(rt,address());}
         ++st.setup;return true;
     }
-    if(st.setup!=4 || reg(21)!=st.emitter || reg(29)+0x170!=st.frame)fail("site outside its set-up call");
+    if(st.layout!=layout || st.setup!=4 || reg(21)!=st.emitter || reg(29)+layout->frame!=st.frame)fail("site outside its set-up call");
     switch(site->role){
     case 'L':{
-        constexpr uint32_t offsets[7]={0x10,0x30,0x50,0x40,0x20,0x60,0x70};
+        // Record offsets (0 = the stack offset sp+1a0 of the orbit layout).
+        constexpr uint32_t offsets[12]={0x10,0x30,0x50,0x40,0x20,0x60,0x70,0,0xd0,0xa0,0xc0,0x90};
         if(site->param==0){
-            if(st.loads && st.records!=5)fail("particle left unfinished");
-            const auto setup=std::tuple{st.setup,st.frame,st.emitter,st.dt,st.drift,st.clamp};
-            st=TrailState{};std::tie(st.setup,st.frame,st.emitter,st.dt,st.drift,st.clamp)=setup;
-            st.record=field(st.emitter+0x14)+reg(20)*0xb0;
-        }else if(st.loads!=site->param)fail("record load order");
-        if(address()!=st.record+offsets[site->param])fail("record field address");
-        VuWords *targets[7]={&st.p,&st.v,&st.a,&st.accel,&st.colour,&st.rate,&st.change};*targets[site->param]=vuWords(rt,address());
+            if(st.loads && st.stored!=allStored)fail("particle left unfinished");
+            const auto setup=std::tuple{st.layout,st.setup,st.frame,st.emitter,st.dt,st.drift,st.clamp};
+            st=TrailState{};std::tie(st.layout,st.setup,st.frame,st.emitter,st.dt,st.drift,st.clamp)=setup;
+            st.record=field(st.emitter+0x14)+reg(20)*layout->stride;
+        }else if(st.loads!=site->param || (layout->orbit && st.orbit!=10))fail("record load order");
+        if(address()!=(site->param==7?reg(29)+0x1a0:st.record+offsets[site->param]))fail("record field address");
+        VuWords *targets[12]={&st.p,&st.v,&st.a,&st.accel,&st.colour,&st.rate,&st.change,&st.offset,&st.radiusAccel,&st.angleAccel,&st.radiusRate,&st.angleRate};
+        *targets[site->param]=vuWords(rt,address());
         ++st.loads;return true;}
+    case 'W':{
+        constexpr uint32_t offsets[4]={0xb0,0x80,0xc0,0x90};
+        if(st.loads!=1 || st.orbit!=site->param)fail("orbit order");
+        if(site->param<4){if(address()!=st.record+offsets[site->param])fail("orbit field address");
+            VuWords *targets[4]={&st.radius,&st.angles,&st.radiusRate,&st.angleRate};*targets[site->param]=vuWords(rt,address());}
+        if(site->param==4){st.radius=scaled(st.radius,st.radiusRate);st.angles=scaled(st.angles,st.angleRate);}
+        if(site->param>=8){if(address()!=st.record+offsets[site->param-8])fail("orbit store address");put(address(),site->param==8?st.radius:st.angles);}
+        ++st.orbit;return true;}
     case 'E':
-        if(st.loads!=7 || st.main || st.curve!=site->param)fail("curve order");
-        if(site->param==0){if(address()!=field(st.emitter+0x68)+reg(9)*16)fail("curve row address");st.row=vuWords(rt,address());}
+        if(st.loads!=layout->loads || st.main || st.curve!=site->param)fail("curve order");
+        if(site->param==0){if(address()!=field(st.emitter+0x68)+reg(layout->curveIndex)*16)fail("curve row address");st.row=vuWords(rt,address());}
         if(site->param==1){if(reg(4)!=std::bit_cast<uint32_t>(c->f[1]))fail("curve fraction source");st.fraction=reg(4);}
         if(site->param==3){for(unsigned i=0;i<3;++i)st.p[i]=vuAdd(vuAdd(st.p[i],0),vuMul(st.row[i],st.fraction));st.curve=0;return true;}
         ++st.curve;return true;
     case 'k':
-        if(st.loads!=7 || st.curve || st.main!=site->param)fail("main step order");
+        if(st.loads!=layout->loads || st.curve || st.main!=site->param)fail("main step order");
         if(site->param==0){
             for(unsigned i=0;i<3;++i){
-                st.P[i]=vuAdd(vuAdd(vuAdd(st.p[i],0),vuMul(st.drift[i],one)),vuMul(st.v[i],st.dt));
-                st.A[i]=vuAdd(vuAdd(st.a[i],0),vuMul(st.v[i],st.dt));
+                auto P=vuAdd(st.p[i],0),A=vuAdd(st.a[i],0);
+                if(layout->orbit){P=vuAdd(P,vuMul(st.offset[i],one));A=vuAdd(A,vuMul(st.offset[i],one));}
+                st.P[i]=vuAdd(vuAdd(P,vuMul(st.drift[i],one)),vuMul(st.v[i],st.dt));
+                st.A[i]=vuAdd(A,vuMul(st.v[i],st.dt));
                 st.V[i]=vuAdd(vuAdd(st.v[i],0),vuMul(st.accel[i],st.dt));}
             st.P[3]=st.p[3];st.A[3]=vuAdd(st.a[3],st.dt);st.V[3]=vuSub(st.v[3],st.dt);
             for(unsigned i=0;i<4;++i){
                 st.C[i]=vmin(vmax(vuAdd(vuAdd(st.colour[i],0),vuMul(st.rate[i],st.dt)),0),st.clamp[0]);
                 st.R[i]=vuAdd(vuMul(st.rate[i],one),vuMul(st.change[i],st.dt));}
+            if(layout->orbit){st.RR=scaled(st.radiusRate,st.radiusAccel);st.AR=scaled(st.angleRate,st.angleAccel);}
         }
-        if(site->param==14)include(st.P);
+        if(word==0x4bc1d6af)include(st.P);
         ++st.main;return true;
     case 'O':
-        if(st.main!=17 || st.outputs!=site->param)fail("output order");
-        if(site->param==0){if(address()!=reg(23))fail("output address");st.output=address();put(st.output,st.P);}
+        if(st.main!=layout->main || st.outputs!=site->param)fail("output order");
+        if(site->param==0){if(address()!=outputBase())fail("output address");st.output=address();put(st.output,st.P);}
         else{if(address()!=st.output+0x10)fail("output address");put(address(),st.C);}
         ++st.outputs;return true;
     case 'R':{
-        constexpr uint32_t offsets[5]={0x50,0x10,0x30,0x20,0x60};
-        if(st.outputs!=2 || st.records!=site->param)fail("record store order");
+        constexpr uint32_t offsets[7]={0x50,0x10,0x30,0x20,0x60,0xc0,0x90};
+        if(st.outputs!=2 || site->param>=layout->records || (st.stored>>site->param&1))fail("record store order");
         if((st.extra==2 && st.extraStep!=(site->param?2:1)) || (st.extra==5 && st.extraStep!=8))fail("record store inside a mode step");
         if(address()!=st.record+offsets[site->param])fail("record store address");
-        const VuWords *sources[5]={&st.A,&st.P,&st.V,&st.C,&st.R};put(address(),*sources[site->param]);
-        ++st.records;return true;}
+        const VuWords *sources[7]={&st.A,&st.P,&st.V,&st.C,&st.R,&st.RR,&st.AR};put(address(),*sources[site->param]);
+        st.stored|=1u<<site->param;return true;}
     case '2':
         if(st.outputs!=2)fail("mode 2 order");
-        if(site->param==0){if(st.records || st.extra)fail("mode 2 order");st.extra=2;st.extraStep=1;return true;}
-        if(st.extra!=2 || st.extraStep!=site->param || (site->param==1 && st.records!=1) || (site->param>=2 && st.records!=5))fail("mode 2 order");
+        if(site->param==0){if(st.stored || st.extra)fail("mode 2 order");st.extra=2;st.extraStep=1;return true;}
+        if(st.extra!=2 || st.extraStep!=site->param || (site->param==1 && st.stored!=1) || (site->param>=2 && st.stored!=allStored))fail("mode 2 order");
         if(site->param==3){st.published=st.A;st.published[0]=sumSquares(st.A);for(unsigned i=1;i<3;++i)st.published[i]=vuMul(st.A[i],st.A[i]);}
-        if(site->param==4){if(address()!=reg(29)+0x150)fail("mode 2 publication address");put(address(),st.published);st.extra=st.extraStep=0;return true;}
+        if(site->param==4){if(address()!=reg(29)+layout->mode2)fail("mode 2 publication address");put(address(),st.published);st.extra=st.extraStep=0;return true;}
         ++st.extraStep;return true;
     case '5':
         if(st.outputs!=2)fail("mode 5 order");
-        if(site->param==0){if(st.records || st.extra)fail("mode 5 order");st.extra=5;st.extraStep=0;}
-        if(st.extra!=5 || st.extraStep!=site->param || (site->param<8 && st.records) || (site->param==8 && st.records!=5))fail("mode 5 order");
+        if(site->param==0){if((st.stored&0x1f) || st.extra)fail("mode 5 order");st.extra=5;st.extraStep=0;}
+        if(st.extra!=5 || st.extraStep!=site->param || (site->param<8 && (st.stored&0x1f)) || (site->param==8 && st.stored!=allStored))fail("mode 5 order");
         if(site->param<4){if(reg(2)!=st.emitter+0x80 || address()!=st.emitter+0x80+0x10*site->param)fail("mode 5 row address");st.rows[site->param]=vuWords(rt,address());}
         if(site->param==7)for(unsigned i=0;i<4;++i)
             st.published[i]=vuAdd(vuAdd(vuAdd(vuMul(st.rows[0][i],st.P[0]),vuMul(st.rows[1][i],st.P[1])),vuMul(st.rows[2][i],st.P[2])),vuMul(st.rows[3][i],one));
-        if(site->param==8){if(address()!=reg(29)+0x140)fail("mode 5 publication address");put(address(),st.published);st.extra=st.extraStep=0;return true;}
+        if(site->param==8){if(address()!=reg(29)+layout->mode5)fail("mode 5 publication address");put(address(),st.published);st.extra=st.extraStep=0;return true;}
         ++st.extraStep;return true;
-    case 'h':
-        if(st.records!=5 || st.extra || st.trail)fail("trail before the particle's records");
-        if(address()!=reg(23)-reg(19)*0x30 || address()!=st.output)fail("trail head address");
-        st.head=vuWords(rt,address());st.trail=site->param;st.trailStep=1;return true;
+    case 'h':{
+        if(st.stored!=allStored || st.extra || st.trail)fail("trail before the particle's records");
+        const auto head=layout->orbit?outputBase()-reg(22)*0x30:reg(23)-reg(19)*0x30;
+        if(address()!=head || address()!=st.output)fail("trail head address");
+        st.head=vuWords(rt,address());st.trail=site->param;st.trailStep=1;return true;}
     case 'n':
         if(st.trail!=site->param || st.trailStep!=1)fail("trail length order");
         if(reg(2)!=field(st.emitter+0x54))fail("trail length source");st.length=reg(2);st.trailStep=2;return true;

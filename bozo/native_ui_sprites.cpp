@@ -89,7 +89,7 @@ void NativeUiSprites::finishSprite(uint32_t stack){
     text.sprites.push_back(std::move(it->second.sprite));spriteBuilds.erase(it);
 }
 std::optional<bool> nativeUiSpriteInstruction(R5900Context *c,Runtime *rt,uint32_t pc){
-    if(pc!=0x2eab28 && pc!=0x2eaa20 && pc!=0x462a60 && pc!=0x2f1050 && pc!=0x47a1c0 && pc!=0x2ec308 && pc!=0x2ec320 && pc!=0x2efe40 && pc!=0x2effe8 && pc!=0x2eb3a0 && pc!=0x2eb5c4 && pc!=0x2ebac4 && pc!=0x2ebb0c && pc!=0x2ebb58 && pc!=0x2ebb9c && pc!=0x2ebba8 && pc!=0x2f2df0 && pc!=0x2f2fb8 && pc!=0x2f2d70)return std::nullopt;
+    if(pc!=0x2eab28 && pc!=0x2eaa20 && pc!=0x462a60 && pc!=0x2f1050 && pc!=0x2f12cc && pc!=0x2f11c0 && pc!=0x47a1c0 && pc!=0x2ec308 && pc!=0x2ec320 && pc!=0x2efe40 && pc!=0x2effe8 && pc!=0x2eb3a0 && pc!=0x2eb5c4 && pc!=0x2ebac4 && pc!=0x2ebb0c && pc!=0x2ebb58 && pc!=0x2ebb9c && pc!=0x2ebba8 && pc!=0x2f2df0 && pc!=0x2f2fb8 && pc!=0x2f2d70)return std::nullopt;
     auto *d=rt?dynamic_cast<bozo::ee::Dispatcher *>(rt->services):nullptr;
     auto *owner=d?dynamic_cast<UiSpriteOwner *>(&d->host()):nullptr;
     auto *textures=d?dynamic_cast<TextureOwner *>(&d->host()):nullptr;
@@ -111,23 +111,26 @@ std::optional<bool> nativeUiSpriteInstruction(R5900Context *c,Runtime *rt,uint32
     }else if(pc==0x2efe40 || pc==0x2effe8){
         auto *texts=dynamic_cast<UiTextOwner *>(&d->host());if(!texts)throw std::runtime_error("native button capture has no text owner");
         const auto element=c->r[pc==0x2efe40?4:21].uw[0];
-        const auto textClass=value<uint32_t>(rt,element);   // 15a2f0/165ae0: 15a450 subclasses (see native_ui_text.cpp)
-        if((textClass!=0x15a450 && textClass!=0x15a2f0 && textClass!=0x165ae0) || !texts->nativeUiTexts().text(element))throw std::runtime_error("unported native button text class/lifetime");
+        const auto textClass=value<uint32_t>(rt,element);   // 15a450 and its subclasses (see native_ui_text.cpp)
+        if(textClass==0x15a350 || !nativeUiTextClass(textClass) || !texts->nativeUiTexts().text(element))throw std::runtime_error("unported native button text class/lifetime");
         if(pc==0x2efe40){if(c->pc!=pc || sp<0xa0 || (sp&15))throw std::runtime_error("native text icons require original entry");sprites.beginText(sp-0xa0,element);}
         else texts->nativeUiTexts().icons(element,sprites.finishText(sp,element));
-    }else if(pc==0x2eab28 || pc==0x2eaa20 || pc==0x462a60 || pc==0x2f1050 || pc==0x47a1c0){
+    }else if(pc==0x2eab28 || pc==0x2eaa20 || pc==0x462a60 || pc==0x2f1050 || pc==0x47a1c0 || pc==0x2f12cc || pc==0x2f11c0){
         // Sprite element 15a200 (build 2eaa90 calls the sprite writer 2eb3a0
         // once with its sprite +50 and returns to 2eab28; destructor 2eaa20).
         auto *windows=dynamic_cast<UiWindowOwner *>(&d->host());if(!windows)throw std::runtime_error("native sprite element has no window owner");
         // Its mod003 subclass 168410 (destructor 462a60 inlines the base one),
         // and the FIS sprite element 168440 (base 15a4b0: build 2f0fa0 returns
         // from the writer to 2f1050; destructor 47a1c0).
-        const bool done=pc==0x2eab28 || pc==0x2f1050;
+        // The button sprite element 15a4e0 (build 2f1230 returns from the writer to
+        // 2f12cc; destructor 2f11c0): the same capture and release.
+        const bool done=pc==0x2eab28 || pc==0x2f1050 || pc==0x2f12cc;
         const auto element=c->r[done?16:4].uw[0];
         if(!done && !element)return false;
         const auto cls=value<uint32_t>(rt,element);
         const bool fisElement=pc==0x2f1050 || pc==0x47a1c0;
-        const bool known=fisElement?cls==0x168440:pc==0x462a60?cls==0x168410:(cls==0x15a200 || cls==0x168410);
+        const bool button=pc==0x2f12cc || pc==0x2f11c0;
+        const bool known=button?cls==0x15a4e0:fisElement?cls==0x168440:pc==0x462a60?cls==0x168410:(cls==0x15a200 || cls==0x168410);
         if(!known)
             throw std::runtime_error("native sprite element has another class");
         if(!done){if(c->pc!=pc || sprites.buildingText(element))throw std::runtime_error("native sprite element destroyed during capture");
@@ -177,7 +180,17 @@ std::optional<bool> nativeUiSpriteInstruction(R5900Context *c,Runtime *rt,uint32
             }else if(!sprites.button(sprite))throw std::runtime_error("native sprite element has no bound sheet");
             sprites.beginText(sp,element);
         }
-        if(c->pc!=pc || (caller!=0x2eff74 && caller!=0x2eab28 && caller!=0x2f1050 && !image) || c->r[8].uw[0])throw std::runtime_error(std::format("unported native sprite caller/colour multiplier: caller={:x} sprite={:x} colour={:x} x={:x} y={:x} depth={:x}",caller,c->r[4].uw[0],c->r[8].uw[0],c->r[5].uw[0],c->r[6].uw[0],c->r[7].uw[0]));
+        if(caller==0x2f12cc){
+            // Button sprite element 15a4e0 (the tutorial window's button prompt): shown
+            // by +bc, its update 2f1310 binds sheet entry 0x25 at 2ec260 and animates
+            // it (2ec090); the build passes the layer origin plus +18/+1c and colour 0.
+            const auto element=c->r[16].uw[0],sprite=c->r[4].uw[0],layer=value<uint32_t>(rt,element+0x14);
+            if(c->pc!=pc || value<uint32_t>(rt,element)!=0x15a4e0 || sprite!=element+0x50 || value<uint32_t>(rt,layer)!=0x152060)
+                throw std::runtime_error(std::format("unported native button sprite element: element={:x} class={:x}",element,value<uint32_t>(rt,element)));
+            if(!sprites.button(sprite))throw std::runtime_error("native button sprite element has no bound sheet");
+            sprites.beginText(sp,element);
+        }
+        if(c->pc!=pc || (caller!=0x2eff74 && caller!=0x2eab28 && caller!=0x2f1050 && caller!=0x2f12cc && !image) || c->r[8].uw[0])throw std::runtime_error(std::format("unported native sprite caller/colour multiplier: caller={:x} sprite={:x} colour={:x} x={:x} y={:x} depth={:x}",caller,c->r[4].uw[0],c->r[8].uw[0],c->r[5].uw[0],c->r[6].uw[0],c->r[7].uw[0]));
         if(image){const auto element=c->r[18].uw[0];
             if(value<uint32_t>(rt,element)!=0x15a690 || c->r[4].uw[0]!=element+(caller==0x2f2efc?0xb8:0x50) || !sprites.buildingText(element))
                 throw std::runtime_error("native image sprite escaped its original element builder");

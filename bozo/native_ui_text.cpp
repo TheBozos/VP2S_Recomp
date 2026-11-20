@@ -25,8 +25,13 @@ template<class T>T value(Runtime *rt,uint32_t at){T result;std::memcpy(&result,r
 // item callbacks, placement and draw; its +20 (2eed90) lays out and emits once
 // (+3b), its +1c does nothing, and +100 is a layout scale, not a reveal
 // control. Its destructor 2eeb80 calls the base 2e9490 without 2f0de0.
-void type(Runtime *rt,uint32_t element){const auto actual=value<uint32_t>(rt,element);if(actual!=0x15a450 && actual!=0x15a2f0 && actual!=0x165ae0 && actual!=0x15a350)throw std::runtime_error(std::format("unported native UI text class {:x} at {:x}",actual,element));}
+// 15a600 (mod001) derives from 15a2f0 too: the same methods but for its
+// destructor 2f2780 (type back to 15a2f0, then 2eeb00) and the hooks +3c..+54,
+// which only set request flags (+678..+681) on the owning layer at +3b0; the
+// layer's completion 2f2390 acts on them (scalar, compiled). Map 79's layer 15fef0.
+void type(Runtime *rt,uint32_t element){const auto actual=value<uint32_t>(rt,element);if(!nativeUiTextClass(actual))throw std::runtime_error(std::format("unported native UI text class {:x} at {:x}",actual,element));}
 }
+bool nativeUiTextClass(uint32_t type){return type==0x15a450 || type==0x15a2f0 || type==0x165ae0 || type==0x15a350 || type==0x15a600;}
 void NativeUiTexts::enter(Runtime *rt,uint32_t stack,uint32_t element,uint32_t items,int32_t count){
     type(rt,element);
     if(count>8192 || builds.contains(stack))throw std::runtime_error("native UI text count/stack outside admitted lifetime");
@@ -233,11 +238,18 @@ NativeUiLayer NativeUiTexts::layer(Runtime *rt,uint32_t layer)const{
     const auto colourSetter=[&](uint32_t at){return code(at,{0x24030001u,0xa0830050u,0xe48c0020u,0x3c033f80u,0xe48d0024u,0xe48e0028u,0x03e00008u,0xac83002cu});};
     const auto thunkAt=[&](uint32_t slot,uint32_t target,uint16_t adjust){const auto at=value<uint32_t>(rt,slot);return at>=0x100000 && at<0x2000000 && thunk(at,target,adjust);};
     const bool baseProducer=thunkAt(objectType+0x18,0x2ec9c0,0xffe0) && value<uint32_t>(rt,jobType+0x18)==0x2ec9c0;
+    // The completion is the base 2eca00, or the mod001 layer 15a510's 2f2390 (the
+    // mod003 layer 15fef0 on map 79 of the Lost Forest: job +10 = thunk 3b3130):
+    // the base 2eca00 first, then the layer's deferred actions by flag (+678..+680,
+    // its type's +bc..+e0 methods), scalar and compiled. Its prologue is checked.
+    const bool baseCompletion=value<uint32_t>(rt,jobType+0x14)==0x2eca00 && thunkAt(jobType+0x10,0x2eca00,0xffe0);
+    const bool deferredCompletion=value<uint32_t>(rt,jobType+0x14)==0x2f2390 && thunkAt(jobType+0x10,0x2f2390,0xffe0) &&
+        code(0x2f2390,{0x27bdffe0u,0xffbf0010u,0x7fb00000u,0x0c0bb280u,0x0080802du});
     const bool pause=slots(layerType,{{0xc,0x2c00a0},{0x10,0x2c0070},{0x14,0x2c0040},{0x18,0x2bffe0}}) &&
         returns3(value<uint32_t>(rt,objectType+0xc)) && empty(value<uint32_t>(rt,objectType+0x14)) && colourSetter(value<uint32_t>(rt,objectType+0x1c)) &&
         empty(value<uint32_t>(rt,jobType+0x8)) && value<uint32_t>(rt,jobType+0x1c)==0x2ec9a0 &&
-        (baseProducer || flushingProducer) && value<uint32_t>(rt,objectType+0x10)==0x2ef0f0 && value<uint32_t>(rt,jobType+0x14)==0x2eca00 &&
-        thunkAt(jobType+0x0c,0x2ec9a0,0xff50) && thunkAt(jobType+0x10,0x2eca00,0xffe0);
+        (baseProducer || flushingProducer) && value<uint32_t>(rt,objectType+0x10)==0x2ef0f0 &&
+        thunkAt(jobType+0x0c,0x2ec9a0,0xff50) && (baseCompletion || deferredCompletion);
     if(value<uint32_t>(rt,layer)!=0x152060 || (!base && !story && !field && !message && !event && !bracketed && !pause) ||
        value<uint8_t>(rt,layer+0x83)!=1 || value<uint8_t>(rt,layer+0xca)!=2)
         throw std::runtime_error(std::format("unported native UI layer type/build mode: layer={:x} types={:x}/{:x}/{:x}/{:x} mode83={} modeca={}",
@@ -254,7 +266,8 @@ NativeUiLayer NativeUiTexts::layer(Runtime *rt,uint32_t layer)const{
         if(!value<uint8_t>(rt,element+0x39) || !value<uint8_t>(rt,element+0x3d) || !value<uint8_t>(rt,element+0x3b))continue;
         if(value<uint32_t>(rt,element)==0x15a1b0 || value<uint32_t>(rt,element)==0x15ac30 ||
            value<uint32_t>(rt,element)==0x15aa20 || value<uint32_t>(rt,element)==0x167560 || value<uint32_t>(rt,element)==0x15a200 ||
-           value<uint32_t>(rt,element)==0x168410 || value<uint32_t>(rt,element)==0x168440 || value<uint32_t>(rt,element)==0x15a420){
+           value<uint32_t>(rt,element)==0x168410 || value<uint32_t>(rt,element)==0x168440 || value<uint32_t>(rt,element)==0x15a420 ||
+           value<uint32_t>(rt,element)==0x15a4e0){
             auto *d=dynamic_cast<bozo::ee::Dispatcher *>(rt->services);auto *o=d?dynamic_cast<UiWindowOwner *>(&d->host()):nullptr;
             const auto captured=o?o->nativeUiWindows().window(element):nullptr;
             if(!captured)throw std::runtime_error("native window has no finished scalar snapshot");

@@ -12,6 +12,51 @@ The earlier VP2S face/shading and general brightness comparisons remain open.
 
 ## Build and evidence
 
+### Map 79: orbit emitter 40b990 and the photon tutorial window (2026-11-20)
+
+Continuing toward a forest encounter on map 79 (`--warp 79` from
+`forest_60300`, empty pad script).
+- `40b990` (mod003, called by the particle driver `22ed38`) is the trail
+  emitter `40b080` on records of 0x120 bytes, plus an orbit: radius `+b0`,
+  angles `+80`, their rates `+c0`/`+90` and accelerations `+d0`/`+a0`, last
+  offset `+e0`. After the position load, radius and angles advance by rate*dt
+  (stored back); scalar code (sine/cosine `213fd0`) writes the change of the
+  orbit offset to `sp+1a0`, which joins P and A (`(((p+0)+offset)+drift)+v*dt`,
+  `((a+0)+offset)+v*dt`). After the colour clamp the rates advance by
+  accel*dt and are stored with the records (before the rows in mode 5). The
+  output pointer is `*(sp+160)`; mode 2 publishes at `sp+190`, mode 5 at
+  `sp+180`; curve index `a3`; the three trail kinds are 40b080's words.
+  `nativeTrailEmitter` now takes a layout (sites, frame, stride, loads, main
+  sites, record stores, publications, curve register); every one of the 159
+  VU0 words of `40b990..40c434` is a listed site (signature added). The
+  particle suite runs 144 orbit particles (six modes, three trail kinds, 0..2
+  curve rows) against the VU0 reference, beside the 144 trail particles; a
+  dropped offset term fails it.
+- The map then builds a UI layer `15fef0/15ff0c/15ff88` (mod003; a subclass
+  of the mod001 layer `15a510`). It has the generic layer entries, but its
+  completion is `2f2390` (job `+10` = thunk `3b3130`): the base `2eca00`
+  first, then the layer's deferred requests by flag (`+678..+681`, its type's
+  `+bc..+e0` methods), scalar and compiled. The layer check now accepts this
+  completion, verified by its prologue and base call.
+- Its text element is `15a600` (mod001): `15a2f0` with request hooks
+  (`+3c..+54` only set those flags on the layer at `+3b0`) and a destructor
+  `2f2780` that restores `15a2f0` and calls `2eeb00`. It is admitted as a text
+  class, also as a button-icon text; the class list is now one predicate
+  (`nativeUiTextClass`) shared by both checks.
+- Its "next" arrow is the button sprite element `15a4e0` (mod001, layer
+  `+1e8`): the update `2f1310` binds sheet entry `0x25` (`2ec260`) and animates
+  it; the build `2f1230` makes one sprite-writer call on `+50` (shown by `+bc`,
+  position = layer origin + `+18/+1c`, colour multiplier 0) and returns to
+  `2f12cc`, the same shape as `15a200`'s `2eaa90`. It is captured at `2f12cc`
+  and released at its destructor `2f11c0` (native sites, signature
+  `2f11c0..2f1310`). The button test runs `2f1230` original against native
+  (16 seeds, CPU/RAM identical, sprite and depth checked, two rejections).
+
+**Result:** map 79 runs natively from the warp to frame 62500: the layer is
+the "Projecting Photons" tutorial window, drawn with its text reveal, button
+icons and blinking arrow. It now waits for a button press; no enemy has been
+reached yet. A map-79 state at frame 60500 makes the next runs short.
+
 ### Toward a battle: the user's PCSX2 encounter, particle step 409fb0 (2026-11-20)
 
 User request: launch battles with chosen enemies. No native run had entered a

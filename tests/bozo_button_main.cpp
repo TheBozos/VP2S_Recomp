@@ -177,6 +177,42 @@ int main(int argc,char **argv){try{
             after.sprites=vp2s::NativeUiSprites{};
         }
     }
+    // Button sprite element 15a4e0 (the tutorial window's button prompt; build 2f1230
+    // returning from the writer to 2f12cc, destructor 2f11c0): sheet entry 0x25
+    // bound by 2ec260, shown by +bc, the layer origin plus +18/+1c.
+    for(unsigned seed=0;seed<16;++seed){
+        auto &a=old.runtime(),&b=native.runtime();std::memset(a.memory.flat(),0,bozo::kFlatBytes);
+        constexpr uint32_t element=0x1f0000,layer=0x1f1000;const uint32_t sprite=element+0x50;
+        put(a,0x35e170,manager);put(a,manager,0x15a1e0u);put(a,manager+0x820,0x1b3000u);put(a,dtt,0x545444u);put(a,dtt+0x10,uint16_t(3));
+        put(a,manager+0x840,16.f);put(a,manager+0x844,16.f);put(a,manager+0x848,27648.f);put(a,manager+0x84c,29184.f);
+        put(a,manager+0x828,0x1c0000u);put(a,0x1c0000,0x15a6f0u);put(a,0x1c0090,0x15a76cu);put(a,0x1c00c0,0x1d0000u);
+        put(a,0x1d0000,0x534946u);put(a,0x1d0014,0x00494853u);put(a,0x1d0018,0x41u);
+        put(a,element,0x15a4e0u);put(a,element+0x14,layer);put(a,element+0x18,2.25f+float(seed)/8);put(a,element+0x1c,3.5f+float(seed)/4);
+        put(a,element+0x28,128.f-float(seed));put(a,element+0x2c,4u);put(a,element+0x48,0x1f3000u);put(a,element+0xbc,uint8_t(1));
+        put(a,layer,0x152060u);put(a,layer+0x10,0x15fef0u);put(a,layer+0x40,10.f);put(a,layer+0x44,20.f);put(a,layer+0xe0,128.f);put(a,layer+0xc4,0xff0000u);
+        for(unsigned i=0;i<3;++i){put(a,dtt+0x14+i*16,uint16_t(0x400));put(a,dtt+0x16+i*16,uint16_t(0x800));put(a,dtt+0x18+i*16,uint16_t(0xc00));put(a,dtt+0x1a+i*16,uint16_t(0x1000));
+            put(a,dtt+0x1c+i*16,uint16_t(16));put(a,dtt+0x1e + i*16,uint16_t(24));}
+        put(a,sprite+0x64,int8_t(seed%3));put(a,sprite+0x2c,1.f);put(a,sprite+0x30,1.f);for(uint32_t at:{0x40u,0x44u,0x48u,0x4cu})put(a,sprite+at,128.f);
+        std::memcpy(b.memory.flat(),a.memory.flat(),bozo::kFlatBytes);R5900Context x{},y{};
+        x.r[4].ud[0]=sprite;x.r[5].ud[0]=0x25;x.r[29].ud[0]=0x1fff000;x.r[31].ud[0]=0x170000;y=x;after.pause=false;
+        run(old,x,0x2ec260);run(native,y,0x2ec260);
+        x={};x.r[4].ud[0]=element;x.r[29].ud[0]=seed&2?0x70003f00:0x1fff000;x.r[31].ud[0]=0x170000;y=x;
+        run(old,x,0x2f1230);run(native,y,0x2f1230);x.cycleLimit=y.cycleLimit;
+        check(!std::memcmp(&x,&y,sizeof(x)) && !std::memcmp(a.memory.flat(),b.memory.flat(),bozo::kFlatBytes));
+        const auto held=after.windows.window(element);check(held && held->background.empty() && held->border.size()==1 && !after.sprites.outstanding());
+        const auto &s=held->border[0];check(s.picture && s.picture->rgba[0]==0x80402041u && s.depth==0xff0004);
+        R5900Context dying{};dying.pc=0x2f11c0;dying.r[4].uw[0]=element;
+        check(vp2s::nativeUiSpriteInstruction(&dying,&b,0x2f11c0)==false && !after.windows.window(element) && !after.sprites.button(sprite));++elementCases;
+        // Another class at the element, or an owner that is no UI layer, rejects before any capture.
+        for(unsigned spoil=0;spoil<2;++spoil){
+            std::memcpy(b.memory.flat(),a.memory.flat(),bozo::kFlatBytes);put(b,element+0x3b,uint8_t(0));
+            y={};y.r[4].ud[0]=sprite;y.r[5].ud[0]=0x25;y.r[29].ud[0]=0x1fff000;y.r[31].ud[0]=0x170000;run(native,y,0x2ec260);
+            if(spoil)put(b,layer,0x15a1e0u);else put(b,element,0x15a200u);
+            y={};y.r[4].ud[0]=element;y.r[29].ud[0]=0x1fff000;y.r[31].ud[0]=0x170000;
+            bool caught=false;try{run(native,y,0x2f1230);}catch(const std::exception &){caught=true;}check(caught && !after.windows.window(element));++elementCases;
+            after.sprites=vp2s::NativeUiSprites{};
+        }
+    }
     std::printf("%u camp-menu sprite-element CPU/RAM cases and rejections\n",elementCases);
     auto &rt=native.runtime();constexpr uint32_t text=0x1f0000,stack=0x1fff000;
     auto rejects=[](auto action){bool rejected=false;try{action();}catch(const std::exception &){rejected=true;}check(rejected);};

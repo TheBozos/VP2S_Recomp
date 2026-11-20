@@ -300,6 +300,85 @@ int main(){try{
         m.r[20].uw[0]=1;m.r[18].uw[0]=B+0xb0+0x20;rejected=false;try{vp2s::nativeMathInstruction(y.memory.flat(),&m,&y,0x40b258);}catch(const std::runtime_error &){rejected=true;}check(rejected);
         write(y,0x40b364,uint32_t(0));check(!vp2s::nativeMathInstruction(y.memory.flat(),&m,&y,0x40b364));
         std::printf("%u trail emitter particles (%u trail points, six modes, three trail kinds, curves) match the VU0 reference\n",trailCases,points);
+        // mod003 40b990, the orbit emitter: the trail step on 0x120-byte records with an
+        // orbit (radius/angles advanced before the main step, their rates after; the
+        // scalar offset at sp+1a0 joins P and A), output through *(sp+160), all modes,
+        // trail kinds and curves, against the same VU0 reference.
+        {const std::pair<uint32_t,uint32_t> orbit[]={
+            {0x40ba48,0x48a22800},{0x40ba50,0xd8540000},{0x40ba8c,0x4be00798},{0x40ba94,0xd85d0000},{0x40bb68,0xda410000},{0x40bb80,0xd8490000},{0x40bb88,0xd84a0000},{0x40bb90,0xdaeb0000},
+            {0x40bb98,0xdbcd0000},{0x40bba4,0x4bc04abc},{0x40bba8,0x4bc55a48},{0x40bbac,0x4bc052bc},{0x40bbb0,0x4bc56a88},{0x40bbb8,0xf8490000},{0x40bbc0,0xf84a0000},{0x40bc54,0xda220000},
+            {0x40bc5c,0xd9040000},{0x40bc6c,0xd8430000},{0x40bc74,0xda060000},{0x40bc7c,0xd8670000},{0x40bc84,0xd8480000},{0x40bc8c,0xd84f0000},{0x40bc94,0xd84c0000},{0x40bc9c,0xd84e0000},
+            {0x40bca0,0xdaeb0000},{0x40bca4,0xdbcd0000},{0x40bd30,0xd8900000},{0x40bd3c,0x48a48800},{0x40bd40,0x4bc00abc},{0x40bd44,0x4bd18048},{0x40bd7c,0x4bc00abc},{0x40bd80,0x4bc078bf},
+            {0x40bd84,0x4bc0a0bf},{0x40bd88,0x4bc51048},{0x40bd8c,0x4bfe32bc},{0x40bd90,0x4be53988},{0x40bd94,0x4bc022bc},{0x40bd98,0x4bc078bf},{0x40bd9c,0x4bc51108},{0x40bda0,0x4bc012bc},
+            {0x40bda4,0x4bc51888},{0x40bda8,0x4a251084},{0x40bdac,0x4be03190},{0x40bdb0,0x4a252100},{0x40bdb4,0x4be039bf},{0x40bdb8,0x4be541c8},{0x40bdbc,0x4bc1d6af},{0x40bdc0,0x4bfd3194},
+            {0x40bdc4,0x4bc1deeb},{0x40bdc8,0x4bc05abc},{0x40bdcc,0x4bc562c8},{0x40bdd0,0x4bc06abc},{0x40bdd4,0x4bc57348},{0x40bddc,0xf8810000},{0x40bde4,0xf8860010},{0x40be50,0xf9040000},
+            {0x40be54,0xfa410000},{0x40be58,0xfa220000},{0x40be5c,0xfa060000},{0x40be60,0xf8670000},{0x40be64,0xfaeb0000},{0x40be68,0xfbcd0000},{0x40bed8,0xf9040000},{0x40bedc,0xfa410000},
+            {0x40bee0,0xfa220000},{0x40bee4,0xfa060000},{0x40bee8,0xf8670000},{0x40beec,0xfaeb0000},{0x40bef0,0xfbcd0000},{0x40bf68,0x4bc007c3},{0x40bf6c,0xf9040000},{0x40bf70,0x4bc4212a},
+            {0x40bf74,0xfa410000},{0x40bf78,0xfa220000},{0x40bf7c,0xfa060000},{0x40bf80,0xf8670000},{0x40bf84,0xfaeb0000},{0x40bf88,0xfbcd0000},{0x40bf8c,0x4b04203d},{0x40bf90,0x4b04f90a},
+            {0x40bf9c,0xf8440000},{0x40c010,0xfaeb0000},{0x40c014,0xfbcd0000},{0x40c01c,0xd8480000},{0x40c020,0xd8490010},{0x40c024,0xd84a0020},{0x40c028,0xd84b0030},{0x40c02c,0x4be141bc},
+            {0x40c030,0x4be148bd},{0x40c034,0x4be150be},{0x40c038,0x4be05c8b},{0x40c03c,0xf9040000},{0x40c040,0xfa410000},{0x40c044,0xfa220000},{0x40c048,0xfa060000},{0x40c04c,0xf8670000},
+            {0x40c054,0xf8520000},{0x40c0c8,0xf9040000},{0x40c0cc,0xfa410000},{0x40c0d0,0xfa220000},{0x40c0d4,0xfa060000},{0x40c0d8,0xf8670000},{0x40c0dc,0xfaeb0000},{0x40c0e0,0xfbcd0000},
+            {0x40c178,0xf9040000},{0x40c17c,0xfa410000},{0x40c180,0xfa220000},{0x40c184,0xfa060000},{0x40c188,0xf8670000},{0x40c18c,0xfaeb0000},{0x40c190,0xfbcd0000},{0x40c1cc,0xd8810000},
+            {0x40c1dc,0x48a21800},{0x40c1e0,0x4be40b3c},{0x40c200,0xd8420000},{0x40c204,0x4be111ac},{0x40c208,0x4be1133c},{0x40c20c,0x4bc007c3},{0x40c210,0x4bc631ea},{0x40c214,0x4b07383d},
+            {0x40c218,0x4b07f9ca},{0x40c21c,0x4a6703be},{0x40c220,0x4a0003bf},{0x40c224,0x4bc0321c},{0x40c228,0x4bc022bc},{0x40c22c,0x4bc030bf},{0x40c230,0x4bc34108},{0x40c234,0xf8440000},
+            {0x40c238,0x4bc4d6af},{0x40c23c,0x4bc4deeb},{0x40c274,0xd8810000},{0x40c284,0x48a21800},{0x40c288,0x4be40b3c},{0x40c2a8,0xd8420000},{0x40c2ac,0x4be111ac},{0x40c2b0,0x4be1133c},
+            {0x40c2b4,0x4bc007c3},{0x40c2b8,0x4bc631ea},{0x40c2bc,0x4b07383d},{0x40c2c0,0x4b07f9ca},{0x40c2c4,0x4a6703be},{0x40c2c8,0x4a0003bf},{0x40c2cc,0x4bc0319c},{0x40c2d0,0x4bc022bc},
+            {0x40c2d4,0x4bc33108},{0x40c2d8,0xf8440000},{0x40c2dc,0x4bc4d6af},{0x40c2e0,0x4bc4deeb},{0x40c31c,0xd8810000},{0x40c32c,0x48a21800},{0x40c330,0x4be40b3c},{0x40c350,0xd8420000},
+            {0x40c354,0x4be111ac},{0x40c358,0x4be1133c},{0x40c35c,0x4bc022bc},{0x40c360,0x4bc33108},{0x40c364,0xf8440000},{0x40c368,0x4bc4d6af},{0x40c36c,0x4bc4deeb}};
+        for(const auto &[pc,w]:orbit)write(y,pc,w);
+        const uint32_t S2=frame-0x1e0;unsigned orbitCases=0,orbitPoints=0;
+        const auto both=[&](uint32_t at,uint32_t v){write(y,at,v);write(x,at,v);};
+        for(unsigned seed=0;seed<72;++seed){
+            uint32_t state=seed*2654435761u+11;const auto rnd=[&](){state=state*1664525u+1013904223u;return state>>8;};
+            const auto value=[&](unsigned lo=105,unsigned span=40){return (rnd()&0x807fffffu)|((lo+rnd()%span)<<23);};
+            const auto vec=[&](uint32_t at){for(unsigned i=0;i<4;++i)write(y,at+4*i,value());};
+            const uint32_t dt=value(118,6)&0x7fffffffu;write(y,0x35dee8,dt);vec(E+0xc0);write(y,E+0x54,value(122,6));
+            write(y,E+0x14,B);write(y,E+0x68,T);for(unsigned i=0;i<4;++i)vec(E+0x80+16*i);for(unsigned i=0;i<16;++i)vec(T+16*i);
+            for(unsigned i=0;i<4;++i)write(y,S2+0x1d0+4*i,0x437f0000u);
+            for(uint32_t at=B;at<B+0x120*10;at+=16)vec(at);for(uint32_t at=O;at<O+0x30*8;at+=16)vec(at);
+            std::memcpy(x.memory.flat(),y.memory.flat(),bozo::kFlatBytes);
+            const auto random=[&](unsigned r,uint32_t low){m.r[r].uw[0]=low;for(unsigned i=1;i<4;++i)m.r[r].uw[i]=rnd();};
+            m=R5900Context{};m.r[29].uw[0]=S2;m.r[21].uw[0]=E;
+            random(2,dt);run(0x40ba48);m.r[2].uw[0]=E+0xc0;run(0x40ba50);run(0x40ba8c);m.r[2].uw[0]=S2+0x1d0;run(0x40ba94);
+            const unsigned mode=std::array{1u,3u,2u,5u,6u,0u}[seed%6],trail=seed%4,rows=(seed/4)%3,n=2+seed%3;
+            for(unsigned k=0;k<2;++k){
+                const unsigned index=seed%5+3*k;const uint32_t rec=B+index*0x120,out=O+k*0x30*4;
+                m.r[20].uw[0]=index;m.r[18].uw[0]=rec+0x10;run(0x40bb68);
+                m.r[2].uw[0]=rec+0xb0;run(0x40bb80);m.r[2].uw[0]=rec+0x80;run(0x40bb88);m.r[23].uw[0]=rec+0xc0;run(0x40bb90);m.r[30].uw[0]=rec+0x90;run(0x40bb98);
+                for(uint32_t pc=0x40bba4;pc<=0x40bbb0;pc+=4)run(pc);m.r[2].uw[0]=rec+0xb0;run(0x40bbb8);m.r[2].uw[0]=rec+0x80;run(0x40bbc0);
+                for(unsigned i=0;i<4;++i)both(S2+0x1a0+4*i,value());   // the scalar orbit offset
+                m.r[17].uw[0]=rec+0x30;run(0x40bc54);m.r[8].uw[0]=rec+0x50;run(0x40bc5c);m.r[2].uw[0]=rec+0x40;run(0x40bc6c);m.r[16].uw[0]=rec+0x20;run(0x40bc74);
+                m.r[3].uw[0]=rec+0x60;run(0x40bc7c);m.r[2].uw[0]=rec+0x70;run(0x40bc84);m.r[2].uw[0]=S2+0x1a0;run(0x40bc8c);m.r[2].uw[0]=rec+0xd0;run(0x40bc94);
+                m.r[2].uw[0]=rec+0xa0;run(0x40bc9c);run(0x40bca0);run(0x40bca4);
+                for(unsigned j=0;j<rows;++j){const unsigned a3=j+seed%5;m.r[7].uw[0]=a3;m.r[4].uw[0]=T+16*a3;run(0x40bd30);
+                    const auto fraction=value(115,8)&0x7fffffffu;m.f[1]=std::bit_cast<float>(fraction);random(4,fraction);run(0x40bd3c);run(0x40bd40);run(0x40bd44);}
+                for(uint32_t pc=0x40bd7c;pc<=0x40bdd4;pc+=4)run(pc);
+                both(S2+0x160,out);m.r[4].uw[0]=out;run(0x40bddc);run(0x40bde4);both(S2+0x160,out+n*0x30);
+                const auto stores=[&](uint32_t first){for(unsigned i=0;i<7;++i)run(first+4*i);};
+                if(mode==1)stores(0x40be50);else if(mode==3)stores(0x40bed8);else if(mode==6)stores(0x40c0c8);else if(mode==0)stores(0x40c178);
+                else if(mode==2){for(uint32_t pc=0x40bf68;pc<=0x40bf90;pc+=4)run(pc);m.r[2].uw[0]=S2+0x190;run(0x40bf9c);}
+                else{run(0x40c010);run(0x40c014);m.r[2].uw[0]=E+0x80;for(uint32_t pc=0x40c01c;pc<=0x40c04c;pc+=4)run(pc);m.r[2].uw[0]=S2+0x180;run(0x40c054);}
+                if(trail){
+                    const uint32_t head=trail==2?0x40c1cc:trail==1?0x40c274:0x40c31c,first=trail==2?0x40c200:trail==1?0x40c2a8:0x40c350,last=trail==2?0x40c23c:trail==1?0x40c2e0:0x40c36c;
+                    m.r[22].uw[0]=n;m.r[4].uw[0]=out;run(head);random(2,read<uint32_t>(y,E+0x54));run(head+0x10);run(head+0x14);
+                    for(unsigned i=1;i<n;++i){m.r[3].uw[0]=i;m.r[2].uw[0]=out+i*0x30;for(uint32_t pc=first;pc<=last;pc+=4)run(pc);++orbitPoints;}
+                }
+            }
+            check(!std::memcmp(x.memory.hostPointer(B,0x120*10),y.memory.hostPointer(B,0x120*10),0x120*10));
+            check(!std::memcmp(x.memory.hostPointer(O,0x30*8),y.memory.hostPointer(O,0x30*8),0x30*8));
+            check(!std::memcmp(x.memory.hostPointer(S2+0x180,0x20),y.memory.hostPointer(S2+0x180,0x20),0x20));
+            const auto box=now.particles.bounds(frame,E);
+            for(unsigned i=0;i<3;++i)check(std::bit_cast<uint32_t>(box.minimum[i])==o.vu0_vf[26].u[i] && std::bit_cast<uint32_t>(box.maximum[i])==o.vu0_vf[27].u[i]);
+            orbitCases+=2;
+        }
+        // The orbit step must follow the position load; a store to the wrong record field rejects.
+        m=R5900Context{};m.r[29].uw[0]=S2;m.r[21].uw[0]=E;m.r[2].uw[0]=read<uint32_t>(y,0x35dee8);check(vp2s::nativeMathInstruction(y.memory.flat(),&m,&y,0x40ba48));
+        m.r[2].uw[0]=E+0xc0;check(vp2s::nativeMathInstruction(y.memory.flat(),&m,&y,0x40ba50) && vp2s::nativeMathInstruction(y.memory.flat(),&m,&y,0x40ba8c));
+        m.r[2].uw[0]=S2+0x1d0;check(vp2s::nativeMathInstruction(y.memory.flat(),&m,&y,0x40ba94));
+        m.r[2].uw[0]=B+0xb0;bool refused=false;try{vp2s::nativeMathInstruction(y.memory.flat(),&m,&y,0x40bb80);}catch(const std::runtime_error &){refused=true;}check(refused);
+        m.r[2].uw[0]=read<uint32_t>(y,0x35dee8);check(vp2s::nativeMathInstruction(y.memory.flat(),&m,&y,0x40ba48));
+        m.r[2].uw[0]=S2+0x160;refused=false;try{vp2s::nativeMathInstruction(y.memory.flat(),&m,&y,0x40ba50);}catch(const std::runtime_error &){refused=true;}check(refused);   // drift not +c0
+        std::printf("%u orbit emitter particles (%u trail points, six modes, three trail kinds, curves) match the VU0 reference\n",orbitCases,orbitPoints);}
         now.particles=vp2s::NativeParticles{};
     }
     {auto &rt=b.runtime();initialize(rt,0);now.particles=vp2s::NativeParticles{};now.assets=vp2s::NativeAssets{};

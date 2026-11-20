@@ -12,6 +12,52 @@ The earlier VP2S face/shading and general brightness comparisons remain open.
 
 ## Build and evidence
 
+### DOF order, saturating 216e04, unset collider planes (2026-11-20)
+
+**DOF glare before glow.** The refusal is removed. `+130fc` marks buffer 428 as
+written. Pass A's level-0 write replaces 428 only when it is clear, pass B
+clears it only when it is clear, and the final add happens at `2da2a0`.
+Either order gives the same image.
+
+**The next stop:** 216e04 refused with "transposed inverse translation
+overflow" on object `9c70d0`, whose matrix held about 1e20 values. The chain
+of causes, traced with `VP2S_BOZO_WATCH`:
+- Object `9c70d0` gets that matrix from its parent `9c6e10`, whose quaternion
+  was about 6e9.
+- The bone aim (1fe598..1fe6c0) built that quaternion toward a chain point at
+  (PS2 max, -8.7e15, 436).
+- The plane contact (1fbfb0, called from 1fe210) projected the point onto
+  the plane of collider `9d0330`. Its words were heap garbage:
+  n = 7cec7750 99777777 …, o = 77ffb770 77777777 ….
+
+The diagnostic itself was extended: `VP2S_BOZO_WATCH` now also reports a
+change made by compiled code between two native sites, naming both sites.
+
+**Game behaviour.** Collider class `163c40` (mod003 constructors 3ad540 and
+3f4930, size 0x250) joins the collider table (1ff0b0) as soon as it is built.
+Its update 3f26c0 does nothing else until the spawn timer `+240` runs out:
+5.0, minus 2.0 per update. On the third update it stores 0 and calls 1fb530,
+which writes the plane at `+220`/`+230`. Until then the chain reads whatever
+was in the heap block. Here that is an old thread stack: written at frame
+1488 when the thread started at library `142150`. Its bytes differ between two
+identical runs from boot, so this read is undefined on the PS2 as well.
+
+**Changes:**
+- **Port decision (user, 2026-11-20): no plane until set.** At 1fbff0, an
+  owner of class `163c40` whose timer is not 0 yields distance +1.0, so 1fbff8
+  takes the miss branch. Every other owner is evaluated as before.
+- **216e04 in PS2 words.** It is now `(r0*t.x + r1*t.y) + r2*t.z` in
+  `Ps2Word`, with W kept. Overflow saturates instead of being refused, an
+  exponent-255 word is a number, and a denormal reads as zero. The reference
+  in the bones suite now uses ps2f words. Its rejection cases became value
+  checks, apart from the aliasing rejection, which stays.
+- **Bones suite.** It also checks the unset-plane rule: a garbage plane with
+  the timer at 1.0 gives +1, and the timer at 0 evaluates the plane.
+
+**Result:** 91/91 suites pass. From `forest_60300` the route now passes the
+spawn. It stops on an unconverted particle material, `aea42754/0+d20`
+(site 22f160, entry 22f140).
+
 ### Forest walk: particle mode 6 (2026-11-19)
 
 The pad script now holds RIGHT at 60100, 61100 and 62100 inside the Lost Forest

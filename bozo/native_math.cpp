@@ -3344,6 +3344,17 @@ bool nativeMathInstruction(uint8_t *,R5900Context *c,Runtime *rt,uint32_t pc){
     if(nativeObjectMathInstruction(nullptr,c,rt,pc))return true;
     if(nativeFrustumInstruction(c,rt,pc))return true;
     if(pc==0x1fbff0 || pc==0x1fc010){
+        // Class 163c40 (mod003 3ad540/3f4930) joins the collider table when it is
+        // built but writes its plane (+220, +230) only when its spawn timer +240
+        // (5.0, minus 2 per update in 3f26c0) runs out and 3f26c0 stores 0 before
+        // calling 1fb530. Until then the plane words are whatever the heap held
+        // (an old thread stack, different on every run): the port defines that
+        // read as no plane, a positive distance, so 1fbff8 takes the miss branch.
+        if(pc==0x1fbff0){uint32_t vtable,timer;const auto owner=c->r[4].uw[0];
+            std::memcpy(&vtable,record(rt,owner,16),4);
+            if(vtable==0x163c40){std::memcpy(&timer,record(rt,owner+0x240,16),4);
+                if(c->pc!=0x1fbfb0 || c->r[31].uw[0]!=0x1fe210 || c->r[2].uw[0]!=c->r[29].uw[0])throw std::runtime_error("unqualified plane-contact caller");
+                if(timer){kPs2One.store(record(rt,c->r[29].uw[0],16));return true;}}}
         auto contact=planeContact(rt,c);
         if(pc==0x1fbff0)contact.distance.store(record(rt,c->r[29].uw[0],16));
         else{
@@ -3509,16 +3520,15 @@ bool nativeMathInstruction(uint8_t *,R5900Context *c,Runtime *rt,uint32_t pc){
         if(c->r[3].uw[0]!=frame)throw std::runtime_error("native transposed inverse translation destination mismatch");
         const auto a=reinterpret_cast<uintptr_t>(matrixRecord),b=reinterpret_cast<uintptr_t>(translationRecord);
         if(a<b+16 && b<a+64)throw std::runtime_error("native transposed inverse output aliases its temporary");
-        math::Matrix matrix;__m128 translation;float rows[4][4],point[4];
-        std::memcpy(matrix.data(),matrixRecord,64);std::memcpy(&translation,translationRecord,16);std::memcpy(rows,matrix.data(),64);std::memcpy(point,&translation,16);
-        for(unsigned i=0;i<3;++i){pairQualified(point[i]);for(unsigned j=0;j<3;++j)pairQualified(rows[i][j]);}
-        {music::CodecRounding validation;for(unsigned lane=0;lane<3;++lane){double bound=0;
-            for(unsigned i=0;i<3;++i)bound+=std::abs(double(rows[lane][i])*point[i]);
-            if(bound>std::numeric_limits<float>::max())throw std::runtime_error("native transposed inverse translation overflow");}}
         // Scalar clear, sequential translation loads and integer transpose have
-        // already executed. Output/frame separation keeps those inputs intact.
-        const auto result=math::transposedRigidInverseTranslation(matrix,translation);
-        std::memcpy(translationRecord,&result,16);return true;
+        // already executed (the rows at a1 are the source's columns). PS2 words
+        // (see Ps2Word), 216db4..216dbc: xyz = (r0*t.x + r1*t.y) + r2*t.z;
+        // W keeps the loaded word. Every word is a VU number: the game reads
+        // a collider plane before 3f26c0 has written it (class 163c40, first
+        // updates after spawn), and the VU saturates what that heap garbage gives.
+        const auto rows=ps2Rows(rt,matrixAddress,3);const auto point=ps2Record(rt,frame);
+        for(unsigned lane=0;lane<3;++lane)((rows.rows[lane][0]*point[0]+rows.rows[lane][1]*point[1])+rows.rows[lane][2]*point[2]).store(translationRecord+4*lane);
+        return true;
     }
     switch(pc){
     case 0x1fc6dc:case 0x1fc6e0:case 0x1fc708:case 0x1fc70c:case 0x1fc714:case 0x1fc71c:case 0x1fc720:case 0x1fc760:

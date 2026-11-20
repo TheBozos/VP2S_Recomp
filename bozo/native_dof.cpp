@@ -134,10 +134,12 @@ void NativeDofs::finish(Runtime *rt,const NativeScene &scene,uint32_t stack,uint
         effect.glareB=value<uint8_t>(rt,object+0x130e0)!=0;
         if(effect.glareB){
             // 2da124: thresholds subtract in increasing order, so each effect
-            // sees F less its own count. With B first, A's first level write
-            // (ALPHA 0x88) would replace B in 428: not observed, not ported.
-            if(value<uint8_t>(rt,object+0xdfbc) && value<uint8_t>(rt,object+0x130e1)<value<uint8_t>(rt,object+0xdfc9))
-                throw std::runtime_error("unported native glare-before-glow order");
+            // sees F less its own count; B runs first when +130e1 < +dfc9. The
+            // order does not change 428: +130fc (cleared at 2da118) marks it
+            // written, A's level 0 replaces (ALPHA 0x88) only while it is clear
+            // and adds otherwise (2d5aa0, 2d6814), B clears 428 only while it is
+            // clear (2d7210), and 2da2a0 adds 428 to the frame once after both.
+            // Natively A adds its levels and B its 428 image: the same sum.
             effect.glareThreshold=value<uint8_t>(rt,object+0x130e1)/255.f;
             // 2d71e0: work size s4 = table 0x314720[+130e4]; rows s3 =
             // clamp(int(6 * +ac / +130f8), 16, s4); angles by mode +130e8.

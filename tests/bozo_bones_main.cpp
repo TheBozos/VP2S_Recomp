@@ -216,11 +216,12 @@ struct Host:bozo::ee::Host,bozo::port::Host,vp2s::MotionOwner{
             std::memcpy(rt->memory.hostPointer(stack+0x130,16),quaternion,16);return true;
         }
         if(reference && pc==0x216e04){
-            float matrix[4][4],point[4];uint32_t out[4];std::memcpy(matrix,rt->memory.hostPointer(c->r[5].uw[0],64),64);
+            // ps2f words (VU0 semantics): no host floating point.
+            uint32_t matrix[4][4],point[4],out[4];std::memcpy(matrix,rt->memory.hostPointer(c->r[5].uw[0],64),64);
             std::memcpy(point,rt->memory.hostPointer(c->r[29].uw[0],16),16);std::memcpy(out,point,16);
-            const auto normal=[](float v){const auto bits=std::bit_cast<uint32_t>(v);return std::bit_cast<float>((bits&0x7f800000)?bits:(bits&0x80000000));};
-            for(unsigned lane=0;lane<3;++lane){volatile float x=matrix[lane][0]*point[0],y=matrix[lane][1]*point[1],z=matrix[lane][2]*point[2];
-                volatile float xy=normal(x)+normal(y),xyz=normal(xy)+normal(z);out[lane]=std::bit_cast<uint32_t>(normal(xyz));}
+            const auto M=[](uint32_t x,uint32_t y){uint32_t f=0;return bozo::ps2f::mul(x,y,f);};
+            const auto A=[](uint32_t x,uint32_t y){uint32_t f=0;return bozo::ps2f::addNearest(x,y,f);};
+            for(unsigned lane=0;lane<3;++lane)out[lane]=A(A(M(matrix[lane][0],point[0]),M(matrix[lane][1],point[1])),M(matrix[lane][2],point[2]));
             std::memcpy(rt->memory.hostPointer(c->r[29].uw[0],16),out,16);return true;
         }
         if(pc==0x1fbf9c)++boxPublications;
@@ -758,7 +759,13 @@ int main(){try{
         auto reject=[&]{const auto saved=c;std::vector<uint8_t> ram(r.memory.flat(),r.memory.flat()+bozo::kFlatBytes);bool bad=false;
             try{vp2s::nativeMathInstruction(r.memory.flat(),&c,&r,0x216e04);}catch(const std::runtime_error &){bad=true;}
             check(bad && !std::memcmp(&saved,&c,sizeof(c)) && !std::memcmp(ram.data(),r.memory.flat(),ram.size()));};
-        c.r[5].ud[0]=stack-16;reject();c.r[5].ud[0]=matrix;put(r,matrix,0x7fc00000u);reject();put(r,matrix,1u);reject();put(r,matrix,0x7f7fffffu);put(r,stack,0x40000000u);reject();
+        c.r[5].ud[0]=stack-16;reject();c.r[5].ud[0]=matrix;
+        // PS2 words: exponent 255 is a number, a denormal reads as zero, overflow saturates; W is kept.
+        const auto lane0=[&](uint32_t m,uint32_t t){put(r,matrix,m);for(unsigned i=0;i<4;++i)put(r,stack+i*4,i?0x3f800000u:t);put(r,stack+12,0x12345678u);
+            vp2s::nativeMathInstruction(r.memory.flat(),&c,&r,0x216e04);check(word(r,stack+4)==0x3f800000u && word(r,stack+8)==0x3f800000u && word(r,stack+12)==0x12345678u);return word(r,stack);};
+        check(lane0(0x7fc00000u,0x3f800000u)==0x7fc00000u && lane0(1u,0x3f800000u)==0 && lane0(0x7f7fffffu,0x40000000u)==0x7fffffffu && lane0(0xff7fffffu,0x7f7fffffu)==0xffffffffu);
+        // The route's case: a garbage collider plane put a saturated point through the chain.
+        put(r,matrix+4,0x5f8725ebu);check(lane0(0x7fffffffu,0x7fffffffu)==0x7fffffffu);put(r,matrix+4,0);
     }
     unsigned angularCosines=0,angularRotations=0,angularAligned=0;h.angularQuaternions=h.angularCompositions=0;
     for(unsigned mode:{_MM_ROUND_NEAREST,_MM_ROUND_DOWN,_MM_ROUND_UP,_MM_ROUND_TOWARD_ZERO})for(unsigned seed=0;seed<128;++seed){
@@ -1101,6 +1108,12 @@ int main(){try{
         {// PS2 words: normal words are VU numbers (no rejection, host state kept).
             const auto distance=[&](uint32_t w){put(r,owner+0x220,w);const auto saved=c;const auto fp=_mm_getcsr();check(vp2s::nativeMathInstruction(r.memory.flat(),&c,&r,0x1fbff0) && _mm_getcsr()==fp);c=saved;put(r,owner+0x220,0u);};
             distance(0x7fc00000u);distance(1u);distance(std::bit_cast<uint32_t>(1.e9f));}
+        {// Class 163c40 before its spawn timer fired: no plane (distance +1), whatever the plane words hold.
+            put(r,stack,0u);put(r,owner,0x163c40u);put(r,owner+0x220,0x7cec7750u);put(r,owner+0x230,0x77ffb770u);put(r,owner+0x240,0x3f800000u);
+            const auto saved=c;check(vp2s::nativeMathInstruction(r.memory.flat(),&c,&r,0x1fbff0) && word(r,stack)==0x3f800000u);c=saved;
+            // Timer fired (3f26c0 stored 0): the plane is evaluated, here a hit at -0.5 below the zero plane.
+            put(r,owner+0x220,0u);put(r,owner+0x230,0u);put(r,owner+0x240,0u);check(vp2s::nativeMathInstruction(r.memory.flat(),&c,&r,0x1fbff0) && word(r,stack)==0xbf000000u);c=saved;
+            put(r,owner,0u);put(r,stack,0u);}
         c.r[17].ud[0]=stack-0x30;c.r[5].ud[0]=stack;put(r,stack-0x28,owner);put(r,stack-0x18,0x3f000000u);reject();
     }
     std::printf("%u bone,%u distance,%u scale,%u parameters,%u selectors (%u rigid/%u general),%u column inverses,%u paired aliases,%u paired callers,%u full/%u linear transforms,%u motion callers,%u position pairs (%u fixed),%u boxes (%u clamped/%u unchanged),%u transposed inverses,%u angular callers (%u rotation/%u aligned),%u quaternion products,%u velocity loops/%u records,%u collision queries,%u segment distances (%u interior/%u clamped samples),%u collision callers (%u hit/%u miss),%u responses/%u real continuations,%u point/segments (%u start/%u end/%u interior),%u plane callers (%u hit/%u miss/%u skipped): CPU/RAM, four modes, live XYZW; no VU state\n",cases,distances,scales,parameters,selectors,rigid,general,columns,pairs,pairedCallers,transforms,linearTransforms,motions,positionPairs,fixedPairs,boxes,clamped,unclamped,transposedInverses,angularCosines,angularRotations,angularAligned,quaternionProducts,velocityLoops,velocityRecords,collisionQueries,segmentDistances,segmentInterior,segmentClamped,collisionCallers,collisionHits,collisionMisses,positionResponses,responseContinuations,pointSegments,pointStarts,pointEnds,pointInteriors,planeCallers,planeHits,planeMisses,planeSkipped);return 0;

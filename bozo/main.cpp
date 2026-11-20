@@ -760,10 +760,14 @@ bool watchedNativeInstruction(uint8_t *ram,R5900Context *ctx,Runtime *rt,uint32_
     static const uint32_t watch=[]{const char *v=std::getenv("VP2S_BOZO_WATCH");return v?uint32_t(std::strtoul(v,nullptr,16))&~15u:0u;}();
     if(!watch || !rt)return dispatchNativeInstruction(ram,ctx,rt,pc);
     uint32_t before[4]={};if(const auto *p=rt->memory.hostPointer(watch,16))std::memcpy(before,p,16);
+    static uint32_t last[4]={},lastPc=0;static bool primed=false;
+    if(primed && std::memcmp(before,last,16))std::fprintf(stderr,"[vp2s:watch] between pc=%x and pc=%x ra=%x %08x %08x %08x %08x -> %08x %08x %08x %08x\n",lastPc,pc,ctx?ctx->r[31].uw[0]:0u,
+        last[0],last[1],last[2],last[3],before[0],before[1],before[2],before[3]);
     const bool handled=dispatchNativeInstruction(ram,ctx,rt,pc);
     uint32_t after[4]={};if(const auto *p=rt->memory.hostPointer(watch,16))std::memcpy(after,p,16);
     if(std::memcmp(before,after,16))std::fprintf(stderr,"[vp2s:watch] pc=%x ra=%x %08x %08x %08x %08x -> %08x %08x %08x %08x\n",pc,ctx?ctx->r[31].uw[0]:0u,
         before[0],before[1],before[2],before[3],after[0],after[1],after[2],after[3]);
+    std::memcpy(last,after,16);lastPc=pc;primed=true;
     return handled;
 }
 }

@@ -56,12 +56,17 @@ order matches all 96 lanes exactly; the models suite checks
 Regenerated packs: 1,361,390 meshes converted, so every disc mesh now
 converts (no set-up routine is rejected).
 
-**Result:** from `forest_60300` the route passes object `9fd300` and stops
-just after frame 60460, on its neighbour `9fd1f0`: "native texture
-4674404c:1 requires offline conversion/load provenance". That texture is
-probably the run-time picture this effect samples. The routine-40 draw has not
-been compared with PCSX2. The full suite ran 90 of 91 under `-j 4`;
-`kernel-signatures` failed there and passed alone (48 s).
+**Result:** from `forest_60300` the routine-40 mesh (object `9fd300`) now
+converts, and the route stops at its texture: "native texture 4674404c:1
+requires offline conversion/load provenance". That is probably the run-time
+picture this effect samples. The routine-40 draw has not been compared with
+PCSX2.
+
+**State compatibility.** The first version also saved routine 40's data in
+the model section, which made every named state fail to load; each run then
+booted from scratch and replayed the route. Run-time (batcher) meshes reject
+routine 40, so the data is no longer saved and the named states load again.
+A state that fails to load now ends the run.
 
 ### Particle templates with several kinds per pass (VPP3, 2026-11-20)
 

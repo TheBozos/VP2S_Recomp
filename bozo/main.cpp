@@ -875,7 +875,10 @@ int main(int argc,char **argv) {
                     {"state setup",host.stateSetups.outstanding()},{"debug font",host.fonts.outstanding()}};
                 for(const auto &[name,count]:open)if(count)return std::format("a native {} is in flight",name);
                 return std::string();}});
-        host.native.onStateMessage=[](bool,const std::string &message){std::fprintf(stderr,"[state] %s\n",message.c_str());};
+        // A state that fails to load ends the run: going on from boot would replay the
+        // route silently (a model-section change once made every named state fail).
+        host.native.onStateMessage=[](bool ok,const std::string &message){std::fprintf(stderr,"[state] %s\n",message.c_str());
+            if(!ok && message.ends_with("the state was put back as it was"))throw std::runtime_error("save state failed to load: "+message);};
 #ifdef _WIN32
         SamplingProfiler profiler;
         if(const char *out=std::getenv("VP2S_BOZO_PROFILE")){

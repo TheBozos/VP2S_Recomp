@@ -39,7 +39,7 @@ void NativeModels::serialize(bozo::state::Archive &a){
     namespace st=bozo::state;
     const auto mesh=[&](Mesh &m){
         st::fields(a,m.group,m.sourceSize,m.algorithms,m.material,m.hasMaterial,m.scroll,m.strips);
-        st::pod(a,m.reflection);st::pod(a,m.screen);
+        st::pod(a,m.reflection); // (routine 40 data is never saved: run-time meshes reject routine 40)
         const auto podVector=[&](auto &v){auto n=st::count(a,v.size());if(a.loading())v.resize(n);for(auto &e:v)st::pod(a,e);};
         podVector(m.vertices);podVector(m.bones);podVector(m.sources);};
     auto n=st::count(a,generated.size());

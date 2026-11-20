@@ -12,6 +12,33 @@ The earlier VP2S face/shading and general brightness comparisons remain open.
 
 ## Build and evidence
 
+### Battle module 133, battle meshes, more mod028 sites (2026-11-20)
+
+- **Module 133** (`0x85`): loaded into mod112's slot at `0x532200` (text
+  `0x15c0`, data `0x100`, no constructors). It was captured from RAM at its
+  first call (mod028 `3bc35c`), so its data is still as loaded. Saved as
+  `build_usa/captured_modules/00532200_133.bin` and run through the same
+  pipeline stages; it is in `CAPTURED_BATTLE_MODULES` and the default inputs.
+- **Battle meshes:**
+  - **Writer subclass `174f90`:** the battle's scratchpad writer is a subclass
+    of `152ac0` with the same fields. With `+d0` set, its kick `4d75f0` ends
+    with mod001's poll and fromSPR start 2d6a20 higher, word for word. These
+    are native sites mapped onto the existing ones (the RAM word is compared
+    with mod001's counterpart).
+  - **V4-16 normals:** its mesh packs the normals lane as signed V4-16
+    (`FTOI12` halves, `4d71cc`), which VIF sign-extends to the same integers.
+    The generated-mesh path accepts this only when the routines read normals
+    as 12-bit fixed point.
+- **Particles:** owner class `1725d0` (another battle subclass on the base
+  producer and draw); mode 4 is accepted by the producer (group up to 48
+  points). Its draw needs VU1 image 7 (table `3141a0` entry 7 at `325240`,
+  about 725 pairs at `0x6e0`, a strip builder unlike image 6) and is not
+  ported yet.
+- **VU0 sites:** basis lengths are now a site table (`43c120`, mod001
+  `239b54`); vertex pack `4d7150` (`FTOI12`/`FTOI4`, ps2f truncation and
+  saturation: `vuFtoi`); box sphere `3fd5f0` (centre and `RSQRT` radius,
+  `bozo::ps2f`).
+
 ### Battle particles: mod001 copies of the field emitters (2026-11-20)
 
 The battle's particle owners run mod001 functions the field never used.

@@ -640,21 +640,54 @@ bool nativeObjectPairSpill(R5900Context *c,Runtime *rt,uint32_t pc){
     std::memcpy(row,record(rt,base+index*16,16),16);if(index==8)regs.valid=true;
     return true;
 }
-// Battle height set-up, mod028 43c0a0 (per object of its list +d8): the same 0x7f0
-// basis-length call on the object s0's rows +90..+b0 (LQC2 vf12..vf14 from a0 = s0+90,
-// VCALLMS 0x7f0, CFC2.I t1/vi0, SQC2 vf6 to sp+70); the scalar code reads the lengths.
+// Common-math 0x7f0 basis-length blocks (LQC2 vf12..vf14 = object+90.., VCALLMS 0x7f0,
+// CFC2.I t1/vi0, SQC2 vf6 to the output; the callers read x, y, z):
+//   mod028 43c120: battle height set-up 43c0a0, object s0 (base a0), output sp+70.
+//   mod001 239b54: 239b20 (scene object +50 method, called from 2203b8), object a0
+//                  (base v0), output sp+0; it checks the lengths are 1 within 0.002.
+struct BasisLengthSite{uint32_t load,call,store;unsigned object,base,output;uint32_t offset;};
+constexpr BasisLengthSite basisLengthSites[]={{0x43c120,0x43c130,0x43c13c,16,4,3,0x70},{0x239b54,0x239b64,0x239b70,4,2,2,0}};
 bool nativeBattleBasisLengths(R5900Context *c,Runtime *rt,uint32_t pc){
-    constexpr uint32_t words[8]={0xd88c0000,0xd88d0010,0xd88e0020,0,0x4a003fb8,0x48490001,0x27a30070,0xf8660000};
-    if(pc<0x43c120 || pc>0x43c13c || (pc&3) || pc==0x43c138 || !rt)return false;
+    if(!rt || (pc&3))return false;
+    const auto site=std::find_if(std::begin(basisLengthSites),std::end(basisLengthSites),[&](auto &s){return pc>=s.load && pc<=s.store;});
+    if(site==std::end(basisLengthSites))return false;
+    const unsigned slot=(pc-site->load)/4;
+    const uint32_t expected=slot<3?0xd8000000u|(site->base<<21)|((12+slot)<<16)|(slot*16):pc==site->call?0x4a003fb8u:pc==site->call+4?0x48490001u:
+        pc==site->store?0xf8060000u|(site->output<<21):pc==site->load+12?0u:1u;   // 1: a scalar word between (runs as compiled)
     uint32_t word=0;if(const auto *p=rt->memory.hostPointer(pc,4))std::memcpy(&word,p,4);
-    if(word!=words[(pc-0x43c120)/4])return false;   // another overlay at these addresses
-    if(!c)throw std::runtime_error("native battle basis lengths have no CPU record");
-    const auto object=c->r[16].uw[0];
-    if(c->r[4].uw[0]!=object+0x90)throw std::runtime_error("native battle basis mismatch");
-    if(pc==0x43c134){c->r[9].ud[0]=0;return true;}   // VI0 is the constant zero
-    if(pc!=0x43c13c)return true;
-    if(c->r[3].uw[0]!=c->r[29].uw[0]+0x70)throw std::runtime_error("native battle basis destination mismatch");
-    objectBasisLengths(rt,object,c->r[3].uw[0]);return true;
+    if(expected==1u || word!=expected)return false;   // scalar word, or another overlay at these addresses
+    if(!c)throw std::runtime_error("native basis lengths have no CPU record");
+    const auto object=c->r[site->object].uw[0];
+    if(slot<3 && c->r[site->base].uw[0]!=object+0x90)throw std::runtime_error("native basis mismatch");
+    if(pc==site->call+4){c->r[9].ud[0]=0;return true;}   // VI0 is the constant zero
+    if(pc!=site->store)return true;
+    if(c->r[site->output].uw[0]!=c->r[29].uw[0]+site->offset)throw std::runtime_error("native basis destination mismatch");
+    objectBasisLengths(rt,object,c->r[site->output].uw[0]);return true;
+}
+// VU FTOIn on one ps2f word: value * 2^n truncated toward zero, saturating to int32; a
+// denormal reads as zero and exponent 255 is an ordinary (huge) number.
+uint32_t vuFtoi(uint32_t bits,unsigned shift){
+    const unsigned exponent=(bits>>23)&255;if(!exponent)return 0;
+    const double magnitude=std::ldexp(double((bits&0x7fffff)|0x800000),int(exponent)-150+int(shift));
+    const double value=bits>>31?-magnitude:magnitude;
+    if(value>=2147483647.)return 0x7fffffffu;if(value<=-2147483648.)return 0x80000000u;return uint32_t(int32_t(value));
+}
+// Battle vertex packer, mod028 4d7150 (a0 builder, a1 position, a2 vector): +d1 == 0 takes
+// FTOI12 of a2 (LQC2 4d71cc, FTOI12 4d71d0, SQC2 4d71d4 to sp+0); +d0 == 2 takes FTOI4 of
+// a1 (LQC2 4d7260, FTOI4 4d7264, SQC2 4d7268 to sp+0). The scalar code packs the halves.
+bool nativeBattleVertexPack(R5900Context *c,Runtime *rt,uint32_t pc){
+    constexpr struct {uint32_t pc,word;} sites[]={{0x4d71cc,0xd8c10000},{0x4d71d0,0x4be1097e},{0x4d71d4,0xf8610000},{0x4d7260,0xd8a10000},{0x4d7264,0x4be1097d},{0x4d7268,0xf8c10000}};
+    const auto site=std::find_if(std::begin(sites),std::end(sites),[&](auto &s){return s.pc==pc;});
+    if(site==std::end(sites) || !rt)return false;
+    uint32_t word=0;if(const auto *p=rt->memory.hostPointer(pc,4))std::memcpy(&word,p,4);
+    if(word!=site->word)return false;   // another overlay at these addresses
+    if(!c)throw std::runtime_error("native battle vertex pack has no CPU record");
+    if(pc!=0x4d71d4 && pc!=0x4d7268)return true;
+    const bool normal=pc==0x4d71d4;const auto source=c->r[normal?6:5].uw[0],out=c->r[normal?3:6].uw[0];
+    if(out!=c->r[29].uw[0])throw std::runtime_error("native battle vertex pack destination mismatch");
+    uint32_t in[4],fixed[4];std::memcpy(in,record(rt,source,16),16);
+    for(unsigned i=0;i<4;++i)fixed[i]=vuFtoi(in[i],normal?12:4);
+    std::memcpy(record(rt,out,16),fixed,16);return true;
 }
 // Battle shape set-up, mod028 48ee30(a0 = s5 shape, a1 = source, a2 = s4 optional matrix):
 // LQC2 vf1 = a1+10 (48ee74), MULw.w vf1.w = 1 (48ee88, a delay slot: always), and with s4
@@ -1349,6 +1382,28 @@ VuWords vuWords(Runtime *rt,uint32_t at){VuWords v;std::memcpy(v.data(),record(r
 uint32_t vuMul(uint32_t a,uint32_t b){uint32_t f=0;return bozo::ps2f::mul(a,b,f);}
 uint32_t vuAdd(uint32_t a,uint32_t b){uint32_t f=0;return bozo::ps2f::addNearest(a,b,f);}
 uint32_t vuSub(uint32_t a,uint32_t b){uint32_t f=0;return bozo::ps2f::subNearest(a,b,f);}
+// Battle box sphere, mod028 3fd5f0(a0 box: min +0, max +10): LQC2 vf27 = sp+0 (x = 0.5),
+// vf28 = min, vf29 = max; vf31.xyz = (max+min)*0.5, vf30.xyz = (max-min)*0.5, vf28 = vf30^2;
+// ACC.w = 1*x, +1*y, vf29.w = +1*z; RSQRT Q = 1/sqrt(vf29.w); vf31.w = vf29.w*Q; SQC2 vf31 to
+// a3 = a0+20: (centre, radius). ps2f, nearest; the scalar code around it is compiled.
+bool nativeBattleBoxSphere(R5900Context *c,Runtime *rt,uint32_t pc){
+    constexpr uint32_t words[]={0xd93b0000,0xd89c0000,0xd91d0000,0x4bdcefe8,0x4bdcefac,0x4bdbffd8,0x4bdbf798,0x4bdef72a,
+        0x4a3c01bc,0x4a3c00bd,0x4a3c074a,0x4bfd03be,0x4a0003bf,0x4a20efdc,0xf8ff0000};
+    if(pc<0x3fd660 || pc>0x3fd698 || (pc&3) || !rt)return false;
+    uint32_t word=0;if(const auto *p=rt->memory.hostPointer(pc,4))std::memcpy(&word,p,4);
+    if(word!=words[(pc-0x3fd660)/4])return false;   // another overlay at these addresses
+    if(!c)throw std::runtime_error("native battle box sphere has no CPU record");
+    const auto box=c->r[4].uw[0],stack=c->r[29].uw[0];
+    if(c->r[9].uw[0]!=stack || c->r[8].uw[0]!=box+0x10 || c->r[7].uw[0]!=box+0x20)throw std::runtime_error("native battle box sphere escaped its records");
+    if(pc!=0x3fd698)return true;
+    uint32_t half,low[4],high[4];std::memcpy(&half,record(rt,stack,16),4);std::memcpy(low,record(rt,box,16),16);std::memcpy(high,record(rt,box+0x10,16),16);
+    if(half!=0x3f000000u)throw std::runtime_error("native battle box sphere scale is not one half");
+    constexpr uint32_t one=0x3f800000u;uint32_t out[4],squares[3];
+    for(unsigned i=0;i<3;++i){out[i]=vuMul(vuAdd(high[i],low[i]),half);const auto h=vuMul(vuSub(high[i],low[i]),half);squares[i]=vuMul(h,h);}
+    const auto length2=vuAdd(vuAdd(vuMul(one,squares[0]),vuMul(one,squares[1])),vuMul(one,squares[2]));
+    uint32_t flags=0;const auto q=bozo::ps2f::rsqrt(one,length2,flags);out[3]=vuMul(length2,q);
+    std::memcpy(record(rt,box+0x20,16),out,16);return true;
+}
 // Box pair separating-axis test, mod001 1f82c0 (called from the shape pair
 // dispatch at 1f8964 once 1f8aa0's spheres overlap). It runs on the VU
 // registers that block left: vf1..vf4 = object A rows, vf5..vf8 = object B
@@ -3256,6 +3311,8 @@ bool nativeMathInstruction(uint8_t *,R5900Context *c,Runtime *rt,uint32_t pc){
     if(nativeObjectPairSpill(c,rt,pc))return true;
     if(nativeBattleBasisLengths(c,rt,pc))return true;
     if(nativeBattleShapeOrigin(c,rt,pc))return true;
+    if(nativeBattleVertexPack(c,rt,pc))return true;
+    if(nativeBattleBoxSphere(c,rt,pc))return true;
     if(nativeBattleShapePoint(c,rt,pc))return true;
     if(nativeBattleBoxCorners(c,rt,pc))return true;
     if(nativeBattleBoxWorld(c,rt,pc))return true;

@@ -782,9 +782,41 @@ int main(int argc,char **argv){try{
             for(uint32_t pc=0x43c120;pc<=0x43c13c;pc+=4)if(pc!=0x43c138)check(vp2s::nativeMathInstruction(rt.memory.flat(),&c,&rt,pc));
             float out[4];std::memcpy(out,rt.memory.hostPointer(stack+0x70,16),16);
             check(out[0]==5 && out[1]==2 && out[2]==5 && std::bit_cast<uint32_t>(out[3])==0x5a5a5a5au && c.r[9].ud[0]==0);
-            c.r[4].uw[0]+=16;bool bad=false;try{vp2s::nativeMathInstruction(rt.memory.flat(),&c,&rt,0x43c13c);}catch(const std::runtime_error &){bad=true;}check(bad);
+            c.r[3].uw[0]+=16;bool bad=false;try{vp2s::nativeMathInstruction(rt.memory.flat(),&c,&rt,0x43c13c);}catch(const std::runtime_error &){bad=true;}check(bad);
+            c.r[3].uw[0]-=16;c.r[4].uw[0]+=16;bad=false;try{vp2s::nativeMathInstruction(rt.memory.flat(),&c,&rt,0x43c120);}catch(const std::runtime_error &){bad=true;}check(bad);
             const uint32_t other=0x12345678;std::memcpy(rt.memory.hostPointer(0x43c13c,4),&other,4);
             check(!vp2s::nativeMathInstruction(rt.memory.flat(),&c,&rt,0x43c13c));   // another overlay's word: not this site
+            // mod001 239b54: the same block, object a0 (base v0), output sp+0.
+            constexpr uint32_t second[8]={0xd84c0000,0xd84d0010,0xd84e0020,0,0x4a003fb8,0x48490001,0x27a20000,0xf8460000};
+            std::memcpy(rt.memory.hostPointer(0x239b54,32),second,32);std::memset(rt.memory.hostPointer(stack,16),0x5a,16);
+            R5900Context d{};d.r[4].uw[0]=object;d.r[2].uw[0]=object+0x90;d.r[29].uw[0]=stack;
+            for(uint32_t pc=0x239b54;pc<=0x239b68;pc+=4)check(vp2s::nativeMathInstruction(rt.memory.flat(),&d,&rt,pc));
+            check(!vp2s::nativeMathInstruction(rt.memory.flat(),&d,&rt,0x239b6c));   // addiu v0, sp, 0: compiled
+            d.r[2].uw[0]=stack;check(vp2s::nativeMathInstruction(rt.memory.flat(),&d,&rt,0x239b70));
+            std::memcpy(out,rt.memory.hostPointer(stack,16),16);check(out[0]==5 && out[1]==2 && out[2]==5 && std::bit_cast<uint32_t>(out[3])==0x5a5a5a5au);
+        }
+        {   // mod028 3fd5f0 box sphere: a0+20 = ((max+min)/2, |(max-min)/2|).
+            constexpr uint32_t words[]={0xd93b0000,0xd89c0000,0xd91d0000,0x4bdcefe8,0x4bdcefac,0x4bdbffd8,0x4bdbf798,0x4bdef72a,
+                0x4a3c01bc,0x4a3c00bd,0x4a3c074a,0x4bfd03be,0x4a0003bf,0x4a20efdc,0xf8ff0000};
+            std::memcpy(rt.memory.hostPointer(0x3fd660,sizeof(words)),words,sizeof(words));
+            constexpr uint32_t box=0x1a0000,stack=0x1fff000;const float half=0.5f,low[4]={-1,0,2,0},high[4]={5,8,2,0};
+            std::memcpy(rt.memory.hostPointer(stack,4),&half,4);std::memcpy(rt.memory.hostPointer(box,16),low,16);std::memcpy(rt.memory.hostPointer(box+0x10,16),high,16);
+            R5900Context c{};c.r[4].uw[0]=box;c.r[29].uw[0]=stack;c.r[9].uw[0]=stack;c.r[8].uw[0]=box+0x10;c.r[7].uw[0]=box+0x20;
+            for(uint32_t pc=0x3fd660;pc<=0x3fd698;pc+=4)check(vp2s::nativeMathInstruction(rt.memory.flat(),&c,&rt,pc));
+            float o[4];std::memcpy(o,rt.memory.hostPointer(box+0x20,16),16);check(o[0]==2 && o[1]==4 && o[2]==2 && o[3]==5);   // half (3, 4, 0): radius 5
+        }
+        {   // mod028 4d7150 vertex pack: FTOI12 of a2 / FTOI4 of a1 to sp+0 (truncate, saturate, denormal 0).
+            const std::pair<uint32_t,uint32_t> words[]={{0x4d71cc,0xd8c10000},{0x4d71d0,0x4be1097e},{0x4d71d4,0xf8610000},{0x4d7260,0xd8a10000},{0x4d7264,0x4be1097d},{0x4d7268,0xf8c10000}};
+            for(auto [pc,word]:words)std::memcpy(rt.memory.hostPointer(pc,4),&word,4);
+            constexpr uint32_t stack=0x1fff000,a1=0x1a0000,a2=0x1a0010;
+            const uint32_t vec[4]={std::bit_cast<uint32_t>(0.5f),std::bit_cast<uint32_t>(-1.25f),1u,0x7f800000u};
+            const uint32_t pos[4]={std::bit_cast<uint32_t>(10.99f),std::bit_cast<uint32_t>(-3.5f),std::bit_cast<uint32_t>(3.e9f),0xff7fffffu};
+            std::memcpy(rt.memory.hostPointer(a2,16),vec,16);std::memcpy(rt.memory.hostPointer(a1,16),pos,16);
+            R5900Context c{};c.r[29].uw[0]=stack;c.r[6].uw[0]=a2;c.r[5].uw[0]=a1;c.r[3].uw[0]=stack;
+            for(uint32_t pc:{0x4d71ccu,0x4d71d0u,0x4d71d4u})check(vp2s::nativeMathInstruction(rt.memory.flat(),&c,&rt,pc));
+            int32_t o[4];std::memcpy(o,rt.memory.hostPointer(stack,16),16);check(o[0]==2048 && o[1]==-5120 && o[2]==0 && o[3]==0x7fffffff);
+            c.r[6].uw[0]=stack;for(uint32_t pc:{0x4d7260u,0x4d7264u,0x4d7268u})check(vp2s::nativeMathInstruction(rt.memory.flat(),&c,&rt,pc));
+            std::memcpy(o,rt.memory.hostPointer(stack,16),16);check(o[0]==175 && o[1]==-56 && o[2]==0x7fffffff && o[3]==int32_t(0x80000000u));
         }
         {   // mod028 48ee30: shape origin s5+1b0 = (a1+10).xyz [+ (s4+c, s4+1c, s4+2c)], w = 1.
             const std::pair<uint32_t,uint32_t> words[]={{0x48ee74,0xd8610000},{0x48ee88,0x4a20005b},{0x48ef84,0xd8820000},{0x48ef88,0x4bc20868},{0x48ef94,0xf8610000}};

@@ -406,7 +406,7 @@ def prepare(data, rows, sdk):
 # modules fill in main's data at run time (mod027 0x35edc0..0x35f1f0). The old
 # pipeline's static entry finder (tools/find_entry_points.py, build/entries)
 # lists them; each spans to the next known function start in its code section.
-CAPTURED_BATTLE_MODULES={'mod027','mod028','mod030','mod060','mod068','mod112','mod175','mod179','mod220'}
+CAPTURED_BATTLE_MODULES={'mod027','mod028','mod030','mod060','mod068','mod112','mod133','mod175','mod179','mod220'}
 
 
 def gap_entries(path,rows,data):

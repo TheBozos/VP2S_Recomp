@@ -14,7 +14,9 @@ template<class T>T value(Runtime *rt,uint32_t at){
     T v;std::memcpy(&v,p,sizeof(T));return v;
 }
 uint32_t writer(Runtime *rt,uint32_t object){
-    if(object<0x100000 || value<uint32_t>(rt,object+4)!=kWriterClass)throw std::runtime_error("native scratchpad writer escaped class 152ac0");
+    // 174f90: the battle's subclass (mod028), same fields; its +d0 = 1 kick is 4d75f0's.
+    if(object<0x100000 || (value<uint32_t>(rt,object+4)!=kWriterClass && value<uint32_t>(rt,object+4)!=0x174f90))
+        throw std::runtime_error("native scratchpad writer escaped class 152ac0");
     return object;
 }
 void publish(Runtime *rt,NativeAssets &assets,uint32_t destination,uint32_t source,uint32_t bytes){
@@ -48,6 +50,14 @@ std::vector<SprWriterSection> nativeSprWriterSections(Runtime *rt,uint32_t spr,u
     }
 }
 std::optional<bool> nativeSprWriterInstruction(R5900Context *c,Runtime *rt,uint32_t pc){
+    // mod028 4d75f0 (the subclass's kick when +d0 is set) ends with mod001 201488..2014d0's
+    // poll and fromSPR start 2d6a20 higher, word for word: map it onto those sites.
+    if(pc>=0x20148c+0x2d6a20 && pc<=0x2014d0+0x2d6a20 && rt){
+        uint32_t here=0,there=0;const auto *a=rt->memory.hostPointer(pc,4),*b=rt->memory.hostPointer(pc-0x2d6a20,4);
+        if(a && b){std::memcpy(&here,a,4);std::memcpy(&there,b,4);}
+        if(here!=there)return std::nullopt;   // not mod028's copy
+        pc-=0x2d6a20;
+    }
     const bool kick=pc==0x20148c || pc==0x2014b8 || pc==0x2014c0 || pc==0x2014c8 || pc==0x2014d0;
     const bool table=pc==0x200954 || pc==0x20099c || pc==0x2009a8 || pc==0x2009c4 || pc==0x2009cc || pc==0x2009d4;
     if(!kick && !table)return std::nullopt;

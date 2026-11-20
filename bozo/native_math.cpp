@@ -645,8 +645,9 @@ bool nativeObjectPairSpill(R5900Context *c,Runtime *rt,uint32_t pc){
 //   mod028 43c120: battle height set-up 43c0a0, object s0 (base a0), output sp+70.
 //   mod001 239b54: 239b20 (scene object +50 method, called from 2203b8), object a0
 //                  (base v0), output sp+0; it checks the lengths are 1 within 0.002.
+//   mod028 4f56f8: battle shape test 4f5630, object s4 (base a2), output sp+60.
 struct BasisLengthSite{uint32_t load,call,store;unsigned object,base,output;uint32_t offset;};
-constexpr BasisLengthSite basisLengthSites[]={{0x43c120,0x43c130,0x43c13c,16,4,3,0x70},{0x239b54,0x239b64,0x239b70,4,2,2,0}};
+constexpr BasisLengthSite basisLengthSites[]={{0x43c120,0x43c130,0x43c13c,16,4,3,0x70},{0x239b54,0x239b64,0x239b70,4,2,2,0},{0x4f56f8,0x4f5708,0x4f5714,20,6,3,0x60}};
 bool nativeBattleBasisLengths(R5900Context *c,Runtime *rt,uint32_t pc){
     if(!rt || (pc&3))return false;
     const auto site=std::find_if(std::begin(basisLengthSites),std::end(basisLengthSites),[&](auto &s){return pc>=s.load && pc<=s.store;});
@@ -1384,29 +1385,86 @@ uint32_t vuAdd(uint32_t a,uint32_t b){uint32_t f=0;return bozo::ps2f::addNearest
 uint32_t vuSub(uint32_t a,uint32_t b){uint32_t f=0;return bozo::ps2f::subNearest(a,b,f);}
 // Battle point distance blocks (mod028): vf24 = A - B (xyz), squared; vf24.x = (x+y) + 1*z;
 // Q = SQRT; vf24.x = 0 + Q; SQC2 vf24 to OUT: (length, dy^2, dz^2, A.w). ps2f, nearest.
+// A length block (b = 0) has no B: vf24 = A, the same steps after it.
 //   3fd3f8 (in 3fd198): A = a1, B = v1 (s0+50 + 16*a2, or 0 when a2 is outside s0's +40
 //                       entries: address 0 is refused), OUT = a0.
 //   382154 (in 38204c): A = t4, B = t2, OUT = t3.
+//   37a820 (in 37a7d8): A = a0 (s0+1f0), B = v0 (s0+200), OUT = v1 (sp+60).
+//   38256c, 3825a8 (in 382470): A = a2, B = v1, OUT = a1; 3826d0: length of t1 to t0;
+//   382798: length of t1 to a3.
 struct DistanceSite{uint32_t lo;unsigned a,b,out;};
-constexpr DistanceSite distanceSites[]={{0x3fd3f8,5,3,4},{0x382154,12,10,11}};
+constexpr DistanceSite distanceSites[]={{0x3fd3f8,5,3,4},{0x382154,12,10,11},{0x37a820,4,2,3},{0x38256c,6,3,5},{0x3825a8,6,3,5},{0x3826d0,9,0,8},{0x382798,9,0,7}};
 bool nativeBattlePointDistance(R5900Context *c,Runtime *rt,uint32_t pc){
     constexpr uint32_t middle[]={0x4bd9c62c,0x4bd8c62a,0x4bc00643,0x4b18c03d,0x4b18ce0a,0x4a1803bd,0x4a0003bf,0x4b000620};
     if((pc&3) || !rt)return false;
-    const auto site=std::find_if(std::begin(distanceSites),std::end(distanceSites),[&](auto &s){return pc>=s.lo && pc<=s.lo+40;});
+    const auto site=std::find_if(std::begin(distanceSites),std::end(distanceSites),[&](auto &s){return pc>=s.lo && pc<=s.lo+(s.b?40u:32u);});
     if(site==std::end(distanceSites))return false;
-    const unsigned slot=(pc-site->lo)/4;
-    const uint32_t expected=slot==0?0xd8180000u|(site->a<<21):slot==1?0xd8190000u|(site->b<<21):slot==10?0xf8180000u|(site->out<<21):middle[slot-2];
+    const bool length=!site->b;const unsigned slot=(pc-site->lo)/4,last=length?8:10;
+    const uint32_t expected=slot==0?0xd8180000u|(site->a<<21):slot==last?0xf8180000u|(site->out<<21):
+        length?middle[slot]:slot==1?0xd8190000u|(site->b<<21):middle[slot-2];
     uint32_t word=0;if(const auto *p=rt->memory.hostPointer(pc,4))std::memcpy(&word,p,4);
     if(word!=expected)return false;   // another overlay at these addresses
     if(!c)throw std::runtime_error("native battle point distance has no CPU record");
-    if(!c->r[site->b].uw[0])throw std::runtime_error("native battle point distance reads address 0 (index outside its table): undefined natively");
-    if(slot!=10)return true;
-    uint32_t a[4],b[4];std::memcpy(a,record(rt,c->r[site->a].uw[0],16),16);std::memcpy(b,record(rt,c->r[site->b].uw[0],16),16);
+    if(!length && !c->r[site->b].uw[0])throw std::runtime_error("native battle point distance reads address 0 (index outside its table): undefined natively");
+    if(slot!=last)return true;
+    uint32_t a[4],b[4]{};std::memcpy(a,record(rt,c->r[site->a].uw[0],16),16);if(!length)std::memcpy(b,record(rt,c->r[site->b].uw[0],16),16);
     constexpr uint32_t one=0x3f800000u;uint32_t out[4];
-    for(unsigned i=0;i<3;++i){const auto d=vuSub(a[i],b[i]);out[i]=vuMul(d,d);}
+    for(unsigned i=0;i<3;++i){const auto d=length?a[i]:vuSub(a[i],b[i]);out[i]=vuMul(d,d);}
     const auto length2=vuAdd(vuAdd(out[0],out[1]),vuMul(one,out[2]));
     uint32_t flags=0;out[0]=vuAdd(0,bozo::ps2f::sqrt(length2,flags));out[3]=a[3];
     std::memcpy(record(rt,c->r[site->out].uw[0],16),out,16);return true;
+}
+// mod028 382470's other two VU0 blocks (ps2f, nearest):
+//   3827e4..382804: t1.xyz *= 1/sqrt((x^2+y^2) + 1*z^2) (RSQRT), w kept, in place.
+//   3829b8..382a10: s0 = rows(t1) . s0 in place (the height query's row-point block).
+bool nativeBattleTrackBlocks(R5900Context *c,Runtime *rt,uint32_t pc){
+    constexpr std::pair<uint32_t,uint32_t> sites[]={{0x3827e4,0xd9390000},{0x3827e8,0x4bc007c3},{0x3827ec,0x4bd9ceaa},{0x3827f0,0x4b1ad03d},{0x3827f4,0x4b1afe8a},{0x3827f8,0x4a7a03be},{0x3827fc,0x4a0003bf},{0x382800,0x4bc0ce5c},{0x382804,0xf9390000},
+        {0x3829b8,0xda0f0000},{0x3829bc,0xd92b0000},{0x3829c0,0xd92c0010},{0x3829c4,0xd92d0020},{0x3829c8,0xd92e0030},{0x3829cc,0x4bc007c3},{0x3829d0,0x4bef5aea},{0x3829d4,0x4bef632a},{0x3829d8,0x4bef6b6a},{0x3829dc,0x4bef73aa},{0x3829e0,0x4b0b583d},{0x3829e4,0x4b0bf8be},{0x3829e8,0x4b0bf94b},{0x3829ec,0x4a8c603c},{0x3829f0,0x4a8cf8be},{0x3829f4,0x4a8cf94b},{0x3829f8,0x4a4d683d},{0x3829fc,0x4a4df8bc},{0x382a00,0x4a4df94b},{0x382a04,0x4a2e703d},{0x382a08,0x4a2e00be},{0x382a0c,0x4a2e0148},{0x382a10,0xfa050000}};
+    if(pc<0x3827e4 || pc>0x382a10 || (pc&3) || !rt)return false;
+    const auto site=std::find_if(std::begin(sites),std::end(sites),[&](auto &x){return x.first==pc;});
+    if(site==std::end(sites))return false;
+    uint32_t word=0;if(const auto *p=rt->memory.hostPointer(pc,4))std::memcpy(&word,p,4);
+    if(word!=site->second)return false;   // another overlay at these addresses
+    if(!c)throw std::runtime_error("native battle track block has no CPU record");
+    if(pc==0x382804){
+        const auto at=c->r[9].uw[0];uint32_t v[4];std::memcpy(v,record(rt,at,16),16);
+        constexpr uint32_t one=0x3f800000u;uint32_t sq[3];for(unsigned i=0;i<3;++i)sq[i]=vuMul(v[i],v[i]);
+        const auto length2=vuAdd(vuAdd(sq[0],sq[1]),vuMul(one,sq[2]));uint32_t flags=0;const auto q=bozo::ps2f::rsqrt(one,length2,flags);
+        for(unsigned i=0;i<3;++i)v[i]=vuMul(v[i],q);std::memcpy(record(rt,at,16),v,16);return true;
+    }
+    if(pc==0x382a10){
+        const auto point=c->r[16].uw[0];const auto result=rowPoint(rt,c->r[9].uw[0],point);std::memcpy(record(rt,point,16),result.data(),16);return true;
+    }
+    return true;
+}
+// Battle approach, mod028 4f44f0 (twice, the second copy 108 later, word for word; ps2f):
+//   4f4514..4f4540: sp+80 = (s4 - s1).xyz * 1/sqrt((x^2+y^2) + 1*z^2) (RSQRT), w = s1.w.
+//   4f4550..4f456c: s1.xyz = s1*1 + v1 * t0 (QMTC2 vf3 = t0; v1 = sp+80, t0 = 50), in place.
+bool nativeBattleApproach(R5900Context *c,Runtime *rt,uint32_t pc){
+    constexpr std::pair<uint32_t,uint32_t> sites[]={{0x4f4514,0xda3a0000},{0x4f4518,0xda9b0000},{0x4f451c,0x4bc007c3},{0x4f4524,0x4bdadeac},{0x4f4528,0x4bdad6ea},{0x4f452c,0x4b1bd83d},{0x4f4530,0x4b1bfeca},{0x4f4534,0x4a7b03be},{0x4f4538,0x4a0003bf},{0x4f453c,0x4bc0d69c},{0x4f4540,0xf85a0000},
+        {0x4f4550,0xda210000},{0x4f4554,0xd8620000},{0x4f4560,0x48a81800},{0x4f4564,0x4bc009bf},{0x4f4568,0x4bc31048},{0x4f456c,0xfa210000}};
+    if((pc&3) || !rt || pc<0x4f4514 || pc>0x4f456c+0x108)return false;
+    const uint32_t listed=pc>0x4f456c?pc-0x108:pc;
+    const auto site=std::find_if(std::begin(sites),std::end(sites),[&](auto &x){return x.first==listed;});
+    if(site==std::end(sites))return false;
+    uint32_t word=0;if(const auto *p=rt->memory.hostPointer(pc,4))std::memcpy(&word,p,4);
+    if(word!=site->second)return false;   // another overlay at these addresses
+    if(!c)throw std::runtime_error("native battle approach has no CPU record");
+    constexpr uint32_t one=0x3f800000u;
+    if(listed==0x4f4540){
+        if(c->r[2].uw[0]!=c->r[29].uw[0]+0x80)throw std::runtime_error("native battle approach direction escaped its frame");
+        uint32_t from[4],to[4],d[4],sq[3];std::memcpy(from,record(rt,c->r[17].uw[0],16),16);std::memcpy(to,record(rt,c->r[20].uw[0],16),16);
+        for(unsigned i=0;i<3;++i){d[i]=vuSub(to[i],from[i]);sq[i]=vuMul(d[i],d[i]);}
+        uint32_t flags=0;const auto q=bozo::ps2f::rsqrt(one,vuAdd(vuAdd(sq[0],sq[1]),vuMul(one,sq[2])),flags);
+        for(unsigned i=0;i<3;++i)d[i]=vuMul(d[i],q);d[3]=from[3];std::memcpy(record(rt,c->r[2].uw[0],16),d,16);return true;
+    }
+    if(listed==0x4f456c){
+        uint32_t point[4],step[4];std::memcpy(point,record(rt,c->r[17].uw[0],16),16);std::memcpy(step,record(rt,c->r[3].uw[0],16),16);
+        const auto t=c->r[8].uw[0];
+        for(unsigned i=0;i<3;++i)point[i]=vuAdd(vuMul(point[i],one),vuMul(step[i],t));
+        std::memcpy(record(rt,c->r[17].uw[0],16),point,16);return true;
+    }
+    return true;
 }
 // Battle box sphere, mod028 3fd5f0(a0 box: min +0, max +10): LQC2 vf27 = sp+0 (x = 0.5),
 // vf28 = min, vf29 = max; vf31.xyz = (max+min)*0.5, vf30.xyz = (max-min)*0.5, vf28 = vf30^2;
@@ -1472,6 +1530,121 @@ uint32_t nativeBoxPairTest(const std::array<std::array<uint32_t,4>,8> &rows,cons
         if(separated(distance,radius))return 0;
     }
     return 1;
+}
+// Battle shape tests: mod028 4f5630 (an object s4 against battle shape s0 and its list s1)
+// sets up the object-pair registers and calls mod001 1f73a0, which dispatches by shape kind
+// to the sphere/sphere test 1f8840 or (after 248560 rebuilds a stale inverse +190 with
+// 216cb0 / 216f50) the box/sphere test 1f8100. The registers are objectPairRegisters:
+// vf1..vf4 = rows[0..3], vf5..vf8 = rows[4..7], vf9 = scale. All VU0 arithmetic is ps2f.
+//   4f5754..4f57a4: vf10 = s1+10 (sphere), vf9 = s0+40 (scales, read before the store),
+//     vf11 = s0 (centre, radius); vf12 = rows(s4+150) . vf10 - vf11; s0+40 =
+//     (((dx^2+dy^2) + 1*dz^2) - (vf10.w*vf9.x + vf11.w)^2, dy^2, dz^2, w); rows[0..3] and
+//     the scales are the registers from here on.
+//   4f5800..4f580c: vf5..vf7 = s0+10..30, vf8 = vf0 = (0, 0, 0, 1): rows[4..7].
+//   1f740c/1f7410 spill vf6/vf8 to sp+30/40 around 248560; 1f7424/1f7428 restore them;
+//     1f88d0 does the same at sp+70 (1f8994..1f89b0) and sp+30 (1f8a1c..1f8a38).
+//   248570..2485b4: basis lengths of a1+90 (0x7f0 into vf6), |len - 1| to sp+10.
+//   216d34..216d5c (rigid inverse 216cb0, after its scalar transpose into a1): a1+30 =
+//     -(a1 rows . a0+30) in xyz, w = a0+3c.
+//   1f8844..1f889c: sphere a0 through rows[0..3], sphere a1 through rows[4..7]; sp+0.x =
+//     ((1*dx^2 + 1*dy^2) - 1*(a0.w*s.x + a1.w*s.y)^2) + 1*dz^2.
+//   1f8104..1f81c0: sphere a2 through rows[4..7] (a3 set, scale y) or rows[0..3] (scale x),
+//     then through t0's rows into box space: sp+20 = (that, r^2 * sqrt(max column length^2
+//     of t0)); box a0 +- a1 * the other object's scale: sp+0 (max) and sp+10 (min).
+struct ShapeSite{uint32_t pc,word;};
+constexpr ShapeSite battleShapeSites[]={
+    {0x4f5754,0xd86a0000},{0x4f5758,0xda090040},{0x4f575c,0xda0b0000},{0x4f5760,0xd8810000},{0x4f5764,0xd8820010},{0x4f5768,0x4a295298},{0x4f576c,0xd8830020},{0x4f5770,0xd8840030},{0x4f5774,0x4bea09bc},{0x4f5778,0x4bea10bd},{0x4f577c,0x4bea18be},{0x4f5780,0x4be0230b},{0x4f5784,0x4bcb632c},{0x4f5788,0x4a2b52a8},{0x4f578c,0x4bcc632a},{0x4f5790,0x4a2a52aa},{0x4f5794,0x4b000343},{0x4f5798,0x4b0c603d},{0x4f579c,0x4b0c68be},{0x4f57a0,0x4b0a6b0f},{0x4f57a4,0xfa0c0040},
+    {0x4f5800,0xda050010},{0x4f5804,0xda060020},{0x4f5808,0xda070030},{0x4f580c,0x4be8033c},
+    {0x1f740c,0xf8460000},{0x1f7410,0xf8480010},{0x1f7424,0xd8460000},{0x1f7428,0xd8480010},
+    {0x1f8994,0xf8460000},{0x1f8998,0xf8480010},{0x1f89ac,0xd8460000},{0x1f89b0,0xd8480010},
+    {0x1f8a1c,0xf8460000},{0x1f8a20,0xf8480010},{0x1f8a34,0xd8460000},{0x1f8a38,0xd8480010},
+    {0x248570,0xd84c0000},{0x248574,0xd84d0010},{0x248578,0xd84e0020},{0x248580,0x4a003fb8},{0x2485a4,0x48490001},{0x2485a8,0x4bc03187},{0x2485ac,0x4bc631fd},{0x2485b4,0xf8460000},
+    {0x216d34,0xd89f0030},{0x216d38,0xd8bc0000},{0x216d3c,0xd8bd0010},{0x216d40,0xd8be0020},{0x216d44,0x4b0006c7},{0x216d48,0x4bdfe1bc},{0x216d4c,0x4bdfe8bd},{0x216d50,0x4bdff7ca},{0x216d54,0x4bdbffd8},{0x216d5c,0xf8bf0030},
+    {0x1f8844,0xd88a0000},{0x1f8848,0xd8ab0000},{0x1f884c,0x4bea09bc},{0x1f8850,0x4bea10bd},{0x1f8854,0x4bea18be},{0x1f8858,0x4be0234b},{0x1f885c,0x4beb29bc},{0x1f8860,0x4beb30bd},{0x1f8864,0x4beb38be},{0x1f8868,0x4be0438b},{0x1f886c,0x4a295298},{0x1f8870,0x4a295ad9},{0x1f8874,0x4bce6b6c},{0x1f8878,0x4a2b52a8},{0x1f887c,0x4bcd6b6a},{0x1f8880,0x4b000383},{0x1f8884,0x4a2a52aa},{0x1f8888,0x4b0d71bc},{0x1f888c,0x4b0d70bd},{0x1f8890,0x4b0a70ff},{0x1f8894,0x4b0d72ca},{0x1f889c,0xf84b0000},
+    {0x1f8104,0xd9100000},{0x1f8108,0xd9110010},{0x1f810c,0xd9120020},{0x1f8110,0xd9130030},{0x1f8118,0xd8cd0000},{0x1f811c,0x4bed29bc},{0x1f8120,0x4bed30bd},{0x1f8124,0x4bed38be},{0x1f8128,0x4be0438b},{0x1f8130,0x4a296b59},{0x1f8138,0x4bed09bc},{0x1f813c,0x4bed10bd},{0x1f8140,0x4bed18be},{0x1f8144,0x4be0238b},{0x1f8148,0x4a296b58},{0x1f8150,0x4bd082be},{0x1f8154,0x4bd18abd},{0x1f8158,0x4bd293e9},{0x1f815c,0x4b0f7bd1},{0x1f8160,0x4a2d6b6a},{0x1f8164,0x4b0f7bd2},{0x1f8168,0x4a0f03bd},{0x1f816c,0x4bee81bc},{0x1f8170,0x4bee88bd},{0x1f8174,0x4bee90be},{0x1f8178,0x4bc09b8b},{0x1f817c,0x4a0003bf},{0x1f8180,0x4a206b9c},{0x1f8188,0xf84e0000},{0x1f818c,0xd88f0000},{0x1f8194,0xd8b00000},{0x1f819c,0x4bc98418},{0x1f81a0,0x4bc98419},{0x1f81a8,0x4bd07c68},{0x1f81ac,0x4bd07cac},{0x1f81bc,0xf8510000},{0x1f81c0,0xf8720000}};
+bool nativeBattleShapes(R5900Context *c,Runtime *rt,uint32_t pc){
+    if((pc&3) || !rt || !((pc>=0x4f5754 && pc<=0x4f580c) || (pc>=0x1f740c && pc<=0x1f7428) || (pc>=0x1f8994 && pc<=0x1f8a38) || (pc>=0x248570 && pc<=0x2485b4) ||
+       (pc>=0x216d34 && pc<=0x216d5c) || (pc>=0x1f8844 && pc<=0x1f889c) || (pc>=0x1f8104 && pc<=0x1f81c0)))return false;
+    const auto site=std::find_if(std::begin(battleShapeSites),std::end(battleShapeSites),[&](auto &x){return x.pc==pc;});
+    if(site==std::end(battleShapeSites))return false;
+    uint32_t word=0;if(const auto *p=rt->memory.hostPointer(pc,4))std::memcpy(&word,p,4);
+    if(word!=site->word)return false;   // another overlay at these addresses
+    if(!c)throw std::runtime_error("native battle shape test has no CPU record");
+    using Words=std::array<uint32_t,4>;
+    constexpr uint32_t one=0x3f800000u;
+    const auto load=[&](uint32_t at){Words v;std::memcpy(v.data(),record(rt,at,16),16);return v;};
+    const auto store=[&](uint32_t at,const Words &v){std::memcpy(record(rt,at,16),v.data(),16);};
+    // rows . v: lane k = ((r0k*v.x + r1k*v.y) + r2k*v.z) + r3k*1 (MULAx, MADDAy, MADDAz, MADDw).
+    const auto through=[&](const std::array<Words,4> &r,const Words &v){Words o;
+        for(unsigned k=0;k<4;++k)o[k]=vuAdd(vuAdd(vuAdd(vuMul(r[0][k],v[0]),vuMul(r[1][k],v[1])),vuMul(r[2][k],v[2])),vuMul(r[3][k],one));return o;};
+    auto &regs=objectPairRegisters(rt);
+    const auto rows=[&](unsigned first){std::array<Words,4> r;for(unsigned i=0;i<4;++i)r[i]=regs.rows[first+i];return r;};
+    const auto need=[&]{if(!regs.valid)throw std::runtime_error(std::format("native battle shape test at {:x} has no object-pair registers",pc));};
+    switch(pc){
+    case 0x4f57a4:{
+        const auto object=c->r[20].uw[0],shape=c->r[16].uw[0];
+        if(c->r[4].uw[0]!=object+0x150 || c->r[3].uw[0]!=c->r[17].uw[0]+0x10)
+            throw std::runtime_error("native battle shape overlap escaped its records");
+        const auto sphere=load(c->r[3].uw[0]),scale=load(shape+0x40),centre=load(shape);
+        std::array<Words,4> m;for(unsigned i=0;i<4;++i)m[i]=load(object+0x150+16*i);
+        auto t=through(m,sphere);for(unsigned i=0;i<3;++i){t[i]=vuSub(t[i],centre[i]);t[i]=vuMul(t[i],t[i]);}
+        auto radius=vuAdd(vuMul(sphere[3],scale[0]),centre[3]);radius=vuMul(radius,radius);
+        t[0]=vuSub(vuAdd(vuAdd(t[0],t[1]),vuMul(one,t[2])),vuMul(one,radius));
+        for(unsigned i=0;i<4;++i)regs.rows[i]=m[i];regs.scale=scale;regs.valid=true;
+        store(shape+0x40,t);return true;}
+    case 0x4f580c:{
+        need();const auto shape=c->r[16].uw[0];
+        for(unsigned i=0;i<3;++i)regs.rows[4+i]=load(shape+0x10+16*i);regs.rows[7]={0,0,0,one};return true;}
+    case 0x1f740c:case 0x1f7410:case 0x1f8994:case 0x1f8998:case 0x1f8a1c:case 0x1f8a20:
+    case 0x1f7424:case 0x1f7428:case 0x1f89ac:case 0x1f89b0:case 0x1f8a34:case 0x1f8a38:{
+        // vf6 / vf8 around 248560 (its 0x7f0 call writes vf6): 1f73a0 at sp+30, 1f88d0 at
+        // sp+70 (second object box) and sp+30 (first object box).
+        need();const bool spill=(site->word>>26)==0x3e,eight=(site->word&0xffff)==0x10;
+        if(c->r[2].uw[0]!=c->r[29].uw[0]+(pc==0x1f8994 || pc==0x1f8998 || pc==0x1f89ac || pc==0x1f89b0?0x70u:0x30u))
+            throw std::runtime_error("native battle shape spill escaped its frame");
+        if(spill)store(c->r[2].uw[0]+(eight?0x10:0),regs.rows[eight?7:5]);else regs.rows[eight?7:5]=load(c->r[2].uw[0]+(eight?0x10:0));
+        return true;}
+    case 0x2485a4:c->r[9].ud[0]=0;return true;   // CFC2.I t1, vi0: the constant zero
+    case 0x2485b4:{
+        const auto object=c->r[5].uw[0],out=c->r[2].uw[0];
+        if(out!=c->r[29].uw[0]+0x10)throw std::runtime_error("native battle shape scale check escaped its frame");
+        objectBasisLengths(rt,object,out);uint32_t lengths[3];std::memcpy(lengths,record(rt,out,16),12);
+        for(auto &v:lengths)v=vuSub(v,one)&0x7fffffffu;std::memcpy(record(rt,out,16),lengths,12);return true;}
+    case 0x216d5c:{
+        const auto in=load(c->r[4].uw[0]+0x30),r0=load(c->r[5].uw[0]),r1=load(c->r[5].uw[0]+0x10),r2=load(c->r[5].uw[0]+0x20);
+        const uint32_t minusOne=vuSub(0,one);Words t;
+        for(unsigned k=0;k<3;++k)t[k]=vuMul(vuAdd(vuAdd(vuMul(r0[k],in[0]),vuMul(r1[k],in[1])),vuMul(r2[k],in[2])),minusOne);
+        t[3]=in[3];store(c->r[5].uw[0]+0x30,t);return true;}
+    case 0x1f889c:{
+        need();if(c->r[2].uw[0]!=c->r[29].uw[0])throw std::runtime_error("native battle sphere pair escaped its frame");
+        const auto a=load(c->r[4].uw[0]),b=load(c->r[5].uw[0]);
+        auto ta=through(rows(0),a);const auto tb=through(rows(4),b);
+        auto bw=vuMul(b[3],regs.scale[1]);auto radius=vuAdd(vuMul(a[3],regs.scale[0]),bw);radius=vuMul(radius,radius);
+        for(unsigned i=0;i<3;++i){ta[i]=vuSub(ta[i],tb[i]);ta[i]=vuMul(ta[i],ta[i]);}
+        Words out=b;out[3]=bw;
+        out[0]=vuAdd(vuSub(vuAdd(vuMul(one,ta[0]),vuMul(one,ta[1])),vuMul(one,radius)),vuMul(one,ta[2]));
+        store(c->r[29].uw[0],out);return true;}
+    case 0x1f8188:{
+        need();if(c->r[2].uw[0]!=c->r[29].uw[0]+0x20)throw std::runtime_error("native battle box/sphere escaped its frame");
+        const bool second=c->r[7].uw[0]!=0;const auto sphere=load(c->r[6].uw[0]);
+        std::array<Words,4> m;for(unsigned i=0;i<4;++i)m[i]=load(c->r[8].uw[0]+16*i);
+        auto t=through(rows(second?4:0),sphere);
+        auto r2=vuMul(sphere[3],regs.scale[second?1:0]);r2=vuMul(r2,r2);
+        uint32_t column[3];for(unsigned k=0;k<3;++k)column[k]=vuAdd(vuAdd(vuMul(m[0][k],m[0][k]),vuMul(m[1][k],m[1][k])),vuMul(m[2][k],m[2][k]));
+        const auto widest=bozo::ps2f::max(bozo::ps2f::max(column[0],column[1]),column[2]);
+        uint32_t flags=0;const auto q=bozo::ps2f::sqrt(widest,flags);
+        Words out;for(unsigned k=0;k<3;++k)out[k]=vuAdd(vuAdd(vuAdd(vuMul(m[0][k],t[0]),vuMul(m[1][k],t[1])),vuMul(m[2][k],t[2])),vuMul(m[3][k],one));
+        out[3]=vuMul(r2,q);store(c->r[29].uw[0]+0x20,out);return true;}
+    case 0x1f81bc:case 0x1f81c0:{
+        need();const auto stack=c->r[29].uw[0];
+        if(c->r[2].uw[0]!=stack || c->r[3].uw[0]!=stack+0x10)throw std::runtime_error("native battle box/sphere bounds escaped their frame");
+        const bool second=c->r[7].uw[0]!=0;const auto centre=load(c->r[4].uw[0]),extent=load(c->r[5].uw[0]);
+        const auto m=load(c->r[8].uw[0]+(pc==0x1f81bc?0x10:0x20));   // vf17 / vf18 keep the t0 row's w
+        Words out=centre;out[3]=m[3];
+        for(unsigned k=0;k<3;++k){const auto e=vuMul(extent[k],regs.scale[second?0:1]);out[k]=pc==0x1f81bc?vuAdd(centre[k],e):vuSub(centre[k],e);}
+        store(pc==0x1f81bc?stack:stack+0x10,out);return true;}
+    default:return true;   // loads and intermediate steps: the results are computed at the stores
+    }
 }
 bool nativeBoxPairLibrary(R5900Context *c,Runtime *rt,uint32_t target){
     if(target!=0x1f82c0)return false;
@@ -3340,6 +3513,9 @@ bool nativeMathInstruction(uint8_t *,R5900Context *c,Runtime *rt,uint32_t pc){
     if(nativeBattleVertexPack(c,rt,pc))return true;
     if(nativeBattleBoxSphere(c,rt,pc))return true;
     if(nativeBattlePointDistance(c,rt,pc))return true;
+    if(nativeBattleShapes(c,rt,pc))return true;
+    if(nativeBattleTrackBlocks(c,rt,pc))return true;
+    if(nativeBattleApproach(c,rt,pc))return true;
     if(nativeBattleShapePoint(c,rt,pc))return true;
     if(nativeBattleBoxCorners(c,rt,pc))return true;
     if(nativeBattleBoxWorld(c,rt,pc))return true;
@@ -3996,7 +4172,7 @@ bool nativeMathInstruction(uint8_t *,R5900Context *c,Runtime *rt,uint32_t pc){
             throw std::runtime_error("native motion input record mismatch");
         uint32_t targetObject,table,callback;std::memcpy(&targetObject,source+4,4);
         std::memcpy(&table,record(rt,targetObject,0x60),4);std::memcpy(&callback,record(rt,table+0x30,16)+4,4);
-        if(!owner->qualifiedMotionCallback(rt,callback))throw std::runtime_error("unqualified native motion callback");
+        if(!owner->qualifiedMotionCallback(rt,callback))throw std::runtime_error(std::format("unqualified native motion callback {:x} (object {:x}, target {:x})",callback,object,targetObject));
         // PS2 words (see Ps2Word): p' = (((p+0) + g.y*dt^2) + a*dt - v*(damping*dt)) + v*dt,
         // each term present only for its flag (1 gravity on Y, 0x40 acceleration, 2 damping).
         const auto flags=source[1];std::array<uint32_t,4> out;std::memcpy(out.data(),source+0x30,16);

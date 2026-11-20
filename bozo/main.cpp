@@ -93,7 +93,12 @@ public:
     vp2s::NativeMotion motion;
     vp2s::NativeMotion &nativeMotion()override{return motion;}
     bool qualifiedMotionCallback(Runtime *rt,uint32_t target)const override{
-        return target==0x3749f0 && rt->functions.generated(target)==vp2_mod003_linked_entry_003749f0_0x3749f0;
+        if(target==0x3749f0)return rt->functions.generated(target)==vp2_mod003_linked_entry_003749f0_0x3749f0;
+        // mod001 1e80e0 (the battle's objects): the same five words (+50 = 1, a1 copied to +30),
+        // so it leaves the motion's inputs as 3749f0 does.
+        constexpr uint32_t words[5]={0x24030001,0xa0830050,0x78a30000,0x03e00008,0x7c830030};
+        const auto *code=target==0x1e80e0?rt->memory.hostPointer(target,20):nullptr;
+        return code && !std::memcmp(code,words,20);
     }
     vp2s::NativeLoadProgress loadingProgress;
     vp2s::NativeLoadProgress &nativeLoadProgress()override{return loadingProgress;}

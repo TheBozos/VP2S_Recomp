@@ -12,6 +12,31 @@ The earlier VP2S face/shading and general brightness comparisons remain open.
 
 ## Build and evidence
 
+### Battle collisions, packed meshes, more mod028 blocks (2026-11-20)
+
+The battle now runs to frame 63395 from the map 79 state; captures are written
+from 63385 on.
+- **Shape tests** (`nativeBattleShapes`):
+  - **Set-up:** mod028 `4f5630` tests an object against battle shapes. Its
+    overlap block records the object-pair registers (vf1..vf4 = object
+    `+150` rows, vf5..vf8 = shape rows and (0, 0, 0, 1), vf9 = scales) in
+    `objectPairRegisters`.
+  - **Tests:** mod001's sphere/sphere `1f8840` and box/sphere `1f8100` run
+    on those registers.
+  - **Around them:** the vf6/vf8 spills of `1f73a0` and `1f88d0` around
+    `248560` (its stale-inverse check: basis lengths, `|len - 1|`) and the
+    rigid inverse's VU0 translation (`216cb0`, `-(R^T t)`).
+- **Motion callback:** mod001 `1e80e0` is admitted next to mod003 `3749f0`;
+  its five words are identical (`+50` = 1, `a1` copied to `+30`).
+- **Packed generated meshes:** the battle writer with `+d0 = 2` unpacks its
+  positions as V3-16 (`FTOI4` halves). They are accepted when the routines
+  read 4-bit fixed point and never read W (no routine 2); W is 0 natively.
+- **More blocks:**
+  - distance/length table: `37a820`, `38256c`, `3825a8`, `3826d0`, `382798`;
+  - `382470`'s normalise (`RSQRT`) and in-place row point;
+  - `4f44f0`'s approach (direction, then a 50-unit step), twice.
+- **Next:** mod028 `4f5ab8` (in `4f58f0`).
+
 ### Native memmove with provenance; battle reaches its shape tests (2026-11-20)
 
 - **`memmove` (main `132d38..132e40`)** is now native. It is retired like the

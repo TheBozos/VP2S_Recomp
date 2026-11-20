@@ -795,6 +795,27 @@ int main(int argc,char **argv){try{
             d.r[2].uw[0]=stack;check(vp2s::nativeMathInstruction(rt.memory.flat(),&d,&rt,0x239b70));
             std::memcpy(out,rt.memory.hostPointer(stack,16),16);check(out[0]==5 && out[1]==2 && out[2]==5 && std::bit_cast<uint32_t>(out[3])==0x5a5a5a5au);
         }
+        {   // Battle shape tests (nativeBattleShapes): 4f5630's set-up records the pair registers,
+            // 1f8840 tests two spheres on them; 216cb0's translation is -(R^T t).
+            const std::pair<uint32_t,uint32_t> words[]={{0x4f57a4,0xfa0c0040},{0x4f580c,0x4be8033c},{0x1f889c,0xf84b0000},{0x216d5c,0xf8bf0030}};
+            for(auto [pc,word]:words)std::memcpy(rt.memory.hostPointer(pc,4),&word,4);
+            constexpr uint32_t object=0x1a0000,shape=0x1b0000,list=0x1c0000,stack=0x1fff000;
+            const float identity[16]={1,0,0,0, 0,1,0,0, 0,0,1,0, 0,0,0,1};std::memcpy(rt.memory.hostPointer(object+0x150,64),identity,64);
+            const float sphere[4]={3,4,0,1},scales[4]={2,1,0,0},centre[4]={0,0,0,1};
+            std::memcpy(rt.memory.hostPointer(list+0x10,16),sphere,16);std::memcpy(rt.memory.hostPointer(shape+0x40,16),scales,16);
+            std::memcpy(rt.memory.hostPointer(shape,16),centre,16);std::memcpy(rt.memory.hostPointer(shape+0x10,48),identity,48);
+            R5900Context c{};c.r[20].uw[0]=object;c.r[16].uw[0]=shape;c.r[17].uw[0]=list;c.r[4].uw[0]=object+0x150;c.r[3].uw[0]=list+0x10;
+            check(vp2s::nativeMathInstruction(rt.memory.flat(),&c,&rt,0x4f57a4) && vp2s::nativeMathInstruction(rt.memory.flat(),&c,&rt,0x4f580c));
+            float o[4];std::memcpy(o,rt.memory.hostPointer(shape+0x40,16),16);check(o[0]==25-9 && o[3]==1);   // |(3,4,0)|^2 - (1*2 + 1)^2
+            // Two spheres 5 apart with radii 1*2 and 1*1: (25) - 9 > 0, no overlap.
+            const float a[4]={3,4,0,1},b[4]={0,0,0,1};std::memcpy(rt.memory.hostPointer(0x1d0000,16),a,16);std::memcpy(rt.memory.hostPointer(0x1d0010,16),b,16);
+            R5900Context d{};d.r[4].uw[0]=0x1d0000;d.r[5].uw[0]=0x1d0010;d.r[29].uw[0]=stack;d.r[2].uw[0]=stack;
+            check(vp2s::nativeMathInstruction(rt.memory.flat(),&d,&rt,0x1f889c));std::memcpy(o,rt.memory.hostPointer(stack,16),16);check(o[0]==16 && o[3]==1);
+            // Rigid inverse: rows already transposed in a1; translation (1, 2, 3) through identity, negated.
+            const float in[16]={1,0,0,0, 0,1,0,0, 0,0,1,0, 1,2,3,1};std::memcpy(rt.memory.hostPointer(0x1e0000,64),in,64);std::memcpy(rt.memory.hostPointer(0x1e0040,64),identity,64);
+            R5900Context e{};e.r[4].uw[0]=0x1e0000;e.r[5].uw[0]=0x1e0040;check(vp2s::nativeMathInstruction(rt.memory.flat(),&e,&rt,0x216d5c));
+            std::memcpy(o,rt.memory.hostPointer(0x1e0070,16),16);check(o[0]==-1 && o[1]==-2 && o[2]==-3 && o[3]==1);
+        }
         {   // mod028 3fd3f8 point distance: a0 = (|a1 - v1|, dy^2, dz^2, a1.w).
             constexpr uint32_t words[]={0xd8b80000,0xd8790000,0x4bd9c62c,0x4bd8c62a,0x4bc00643,0x4b18c03d,0x4b18ce0a,0x4a1803bd,0x4a0003bf,0x4b000620,0xf8980000};
             std::memcpy(rt.memory.hostPointer(0x3fd3f8,sizeof(words)),words,sizeof(words));

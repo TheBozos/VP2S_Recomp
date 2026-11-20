@@ -187,15 +187,22 @@ void NativeModels::publishGeneratedMesh(Runtime *rt,const std::vector<std::pair<
     if(value<uint32_t>(rt,normals-16+8)!=0x01000104u)throw std::runtime_error("native generated mesh stride escaped the writer's layout");
     const auto uvs=lane(0x75000000u|n<<16|0x8000u|uint32_t(vertexRow+1),(n+3)/4+1);
     const auto colours=lane(0x6e000000u|n<<16|0xc000u|uint32_t(vertexRow+2),(n+3)/4+1);
-    const auto positions=lane(0x6c000000u|n<<16|0x8000u|uint32_t(vertexRow+3),n+2);
-    if(k!=s.size() || value<uint32_t>(rt,positions+16*n)!=0x01000101u)throw std::runtime_error("native generated mesh does not close as the writer's");
+    // Positions: V4-32, or V3-16 signed (the battle writer subclass with +d0 = 2 packs FTOI4
+    // halves, mod028 4d7260): sign-extended to the same integers; W is not unpacked, so only
+    // routines that never read it (no skinning by index, 2) take that lane.
+    const bool packedPositions=k<s.size() && value<uint32_t>(rt,s[k].first+12)==(0x69000000u|n<<16|0x8000u|uint32_t(vertexRow+3));
+    if(packedPositions && (!fixed16 || m->has(2)))
+        throw std::runtime_error("native generated mesh packs positions its routines read as floats or by W");
+    const uint32_t positionBytes=packedPositions?(n*6+15)/16*16:16*n;
+    const auto positions=packedPositions?lane(0x69000000u|n<<16|0x8000u|uint32_t(vertexRow+3),positionBytes/16+2):lane(0x6c000000u|n<<16|0x8000u|uint32_t(vertexRow+3),n+2);
+    if(k!=s.size() || value<uint32_t>(rt,positions+positionBytes)!=0x01000101u)throw std::runtime_error("native generated mesh does not close as the writer's");
     uint32_t sum=0;for(int32_t i=0;i<strips;++i){const auto l=value<uint8_t>(rt,lengths+i);m->strips.push_back(l);sum+=l;}
     if(sum!=n)throw std::runtime_error("native generated mesh strip extent mismatch");
     for(uint32_t i=0;i<n;++i){Mesh::Vertex v{};
-        for(unsigned c=0;c<3;++c){const auto pw=value<uint32_t>(rt,positions+16*i+4*c);
+        for(unsigned c=0;c<3;++c){const auto pw=packedPositions?uint32_t(int32_t(value<int16_t>(rt,positions+6*i+2*c))):value<uint32_t>(rt,positions+16*i+4*c);
             const auto nw=packedNormals?uint32_t(int32_t(value<int16_t>(rt,normals+8*i+2*c))):value<uint32_t>(rt,normals+16*i+4*c);
             v.p[c]=fixed16?float(int32_t(pw))/16.f:std::bit_cast<float>(pw);v.n[c]=fixed4096?float(int32_t(nw))/4096.f:std::bit_cast<float>(nw);}
-        v.p[3]=float(value<int32_t>(rt,positions+16*i+12));
+        v.p[3]=packedPositions?0.f:float(value<int32_t>(rt,positions+16*i+12));
         for(unsigned c=0;c<2;++c)v.uv[c]=float(value<int16_t>(rt,uvs+4*i+2*c))/4096.f;
         for(unsigned c=0;c<4;++c)v.colour[c]=value<uint8_t>(rt,colours+4*i+c);
         for(float f:{v.p[0],v.p[1],v.p[2],v.n[0],v.n[1],v.n[2]})finite(f);

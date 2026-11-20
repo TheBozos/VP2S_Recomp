@@ -12,7 +12,7 @@ The earlier VP2S face/shading and general brightness comparisons remain open.
 
 ## Build and evidence
 
-### Battle-entry capture (class 15a850): structure native, snapshot content open (2026-11-20)
+### Battle-entry capture (class 15a850): native, field snapshot (2026-11-20)
 
 After op 0x38 the transition object (class `15d5d0`, update `375870`)
 creates the mod001 class `15a850`. It captures the screen and swirls it:
@@ -46,7 +46,13 @@ creates the mod001 class `15a850`. It captures the screen and swirls it:
 - **Snapshot slot:** build state 1 (site `3096bc`) claims a capture-fade
   image for the object and its group.
 - **Group submit:** `307170` (site `307188`, its call patched to the
-  completion `307130`) copies the frame into that image and records the size.
+  completion `307130`) copies the last complete frame (the previous
+  presentation; the frame drawn so far lacks the field at this scene slot)
+  into that image and records the size. The copy draws unclipped, then
+  restores the scene clip: the map panel's scene `SCISSOR` (class `1597e0`)
+  clips every later draw of the frame, and had cut the first copies down to
+  the minimap's rectangle. A GS readback ignores the scissor. The host now
+  tracks the scene clip it sets.
 - **Readback nodes:** they reach the main graphics queue's readback entry,
   which calls `29a460`. Its override completes recorded colour requests at
   once through the node's notify `299c00`; any other node runs the original.
@@ -67,12 +73,12 @@ creates the mod001 class `15a850`. It captures the screen and swirls it:
 **Result:**
 - `--battle 0x18` runs the transition natively: 18 strips plus the grid
   each frame, rotating.
-- The snapshot holds only the minimap. Copying the previous presentation,
-  or the frame drawn so far, at the group's slot gives a frame without the
-  3D field, although the presented window shows it. The diagnostics
-  `VP2S_BOZO_DEBUG_ENTRY_SHOW` (snapshot 1:1) and
-  `VP2S_BOZO_DEBUG_ENTRY_FLAT` show this. Where the field's colour lives in
-  the renderer is the open question.
+- The snapshot is the field as last shown, and the strips swirl it.
+  `VP2S_BOZO_DEBUG_ENTRY_SHOW` draws the snapshot 1:1 instead of the strips.
+- The slices span 576 columns (sbw 9) but the field frame is 512 wide. The
+  last 64 columns sample past the snapshot and clamp to its edge, showing as
+  streaks at the right. On the PS2 they hold whatever the 576-wide buffer
+  has there; not compared with PCSX2 yet.
 - At frame 63369 the game jumps into module code at `0x36d800` that the
   build does not have: the battle modules (captured earlier: 028 at
   `36d900`, 030, 060, 068, 112, 175/179, 220) are next.

@@ -49,7 +49,8 @@ void captureNativeFrame(const std::string &path){
     const auto width=uint32_t(frame->screen.width),height=uint32_t(frame->screen.height);
     if(!width || !height || width>2048 || height>2048)throw std::runtime_error("native capture dimensions outside bounds");
     captureContext().open(width,height);
-    bozo::render::gl::api().Viewport(0,0,width,height);renderer.present(0,0,width,height);
+    bozo::render::gl::api().Viewport(0,0,width,height);
+    renderer.present(0,0,width,height);
     std::vector<uint8_t> bottomUp(width*height*4),topDown(bottomUp.size());
     bozo::render::gl::api().ReadPixels(0,0,width,height,bozo::render::gl::kRgba,bozo::render::gl::kUnsignedByte,bottomUp.data());
     for(uint32_t y=0;y<height;++y)std::copy_n(bottomUp.data()+(height-1-y)*width*4,width*4,topDown.data()+y*width*4);

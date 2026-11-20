@@ -145,7 +145,9 @@ public:
     // are drawn first, and the next native frame starts unclipped.
     void setNativeSceneClip(const vp2s::NativeSceneClip &clip)override{flushDeferredModels();const auto target=scene.frameTarget();
         const float originX=2048.f-float(target->width/2),originY=2048.f-float(target->height/2);const auto &r=clip.rect;
-        bozo::render::Renderer::instance().setClip(originX+float(r[0]),originY+float(r[1]),originX+float(r[2]+1),originY+float(r[3]+1));}
+        sceneClip={originX+float(r[0]),originY+float(r[1]),originX+float(r[2]+1),originY+float(r[3]+1)};
+        bozo::render::Renderer::instance().setClip(sceneClip[0],sceneClip[1],sceneClip[2],sceneClip[3]);}
+    std::array<float,4> sceneClip{};   // the scene SCISSOR in force (x1 <= x0: none)
     vp2s::NativeFeedbackCopies feedbackCopies;
     vp2s::NativeFeedbackCopies &nativeFeedbackCopies()override{return feedbackCopies;}
     void drawNativeFeedbackCopy(const vp2s::NativeFeedbackCopy &copy)override{flushDeferredModels();vp2s::drawFeedbackCopy(copy);}
@@ -208,7 +210,7 @@ public:
         // A scissor element (15a420) clips everything after it in this layer;
         // the layer starts and ends unclipped. Frame pixels map onto primitive
         // coordinates from the frame's origin, as the presenter expects.
-        auto &renderer=bozo::render::Renderer::instance();renderer.clearClip();
+        auto &renderer=bozo::render::Renderer::instance();renderer.clearClip();sceneClip={};
         const float originX=2048.f-float(scene.frameTarget()->width/2),originY=2048.f-float(scene.frameTarget()->height/2);
         for(const auto &text:layer.texts){
         if(text->window && text->window->scissor){const auto &s=*text->window->scissor;
@@ -243,7 +245,7 @@ public:
             const auto vertices=vp2s::nativeUiSpriteVertices(icon);
             bozo::render::Renderer::instance().draw(material,identity,vertices.data(),vertices.size(),icon.picture);
         }}
-        renderer.clearClip();
+        renderer.clearClip();sceneClip={};
         if(std::getenv("VP2S_BOZO_TRACE_QUEUES"))std::fprintf(stderr,"[vp2s:UI] native layer=%x texts=%zu frame=%llu\n",layer.layer,layer.texts.size(),static_cast<unsigned long long>(native.framesEnded()));
     }
     vp2s::NativeScreenRects screenRects;
@@ -327,7 +329,10 @@ public:
         const auto vertices=vp2s::nativeCaptureFadeVertices(whole);
         const float identity[16]={1,0,0,0,0,1,0,0,0,0,1,0,0,0,0,1};
         bozo::render::Renderer::instance().setTargetSize(*image,uint16_t(whole.width),uint16_t(whole.height));
-        bozo::render::Renderer::instance().draw(material,identity,vertices.data(),vertices.size());
+        // A GS readback ignores the scissor: no scene clip (the map panel's) on the copy.
+        auto &renderer=bozo::render::Renderer::instance();renderer.clearClip();
+        renderer.draw(material,identity,vertices.data(),vertices.size());
+        if(sceneClip[2]>sceneClip[0])renderer.setClip(sceneClip[0],sceneClip[1],sceneClip[2],sceneClip[3]);
         entrySizes[object]={whole.width,whole.height};
         if(std::getenv("VP2S_BOZO_TRACE_QUEUES"))
             std::fprintf(stderr,"[vp2s:screen] native entry capture copy object=%x image=%u frame=%llu\n",object,*image,(unsigned long long)native.framesEnded());
@@ -342,7 +347,6 @@ public:
         // TEX0.TCC 0, modulate; TEX1 MMAG linear; ALPHA 0x44 with PRIM ABE; ZTE off.
         bozo::render::Material material;material.textured=false;material.fromFrame=1;material.source=draw.image;material.target=0;material.nearest=false;
         material.textureAlpha=false;material.depthTest=false;material.depthWrite=false;
-        if(std::getenv("VP2S_BOZO_DEBUG_ENTRY_FLAT")){material.fromFrame=0;material.source=0;}   // diagnostic: vertex colour only
         if(std::getenv("VP2S_BOZO_DEBUG_ENTRY_SHOW")){   // diagnostic: the snapshot itself, 1:1 over the frame
             vp2s::NativeCaptureFadeDraw whole{.colour=0x80808080,.width=draw.frameWidth,.height=draw.frameHeight};
             const auto quad=vp2s::nativeCaptureFadeVertices(whole);const float id[16]={1,0,0,0,0,1,0,0,0,0,1,0,0,0,0,1};
@@ -439,7 +443,7 @@ public:
     vp2s::NativeScene &nativeScene()override{return scene;}
     vp2s::NativeFramePublisher publisher;
     void beginNativeFrame(const vp2s::NativeFrameTarget &target)override{flushDeferredModels();
-        publisher.next(target);bozo::render::Renderer::instance().clearClip();
+        publisher.next(target);bozo::render::Renderer::instance().clearClip();sceneClip={};
     }
     void drawNativeBrightness(const vp2s::NativeBrightness &effect)override{flushDeferredModels();
         const auto target=scene.frameTarget();

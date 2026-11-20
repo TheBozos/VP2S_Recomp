@@ -206,6 +206,23 @@ int main(int argc,char **argv){try{
         ++reflectionCases;}
      check(reflectionCases==40);}
     std::printf("%u VU1 routine-26 reflection vertices match its lifted microcode\n",reflectionCases);
+    // Routine 40 against its own microcode, lifted and run as a test-only oracle
+    // (tests/bozo_screen_projection_oracle.inc): S, T within 2/4096, Q 4096, w untouched.
+    unsigned screenCases=0;
+    {struct Case{std::array<float,3> n,p,data;std::array<float,2> scale,row38,row39;std::array<float,16> rows;std::array<int32_t,4> out;};
+     static const Case cases[]={
+#include "bozo_screen_projection_oracle.inc"
+     };
+     for(const auto &k:cases){
+        // The oracle's rows 85..88 are the guard matrix's columns: c = r85 x + r86 y + r87 z + r88.
+        std::array<float,16> guard{};for(unsigned r=0;r<4;++r)for(unsigned c=0;c<4;++c)guard[4*r+c]=k.rows[4*c+r];
+        vp2s::ScreenProjection data;data.offset[0]=k.data[0];data.offset[1]=k.data[1];data.push=k.data[2];data.scale[0]=k.scale[0];data.scale[1]=k.scale[1];
+        const auto got=vp2s::screenTexture(k.n,k.p,data,k.row38,k.row39,guard);
+        for(unsigned c=0;c<2;++c)if(std::abs(got[c]-k.out[c])>2){std::fprintf(stderr,"routine 40 case%u lane%u %d / %d\n",screenCases,c,got[c],k.out[c]);check(false);}
+        check(k.out[2]==4096 && k.out[3]==-5);
+        ++screenCases;}
+     check(screenCases==48);}
+    std::printf("%u VU1 routine-40 screen-projected vertices match its lifted microcode\n",screenCases);
     // Shadow program 0x6f0 faces (nativeShadowPrisms). top: identity; flat: y -> 0, x += y/2.
     unsigned shadowCases=0;
     {using P=std::array<float,3>;using V=bozo::render::Vertex;

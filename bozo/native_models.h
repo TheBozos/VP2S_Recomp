@@ -100,4 +100,13 @@ std::array<int32_t,3> sphereMapTexture(const std::array<float,3> &n,const std::a
 struct ReflectionTexture {std::array<int32_t,3> stq{};std::optional<int32_t> alpha;};
 ReflectionTexture reflectionTexture(const std::array<float,3> &n,const std::array<float,3> &p,const std::array<float,3> &eye,
                                     const float (&rotation)[3][3],float base,int32_t on,float scale);
+// VU1 set-up routine 40 (code 0x2188 in the model programs, the same body in
+// every build): texture coordinates projected from the screen. The vertex is
+// pushed along its normal, q = n push + p, and taken through the guard matrix
+// (rows 85..88, the clip test's): c = G (q, 1). With s = row38.xy * scale and
+// o = row39.xy + offset (the data rows' .xy), S, T = (c.xy s + o c.w) / c.w as
+// 12-bit fixed point; Q is 1.0 (4096).
+struct ScreenProjection {float offset[2]{},push=0,scale[2]{};};
+std::array<int32_t,2> screenTexture(const std::array<float,3> &n,const std::array<float,3> &p,const ScreenProjection &data,
+                                    const std::array<float,2> &row38,const std::array<float,2> &row39,const std::array<float,16> &guard);
 }

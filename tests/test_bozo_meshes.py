@@ -14,6 +14,7 @@ def pack(material=True,algorithms=(0,0,0,0)):
     out+=struct.pack('<2H',3,0)
     out+=struct.pack('<30I',*range(30))
     if 4 in algorithms:out+=struct.pack('<12I',*range(12))
+    if 40 in algorithms:out+=struct.pack('<5f',0,0,40,1.25,0.5)
     if 48 in algorithms:out+=struct.pack('<i',2)
     out+=struct.pack('<I6I',256,0,12,24,36,0xffffffff,60)
     return out
@@ -30,6 +31,13 @@ class MeshConversionTests(unittest.TestCase):
         for algorithms in ((2,0,0,0),(4,48,0,0),(22,-1,0,0)):
             result=convert(pack(algorithms=algorithms))
             self.assertEqual(struct.unpack_from('<4i',result,24),algorithms)
+
+    def test_screen_projection_data(self):
+        result=convert(pack(algorithms=(6,40,0,0)))
+        self.assertEqual(struct.unpack_from('<4i',result,24),(6,40,0,0))
+        at=88+2+30*4  # one strip length, no padding in VPN1
+        self.assertEqual(struct.unpack_from('<5f',result,at),(0,0,40,1.25,0.5))
+        self.assertEqual(struct.unpack_from('<I',result,at+20),(256,))
 
     def test_no_material(self):
         result=convert(pack(False));self.assertEqual(struct.unpack_from('<12I',result,40),(0,)*12)

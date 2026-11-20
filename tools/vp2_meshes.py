@@ -26,6 +26,8 @@ extension), a list of meshes:
     for routine 48 (texture scrolling): i32 the offset's row index (the UV offset is .zw of object row 38 + index).
     for routine 26 (eye-position reflection map): its data row: f32 alpha base (.x), i32 alpha on (.y), f32 alpha
       scale (.w); the native renderer computes the UV (and the alpha when on) per frame from the eye.
+    for routine 40 (screen-projected texture): f32 offset x, y, push along the normal (data row .xyz), f32 scale x, y
+      (the next row's .xy); the native renderer projects each vertex through the guard matrix per frame.
     u32 source mesh byte size, then per vertex u32 normal offset, u32 position offset (relative to the source mesh;
       0xFFFFFFFF when xyz are not three consecutive raw 32-bit words). These locate the game's animated work copy
       directly; no VIF commands are read at runtime.
@@ -176,7 +178,7 @@ def convert(data, at, size):
                 for c in range(3):
                     vu.setf(v, c, vu.i(v, c) / 4096.0)
         # 12..54 except 20, 26, 30, 36, 40, 44, 48: their set-up table entries only return (JR) in every build of the microcode.
-        elif r not in (0, 12, 14, 16, 18, 22, 24, 28, 32, 34, 38, 42, 46, 50, 52, 54, 2, 4, 20, 26, 36, 44, 48):
+        elif r not in (0, 12, 14, 16, 18, 22, 24, 28, 32, 34, 38, 42, 46, 50, 52, 54, 2, 4, 20, 26, 36, 40, 44, 48):
             return None, f'routine {r}'
     out = bytearray()
     has_material = 1 if flags & 1 else 0
@@ -205,6 +207,9 @@ def convert(data, at, size):
     if 26 in routines:
         base = top + bases[routines.index(26)]
         out += struct.pack('<fif', vu.f(base, 0), vu.i(base, 1), vu.f(base, 3))
+    if 40 in routines:
+        base = top + bases[routines.index(40)]
+        out += struct.pack('<5f', vu.f(base, 0), vu.f(base, 1), vu.f(base, 2), vu.f(base + 1, 0), vu.f(base + 1, 1))
     if 48 in routines:
         out += struct.pack('<i', vu.i(top + bases[routines.index(48)], 0))
     out += struct.pack('<I', size)

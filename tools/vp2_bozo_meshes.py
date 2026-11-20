@@ -34,6 +34,7 @@ def convert(data):
         out+=struct.pack(f'<{nv*10}I',*take(f'{nv*10}I'))
         if 4 in routines:out+=struct.pack(f'<{nv*4}I',*take(f'{nv*4}I'))
         if 26 in routines:out+=struct.pack('<fif',*take('fif'))
+        if 40 in routines:out+=struct.pack('<5f',*take('5f'))
         if 48 in routines:out+=struct.pack('<i',*take('i'))
         size,=take('I');sources=take(f'{nv*2}I')
         if any(s!=0xffffffff and s+12>size for s in sources):raise ValueError('vertex source outside mesh')

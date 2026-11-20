@@ -12,6 +12,57 @@ The earlier VP2S face/shading and general brightness comparisons remain open.
 
 ## Build and evidence
 
+### VU1 set-up routine 40: texture coordinates projected from the screen (2026-11-20)
+
+Disc mesh `aea42754/0+121d0` (routines [8, 40]) had no converted record:
+routine 40 was the last set-up routine the converter rejected. 6,461 disc
+meshes use it, as (6, 40), (40), (8, 40), (40, 28) or (8, 12, 40); never with
+skinning or another UV routine.
+
+**Where.** Table entry 40 branches to `0x2188` (layout 0x499; `0x20d8` in
+the 0x483 layout). Its delay slot loads the vertex count, `vi07` = header
+2.y. The body (`0x2188..0x2288`) is byte-identical in every code image that
+has the table. The loop is software-pipelined two vertices deep and stores
+each vertex's UV row (`-11(vi06)`).
+
+**What it computes**, per vertex, with data rows d0 (at the routine's
+offset) and d1 (the next row):
+- q = n d0.z + p: the position pushed along the normal;
+- c = G (q, 1), where G is rows 85..88: the guard matrix the mesh program's
+  clip test uses (natively `camera+0x370 * view * world`);
+- s = row38.xy * d1.xy, o = row39.xy + d0.xy (object rows 38/39; routine 48
+  uses the .zw lanes of the same rows);
+- S, T = (c.xy s + o c.w) / c.w as 12-bit fixed point, Q = 1.0 (4096).
+
+Data rows on disc: mostly d0 = (0, 0, 40 or 50), d1 = (1.25 .. 5, 0.909).
+A few have offsets (1, 1) or (0.1, 0.1), or a push of -7..72.
+
+**How it was qualified.** The routine was lifted from its microcode with the
+PS2Recomp lifter, as for routine 26 (a scratch copy whose final `jr` ends
+the run), and run as a test-only oracle on random vertices and guard
+matrices with four disc data presets. The prologue needs only `vi07` (the
+table slot's delay load). 48 cases are in
+`tests/bozo_screen_projection_oracle.inc`. A float32 evaluation in the VU's
+order matches all 96 lanes exactly; the models suite checks
+`screenTexture` within 2/4096, Q = 4096, and the UV row's w untouched.
+
+**Port.**
+- `tools/vp2_meshes.py` keeps routine 40 and writes its data (offset x, y,
+  push, scale x, y); `tools/vp2_bozo_meshes.py` and the loader carry it.
+- At draw time the native path computes S/4096, T/4096 from the guard
+  matrix and live rows 38/39. Combinations with skinning or UV routines 20,
+  26, 36 or 48 reject.
+
+Regenerated packs: 1,361,390 meshes converted, so every disc mesh now
+converts (no set-up routine is rejected).
+
+**Result:** from `forest_60300` the route passes object `9fd300` and stops
+just after frame 60460, on its neighbour `9fd1f0`: "native texture
+4674404c:1 requires offline conversion/load provenance". That texture is
+probably the run-time picture this effect samples. The routine-40 draw has not
+been compared with PCSX2. The full suite ran 90 of 91 under `-j 4`;
+`kernel-signatures` failed there and passed alone (48 s).
+
 ### Particle templates with several kinds per pass (VPP3, 2026-11-20)
 
 Particle template `aea42754/0+d20` (the forest spawn's effect) had no converted

@@ -11,6 +11,7 @@
 #include <fstream>
 #include <format>
 #include <iterator>
+#include <limits>
 #include <set>
 #include <source_location>
 namespace vp2s {
@@ -27,6 +28,7 @@ struct NativeModels::Mesh {
     int32_t scroll=-1;
     // Routine 26's data row: alpha base (.x), alpha on (.y), alpha scale (.w).
     struct Reflection {float base=0;int32_t on=0;float scale=0;} reflection;
+    ScreenProjection screen; // routine 40's data rows
     std::vector<uint16_t> strips;
     std::vector<Vertex> vertices;
     std::vector<Bone> bones;
@@ -37,7 +39,7 @@ void NativeModels::serialize(bozo::state::Archive &a){
     namespace st=bozo::state;
     const auto mesh=[&](Mesh &m){
         st::fields(a,m.group,m.sourceSize,m.algorithms,m.material,m.hasMaterial,m.scroll,m.strips);
-        st::pod(a,m.reflection);
+        st::pod(a,m.reflection);st::pod(a,m.screen);
         const auto podVector=[&](auto &v){auto n=st::count(a,v.size());if(a.loading())v.resize(n);for(auto &e:v)st::pod(a,e);};
         podVector(m.vertices);podVector(m.bones);podVector(m.sources);};
     auto n=st::count(a,generated.size());
@@ -89,6 +91,19 @@ ReflectionTexture reflectionTexture(const std::array<float,3> &n,const std::arra
     if(on){const float f=1-c*inv,a=base+scale*(f*f);out.alpha=int32_t(std::clamp(std::trunc(double(a)),-2147483648.0,2147483647.0));}   // FTOI0
     return out;
 }
+// The VU's order: ACC chains (n push) + p and ((g0 x + g1 y) + g2 z) + g3;
+// DIV Q = 1/w; (c s) + (o w), times Q; FTOI12 truncates and saturates.
+std::array<int32_t,2> screenTexture(const std::array<float,3> &n,const std::array<float,3> &p,const ScreenProjection &data,
+                                    const std::array<float,2> &row38,const std::array<float,2> &row39,const std::array<float,16> &guard){
+    std::array<float,3> q{};for(unsigned c=0;c<3;++c)q[c]=n[c]*data.push+p[c];
+    std::array<float,4> clip{};for(unsigned r=0;r<4;++r)clip[r]=((guard[4*r]*q[0]+guard[4*r+1]*q[1])+guard[4*r+2]*q[2])+guard[4*r+3];
+    const float w=clip[3],inverse=w!=0?1/w:std::copysign(std::numeric_limits<float>::max(),w);
+    const auto fixed=[](float f){if(std::isnan(f))throw std::runtime_error("nonfinite native screen-projected texture");
+        const double s=std::trunc(double(f)*4096);return int32_t(std::clamp(s,-2147483648.0,2147483647.0));};
+    std::array<int32_t,2> out{};
+    for(unsigned c=0;c<2;++c){const float s=row38[c]*data.scale[c],o=row39[c]+data.offset[c];out[c]=fixed((clip[c]*s+o*w)*inverse);}
+    return out;
+}
 std::shared_ptr<const NativeModels::Pack> NativeModels::load(const AssetOrigin &origin){
     if(origin.kind!=AssetOrigin::Kind::Part)throw std::runtime_error("native mesh has no decoded asset-part provenance");
     const auto key=std::pair{origin.disc,origin.part};if(auto it=packs.find(key);it!=packs.end())return it->second;
@@ -107,6 +122,7 @@ std::shared_ptr<const NativeModels::Pack> NativeModels::load(const AssetOrigin &
             throw std::runtime_error("invalid semantic native material");
         r.array(m->strips,ns);r.array(m->vertices,nv);if(m->has(4))r.array(m->bones,nv);
         if(m->has(26))m->reflection=r.take<Mesh::Reflection>();
+        if(m->has(40)){m->screen=r.take<ScreenProjection>();for(auto f:{m->screen.offset[0],m->screen.offset[1],m->screen.push,m->screen.scale[0],m->screen.scale[1]})finite(f);}
         if(m->has(48))m->scroll=r.take<int32_t>();
         m->sourceSize=r.take<uint32_t>();r.array(m->sources,nv);
         uint64_t total=0;for(auto n:m->strips)total+=n;if(total!=nv)throw std::runtime_error("native strip extent mismatch");
@@ -387,7 +403,7 @@ NativeModelSubmission NativeModels::capture(Runtime *rt,NativeAssets &assets,Nat
             if(shown)throw std::runtime_error(std::format("native generated mesh {:x} changed after publication:{}",mesh,detail));
             held=g->second.mesh;}
         const auto &m=*held;
-        for(auto algorithm:m.algorithms)if(algorithm!=-1 && algorithm!=0 && algorithm!=2 && algorithm!=4 && algorithm!=6 && algorithm!=8 && algorithm!=12 && algorithm!=14 && algorithm!=18 && algorithm!=28 && algorithm!=32 && algorithm!=36 && algorithm!=20 && algorithm!=26 && algorithm!=44 && algorithm!=46 && algorithm!=48)
+        for(auto algorithm:m.algorithms)if(algorithm!=-1 && algorithm!=0 && algorithm!=2 && algorithm!=4 && algorithm!=6 && algorithm!=8 && algorithm!=12 && algorithm!=14 && algorithm!=18 && algorithm!=28 && algorithm!=32 && algorithm!=36 && algorithm!=20 && algorithm!=26 && algorithm!=40 && algorithm!=44 && algorithm!=46 && algorithm!=48)
             throw std::runtime_error(std::format("unported native mesh algorithm {}",algorithm));
         if(m.hasMaterial)material=m.material;
         else if(origin && block>=0x40 && block-0x40!=mesh){const auto owner=assets.origin(block-0x40);if(owner && owner->disc==origin->disc && owner->part==origin->part){
@@ -414,6 +430,7 @@ NativeModelSubmission NativeModels::capture(Runtime *rt,NativeAssets &assets,Nat
         mat.directColour=!mat.textured;
         const bool editable=working && mesh>=model && !m.has(6) && !m.has(8);
         const auto source=editable?work+mesh-model:0;
+        std::array<std::array<float,4>,2> screenRows{};if(m.has(40))screenRows={row(38),row(39)};
         std::array<float,2> scroll{};if(m.has(48)){if(m.scroll<0 || m.scroll>=16)throw std::runtime_error("native UV scroll index outside bounds");const auto q=row(38+m.scroll);scroll={q[2],q[3]};}
         const auto skinned=[&](size_t k,std::array<float,3> p,float w){
             const auto transform=[&](int32_t address){if(address<0x290 || ((address-0x290)&3) || uint32_t((address-0x290)/4)>=boneCount)throw std::runtime_error("native vertex bone outside palette");
@@ -455,6 +472,12 @@ NativeModelSubmission NativeModels::capture(Runtime *rt,NativeAssets &assets,Nat
                 const auto t=reflectionTexture(n,p,eye,rotation,m.reflection.base,m.reflection.on,m.reflection.scale);
                 vout.u=t.stq[2]?float(t.stq[0])/float(t.stq[2]):.5f;vout.v=t.stq[2]?float(t.stq[1])/float(t.stq[2]):.5f;
                 if(t.alpha)alphaRow=float(*t.alpha);}
+            if(m.has(40)){
+                // Routine 40 reads the converted normal and position; every disc mesh
+                // runs it after 6 or 8 (or alone), never with skinning or another UV routine.
+                if(m.has(2) || m.has(4) || m.has(20) || m.has(26) || m.has(36) || m.has(48))throw std::runtime_error("unqualified native routine 40 combination");
+                const auto st=screenTexture(n,p,m.screen,{screenRows[0][0],screenRows[0][1]},{screenRows[1][0],screenRows[1][1]},guard);
+                vout.u=float(st[0])/4096;vout.v=float(st[1])/4096;}
             std::array<float,4> factor{1,1,1,objectColour[3]};
             // Mode 0 keeps the object colour (row 13) with or without table A. Without A
             // and with plain (mem[14].x) clear, the model program's table-D entry

@@ -733,6 +733,14 @@ def overlay_adaptations(name,data):
         (0x2ef540,0x2ef790,'00b49df34b798490492cf1cbec3da0252e2309d87ef0a5c0b17f4091095af683'),
         # FIS sprite element (base 15a4b0) build 2f0fa0, writer return 2f1050.
         (0x2f0fa0,0x2f1098,'114a20145afcf7b4bfa73b8f1ed846d10f43c90a945c3e7da5ec4dce8c801959'),
+        # Battle-entry capture 15a850 (native_entry_capture.cpp): strip writer 3078d0, completion
+        # 308c10 and enqueue 308c30, update 308c60, build 3094d0 (snapshot site 3096bc).
+        (0x3078d0,0x308bc4,'c7c3037e657b9e8c9a3972136f7ba22c56b3c64ad5a34d3579b96f504fee88c8'),
+        (0x308c10,0x308c60,'1256fc3dddce69041693e34140aff2237d234c70d43c18be1d3836a61196f874'),
+        (0x308c60,0x3094c4,'228922841f026495abfbcf0a168269467e136459b417017f85e72906f3f58a04'),
+        (0x3094d0,0x30a4bc,'7526e66cdff78ad2339ac8d35f282f735be95f1ee7634a4b196a49b8b11b23ae'),
+        # Readback group 15a7a0: completion 307130 and submit 307170.
+        (0x307130,0x3071a4,'3a4bec31b2917923e7fadbcbd33ae9e323c12f2512390ce9d34e8a516a319762'),
         # Button sprite element 15a4e0: destructor 2f11c0, build 2f1230 (writer return 2f12cc).
         (0x2f11c0,0x2f1310,'d4235f8475a3432f091cab8334fdb533984fceb1545650f2c37e170255f016f2'),
         (0x30ee00,0x30f0c0,'15d8bbc42064f45964cc032ed2db9a95beeb2530a0c24e0ead872528eae453e4'),
@@ -881,6 +889,20 @@ def overlay_adaptations(name,data):
     # bit. Preserve every game allocation, record and callback registration.
     return (# 218220 skins natively at 21822c, then branches to its epilogue.
             '00218230 10600005 100000ef\n'
+            # Battle-entry capture 15a850: its enqueue 308c30 calls the job's completion
+            # 308c10(object) instead of the VIF1 queue; native site 308c48 draws it.
+            '00308c4c 0c0807c8 0c0c2304\n'
+            '00308c50 8c24dde0 24a4ff70\n'
+            # Its readback group 15a7a0 (+a4): the frame copy and readbacks are the native
+            # snapshot, so its submit 307170 runs the completion 307130(group) at once.
+            '00307190 0c0483ac 0c0c1c4c\n'
+            '00307194 8c840094 00000000\n'
+            # Build state 2 -> 3 repaints the capture at once on the GS (3078d0 with a1 = 1:
+            # path-3 slice uploads and flat sprites), points DISPFB2 at it and kicks its list
+            # (120cc0). The native snapshot is already on screen: none of it runs.
+            '0030a050 0c0c1e34 00000000\n'
+            '0030a060 fc220090 00000000\n'
+            '0030a0f0 0c048330 00000000\n'
             '0030ce84 3c011000 00000000\n'
             '0030ce8c 8c230000 00000000\n'
             '0030ce90 00621021 00000000\n'
@@ -1072,5 +1094,5 @@ def overlay_native_sites(name,data):
         0x22106c,0x221294,0x221308,0x221540,0x221704,0x221718,0x221748,0x2088f0,
         0x221698,0x22169c,0x21c9dc,0x21c9e0,0x21c9e8,0x21c9ec,0x21ca1c,0x21ca20,0x21ca24,0x21ca28,0x2cb490,0x2f3714,0x2ea9a0,
         0x2e74f0,0x2e7520,0x2e7550,0x2e757c,0x2e75a0,0x2f0de0,0x2eeb80,0x2e83e4,0x2ec9e4,0x2ec308,0x2ec320,
-        0x2efe40,0x2effe8,0x2eb3a0,0x2eab28,0x2eaa20,0x2f1050,0x2f12cc,0x2f11c0,0x2ef780,0x2ef540,0x2eb5c4,0x2ebac4,0x2ebb0c,0x2ebb58,0x2ebb9c,0x2ebba8,0x2bbfc0,0x2bc1d0,0x2bc1e0,0x2ba670,0x1ef6f8,0x1ef914,0x1f0438,0x1f04a0,0x1efa30,
+        0x2efe40,0x2effe8,0x2eb3a0,0x2eab28,0x2eaa20,0x2f1050,0x2f12cc,0x2f11c0,0x3096bc,0x308c48,0x307188,0x2ef780,0x2ef540,0x2eb5c4,0x2ebac4,0x2ebb0c,0x2ebb58,0x2ebb9c,0x2ebba8,0x2bbfc0,0x2bc1d0,0x2bc1e0,0x2ba670,0x1ef6f8,0x1ef914,0x1f0438,0x1f04a0,0x1efa30,
         0x1f4590,0x1f4940,0x2bdac0,0x2bd9b0,0x2bd5d8,0x2be3d0,0x2bea60,0x239f70,0x239ff0,0x25aa30,0x25aa40,0x25bad0,0x25bdcc,0x25adbc,0x214388,0x2f2df0,0x2f2fb8,0x2f2d70))+'stub 0x2b90a0\nstub 0x2b9560\nstub 0x1f04c8\nstub 0x1f82c0\n'

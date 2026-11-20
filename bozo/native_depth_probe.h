@@ -42,6 +42,9 @@ public:
     // At 29a4dc: fills the slot's destination; returns the node object for a0.
     uint32_t complete(Runtime *,const R5900Context *,const NativeDepthProbeFrame &,const NativeDepthSampler &);
     size_t pending()const{return requests.size();}
+    // The colour request (PSMCT32/24/16) recorded for a packet, removed: the
+    // battle-entry capture serves it from its native frame snapshot.
+    std::optional<NativeDepthProbeRequest> takeColour(uint32_t packet);
 };
 class DepthProbeOwner {
 public:

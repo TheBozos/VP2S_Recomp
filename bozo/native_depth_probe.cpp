@@ -37,6 +37,11 @@ std::vector<uint8_t> nativeDepthProbeBytes(const NativeDepthProbeRequest &q,cons
     }
     return out;
 }
+std::optional<NativeDepthProbeRequest> NativeDepthProbes::takeColour(uint32_t packet){
+    const auto it=requests.find(packet&0x1ffffff);
+    if(it==requests.end() || it->second.psm>2)return std::nullopt;
+    const auto q=it->second;requests.erase(it);return q;
+}
 void NativeDepthProbes::request(const R5900Context *c){
     if(c->r[31].uw[0]!=kRequestReturn)
         throw std::runtime_error(std::format("native StoreImage request outside the readback node (ra={:x})",c->r[31].uw[0]));

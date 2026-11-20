@@ -27,6 +27,7 @@
 #include "native_state_setup.h"
 #include "native_screen_rect.h"
 #include "native_capture_fade.h"
+#include "native_entry_capture.h"
 #include "native_spr_writer.h"
 #include "native_ui_text.h"
 #include "native_screen_zoom.h"
@@ -72,7 +73,7 @@ namespace {
 uint32_t lastImageEnqueue[4]={}; // diagnostic: ra, source, count, owner of the last type-1 enqueue
 class StrictHost final : public bozo::ee::Host,public vp2s::TimerOwner,public vp2s::SettingsOwner,public vp2s::SeedOwner,
     public vp2s::ModuleOwner,public vp2s::BootstrapOwner,public vp2s::RandomOwner,public vp2s::TextureOwner,public vp2s::SceneOwner,
-    public vp2s::AssetOwner,public vp2s::DebugFontOwner,public vp2s::StateSetupOwner,public vp2s::ScreenRectOwner,public vp2s::CaptureFadeOwner,public vp2s::ScreenZoomOwner,public vp2s::UiTextOwner,
+    public vp2s::AssetOwner,public vp2s::DebugFontOwner,public vp2s::StateSetupOwner,public vp2s::ScreenRectOwner,public vp2s::CaptureFadeOwner,public vp2s::EntryCaptureOwner,public vp2s::ScreenZoomOwner,public vp2s::UiTextOwner,
     public vp2s::UiSpriteOwner,public vp2s::MediaBufferOwner,public vp2s::ModelOwner,public vp2s::FrameFilterOwner,public vp2s::MusicOwner,
     public vp2s::UiWindowOwner,public vp2s::LoadProgressOwner,public vp2s::MotionOwner,public vp2s::FrameCopyOwner,public vp2s::DofOwner,public vp2s::FeedbackOwner,public vp2s::SquadOwner,
     public vp2s::ParticleOwner,public vp2s::ParticleUpdateOwner,public vp2s::ParticleDrawOwner,public vp2s::ProceduralOwner,public vp2s::ProceduralDrawOwner,public vp2s::DepthBlurOwner,public vp2s::DepthProbeOwner,public vp2s::HazeOwner,public vp2s::SceneClipOwner,public vp2s::MapPanelOwner {
@@ -279,6 +280,9 @@ public:
         vp2s::NativeCaptureFadeDraw whole{.colour=0x80808080,.width=int32_t(scene.frameTarget()->width),.height=int32_t(scene.frameTarget()->height)};
         const auto vertices=vp2s::nativeCaptureFadeVertices(whole);
         const float identity[16]={1,0,0,0,0,1,0,0,0,0,1,0,0,0,0,1};
+        // The image keeps the copied frame's size when the frame changes (the battle
+        // entry goes from 512x512 to 576x416): otherwise a later frame recreates it empty.
+        bozo::render::Renderer::instance().setTargetSize(image,uint16_t(whole.width),uint16_t(whole.height));
         bozo::render::Renderer::instance().draw(material,identity,vertices.data(),vertices.size());
         if(std::getenv("VP2S_BOZO_TRACE_QUEUES"))
             std::fprintf(stderr,"[vp2s:screen] native capture copy image=%u frame=%llu\n",image,(unsigned long long)native.framesEnded());
@@ -299,6 +303,61 @@ public:
         static const unsigned long long rectsFrom=[]{const char *v=std::getenv("VP2S_BOZO_TRACE_RECTS_FROM");return v?std::strtoull(v,nullptr,10):~0ull;}();
         if(native.framesEnded()>=rectsFrom)
             std::fprintf(stderr,"[vp2s:screen] native capture fade object=%x image=%u colour=%08x copies alpha=%u frame=%llu\n",draw.object,draw.image,draw.colour,draw.trailAlpha,(unsigned long long)native.framesEnded());
+    }
+    // Battle-entry capture (class 15a850): the capture fade's snapshot slots and copy.
+    std::map<uint32_t,uint32_t> entryGroups;   // readback group -> capture object
+    uint8_t claimNativeEntryFrame(uint32_t object,uint32_t group)override{
+        if(!group)throw std::runtime_error("native entry capture has no readback group");
+        entryGroups[group]=object;return captureFades.capture(object);
+    }
+    // At the group's submit: the last complete frame (the previous presentation; the
+    // frame drawn so far holds only what its scene drew before the group, e.g. the map
+    // panel without the field), copied into the claimed image at its size, which the
+    // image keeps when the frame changes size.
+    void copyNativeEntryFrame(uint32_t group)override{flushDeferredModels();
+        const auto it=entryGroups.find(group);if(it==entryGroups.end())return;   // another group
+        const auto object=it->second;entryGroups.erase(it);
+        const auto image=captureFades.pendingCopy(object);if(!image)throw std::runtime_error("native entry capture group has no claimed image");
+        const auto target=scene.frameTarget();if(!target)throw std::runtime_error("native entry capture has no frame to copy");
+        bozo::render::Material material;material.textured=false;material.fromFrame=1;material.source=bozo::render::Material::kPreviousFrame;
+        material.textureAlpha=false;   // the field's alpha is 0 (the display ignores it): copy the colour as shown
+        material.target=*image;material.nearest=true;material.alphaBlend=false;material.blend=bozo::render::Material::Blend::Opaque;
+        material.depthTest=false;material.depthWrite=false;
+        vp2s::NativeCaptureFadeDraw whole{.colour=0x80808080,.width=int32_t(target->width),.height=int32_t(target->height)};
+        const auto vertices=vp2s::nativeCaptureFadeVertices(whole);
+        const float identity[16]={1,0,0,0,0,1,0,0,0,0,1,0,0,0,0,1};
+        bozo::render::Renderer::instance().setTargetSize(*image,uint16_t(whole.width),uint16_t(whole.height));
+        bozo::render::Renderer::instance().draw(material,identity,vertices.data(),vertices.size());
+        entrySizes[object]={whole.width,whole.height};
+        if(std::getenv("VP2S_BOZO_TRACE_QUEUES"))
+            std::fprintf(stderr,"[vp2s:screen] native entry capture copy object=%x image=%u frame=%llu\n",object,*image,(unsigned long long)native.framesEnded());
+    }
+    std::map<uint32_t,std::array<int32_t,2>> entrySizes;
+    std::array<int32_t,2> nativeEntryFrameSize(uint32_t object)override{const auto it=entrySizes.find(object);return it==entrySizes.end()?std::array<int32_t,2>{0,0}:it->second;}
+    std::optional<uint8_t> nativeEntryFrame(uint32_t object)override{return captureFades.image(object);}
+    void drawNativeEntryCapture(const vp2s::NativeEntryCaptureDraw &draw)override{flushDeferredModels();
+        const auto target=scene.frameTarget();
+        if(!target || int32_t(target->width)!=draw.frameWidth || int32_t(target->height)!=draw.frameHeight)
+            throw std::runtime_error(std::format("native entry capture frame {}x{} has no matching target",draw.frameWidth,draw.frameHeight));
+        // TEX0.TCC 0, modulate; TEX1 MMAG linear; ALPHA 0x44 with PRIM ABE; ZTE off.
+        bozo::render::Material material;material.textured=false;material.fromFrame=1;material.source=draw.image;material.target=0;material.nearest=false;
+        material.textureAlpha=false;material.depthTest=false;material.depthWrite=false;
+        if(std::getenv("VP2S_BOZO_DEBUG_ENTRY_FLAT")){material.fromFrame=0;material.source=0;}   // diagnostic: vertex colour only
+        if(std::getenv("VP2S_BOZO_DEBUG_ENTRY_SHOW")){   // diagnostic: the snapshot itself, 1:1 over the frame
+            vp2s::NativeCaptureFadeDraw whole{.colour=0x80808080,.width=draw.frameWidth,.height=draw.frameHeight};
+            const auto quad=vp2s::nativeCaptureFadeVertices(whole);const float id[16]={1,0,0,0,0,1,0,0,0,0,1,0,0,0,0,1};
+            bozo::render::Renderer::instance().draw(material,id,quad.data(),quad.size());return;}
+        if(draw.blend)material.blend=bozo::render::Material::Blend::Alpha;else{material.alphaBlend=false;material.blend=bozo::render::Material::Blend::Opaque;}
+        const float identity[16]={1,0,0,0,0,1,0,0,0,0,1,0,0,0,0,1};
+        if(!draw.vertices.empty())bozo::render::Renderer::instance().draw(material,identity,draw.vertices.data(),draw.vertices.size());
+        if(std::getenv("VP2S_BOZO_TRACE_QUEUES"))std::fprintf(stderr,"[vp2s:screen] native entry capture object=%x image=%u strips=%zu colour=%08x blend=%d grid=%zu frame=%llu\n",
+            draw.object,draw.image,draw.vertices.size()/6,draw.colour,int(draw.blend),draw.grid.size(),(unsigned long long)native.framesEnded());
+        if(!draw.grid.empty()){
+            // The trail: the previous presentation, 1:1, alpha-blended (TEX1 nearest).
+            bozo::render::Material trail;trail.textured=false;trail.fromFrame=1;trail.source=bozo::render::Material::kPreviousFrame;trail.target=0;trail.nearest=true;
+            trail.textureAlpha=false;trail.blend=bozo::render::Material::Blend::Alpha;trail.depthTest=false;trail.depthWrite=false;
+            bozo::render::Renderer::instance().draw(trail,identity,draw.grid.data(),draw.grid.size());
+        }
     }
     vp2s::NativeScreenZooms screenZooms;
     unsigned screenZoomDraws=0;
@@ -648,6 +707,7 @@ bool dispatchNativeInstruction(uint8_t *ram,R5900Context *ctx,Runtime *rt,uint32
     if(auto handled=vp2s::nativeMediaBufferInstruction(ctx,rt,pc))return *handled;
     if(auto handled=vp2s::nativeScreenRectInstruction(ctx,rt,pc))return *handled;
     if(auto handled=vp2s::nativeCaptureFadeInstruction(ctx,rt,pc))return *handled;
+    if(auto handled=vp2s::nativeEntryCaptureInstruction(ctx,rt,pc))return *handled;
     if(auto handled=vp2s::nativeSprWriterInstruction(ctx,rt,pc))return *handled;
     if(auto handled=vp2s::nativeScreenZoomInstruction(ctx,rt,pc))return *handled;
     if(auto handled=vp2s::nativeDepthBlurInstruction(ctx,rt,pc))return *handled;
@@ -858,6 +918,7 @@ int main(int argc,char **argv) {
             throw std::runtime_error(error);
         vp2sBozoRegisterImages(dispatcher.runtime(),VP2S_BOZO_IMAGES,[&](uint32_t pc){host.overlayExternals.insert(pc);dispatcher.bindLibrary(pc);});
         vp2s::installNativeMusic(dispatcher.runtime());
+        vp2s::installNativeEntryCapture(dispatcher.runtime());
         // Save states (--save-state FILE --save-state-at N, --load-state FILE [--load-state-at N]):
         // VP2S's own part. The engine saves EE memory, the dispatcher, the kernel, its libraries
         // and its host; VP2S adds the IOP modules' host, the SDK clock and the native owners that

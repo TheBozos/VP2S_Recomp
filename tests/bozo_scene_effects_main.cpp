@@ -1,3 +1,4 @@
+#include <algorithm>
 // Scene scissor element (1597e0) and the Lost Forest haze object (15a020) read
 // from synthetic records in EE RAM, with a native frame target. No game data.
 #include "native_haze.h"
@@ -80,6 +81,17 @@ int main(){try{
         case 9:put(rt,object+0xa8,int32_t(192));break;case 10:put(rt,object+0x18930,int16_t(64));break;
         default:put(rt,object+0x13940+80,std::bit_cast<float>(0x7fc00000u));break;}},12);
     check(hazeRejected==12);
+    // A 96-row tile (the 416-high battle-entry frame: 128, 96, 96, 96): 128 x 224 here, its
+    // records with 3 cells of 32 down (+4 = 4).
+    const auto reframe=[&](int16_t width,int16_t height){std::vector<uint8_t> kept(rt.memory.flat(),rt.memory.flat()+bozo::kFlatBytes);frame(rt,scene,width,height);
+        for(const auto &[at,size]:{std::pair{object,0x19000u},std::pair{depthOwner,0x4000u}})std::memcpy(rt.memory.flat()+at,kept.data()+at,size);};
+    reframe(128,224);put(rt,object+0xac,int32_t(224));for(unsigned column=0;column<2;++column)put(rt,object+0x13940+0x1400+column*0x200+4,uint32_t(4));put(rt,object+0x18930+2,int16_t(96));
+    const auto shortRow=vp2s::nativeHaze(&rt,scene,object);
+    check(shortRow.vertices.size()==2*2*4*6+2*2*3*6);
+    float lowest=0;for(const auto &v:shortRow.vertices)lowest=std::max(lowest,v.y);check(lowest==1936+224);
+    put(rt,object+0x18930+2,int16_t(80));bool ragged=false;   // a grid that does not fill the tile
+   try{vp2s::nativeHaze(&rt,scene,object);}catch(const std::runtime_error &){ragged=true;}check(ragged);   // not whole cells
+    reframe(128,256);put(rt,object+0xac,int32_t(256));put(rt,object+0x18930+2,int16_t(128));for(unsigned column=0;column<2;++column)put(rt,object+0x13940+0x1400+column*0x200+4,uint32_t(5));
     // Field map panel: the PCSX2 forest frame's prims (opacity 89.5: panel alpha
     // 0x59, border 0x43; rectangle 1816..1972 x 1816..1932, border 2 px outside).
     std::memset(rt.memory.flat(),0,bozo::kFlatBytes);

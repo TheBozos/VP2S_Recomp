@@ -23,9 +23,12 @@ struct CaptureContext {
         if(window || context)SDL_Quit();
     }
     void open(uint32_t w,uint32_t h){
-        if(context && w==width && h==height){SDL_GL_MakeCurrent(window,context);return;}
-        if(context){bozo::render::Renderer::instance().releaseGpu();SDL_GL_DestroyContext(context);context=nullptr;}
-        if(window){SDL_DestroyWindow(window);window=nullptr;}
+        // A new frame size (the battle entry goes from 512x512 to 576x416) resizes the
+        // window: recreating the context would drop the kept images mid-effect.
+        if(context){
+            if(w!=width || h!=height){if(!SDL_SetWindowSize(window,int(w),int(h)))throw std::runtime_error(SDL_GetError());SDL_SyncWindow(window);width=w;height=h;}
+            SDL_GL_MakeCurrent(window,context);return;
+        }
         if(!SDL_WasInit(SDL_INIT_VIDEO) && !SDL_Init(SDL_INIT_VIDEO))throw std::runtime_error(SDL_GetError());
         SDL_GL_SetAttribute(SDL_GL_CONTEXT_MAJOR_VERSION,3);SDL_GL_SetAttribute(SDL_GL_CONTEXT_MINOR_VERSION,3);
         SDL_GL_SetAttribute(SDL_GL_CONTEXT_PROFILE_MASK,SDL_GL_CONTEXT_PROFILE_CORE);

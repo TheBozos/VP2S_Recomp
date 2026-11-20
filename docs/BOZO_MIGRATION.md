@@ -12,6 +12,71 @@ The earlier VP2S face/shading and general brightness comparisons remain open.
 
 ## Build and evidence
 
+### Battle-entry capture (class 15a850): structure native, snapshot content open (2026-11-20)
+
+After op 0x38 the transition object (class `15d5d0`, update `375870`)
+creates the mod001 class `15a850`. It captures the screen and swirls it:
+- **Build `3094d0`**, states `+f8` 0..3:
+  - state 0 plays sound `0x1de`;
+  - state 1 creates the readback group `15a7a0` (`+a4`) and requests, per
+    slice (`+100` = 9), a PSMCT16 readback of a 64 x 416 frame column
+    (`29a520`, sbw 9: 576 x 416);
+  - state 2 waits for the group (`+d8` bit 0) and a 2-frame countdown
+    (`+dc`), sets the camera and viewport (the frame becomes 576 x 416),
+    then repaints the capture on the GS at once (`3078d0` with a1 = 1,
+    path-3 uploads, `DISPFB2`, list kick `120cc0`).
+- **Update `308c60`** rotates the 2N+1 column boundaries about the screen
+  centre (atan2 `12e2d8`, sin/cos `214210`/`2143e0`; twist `+b0`, scale
+  `+b8`) into `+a0`, 16 bytes per boundary (x, y top; x, y bottom; 12.4 as
+  floats).
+- **Strip writer `3078d0`** writes one textured strip per half slice:
+  - **culling:** a strip is skipped if any x or y exceeds 65536, or if both
+    x (or both y) of one boundary are <= 0;
+  - **UV:** U = h*32 + 0.75 .. + 31.25, V = `+c4` .. 416 - `+c4`;
+  - **Z:** `*(35df00)` - 1 - `+e0`;
+  - **colour:** 0x7f7f7f with alpha 0x80, or 128 * (1 - min(`+c8`, `+d0`) / `+d0`);
+  - **grid:** a final grid of 10 x 7 CT24 64 x 32 tiles from the display
+    buffer (TBP = display FBP), covering the screen 1:1. That is the
+    previous frame as a trail, alpha (TEXA 0x60 * cvt(160 * `+c0`)) >> 7.
+- **Job:** `+90`, vtable `15a8cc`. Its enqueue `308c30` puts it on the VIF1
+  queue; kick `308bd0` sends the chain at `+150` (9 x upload + strips, REFE
+  grid).
+
+**Native** (`bozo/native_entry_capture.cpp`):
+- **Snapshot slot:** build state 1 (site `3096bc`) claims a capture-fade
+  image for the object and its group.
+- **Group submit:** `307170` (site `307188`, its call patched to the
+  completion `307130`) copies the frame into that image and records the size.
+- **Readback nodes:** they reach the main graphics queue's readback entry,
+  which calls `29a460`. Its override completes recorded colour requests at
+  once through the node's notify `299c00`; any other node runs the original.
+- **Enqueue `308c30`:** site `308c48` draws the strips and the grid from the
+  object's fields, with no packet read. The patched call runs the job's
+  completion `308c10(object)` instead of the queue.
+- **State 2 -> 3:** the immediate repaint, the `DISPFB2` write and the list
+  kick are patched out.
+- **Signatures:** `3078d0`, `308c10..308c60`, `308c60`, `3094d0`,
+  `307130..3071a4`.
+- **Native haze:** now takes 96-row tiles. The 416-high frame has rows of
+  128, 96, 96, 96, each with its own grid; the scene-effects test has the
+  case.
+- **Capture harness:** it now resizes its hidden window instead of
+  recreating the GL context when the frame size changes; before, every kept
+  image was lost at 512 x 512 -> 576 x 416.
+
+**Result:**
+- `--battle 0x18` runs the transition natively: 18 strips plus the grid
+  each frame, rotating.
+- The snapshot holds only the minimap. Copying the previous presentation,
+  or the frame drawn so far, at the group's slot gives a frame without the
+  3D field, although the presented window shows it. The diagnostics
+  `VP2S_BOZO_DEBUG_ENTRY_SHOW` (snapshot 1:1) and
+  `VP2S_BOZO_DEBUG_ENTRY_FLAT` show this. Where the field's colour lives in
+  the renderer is the open question.
+- At frame 63369 the game jumps into module code at `0x36d800` that the
+  build does not have: the battle modules (captured earlier: 028 at
+  `36d900`, 030, 060, 068, 112, 175/179, 220) are next.
+
 ### Battle launcher: --battle through event-script op 0x38 (2026-11-20)
 
 User request: launch battles with chosen enemies. The encounter IS an

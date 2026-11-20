@@ -85,7 +85,9 @@ NativeHaze nativeHaze(Runtime *rt,const NativeScene &scene,uint32_t object){
     float x0=0,y0=0;int32_t covered=0;
     for(unsigned row=0;row<rows;++row){
         const auto tileHeight=value<int16_t>(rt,object+0x18930+2*row),offset=value<int16_t>(rt,object+0x18938+2*row);
-        if(tileHeight!=128 || offset!=covered)throw std::runtime_error("unported native haze tile layout");
+        // 128-row tiles, or 96-row ones in a 416-high frame (128, 96, 96, 96: the
+        // battle-entry frame), each with its own grid of that height.
+        if(tileHeight<=0 || tileHeight>128 || offset!=covered)throw std::runtime_error("unported native haze tile layout");
         covered+=tileHeight;
         for(unsigned column=0;column<columns;++column){
             const uint32_t record=object+0x13940+row*0x1400+column*0x200;
@@ -95,7 +97,7 @@ NativeHaze nativeHaze(Runtime *rt,const NativeScene &scene,uint32_t object){
             if(cellsX<1 || cellsX>16 || cellsY<1 || cellsY>16)throw std::runtime_error("unported native haze tile grid");
             const auto screen=quad(rt,record+16),step=quad(rt,record+32);
             if(!row && !column){x0=screen[0];y0=screen[1];}
-            if(screen[0]!=x0+64.f*float(column) || screen[1]!=y0+float(offset) || step[0]*float(cellsX)!=64.f || step[1]*float(cellsY)!=128.f)
+            if(screen[0]!=x0+64.f*float(column) || screen[1]!=y0+float(offset) || step[0]*float(cellsX)!=64.f || step[1]*float(cellsY)!=float(tileHeight))
                 throw std::runtime_error("native haze tile outside its grid");
             const auto base=quad(rt,record+80),across=quad(rt,record+96),down=quad(rt,record+112);
             uint32_t colour[17][17];

@@ -4,6 +4,7 @@
 #include "bozo/port.h"
 #include "vp2_bozo_images.h"
 #include "native_kernel.h"
+#include "native_warp.h"
 #include "native_timer.h"
 #include "native_settings.h"
 #include "native_seed.h"
@@ -661,6 +662,7 @@ bool dispatchNativeInstruction(uint8_t *ram,R5900Context *ctx,Runtime *rt,uint32
     if(auto handled=vp2s::nativeDebugFontInstruction(ram,ctx,rt,pc))return *handled;
     if(auto handled=vp2s::nativeCompositionInstruction(ram,ctx,rt,pc))return *handled;
     if(auto handled=vp2s::nativeAssetInstruction(ram,ctx,rt,pc))return *handled;
+    if(auto handled=vp2s::nativeWarpInstruction(ctx,rt,pc))return *handled;
     if(pc==0x239f70 || pc==0x25aa30){
         if(pc==0x25aa30){
             const auto object=ctx->r[5].uw[0]-0x90;
@@ -825,11 +827,13 @@ int main(int argc,char **argv) {
         else if(arg=="--load-state-at" && i+1<argc)options.loadStateFrame=std::stoul(argv[++i]);
         else if(arg=="--save-state" && i+1<argc)options.saveState=argv[++i];
         else if(arg=="--save-state-at" && i+1<argc)options.saveStateFrame=std::stoul(argv[++i]);
+        else if(arg=="--warp" && i+1<argc){try{vp2s::armNativeWarp(vp2s::parseWarp(argv[++i],std::string(VP2S_BOZO_IMAGES)+"/../warps.tsv"));}catch(const std::exception &e){std::fprintf(stderr,"%s\n",e.what());return 2;}}
 #ifdef VP2S_BOZO_CAPTURE
         else if(arg=="--capture" && i+1<argc)capturePath=argv[++i];
 #endif
         else { std::fprintf(stderr,"usage: vp2s-bozo-headless --iso FILE [--card-dir PRIVATE_DIR] [--frames N] [--pad-script FILE]\n"
-                                   "       [--load-state FILE [--load-state-at FRAME]] [--save-state FILE --save-state-at FRAME]\n");
+                                   "       [--load-state FILE [--load-state-at FRAME]] [--save-state FILE --save-state-at FRAME]\n"
+                                   "       [--warp MAP or MAP,X,Y,Z[,FACING[,ENTRY]]] (debug: the next event-script step changes map)\n");
 #ifdef VP2S_BOZO_CAPTURE
             std::fprintf(stderr,"GPU build also accepts --capture OUTPUT.png (hidden window, no host input)\n");
 #endif

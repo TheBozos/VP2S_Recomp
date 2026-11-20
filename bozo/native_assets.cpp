@@ -1,6 +1,8 @@
 #include "native_assets.h"
 #include "bozo/ee/dispatcher.h"
 #include <algorithm>
+#include <cstdio>
+#include <cstdlib>
 #include <cstring>
 #include <format>
 #include <limits>
@@ -134,6 +136,11 @@ std::optional<bool> nativeAssetInstruction(uint8_t *,R5900Context *c,Runtime *rt
     auto *owner=dispatcher?dynamic_cast<AssetOwner *>(&dispatcher->host()):nullptr;
     if(!owner || !c)throw std::runtime_error("native asset publication requires an owner");
     auto &assets=owner->nativeAssets();const uint32_t sp=c->r[29].uw[0];
+    // Diagnostic only (VP2S_BOZO_TRACE_ASSETS): who asks for each part load, from which chain.
+    static const bool traceAssets=std::getenv("VP2S_BOZO_TRACE_ASSETS")!=nullptr;
+    if(traceAssets && (pc==0x102650 || pc==0x105a30)){const auto chain=c->r[pc==0x102650?5:6].uw[0];const auto from=assets.origin(chain);
+        std::fprintf(stderr,"[vp2s:asset] load pc=%x ra=%x a0=%x a1=%x a2=%x a3=%x t0=%x s0=%x s1=%x s2=%x s3=%x chain=%x origin=%llx/%u+%x\n",pc,c->r[31].uw[0],c->r[4].uw[0],c->r[5].uw[0],c->r[6].uw[0],c->r[7].uw[0],c->r[8].uw[0],
+            c->r[16].uw[0],c->r[17].uw[0],c->r[18].uw[0],c->r[19].uw[0],chain,from?(unsigned long long)from->disc:0ull,from?from->part:0u,from?from->offset:0u);}
     if(pc==0x102650)assets.begin(sp-0xa0,c->r[5].uw[0],c->r[6].uw[0],c->r[7].uw[0]);
     else if(pc==0x102998)assets.finish(sp,c->r[2].uw[0]!=0,c->r[2].uw[0]?word(rt,c->r[17].uw[0]+8):0);
     else if(pc==0x105a30)assets.begin(sp-0x60,c->r[6].uw[0],c->r[7].uw[0],c->r[8].uw[0],c->r[5].uw[0]);

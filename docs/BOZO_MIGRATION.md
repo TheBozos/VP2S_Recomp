@@ -12,6 +12,54 @@ The earlier VP2S face/shading and general brightness comparisons remain open.
 
 ## Build and evidence
 
+### Debug teleport: --warp through the game's own map change (2026-11-20)
+
+User request: a way to jump to any map, so boundaries can be found and
+ported per area instead of one by one along the route.
+
+**How the game changes map.** Event scripts run in an interpreter (class
+`1620e0`, the world map's at `58c660`). Its step `3ee150` fetches one word,
+`(op << 8) | count`, and calls the handler from a table of 12-byte member
+pointers at `48e2c0`; the script pc is `+18`, the argument pointer `+604`.
+Op `0x3a` (handler `3af3b0`) is the map change: map, entry, x, y, z, camera
+(-1), facing in degrees. It builds a request (class `1656c0`, filled by
+`443b10`) and queues it on the field manager with `3d6140`. The world map's
+CROSS on the Lost Forest calls script routine `c16`, which runs
+`0x3a(82, 0, -2145, 0, 42, -1, 270)`. Found from RAM diffs of the named
+states (`stateram.py`-style reads of the uncompressed `memory` section), a
+watch on the interpreter, and the handler table.
+
+**The warp.** `--warp MAP` or `--warp MAP,X,Y,Z[,FACING[,ENTRY]]` arms one
+request. A native site at the step's fetch (`3ee288`, signature-checked
+`3ee264..3ee2a8`) then gives the next running interpreter one op-0x3a
+instruction, written to free low RAM (`80000`, the PS2 kernel's area, unused by
+the native kernel). The site points `a1` and `+604` at it and rewinds `+18`
+by 8, so the interrupted script resumes where it was. The game's own handler,
+request and loader do the rest. World-map and field scripts both fetch every
+frame (worldmap_54000 at script pc 49, forest_60300 at pc 4e).
+
+**Entry points.** `tools/vp2_warps.py` scans the extracted assets for op-0x3a
+instructions and writes `build_usa/bozo/warps.tsv` (game data, not
+committed): 552 maps, 1,160 distinct entry points, each with its use count
+and first source. `--warp MAP` takes the most used entry. Combine it with
+`--save-state FILE --save-state-at N` to make a named state for an area.
+
+`VP2S_BOZO_TRACE_ASSETS=1` (diagnostic) prints every part load with its caller and disc origin.
+
+Tests: `vp2s-bozo-warp` (full and short forms, table lookup, 10 rejections,
+the instruction words).
+
+**Result:**
+- From `forest_60300`, `--warp 13` changes map: the camera object's map
+  word (`35dc00 -> +98`) goes from 78 to 13. Alicia stands in a still-dark
+  scene at 60340, and the run then stops at mod003's VU0 site `40af70` (a
+  particle emitter).
+- From `worldmap_54000`, `--warp 82` (the forest) stops at the world-map haze
+  variant (0 1 1). The world map has not faded out as it does on CROSS, so
+  that path is new.
+
+Both stops are new boundaries for the per-area work, not warp failures.
+
 ### VU1 set-up routine 40: texture coordinates projected from the screen (2026-11-20)
 
 Disc mesh `aea42754/0+121d0` (routines [8, 40]) had no converted record:

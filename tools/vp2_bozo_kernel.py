@@ -269,6 +269,12 @@ def game_entries(data):
     if hashlib.sha256(data[at:at+hi-lo]).hexdigest()!='de60c4b86c3704fc5eeafe80a737afa57dd43ddce1439476fc7d6ba49aa4f72b':
         raise ValueError('USA bounded string comparison signature mismatch')
     entries.append(dict(Name='bounded_string_compare_00134b60',Start=hex(lo),End=hex(hi)))
+    # libc strstr: main never calls it, so Ghidra left it out; battle module 28 (43c2a0) does.
+    lo,hi=0x134ed8,0x134f48
+    s=next(s for s in segments if s[0]==1 and s[2]<=lo<hi<=s[2]+s[4]);at=s[1]+lo-s[2]
+    if hashlib.sha256(data[at:at+hi-lo]).hexdigest()!='c245f7adf15564378fde8fedaadfaf898375805a3ef054a5747e35a55a5064f1':
+        raise ValueError('USA strstr signature mismatch')
+    entries.append(dict(Name='string_search_00134ed8',Start=hex(lo),End=hex(hi)))
     return entries
 
 
@@ -558,6 +564,14 @@ def overlay_adaptations(name,data):
         # allocation/failure, byte fill, descriptor construction and free;
         # retire only its upload producer, never the generic upload consumer.
         return '0036224c ac220010 00000000\n00362760 ac200000 00000000\n00360ef4 0c048afe 00000000\n003721ac 03e00008 08087268\n'
+    if name=='mod027':
+        # Battle image loader 36b4a0 (bozo/native_textures.cpp, nativeBattleImageInstruction):
+        # its two type-1 upload enqueues are retired; the native sites publish and free.
+        _,segments,_=elf_parts(data)
+        for lo,hi,expected in ((0x36b4a0,0x36b6e8,'a03b230eee03f42b4fa66af99887c0ff56a3f002fde15b4d25f02e7e90fdd6f3'),):
+            s=next(s for s in segments if s[0]==1 and s[2]<=lo<hi<=s[2]+s[4]);at=s[1]+lo-s[2]
+            if hashlib.sha256(data[at:at+hi-lo]).hexdigest()!=expected:raise ValueError('USA battle image loader mismatch')
+        return '0036b5d0 0c044c70 00000000\n0036b6b0 0c044c70 00000000\n'
     if name!='mod001':return ''
     _,segments,_=elf_parts(data)
     for lo,hi,expected in ((0x12b4a8+0x1f0,0x12b4a8+0x250,'b79cf2382262fa4251a0e08c8d0b7eb05f051c8a77915bf5863c78d7d6acd784'),
@@ -1045,7 +1059,8 @@ def overlay_native_sites(name,data):
         for pc,expected in ((0x363440,0x8c240000),(0x3676f0,0x8c250000),(0x367724,0x8c240000),(0x367880,0x8c230000),(0x367934,0x8c220000),(0x367a7c,0x8c220000),(0x367bcc,0x8c220000),(0x367d74,0x8c240000),(0x367fe4,0x8c230000),(0x3684dc,0x8c220000),(0x36868c,0x8c230000),(0x369374,0x8c220000),(0x36c9e0,0xac200000),(0x36cbbc,0x8c270000),(0x36cbd0,0x8c231800),(0x36cc00,0x8c260800),(0x36cc28,0x8c241000),(0x36d3d4,0xac230010),(0x36d3dc,0xac200000)):
             s=next(s for s in segments if s[0]==1 and s[2]<=pc<pc+4<=s[2]+s[4])
             if int.from_bytes(data[s[1]+pc-s[2]:s[1]+pc-s[2]+4],'little')!=expected:raise ValueError('USA battle timer site mismatch')
-        return ''.join(f'native 0x{pc:x}\n' for pc in (0x363440,0x3676f0,0x367724,0x367880,0x367934,0x367a7c,0x367bcc,0x367d74,0x367fe4,0x3684dc,0x36868c,0x369374,0x36c9e0,0x36cbbc,0x36cbd0,0x36cc00,0x36cc28,0x36d3d4,0x36d3dc))
+        overlay_adaptations(name,data)
+        return ''.join(f'native 0x{pc:x}\n' for pc in (0x36b5d4,0x36b5d8,0x36b6b4,0x363440,0x3676f0,0x367724,0x367880,0x367934,0x367a7c,0x367bcc,0x367d74,0x367fe4,0x3684dc,0x36868c,0x369374,0x36c9e0,0x36cbbc,0x36cbd0,0x36cc00,0x36cc28,0x36d3d4,0x36d3dc))
     if name=='mod002':
         _,segments,_=elf_parts(data);lo,hi=0x3622e8,0x362338
         s=next(s for s in segments if s[0]==1 and s[2]<=lo<hi<=s[2]+s[4]);at=s[1]+lo-s[2]

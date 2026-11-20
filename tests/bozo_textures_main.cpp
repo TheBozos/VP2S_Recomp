@@ -168,5 +168,19 @@ int main(int argc,char **argv){try{
         t.publishImage(image,{0x12345678,2});check(held->key.index==1 && t.imageAsset(image)->key.index==2);
         t.releaseImage(image);check(!t.imageAsset(image) && held->texels[0]==1 && oldHost.textures.imageAsset(image)->key.index==2);
     }
+    {   // Battle images by graphics-memory block, pixels and palettes apart.
+        auto &t=newHost.textures;t.publishBlock(0x3a00,false,{0x12345678,1});t.publishBlock(0x3a00,true,{0x12345678,2});
+        check(t.blockAsset(0x3a00,false)->key.index==1 && t.blockAsset(0x3a00,true)->key.index==2 && !t.blockAsset(0x3a04,false));
+        rejects([&]{t.publishBlock(0,false,{0x12345678,1});});rejects([&]{t.publishBlock(0x4000,true,{0x12345678,1});});
+        // The game's deferred free (1205b0): ring of 0x400 pointers, write index +0, read index +4.
+        auto &b=now.runtime();constexpr uint32_t list=0x1d3710;std::memset(b.memory.hostPointer(list,0x1008),0,0x1008);
+        const auto word=[&](uint32_t at){uint32_t v;std::memcpy(&v,b.memory.hostPointer(at,4),4);return v;};
+        const auto put=[&](uint32_t at,uint32_t v){std::memcpy(b.memory.hostPointer(at,4),&v,4);};
+        vp2s::guestDeferredFree(&b,list,0x1a0000);check(word(list)==0);   // read == write: dropped, as the game drops it
+        put(list+4,5);vp2s::guestDeferredFree(&b,list,0);check(word(list)==0);   // null: nothing
+        vp2s::guestDeferredFree(&b,list,0x1a0000);check(word(list)==1 && word(list+8)==0x1a0000);
+        put(list,0x3ff);vp2s::guestDeferredFree(&b,list,0x1a0100);check(word(list)==0 && word(list+8+4*0x3ff)==0x1a0100);   // wraps
+        put(list,0x400);rejects([&]{vp2s::guestDeferredFree(&b,list,0x1a0200);});
+    }
     std::puts("64 manager images + 32 palettes + 64 fixed-image producer/completion CPU/RAM cases; offline assets survive source release, image destructor invalidates association; no upload consumer");return 0;
 }catch(const std::exception &e){std::fprintf(stderr,"%s\n",e.what());return 1;}}

@@ -106,6 +106,13 @@ std::shared_ptr<const NativeTextureAsset> NativeTextures::menuPage(uint16_t page
     auto it=menuPages.find((uint32_t(page)<<8)|format);
     return it==menuPages.end() || it->second.palette!=palette?nullptr:it->second.asset;
 }
+void NativeTextures::publishBlock(uint32_t block,bool palette,TextureKey key){
+    if(!block || block>=0x4000)throw std::runtime_error("native battle image block outside graphics memory");
+    auto asset=load(key);(palette?blockPalettes:blockPixels)[block]=std::move(asset);++publications;
+}
+std::shared_ptr<const NativeTextureAsset> NativeTextures::blockAsset(uint32_t block,bool palette)const{
+    const auto &m=palette?blockPalettes:blockPixels;auto it=m.find(block);return it==m.end()?nullptr:it->second;
+}
 std::shared_ptr<const NativeTextureAsset> NativeTextures::imageAsset(uint32_t object)const{
     auto it=images.find(object);return it==images.end()?nullptr:it->second;
 }
@@ -182,6 +189,57 @@ std::optional<bool> nativeMenuImageInstruction(R5900Context *c,Runtime *rt,uint3
     const TextureKey key{read<uint32_t>(rt,fis+0x14),read<uint32_t>(rt,fis+0x18)};
     textures->nativeTextures().publishMenuPage(uint16_t(page),uint8_t(format),uint16_t(palette),key);
     if(std::getenv("VP2S_BOZO_TRACE_QUEUES"))std::fprintf(stderr,"[vp2s:texture] native menu image %x page=%x format=%x palette=%x key=%08x:%x\n",object,page,format,palette,key.tag,key.index);
+    return false;
+}
+void guestDeferredFree(Runtime *rt,uint32_t list,uint32_t pointer){
+    if(!pointer)return;
+    auto *ring=record(rt,list,8+4*0x400);uint32_t write,read;std::memcpy(&write,ring,4);std::memcpy(&read,ring+4,4);
+    if(write>=0x400)throw std::runtime_error("deferred free ring index outside its 0x400 entries");
+    if(read==write)return; // Full: the game's 1205b0 drops the pointer too.
+    std::memcpy(ring+8+4*write,&pointer,4);write=write+1>=0x400?0:write+1;std::memcpy(ring,&write,4);
+}
+// Module 27 (the battle core) loads its images with 36b4a0(FIS a0, buffer a1, a2, palette
+// block a3, pixel block t0, ...): it builds a 0x70-byte image packet per part (1228d0, pixels
+// at +60) and queued each as a type-1 graphics upload with flags 1 (free the packet) and, on
+// the last part, an owner (class 175c60, built by mod028 506420) whose completion 5063e0
+// frees the buffer (+4) and itself. The blocks come from the battle's layout table, and its
+// draws name the images by them. Natively both enqueue calls (36b5d0, 36b6b0) are patched
+// out: 36b5d8, which both paths reach with s2 = FIS+0x10, publishes the decoded file under
+// its blocks, and each former enqueue (36b5d4, 36b6b4) runs the queue completion's frees
+// through the same deferred-free rings.
+std::optional<bool> nativeBattleImageInstruction(R5900Context *c,Runtime *rt,uint32_t pc){
+    constexpr struct {uint32_t pc,word;} sites[]={{0x36b5d4,0x0000402d},{0x36b5d8,0x8e43000c},{0x36b6b4,0x0000402d}};
+    const auto site=std::find_if(std::begin(sites),std::end(sites),[&](auto &s){return s.pc==pc;});
+    if(site==std::end(sites))return std::nullopt;
+    if(!rt || read<uint32_t>(rt,pc)!=site->word || read<uint32_t>(rt,0x36b4a0)!=0x27bdff50u)return std::nullopt; // another overlay here
+    auto *d=dynamic_cast<bozo::ee::Dispatcher *>(rt->services);
+    auto *textures=d?dynamic_cast<TextureOwner *>(&d->host()):nullptr;auto *assets=d?dynamic_cast<AssetOwner *>(&d->host()):nullptr;
+    if(!c || !textures || !assets)throw std::runtime_error("native battle image has no texture owner");
+    if(pc==0x36b5d8){
+        const auto fis=c->r[18].uw[0]-0x10;record(rt,fis,0x30);
+        if(read<uint32_t>(rt,fis)!=0x534946 || !assets->nativeAssets().origin(fis,0x30))
+            throw std::runtime_error(std::format("native battle image {:x} is not a decoded FIS file (a derived image is unported)",fis));
+        const TextureKey key{read<uint32_t>(rt,fis+0x14),read<uint32_t>(rt,fis+0x18)};
+        const auto pixels=c->r[19].uw[0]&0xffff,palette=c->r[20].uw[0]&0xffff;
+        if(pixels)textures->nativeTextures().publishBlock(pixels,false,key);
+        if(palette)textures->nativeTextures().publishBlock(palette,true,key);
+        if(std::getenv("VP2S_BOZO_TRACE_QUEUES"))
+            std::fprintf(stderr,"[vp2s:texture] battle image %x key=%08x:%x pixels=%x palette=%x\n",fis,key.tag,key.index,pixels,palette);
+        return false;
+    }
+    // A former enqueue: (queue, 1, 1, packet, 0, owner).
+    const auto packet=c->r[7].uw[0],owner=c->r[9].uw[0];record(rt,packet,0x70);
+    const auto picture=pc==0x36b5d4?c->r[18].uw[0]+read<uint32_t>(rt,c->r[18].uw[0]+0x14):c->r[18].uw[0];
+    if(c->r[4].uw[0]!=read<uint32_t>(rt,0x35dd78) || c->r[5].uw[0]!=1 || c->r[6].uw[0]!=1 || read<uint32_t>(rt,packet+0x60)!=picture+0x80)
+        throw std::runtime_error("native battle image upload escaped its loader");
+    guestDeferredFree(rt,0x1d3710,packet); // 112c70, flags 1: the packet (list 101070(1c8d00)).
+    if(owner){
+        record(rt,owner,8);const auto vtable=read<uint32_t>(rt,owner);
+        if(vtable!=0x175c60 || read<uint32_t>(rt,vtable+0xc)!=0x5063e0 || read<uint32_t>(rt,0x5063e0)!=0x27bdffe0u)
+            throw std::runtime_error(std::format("native battle image owner {:x} has an unported completion",owner));
+        const auto list=read<uint32_t>(rt,0x35dda8);
+        guestDeferredFree(rt,list,read<uint32_t>(rt,owner+4));guestDeferredFree(rt,list,owner); // 5063e0
+    }
     return false;
 }
 std::optional<bool> nativeFixedImageInstruction(R5900Context *c,Runtime *rt,uint32_t pc){
@@ -285,5 +343,9 @@ void NativeTextures::serialize(bozo::state::Archive &a){
     state::map(a,menuPages,[&](MenuPage &v){stateAsset(a,*this,v.asset);st::io(a,v.palette);});
     state::map(a,menuLoads,[&](MenuLoad &v){st::fields(a,v.page,v.format,v.palette);});
     st::io(a,publications);
+}
+void NativeTextures::serializeBlocks(bozo::state::Archive &a){
+    state::map(a,blockPixels,[&](auto &v){stateAsset(a,*this,v);});
+    state::map(a,blockPalettes,[&](auto &v){stateAsset(a,*this,v);});
 }
 }

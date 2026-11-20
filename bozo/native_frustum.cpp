@@ -1,6 +1,7 @@
 #include "native_frustum.h"
 #include "native_scene.h"
 #include <algorithm>
+#include <limits>
 namespace vp2s {
 namespace {
 __m128 normal(__m128 v){
@@ -129,9 +130,20 @@ NativeSphereVisibility sphereVisibility(math::Matrix clip,const FrustumResult &p
     projected=sum(projected,mul(clip[2],music::broadcast<2>(sphere)));
     projected=sum(projected,mul(clip[3],_mm_set1_ps(1)));
     qualified(projected,3);const auto z=music::laneValue(projected,2);
-    if(z==0)throw std::runtime_error("unqualified native visibility projection at zero depth");
-    volatile float inverse=1.f/z;
-    const auto divided=mul(projected,_mm_set1_ps(inverse));qualified(divided,2);
+    __m128 divided;
+    if(z==0){
+        // A sphere exactly in the camera plane (the battle's radius-10000 stage object at the
+        // origin under the field camera, its first frame). VU0's DIV by zero gives Q = +-max
+        // with z's sign and each product saturates: x and y become +-max, or keep a signed
+        // zero. Natively max is FLT_MAX, the largest value the compiled guest's floats hold.
+        float lanes[4];std::memcpy(lanes,&projected,16);const bool negative=std::signbit(z);
+        for(unsigned i=0;i<2;++i){const bool sign=std::signbit(lanes[i])!=negative;
+            lanes[i]=lanes[i]==0?(sign?-0.f:0.f):(sign?-std::numeric_limits<float>::max():std::numeric_limits<float>::max());}
+        std::memcpy(&divided,lanes,16);
+    }else{
+        volatile float inverse=1.f/z;
+        divided=mul(projected,_mm_set1_ps(inverse));qualified(divided,2);
+    }
     projected=_mm_blend_ps(projected,divided,3);projected=_mm_blend_ps(projected,sphere,8);
     NativeSphereVisibility out;std::memcpy(out.input.data(),&sphere,16);std::memcpy(out.projected.data(),&projected,16);
     out.nearPoint=out.farPoint=out.projected;

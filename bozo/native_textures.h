@@ -42,6 +42,9 @@ class NativeTextures {
     std::map<uint32_t,std::shared_ptr<const NativeTextureAsset>> images; // Game image objects, never hardware addresses.
     struct MenuPage {std::shared_ptr<const NativeTextureAsset> asset;uint16_t palette=0;};
     std::map<uint32_t,MenuPage> menuPages;
+    // The battle's images, named as its loader 36b4a0 names them: by the graphics-memory block
+    // its layout table (*(36d880)+0x68) assigns, pixels and palettes apart.
+    std::map<uint32_t,std::shared_ptr<const NativeTextureAsset>> blockPixels,blockPalettes;
 public:
     struct MenuLoad {uint32_t page=0,format=0,palette=0;};
 private:
@@ -60,6 +63,10 @@ public:
     MenuLoad takeMenuLoad(uint32_t object);
     void publishMenuPage(uint16_t page,uint8_t format,uint16_t palette,TextureKey);
     std::shared_ptr<const NativeTextureAsset> menuPage(uint16_t page,uint8_t format,uint16_t palette)const;
+    void publishBlock(uint32_t block,bool palette,TextureKey);
+    std::shared_ptr<const NativeTextureAsset> blockAsset(uint32_t block,bool palette)const;
+    // Saved apart, at the end of VP2S's section: states older than these records end before them.
+    void serializeBlocks(bozo::state::Archive &);
     void finish(uint32_t stack);
     std::shared_ptr<const NativeTextureAsset> pixelAsset(uint16_t slot)const;
     std::shared_ptr<const NativeTextureAsset> paletteAsset(uint16_t slot)const;
@@ -78,6 +85,9 @@ bool nativeTextureInstruction(uint8_t *,R5900Context *,Runtime *,uint32_t pc);
 std::optional<bool> nativeFixedImageInstruction(R5900Context *,Runtime *,uint32_t pc);
 std::optional<bool> nativeTextureUploaderInstruction(R5900Context *,Runtime *,uint32_t pc);
 std::optional<bool> nativeMenuImageInstruction(R5900Context *,Runtime *,uint32_t pc);
+std::optional<bool> nativeBattleImageInstruction(R5900Context *,Runtime *,uint32_t pc);
+// The game's deferred free (1205b0): a 0x400-entry ring of pointers released later.
+void guestDeferredFree(Runtime *,uint32_t list,uint32_t pointer);
 // A held asset saved as its key and loaded again through `textures`.
 void stateAsset(bozo::state::Archive &,NativeTextures &,std::shared_ptr<const NativeTextureAsset> &);
 }

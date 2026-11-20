@@ -12,6 +12,58 @@ The earlier VP2S face/shading and general brightness comparisons remain open.
 
 ## Build and evidence
 
+### Battle set-up: images, zero depth, battle VU0 sites (2026-11-20)
+
+`--battle 0x18` from the map 79 state now runs module 27's set-up and the
+battle's first object updates. It stops in the particle producer (`22eae0`)
+for the battle object (class `16f680`, mode 3).
+- **Battle images** (`nativeBattleImageInstruction`, `bozo/native_textures.cpp`):
+  - **Loader:** module 27's `36b4a0(FIS, buffer, ..., palette block,
+    pixel block, ...)` built a 0x70-byte image packet per part and queued
+    each as a type-1 upload (flags 1: free the packet). The last part has an
+    owner (class `175c60`, built by mod028 `506420`) whose completion `5063e0`
+    frees the buffer and itself.
+  - **Native:** both enqueues (`36b5d0`, `36b6b0`) are patched out. At
+    `36b5d8` (s2 = FIS+0x10 on both paths) the decoded file is published
+    under its graphics-memory blocks, which come from the battle's layout
+    table `*(36d880)+0x68` and are the handle its draws use (pixels and
+    palettes apart). The former enqueues (`36b5d4`, `36b6b4`) run the
+    completion's frees through the game's deferred-free ring (`1205b0`, ported
+    as `guestDeferredFree`).
+  - **Not covered:** a derived image (mod028 `4f2950` greys a copy of a FIS)
+    stops with a message.
+  - **First run:** `kuri` (`6972756b:15a`): pixels `3ff0`, palette `800`.
+  - **Save states:** the block maps are saved at the end of VP2S's section;
+    older states end before them and still load.
+- **Zero-depth sphere** (`sphereVisibility`): the battle's radius-10000 stage
+  object sits exactly at the origin, and the field camera's depth row gives
+  z = 0. VU0's `DIV` by zero gives ±max and the products saturate, so
+  natively x and y become ±`FLT_MAX` (or stay a signed zero). Depth, radius
+  and classification are unchanged.
+- **Height query at a never-written point:** mod028 `4233c4` passes `sp+0x40`,
+  which it never writes. The words there are saved registers (`0x43c4fc`,
+  `0x90`), denormal as floats. The row-point input now reads denormals as zero,
+  as VU0 does (ps2f), so the point is (0, 0, 1, 0). Inf/NaN patterns and
+  values above 1e8 still stop the run. The range test is an integer compare,
+  so the host's denormal flag stays clear. The call's result is unused, and
+  the next query clears its outside-the-map flag (`+0x255`) first. Like the
+  uninitialised collider plane, this is the game reading memory it never
+  wrote; the definition is open to the user's decision.
+- **`strstr`** (main `134ed8`): main never calls it, so Ghidra left it out;
+  mod028 `43c2a0` does. It is now a pinned main entry.
+- **mod028 VU0 sites** (`bozo/native_math.cpp`, math suite cases):
+  - `43c120` basis lengths: program `0x7f0` → `objectBasisLengths`.
+  - `48ee30` shape origin: `+1b0` = source + optional offset, w = 1; held
+    per frame across the sin/cos calls.
+  - `48edb0` shape world point: `+1c0` = rows · `+1b0`.
+  - `48f0d0` box: centre copy and eight corners, ± extent; optional in-place
+    transform.
+  - `48efd0` box to world: corners `+20..` to `+a0..`, centre `+180` to
+    `+190`.
+  - The world-point and box sites use the height query's row-point block,
+    with the same accumulation order.
+  - Scalar words inside these ranges still run as compiled.
+
 ### Battle modules in the build (2026-11-20)
 
 The battle replaces the field's mod003 at `0x35ec80` with **module 27**

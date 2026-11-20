@@ -726,6 +726,7 @@ bool dispatchNativeInstruction(uint8_t *ram,R5900Context *ctx,Runtime *rt,uint32
     if(auto handled=vp2s::nativeFixedImageInstruction(ctx,rt,pc))return *handled;
     if(auto handled=vp2s::nativeTextureUploaderInstruction(ctx,rt,pc))return *handled;
     if(auto handled=vp2s::nativeMenuImageInstruction(ctx,rt,pc))return *handled;
+    if(auto handled=vp2s::nativeBattleImageInstruction(ctx,rt,pc))return *handled;
     if(auto handled=vp2s::nativeNamePlateInstruction(ctx,rt,pc))return *handled;
     if(auto handled=vp2s::nativeTextureManagerInstruction(ctx,rt,pc))return *handled;
     if(auto handled=vp2s::nativeVisibilityInstruction(ctx,rt,pc))return *handled;
@@ -943,7 +944,9 @@ int main(int argc,char **argv) {
                 step("assets");host.assets.serialize(a);step("models");host.models.serialize(a);
                 step("textures");host.textures.serialize(a);step("sprites");host.sprites.serialize(a,host.textures);
                 const vp2s::PictureContext pictures{host.textures,host.glyphs};
-                step("windows");host.windows.serialize(a,pictures);step("texts");host.uiTexts.serialize(a,pictures);step("math");vp2s::serializeMathState(a,&dispatcher.runtime());step("done");},
+                step("windows");host.windows.serialize(a,pictures);step("texts");host.uiTexts.serialize(a,pictures);step("math");vp2s::serializeMathState(a,&dispatcher.runtime());
+                // Added after the first states: an older state's section ends here.
+                step("battle images");if(!a.loading() || !a.atEnd())host.textures.serializeBlocks(a);step("done");},
             [&]{for(auto why:{host.dbc->unsaveable(),host.sprites.unsaveable(),host.windows.unsaveable(),host.uiTexts.unsaveable()})
                     if(!why.empty())return why;
                 // Owners whose open records later publish into guest memory: a save waits for them.

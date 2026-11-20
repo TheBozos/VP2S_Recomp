@@ -193,7 +193,9 @@ int main(){try{
             try{vp2s::nativeMathInstruction(r.memory.flat(),&c,&r,0x3e7f34);}catch(const std::runtime_error &){bad=true;}
             check(bad && !std::memcmp(&before,&c,sizeof(c)) && !std::memcmp(memory.data(),r.memory.flat(),memory.size()));};
         c.r[3].ud[0]+=16;reject();c.r[3].ud[0]-=16;c.r[2].ud[0]+=4;reject();c.r[2].ud[0]-=4;
-        for(auto at:{0x180000u,0x1fff070u})for(auto bits:{0x7fc00000u,1u,0x7f000000u}){put(r,at,bits);reject();put(r,at,0u);}
+        for(auto at:{0x180000u,0x1fff070u})for(auto bits:{0x7fc00000u,1u,0x7f000000u}){
+            if(at==0x1fff070u && bits==1u)continue; // a denormal point lane reads as zero (ps2f); the terrain cases cover it
+            put(r,at,bits);reject();put(r,at,0u);}
     }
     a.setFunctions(terrain_reference_function_table,terrain_reference_function_count,terrain_reference_resume_table,terrain_reference_resume_count);
     b.setFunctions(terrain_adapted_function_table,terrain_adapted_function_count,terrain_adapted_resume_table,terrain_adapted_resume_count);
@@ -214,6 +216,8 @@ int main(){try{
         float sample[4]={float(5+(seed%3)*10),0,float(5+(seed%5)*5),1};
         if(seed%9==1)sample[0]=-1;else if(seed%9==2)sample[0]=30;else if(seed%9==3)sample[2]=30;
         if(seed==0){sample[0]=sample[2]=5;}
+        // Battle set-up's never-written stack point: saved-register words, denormals as floats.
+        if(seed%13==4 && point!=object+0x210){sample[0]=std::bit_cast<float>(0x0043c4fcu);sample[1]=0;sample[2]=1;sample[3]=std::bit_cast<float>(0x90u);}
         std::memcpy(x.memory.hostPointer(point,16),sample,16);
         // Test source/output and inverse/source aliases without inventing an
         // inverse update. Cached matrices are ordinary records the routine owns.
@@ -223,7 +227,8 @@ int main(){try{
         const auto saved=_mm_getcsr(),control=(saved&~(_MM_ROUND_MASK|0x8040u))|mode|(seed&1?0x8040u:0u);_mm_setcsr(control);
         host.reference=true;x.functions.generated(0x252e30)(x.memory.flat(),&p,&x);const auto expected=_mm_getcsr();_mm_setcsr(control);
         host.reference=false;y.functions.generated(0x252e30)(y.memory.flat(),&q,&y);check(_mm_getcsr()==expected);_mm_setcsr(saved);
-        p.cycleLimit=q.cycleLimit;check(p.pc==0x170000 && !std::memcmp(&p,&q,sizeof(p)));check(!std::memcmp(x.memory.flat(),y.memory.flat(),bozo::kFlatBytes));
+        p.cycleLimit=q.cycleLimit;
+        check(p.pc==0x170000 && !std::memcmp(&p,&q,sizeof(p)));check(!std::memcmp(x.memory.flat(),y.memory.flat(),bozo::kFlatBytes));
         const bool miss=*y.memory.hostPointer(object+0x255,1)!=0;if(miss){if(q.fu[0]==0)++rejectedBounds;else ++missingHeights;}else ++heights;
         if(seed==0){if(miss || q.f[0]!=25.f)std::fprintf(stderr,"exact terrain got=%g missing=%u\n",q.f[0],unsigned(miss));check(!miss && q.f[0]==25.f);}++terrains;
     }

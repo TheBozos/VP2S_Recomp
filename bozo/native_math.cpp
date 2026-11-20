@@ -90,8 +90,18 @@ void publishLinearVector(Runtime *rt,uint32_t matrix,uint32_t vector,uint32_t de
 std::array<float,4> rowPoint(Runtime *rt,uint32_t matrixAt,uint32_t pointAt){
     float matrix[4][4],point[4];std::array<float,4> result;
     std::memcpy(matrix,record(rt,matrixAt,64),64);std::memcpy(point,record(rt,pointAt,16),16);
-    for(auto &row:matrix)for(float value:row){pairQualified(value);if(std::abs(value)>1.e8f)throw std::runtime_error("unqualified native row-point matrix");}
-    for(float value:point){pairQualified(value);if(std::abs(value)>1.e8f)throw std::runtime_error("unqualified native row-point input");}
+    const auto bad=[&](const char *what,const float *values,unsigned count,uint32_t at){std::string list;
+        for(unsigned i=0;i<count;++i)list+=std::format(" {:08x}",std::bit_cast<uint32_t>(values[i]));
+        throw std::runtime_error(std::format("unqualified native row-point {} at {:x}:{}",what,at,list));};
+    for(auto &row:matrix)for(float value:row){const auto b=std::bit_cast<uint32_t>(value),e=b&0x7f800000;
+        if(e==0x7f800000 || (!e && (b&0x7fffff)) || std::abs(value)>1.e8f)bad("matrix",&matrix[0][0],16,matrixAt);}
+    // The point reads as VU0 reads it: a denormal is zero (ps2f). Battle set-up (mod028
+    // 4233c4) queries the height at a stack record it never wrote; its saved-register
+    // words (0x43c4fc, 0x90) are denormals, so the point is (0, 0, 1, 0) as on PS2. That
+    // call's result is unused, and the next query clears its outside-the-map flag first.
+    for(float &value:point){const auto b=std::bit_cast<uint32_t>(value),e=b&0x7f800000;
+        if(e==0x7f800000 || (b&0x7fffffff)>std::bit_cast<uint32_t>(1.e8f))bad("input",point,4,pointAt); // integer test: no host denormal flag
+        if(!e)value=std::bit_cast<float>(b&0x80000000);}
     music::CodecRounding rounding;
     constexpr unsigned order[4][4]={{0,1,2,3},{1,0,2,3},{2,1,0,3},{3,1,2,0}};
     for(unsigned row=0;row<4;++row){float terms[4];for(unsigned i=0;i<4;++i)terms[i]=pairProduct(matrix[row][i],point[i]);
@@ -623,6 +633,143 @@ bool nativeObjectPairSpill(R5900Context *c,Runtime *rt,uint32_t pc){
     if(index==0)regs.valid=false;
     std::memcpy(row,record(rt,base+index*16,16),16);if(index==8)regs.valid=true;
     return true;
+}
+// Battle height set-up, mod028 43c0a0 (per object of its list +d8): the same 0x7f0
+// basis-length call on the object s0's rows +90..+b0 (LQC2 vf12..vf14 from a0 = s0+90,
+// VCALLMS 0x7f0, CFC2.I t1/vi0, SQC2 vf6 to sp+70); the scalar code reads the lengths.
+bool nativeBattleBasisLengths(R5900Context *c,Runtime *rt,uint32_t pc){
+    constexpr uint32_t words[8]={0xd88c0000,0xd88d0010,0xd88e0020,0,0x4a003fb8,0x48490001,0x27a30070,0xf8660000};
+    if(pc<0x43c120 || pc>0x43c13c || (pc&3) || pc==0x43c138 || !rt)return false;
+    uint32_t word=0;if(const auto *p=rt->memory.hostPointer(pc,4))std::memcpy(&word,p,4);
+    if(word!=words[(pc-0x43c120)/4])return false;   // another overlay at these addresses
+    if(!c)throw std::runtime_error("native battle basis lengths have no CPU record");
+    const auto object=c->r[16].uw[0];
+    if(c->r[4].uw[0]!=object+0x90)throw std::runtime_error("native battle basis mismatch");
+    if(pc==0x43c134){c->r[9].ud[0]=0;return true;}   // VI0 is the constant zero
+    if(pc!=0x43c13c)return true;
+    if(c->r[3].uw[0]!=c->r[29].uw[0]+0x70)throw std::runtime_error("native battle basis destination mismatch");
+    objectBasisLengths(rt,object,c->r[3].uw[0]);return true;
+}
+// Battle shape set-up, mod028 48ee30(a0 = s5 shape, a1 = source, a2 = s4 optional matrix):
+// LQC2 vf1 = a1+10 (48ee74), MULw.w vf1.w = 1 (48ee88, a delay slot: always), and with s4
+// LQC2 vf2 = (s4+c, s4+1c, s4+2c) from sp+90 (48ef84) and ADD.xyz vf1 += vf2 (48ef88);
+// SQC2 vf1 to s5+1b0 (48ef94). Between them the ring loop calls sin/cos (213fd0), so the
+// value is held per call frame (sp) from its load to its store; no state boundary in between.
+struct BattleOrigin{std::array<float,4> value{};bool offset=false;};
+std::map<std::pair<const Runtime *,uint32_t>,BattleOrigin> &battleOrigins(){static std::map<std::pair<const Runtime *,uint32_t>,BattleOrigin> m;return m;}
+bool nativeBattleShapeOrigin(R5900Context *c,Runtime *rt,uint32_t pc){
+    constexpr struct {uint32_t pc,word;} sites[]={{0x48ee74,0xd8610000},{0x48ee88,0x4a20005b},{0x48ef84,0xd8820000},{0x48ef88,0x4bc20868},{0x48ef94,0xf8610000}};
+    const auto site=std::find_if(std::begin(sites),std::end(sites),[&](auto &s){return s.pc==pc;});
+    if(site==std::end(sites) || !rt)return false;
+    uint32_t word=0;if(const auto *p=rt->memory.hostPointer(pc,4))std::memcpy(&word,p,4);
+    if(word!=site->word)return false;   // another overlay at these addresses
+    if(!c)throw std::runtime_error("native battle shape origin has no CPU record");
+    const auto shape=c->r[21].uw[0],stack=c->r[29].uw[0];const auto key=std::make_pair(static_cast<const Runtime *>(rt),stack);
+    auto &origins=battleOrigins();
+    if(pc==0x48ee74){
+        if(c->r[3].uw[0]!=c->r[5].uw[0]+0x10)throw std::runtime_error("native battle shape origin source mismatch");
+        BattleOrigin origin;float in[4];std::memcpy(in,record(rt,c->r[3].uw[0],16),16);
+        for(unsigned i=0;i<3;++i)origin.value[i]=vu0Input(in[i]);origin.value[3]=1;   // w: MULw.w vf0w*vf0w at 48ee88
+        origins[key]=origin;return true;
+    }
+    auto it=origins.find(key);if(it==origins.end())throw std::runtime_error("native battle shape origin has no load");
+    if(pc==0x48ee88)return true;
+    if(pc==0x48ef84){
+        if(c->r[4].uw[0]!=stack+0x90 || !c->r[20].uw[0] || it->second.offset)throw std::runtime_error("native battle shape offset escaped its record");
+        return true;
+    }
+    if(pc==0x48ef88){
+        float in[4];std::memcpy(in,record(rt,stack+0x90,16),16);music::NearestRounding rounding;
+        for(unsigned i=0;i<3;++i)it->second.value[i]=pairSum(it->second.value[i],vu0Input(in[i]));
+        it->second.offset=true;return true;
+    }
+    if(c->r[3].uw[0]!=shape+0x1b0 || it->second.offset!=(c->r[20].uw[0]!=0))throw std::runtime_error("native battle shape origin destination mismatch");
+    std::memcpy(record(rt,shape+0x1b0,16),it->second.value.data(),16);origins.erase(it);return true;
+}
+// Battle shape world point, mod028 48edb0(a0 shape, a1 matrix): unless +1d is set, the
+// same row-matrix * point block as the height query (252ec8, same accumulation order)
+// takes the shape origin a2 = a0+1b0 through the matrix's rows to v1 = a0+1c0.
+bool nativeBattleShapePoint(R5900Context *c,Runtime *rt,uint32_t pc){
+    if(pc<0x48edc0 || pc>0x48ee18 || (pc&3) || !rt)return false;
+    constexpr uint32_t words[]={0xd8cf0000,0xd8a10000,0xd8a20010,0xd8a30020,0xd8a40030,0x4bc00183,0x4bef0aea,0x4bef132a,0x4bef1b6a,0x4bef23aa,
+        0x4b0b583d,0x4b0b30be,0x4b0b33cb,0x4a8c603c,0x4a8c30be,0x4a8c33cb,0x4a4d683d,0x4a4d30bc,0x4a4d33cb,0x4a2e703d,0x4a2e00be,0x4a2e03c8,0xf86f0000};
+    uint32_t word=0;if(const auto *p=rt->memory.hostPointer(pc,4))std::memcpy(&word,p,4);
+    if(word!=words[(pc-0x48edc0)/4])return false;   // another overlay at these addresses
+    if(!c)throw std::runtime_error("native battle shape point has no CPU record");
+    const auto shape=c->r[4].uw[0];
+    if(c->r[6].uw[0]!=shape+0x1b0 || c->r[3].uw[0]!=shape+0x1c0)throw std::runtime_error("native battle shape point escaped its records");
+    if(pc!=0x48ee18)return true;
+    const auto result=rowPoint(rt,c->r[5].uw[0],shape+0x1b0);std::memcpy(record(rt,shape+0x1c0,16),result.data(),16);return true;
+}
+// Battle box corners, mod028 48f0d0(a0 box, a1 = extent at +0 / centre at +10, a2 matrix
+// or 0): the centre's 16 bytes go to a0+180 as loaded; vf1..vf8 = centre with w = 1
+// (MOVE.w from vf0), each lane +-extent (VU0 add/sub, nearest) in the order below, stored
+// to a0+20..+90. With a2, the loop 48f188..48f1cc takes each corner in place through the
+// matrix's rows (the height query's row-point block, same accumulation order).
+bool nativeBattleBoxCorners(R5900Context *c,Runtime *rt,uint32_t pc){
+    const bool build=pc>=0x48f0dc && pc<=0x48f164,loop=pc>=0x48f168 && pc<=0x48f1cc;
+    if(!(build || loop) || (pc&3) || !rt)return false;
+    constexpr uint32_t buildWords[]={0xd8e10000,0xd8aa0000,0xf8610000,0x4a21033c,0x4be20b3c,0x4be30b3c,0x4be40b3c,0x4be50b3c,0x4be60b3c,0x4be70b3c,0x4be80b3c,0x24830020,
+        0x4b4a0868,0x4b0a1080,0x4bca18e8,0x4b8a2128,0x4a4a2942,0x4aca39e8,0x4a8a4201,0x4a8a0845,0x4aca10ac,0x4a4a2106,0x4b8a296c,0x4bca31ac,0x4b0a39c4,0x4b4a422c,
+        0xf8610000,0xf8620010,0xf8630020,0xf8640030,0xf8650040,0xf8660050,0xf8670060,0x10c00021,0xf8680070};
+    constexpr uint32_t loopWords[]={0xd8cb0000,0xd8cc0010,0xd8cd0020,0xd8ce0030,0x4bc007c3,0x24850020,0x10000015,0x0000202d,0x4be15d6a,0x4be165aa,0x4be16dea,0x4be1762a,
+        0xd8a10010,0x4b15a83d,0x4b15f8be,0x4b15f94b,0x4a96b03c,0x4a96f8be,0x4a96f94b,0x4a57b83d,0x4a57f8bc,0x4a57f94b,0x4a38c03d,0x4a3800be,0x4a380148,0xf8a50000};
+    uint32_t word=0;if(const auto *p=rt->memory.hostPointer(pc,4))std::memcpy(&word,p,4);
+    if(word!=(build?buildWords[(pc-0x48f0dc)/4]:loopWords[(pc-0x48f168)/4]))return false;   // another overlay at these addresses
+    if(const auto op=word>>26;op!=0x12 && op!=0x36 && op!=0x3e)return false;   // the scalar words run as compiled
+    if(!c)throw std::runtime_error("native battle box has no CPU record");
+    if(build){
+        if(pc!=0x48f0dc)return true;
+        const auto box=c->r[4].uw[0],source=c->r[5].uw[0];
+        if(c->r[7].uw[0]!=source+0x10 || c->r[3].uw[0]!=box+0x180)throw std::runtime_error("native battle box escaped its records");
+        float centre[4],extent[4];std::memcpy(centre,record(rt,source+0x10,16),16);std::memcpy(extent,record(rt,source,16),16);
+        float in[3],half[3];for(unsigned i=0;i<3;++i){in[i]=vu0Input(centre[i]);half[i]=vu0Input(extent[i]);}
+        std::memcpy(record(rt,box+0x180,16),centre,16);
+        constexpr int signs[8][3]={{1,-1,1},{1,-1,-1},{1,1,1},{1,1,-1},{-1,-1,1},{-1,-1,-1},{-1,1,1},{-1,1,-1}};
+        float corners[8][4];music::NearestRounding rounding;
+        for(unsigned k=0;k<8;++k){for(unsigned i=0;i<3;++i)corners[k][i]=pairSum(in[i],signs[k][i]>0?half[i]:-half[i]);corners[k][3]=1;}
+        std::memcpy(record(rt,box+0x20,128),corners,128);return true;
+    }
+    if(pc!=0x48f1cc)return true;
+    const auto index=c->r[4].uw[0],at=c->r[5].uw[0],matrix=c->r[6].uw[0];
+    if(index>=8 || !matrix)throw std::runtime_error("native battle box transform escaped its loop");
+    const auto result=rowPoint(rt,matrix,at);std::memcpy(record(rt,at,16),result.data(),16);return true;
+}
+// Battle box to world, mod028 48efd0(a0 box, a1 matrix): unless +1d, LQC2 vf1..vf4 = the
+// matrix rows (48efdc..48efe8), then each corner a0+20+16k to a0+a0+16k (loop 48f000..
+// 48f044, a1 reused as its counter) and the centre a0+180 to a0+190 (48f06c..48f0b0), all
+// by the row-point block. The leaf has no calls: the matrix address is held from its load.
+std::map<std::pair<const Runtime *,uint32_t>,uint32_t> &battleBoxMatrices(){static std::map<std::pair<const Runtime *,uint32_t>,uint32_t> m;return m;}
+bool nativeBattleBoxWorld(R5900Context *c,Runtime *rt,uint32_t pc){
+    const bool load=pc>=0x48efdc && pc<=0x48efec,corner=pc>=0x48f000 && pc<=0x48f044,centre=pc>=0x48f06c && pc<=0x48f0b0;
+    if(!(load || corner || centre) || (pc&3) || !rt)return false;
+    constexpr uint32_t block[]={0x4bef0aea,0x4bef132a,0x4bef1b6a,0x4bef23aa,0x4b0b583d,0x4b0bf8be,0x4b0bfbcb,0x4a8c603c,0x4a8cf8be,0x4a8cfbcb,
+        0x4a4d683d,0x4a4df8bc,0x4a4dfbcb,0x4a2e703d,0x4a2e00be,0x4a2e03c8};   // MUL vf11..vf14 .. MADDx.w vf15
+    constexpr uint32_t loadWords[]={0xd8a10000,0xd8a20010,0xd8a30020,0xd8a40030,0x4bc007c3};
+    uint32_t expected;
+    if(load)expected=loadWords[(pc-0x48efdc)/4];
+    else{const auto first=corner?0x48f000u:0x48f06cu,last=corner?0x48f044u:0x48f0b0u;
+        expected=pc==first?(corner?0xd8ef0000u:0xd8af0000u):pc==last?(corner?0xf8cf0000u:0xf86f0000u):block[(pc-first)/4-1];}
+    uint32_t word=0;if(const auto *p=rt->memory.hostPointer(pc,4))std::memcpy(&word,p,4);
+    if(word!=expected)return false;   // another overlay at these addresses
+    if(!c)throw std::runtime_error("native battle box world has no CPU record");
+    const auto box=c->r[4].uw[0];const auto key=std::make_pair(static_cast<const Runtime *>(rt),box);auto &matrices=battleBoxMatrices();
+    if(load){
+        if(pc==0x48efdc){const auto matrix=c->r[5].uw[0];record(rt,matrix,64);
+            if(matrix<box+0x1a0 && box+0xa0<matrix+64)throw std::runtime_error("native battle box matrix overlaps its outputs");
+            matrices[key]=matrix;}
+        return true;
+    }
+    auto it=matrices.find(key);if(it==matrices.end())throw std::runtime_error("native battle box world has no matrix load");
+    if(corner){
+        if(pc!=0x48f044)return true;
+        const auto index=c->r[5].uw[0],from=c->r[7].uw[0],to=c->r[6].uw[0];
+        if(index>=8 || from!=box+0x20+16*index || to!=box+0xa0+16*index)throw std::runtime_error("native battle box corner escaped its loop");
+        const auto result=rowPoint(rt,it->second,from);std::memcpy(record(rt,to,16),result.data(),16);return true;
+    }
+    if(c->r[5].uw[0]!=box+0x180 || c->r[3].uw[0]!=box+0x190)throw std::runtime_error("native battle box centre escaped its records");
+    if(pc!=0x48f0b0)return true;
+    const auto result=rowPoint(rt,it->second,box+0x180);std::memcpy(record(rt,box+0x190,16),result.data(),16);matrices.erase(it);return true;
 }
 bool nativeObjectOverlap(R5900Context *c,Runtime *rt,uint32_t pc){
     const bool spill=pc>=0x1f8b34 && pc<=0x1f8b54,restore=(pc>=0x1f8e70 && pc<=0x1f8e90) || (pc>=0x1f8fec && pc<=0x1f900c)
@@ -3087,6 +3234,11 @@ bool nativeMathInstruction(uint8_t *,R5900Context *c,Runtime *rt,uint32_t pc){
     if(nativeObjectOverlap(c,rt,pc))return true;
     if(nativeObjectPairSetup(c,rt,pc))return true;
     if(nativeObjectPairSpill(c,rt,pc))return true;
+    if(nativeBattleBasisLengths(c,rt,pc))return true;
+    if(nativeBattleShapeOrigin(c,rt,pc))return true;
+    if(nativeBattleShapePoint(c,rt,pc))return true;
+    if(nativeBattleBoxCorners(c,rt,pc))return true;
+    if(nativeBattleBoxWorld(c,rt,pc))return true;
     if(nativeUvAnimation(c,rt,pc))return true;
     if(nativeSegmentContact(c,rt,pc))return true;
     if(nativeObjectCompose(c,rt,pc))return true;

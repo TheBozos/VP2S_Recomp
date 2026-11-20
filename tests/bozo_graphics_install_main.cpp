@@ -440,8 +440,13 @@ int main(){try{
         owner.finishVisibility(stack,scene);reject([&]{vp2s::nativeVisibilityInstruction(&c,&r,0x220c74);});
         check(held.angle==0 && held.input[2]==4);
     }
-    bool zeroRejected=false;
-    try{vp2s::sphereVisibility(clip,planes,_mm_setr_ps(0,0,0,1));}catch(const std::exception &){zeroRejected=true;}check(zeroRejected);
+    {   // Zero depth (a sphere in the camera plane): VU0's DIV by zero saturates x and y to
+        // +-max (FLT_MAX natively) or keeps a zero; depth, radius and classification stay.
+        float translation[4];std::memcpy(translation,&clip[3],16);check(translation[2]==0);
+        const auto held=vp2s::sphereVisibility(clip,planes,_mm_setr_ps(0,0,0,10000));
+        for(unsigned i=0;i<2;++i)check(translation[i]==0?held.projected[i]==0:std::abs(held.projected[i])==std::numeric_limits<float>::max());
+        check(held.projected[2]==0 && held.projected[3]==10000 && held.nearPoint[2]==-10000 && held.farPoint[2]==10000);
+    }
     bool radiusRejected=false;
     try{vp2s::sphereVisibility(clip,planes,_mm_setr_ps(0,0,4,-1));}catch(const std::exception &){radiusRejected=true;}check(radiusRejected);
     {bool bad=false;try{vp2s::sphereAngleVisibility(planes,_mm_setr_ps(0,0,4,-1));}catch(const std::runtime_error &){bad=true;}check(bad);

@@ -244,7 +244,14 @@ void NativeScene::visibilitySphere(Runtime *rt,uint32_t stack,uint32_t object,ui
     __m128 sphere;math::Matrix clip;FrustumResult planes;
     std::memcpy(&sphere,record(rt,source,16),16);std::memcpy(clip.data(),inputs.clip.data(),64);
     std::memcpy(planes.points.data(),inputs.frustum->points.data(),160);std::memcpy(planes.normals.data(),inputs.frustum->normals.data(),160);
-    auto result=sphereVisibility(clip,planes,sphere);result.object=object;result.source=source;
+    NativeSphereVisibility result;
+    try{result=sphereVisibility(clip,planes,sphere);}
+    catch(const std::runtime_error &e){
+        float v[4];std::memcpy(v,&sphere,16);
+        throw std::runtime_error(std::format("{} (object {:x}, sphere {:x} = {} {} {} r {}, camera {:x}, clip z column {} {} {} {})",e.what(),object,source,v[0],v[1],v[2],v[3],
+            inputs.camera,clip[0][2],clip[1][2],clip[2][2],clip[3][2]));
+    }
+    result.object=object;result.source=source;
     visibilityInputs.at(stack).sphere=std::move(result);
 }
 const NativeSphereVisibility &NativeScene::visibilitySphere(uint32_t stack,uint32_t object,uint32_t source)const{

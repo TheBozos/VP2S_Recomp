@@ -851,6 +851,22 @@ int main(int argc,char **argv){try{
             float v[4];std::memcpy(v,rt.memory.hostPointer(box+0x190,16),16);check(v[0]==1 && v[1]==-18 && v[2]==3 && v[3]==1);
             bool bad=false;try{vp2s::nativeMathInstruction(rt.memory.flat(),&w,&rt,0x48f0b0);}catch(const std::runtime_error &){bad=true;}check(bad);   // matrix released
         }
+        {   // mod001 284050 particle integrator (nativeParticleStep's site table): pos + vel * dt to the output and back, w kept.
+            const std::pair<uint32_t,uint32_t> words[]={{0x2840d0,0x48a31800},{0x28414c,0xd9410000},{0x284150,0xd8620000},{0x284178,0x4bc00abc},{0x28417c,0x4bc31048},{0x284188,0xf8610000},{0x28418c,0xf9410000}};
+            for(auto [pc,word]:words)std::memcpy(rt.memory.hostPointer(pc,4),&word,4);
+            constexpr uint32_t rec=0x1a0080,out=0x1b0000;const float dt=0.5f;
+            const float pos[4]={1,2,3,std::bit_cast<float>(0x12345678u)},vel[4]={4,-6,8,99};
+            std::memcpy(rt.memory.hostPointer(rec,16),pos,16);std::memcpy(rt.memory.hostPointer(rec+0x10,16),vel,16);
+            R5900Context c{};c.r[3].uw[0]=std::bit_cast<uint32_t>(dt);c.r[10].uw[0]=rec;
+            check(vp2s::nativeMathInstruction(rt.memory.flat(),&c,&rt,0x2840d0) && vp2s::nativeMathInstruction(rt.memory.flat(),&c,&rt,0x28414c));
+            c.r[3].uw[0]=rec+0x10;for(uint32_t pc:{0x284150u,0x284178u,0x28417cu})check(vp2s::nativeMathInstruction(rt.memory.flat(),&c,&rt,pc));
+            c.r[3].uw[0]=out;check(vp2s::nativeMathInstruction(rt.memory.flat(),&c,&rt,0x284188) && vp2s::nativeMathInstruction(rt.memory.flat(),&c,&rt,0x28418c));
+            float o[4],p[4];std::memcpy(o,rt.memory.hostPointer(out,16),16);std::memcpy(p,rt.memory.hostPointer(rec,16),16);
+            check(o[0]==3 && o[1]==-1 && o[2]==7 && !std::memcmp(o,p,16) && std::bit_cast<uint32_t>(p[3])==0x12345678u);
+            // 28a8a0, the copy of 409fb0: its dt site 40a030 - 17f710.
+            const uint32_t q=0x48a31800;std::memcpy(rt.memory.hostPointer(0x28a920,4),&q,4);c.r[3].uw[0]=std::bit_cast<uint32_t>(dt);
+            check(vp2s::nativeMathInstruction(rt.memory.flat(),&c,&rt,0x28a920));
+        }
     }
     unsigned projectionCases=0,projectedPoints=0;
     for(unsigned part=0;part<2;++part)for(unsigned rounding:{_MM_ROUND_NEAREST,_MM_ROUND_DOWN,_MM_ROUND_UP,_MM_ROUND_TOWARD_ZERO})for(unsigned seed=0;seed<96;++seed){

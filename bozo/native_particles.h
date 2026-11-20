@@ -3,6 +3,9 @@
 #include <array>
 #include <map>
 namespace vp2s {
+// The field emitter class 154180 and the battle's subclass 16f680 (mod028 overrides its
+// update/draw slots; the producer 22eadc and the record layout are the base class's).
+inline bool particleClass(uint32_t vtable){return vtable==0x154180 || vtable==0x16f680;}
 struct ParticleBounds {std::array<float,4> minimum{},maximum{};};
 inline constexpr uint32_t particleSphereSites[]={0x22efd8,0x22efdc,0x22efe0,0x22efe4,0x22efe8,0x22efec,0x22eff0,0x22eff4,0x22eff8,0x22effc,0x22f004,0x22f008,0x22f010,0x22f014,0x22f018};
 // A mode-3 emitter publishes explicit point chunks into the game's two RAM

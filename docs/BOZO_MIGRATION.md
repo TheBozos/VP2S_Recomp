@@ -12,6 +12,32 @@ The earlier VP2S face/shading and general brightness comparisons remain open.
 
 ## Build and evidence
 
+### Battle particles: mod001 copies of the field emitters (2026-11-20)
+
+The battle's particle owners run mod001 functions the field never used.
+A word-for-word comparison with `jal` targets masked
+shows they are **byte-identical copies** of mod003 functions that are already
+ported; only their module-local `jal` targets differ. Each port now maps the
+copy onto its listed sites with a fixed offset:
+
+| mod001 | mod003 original | offset | port |
+|---|---|---|---|
+| `284050` | `409700` step | `1856b0` | `nativeParticleStep` tables |
+| `28a8a0` | `409fb0` step | `17f710` | `nativeParticleStep` tables |
+| `2929e0` | `40b080` trail emitter | `1786a0` | `TrailLayout::offset` |
+| `293da0` | `40b990` orbit emitter | `177bf0` | `TrailLayout::offset` |
+| `27da10` | `408e90` motion | `18b480` | shifted pcs and block entries |
+| `291910` | `40a8b0` physics | `178fa0` | shifted pcs |
+| `299140` | `410640` physics callback | `177500` | shifted pcs, entries, return addresses |
+
+- **Particle class:** the battle's owner class `16f680` (mod028 overrides its
+  update and draw slots) has the field emitter's record layout. The producer
+  (`22eadc`) and the draw accept it next to `154180` (`particleClass`).
+- **Result:** the battle's first particle frames run natively. The run stops at
+  a mode-4 owner (class `1725d0`): mode 4 (and 2) halves the per-chunk count
+  and passes a flag (`s7` = 1) to the emitter methods. Modes 3/6 are ported;
+  mode 4 is next.
+
 ### Battle set-up: images, zero depth, battle VU0 sites (2026-11-20)
 
 `--battle 0x18` from the map 79 state now runs module 27's set-up and the

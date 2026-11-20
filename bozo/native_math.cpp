@@ -430,8 +430,13 @@ bool nativeSquadInstruction(R5900Context *c,Runtime *rt,uint32_t pc){
     if(pc==stores[call.phase]){call.published=false;++call.phase;}
     return true;
 }
+// The battle's copies in mod001 (only module-local jal targets differ): the physics step
+// 291910 = 40a8b0 - 178fa0 calls its own callback 299140 = 410640 - 177500.
+constexpr uint32_t kPhysicsCopyShift=0x178fa0,kCallbackCopyShift=0x177500;
 bool nativeParticleCallbackInstruction(R5900Context *c,Runtime *rt,uint32_t pc){
     constexpr uint32_t sites[]={0x41074c,0x410750,0x410790,0x410794,0x4107a8,0x4107b0,0x4107b4};
+    const bool copy=pc>=sites[0]-kCallbackCopyShift && pc<=sites[6]-kCallbackCopyShift;
+    const uint32_t shift=copy?kCallbackCopyShift:0,physicsShift=copy?kPhysicsCopyShift:0;pc+=shift;
     const auto site=std::find(std::begin(sites),std::end(sites),pc);if(site==std::end(sites))return false;
     auto *d=rt?dynamic_cast<bozo::ee::Dispatcher *>(rt->services):nullptr;
     auto *updates=d?dynamic_cast<ParticleUpdateOwner *>(&d->host()):nullptr;auto *particles=d?dynamic_cast<ParticleOwner *>(&d->host()):nullptr;
@@ -447,8 +452,8 @@ bool nativeParticleCallbackInstruction(R5900Context *c,Runtime *rt,uint32_t pc){
     if(pc==sites[0]){
         const auto object=word(emitter+0x6c),table=word(record(rt,object,16));auto *method=rt->memory.hostPointer(table+0x98,4);
         const auto address=c->r[31].uw[0];const unsigned flags=emitter[0xd2];
-        if(c->pc!=0x410640 || state.callbacks.contains(stack) || c->r[4].uw[0]!=point.emitter || !method || word(method)!=0x2262b0 ||
-           (address!=0x40ac20 && address!=0x40acb0 && address!=0x40ad50 && address!=0x40ade4) || word(frame+0x20)!=address ||
+        if(c->pc+shift!=0x410640 || state.callbacks.contains(stack) || c->r[4].uw[0]!=point.emitter || !method || word(method)!=0x2262b0 ||
+           (address+physicsShift!=0x40ac20 && address+physicsShift!=0x40acb0 && address+physicsShift!=0x40ad50 && address+physicsShift!=0x40ade4) || word(frame+0x20)!=address ||
            c->r[10].uw[0]!=(flags&1?stack+0x70:0) || c->r[5].uw[0]!=(flags&2?stack+0x60:0) || c->r[3].uw[0]!=(flags&4?stack+0x50:0) ||
            c->r[6].uw[0]!=point.point+0x30 || c->r[7].uw[0]!=point.point+0x40 || c->r[8].uw[0] || c->r[9].uw[0])
             throw std::runtime_error("unqualified native particle object-update callback");
@@ -459,15 +464,16 @@ bool nativeParticleCallbackInstruction(R5900Context *c,Runtime *rt,uint32_t pc){
     }
     auto call=state.callbacks.find(stack);
     if(call==state.callbacks.end() || call->second.phase!=unsigned(site-std::begin(sites)) || call->second.emitter!=point.emitter || call->second.point!=point.point || call->second.index!=point.index ||
-       word(frame+0x20)!=call->second.returnAddress || word(emitter+0x6c)!=call->second.object || c->pc!=(pc==0x410750?0x410640:0x410790))
+       word(frame+0x20)!=call->second.returnAddress || word(emitter+0x6c)!=call->second.object || c->pc+shift!=(pc==0x410750?0x410640u:0x410790u))
         throw std::runtime_error("native particle callback retirement order mismatch");
     if(pc==0x410750 && c->r[2].uw[0]!=stack+0x30)throw std::runtime_error("particle callback spill address mismatch");
-    if(pc==0x410790 && c->r[31].uw[0]!=0x410790)throw std::runtime_error("particle callback did not return through original caller");
+    if(pc==0x410790 && c->r[31].uw[0]+shift!=0x410790)throw std::runtime_error("particle callback did not return through original caller");
     if(pc==0x4107a8 && c->r[3].uw[0]!=word(record(rt,0x35dee0,16)+8))throw std::runtime_error("particle callback timestep source mismatch");
     if((pc==0x4107b0 || pc==0x4107b4) && c->r[3].uw[0]!=stack+0x30)throw std::runtime_error("particle callback restore address mismatch");
     if(pc==0x4107b4)state.callbacks.erase(call);else ++call->second.phase;return true;
 }
 bool nativeParticlePhysicsInstruction(R5900Context *c,Runtime *rt,uint32_t pc){
+    if(pc>=0x40a950-kPhysicsCopyShift && pc<=0x40b040-kPhysicsCopyShift)pc+=kPhysicsCopyShift;   // the mod001 copy
     const bool recordStore=pc==0x40abb8 || pc==0x40abbc || pc==0x40abc0 || pc==0x40ac2c || pc==0x40ac34 || pc==0x40ac38 ||
         pc==0x40ace0 || pc==0x40ace4 || pc==0x40ace8 || pc==0x40ad58 || pc==0x40ad5c || pc==0x40ad60 || pc==0x40adf0 || pc==0x40adf4 || pc==0x40adf8;
     const bool calculation=pc==0x40ab24 || pc==0x40ab28 || pc==0x40ab2c || pc==0x40ab30 || pc==0x40ab34 || pc==0x40ab38 || pc==0x40ab3c || pc==0x40ab40 || pc==0x40ab44 || pc==0x40ab54 || pc==0x40ab58;
@@ -2575,9 +2581,17 @@ bool nativeParticleStep(R5900Context *c,Runtime *rt,uint32_t pc){
     constexpr uint32_t kCopies[]={0,0x38d900-0x3652d0,0x44b8f0-0x3652d0};
     if(!rt)return false;
     const ParticleSite *site=nullptr;
-    if(pc>=0x409780 && pc<=0x409e34){for(const auto &s:particleSites409700)if(s.pc==pc)site=&s;}
-    else if(pc>=0x40a030 && pc<=0x40a6a4){for(const auto &s:particleSites409fb0)if(s.pc==pc)site=&s;}
-    else{
+    // mod001 holds byte-identical copies (only module-local jal targets differ) of both,
+    // run by the battle's emitters: 284050 = 409700 - 1856b0, 28a8a0 = 409fb0 - 17f710.
+    struct Table{const ParticleSite *begin,*end;uint32_t lo,hi,offset;};
+    constexpr Table tables[]={{std::begin(particleSites409700),std::end(particleSites409700),0x409780,0x409e34,0},
+        {std::begin(particleSites409fb0),std::end(particleSites409fb0),0x40a030,0x40a6a4,0},
+        {std::begin(particleSites409700),std::end(particleSites409700),0x409780,0x409e34,0x1856b0},
+        {std::begin(particleSites409fb0),std::end(particleSites409fb0),0x40a030,0x40a6a4,0x17f710}};
+    bool tabled=false;
+    for(const auto &t:tables){const uint32_t listed=pc+t.offset;
+        if(listed>=t.lo && listed<=t.hi){tabled=true;for(auto *s=t.begin;s!=t.end;++s)if(s->pc==listed)site=s;}}
+    if(!tabled){
         for(const auto copy:kCopies){const uint32_t listed=pc-copy;
             if(listed>=0x365350 && listed<=0x365914)for(const auto &s:particleSites)if(s.pc==listed)site=&s;}
     }
@@ -2740,10 +2754,15 @@ constexpr TrailSite orbitSites[]={
     {0x40c364,0xf8440000,'a',5},{0x40c368,0x4bc4d6af,'b',6},{0x40c36c,0x4bc4deeb,'b',7}};
 // The two layouts: first/last site, frame = sp + frame, record stride, loads,
 // main-step sites, record stores, mode 2/5 publication (sp+), curve index reg.
-struct TrailLayout{uint32_t lo,hi,frame,stride;const TrailSite *begin,*end;bool orbit;unsigned loads,main,records;uint32_t mode2,mode5;unsigned curveIndex;};
+// offset: a byte-identical copy in another module runs at pc = listed - offset (mod001's
+// 2929e0 is mod003's trail emitter 1786a0 lower, 293da0 its orbit emitter 177bf0 lower;
+// only their module-local jal targets differ).
+struct TrailLayout{uint32_t lo,hi,frame,stride;const TrailSite *begin,*end;bool orbit;unsigned loads,main,records;uint32_t mode2,mode5;unsigned curveIndex;uint32_t offset=0;};
 constexpr TrailLayout trailLayouts[]={
     {0x40b124,0x40b8c4,0x170,0xb0,std::begin(trailSites),std::end(trailSites),false,7,17,5,0x150,0x140,9},
-    {0x40ba48,0x40c36c,0x1e0,0x120,std::begin(orbitSites),std::end(orbitSites),true,12,23,7,0x190,0x180,7}};
+    {0x40ba48,0x40c36c,0x1e0,0x120,std::begin(orbitSites),std::end(orbitSites),true,12,23,7,0x190,0x180,7},
+    {0x40b124,0x40b8c4,0x170,0xb0,std::begin(trailSites),std::end(trailSites),false,7,17,5,0x150,0x140,9,0x1786a0},
+    {0x40ba48,0x40c36c,0x1e0,0x120,std::begin(orbitSites),std::end(orbitSites),true,12,23,7,0x190,0x180,7,0x177bf0}};
 struct TrailState{
     const TrailLayout *layout=nullptr;unsigned setup=0;uint32_t frame=0,emitter=0,dt=0;VuWords drift{},clamp{};
     uint32_t record=0,output=0;unsigned loads=0,orbit=0,curve=0,main=0,outputs=0,stored=0,extra=0,extraStep=0;
@@ -2755,7 +2774,8 @@ TrailState &trailState(const Runtime *rt){static std::map<const Runtime *,TrailS
 bool nativeTrailEmitter(R5900Context *c,Runtime *rt,uint32_t pc){
     if(!rt)return false;
     const TrailLayout *layout=nullptr;const TrailSite *site=nullptr;
-    for(const auto &l:trailLayouts)if(pc>=l.lo && pc<=l.hi)for(auto *s=l.begin;s!=l.end;++s)if(s->pc==pc){layout=&l;site=s;}
+    for(const auto &l:trailLayouts){const uint32_t listed=pc+l.offset;
+        if(listed>=l.lo && listed<=l.hi)for(auto *s=l.begin;s!=l.end;++s)if(s->pc==listed){layout=&l;site=s;}}
     if(!site)return false;
     uint32_t word=0;if(const auto *p=rt->memory.hostPointer(pc,4))std::memcpy(&word,p,4);
     if(word!=site->word)return false;   // another overlay at these addresses
@@ -3454,36 +3474,39 @@ bool nativeMathInstruction(uint8_t *,R5900Context *c,Runtime *rt,uint32_t pc){
             publishLinearVector(rt,matrix,vector,destination);
         return true;
     }
-    if(pc==0x40b040){nativeParticlePhysicsInstruction(c,rt,pc);return false;}
-    if(pc>=0x40a950 && pc<=0x40adf8 && nativeParticlePhysicsInstruction(c,rt,pc))return true;
+    if(pc==0x40b040 || pc==0x40b040-kPhysicsCopyShift){nativeParticlePhysicsInstruction(c,rt,pc);return false;}
+    if(((pc>=0x40a950 && pc<=0x40adf8) || (pc>=0x40a950-kPhysicsCopyShift && pc<=0x40adf8-kPhysicsCopyShift)) && nativeParticlePhysicsInstruction(c,rt,pc))return true;
+    // 408e90 (mod003) and its byte-identical copy mod001 27da10 (18b480 lower; only module-local
+    // jal targets differ), run by the battle's emitters: both map onto the listed sites.
+    const uint32_t motionShift=pc>=0x408f10-0x18b480 && pc<=0x409584-0x18b480?0x18b480u:0u,mpc=pc+motionShift,mentry=c?c->pc+motionShift:0;
     static constexpr std::array<uint32_t,26> particleSites{0x408f10,0x408f84,0x408f88,0x408fa8,0x408fac,0x408fb8,0x408fbc,
         0x409064,0x409068,0x40908c,0x409090,0x40909c,0x4090a0,0x409118,0x4091c0,0x4091c8,0x40931c,0x409320,0x40932c,0x409334,
         0x409400,0x409404,0x40956c,0x409570,0x40957c,0x409584};
-    if(pc>=particleSites.front() && pc<=particleSites.back() && std::binary_search(particleSites.begin(),particleSites.end(),pc)){
+    if(mpc>=particleSites.front() && mpc<=particleSites.back() && std::binary_search(particleSites.begin(),particleSites.end(),mpc)){
         const auto object=c->r[4].uw[0],stack=c->r[29].uw[0];auto *owner=record(rt,object,0xf0);record(rt,stack,0x80);
         const auto readWord=[](const uint8_t *p,unsigned at){uint32_t v;std::memcpy(&v,p+at,4);return v;};
         const auto group=readWord(owner,0x10),pool=readWord(owner,0x14),count=readWord(owner,0xc);
         if(!group || group>16 || group!=c->r[25].uw[0] || !count || count>65536 ||
-           (c->pc!=0x408e90 && c->pc!=0x408f30 && c->pc!=0x408fe8 && c->pc!=0x409148 && c->pc!=0x409360 && c->pc!=0x4091d0 && c->pc!=0x409418))
+           (mentry!=0x408e90 && mentry!=0x408f30 && mentry!=0x408fe8 && mentry!=0x409148 && mentry!=0x409360 && mentry!=0x4091d0 && mentry!=0x409418))
             throw std::runtime_error("native particle motion owner/continuation mismatch");
         auto *timeRecord=record(rt,0x35dee0,16);float time;std::memcpy(&time,timeRecord+8,4);
-        if(pc==0x408f10 || pc==0x409118){
+        if(mpc==0x408f10 || mpc==0x409118){
             const bool simple=owner[0xd8]&1;
-            if(simple!=(pc==0x408f10) || c->r[pc==0x408f10?3:16].uw[0]!=std::bit_cast<uint32_t>(time))
+            if(simple!=(mpc==0x408f10) || c->r[mpc==0x408f10?3:16].uw[0]!=std::bit_cast<uint32_t>(time))
                 throw std::runtime_error("native particle timestep source mismatch");
             return true;
         }
-        const unsigned path=pc<=0x408fbc?0:pc<=0x4090a0?1:pc<=0x409334?2:3;
+        const unsigned path=mpc<=0x408fbc?0:mpc<=0x4090a0?1:mpc<=0x409334?2:3;
         const bool simple=owner[0xd8]&1;
         if(simple!=(path<2) || (group==1)!=(path%2==0))throw std::runtime_error("native particle motion branch mismatch");
-        const bool loading=pc==0x408f84 || pc==0x408f88 || pc==0x409064 || pc==0x409068 || pc==0x4091c0 || pc==0x4091c8 || pc==0x409400 || pc==0x409404;
+        const bool loading=mpc==0x408f84 || mpc==0x408f88 || mpc==0x409064 || mpc==0x409068 || mpc==0x4091c0 || mpc==0x4091c8 || mpc==0x409400 || mpc==0x409404;
         const auto cursor=c->r[24].uw[0];if((!loading && !cursor) || (loading?cursor:cursor-1)>=count)throw std::runtime_error("native particle source index outside owner");
         const auto index=loading?cursor:cursor-1,source=pool+index*0x90+0x60;
         record(rt,pool,count*0x90);auto *input=record(rt,source,32);
         constexpr unsigned sourceRegisters[]={10,3,22,21};
         if(c->r[sourceRegisters[path]].uw[0]!=source)throw std::runtime_error("native particle position source mismatch");
-        const bool publish=pc==0x408fb8 || pc==0x40909c || pc==0x40932c || pc==0x40957c;
-        const bool feedback=pc==0x408fbc || pc==0x4090a0 || pc==0x409334 || pc==0x409584;
+        const bool publish=mpc==0x408fb8 || mpc==0x40909c || mpc==0x40932c || mpc==0x40957c;
+        const bool feedback=mpc==0x408fbc || mpc==0x4090a0 || mpc==0x409334 || mpc==0x409584;
         if(publish || feedback){
             const auto output=c->r[6].uw[0]+0x20,destination=publish?output:source;
             constexpr unsigned outputRegisters[]={3,9,16,16};

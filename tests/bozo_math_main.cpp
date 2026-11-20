@@ -1815,17 +1815,26 @@ int main(int argc,char **argv){try{
         {0x4098ec,0xd8610000},{0x4098f0,0xd9220000},{0x40991c,0x4bc00abc},{0x409920,0x4bc31048},{0x40992c,0xf9210000},{0x409930,0xf8610000},
         {0x409a58,0xdac10000},{0x409a60,0xda020000},{0x409bbc,0x4bc00abc},{0x409bc0,0x4bc31048},{0x409bcc,0xfa010000},{0x409bd4,0xfac10000},
         {0x409ca8,0xdaa10000},{0x409cac,0xda020000},{0x409e1c,0x4bc00abc},{0x409e20,0x4bc31048},{0x409e2c,0xfa010000},{0x409e34,0xfaa10000}};
+     // 409fb0 (a fourth class, map 79): the same words at its own sites.
+     const Variant variants409fb0[4]={{0x40a030,0x40a0a4,0x40a0a8,0x40a0c8,0x40a0cc,0x40a0d8,0x40a0dc},{0x40a030,0x40a184,0x40a188,0x40a1ac,0x40a1b0,0x40a1bc,0x40a1c0},
+                                      {0x40a238,0x40a2e0,0x40a2e8,0x40a43c,0x40a440,0x40a44c,0x40a454},{0x40a238,0x40a520,0x40a524,0x40a68c,0x40a690,0x40a69c,0x40a6a4}};
+     const std::pair<uint32_t,uint32_t> words409fb0[]={{0x40a030,0x48a31800},{0x40a238,0x48b01800},
+        {0x40a0a4,0xd9410000},{0x40a0a8,0xd8620000},{0x40a0c8,0x4bc00abc},{0x40a0cc,0x4bc31048},{0x40a0d8,0xf8610000},{0x40a0dc,0xf9410000},
+        {0x40a184,0xd8610000},{0x40a188,0xd9220000},{0x40a1ac,0x4bc00abc},{0x40a1b0,0x4bc31048},{0x40a1bc,0xf9210000},{0x40a1c0,0xf8610000},
+        {0x40a2e0,0xdac10000},{0x40a2e8,0xda020000},{0x40a43c,0x4bc00abc},{0x40a440,0x4bc31048},{0x40a44c,0xfa010000},{0x40a454,0xfac10000},
+        {0x40a520,0xdaa10000},{0x40a524,0xda020000},{0x40a68c,0x4bc00abc},{0x40a690,0x4bc31048},{0x40a69c,0xfa010000},{0x40a6a4,0xfaa10000}};
      const auto field=[](uint32_t w,unsigned shift){return (w>>shift)&31;};
-     for(unsigned seed=0;seed<192;++seed){
-        const bool third=seed>=128;
+     for(unsigned seed=0;seed<256;++seed){
+        const bool fourth=seed>=192,third=seed>=128 && !fourth;
         // The 38d900 copy (seeds 64..95) and the forest emitter's 44b8f0 copy (96..127): every site shifted.
-        const uint32_t k=seed>=64 && !third?(seed>=96?0x44b8f0-0x3652d0:0x38d900-0x3652d0):0;
+        const uint32_t k=seed>=64 && seed<128?(seed>=96?0x44b8f0-0x3652d0:0x38d900-0x3652d0):0;
         auto &r=native.runtime();std::memset(r.memory.flat(),0x5c+seed,bozo::kFlatBytes);
         if(third){for(const auto &[pc,w]:words409700)std::memcpy(r.memory.hostPointer(pc,4),&w,4);}
+        else if(fourth){for(const auto &[pc,w]:words409fb0)std::memcpy(r.memory.hostPointer(pc,4),&w,4);}
         else for(const auto &[pc,w]:words)std::memcpy(r.memory.hostPointer(pc+k,4),&w,4);
         uint32_t state=seed*2654435761u+9;const auto rnd=[&](){state=state*1664525u+1013904223u;return state>>8;};
         const auto value=[&](){return (rnd()&0x807fffffu)|((105+rnd()%40)<<23);};
-        const auto var=[&]{auto v=third?variants409700[seed%4]:variants[seed%4];for(auto *f:{&v.q,&v.p,&v.v,&v.a,&v.m,&v.s1,&v.s2})*f+=k;return v;}();const uint32_t dt=seed%8==1?0:value();
+        const auto var=[&]{auto v=fourth?variants409fb0[seed%4]:third?variants409700[seed%4]:variants[seed%4];for(auto *f:{&v.q,&v.p,&v.v,&v.a,&v.m,&v.s1,&v.s2})*f+=k;return v;}();const uint32_t dt=seed%8==1?0:value();
         R5900Context x{};const auto qw=[&](uint32_t pc){uint32_t w;std::memcpy(&w,r.memory.hostPointer(pc,4),4);return w;};
         x.r[field(qw(var.q),16)].uw[0]=dt;x.r[field(qw(var.q),16)].uw[3]=rnd();check(vp2s::nativeMathInstruction(r.memory.flat(),&x,&r,var.q));
         for(unsigned n=0;n<3;++n){
@@ -1849,7 +1858,7 @@ int main(int argc,char **argv){try{
         // Different code at the same address (another overlay) is not claimed here.
         const uint32_t other=0;std::memcpy(r.memory.hostPointer(var.m,4),&other,4);check(!vp2s::nativeMathInstruction(r.memory.flat(),&x,&r,var.m));
      }}
-    std::printf("%u particle steps (three classes, four loops, two stores) match the VU0 oracle\n",particleCases);
+    std::printf("%u particle steps (four classes, four loops, two stores) match the VU0 oracle\n",particleCases);
     // Row point and homogeneous divide (mod001 2b802c / 2b80a0), the game's words.
     unsigned rowCases=0;
     for(unsigned seed=0;seed<256;++seed){

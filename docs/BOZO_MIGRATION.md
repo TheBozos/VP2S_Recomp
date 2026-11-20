@@ -12,6 +12,31 @@ The earlier VP2S face/shading and general brightness comparisons remain open.
 
 ## Build and evidence
 
+### Toward a battle: the user's PCSX2 encounter, particle step 409fb0 (2026-11-20)
+
+User request: launch battles with chosen enemies. No native run had entered a
+battle. The user saved two PCSX2 states (slots 1 and 2, map 79 of the Lost
+Forest): next to a ghost, then inside the battle (Skeletons; Alicia, Rufus).
+- Entering battle unloads mod003 (the field) and loads another module at
+  `35ec80`, plus code in the battle slots (`514080`, `523200`, `526e00`,
+  `532200`, and the enemy slot `53a380`, which is empty in the field). The
+  top-level mode object (`35db30`, `35dc20`) changes.
+- No event-script interpreter exists in battle, and the field's was idle (pc
+  41): the encounter is not a script command. Its trigger and enemy-group id
+  are still unknown.
+
+To reach an encounter natively, `--warp 79` (from `forest_60300`) and wait for
+the forest's enemies. Map 79 met first `409fb0`, a fourth particle class's
+step (records of 0x120, position `+f0`, velocity `+100`): the same VU0 words
+and roles as `409700`, at its own listed sites (signature `409fb0..40a6f8`).
+The math suite now runs 768 particle steps, four classes, against the VU0
+oracle.
+
+**Result:** map 79 then stops at mod003 `40ba48` (function `40b990`, called
+by the particle driver `22ed38`). It is an emitter like the trail emitter
+`40b080`, but not a copy: about 60 VU0 instructions, with its own loads, box
+updates and stores.
+
 ### Debug teleport: --warp through the game's own map change (2026-11-20)
 
 User request: a way to jump to any map, so boundaries can be found and

@@ -2345,6 +2345,15 @@ constexpr ParticleSite particleSites409700[]={
     {0x4098ec,0xd8610000,'p'},{0x4098f0,0xd9220000,'v'},{0x40991c,0x4bc00abc,'a'},{0x409920,0x4bc31048,'m'},{0x40992c,0xf9210000,'s'},{0x409930,0xf8610000,'s'},
     {0x409a58,0xdac10000,'p'},{0x409a60,0xda020000,'v'},{0x409bbc,0x4bc00abc,'a'},{0x409bc0,0x4bc31048,'m'},{0x409bcc,0xfa010000,'s'},{0x409bd4,0xfac10000,'s'},
     {0x409ca8,0xdaa10000,'p'},{0x409cac,0xda020000,'v'},{0x409e1c,0x4bc00abc,'a'},{0x409e20,0x4bc31048,'m'},{0x409e2c,0xfa010000,'s'},{0x409e34,0xfaa10000,'s'}};
+// A fourth class's step, 409fb0 (map 79 of the Lost Forest; records of 0x120
+// bytes, position at +f0, velocity at +100): the same words and roles again.
+// dt: 40a030 from v1 = *(35dee8), 40a238 from s0.
+constexpr ParticleSite particleSites409fb0[]={
+    {0x40a030,0x48a31800,'q'},{0x40a238,0x48b01800,'q'},
+    {0x40a0a4,0xd9410000,'p'},{0x40a0a8,0xd8620000,'v'},{0x40a0c8,0x4bc00abc,'a'},{0x40a0cc,0x4bc31048,'m'},{0x40a0d8,0xf8610000,'s'},{0x40a0dc,0xf9410000,'s'},
+    {0x40a184,0xd8610000,'p'},{0x40a188,0xd9220000,'v'},{0x40a1ac,0x4bc00abc,'a'},{0x40a1b0,0x4bc31048,'m'},{0x40a1bc,0xf9210000,'s'},{0x40a1c0,0xf8610000,'s'},
+    {0x40a2e0,0xdac10000,'p'},{0x40a2e8,0xda020000,'v'},{0x40a43c,0x4bc00abc,'a'},{0x40a440,0x4bc31048,'m'},{0x40a44c,0xfa010000,'s'},{0x40a454,0xfac10000,'s'},
+    {0x40a520,0xdaa10000,'p'},{0x40a524,0xda020000,'v'},{0x40a68c,0x4bc00abc,'a'},{0x40a690,0x4bc31048,'m'},{0x40a69c,0xfa010000,'s'},{0x40a6a4,0xfaa10000,'s'}};
 struct ParticleState{uint32_t dt=0;bool step=false;VuWords position{},velocity{},result{};uint8_t have=0;};
 ParticleState &particleState(const Runtime *rt){static std::map<const Runtime *,ParticleState> states;return states[rt];}
 bool nativeParticleStep(R5900Context *c,Runtime *rt,uint32_t pc){
@@ -2353,6 +2362,7 @@ bool nativeParticleStep(R5900Context *c,Runtime *rt,uint32_t pc){
     if(!rt)return false;
     const ParticleSite *site=nullptr;
     if(pc>=0x409780 && pc<=0x409e34){for(const auto &s:particleSites409700)if(s.pc==pc)site=&s;}
+    else if(pc>=0x40a030 && pc<=0x40a6a4){for(const auto &s:particleSites409fb0)if(s.pc==pc)site=&s;}
     else{
         for(const auto copy:kCopies){const uint32_t listed=pc-copy;
             if(listed>=0x365350 && listed<=0x365914)for(const auto &s:particleSites)if(s.pc==listed)site=&s;}

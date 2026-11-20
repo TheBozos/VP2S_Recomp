@@ -2,6 +2,7 @@
 // event-script instruction the interpreter is given. Invented table rows only.
 #include "native_warp.h"
 #include <cstdio>
+#include <cstring>
 #include <filesystem>
 #include <fstream>
 #include <stdexcept>
@@ -9,6 +10,7 @@
 namespace {
 int failures=0;
 void check(bool ok,const char *what){if(!ok){std::fprintf(stderr,"FAIL: %s\n",what);++failures;}}
+bool rejectsBattle(const std::string &text){try{vp2s::parseBattle(text);}catch(const std::runtime_error &){return true;}return false;}
 bool rejects(const std::string &text,const std::string &table){try{vp2s::parseWarp(text,table);}catch(const std::runtime_error &){return true;}return false;}
 }
 int main(){
@@ -29,10 +31,31 @@ int main(){
     const auto words=vp2s::warpInstruction(full);
     check(words[0]==0x3a07 && words[1]==82 && words[2]==8192 && int32_t(words[3])==-2145 && words[4]==0 && words[5]==42 && int32_t(words[6])==-1 && words[7]==270,
           "instruction: op 0x3a with 7 arguments in the script's order");
+    std::filesystem::remove(table);
+    {   // Battle launcher: parsing, the op-0x38 words, then the injection and resume.
+        const auto b=vp2s::parseBattle("0x12");check(b.battle==0x12 && b.stage==0 && b.flags==0x01000100,"battle id, default stage and flags");
+        const auto full=vp2s::parseBattle("190,38,0x01000300");check(full.battle==190 && full.stage==38 && full.flags==0x01000300,"battle id, stage, flags");
+        for(const char *bad:{"","x","-1","65535","1,0x8000","1,2,0x010000ff","1,2,3,4","1,,2"})check(rejectsBattle(bad),bad);
+        const auto words=vp2s::battleInstruction(full);check(words[0]==0x3802 && words[1]==((38u<<16)|190) && words[2]==0x01000300,"instruction: op 0x38 with 2 arguments");
+        Runtime rt;R5900Context c{};constexpr uint32_t object=0x200000,blob=0x300000,pc=0x10;
+        const auto put=[&](uint32_t at,uint32_t v){std::memcpy(rt.memory.hostPointer(at,4),&v,4);};
+        const auto get=[&](uint32_t at){uint32_t v;std::memcpy(&v,rt.memory.hostPointer(at,4),4);return v;};
+        const uint32_t at=blob+0x20+4*pc;put(object+0x600,blob);put(object+0x18,pc);put(object+0x604,at+4);
+        c.r[16].uw[0]=object;c.r[5].uw[0]=at;
+        vp2s::armNativeBattle(b);check(vp2s::nativeWarpInstruction(&c,&rt,0x3ee288)==false,"injection keeps the compiled fetch");
+        const uint32_t injectedPc=get(object+0x18);
+        check(c.r[5].uw[0]==0x80000 && get(0x80000)==0x3802 && get(0x80004)==0x12 && get(0x80008)==0x01000100 && get(object+0x604)==0x80004,"snippet and argument pointer");
+        check(blob+0x20+4*injectedPc==0x80000,"pc points at the snippet through the blob (the handler's count read)");
+        put(object+0x18,injectedPc+3);c.r[5].uw[0]=blob+0x20+4*(injectedPc+3);put(object+0x604,c.r[5].uw[0]+4);   // the handler advanced and yielded
+        R5900Context other=c;other.r[16].uw[0]=object+0x1000;const auto untouched=other;vp2s::nativeWarpInstruction(&other,&rt,0x3ee288);
+        check(!std::memcmp(&other,&untouched,sizeof(other)),"another interpreter's fetch is untouched");
+        vp2s::nativeWarpInstruction(&c,&rt,0x3ee288);
+        check(get(object+0x18)==pc && c.r[5].uw[0]==at && get(object+0x604)==at+4,"the next fetch resumes the script's own pc");
+        c.r[5].uw[0]=at+4;vp2s::nativeWarpInstruction(&c,&rt,0x3ee288);check(c.r[5].uw[0]==at+4,"resumed once only");
+    }
     check(!vp2s::nativeWarpPending(),"nothing armed");
     vp2s::armNativeWarp(full);check(vp2s::nativeWarpPending(),"armed");
-    std::filesystem::remove(table);
     if(failures)return 1;
-    std::printf("warp: parsing, table lookup, 10 rejections and the op-0x3a instruction\n");
+    std::printf("warp: parsing, table lookup, 10 rejections and the op-0x3a instruction; battle: parsing, 8 rejections, injection and resume\n");
     return 0;
 }

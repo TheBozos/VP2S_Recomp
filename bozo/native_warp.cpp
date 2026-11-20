@@ -1,19 +1,39 @@
 #include "native_warp.h"
 #include <array>
 #include <climits>
+#include <cstdlib>
 #include <cstdio>
 #include <cstring>
 #include <format>
 #include <fstream>
 #include <sstream>
 #include <stdexcept>
+#include <string>
 #include <vector>
 namespace vp2s {
 namespace {
 std::optional<WarpRequest> pending;
+std::optional<BattleRequest> battlePending;
+// The interpreter running an injected battle: its own pc, restored at its next fetch.
+struct Injected {uint32_t object=0,resumePc=0,afterPc=0;};
+std::optional<Injected> injected;
 // Below the game's image (0x100000): the PS2 kernel's RAM, unused by the native kernel.
 constexpr uint32_t kSnippet=0x80000;
 }
+BattleRequest parseBattle(const std::string &text){
+    std::vector<uint32_t> v;std::stringstream in(text);std::string item;
+    while(std::getline(in,item,',')){size_t used=0;unsigned long long n=0;
+        try{n=std::stoull(item,&used,0);}catch(const std::exception &){used=0;}
+        if(item.empty() || item[0]=='-' || used!=item.size() || n>UINT32_MAX)throw std::runtime_error("malformed --battle value: "+item);v.push_back(uint32_t(n));}
+    if(v.empty() || v.size()>3)throw std::runtime_error("--battle takes ID[,stage[,flags]]");
+    if(v[0]>0xfffe)throw std::runtime_error("--battle id outside 0..0xfffe");
+    BattleRequest r;r.battle=v[0];
+    if(v.size()>1){if(v[1]>0x7fff)throw std::runtime_error("--battle stage outside 0..0x7fff");r.stage=v[1];}
+    if(v.size()>2){if((v[2]&0xff)==0xff)throw std::runtime_error("--battle flags 0xff need an inline formation");r.flags=v[2];}
+    return r;
+}
+void armNativeBattle(const BattleRequest &request){battlePending=request;}
+std::array<uint32_t,3> battleInstruction(const BattleRequest &r){return {0x3802u,(r.stage<<16)|r.battle,r.flags};}
 WarpRequest parseWarp(const std::string &text,const std::string &table){
     std::vector<int32_t> v;std::stringstream in(text);std::string item;
     while(std::getline(in,item,',')){size_t used=0;long long n=0;
@@ -44,6 +64,44 @@ std::array<uint32_t,8> warpInstruction(const WarpRequest &r){
 // the step advances by 1 + count after a handler that returns 1 (op 0x3a does).
 std::optional<bool> nativeWarpInstruction(R5900Context *c,Runtime *rt,uint32_t pc){
     if(pc!=0x3ee288)return std::nullopt;
+    // Diagnostic: VP2S_BOZO_TRACE_SCRIPT_OP=HEX prints every instruction of that op any interpreter fetches.
+    static const int traced=[]{const char *v=std::getenv("VP2S_BOZO_TRACE_SCRIPT_OP");return v?int(std::strtol(v,nullptr,16)):-1;}();
+    if(traced>=0 && rt)if(const auto *word=rt->memory.hostPointer(c->r[5].uw[0],4)){
+        uint32_t w;std::memcpy(&w,word,4);
+        if(int((w>>8)&0xff)==traced){
+            std::string args;const unsigned count=w&0xff;
+            for(unsigned i=0;i<count && i<8;++i)if(const auto *p=rt->memory.hostPointer(c->r[5].uw[0]+4+4*i,4)){uint32_t a;std::memcpy(&a,p,4);args+=std::format(" {:08x}",a);}
+            uint32_t type=0;if(const auto *p=rt->memory.hostPointer(c->r[16].uw[0],4))std::memcpy(&type,p,4);
+            std::fprintf(stderr,"[vp2s:script] interpreter %x (class %x) op %x at %x:%s\n",c->r[16].uw[0],type,traced,c->r[5].uw[0],args.c_str());
+        }
+    }
+    if(injected && c->r[16].uw[0]==injected->object){
+        // The battle handler advanced the injected pc and yielded; resume the script.
+        auto *fields=rt->memory.hostPointer(injected->object,0x608);if(!fields)throw std::runtime_error("native battle outside owned RAM");
+        uint32_t scriptPc,blob;std::memcpy(&scriptPc,fields+0x18,4);std::memcpy(&blob,fields+0x600,4);
+        if(scriptPc==injected->afterPc){
+            const uint32_t at=blob+0x20+4*injected->resumePc,args=at+4;
+            std::memcpy(fields+0x18,&injected->resumePc,4);std::memcpy(fields+0x604,&args,4);c->r[5].uw[0]=at;
+        }
+        injected.reset();
+    }
+    if(battlePending){
+        const uint32_t object=c->r[16].uw[0],at=c->r[5].uw[0];
+        auto *snippet=rt->memory.hostPointer(kSnippet,12);auto *fields=rt->memory.hostPointer(object,0x608);
+        if(!snippet || !fields)throw std::runtime_error("native battle outside owned RAM");
+        uint32_t args,scriptPc,blob;std::memcpy(&args,fields+0x604,4);std::memcpy(&scriptPc,fields+0x18,4);std::memcpy(&blob,fields+0x600,4);
+        if(args!=at+4 || at!=blob+0x20+4*scriptPc)throw std::runtime_error("native battle: interpreter fetch escaped step 3ee150's layout");
+        const auto words=battleInstruction(*battlePending);std::memcpy(snippet,words.data(),12);
+        // pc such that blob + 0x20 + 4*pc = the snippet (32-bit wrap, as the handler's addu).
+        const uint32_t snippetPc=(kSnippet-blob-0x20)/4,newArgs=kSnippet+4;
+        if(blob+0x20+4*snippetPc!=kSnippet)throw std::runtime_error("native battle: blob not word aligned");
+        std::memcpy(fields+0x18,&snippetPc,4);std::memcpy(fields+0x604,&newArgs,4);c->r[5].uw[0]=kSnippet;
+        injected=Injected{object,scriptPc,snippetPc+3};
+        std::fprintf(stderr,"[vp2s:battle] interpreter %x (script pc %x) starts battle %u stage %u flags %08x\n",
+            object,scriptPc,battlePending->battle,battlePending->stage,battlePending->flags);
+        battlePending.reset();
+        return false; // The compiled fetch, dispatch and op 0x38 handler run as the game's own code.
+    }
     if(!pending)return false;
     const uint32_t object=c->r[16].uw[0],at=c->r[5].uw[0];
     auto *snippet=rt->memory.hostPointer(kSnippet,32);auto *fields=rt->memory.hostPointer(object,0x608);

@@ -12,6 +12,41 @@ The earlier VP2S face/shading and general brightness comparisons remain open.
 
 ## Build and evidence
 
+### Battle launcher: --battle through event-script op 0x38 (2026-11-20)
+
+User request: launch battles with chosen enemies. The encounter IS an
+event-script command, run by the map's own interpreter (`58c660`) when an
+enemy touches the party: op `0x38`, handler `3a0b90` (handler table entry in
+RAM at `0x48e2c0 + 0x38*12`). Seen on map 79 with
+`VP2S_BOZO_TRACE_SCRIPT_OP=38` (a new diagnostic in the fetch hook): the
+instruction `0x3812` with arg0 `0x00000012`, arg1 `0x010000ff` and 16 words
+of inline formation (enemy `0x12` four times, `0x19191919`, ...).
+- arg0 = (stage << 16) | battle id. Stage 0 means the field's default
+  (field manager `+ae`, 4 in the forest). Battle id `0xffff` takes the id from
+  the save-data block of type 3 (`1d3690` list) `+194 + 4*area[+428]`.
+- arg1 = flags (low 24 bits) | byte << 24. Flags `0xff` take the inline
+  formation (`3a0f30`); the game's scripted battles pass `0x01000100` or
+  `0x01000300` with a predefined id (the disc's scripts have about 50, e.g.
+  `0x00060018`, `0x002600be`).
+- `3a00c0` derives the encounter flags from party equipment; `3a0e80` rolls
+  15% from the generator `35da00` into flag bit 0. The handler then builds the
+  transition object (class `15d5d0`, constructor `377620`; its update `375870`
+  creates the screen-capture class `15a850`).
+- The handler advances the pc itself from the count byte of the blob word at
+  the pc, and yields (returns 0).
+
+`--battle ID[,STAGE[,FLAGS]]` (flags default `0x01000100`; `0xff` is refused,
+since it needs an inline formation) makes the next instruction fetch of any
+interpreter read `0x3802, (stage<<16)|id, flags` from low RAM. The pc points
+at the snippet through the blob (32-bit wrap, as the handler's own address
+sum), and that interpreter's next fetch gets its own pc back. Tests: parsing,
+eight rejections, the words, the injection, the resume and an untouched
+second interpreter.
+
+**Result:** from the map-79 state, `--battle 0x18` starts the battle from
+script pc `41`. The run reaches the same stop as a real contact: the
+battle-entry transition's VU1 job (`308bd0`, below).
+
 ### Map 79: walking to the ghost (2026-11-20)
 
 From the map-79 state, a pad script (`frame:BUTTON/frames`, absolute frames)

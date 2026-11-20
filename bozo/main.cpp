@@ -828,12 +828,14 @@ int main(int argc,char **argv) {
         else if(arg=="--save-state" && i+1<argc)options.saveState=argv[++i];
         else if(arg=="--save-state-at" && i+1<argc)options.saveStateFrame=std::stoul(argv[++i]);
         else if(arg=="--warp" && i+1<argc){try{vp2s::armNativeWarp(vp2s::parseWarp(argv[++i],std::string(VP2S_BOZO_IMAGES)+"/../warps.tsv"));}catch(const std::exception &e){std::fprintf(stderr,"%s\n",e.what());return 2;}}
+        else if(arg=="--battle" && i+1<argc){try{vp2s::armNativeBattle(vp2s::parseBattle(argv[++i]));}catch(const std::exception &e){std::fprintf(stderr,"%s\n",e.what());return 2;}}
 #ifdef VP2S_BOZO_CAPTURE
         else if(arg=="--capture" && i+1<argc)capturePath=argv[++i];
 #endif
         else { std::fprintf(stderr,"usage: vp2s-bozo-headless --iso FILE [--card-dir PRIVATE_DIR] [--frames N] [--pad-script FILE]\n"
                                    "       [--load-state FILE [--load-state-at FRAME]] [--save-state FILE --save-state-at FRAME]\n"
-                                   "       [--warp MAP or MAP,X,Y,Z[,FACING[,ENTRY]]] (debug: the next event-script step changes map)\n");
+                                   "       [--warp MAP or MAP,X,Y,Z[,FACING[,ENTRY]]] (debug: the next event-script step changes map)\n"
+                                   "       [--battle ID[,STAGE[,FLAGS]]] (debug: the next event-script step starts battle ID, op 0x38)\n");
 #ifdef VP2S_BOZO_CAPTURE
             std::fprintf(stderr,"GPU build also accepts --capture OUTPUT.png (hidden window, no host input)\n");
 #endif

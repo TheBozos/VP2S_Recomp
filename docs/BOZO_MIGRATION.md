@@ -12,6 +12,49 @@ The earlier VP2S face/shading and general brightness comparisons remain open.
 
 ## Build and evidence
 
+### Battle modules in the build (2026-11-20)
+
+The battle replaces the field's mod003 at `0x35ec80` with **module 27**
+(`0x1b`): text `0xe940`, data `0x280`, bss `0x80`, one constructor
+(`0x36d800`). It is not in the disc archive's 25 modules. The rest load
+beside it: 028 (`0x36d900`, 1.7 MB), 030, 060, 068, 112, 175/179, 220,
+captured from memory on Nov 2.
+- **Module 27, captured:** taken from EE RAM at the fault before its
+  constructor ran (`VP2S_BOZO_END_RAM`, text + data). It matches the user's
+  PCSX2 battle state byte for byte. Saved as
+  `build_usa/captured_modules/0035ec80_027.bin` (local game data), then
+  wrapped, analysed with Ghidra, SDK-matched and entry-scanned by
+  `tools/pipeline.py` (`VP2S_BUILD=build_usa`, stages wrap / ghidra / sdk /
+  entries).
+- **Pipeline:**
+  - **Inputs:** `tools/vp2_bozo.py` now defaults to mod027, 028, 030, 060,
+    068, 112, 175, 179 and 220 as well. mod028 gets 16 chunks; it has 40
+    explicit untranslated boundaries, mod068 9 and mod112 2.
+  - **Constructor tables:** `vp2_bozo_prepare.py` drops their trailing zeros
+    (mod028's terminator, mod027's padding).
+  - **Gap entries:** for the captured battle modules it adds the old entry
+    finder's functions in Ghidra's gaps; each spans to the next known start.
+    These are methods reached only through vtables the modules fill in main's
+    data at run time; mod027's `0x35f040` was one.
+- **Timers in module 27** (`bozo/native_seed.cpp`, 19 checked sites): it sets
+  T0 to count H-blanks (mode `0x83`) and reads the timers two ways.
+  - **Clock:** its streaming copier (`3676f0..369374`) rounds T0 up to the end
+    of the frame (525 lines) or field (262) minus a margin as a deadline, then
+    copies as much as the remaining lines allow. Natively a clock read is 0,
+    "the frame has just begun", so a whole frame's budget remains; random
+    values had made the budget negative and the copy size about 3.9 GB.
+  - **Entropy:** `363440` (count mod n) and four timers mixed into the battle
+    seed at `36cbb4` get a seeded 16-bit sample.
+  - **Writes:** the mode and count writes are dropped.
+- **`SQC2 vf0`** (mod027 `35fe28`/`35fe30`) stores the hard-wired
+  (0, 0, 0, 1) natively (`nativeConstantStore`); the math suite has the case.
+- **Diagnostic:** `memcpy`/`memset` calls larger than RAM print their caller.
+
+**Result:** `--battle 0x18` loads the battle modules and runs module 27's
+set-up, the copier and its seed. It stops at a battle texture upload: GS
+image `122bf8` from the graphics queue (`112fac`), enqueued by mod027 at
+`36b5d8`. Native battle images are next.
+
 ### Battle-entry capture (class 15a850): native, field snapshot (2026-11-20)
 
 After op 0x38 the transition object (class `15d5d0`, update `375870`)

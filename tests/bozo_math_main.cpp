@@ -766,6 +766,12 @@ int main(int argc,char **argv){try{
             check(rejected && !std::memcmp(&before,&c,sizeof(c)) && !std::memcmp(ram.data(),rt.memory.flat(),ram.size()));
         }
         std::printf("%u object pair set-ups (1f9130: both basis lengths, register loads), the 397780 spill/restore round trip and 6 rejections passed\n",setupCases);
+        {   // SQC2 vf0 (mod027 35fe28): the hard-wired (0, 0, 0, 1) at base + offset, whatever was there.
+            const uint32_t word=0xf8400030u;std::memcpy(rt.memory.hostPointer(0x35fe28,4),&word,4);   // SQC2 vf0,0x30(v0)
+            std::memset(rt.memory.hostPointer(0x1a0030,16),0x5a,16);R5900Context c{};c.r[2].uw[0]=0x1a0000;
+            check(vp2s::nativeMathInstruction(rt.memory.flat(),&c,&rt,0x35fe28));
+            const std::array<uint32_t,4> want{0,0,0,0x3f800000u};check(!std::memcmp(rt.memory.hostPointer(0x1a0030,16),want.data(),16));
+        }
     }
     unsigned projectionCases=0,projectedPoints=0;
     for(unsigned part=0;part<2;++part)for(unsigned rounding:{_MM_ROUND_NEAREST,_MM_ROUND_DOWN,_MM_ROUND_UP,_MM_ROUND_TOWARD_ZERO})for(unsigned seed=0;seed<96;++seed){

@@ -84,7 +84,7 @@ def generate(args, build, data, engine_build, env):
             stream.write(''.join(f'native 0x{pc:x}\n' for pc in vu_sites))
         info['guarded_vu_sites'] = len(vu_sites)
         run([tool, image, '--census'], data/'logs'/f'{name}_census.log', env)
-        count = 16 if name in ('main', 'mod001', 'mod003') else 4
+        count = 16 if name in ('main', 'mod001', 'mod003', 'mod028') else 4
         text = run([tool, image, target, '--prefix', prefix, '--symbol-prefix', prefix+'_',
                     '--files', count, '--externals', ext, '--entries', data/'images'/f'{name}.entries', '--no-comments']+adaptations,
                    data/'logs'/f'{name}_generate.log', env)
@@ -118,7 +118,10 @@ def generate(args, build, data, engine_build, env):
 def main():
     ap = argparse.ArgumentParser(description=__doc__)
     ap.add_argument('--build', type=Path, default=ROOT/'build_usa')
-    ap.add_argument('--inputs', default='main,mod001,mod002,mod003,mod004,mod005,mod006,mod007,mod008,mod009,mod010,mod011,mod012,mod013')
+    # mod027 (the battle core at 0x35ec80, in place of mod003; captured at load, not on the disc's archive) and
+    # mod028/030/060/068/112/175/179/220: the battle modules (loaded when op 0x38 starts a battle).
+    ap.add_argument('--inputs', default='main,mod001,mod002,mod003,mod004,mod005,mod006,mod007,mod008,mod009,mod010,mod011,mod012,mod013,'
+                                        'mod027,mod028,mod030,mod060,mod068,mod112,mod175,mod179,mod220')
     ap.add_argument('--stage', choices=['tools', 'generate', 'build', 'run', 'all'], default='build')
     ap.add_argument('--jobs', type=int, default=4)
     ap.add_argument('--ffmpeg', default=os.environ.get('BOZO_FFMPEG_ROOT', 'D:/tmb_kit/kit/ffmpeg'))

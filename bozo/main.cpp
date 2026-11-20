@@ -628,7 +628,14 @@ public:
             std::fprintf(stderr,"[vp2s:call] pc=%x ra=%x a0=%x a1=%x\n",target,c->r[31].uw[0],c->r[4].uw[0],c->r[5].uw[0]);
         const uint32_t a0=c->r[4].uw[0],a1=c->r[5].uw[0],a2=c->r[6].uw[0];
         const uint32_t assetWorker=c->r[31].uw[0]==0x1059a8?c->r[17].uw[0]:0;
-        native.libraryCall(d,c,target);
+        if((target==0x132c88u || target==0x132e40u) && a2>0x2000000u)   // diagnostic: a copy/fill larger than RAM names its caller
+            std::fprintf(stderr,"[vp2s:bozo] library %x size %x: ra=%x a0=%x a1=%x sp=%x s0..s3=%x %x %x %x\n",target,a2,c->r[31].uw[0],a0,a1,
+                c->r[29].uw[0],c->r[16].uw[0],c->r[17].uw[0],c->r[18].uw[0],c->r[19].uw[0]);
+        try{native.libraryCall(d,c,target);}catch(const std::exception &e){
+            // Diagnostic: the failing library call's arguments and caller.
+            std::fprintf(stderr,"[vp2s:bozo] library %x failed: ra=%x a0=%x a1=%x a2=%x sp=%x s0..s3=%x %x %x %x\n",target,c->r[31].uw[0],a0,a1,a2,
+                c->r[29].uw[0],c->r[16].uw[0],c->r[17].uw[0],c->r[18].uw[0],c->r[19].uw[0]);
+            throw;}
         if(target==0x12a360u){
             // The native CD library copies bytes synchronously before charging
             // the actual read duration; failed reads publish no provenance.

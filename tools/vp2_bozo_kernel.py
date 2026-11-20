@@ -1039,6 +1039,13 @@ def overlay_native_sites(name,data):
         lo,hi=0x3ee264,0x3ee2a8;s=next(s for s in segments if s[0]==1 and s[2]<=lo<hi<=s[2]+s[4]);at=s[1]+lo-s[2]
         if hashlib.sha256(data[at:at+hi-lo]).hexdigest()!='f5cb38bd71c57c60fea1adf529e82defd6edd8fa8ead633b9d3076bb5af22002':raise ValueError('USA event-script fetch mismatch')
         return 'native 0x3ee288\nnative 0x374c04\nnative 0x374c10\nnative 0x40b040\nnative 0x3d93f4\nnative 0x3d38d4\nnative 0x3d363c\nnative 0x3d364c\nnative 0x3d49b0\nnative 0x447af0\nnative 0x447b84\nnative 0x447d60\nnative 0x447a48\nnative 0x447f50\nnative 0x443238\nnative 0x45e870\nnative 0x45ea18\nnative 0x45e594\nnative 0x460050\nnative 0x460f24\nnative 0x462a60\nnative 0x47a1c0\nnative 0x4653e8\nnative 0x465b38\nnative 0x465f08\nnative 0x449790\nnative 0x448d70\nnative 0x4516f0\nnative 0x451b64\nnative 0x3d2d7c\nnative 0x3d2630\nnative 0x3d2698\nnative 0x3d2520\nnative 0x4541b8\n'+''.join(f'native 0x{pc:x}\n' for pc in (0x3e5ca4,0x3e5ca8,0x3e5cac,0x3e5cb4,0x3e5cb8,0x3e5cc0,*range(0x3e7edc,0x3e7f38,4),*range(0x3e7fa0,0x3e7ffc,4)))
+    if name=='mod027':
+        # The battle core's timer reads/writes (bozo/native_seed.cpp): seeded entropy, no timer.
+        _,segments,_=elf_parts(data)
+        for pc,expected in ((0x363440,0x8c240000),(0x3676f0,0x8c250000),(0x367724,0x8c240000),(0x367880,0x8c230000),(0x367934,0x8c220000),(0x367a7c,0x8c220000),(0x367bcc,0x8c220000),(0x367d74,0x8c240000),(0x367fe4,0x8c230000),(0x3684dc,0x8c220000),(0x36868c,0x8c230000),(0x369374,0x8c220000),(0x36c9e0,0xac200000),(0x36cbbc,0x8c270000),(0x36cbd0,0x8c231800),(0x36cc00,0x8c260800),(0x36cc28,0x8c241000),(0x36d3d4,0xac230010),(0x36d3dc,0xac200000)):
+            s=next(s for s in segments if s[0]==1 and s[2]<=pc<pc+4<=s[2]+s[4])
+            if int.from_bytes(data[s[1]+pc-s[2]:s[1]+pc-s[2]+4],'little')!=expected:raise ValueError('USA battle timer site mismatch')
+        return ''.join(f'native 0x{pc:x}\n' for pc in (0x363440,0x3676f0,0x367724,0x367880,0x367934,0x367a7c,0x367bcc,0x367d74,0x367fe4,0x3684dc,0x36868c,0x369374,0x36c9e0,0x36cbbc,0x36cbd0,0x36cc00,0x36cc28,0x36d3d4,0x36d3dc))
     if name=='mod002':
         _,segments,_=elf_parts(data);lo,hi=0x3622e8,0x362338
         s=next(s for s in segments if s[0]==1 and s[2]<=lo<hi<=s[2]+s[4]);at=s[1]+lo-s[2]

@@ -70,11 +70,14 @@ def overlay_entries(name,data):
     for section in sections:
         if names[section[0]:].split(b'\0')[0]!=b'.ctors':continue
         if section[5]%4 or section[4]+section[5]>len(data):raise ValueError('invalid constructor section')
-        targets += [value[0] for value in struct.iter_unpack('<I',data[section[4]:section[4]+section[5]])]
+        listed=[value[0] for value in struct.iter_unpack('<I',data[section[4]:section[4]+section[5]])]
+        # Trailing zeros end the list (mod028's terminator, mod027's section padding).
+        while listed and listed[-1]==0:listed.pop()
+        targets += listed
     targets=sorted(set(targets));entries=[]
     for lo in targets:
         section=next((s for s in sections if s[2]&6==6 and s[3]<=lo<s[3]+s[5]),None)
-        if lo&3 or section is None:raise ValueError('constructor target outside explicit code')
+        if lo&3 or section is None:raise ValueError(f'{name}: constructor target {lo:x} outside explicit code')
         hi=next((pc for pc in targets if pc>lo),section[3]+section[5]);hi=min(hi,section[3]+section[5])
         entries.append(dict(Name=f'module_initializer_{lo:08x}',Start=hex(lo),End=hex(hi)))
     if name=='mod001':
@@ -398,6 +401,31 @@ def prepare(data, rows, sdk):
                         original_code=[[a, b] for a, b, _ in code])
 
 
+# The battle modules were captured from memory (not in the disc's archive), and
+# Ghidra's export leaves gaps in them: functions only reached through vtables the
+# modules fill in main's data at run time (mod027 0x35edc0..0x35f1f0). The old
+# pipeline's static entry finder (tools/find_entry_points.py, build/entries)
+# lists them; each spans to the next known function start in its code section.
+CAPTURED_BATTLE_MODULES={'mod027','mod028','mod030','mod060','mod068','mod112','mod175','mod179','mod220'}
+
+
+def gap_entries(path,rows,data):
+    if not path.exists():return []
+    _,_,sections=elf_parts(data)
+    code=[(s[3],s[3]+s[5]) for s in sections if s[2]&6==6 and s[5]]
+    known={int(r['Start'],0) for r in rows}
+    listed=[int(v,0) for v in path.read_text().split()]
+    starts=sorted(known|set(listed))
+    result=[]
+    for at in listed:
+        if at in known:continue
+        region=next((r for r in code if r[0]<=at<r[1]),None)
+        if region is None or at&3:raise ValueError(f'{path.name}: entry {at:x} outside explicit code')
+        end=min([s for s in starts if s>at]+[region[1]]);end=min(end,region[1])
+        result.append(dict(Name=f'gap_entry_{at:08x}',Start=hex(at),End=hex(end)))
+    return result
+
+
 def sdk_names(path):
     # Only the actual stub list, not the analyzer's untracked candidates.
     text = path.read_text()
@@ -433,6 +461,7 @@ def main():
         with (args.build/'ghidra/export'/f'{name}_functions.csv').open(newline='') as stream:
             rows=list(csv.DictReader(stream))
         rows+=overlay_entries(name,data)
+        if name in CAPTURED_BATTLE_MODULES:rows+=gap_entries(args.build/'entries'/f'{name}.txt',rows,data)
         if name=='main':
             from vp2_bozo_kernel import game_entries,bootstrap_tables
             rows+=game_entries(data)

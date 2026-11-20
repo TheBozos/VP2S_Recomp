@@ -2302,6 +2302,17 @@ constexpr MacroIdiom macroIdioms[]={
         0x4be329bc,0x4be330bd,0x4be338be,0x4be340cb,0x4be429bc,0x4be430bd,0x4be438be,0x4be4410b,-101,-102,-103,-104},28}};
 struct MacroCapture{std::array<VuWords,32> vf{};uint32_t valid=0,block=0;};
 MacroCapture &macroCapture(const Runtime *rt){static std::map<const Runtime *,MacroCapture> captures;return captures[rt];}
+// SQC2 vf0: VU0's vf0 is hard-wired to (0, 0, 0, 1.0), so storing it is that
+// constant whatever surrounds it (mod027 35fe28/35fe30 clear two rows this way).
+bool nativeConstantStore(R5900Context *c,Runtime *rt,uint32_t pc){
+    if(!rt || (pc&3))return false;
+    uint32_t w;const auto *p=rt->memory.hostPointer(pc,4);if(!p)return false;std::memcpy(&w,p,4);
+    if((w>>26)!=0x3e || ((w>>16)&31)!=0)return false;
+    if(!c)throw std::runtime_error("native vf0 store has no CPU record");
+    const VuWords one{0,0,0,0x3f800000u};
+    std::memcpy(record(rt,c->r[(w>>21)&31].uw[0]+uint32_t(int32_t(int16_t(w&0xffff))),16),one.data(),16);
+    return true;
+}
 bool nativeMacroIdiom(R5900Context *c,Runtime *rt,uint32_t pc){
     if(!rt || (pc&3))return false;
     const auto word=[&](uint32_t at,uint32_t &out){const auto *p=rt->memory.hostPointer(at,4);if(!p)return false;std::memcpy(&out,p,4);return true;};
@@ -4323,7 +4334,7 @@ bool nativeMathInstruction(uint8_t *,R5900Context *c,Runtime *rt,uint32_t pc){
     default:
         // Inlined-block recognisers last: they read code around the PC, so
         // only sites no specific handler claimed pay for that scan.
-        return nativeParticleStep(c,rt,pc) || nativeParticleBox(c,rt,pc) || nativeTrailEmitter(c,rt,pc) || nativeLengthIdiom(c,rt,pc) || nativeMacroIdiom(c,rt,pc) || nativeInverseIdiom(c,rt,pc) || nativeQuaternionIdiom(c,rt,pc);
+        return nativeParticleStep(c,rt,pc) || nativeParticleBox(c,rt,pc) || nativeTrailEmitter(c,rt,pc) || nativeConstantStore(c,rt,pc) || nativeLengthIdiom(c,rt,pc) || nativeMacroIdiom(c,rt,pc) || nativeInverseIdiom(c,rt,pc) || nativeQuaternionIdiom(c,rt,pc);
     }
 }
 // Save states: the marker projection rows kept between their loads and the

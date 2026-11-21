@@ -12,6 +12,23 @@ The earlier VP2S face/shading and general brightness comparisons remain open.
 
 ## Build and evidence
 
+### Battle corner crosses 481260: the side-axes block natively (2026-11-21)
+
+mod028 `481260` (called from the copier worker at `47fa4c`) tests the four corners of an
+object against two axes.
+- **Original:** LQC2 vf1, vf2 = the object's +a00 + 32 a1 and +10 (`4813f4`, `4813f8`),
+  once. Then, per flagged corner: vf26 = sp+50 (the base), vf27 = the corner (its y set to
+  sp+54 first), n = normalize(vf27 - vf26) (ADDAy/MADDz with vf31 = 1, RSQRT), vf10 =
+  vf1 x n, vf11 = vf2 x n (OPMULA/OPMSUB). SQC2 stores both to scratchpad 3fe0 / 3ff0, and
+  the CPU reads their y signs.
+- **Native:** the same formula as `3e9764`, so `nativeBattleSideAxes`
+  (`bozo/native_math.cpp`) now takes a role per word-checked site and covers both tables.
+  As before, the stores write xyz only.
+- **Test:** `vp2s-bozo-math-check` covers two corners (n = z, then n = x) with the stored w
+  lanes untouched, and refuses a store without the axis loads.
+- **Evidence:** `--battle 0x18` passes it. The next boundary is the battle sprite writer
+  `ebc290` at its flush `42d4f0`: 608 bytes of content that no recorder owns (0 sprites).
+
 ### Battle copier worker 47f5a0: timer-0 reads as the frame's first line (2026-11-21)
 
 mod028 `47f5a0` is the time-sliced worker of mod027's streaming copier.

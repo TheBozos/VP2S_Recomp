@@ -890,6 +890,26 @@ int main(int argc,char **argv){try{
             {const auto x=getv(stack+0xc0),y=getv(stack+0xd0);   // (1,0,0) x (1,0,0) = 0; (0,1,0) x (1,0,0) = (0,0,-1)
              check(x[0]==0 && x[1]==0 && x[2]==0 && x[3]==5 && y[0]==0 && y[1]==0 && y[2]==-1 && y[3]==6);}
         }
+        {   // mod028 481260 corner crosses: axes from the object once, per corner n = normalize(P - sp+50); a x n, b x n to scratchpad (xyz only).
+            constexpr uint32_t axes[]={0xd8410000,0xd8420010};
+            constexpr uint32_t corner[]={0xd89a0000,0xd91b0000,0x4bc007c3,0x4bdadeac,0x4bdad6ea,0x4b1bd83d,0x4b1bfeca,0x4a7b03be,0x4a0003bf,0x4bc0d69c,
+                0x4bda0afe,0x4bc1d2ae,0x4bda12fe,0x4bc2d2ee,0xf86a0000,0xf86b0010};
+            std::memcpy(rt.memory.hostPointer(0x4813f4,sizeof(axes)),axes,sizeof(axes));std::memcpy(rt.memory.hostPointer(0x481434,sizeof(corner)),corner,sizeof(corner));
+            constexpr uint32_t stack=0x1fff000,obj=0x1b0000,spr=0x70003fe0;
+            const auto putv=[&](uint32_t at,std::array<float,4> v){std::memcpy(rt.memory.hostPointer(at,16),v.data(),16);};
+            const auto getv=[&](uint32_t at){std::array<float,4> v;std::memcpy(v.data(),rt.memory.hostPointer(at,16),16);return v;};
+            putv(obj+0xa20,{1,0,0,0});putv(obj+0xa30,{0,1,0,0});putv(stack+0x50,{1,2,3,0});putv(spr,{9,9,9,7});putv(spr+16,{9,9,9,8});
+            R5900Context c{};c.r[29].uw[0]=stack;c.r[2].uw[0]=obj+0xa20;
+            for(unsigned i=0;i<2;++i)check(vp2s::nativeMathInstruction(rt.memory.flat(),&c,&rt,0x4813f4+4*i));
+            c.r[4].uw[0]=stack+0x50;c.r[3].uw[0]=spr;
+            const auto run=[&](uint32_t point){c.r[8].uw[0]=point;for(unsigned i=0;i<std::size(corner);++i)check(vp2s::nativeMathInstruction(rt.memory.flat(),&c,&rt,0x481434+4*i));};
+            putv(stack,{1,2,5,0});run(stack);   // n = (0,0,1): (1,0,0) x n = (0,-1,0); (0,1,0) x n = (1,0,0)
+            {const auto x=getv(spr),y=getv(spr+16);check(x[0]==0 && x[1]==-1 && x[2]==0 && x[3]==7 && y[0]==1 && y[1]==0 && y[2]==0 && y[3]==8);}
+            putv(stack+16,{3,2,3,0});run(stack+16);   // n = (1,0,0): 0 and (0,0,-1)
+            {const auto x=getv(spr),y=getv(spr+16);check(x[0]==0 && x[1]==0 && x[2]==0 && x[3]==7 && y[0]==0 && y[1]==0 && y[2]==-1 && y[3]==8);}
+            {R5900Context fresh{};fresh.r[29].uw[0]=stack+0x400;fresh.r[3].uw[0]=spr;bool failed=false;
+             try{vp2s::nativeMathInstruction(rt.memory.flat(),&fresh,&rt,0x48146c);}catch(const std::runtime_error &){failed=true;}check(failed);}   // no axes
+        }
         {   // mod028 387330 battle camera projection (one of four in-place copies): rows via v1, point s0+120, store sp+30.
             constexpr uint32_t words[]={0xd8610000,0xd8620010,0xd8630020,0xd8640030,0x26030120,0xd8650000,0,0,0x4a000038,0x48490001,0x27a30030,0xf8660000};
             std::memcpy(rt.memory.hostPointer(0x387330,sizeof(words)),words,sizeof(words));

@@ -262,9 +262,12 @@ std::optional<bool> nativeBattleTextureSetInstruction(R5900Context *c,Runtime *r
     auto *textures=d?dynamic_cast<TextureOwner *>(&d->host()):nullptr;auto *assets=d?dynamic_cast<AssetOwner *>(&d->host()):nullptr;
     if(!c || !textures || !assets)throw std::runtime_error("native battle texture set has no texture owner");
     const auto object=c->r[21].uw[0],chain=c->r[7].uw[0];record(rt,object,0x110);
-    if(read<uint32_t>(rt,object)!=0x174e30 || c->r[4].uw[0]!=read<uint32_t>(rt,0x35dd78) || c->r[5].uw[0]!=3 || c->r[6].uw[0])
+    // Any class running this method (174e30, 175450, ...): its vtable's +18 is 3cd0c0; the
+    // owner +c0 is the class's second vtable (vtable + 84) with completion thunk 44d590.
+    const auto vtable=read<uint32_t>(rt,object);
+    if(vtable<0x100000 || read<uint32_t>(rt,vtable+0x18)!=0x3cd0c0 || c->r[4].uw[0]!=read<uint32_t>(rt,0x35dd78) || c->r[5].uw[0]!=3 || c->r[6].uw[0])
         throw std::runtime_error("native battle texture set upload escaped its method");
-    if(pc==0x3cd174 && (c->r[9].uw[0]!=object+0xc0 || read<uint32_t>(rt,object+0xc0)!=0x174eb4 || read<uint32_t>(rt,0x174eb4+0xc)!=0x44d590))
+    if(pc==0x3cd174 && (c->r[9].uw[0]!=object+0xc0 || read<uint32_t>(rt,object+0xc0)!=vtable+0x84 || read<uint32_t>(rt,vtable+0x84+0xc)!=0x44d590))
         throw std::runtime_error("native battle texture set owner has an unported completion");
     uint32_t at=chain,packet=0;std::optional<uint32_t> fis;bool tail=false;
     for(unsigned guard=0;;++guard){

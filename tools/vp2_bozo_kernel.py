@@ -1074,7 +1074,35 @@ def overlay_native_sites(name,data):
         s=next(s for s in segments if s[0]==1 and s[2]<=lo<hi<=s[2]+s[4]);at=s[1]+lo-s[2]
         if hashlib.sha256(data[at:at+hi-lo]).hexdigest()!='6ece2a94abf1b7ee954752b092e51a8b03a303f482db0acf9ff8768a53dcce1e':raise ValueError('USA battle writer kick mismatch')
         overlay_adaptations(name,data)
-        return ''.join(f'native 0x{pc:x}\n' for pc in (0x4d7eac,0x4d7ed8,0x4d7ee0,0x4d7ee8,0x4d7ef0,0x3cd174,0x3cd1b0))
+        # Battle 2D sprites (bozo/native_battle_sprites.cpp): class 174e30's build 4d4770, its
+        # texture selection 3cd330, the shared sprite writer 42db50 and the flush in 3cd0c0.
+        for lo,hi,expected in ((0x42db50,0x42df80,'fb42a27ee4742d4a41182e281fa2d3a53fa803887d23160fbd5b96db019116e2'),
+                               (0x3cd330,0x3cd510,'58e857cd0d42f6235b662c36fc174ccca3c53e442946a63a35fde5cb665c6d56'),
+                               (0x4f0e90,0x4f1008,'10fbc163e348c301bf71c6aec6ab6a5ccd8594aa1494d597d94e555abcaf9b02'),
+                               (0x42d4c0,0x42d500,'a2293856370a94f12e49e4c53fb474f850576b323c83f6dee82efb25c87f3b5b')):
+            s=next(s for s in segments if s[0]==1 and s[2]<=lo<hi<=s[2]+s[4]);at=s[1]+lo-s[2]
+            if hashlib.sha256(data[at:at+hi-lo]).hexdigest()!=expected:raise ValueError('USA battle sprite source mismatch')
+        # The build methods' writer reset with the object in s0..s7 or copied there from a0 (the delay slot of their
+        # 120860 call; the native side checks the same words).
+        builds=[]
+        for seg in (s for s in segments if s[0]==1):
+            word=lambda a:int.from_bytes(data[seg[1]+a-seg[2]:seg[1]+a-seg[2]+4],'little')
+            for a in range(seg[2]+0x24,seg[2]+seg[4]-4,4):
+                tail=[word(a-0x1c+4*i) for i in range(8)]
+                if tail!=[0x8c640090,0x8c830000,0x24630040,0xac830008,0x8c830008,0xac83000c,0x0c048218,0xa0820015]:continue
+                addu=word(a-0x20)
+                if word(a-0x24)!=0x00031880 or addu&0xffe0ffff!=0x00601821:continue
+                reg=(addu>>16)&31
+                if reg==4:   # the object's copy: the nearest `move sN,a0` back to the prologue
+                    at=a-0x28
+                    while at+0x200>a:
+                        w=word(at)
+                        if w&0xffff07ff==0x0080002d and 16<=(w>>11)&31<=23:reg=(w>>11)&31;break
+                        if w>>16==0x27bd and w&0x8000:break
+                        at-=4
+                if 16<=reg<=23:builds.append(a)
+        if len(builds)!=27 or 0x4d47d8 not in builds:raise ValueError('USA battle sprite builds mismatch')
+        return ''.join(f'native 0x{pc:x}\n' for pc in (0x4d7eac,0x4d7ed8,0x4d7ee0,0x4d7ee8,0x4d7ef0,0x3cd174,0x3cd1b0,*builds,0x4f0f20,0x3cd468,0x3cd3c8,0x3cd4a0,0x42ddd8,0x3cd218,0x3cd21c,0x42d4f0,0x42d4f4))
     if name=='mod027':
         # The battle core's timer reads/writes (bozo/native_seed.cpp): seeded entropy, no timer.
         _,segments,_=elf_parts(data)

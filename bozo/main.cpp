@@ -26,6 +26,7 @@
 #include "native_debug_font.h"
 #include "native_state_setup.h"
 #include "native_screen_rect.h"
+#include "native_battle_sprites.h"
 #include "native_capture_fade.h"
 #include "native_entry_capture.h"
 #include "native_spr_writer.h"
@@ -74,7 +75,7 @@ uint32_t lastImageEnqueue[4]={}; // diagnostic: ra, source, count, owner of the 
 class StrictHost final : public bozo::ee::Host,public vp2s::TimerOwner,public vp2s::SettingsOwner,public vp2s::SeedOwner,
     public vp2s::ModuleOwner,public vp2s::BootstrapOwner,public vp2s::RandomOwner,public vp2s::TextureOwner,public vp2s::SceneOwner,
     public vp2s::AssetOwner,public vp2s::DebugFontOwner,public vp2s::StateSetupOwner,public vp2s::ScreenRectOwner,public vp2s::CaptureFadeOwner,public vp2s::EntryCaptureOwner,public vp2s::ScreenZoomOwner,public vp2s::UiTextOwner,
-    public vp2s::UiSpriteOwner,public vp2s::MediaBufferOwner,public vp2s::ModelOwner,public vp2s::FrameFilterOwner,public vp2s::MusicOwner,
+    public vp2s::UiSpriteOwner,public vp2s::BattleSpriteOwner,public vp2s::MediaBufferOwner,public vp2s::ModelOwner,public vp2s::FrameFilterOwner,public vp2s::MusicOwner,
     public vp2s::UiWindowOwner,public vp2s::LoadProgressOwner,public vp2s::MotionOwner,public vp2s::FrameCopyOwner,public vp2s::DofOwner,public vp2s::FeedbackOwner,public vp2s::SquadOwner,
     public vp2s::ParticleOwner,public vp2s::ParticleUpdateOwner,public vp2s::ParticleDrawOwner,public vp2s::ProceduralOwner,public vp2s::ProceduralDrawOwner,public vp2s::DepthBlurOwner,public vp2s::DepthProbeOwner,public vp2s::HazeOwner,public vp2s::SceneClipOwner,public vp2s::MapPanelOwner {
 public:
@@ -252,6 +253,16 @@ public:
         }}
         renderer.clearClip();sceneClip={};
         if(std::getenv("VP2S_BOZO_TRACE_QUEUES"))std::fprintf(stderr,"[vp2s:UI] native layer=%x texts=%zu frame=%llu\n",layer.layer,layer.texts.size(),static_cast<unsigned long long>(native.framesEnded()));
+    }
+    vp2s::NativeBattleSprites battleSprites;
+    vp2s::NativeBattleSprites &nativeBattleSprites()override{return battleSprites;}
+    // The battle UI's sprite list (class 174e30): textured, ALPHA_2 = 0x44, the UI material.
+    void drawNativeBattleSprites(const vp2s::NativeBattleSpriteBuild &build)override{flushDeferredModels();
+        if(!scene.frameTarget())throw std::runtime_error("native battle sprites have no active frame");
+        const float identity[16]={1,0,0,0,0,1,0,0,0,0,1,0,0,0,0,1};
+        bozo::render::Material material;material.blend=bozo::render::Material::Blend::Alpha;material.alphaTest=true;material.alphaRef=0;
+        for(const auto &sprite:build.sprites){const auto vertices=vp2s::nativeUiSpriteVertices(sprite);
+            bozo::render::Renderer::instance().draw(material,identity,vertices.data(),vertices.size(),sprite.picture);}
     }
     vp2s::NativeScreenRects screenRects;
     unsigned screenRectDraws=0;
@@ -733,6 +744,7 @@ bool dispatchNativeInstruction(uint8_t *ram,R5900Context *ctx,Runtime *rt,uint32
     if(auto handled=vp2s::nativeMenuImageInstruction(ctx,rt,pc))return *handled;
     if(auto handled=vp2s::nativeBattleImageInstruction(ctx,rt,pc))return *handled;
     if(auto handled=vp2s::nativeBattleTextureSetInstruction(ctx,rt,pc))return *handled;
+    if(auto handled=vp2s::nativeBattleSpriteInstruction(ctx,rt,pc))return *handled;
     if(auto handled=vp2s::nativeNamePlateInstruction(ctx,rt,pc))return *handled;
     if(auto handled=vp2s::nativeTextureManagerInstruction(ctx,rt,pc))return *handled;
     if(auto handled=vp2s::nativeVisibilityInstruction(ctx,rt,pc))return *handled;
@@ -952,13 +964,14 @@ int main(int argc,char **argv) {
                 const vp2s::PictureContext pictures{host.textures,host.glyphs};
                 step("windows");host.windows.serialize(a,pictures);step("texts");host.uiTexts.serialize(a,pictures);step("math");vp2s::serializeMathState(a,&dispatcher.runtime());
                 // Added after the first states: an older state's section ends here.
-                step("battle images");if(!a.loading() || !a.atEnd())host.textures.serializeBlocks(a);step("done");},
+                step("battle images");if(!a.loading() || !a.atEnd())host.textures.serializeBlocks(a);
+                step("battle sprites");if(!a.loading() || !a.atEnd())host.battleSprites.serialize(a);step("done");},
             [&]{for(auto why:{host.dbc->unsaveable(),host.sprites.unsaveable(),host.windows.unsaveable(),host.uiTexts.unsaveable()})
                     if(!why.empty())return why;
                 // Owners whose open records later publish into guest memory: a save waits for them.
                 const std::pair<const char *,size_t> open[]={{"particle build",host.particles.outstanding()},{"particle update",host.particleUpdates.outstanding()},
                     {"squad",host.squads.outstanding()},{"motion update",host.motion.outstanding()},{"media buffer",host.mediaBuffers.outstanding()},
-                    {"screen rectangle",host.screenRects.outstanding()},{"screen zoom",host.screenZooms.outstanding()},
+                    {"screen rectangle",host.screenRects.outstanding()},{"battle sprite flush",host.battleSprites.outstanding()},{"screen zoom",host.screenZooms.outstanding()},
                     {"state setup",host.stateSetups.outstanding()},{"debug font",host.fonts.outstanding()}};
                 for(const auto &[name,count]:open)if(count)return std::format("a native {} is in flight",name);
                 return std::string();}});

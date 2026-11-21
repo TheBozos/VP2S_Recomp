@@ -12,6 +12,41 @@ The earlier VP2S face/shading and general brightness comparisons remain open.
 
 ## Build and evidence
 
+### Battle 2D sprites: the UI family's sprite lists drawn natively (2026-11-21)
+
+The battle's 2D UI objects build their draw lists in one of two writers (`+90`/`+94`,
+chosen by `+bb`) and flush the other (`+bc`) a frame later through `120eb0`, from
+`3cd0c0` (the texture-set classes `174e30`, `175450`, ...) or the base flush `42d4c0`
+(`174300`). A build method resets its writer and writes ALPHA_2 = 0x44 (`120860`), then
+texture selections and sprites from the shared writer `42db50` (REGLIST tag at `50d450`:
+PRIM 0x256, RGBAQ, ST/XYZ2 twice).
+- **Native (`bozo/native_battle_sprites.cpp`):**
+  - The writer reset is hooked in all 27 build methods: the delay slot of their `120860`
+    call, found by its exact words; the object register comes from the `addu` or the
+    method's `move sN,a0`.
+  - Texture selections are recorded as graphics-memory blocks:
+    - `3cd330`'s 8-bit path (one TEX0);
+    - its 4-bit path (palette load plus TEX0 composed from the image record);
+    - `4f0e90`'s battle UI sheet (512x256 PSMT4HH, from the layout table
+      `*(36d880)+0x68`).
+  - Each sprite comes from `42db50`'s joined corner path (`42ddd8`): 12.4 corners, z,
+    colour `+24`, and ST from the descriptor's floats or the image record's texels
+    (`0x397fffd5 * texel`).
+  - At the flush the writer must hold exactly ALPHA, the selections and 64 bytes per
+    sprite. Pictures are then resolved, because the same frame's texture-set upload
+    publishes them after the build. The list is drawn with the UI material, and the
+    scalar flush keeps its bookkeeping.
+- **Texture set:** the upload method now accepts any class running `3cd0c0` (owner vtable
+  = vtable + 84, completion `44d590`).
+- **Test:** `vp2s-bozo-battle-sprites`. It covers the build, selections, both ST paths,
+  corner and depth limits, and the flush checks. The texel case reproduces the first
+  sprite's ST words from the battle (`3bbfffe0 3e51ffdd 3dcbffde 3e96ffe7`).
+- **Evidence:** `--battle 0x18` draws class `174e30`'s list natively (19 sprites, 1 texture)
+  at about frame 63470.
+- **Next boundary:** class `174fb0` (build `4d8740`) writes quads through the second
+  primitive family: header `42ec70` (flat 0x244, textured 0x254, Gouraud 0x24c/0x25c;
+  REGLIST tags `50d440..50d480`) with the vertex writers `42df80`/`42ed50`.
+
 ### Battle texture set 174e30: images published, its sprite draw next (2026-11-21)
 
 The battle's frame-cycling uploads come from mod028 class `174e30` (method `3cd0c0`):

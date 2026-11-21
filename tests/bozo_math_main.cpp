@@ -890,6 +890,18 @@ int main(int argc,char **argv){try{
             {const auto x=getv(stack+0xc0),y=getv(stack+0xd0);   // (1,0,0) x (1,0,0) = 0; (0,1,0) x (1,0,0) = (0,0,-1)
              check(x[0]==0 && x[1]==0 && x[2]==0 && x[3]==5 && y[0]==0 && y[1]==0 && y[2]==-1 && y[3]==6);}
         }
+        {   // mod028 387330 battle camera projection (one of four in-place copies): rows via v1, point s0+120, store sp+30.
+            constexpr uint32_t words[]={0xd8610000,0xd8620010,0xd8630020,0xd8640030,0x26030120,0xd8650000,0,0,0x4a000038,0x48490001,0x27a30030,0xf8660000};
+            std::memcpy(rt.memory.hostPointer(0x387330,sizeof(words)),words,sizeof(words));
+            constexpr uint32_t stack=0x1fff000,rows=0x1a0000,obj=0x1b0000;const float m[16]={2,0,0,0, 0,2,0,0, 0,0,2,0, 0,0,0,1};std::memcpy(rt.memory.hostPointer(rows,64),m,64);
+            const float v[4]={1,2,3,4};std::memcpy(rt.memory.hostPointer(obj+0x120,16),v,16);
+            R5900Context c{};c.r[29].uw[0]=stack;c.r[3].uw[0]=rows;c.r[9].ud[0]=7;
+            for(unsigned i=0;i<std::size(words);++i){const uint32_t pc=0x387330+4*i;
+                if(pc==0x387344)c.r[3].uw[0]=obj+0x120;if(pc==0x38735c)c.r[3].uw[0]=stack+0x30;
+                const bool cop2=i<4 || i==5 || i==8 || i==9 || i==11;check(vp2s::nativeMathInstruction(rt.memory.flat(),&c,&rt,pc)==cop2);}
+            float o[4];std::memcpy(o,rt.memory.hostPointer(stack+0x30,16),16);check(o[0]==0.5f && o[1]==1 && o[2]==1.5f && o[3]==0.25f && c.r[9].ud[0]==0);
+            {   bool failed=false;try{vp2s::nativeMathInstruction(rt.memory.flat(),&c,&rt,0x38735c);}catch(const std::runtime_error &){failed=true;}check(failed); }   // stored twice
+        }
         {   // mod028 3e8a34 guarded normalise: (2,2,2,2) -> QMFC2 t0 = (16,4,4,4), store (0.5,0.5,0.5,0.5).
             constexpr uint32_t words[14]={0xd8590000,0x4bc007c3,0x27a20150,0x4bf9ceaa,0x4b1ad03d,0x4b1af8be,0x4b1afe8b,0x4828d000,0x11000006,0,0x4a7a03be,0x4a0003bf,0x4be0ce5c,0xf8590000};
             std::memcpy(rt.memory.hostPointer(0x3e8a34,sizeof(words)),words,sizeof(words));

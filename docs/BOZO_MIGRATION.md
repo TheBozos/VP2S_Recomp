@@ -12,6 +12,24 @@ The earlier VP2S face/shading and general brightness comparisons remain open.
 
 ## Build and evidence
 
+### Battle camera projections: four in-place program-0 copies natively (2026-11-21)
+
+mod028 projects points through the battle camera with VU0 program 0 in four places that
+load the rows themselves: `384b0c`, `384b74`, `387330` (in `386fbc`) and `4c8670`.
+- **Layout (each copy):** R..R+c loads LQC2 vf1..vf4 from the camera rows
+  `*(*(*36d880+80)+18)`. R+14 loads LQC2 vf5 (the point). Then come VCALLMS 0 (R+20),
+  CFC2.I t1/vi0 (R+24) and SQC2 vf6 (R+2c). Only the base registers differ between copies.
+- **Native (`bozo/native_math.cpp`, `nativeBattleCameraProjection`):** each copy's words
+  are checked from its rows register. The rows and point are captured, and the store
+  writes `program0Projection` (the same formula as the battle unit and flare projections);
+  t1 = 0. A store without its rows and point is refused.
+- **Not ported yet:** the eleven other `VCALLMS 0` sites in mod028 carry their rows over
+  from earlier code (like `4d10a0`); each needs its own analysis.
+- **Test:** `vp2s-bozo-math-records` covers `387330`: rows diag(2,2,2,1), point (1,2,3,4)
+  -> (0.5, 1, 1.5, 0.25). A second store is refused.
+- **Evidence:** `--battle 0x18` passes it. The next boundary is a graphics-memory readback
+  in format 1 (PSMCT24) at `29a4dc` (entry `29a4b0`); only depth formats are ported.
+
 ### Battle side axes 3e9470: two VU0 cross blocks natively (2026-11-21)
 
 mod028 `3e9470` (a battle UI class's placement routine) runs two VU0 blocks.

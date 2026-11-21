@@ -954,6 +954,34 @@ bool nativeFlareProjection(R5900Context *c,Runtime *rt,uint32_t pc){
     if(state.loaded!=15 || !state.point)throw std::runtime_error("native flare projection stored without its matrix and light");
     const auto result=program0Projection(state,"flare");std::memcpy(record(rt,base,16),result.data(),16);state.loaded=0;state.point=false;return true;
 }
+// Battle camera projections, mod028 (384b0c, 384b74, 387330 in 386fbc, 4c8670): the camera
+// rows at *(*(*36d880+80)+18) loaded in place, R..R+c: LQC2 vf1..vf4 = 0..30(rA); R+14:
+// LQC2 vf5 = 0(rB) (the point); R+20: VCALLMS 0; R+24: CFC2.I t1/vi0; R+2c: SQC2 vf6 to
+// 0(rC): program 0 (program0Projection). R+10/18/1c/28 are CPU code (pointer moves, nops).
+FlareProjection &battleCameraProjection(const Runtime *rt,uint32_t site){static std::map<std::pair<const Runtime *,uint32_t>,FlareProjection> m;return m[{rt,site}];}
+bool nativeBattleCameraProjection(R5900Context *c,Runtime *rt,uint32_t pc){
+    constexpr uint32_t sites[]={0x384b0c,0x384b74,0x387330,0x4c8670};
+    if((pc&3) || !rt)return false;
+    const auto site=std::find_if(std::begin(sites),std::end(sites),[&](uint32_t r){return pc>=r && pc<=r+0x2c;});
+    if(site==std::end(sites))return false;
+    const unsigned slot=(pc-*site)/4;
+    if(slot==4 || slot==6 || slot==7 || slot==10)return false;   // CPU code between
+    const auto word=[&](uint32_t at){uint32_t w=0;if(const auto *p=rt->memory.hostPointer(at,4))std::memcpy(&w,p,4);return w;};
+    const uint32_t first=word(*site),rows=(first>>21)&31;
+    for(unsigned k=0;k<4;++k)if(word(*site+4*k)!=(0xd8000000u|rows<<21|(k+1)<<16|16*k))return false;   // another overlay here
+    const uint32_t point=word(*site+0x14),store=word(*site+0x2c);
+    if((point&0xfc1fffffu)!=0xd8050000u || word(*site+0x20)!=0x4a000038u || word(*site+0x24)!=0x48490001u || (store&0xfc1fffffu)!=0xf8060000u)return false;
+    if(!c)throw std::runtime_error("native battle camera projection has no CPU record");
+    auto &state=battleCameraProjection(rt,*site);
+    if(slot<4){if(slot==0){state.loaded=0;state.point=false;}
+        std::memcpy(state.rows[slot],record(rt,c->r[rows].uw[0]+16*slot,16),16);for(float &x:state.rows[slot])x=vu0Input(x);state.loaded|=1u<<slot;return true;}
+    if(slot==5){std::memcpy(state.v,record(rt,c->r[(point>>21)&31].uw[0],16),16);for(float &x:state.v)x=vu0Input(x);state.point=true;return true;}
+    if(slot==8)return true;
+    if(slot==9){c->r[9].ud[0]=0;return true;}
+    if(state.loaded!=15 || !state.point)throw std::runtime_error(std::format("native battle camera projection {:x} stored without its rows and point",*site));
+    const auto result=program0Projection(state,"battle camera");std::memcpy(record(rt,c->r[(store>>21)&31].uw[0],16),result.data(),16);
+    state.loaded=0;state.point=false;return true;
+}
 // Battle unit projection, mod028 4d10a0: LQC2 vf1..vf4 = the camera rows at
 // *(*(*36d880+80)+18) once (4d1140..4d114c), then for each of 4 units: LQC2 vf5 = sp+80
 // (4d11e0), VCALLMS 0, CFC2.I t1/vi0, SQC2 vf6 to sp+70 (4d11f8): program 0 (see
@@ -3913,6 +3941,7 @@ bool nativeMathInstruction(uint8_t *,R5900Context *c,Runtime *rt,uint32_t pc){
     if(nativeBattleNormalise(c,rt,pc))return true;
     if(nativeBattleSideAxes(c,rt,pc))return true;
     if(nativeBattleUnitProjection(c,rt,pc))return true;
+    if(nativeBattleCameraProjection(c,rt,pc))return true;
     if(nativeBattleSegmentDirection(c,rt,pc))return true;
     if(nativeSegmentSphere(c,rt,pc))return true;
     if(nativeBattleSegmentBox(c,rt,pc))return true;

@@ -2116,7 +2116,51 @@ int main(int argc,char **argv){try{
         if(std::memcmp(got,expect,16)){std::fprintf(stderr,"scaled sum v1 seed%u %08x %08x %08x %08x / %08x %08x %08x %08x\n",seed,got[0],got[1],got[2],got[3],expect[0],expect[1],expect[2],expect[3]);check(false);}
         ++sumCases;
     }
-    std::printf("%u scaled-sum blocks (QMTC2 scale from v0 or v1) match the VU0 oracle\n",sumCases);
+    // Point advanced along a direction (mod028 47c108..47c128, the game's words): LQC2 vf1 (v1 =
+    // sp+c0), vf2 (v0 = sp+d0); MFC1 t0 = f0; QMTC2 t0; addiu v0 = sp+c0; MULAw vf1; MADDx; SQC2 vf1 -> v0.
+    for(unsigned seed=0;seed<128;++seed){
+        auto &r=native.runtime();std::memset(r.memory.flat(),0x49+seed,bozo::kFlatBytes);
+        uint32_t state=seed*2654435761u+11;const auto rnd=[&](){state=state*1664525u+1013904223u;return state>>8;};
+        const uint32_t code=0x1c4000+64*(rnd()%64),stackAt=0x1e0000+16*(rnd()%256);
+        const uint32_t words[9]={0xd8610000,0xd8420000,0x44080000,0,0x48a81800,0x27a200c0,0x4bc009bf,0x4bc31048,0xf8410000};
+        std::memcpy(r.memory.hostPointer(code,36),words,36);
+        uint32_t p[4],d[4];for(unsigned i=0;i<4;++i){p[i]=(rnd()&0x807fffffu)|((100+rnd()%50)<<23);d[i]=(rnd()&0x807fffffu)|((100+rnd()%50)<<23);}
+        const uint32_t scale=(rnd()&0x807fffffu)|((110+rnd()%30)<<23);
+        std::memcpy(r.memory.hostPointer(stackAt+0xc0,16),p,16);std::memcpy(r.memory.hostPointer(stackAt+0xd0,16),d,16);
+        R5900Context x{};x.r[29].ud[0]=stackAt;x.r[3].ud[0]=stackAt+0xc0;x.r[2].ud[0]=stackAt+0xd0;
+        for(const unsigned i:{0u,1u})if(!vp2s::nativeMathInstruction(r.memory.flat(),&x,&r,code+4*i)){std::fprintf(stderr,"advance word %u unclaimed\n",i);check(false);}
+        x.r[8].uw[0]=scale;x.r[8].uw[1]=rnd();x.r[8].uw[2]=rnd();x.r[8].uw[3]=rnd();   // MFC1 t0 = f0
+        check(vp2s::nativeMathInstruction(r.memory.flat(),&x,&r,code+16));
+        x.r[2].ud[0]=stackAt+0xc0;   // addiu v0, sp, 0xc0
+        for(const unsigned i:{6u,7u,8u})if(!vp2s::nativeMathInstruction(r.memory.flat(),&x,&r,code+4*i)){std::fprintf(stderr,"advance word %u unclaimed\n",i);check(false);}
+        uint32_t got[4],expect[4];std::memcpy(got,r.memory.hostPointer(stackAt+0xc0,16),16);
+        for(unsigned i=0;i<3;++i){uint32_t f=0;expect[i]=bozo::ps2f::addNearest(bozo::ps2f::mul(p[i],0x3f800000,f),bozo::ps2f::mul(d[i],scale,f),f);}expect[3]=p[3];
+        if(std::memcmp(got,expect,16)){std::fprintf(stderr,"advance seed%u %08x %08x %08x %08x / %08x %08x %08x %08x\n",seed,got[0],got[1],got[2],got[3],expect[0],expect[1],expect[2],expect[3]);check(false);}
+        ++sumCases;
+    }
+    // Colour scale (mod028 47c280..47c29c, the game's words): LQC2 vf1 (v1); MFC1 t0 = f0; QMTC2 t0
+    // -> vf2; addiu v0 = sp+a0; MULx.xyz vf1 *= vf2.x; MULx.w vf1 *= vf0.x; SQC2 vf1 -> v0.
+    for(unsigned seed=0;seed<128;++seed){
+        auto &r=native.runtime();std::memset(r.memory.flat(),0x4b+seed,bozo::kFlatBytes);
+        uint32_t state=seed*2246822519u+13;const auto rnd=[&](){state=state*1664525u+1013904223u;return state>>8;};
+        const uint32_t code=0x1c4000+64*(rnd()%64),colourAt=0x1d0000+16*(rnd()%256),stackAt=0x1e0000+16*(rnd()%256);
+        const uint32_t words[8]={0xd8610000,0x44080000,0,0x48a81000,0x27a200a0,0x4bc20858,0x4a200858,0xf8410000};
+        std::memcpy(r.memory.hostPointer(code,32),words,32);
+        uint32_t v[4];for(unsigned i=0;i<4;++i)v[i]=(rnd()&0x807fffffu)|((100+rnd()%50)<<23);
+        const uint32_t scale=seed%2?0x3c000000u:(rnd()&0x807fffffu)|((110+rnd()%30)<<23);
+        std::memcpy(r.memory.hostPointer(colourAt,16),v,16);
+        R5900Context x{};x.r[29].ud[0]=stackAt;x.r[3].ud[0]=colourAt;
+        check(vp2s::nativeMathInstruction(r.memory.flat(),&x,&r,code));
+        x.r[8].uw[0]=scale;x.r[8].uw[1]=rnd();x.r[8].uw[2]=rnd();x.r[8].uw[3]=rnd();   // MFC1 t0 = f0
+        check(vp2s::nativeMathInstruction(r.memory.flat(),&x,&r,code+12));
+        x.r[2].ud[0]=stackAt+0xa0;   // addiu v0, sp, 0xa0
+        for(const unsigned i:{5u,6u,7u})if(!vp2s::nativeMathInstruction(r.memory.flat(),&x,&r,code+4*i)){std::fprintf(stderr,"colour scale word %u unclaimed\n",i);check(false);}
+        uint32_t got[4],expect[4];std::memcpy(got,r.memory.hostPointer(stackAt+0xa0,16),16);
+        for(unsigned i=0;i<3;++i){uint32_t f=0;expect[i]=bozo::ps2f::mul(v[i],scale,f);}{uint32_t f=0;expect[3]=bozo::ps2f::mul(v[3],0,f);}
+        if(std::memcmp(got,expect,16)){std::fprintf(stderr,"colour scale seed%u %08x %08x %08x %08x / %08x %08x %08x %08x\n",seed,got[0],got[1],got[2],got[3],expect[0],expect[1],expect[2],expect[3]);check(false);}
+        ++sumCases;
+    }
+    std::printf("%u scaled-sum blocks (QMTC2 scale from v0, v1 or t0; colour scale) match the VU0 oracle\n",sumCases);
     // Particle draw setup (mod001 22f3a4..22f3bc and 22f404..22f410), the game's words:
     // a*b + c with its store in the delay slot of b 22f418, and the plain product.
     unsigned setupCases=0;

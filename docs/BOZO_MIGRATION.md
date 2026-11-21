@@ -12,6 +12,21 @@ The earlier VP2S face/shading and general brightness comparisons remain open.
 
 ## Build and evidence
 
+### Battle 47bfa4: point advance and colour scale as macro idioms (2026-11-21)
+
+mod028 `47bfa4` places an object relative to a battle anchor. It uses two short VU0 blocks,
+which are now `nativeMacroIdiom` entries (`bozo/native_math.cpp`).
+- **`advance` (`47c108`):** LQC2 vf1 = sp+c0 (point), vf2 = sp+d0 (direction). The FPU
+  computes k = (f2 + f1) + 0.5 f3, and MFC1/QMTC2 move it from t0 to vf3. MULAw.xyz ACC =
+  vf1*1; MADDx.xyz vf1 = ACC + vf2*k; SQC2 -> {p + d k, p.w}. It has the same shape as
+  `scaledsum`, with the point and direction registers swapped.
+- **`colourscale` (`47c280`):** LQC2 vf1 = the +9a0 colour (from `47ae40`); QMTC2 t0 -> vf2
+  (1/128); MULx.xyz vf1 *= k; MULx.w vf1 *= vf0.x; SQC2 -> {rgb/128, w*0}.
+- **Test:** `vp2s-bozo-math-check` compares 128 cases of each, with the game's words, against
+  the ps2f oracle (random scale and upper lanes).
+- **Evidence:** `--battle 0x18` passes both. The next boundary is a timer-0 COUNT read
+  (`10000000`) at `47f5a0`.
+
 ### Battle generated meshes without normals: writer byte +d1 (2026-11-21)
 
 The battle writer subclass 174f90 (mod028 kick `4d75f0`) can leave the normals lane out

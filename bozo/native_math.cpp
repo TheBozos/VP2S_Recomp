@@ -3174,6 +3174,14 @@ constexpr MacroIdiom macroIdioms[]={
     {"scaledsum",{-2,-3,0x48a21800,0x4bc011bf,0x4bc30848,-101},6},
     // the same with s from v1 (mod003 38cea0, twice; an MFC1 f0 precedes the QMTC2).
     {"scaledsum",{-2,-3,0x48a31800,0x4bc011bf,0x4bc30848,-101},6},
+    // point advanced along a direction (mod028 47bfa4 at 47c108): LQC2 vf1 (point), vf2
+    // (direction); QMTC2 t0 -> vf3 (k in .x: the FPU's (f2 + f1) + 0.5 f3, moved by MFC1);
+    // MULAw.xyz ACC = vf1*1; MADDx.xyz vf1 = ACC + vf2*k; SQC2 vf1 -> {p + d*k (xyz), p.w}.
+    {"advance",{-2,-3,0x48a81800,0x4bc009bf,0x4bc31048,-101},6},
+    // colour scale (mod028 47bfa4 at 47c280): LQC2 vf1 (the object's +9a0 colour); QMTC2 t0
+    // -> vf2 (k in .x: 1/128 there); MULx.xyz vf1 = vf1*k; MULx.w vf1 = vf1.w*vf0.x (0);
+    // SQC2 vf1 -> {rgb*k, w*0}.
+    {"colourscale",{-2,0x48a81000,0x4bc20858,0x4a200858,-101},5},
     // row point (mod001 2b802c): LQC2 vf15 (point), vf11..vf14 (rows); ADDw.xyz vf31 = 1;
     // MUL vf11..vf14 *= vf15; per row ADDA/MADDA/MADD with 1*: x ((x+y)+1z)+1w,
     // y ((y+x)+1z)+1w, z ((z+y)+1x)+1w, w ((w+y)+1z)+1x; SQC2 vf5.
@@ -3293,6 +3301,10 @@ bool nativeMacroIdiom(R5900Context *c,Runtime *rt,uint32_t pc){
                 for(unsigned i=0;i<4;++i)out[i]=vuMul(v[i],q);}
             else if(kind=="scaledsum"){const auto a=need(1),b=need(2),k=need(3);
                 for(unsigned i=0;i<3;++i)out[i]=vuAdd(vuMul(b[i],one),vuMul(a[i],k[0]));out[3]=a[3];}
+            else if(kind=="advance"){const auto p=need(1),d=need(2),k=need(3);
+                for(unsigned i=0;i<3;++i)out[i]=vuAdd(vuMul(p[i],one),vuMul(d[i],k[0]));out[3]=p[3];}
+            else if(kind=="colourscale"){const auto v=need(1),k=need(2);
+                for(unsigned i=0;i<3;++i)out[i]=vuMul(v[i],k[0]);out[3]=vuMul(v[3],0);}
             else if(kind=="muladd"){const auto a=need(1),b=need(2),k=need(3);for(unsigned i=0;i<4;++i)out[i]=vuAdd(vuMul(a[i],b[i]),vuMul(k[i],one));}
             else if(kind=="product2"){const auto a=need(1),b=need(2);for(unsigned i=0;i<4;++i)out[i]=vuMul(a[i],b[i]);}
             else if(kind=="product"){const auto a=need(12),b=need(13);for(unsigned i=0;i<4;++i)out[i]=vuMul(a[i],b[i]);}

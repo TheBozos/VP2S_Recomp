@@ -575,6 +575,17 @@ def overlay_adaptations(name,data):
             s=next(s for s in segments if s[0]==1 and s[2]<=lo<hi<=s[2]+s[4]);at=s[1]+lo-s[2]
             if hashlib.sha256(data[at:at+hi-lo]).hexdigest()!=expected:raise ValueError('USA battle image loader mismatch')
         return '0036b5d0 0c044c70 00000000\n0036b6b0 0c044c70 00000000\n'
+    if name=='mod028':
+        # Battle texture set 3cd0c0 (class 174e30, bozo/native_textures.cpp,
+        # nativeBattleTextureSetInstruction): its two type-3 chain enqueues are retired.
+        # The last image's enqueue (owner +c0, completion thunk 44d590 -> 3cc900)
+        # enters the real completion 3cc900; the delay slots publish the images.
+        _,segments,_=elf_parts(data)
+        for lo,hi,expected in ((0x3cd0c0,0x3cd25c,'0bf1221c309c49e7a0f54188d3191662aa22ff7b76249f6833a40614a2a27508'),
+                               (0x3cc900,0x3cc91c,'e6e81f90b768228012c77b0ff794a4068ceb0187abc59dc45364159a238dd8ae')):
+            s=next(s for s in segments if s[0]==1 and s[2]<=lo<hi<=s[2]+s[4]);at=s[1]+lo-s[2]
+            if hashlib.sha256(data[at:at+hi-lo]).hexdigest()!=expected:raise ValueError('USA battle texture set mismatch')
+        return '003cd170 0c044c70 0c0f3240\n003cd1ac 0c044c70 00000000\n'
     if name!='mod001':return ''
     _,segments,_=elf_parts(data)
     for lo,hi,expected in ((0x12b4a8+0x1f0,0x12b4a8+0x250,'b79cf2382262fa4251a0e08c8d0b7eb05f051c8a77915bf5863c78d7d6acd784'),
@@ -1062,7 +1073,8 @@ def overlay_native_sites(name,data):
         _,segments,_=elf_parts(data);lo,hi=0x4d7ea8,0x4d7ef4
         s=next(s for s in segments if s[0]==1 and s[2]<=lo<hi<=s[2]+s[4]);at=s[1]+lo-s[2]
         if hashlib.sha256(data[at:at+hi-lo]).hexdigest()!='6ece2a94abf1b7ee954752b092e51a8b03a303f482db0acf9ff8768a53dcce1e':raise ValueError('USA battle writer kick mismatch')
-        return ''.join(f'native 0x{pc:x}\n' for pc in (0x4d7eac,0x4d7ed8,0x4d7ee0,0x4d7ee8,0x4d7ef0))
+        overlay_adaptations(name,data)
+        return ''.join(f'native 0x{pc:x}\n' for pc in (0x4d7eac,0x4d7ed8,0x4d7ee0,0x4d7ee8,0x4d7ef0,0x3cd174,0x3cd1b0))
     if name=='mod027':
         # The battle core's timer reads/writes (bozo/native_seed.cpp): seeded entropy, no timer.
         _,segments,_=elf_parts(data)

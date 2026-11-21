@@ -12,6 +12,27 @@ The earlier VP2S face/shading and general brightness comparisons remain open.
 
 ## Build and evidence
 
+### Battle texture set 174e30: images published, its sprite draw next (2026-11-21)
+
+The battle's frame-cycling uploads come from mod028 class `174e30` (method `3cd0c0`):
+for each image of its current set it queued a type-3 chain on the graphics queue
+(`35dd78`), the last with the owner `+c0` (completion thunk `44d590` -> `3cc900`,
+which tail-calls `21c9a0`). Each chain is REF(0x70-byte image packet)/REF(data)
+pairs, a CNT tail (TEXFLUSH and a TEX0_2 write) and END. Each pair uploads one FIS
+file's palette (`FIS+10+*(FIS+24)`, then +80) or pixels (descriptor
+`D = FIS+10+*(FIS+1c)`, packet `D+10+*(D+10)`, then +80) as a CT32 rectangle.
+- **Native:** both enqueues are patched (`3cd170` now calls `3cc900`, `3cd1ac` is
+  gone). Their delay slots publish the file under the packet's BITBLTBUF blocks, as
+  the battle image loader does; the chain shape, CT32 format, rectangle size and
+  the owner's completion are checked. The route publishes `iruk:11c` (palette
+  `3d74`, pixels `36a0`).
+- **Not covered by a unit test:** the textures suite has no host for this site;
+  the evidence is the battle run's queue trace.
+- **Next boundary:** the same class flushes its GS packet through `120eb0`
+  (writer `+90`, caller `3cd21c`): about 20 screen-space textured sprites (REGLIST
+  PRIM 0x256, RGBAQ, ST, XYZ2 twice) from that texture, the battle's 2D UI. It needs a
+  native UI owner.
+
 ### Battle VU0 normalise, xz length, unit projection (2026-11-21)
 
 The battle runs past frame 63470 (the enemy in the forest). The next boundary is a

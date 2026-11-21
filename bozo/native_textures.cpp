@@ -242,6 +242,66 @@ std::optional<bool> nativeBattleImageInstruction(R5900Context *c,Runtime *rt,uin
     }
     return false;
 }
+// mod028 class 174e30 (battle texture sets; method 3cd0c0): for each image of its current
+// set (+d0[+e4] records of 0x14 bytes, flags +ec, count +fc) it queued the record's
+// chain (+4) as a type-3 graphics job, the last one with the owner +c0 (completion
+// thunk 44d590 -> 3cc900, which tail-calls 21c9a0). Each chain is REF(0x70-byte image
+// packet)/REF(data) pairs, then a CNT tail (TEXFLUSH and a TEX0_2 write: graphics-memory
+// state) and END. Every pair uploads a CT32 rectangle of one FIS file: its palette
+// (FIS+10+*(FIS+24), the section's packet, then +80) or its pixels (descriptor
+// D = FIS+10+*(FIS+1c), packet D+10+*(D+10), then +80), to the packet's BITBLTBUF block.
+// Natively both enqueues (3cd170, 3cd1ac) are patched: the first now calls 3cc900, the
+// second is gone; their delay slots (3cd174, 3cd1b0) publish the file under the blocks,
+// the way the battle's draws name its images (see nativeBattleImageInstruction).
+std::optional<bool> nativeBattleTextureSetInstruction(R5900Context *c,Runtime *rt,uint32_t pc){
+    constexpr struct {uint32_t pc,word;} sites[]={{0x3cd174,0x0000402d},{0x3cd1b0,0x0000482d}};
+    const auto site=std::find_if(std::begin(sites),std::end(sites),[&](auto &s){return s.pc==pc;});
+    if(site==std::end(sites))return std::nullopt;
+    if(!rt || read<uint32_t>(rt,pc)!=site->word || read<uint32_t>(rt,0x3cd0c0)!=0x27bdff90u)return std::nullopt; // another overlay here
+    auto *d=dynamic_cast<bozo::ee::Dispatcher *>(rt->services);
+    auto *textures=d?dynamic_cast<TextureOwner *>(&d->host()):nullptr;auto *assets=d?dynamic_cast<AssetOwner *>(&d->host()):nullptr;
+    if(!c || !textures || !assets)throw std::runtime_error("native battle texture set has no texture owner");
+    const auto object=c->r[21].uw[0],chain=c->r[7].uw[0];record(rt,object,0x110);
+    if(read<uint32_t>(rt,object)!=0x174e30 || c->r[4].uw[0]!=read<uint32_t>(rt,0x35dd78) || c->r[5].uw[0]!=3 || c->r[6].uw[0])
+        throw std::runtime_error("native battle texture set upload escaped its method");
+    if(pc==0x3cd174 && (c->r[9].uw[0]!=object+0xc0 || read<uint32_t>(rt,object+0xc0)!=0x174eb4 || read<uint32_t>(rt,0x174eb4+0xc)!=0x44d590))
+        throw std::runtime_error("native battle texture set owner has an unported completion");
+    uint32_t at=chain,packet=0;std::optional<uint32_t> fis;bool tail=false;
+    for(unsigned guard=0;;++guard){
+        if(guard>=64)throw std::runtime_error("native battle texture set chain without its end");
+        const auto tag=read<uint32_t>(rt,at),address=read<uint32_t>(rt,at+4);const unsigned qwc=tag&0xffff,id=(tag>>28)&7;
+        if(id==7){if(!qwc && !packet)break;throw std::runtime_error("native battle texture set chain ends inside an image");}
+        if(id==1){if(qwc>4 || packet)throw std::runtime_error("unported battle texture set chain tail");tail=true;at+=16+16*qwc;continue;}
+        if(id!=3 || tail)throw std::runtime_error(std::format("unported battle texture set chain tag {:08x}",tag));
+        at+=16;
+        if(!packet){if(qwc!=7)throw std::runtime_error("native battle texture set packet is not an image packet");packet=address;continue;}
+        record(rt,packet,0x70);
+        const auto bitblt=read<uint64_t>(rt,packet+0x10),trxreg=read<uint64_t>(rt,packet+0x30);
+        if(read<uint64_t>(rt,packet+0x18)!=0x50 || read<uint64_t>(rt,packet+0x38)!=0x52 || ((bitblt>>56)&0x3f))
+            throw std::runtime_error("native battle texture set packet is not a CT32 image upload");
+        const auto block=uint32_t(bitblt>>32)&0x3fff,width=uint32_t(trxreg&0xfff),height=uint32_t(trxreg>>32)&0xfff;
+        if(uint64_t(width)*height*4!=uint64_t(qwc)*16)throw std::runtime_error("native battle texture set rectangle differs from its data");
+        // The file: the one before (its pixels follow its palette) or the nearest FIS header
+        // below the data; the data must then be its palette or its pixels exactly.
+        const auto paletteOf=[&](uint32_t f){const auto o=read<uint32_t>(rt,f+0x24);return o?f+0x10+o+0x80:0u;};
+        const auto pixelsOf=[&](uint32_t f){const auto desc=f+0x10+read<uint32_t>(rt,f+0x1c);return desc+0x10+read<uint32_t>(rt,desc+0x10)+0x80;};
+        if(!fis || (address!=paletteOf(*fis) && address!=pixelsOf(*fis))){
+            fis.reset();for(uint32_t f=(address&~15u)-16;f+0x2000>address && f>=0x100000;f-=16)if(read<uint32_t>(rt,f)==0x534946){fis=f;break;}}
+        if(!fis || (address!=paletteOf(*fis) && address!=pixelsOf(*fis)))
+            throw std::runtime_error(std::format("native battle texture set data {:x} is not a FIS palette or its pixels",address));
+        const bool palette=address==paletteOf(*fis);
+        record(rt,*fis,0x30);
+        if(!assets->nativeAssets().origin(*fis,0x30))throw std::runtime_error(std::format("native battle texture set image {:x} is not a decoded file",*fis));
+        const TextureKey key{read<uint32_t>(rt,*fis+0x14),read<uint32_t>(rt,*fis+0x18)};
+        textures->nativeTextures().publishBlock(block,palette,key);
+        if(std::getenv("VP2S_BOZO_TRACE_QUEUES"))
+            std::fprintf(stderr,"[vp2s:texture] battle texture set %x image %x key=%08x:%x %s=%x\n",object,*fis,key.tag,key.index,palette?"palette":"pixels",block);
+        packet=0;
+    }
+    if(pc==0x3cd1b0)return false;   // move t1, zero runs; the enqueue is gone
+    c->r[8].ud[0]=0;c->r[4].sd[0]=int32_t(object);   // move t0, zero; the patched call enters 3cc900(object)
+    return true;
+}
 std::optional<bool> nativeFixedImageInstruction(R5900Context *c,Runtime *rt,uint32_t pc){
     const bool resource=pc==0x447af0 || pc==0x447b84 || pc==0x447d60 || pc==0x447a48 || pc==0x447f50;
     if(!resource && pc!=0x2f3714 && pc!=0x2ea9a0)return std::nullopt;

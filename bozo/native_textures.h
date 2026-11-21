@@ -86,6 +86,7 @@ std::optional<bool> nativeFixedImageInstruction(R5900Context *,Runtime *,uint32_
 std::optional<bool> nativeTextureUploaderInstruction(R5900Context *,Runtime *,uint32_t pc);
 std::optional<bool> nativeMenuImageInstruction(R5900Context *,Runtime *,uint32_t pc);
 std::optional<bool> nativeBattleImageInstruction(R5900Context *,Runtime *,uint32_t pc);
+std::optional<bool> nativeBattleTextureSetInstruction(R5900Context *,Runtime *,uint32_t pc);
 // The game's deferred free (1205b0): a 0x400-entry ring of pointers released later.
 void guestDeferredFree(Runtime *,uint32_t list,uint32_t pointer);
 // A held asset saved as its key and loaded again through `textures`.

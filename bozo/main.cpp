@@ -732,6 +732,7 @@ bool dispatchNativeInstruction(uint8_t *ram,R5900Context *ctx,Runtime *rt,uint32
     if(auto handled=vp2s::nativeTextureUploaderInstruction(ctx,rt,pc))return *handled;
     if(auto handled=vp2s::nativeMenuImageInstruction(ctx,rt,pc))return *handled;
     if(auto handled=vp2s::nativeBattleImageInstruction(ctx,rt,pc))return *handled;
+    if(auto handled=vp2s::nativeBattleTextureSetInstruction(ctx,rt,pc))return *handled;
     if(auto handled=vp2s::nativeNamePlateInstruction(ctx,rt,pc))return *handled;
     if(auto handled=vp2s::nativeTextureManagerInstruction(ctx,rt,pc))return *handled;
     if(auto handled=vp2s::nativeVisibilityInstruction(ctx,rt,pc))return *handled;

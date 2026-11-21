@@ -677,15 +677,18 @@ uint32_t vuFtoi(uint32_t bits,unsigned shift){
 // Battle vertex packer, mod028 4d7150 (a0 builder, a1 position, a2 vector): +d1 == 0 takes
 // FTOI12 of a2 (LQC2 4d71cc, FTOI12 4d71d0, SQC2 4d71d4 to sp+0); +d0 == 2 takes FTOI4 of
 // a1 (LQC2 4d7260, FTOI4 4d7264, SQC2 4d7268 to sp+0). The scalar code packs the halves.
+// Its sibling 4d7060 (a0 builder, a1 position, a2/a3 words) takes FTOI4 of a1 the same way
+// (LQC2 4d7068, FTOI4 4d706c, SQC2 4d7070 to t2 = sp+0) before packing x, y, z as halfwords.
 bool nativeBattleVertexPack(R5900Context *c,Runtime *rt,uint32_t pc){
-    constexpr struct {uint32_t pc,word;} sites[]={{0x4d71cc,0xd8c10000},{0x4d71d0,0x4be1097e},{0x4d71d4,0xf8610000},{0x4d7260,0xd8a10000},{0x4d7264,0x4be1097d},{0x4d7268,0xf8c10000}};
+    constexpr struct {uint32_t pc,word;} sites[]={{0x4d71cc,0xd8c10000},{0x4d71d0,0x4be1097e},{0x4d71d4,0xf8610000},{0x4d7260,0xd8a10000},{0x4d7264,0x4be1097d},{0x4d7268,0xf8c10000},
+        {0x4d7068,0xd8a10000},{0x4d706c,0x4be1097d},{0x4d7070,0xf9410000}};
     const auto site=std::find_if(std::begin(sites),std::end(sites),[&](auto &s){return s.pc==pc;});
     if(site==std::end(sites) || !rt)return false;
     uint32_t word=0;if(const auto *p=rt->memory.hostPointer(pc,4))std::memcpy(&word,p,4);
     if(word!=site->word)return false;   // another overlay at these addresses
     if(!c)throw std::runtime_error("native battle vertex pack has no CPU record");
-    if(pc!=0x4d71d4 && pc!=0x4d7268)return true;
-    const bool normal=pc==0x4d71d4;const auto source=c->r[normal?6:5].uw[0],out=c->r[normal?3:6].uw[0];
+    if(pc!=0x4d71d4 && pc!=0x4d7268 && pc!=0x4d7070)return true;
+    const bool normal=pc==0x4d71d4;const auto source=c->r[normal?6:5].uw[0],out=c->r[normal?3:pc==0x4d7070?10:6].uw[0];
     if(out!=c->r[29].uw[0])throw std::runtime_error("native battle vertex pack destination mismatch");
     uint32_t in[4],fixed[4];std::memcpy(in,record(rt,source,16),16);
     for(unsigned i=0;i<4;++i)fixed[i]=vuFtoi(in[i],normal?12:4);

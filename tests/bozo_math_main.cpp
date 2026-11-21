@@ -938,6 +938,14 @@ int main(int argc,char **argv){try{
             float o[8];std::memcpy(o,rt.memory.hostPointer(obj+0x9a0,32),32);
             check(o[0]==64 && o[1]==32 && o[2]==127.5f && o[3]==128 && o[4]==0 && o[5]==0.5f && o[6]==1 && o[7]==3);
         }
+        {   // mod028 4d7060 FTOI4 of a1 to t2 = sp: (1.5, -2.25, 100.03, 0) -> (24, -36, 1600, 0) (truncated).
+            constexpr uint32_t words[]={0xd8a10000,0x4be1097d,0xf9410000};std::memcpy(rt.memory.hostPointer(0x4d7068,sizeof(words)),words,sizeof(words));
+            constexpr uint32_t stack=0x1fff000,src=0x1b0000;const float v[4]={1.5f,-2.25f,100.03f,0};std::memcpy(rt.memory.hostPointer(src,16),v,16);
+            R5900Context c{};c.r[29].uw[0]=stack;c.r[5].uw[0]=src;c.r[10].uw[0]=stack;
+            for(uint32_t pc:{0x4d7068u,0x4d706cu,0x4d7070u})check(vp2s::nativeMathInstruction(rt.memory.flat(),&c,&rt,pc));
+            int32_t o[4];std::memcpy(o,rt.memory.hostPointer(stack,16),16);check(o[0]==24 && o[1]==-36 && o[2]==1600 && o[3]==0);
+            c.r[10].uw[0]=stack+16;bool failed=false;try{vp2s::nativeMathInstruction(rt.memory.flat(),&c,&rt,0x4d7070);}catch(const std::runtime_error &){failed=true;}check(failed);
+        }
         {   // mod028 3e8a34 guarded normalise: (2,2,2,2) -> QMFC2 t0 = (16,4,4,4), store (0.5,0.5,0.5,0.5).
             constexpr uint32_t words[14]={0xd8590000,0x4bc007c3,0x27a20150,0x4bf9ceaa,0x4b1ad03d,0x4b1af8be,0x4b1afe8b,0x4828d000,0x11000006,0,0x4a7a03be,0x4a0003bf,0x4be0ce5c,0xf8590000};
             std::memcpy(rt.memory.hostPointer(0x3e8a34,sizeof(words)),words,sizeof(words));

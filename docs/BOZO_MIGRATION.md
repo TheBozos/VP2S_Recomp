@@ -12,6 +12,20 @@ The earlier VP2S face/shading and general brightness comparisons remain open.
 
 ## Build and evidence
 
+### Battle vertex packer 4d7060: FTOI4 position natively (2026-11-21)
+
+mod028 `4d7060` (sibling of the ported packer `4d7150`) turns the a1 position into 12.4 fixed
+point before packing x, y, z as halfwords into its builder.
+- **Original:** LQC2 vf1 = a1 (`4d7068`), FTOI4 (`4d706c`), SQC2 to t2 = sp+0 (`4d7070`).
+- **Native:** the three sites join `nativeBattleVertexPack` (`bozo/native_math.cpp`):
+  `vuFtoi` with 4 fractional bits, truncated and saturating. The destination must be the
+  frame's sp+0.
+- **Test:** `vp2s-bozo-math-records` checks (1.5, -2.25, 100.03, 0) -> (24, -36, 1600, 0)
+  and refuses another destination.
+- **Evidence:** `--battle 0x18` passes it. The next boundary is the generated-mesh check at
+  `4d7ef0` (entry `4d75f0`): "header outside its sections (size 976 of 976, 40 vertices,
+  1 strip)".
+
 ### Battle colour pair 47ae40: two RGBA bytes to VU0 floats natively (2026-11-21)
 
 mod028 `47ae40(object, a1, a2)` turns two packed RGBA byte colours into float vectors.

@@ -1,8 +1,9 @@
 // Battle 2D sprites (bozo/native_battle_sprites.cpp): a build, its texture selection, sprites from
-// both ST paths of the sprite writer 42db50, and the flush's whole-writer and scalar checks.
+// both ST paths of the sprite writer 42db50, a flat polygon from 42df80, and the flush's whole-writer and scalar checks.
 // The texel case is the battle's first sprite at frame 63470 (writer eb1030): texels
 // (24, 840, 408, 1208) give the ST words the game wrote, 3bbfffe0 3e51ffdd 3dcbffde 3e96ffe7.
 #include "native_battle_sprites.h"
+#include "native_ui_text.h"
 #include "bozo/ee/dispatcher.h"
 #include "bozo/port.h"
 #include <bit>
@@ -45,11 +46,14 @@ int main(){try{
     for(unsigned i=0;i<4;++i)put(rt,desc+0x30+4*i,float(i+1)/8);
     const uint32_t w=writer|0x30000000u;
     vp2s::NativeBattleSprites sprites;
-    rejects([&]{put(rt,object,otherVt);sprites.begin(&rt,object,w);});put(rt,object,vt);   // not the battle UI family
-    rejects([&]{sprites.begin(&rt,object,other);});              // not the +bb writer
-    sprites.begin(&rt,object,w);
+    // 120860 with 0x44 opens a build only on a reset writer (+8 = +c = base + 0x40), in EE RAM.
+    check(!sprites.begin(&rt,0x70000100u));put(rt,other,base|0x30000000u);put(rt,other+8,B+0x80);put(rt,other+12,B+0x40);check(!sprites.begin(&rt,other));
+    check(sprites.begin(&rt,w));
     R5900Context c{};c.r[19].uw[0]=object;c.r[18].uw[0]=desc;c.r[16].uw[0]=w;c.r[3].uw[0]=image;
     c.r[6].uw[0]=0x8f5b;c.r[10].uw[0]=0x7a9a;c.r[5].uw[0]=0x90c3;c.r[9].uw[0]=0x7bfe;c.r[7].uw[0]=0xfff479;
+    put(rt,object,otherVt);rejects([&]{sprites.texture(w,{0x36a0,0x3d74,0});sprites.sprite(&rt,&c);});put(rt,object,vt);   // not the battle UI family
+    { vp2s::NativeBattleSprites fresh;check(fresh.begin(&rt,w));auto bad=c;bad.r[16].uw[0]=other;rejects([&]{fresh.sprite(&rt,&bad);}); }   // not the +bb writer
+    check(sprites.begin(&rt,w));
     rejects([&]{sprites.sprite(&rt,&c);});                        // no texture selected yet
     rejects([&]{sprites.texture(other,{0x36a0,0x3d74,0});});
     rejects([&]{sprites.texture(w,{0x36a0,0x3d74,16});});
@@ -61,24 +65,72 @@ int main(){try{
     { auto bad=c;bad.r[6].sw[0]=-1;rejects([&]{sprites.sprite(&rt,&bad);});
       bad=c;bad.r[7].uw[0]=0x1000000;rejects([&]{sprites.sprite(&rt,&bad);});
       bad=c;bad.r[3].uw[0]=image;rejects([&]{sprites.sprite(&rt,&bad);}); }
-    const auto *build=sprites.build(w);check(build && build->sprites.size()==3 && build->textures.size()==1 && build->spriteTextures==std::vector<uint32_t>{0,0,0});
+    // A flat polygon from 42df80 (42e144): header tag 50d440 + PRIM 244 at the writer's open end,
+    // corners at sp+e0 (pixels), colour descriptor +40, depth +74, mode +78.
+    constexpr uint32_t poly=0x1b0200,psp=0x1ffe000;
+    put(rt,base+0x40,0x6400000000000001ull);put(rt,base+0x48,0x555510ull);put(rt,base+0x50,0x244ull);
+    put(rt,poly+0x40,0x40102030u);put(rt,poly+0x74,0xfff000u);put(rt,poly+0x78,uint8_t(0));
+    const int32_t corners[4][2]={{40,300},{200,300},{40,316},{200,316}};
+    for(unsigned i=0;i<4;++i){put(rt,psp+0xe0+8*i,corners[i][0]);put(rt,psp+0xe4+8*i,corners[i][1]);}
+    R5900Context p{};p.r[22].uw[0]=object;p.r[21].uw[0]=poly;p.r[20].uw[0]=4;p.r[16].uw[0]=0x300;p.r[19].uw[0]=B+0x40+0x18;p.r[29].uw[0]=psp;
+    { auto bad=p;bad.r[20].uw[0]=3;rejects([&]{sprites.polygon(&rt,&bad);});          // only 4-corner strips
+      bad=p;bad.r[19].uw[0]+=0x40;rejects([&]{sprites.polygon(&rt,&bad);});           // not at the open end
+      put(rt,poly+0x78,uint8_t(4));bad=p;bad.r[16].uw[0]=4;rejects([&]{sprites.polygon(&rt,&bad);});   // Gouraud bit with the flat header
+      put(rt,poly+0x78,uint8_t(8));bad=p;bad.r[16].uw[0]=8;rejects([&]{sprites.polygon(&rt,&bad);});put(rt,poly+0x78,uint8_t(0));  // textured bit with the flat header
+      put(rt,psp+0xe0,0x1000);rejects([&]{sprites.polygon(&rt,&p);});put(rt,psp+0xe0,corners[0][0]); }
+    sprites.polygon(&rt,&p);
+    // The battle's Gouraud bar (object ea03d0, frame ~63470): header 24c, tag 50d470, colours 80101010 x4.
+    put(rt,base+0x80,0xa400000000000001ull);put(rt,base+0x88,0xf515151510ull);put(rt,base+0x90,0x24cull);
+    put(rt,writer+8,B+0x80);put(rt,poly+0x78,uint8_t(4));for(unsigned i=0;i<4;++i)put(rt,poly+0x40+4*i,0x80101010u+i);
+    { auto g=p;g.r[16].uw[0]=4;g.r[19].uw[0]=B+0x80+0x18;sprites.polygon(&rt,&g); }
+    // The battle's textured Gouraud panel (object e8bcd0, caller 389a38): header 25c, tag 50d480,
+    // image record texels (5e8, 738, f68, b68).
+    constexpr uint32_t rec=0x1b0300;const uint16_t texels[4]={0x5e8,0x738,0xf68,0xb68};for(unsigned i=0;i<4;++i)put(rt,rec+2*i,texels[i]);
+    put(rt,base+0xc0,0xe400000000000001ull);put(rt,base+0xc8,0xf5215215215210ull);put(rt,base+0xd0,0x25cull);
+    put(rt,writer+8,B+0xc0);put(rt,poly+0x78,uint8_t(0xc));put(rt,poly+0x70,rec);
+    { auto t=p;t.r[16].uw[0]=0xc;t.r[19].uw[0]=B+0xc0+0x18;sprites.polygon(&rt,&t);
+      put(rt,poly+0x78,uint8_t(0xe));t.r[16].uw[0]=0xe;for(unsigned i=0;i<4;++i){put(rt,poly+0x50+8*i,float(i&1));put(rt,poly+0x54+8*i,float(i)/4);}
+      rejects([&]{sprites.polygon(&rt,&t);});                                       // bit 2: descriptor ST, here not an axis-aligned rectangle
+    }
+    // A textured flat rectangle from 42ed50 (42efe0): 12.4 edges in v1/t0/v0/a0, depth s3, mode +6c,
+    // colour +30, descriptor ST floats +40 (bit 2), image record +68 = s2.
+    constexpr uint32_t rect=0x1b0400;
+    put(rt,base+0x100,0xa400000000000001ull);put(rt,base+0x108,0x5252525210ull);put(rt,base+0x110,0x254ull);
+    put(rt,writer+8,B+0x100);put(rt,rect+0x6c,uint8_t(0xa));put(rt,rect+0x68,0u);put(rt,rect+0x30,0x80808080u);
+    for(unsigned i=0;i<4;++i){put(rt,rect+0x40+8*i,float(i&1)*0.5f);put(rt,rect+0x44+8*i,float(i>>1)*0.25f);}
+    R5900Context r{};r.r[23].uw[0]=object;r.r[21].uw[0]=rect;r.r[16].uw[0]=0xa;r.r[20].uw[0]=B+0x100+0x18;r.r[19].uw[0]=0xfff000;
+    r.r[3].uw[0]=0x7400;r.r[8].uw[0]=0x7800;r.r[2].uw[0]=0x7c00;r.r[4].uw[0]=0x7a00;
+    { auto bad=r;bad.r[18].uw[0]=rec;rejects([&]{sprites.rectangle(&rt,&bad);});      // s2 is not the descriptor's image
+      bad=r;bad.r[3].sw[0]=-16;rejects([&]{sprites.rectangle(&rt,&bad);}); }
+    sprites.rectangle(&rt,&r);
+    put(rt,writer+8,B+0x40);put(rt,poly+0x40,0x40102030u);put(rt,poly+0x78,uint8_t(0));put(rt,poly+0x70,0u);
+    const auto *build=sprites.build(w);constexpr auto U=vp2s::NativeBattleSpriteBuild::kUntextured;
+    check(build && build->sprites.size()==7 && build->textures.size()==1 && build->polygons==4 && build->polygonBytes==64+96+128+96 &&
+          build->spriteTextures==std::vector<uint32_t>{0,0,0,U,U,0,0});
+    const auto &rs=build->sprites[6];check(!rs.gouraud && rs.colour==0x80808080 && rs.depth==0xfff000 && rs.uv==std::array<float,4>{0,0,0.5f,0.25f} &&
+          rs.fixedCorners[0]==std::array<int32_t,2>{0x7400,0x7800} && rs.fixedCorners[3]==std::array<int32_t,2>{0x7c00,0x7a00});
+    const auto &tp=build->sprites[5];const auto tst=vp2s::nativeBattleSpriteTexels({0x5e8,0x738,0xf68,0xb68});check(tp.gouraud && tp.uv==tst);
+    const auto &q=build->sprites[3];check(q.colour==0x40102030 && q.depth==0xfff000 && !q.gouraud);
+    const auto &g=build->sprites[4];check(g.gouraud);for(unsigned i=0;i<4;++i)check(g.cornerColours[i]==0x80101010u+i);
+    check(vp2s::nativeUiSpriteVertices(g)[4].rgba==0x80101013u && vp2s::nativeUiSpriteVertices(q)[4].rgba==0x40102030u);
+    for(unsigned i=0;i<4;++i)check(q.fixedCorners[i]==std::array<int32_t,2>{corners[i][0]*16,corners[i][1]*16});
     const auto &s=build->sprites[0];
     check(s.colour==0x00808080 && s.depth==0xfff479 && !s.picture);
     check(s.fixedCorners[0]==std::array<int32_t,2>{0x8f5b,0x7a9a} && s.fixedCorners[1]==std::array<int32_t,2>{0x90c3,0x7a9a} &&
           s.fixedCorners[2]==std::array<int32_t,2>{0x8f5b,0x7bfe} && s.fixedCorners[3]==std::array<int32_t,2>{0x90c3,0x7bfe});
     for(unsigned i=0;i<4;++i)check(std::bit_cast<uint32_t>(s.uv[i])==words[i] && build->sprites[1].uv[i]==float(i+1)/8 && build->sprites[2].uv[i]==float(i+1)/8);
-    // The writer must hold exactly ALPHA (32), one TEX0 (32) and three sprites (3 x 64).
-    const uint32_t end=B+0x40+32+32+3*64;
+    // The writer must hold exactly ALPHA (32), one TEX0 (32), three sprites (3 x 64) and the polygons (64 + 96 + 128).
+    const uint32_t end=B+0x40+32+32+3*64+64+96+128+96;
     // Pictures come from the image published under the selection's blocks at the flush.
-    const vp2s::NativeBattleSprites::ImageLookup published=[&](uint32_t block,bool palette)->std::shared_ptr<const vp2s::NativeTextureAsset>{
-        return block==(palette?0x3d74u:0x36a0u)?asset:nullptr;};
-    const vp2s::NativeBattleSprites::ImageLookup unpublished=[](uint32_t,bool)->std::shared_ptr<const vp2s::NativeTextureAsset>{return nullptr;};
+    const vp2s::NativeBattleSprites::ImageLookup published=[&](uint32_t pixels,uint32_t palette)->std::shared_ptr<const vp2s::NativeTextureAsset>{
+        return pixels==0x36a0u && palette==0x3d74u?asset:nullptr;};
+    const vp2s::NativeBattleSprites::ImageLookup unpublished=[](uint32_t,uint32_t)->std::shared_ptr<const vp2s::NativeTextureAsset>{return nullptr;};
     put(rt,writer+8,end+16);rejects([&]{sprites.flush(&rt,stack,object,w,published);});
     put(rt,writer+8,end);rejects([&]{sprites.flush(&rt,stack,object+0x10,w,published);});
     rejects([&]{sprites.flush(&rt,stack,object,w,unpublished);});check(!sprites.active(stack));
     const auto drawn=sprites.flush(&rt,stack,object,w,published);check(sprites.active(stack) && sprites.outstanding()==1);
-    check(drawn.sprites.size()==3);for(const auto &d:drawn.sprites)check(d.picture==asset->picture(0));
-    rejects([&]{sprites.begin(&rt,object,w);});                   // rebuilt while flushing
+    check(drawn.sprites.size()==7 && drawn.sprites[6].picture==asset->picture(0) && !drawn.sprites[3].picture && !drawn.sprites[4].picture && drawn.sprites[5].picture==asset->picture(0));for(unsigned i=0;i<3;++i)check(drawn.sprites[i].picture==asset->picture(0));
+    rejects([&]{sprites.begin(&rt,w);});                          // rebuilt while flushing
     rejects([&]{sprites.complete(stack);});
     R5900Context f{};f.r[29].uw[0]=stack-0x30;f.r[17].uw[0]=w;f.r[9].uw[0]=object+0xc0;f.r[16].uw[0]=end+16;f.r[2].uw[0]=B+0x40;
     f.r[5].uw[0]=2;f.r[8].uw[0]=(end+16-(B+0x40))/16;
@@ -87,6 +139,6 @@ int main(){try{
     rejects([&]{sprites.flushed(&rt,stack);});                    // the writer was not consumed
     put(rt,writer+8,end+16);put(rt,writer+12,end+16);sprites.flushed(&rt,stack);sprites.complete(stack);
     check(!sprites.outstanding() && sprites.build(w));             // kept: a writer may be flushed again
-    std::puts("native battle sprites: build, texture, both ST paths, flush checks");
+    std::puts("native battle sprites: build, texture, both ST paths, flat, Gouraud and textured polygons, rectangles, flush checks");
     return 0;
 }catch(const std::exception &e){std::fprintf(stderr,"%s\n",e.what());return 1;}}

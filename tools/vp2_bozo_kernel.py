@@ -304,7 +304,7 @@ def native_game_sites(data):
     at=s[1]+lo-s[2]
     if hashlib.sha256(data[at:at+hi-lo]).hexdigest()!='cb1860e4ee448add9d0d8d3d8b0c698774f9985e7ba073227421a58ffa920873':
         raise ValueError('USA depth blur builder signature mismatch')
-    return 'native 0x1003c4\nnative 0x11fb50\nnative 0x11f62c\nnative 0x1131c0\n'+asset_sites()+composition_sites()+'native 0x120f4c\nnative 0x120f58\nnative 0x116070\nnative 0x115830\n'
+    return 'native 0x1003c4\nnative 0x11fb50\nnative 0x11f62c\nnative 0x1131c0\n'+asset_sites()+composition_sites()+'native 0x120860\nnative 0x120f4c\nnative 0x120f58\nnative 0x116070\nnative 0x115830\n'
 
 
 def asset_sites():
@@ -1079,30 +1079,25 @@ def overlay_native_sites(name,data):
         for lo,hi,expected in ((0x42db50,0x42df80,'fb42a27ee4742d4a41182e281fa2d3a53fa803887d23160fbd5b96db019116e2'),
                                (0x3cd330,0x3cd510,'58e857cd0d42f6235b662c36fc174ccca3c53e442946a63a35fde5cb665c6d56'),
                                (0x4f0e90,0x4f1008,'10fbc163e348c301bf71c6aec6ab6a5ccd8594aa1494d597d94e555abcaf9b02'),
-                               (0x42d4c0,0x42d500,'a2293856370a94f12e49e4c53fb474f850576b323c83f6dee82efb25c87f3b5b')):
+                               (0x42d4c0,0x42d500,'a2293856370a94f12e49e4c53fb474f850576b323c83f6dee82efb25c87f3b5b'),
+                               (0x42df80,0x42ec20,'e52821c472931bfdff5849677639a73d206c127d9423011ecdf15da46cb30aeb'),   # polygon writer
+                               (0x42ec20,0x42ed50,'aa03a736d5f335ed0bd51aacb601ba6dbb137e35f0d9109f02d92b2fe7e4115d'),   # + its header 42ec70
+                               (0x42ed50,0x42fec0,'0d2c44132b2813962e761d7c505d9b0bb2739af5e3ba816305dca3b20041b40c')):  # rectangle writer
             s=next(s for s in segments if s[0]==1 and s[2]<=lo<hi<=s[2]+s[4]);at=s[1]+lo-s[2]
             if hashlib.sha256(data[at:at+hi-lo]).hexdigest()!=expected:raise ValueError('USA battle sprite source mismatch')
-        # The build methods' writer reset with the object in s0..s7 or copied there from a0 (the delay slot of their
-        # 120860 call; the native side checks the same words).
-        builds=[]
+        # Selection pairs outside 3cd330: a palette load (`lui rX,0x130`, `jal 120740`, delay slot `or a1,..`), then the
+        # next `jal 120740` whose delay slot ORs the image's TEX0 into a1 (the native side reads the OR's registers).
+        sheets=[]
         for seg in (s for s in segments if s[0]==1):
             word=lambda a:int.from_bytes(data[seg[1]+a-seg[2]:seg[1]+a-seg[2]+4],'little')
-            for a in range(seg[2]+0x24,seg[2]+seg[4]-4,4):
-                tail=[word(a-0x1c+4*i) for i in range(8)]
-                if tail!=[0x8c640090,0x8c830000,0x24630040,0xac830008,0x8c830008,0xac83000c,0x0c048218,0xa0820015]:continue
-                addu=word(a-0x20)
-                if word(a-0x24)!=0x00031880 or addu&0xffe0ffff!=0x00601821:continue
-                reg=(addu>>16)&31
-                if reg==4:   # the object's copy: the nearest `move sN,a0` back to the prologue
-                    at=a-0x28
-                    while at+0x200>a:
-                        w=word(at)
-                        if w&0xffff07ff==0x0080002d and 16<=(w>>11)&31<=23:reg=(w>>11)&31;break
-                        if w>>16==0x27bd and w&0x8000:break
-                        at-=4
-                if 16<=reg<=23:builds.append(a)
-        if len(builds)!=27 or 0x4d47d8 not in builds:raise ValueError('USA battle sprite builds mismatch')
-        return ''.join(f'native 0x{pc:x}\n' for pc in (0x4d7eac,0x4d7ed8,0x4d7ee0,0x4d7ee8,0x4d7ef0,0x3cd174,0x3cd1b0,*builds,0x4f0f20,0x3cd468,0x3cd3c8,0x3cd4a0,0x42ddd8,0x3cd218,0x3cd21c,0x42d4f0,0x42d4f4))
+            for a in range(seg[2]+0x80,seg[2]+seg[4]-0x100,4):
+                if word(a)&0xffe0ffff!=0x3c000130 or 0x3cd330<=a<0x3cd510:continue
+                f=next((b for b in range(a,a+0x40,4) if word(b)==0x0c0481d0),None)
+                if f is None or word(f+4)&0xfc00ffff!=0x00002825:continue
+                b=next((b for b in range(f+8,f+0x80,4) if word(b)==0x0c0481d0),None)
+                if b is not None and word(b+4)&0xfc00ffff==0x00002825:sheets.append(b+4)
+        if len(sheets)!=13 or 0x4f0f20 not in sheets or 0x4f2874 not in sheets:raise ValueError('USA battle selection pairs mismatch')
+        return ''.join(f'native 0x{pc:x}\n' for pc in (0x4d7eac,0x4d7ed8,0x4d7ee0,0x4d7ee8,0x4d7ef0,0x3cd174,0x3cd1b0,*sheets,0x3cd468,0x3cd3c8,0x3cd4a0,0x42ddd8,0x42e144,0x42efe0,0x3cd218,0x3cd21c,0x42d4f0,0x42d4f4))
     if name=='mod027':
         # The battle core's timer reads/writes (bozo/native_seed.cpp): seeded entropy, no timer.
         _,segments,_=elf_parts(data)

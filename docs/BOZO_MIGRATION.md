@@ -12,6 +12,47 @@ The earlier VP2S face/shading and general brightness comparisons remain open.
 
 ## Build and evidence
 
+### Battle UI quads: polygons, rectangles and every build drawn natively (2026-11-21)
+
+The battle UI's second primitive family draws 4-corner triangle strips after the header
+`42ec70`, which picks one of four REGLIST forms from the descriptor's mode bits (4 = Gouraud,
+8 = textured): flat `244` (tag `50d440`, 64 bytes), Gouraud `24c` (`50d470`, 96), textured
+`254` (`50d460`, 96), both `25c` (`50d480`, 128; ST with Q = 1). Two writers fill it: the
+polygon writer `42df80` (corners computed into `sp+e0`, called from `42ec20` and directly
+by many classes) and the rectangle writer `42ed50` (axis-aligned, 12.4 edges).
+- **Native (`bozo/native_battle_sprites.cpp`):**
+  - `42df80` is recorded at `42e144`, after its unrotated corner loop, and `42ed50` at
+    `42efe0`, where its two unrotated paths join (x0 = v1, y0 = t0, x1 = v0, y1 = a0, z = s3).
+    One shared strip record checks the header at the writer's open end and takes the
+    colour(s), depth and ST. ST comes from the image record's texels (`0x397fffd5 * texel`)
+    or from the descriptor's corner floats (admitted only as an axis-aligned rectangle).
+    Rotated paths and other corner counts are refused.
+  - Builds now open at the game-wide ALPHA writer `120860`: a call with 0x44 on a freshly
+    reset writer (+8 = +c = base + 0x40) opens one. The first sprite, polygon or flush
+    binds and checks the object (battle UI family, its +bb writer). This replaces the 27
+    word-matched build sites, which missed several reset idioms (e.g. `4d1650`).
+  - Selection pairs outside `3cd330` (13 sites, found by their palette load
+    `lui 0x130` + `jal 120740`): the delay slot of the second `120740` call ORs the TEX0;
+    it is read from that OR's two registers. These are the UI sheet (PSMT4HH) and 8-bit
+    PSMT8H images (e.g. `4f2874`).
+  - Untextured strips draw with an untextured material; Gouraud ones carry per-corner
+    colours (`NativeUiSprite::gouraud`).
+- **Battle image loader fix:** `36b4a0`'s blocks were swapped. a3 -> s4 is the pixel block,
+  and t0 -> s3 the palette block, whose part uploads the file's palette
+  (FIS+10+*(FIS+24)). Palettes now publish at their real blocks (3fc0.., 3ff0).
+- **Repaletted images:** a TEX0 may pair one file's pixels (pv02 `1e3` at 2600) with a
+  palette-only file's palette (`1df` at 3fc4). `NativeTextures::blockImage` builds that
+  combination once (indexed formats only).
+- **Tests:** `vp2s-bozo-battle-sprites` covers flat, Gouraud, textured and rectangle strips
+  with the battle's values (the Gouraud bar 80101010, the textured panel texels
+  5e8/738/f68/b68), the 120860 opening rules and the extents. `vp2s-bozo-textures` covers
+  `blockImage`.
+- **Evidence:** `--battle 0x18` now flushes four UI objects natively in its first UI frame
+  (~63479): `eb0b40` 19 sprites; `ebaaf0` 2 polygons; `ea03d0` 15 (sprites, Gouraud bars,
+  3 selections); `e8bcd0` 56 (sprites, panels, rectangles, 25 selections). Not yet checked
+  on screen: the run stops in that same frame.
+- **Next boundary:** an unported VP2S algorithm at `3e9764` (entry `3e970c`).
+
 ### Battle 2D sprites: the UI family's sprite lists drawn natively (2026-11-21)
 
 The battle's 2D UI objects build their draw lists in one of two writers (`+90`/`+94`,

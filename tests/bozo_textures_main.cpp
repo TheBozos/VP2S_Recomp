@@ -172,6 +172,14 @@ int main(int argc,char **argv){try{
         auto &t=newHost.textures;t.publishBlock(0x3a00,false,{0x12345678,1});t.publishBlock(0x3a00,true,{0x12345678,2});
         check(t.blockAsset(0x3a00,false)->key.index==1 && t.blockAsset(0x3a00,true)->key.index==2 && !t.blockAsset(0x3a04,false));
         rejects([&]{t.publishBlock(0,false,{0x12345678,1});});rejects([&]{t.publishBlock(0x4000,true,{0x12345678,1});});
+        // A TEX0's image: one file under both blocks, or the pixels with another file's palette (built once).
+        check(!t.blockImage(0x3a00,0x3a04));t.publishBlock(0x3b00,false,{0x12345678,2});t.publishBlock(0x3b04,true,{0x12345678,2});
+        check(t.blockImage(0x3b00,0x3b04)==t.blockAsset(0x3b00,false));
+        {   const auto pixels=t.blockAsset(0x3a00,false),colours=t.blockAsset(0x3a00,true);
+            if(pixels->format==0x13 || pixels->format==0x14){const auto mixed=t.blockImage(0x3a00,0x3a00);
+                check(mixed && mixed!=pixels && mixed->texels==pixels->texels && mixed->palette==colours->palette && mixed->identity!=pixels->identity &&
+                      t.blockImage(0x3a00,0x3a00)==mixed);}
+            else rejects([&]{t.blockImage(0x3a00,0x3a00);}); }
         // The game's deferred free (1205b0): ring of 0x400 pointers, write index +0, read index +4.
         auto &b=now.runtime();constexpr uint32_t list=0x1d3710;std::memset(b.memory.hostPointer(list,0x1008),0,0x1008);
         const auto word=[&](uint32_t at){uint32_t v;std::memcpy(&v,b.memory.hostPointer(at,4),4);return v;};

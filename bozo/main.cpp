@@ -261,7 +261,8 @@ public:
         if(!scene.frameTarget())throw std::runtime_error("native battle sprites have no active frame");
         const float identity[16]={1,0,0,0,0,1,0,0,0,0,1,0,0,0,0,1};
         bozo::render::Material material;material.blend=bozo::render::Material::Blend::Alpha;material.alphaTest=true;material.alphaRef=0;
-        for(const auto &sprite:build.sprites){const auto vertices=vp2s::nativeUiSpriteVertices(sprite);
+        // Flat polygons (42df80) carry no picture: untextured, the same blend.
+        for(const auto &sprite:build.sprites){const auto vertices=vp2s::nativeUiSpriteVertices(sprite);material.textured=bool(sprite.picture);
             bozo::render::Renderer::instance().draw(material,identity,vertices.data(),vertices.size(),sprite.picture);}
     }
     vp2s::NativeScreenRects screenRects;

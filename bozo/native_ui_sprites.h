@@ -11,6 +11,8 @@ struct NativeUiSprite {
     std::array<float,4> uv{};
     std::shared_ptr<const bozo::render::Texture> picture;
     bool additive=false;
+    bool gouraud=false;                       // per-corner colours (battle polygons, PRIM 24c)
+    std::array<uint32_t,4> cornerColours{};
 };
 class NativeUiSprites {
     std::map<uint32_t,std::shared_ptr<const NativeButtonSheet>> sheets;

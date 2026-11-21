@@ -18,8 +18,10 @@ struct NativeBattleTexture {uint32_t pixels=0,palette=0,csa=0,bytes=32;};
 struct NativeBattleSpriteBuild {
     uint32_t object=0,begin=0;
     std::vector<NativeBattleTexture> textures;
-    std::vector<uint32_t> spriteTextures;   // per sprite: its selection
+    std::vector<uint32_t> spriteTextures;   // per sprite: its selection (kUntextured: an untextured polygon)
     std::vector<NativeUiSprite> sprites;    // pictures set at the flush
+    uint32_t polygonBytes=0,polygons=0;     // the recorded polygons (42df80, among the sprites) and what they wrote
+    static constexpr uint32_t kUntextured=~0u;
 };
 // The texel path of 42db50 (42de78..42df50): ST = 0x397fffd5 * float(texel) per coordinate,
 // from the image record's four halfwords (u0, v0, u1, v1), EE single-precision multiply.
@@ -29,11 +31,19 @@ class NativeBattleSprites {
     std::map<uint32_t,NativeBattleSpriteBuild> builds;   // by writer
     std::map<uint32_t,Lease> leases;                     // by the flushing caller's stack
 public:
-    void begin(Runtime *,uint32_t object,uint32_t writer);
+    // 120860 with ALPHA_2 = 0x44 on a reset writer: a build opens (false: not a reset writer).
+    bool begin(Runtime *,uint32_t writer);
+    NativeBattleSpriteBuild &bind(Runtime *,uint32_t object,uint32_t writer);
     void texture(uint32_t writer,const NativeBattleTexture &);
     void sprite(Runtime *,const R5900Context *);
-    // `image(block, palette)`: the asset published under a graphics-memory block (NativeTextures::blockAsset).
-    using ImageLookup=std::function<std::shared_ptr<const NativeTextureAsset>(uint32_t,bool)>;
+    // Polygon writer 42df80 after its unrotated corner loop (42e144): a 4-corner strip, flat or Gouraud, textured or not.
+    void polygon(Runtime *,const R5900Context *);
+    // Rectangle writer 42ed50 where its unrotated paths join (42efe0): the same strip forms.
+    void rectangle(Runtime *,const R5900Context *);
+    struct Strip {uint32_t object=0,desc=0,mode=0,data=0,z=0,colours=0,st=0,image=0;std::array<std::array<int32_t,2>,4> corners{};};
+    void strip(Runtime *,const Strip &);
+    // `image(pixels, palette)`: the image a TEX0 names by its blocks (NativeTextures::blockImage).
+    using ImageLookup=std::function<std::shared_ptr<const NativeTextureAsset>(uint32_t,uint32_t)>;
     NativeBattleSpriteBuild flush(Runtime *,uint32_t stack,uint32_t object,uint32_t writer,const ImageLookup &image);
     bool active(uint32_t stack)const{return leases.contains(stack);}
     void retire(Runtime *,const R5900Context *);

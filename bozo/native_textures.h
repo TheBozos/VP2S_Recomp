@@ -45,6 +45,7 @@ class NativeTextures {
     // The battle's images, named as its loader 36b4a0 names them: by the graphics-memory block
     // its layout table (*(36d880)+0x68) assigns, pixels and palettes apart.
     std::map<uint32_t,std::shared_ptr<const NativeTextureAsset>> blockPixels,blockPalettes;
+    std::map<std::pair<uint64_t,uint64_t>,std::shared_ptr<const NativeTextureAsset>> repalettes;   // derived, not saved
 public:
     struct MenuLoad {uint32_t page=0,format=0,palette=0;};
 private:
@@ -65,6 +66,10 @@ public:
     std::shared_ptr<const NativeTextureAsset> menuPage(uint16_t page,uint8_t format,uint16_t palette)const;
     void publishBlock(uint32_t block,bool palette,TextureKey);
     std::shared_ptr<const NativeTextureAsset> blockAsset(uint32_t block,bool palette)const;
+    // The image a TEX0 names by its blocks: the file published under the pixel block with the
+    // palette published under the palette block. When the palette comes from another file (a
+    // palette-only colour variant), the pixels' indices with that palette (built once).
+    std::shared_ptr<const NativeTextureAsset> blockImage(uint32_t pixels,uint32_t palette);
     // Saved apart, at the end of VP2S's section: states older than these records end before them.
     void serializeBlocks(bozo::state::Archive &);
     void finish(uint32_t stack);

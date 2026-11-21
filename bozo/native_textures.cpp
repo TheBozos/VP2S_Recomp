@@ -113,6 +113,18 @@ void NativeTextures::publishBlock(uint32_t block,bool palette,TextureKey key){
 std::shared_ptr<const NativeTextureAsset> NativeTextures::blockAsset(uint32_t block,bool palette)const{
     const auto &m=palette?blockPalettes:blockPixels;auto it=m.find(block);return it==m.end()?nullptr:it->second;
 }
+std::shared_ptr<const NativeTextureAsset> NativeTextures::blockImage(uint32_t pixelBlock,uint32_t paletteBlock){
+    auto image=blockAsset(pixelBlock,false),colours=blockAsset(paletteBlock,true);
+    if(!image || !colours || image==colours)return image==colours?image:nullptr;
+    if(image->format!=0x13 && image->format!=0x14)throw std::runtime_error("native repaletted image is not indexed");
+    auto &slot=repalettes[{image->identity,colours->identity}];
+    if(!slot){auto derived=std::make_shared<NativeTextureAsset>();
+        derived->key=image->key;derived->width=image->width;derived->height=image->height;derived->format=image->format;
+        derived->texels=image->texels;derived->palette=colours->palette;
+        derived->identity=(image->identity*0x100000001b3ull)^colours->identity^0x9e3779b97f4a7c15ull;
+        slot=std::move(derived);}
+    return slot;
+}
 std::shared_ptr<const NativeTextureAsset> NativeTextures::imageAsset(uint32_t object)const{
     auto it=images.find(object);return it==images.end()?nullptr:it->second;
 }
@@ -198,8 +210,8 @@ void guestDeferredFree(Runtime *rt,uint32_t list,uint32_t pointer){
     if(read==write)return; // Full: the game's 1205b0 drops the pointer too.
     std::memcpy(ring+8+4*write,&pointer,4);write=write+1>=0x400?0:write+1;std::memcpy(ring,&write,4);
 }
-// Module 27 (the battle core) loads its images with 36b4a0(FIS a0, buffer a1, a2, palette
-// block a3, pixel block t0, ...): it builds a 0x70-byte image packet per part (1228d0, pixels
+// Module 27 (the battle core) loads its images with 36b4a0(FIS a0, buffer a1, a2, pixel
+// block a3 -> s4, palette block t0 -> s3, ...; the s3 part uploads FIS+10+*(FIS+24), the palette): it builds a 0x70-byte image packet per part (1228d0, pixels
 // at +60) and queued each as a type-1 graphics upload with flags 1 (free the packet) and, on
 // the last part, an owner (class 175c60, built by mod028 506420) whose completion 5063e0
 // frees the buffer (+4) and itself. The blocks come from the battle's layout table, and its
@@ -220,7 +232,7 @@ std::optional<bool> nativeBattleImageInstruction(R5900Context *c,Runtime *rt,uin
         if(read<uint32_t>(rt,fis)!=0x534946 || !assets->nativeAssets().origin(fis,0x30))
             throw std::runtime_error(std::format("native battle image {:x} is not a decoded FIS file (a derived image is unported)",fis));
         const TextureKey key{read<uint32_t>(rt,fis+0x14),read<uint32_t>(rt,fis+0x18)};
-        const auto pixels=c->r[19].uw[0]&0xffff,palette=c->r[20].uw[0]&0xffff;
+        const auto pixels=c->r[20].uw[0]&0xffff,palette=c->r[19].uw[0]&0xffff;
         if(pixels)textures->nativeTextures().publishBlock(pixels,false,key);
         if(palette)textures->nativeTextures().publishBlock(palette,true,key);
         if(std::getenv("VP2S_BOZO_TRACE_QUEUES"))

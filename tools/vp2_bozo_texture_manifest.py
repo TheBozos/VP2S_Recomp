@@ -1,7 +1,10 @@
-"""Index unambiguous existing offline conversions; never read assets at runtime.
+"""Index existing offline conversions; never read assets at runtime.
 
-Keys whose disc copies have different converted content require load provenance
-and deliberately remain absent. No GS-layout decoder is linked into the port.
+A key whose disc copies all convert alike is listed as `tag index name`. A key whose copies
+differ (e.g. each enemy pack's own BM01:1) needs load provenance: each copy is listed as
+`tag index name pack offset` (pack = the decoded part's stem, offset = its texture header),
+sorted, and the port resolves it by the origin of the file the game loaded. No GS-layout
+decoder is linked into the port.
 """
 import argparse
 import json
@@ -28,13 +31,17 @@ def static_palette(image):
 
 
 def manifest(index, variants):
-    copies=defaultdict(set)
+    copies=defaultdict(set);places=defaultdict(list)
     for entry in index:
         if entry['tag'] is None:continue
         location=(PureWindowsPath(entry['file']).stem,entry['at'])
         name=variants.get(location)
-        copies[entry['tag'],entry['index']].add(name)
-    return {key:next(iter(names)) for key,names in copies.items() if len(names)==1 and None not in names}
+        copies[entry['tag'],entry['index']].add(name);places[entry['tag'],entry['index']].append((location,name))
+    keys={key:next(iter(names)) for key,names in copies.items() if len(names)==1 and None not in names}
+    # Differing copies with every copy converted: by provenance (keys whose index fits 16 bits).
+    provenance=sorted((key[0],key[1],stem,at,name) for key,names in copies.items() if len(names)>1 and None not in names and key[1]<0x10000
+                      for (stem,at),name in places[key])
+    return keys,provenance
 
 
 def main():
@@ -45,17 +52,18 @@ def main():
     variants={}
     for line in (a.textures/'variants.txt').read_text().splitlines():
         part,offset,name=line.split();variants[part,int(offset,16)]=name
-    keys=manifest(json.loads(a.index.read_text()),variants)
+    keys,provenance=manifest(json.loads(a.index.read_text()),variants)
     if a.module:
         packed=static_palette(a.module.read_bytes());name='c_'+hashlib.sha1(packed).hexdigest()[:16]+'.tex'
         (a.textures/name).write_bytes(packed)
         if STATIC_PALETTE in keys:raise ValueError('reserved native scene palette key overlaps an asset')
         keys[STATIC_PALETTE]=name
-    for name in keys.values():
+    for name in list(keys.values())+[p[4] for p in provenance]:
         if not (a.textures/name).is_file():raise ValueError('missing offline texture '+name)
     a.out.parent.mkdir(parents=True,exist_ok=True)
-    a.out.write_text('VPNT1\n'+''.join(f'{tag:08x} {index:x} {name}\n' for (tag,index),name in sorted(keys.items())))
-    print(f'{len(keys)} unambiguous offline texture keys; conflicting/missing copies require load provenance')
+    a.out.write_text('VPNT1\n'+''.join(f'{tag:08x} {index:x} {name}\n' for (tag,index),name in sorted(keys.items()))+
+                     ''.join(f'{tag:08x} {index:x} {name} {stem} {at:x}\n' for tag,index,stem,at,name in provenance))
+    print(f'{len(keys)} unambiguous offline texture keys, {len(provenance)} copies by load provenance; keys with an unconverted copy stay absent')
 
 
 if __name__=='__main__':main()

@@ -5,6 +5,8 @@
 #include "texture_original_functions.h"
 #include "texture_adapted_functions.h"
 #include <cstdio>
+#include <filesystem>
+#include <fstream>
 #include <cstring>
 #include <set>
 #include <source_location>
@@ -78,7 +80,31 @@ void run(bozo::ee::Dispatcher &d,R5900Context &c,uint32_t entry=0x29cc30){
 }
 }
 int main(int argc,char **argv){try{
-    check(argc==2);Host oldHost(argv[1]),newHost(argv[1]);oldHost.original=true;
+    check(argc==2);
+    {   // Keys whose disc copies differ (each enemy pack's BM01:1) resolve by the origin of the loaded
+        // file's texture header; copies with the same conversion share one synthetic key.
+        namespace fs=std::filesystem;const auto dir=fs::temp_directory_path()/"vp2s_texture_provenance";fs::create_directories(dir);
+        const auto tex=[&](const char *name,uint8_t fill){std::ofstream o(dir/name,std::ios::binary);const uint32_t h[3]={4,4,0x14};o.write(reinterpret_cast<const char *>(h),12);
+            std::vector<char> body(16+1024,0);std::fill(body.begin(),body.begin()+16,char(fill));o.write(body.data(),std::streamsize(body.size()));};
+        tex("c_00000000000000aa.tex",1);tex("c_00000000000000bb.tex",2);tex("c_00000000000000cc.tex",3);
+        const auto manifest=[&](const std::string &body){std::ofstream(dir/"m.txt")<<"VPNT1\n"<<body;return dir/"m.txt";};
+        vp2s::NativeTextures t(dir,manifest("11111111 2 c_00000000000000aa.tex\n31304d42 1 c_00000000000000bb.tex 00ed10d830_000 12dd00\n"
+            "31304d42 1 c_00000000000000cc.tex 00ed1f0030_000 126c80\n31304d42 1 c_00000000000000bb.tex 00ed2fd830_000 110c80\n"));
+        const auto at=[](uint64_t disc,uint32_t offset){return vp2s::AssetOrigin{vp2s::AssetOrigin::Kind::Part,disc,0,offset};};
+        const vp2s::TextureKey bm{0x31304d42,1},plain{0x11111111,2};
+        check(t.resolve(plain,at(1,2))==plain);
+        const auto a=t.resolve(bm,at(0xed10d830,0x12dd00)),b=t.resolve(bm,at(0xed1f0030,0x126c80)),c=t.resolve(bm,at(0xed2fd830,0x110c80));
+        check(a==vp2s::TextureKey{0x31304d42,0x80000001u} && b==vp2s::TextureKey{0x31304d42,0x80010001u} && c==a);
+        check(t.load(a)->texels[0]==2 && t.load(b)->texels[0]==3 && t.load(a)->key==a);
+        const auto refused=[&](auto f){try{f();}catch(const std::runtime_error &){return true;}return false;};
+        check(refused([&]{t.resolve(bm,at(0xed10d830,0x12dd10));}) && refused([&]{t.load(bm);}));                    // another offset; the bare key
+        check(refused([&]{t.resolve(bm,vp2s::AssetOrigin{vp2s::AssetOrigin::Kind::Disc,0xed10d830,0,0x12dd00});})); // not a decoded part
+        check(refused([&]{t.resolve(vp2s::TextureKey{0x31304d42,2},at(0xed10d830,0x12dd00));}));                    // another key's copy there
+        check(refused([&]{vp2s::NativeTextures bad(dir,manifest("31304d42 1 c_00000000000000aa.tex\n31304d42 1 c_00000000000000bb.tex 00ed10d830_000 12dd00\n"));}));
+        check(refused([&]{vp2s::NativeTextures bad(dir,manifest("31304d42 1 c_00000000000000bb.tex 00ed10d830_00 12dd00\n"));}));
+        fs::remove_all(dir);
+    }
+    Host oldHost(argv[1]),newHost(argv[1]);oldHost.original=true;
     bozo::ee::Dispatcher old(oldHost),now(newHost);
     old.setFunctions(texture_original_function_table,texture_original_function_count,texture_original_resume_table,texture_original_resume_count);
     now.setFunctions(texture_adapted_function_table,texture_adapted_function_count,texture_adapted_resume_table,texture_adapted_resume_count);

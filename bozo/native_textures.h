@@ -1,5 +1,6 @@
 #pragma once
 #include "native_state.h"
+#include "native_assets.h"
 #include <mutex>
 #include "bozo/runtime.h"
 #include "bozo/render/texture.h"
@@ -8,6 +9,7 @@
 #include <map>
 #include <memory>
 #include <optional>
+#include <tuple>
 #include <vector>
 namespace vp2s {
 struct TextureKey {
@@ -36,6 +38,10 @@ class NativeTextures {
     };
     std::filesystem::path root;
     std::map<TextureKey,std::string> files;
+    // Keys whose disc copies differ, by the decoded part and texture-header offset of each copy:
+    // the copy's synthetic key {tag, 0x80000000 | variant << 16 | index} (variants numbered by
+    // distinct conversion in manifest order: stable for save states), listed in `files` too.
+    std::map<std::tuple<uint64_t,uint32_t,uint32_t>,TextureKey> provenance;
     std::map<TextureKey,std::shared_ptr<const NativeTextureAsset>> loaded;
     std::map<uint32_t,Invocation> pending; // Per-host active stack frame, erased on every return.
     std::map<uint16_t,std::shared_ptr<const NativeTextureAsset>> palettes,pixels;
@@ -54,6 +60,9 @@ private:
 public:
     explicit NativeTextures(std::filesystem::path directory={},std::filesystem::path manifest={});
     std::shared_ptr<const NativeTextureAsset> load(TextureKey);
+    // The key to load for a file the game loaded: `key` itself when its copies all convert
+    // alike, else the copy at `header` (the origin of the file's texture header).
+    TextureKey resolve(TextureKey key,const AssetOrigin &header)const;
     void begin(uint32_t stack,TextureKey);
     void publish(uint32_t stack,uint16_t slot,bool palette);
     void publishStaticPalette(uint16_t slot);

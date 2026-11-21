@@ -12,6 +12,33 @@ The earlier VP2S face/shading and general brightness comparisons remain open.
 
 ## Build and evidence
 
+### Battle textures by load provenance: each enemy pack's BM01:1 (2026-11-22)
+
+The battle texture set (object `e69600`, writer `877680`) loads `31304d42:1` ("BM01"): 53 enemy
+packs each carry their own 128x64 4-bit BM01:1, with different content. The manifest
+deliberately omitted the ambiguous key, so the flush `3cd1b0` was refused.
+- **Manifest (`tools/vp2_bozo_texture_manifest.py`):** a key whose copies differ, all of them
+  converted, is listed per copy as `tag index name pack offset`. The pack is the decoded
+  part's stem `{disc:010x}_{part:03}`, the offset that of its texture header, as
+  `tools/vp2_textures.py` indexes it. The USA disc gives 277 such copies; a key with an
+  unconverted copy stays absent.
+- **Runtime (`bozo/native_textures.cpp`):**
+  - Each distinct conversion of a key gets a synthetic key {tag, 0x80000000 | variant << 16 |
+    index}, numbered in manifest order. It is stable, so save states keep (tag, index)
+    unchanged.
+  - `resolve(key, header origin)` picks the copy at the origin of the loaded FIS file's
+    texture header (FIS+10 + *(FIS+1c)).
+  - The battle image loader `36b5d8` and the texture set `3cd174`/`3cd1b0` publish through
+    it.
+- **Pixel formula corrected:** the set's pixel data is FIS+10 + *(D+8) + 80, as its chain
+  builder computes it (`3cd760`). The earlier D+10 + *(D+10) + 80 only agreed by
+  coincidence: BM01's D+10 holds 0x101 on the disc.
+- **Test:** the texture-publication test resolves three copies (two sharing a conversion)
+  and loads them. It refuses another offset, the bare key, a disc-level origin, another
+  key's copy, a key listed both ways, and a malformed pack name.
+- **Evidence:** `--battle 0x18` publishes BM01:1 as copy 3 (palette block 3d88, pixels 30e0)
+  and reaches frame 63485. The next boundary is a VU0 site at `47ec2c` (entry `47eb24`).
+
 ### Battle triangles: the 42fec0 writer through 42df80 (2026-11-21)
 
 `42df80` was reached with 3 corners (object `e69600`, a small Gouraud triangle fading from

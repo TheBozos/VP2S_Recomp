@@ -43,16 +43,38 @@ NativeTextures::NativeTextures(std::filesystem::path directory,std::filesystem::
     std::ifstream in(manifest);std::string magic,name;in>>magic;
     if(magic!="VPNT1")throw std::runtime_error("native texture manifest missing or invalid");
     std::string line;std::getline(in,line);
+    std::map<std::pair<TextureKey,std::string>,TextureKey> variants;std::map<TextureKey,uint32_t> counts;
     while(std::getline(in,line)){
         if(line.empty())continue;
-        uint32_t tag,index;std::string extra;std::istringstream row(line);
-        if(!(row>>std::hex>>tag>>index>>name) || row>>extra)
-            throw std::runtime_error("truncated native texture manifest entry");
-        if(name.size()!=22 || name.substr(0,2)!="c_" || name.substr(18)!=".tex" ||
-           name.find_first_not_of("0123456789abcdef",2)<18 || !files.emplace(TextureKey{tag,index},name).second)
-            throw std::runtime_error("invalid or duplicate native texture manifest entry");
+        uint32_t tag,index,offset=0;std::string pack,extra;std::istringstream row(line);
+        if(!(row>>std::hex>>tag>>index>>name))throw std::runtime_error("truncated native texture manifest entry");
+        const bool copy=bool(row>>pack);
+        if(copy && (!(row>>std::hex>>offset) || row>>extra))throw std::runtime_error("truncated native texture manifest copy");
+        if(name.size()!=22 || name.substr(0,2)!="c_" || name.substr(18)!=".tex" || name.find_first_not_of("0123456789abcdef",2)<18)
+            throw std::runtime_error("invalid native texture manifest entry");
+        if(!copy){if(!files.emplace(TextureKey{tag,index},name).second)throw std::runtime_error("duplicate native texture manifest entry");continue;}
+        // A copy: pack is the decoded part's stem, {disc:010x}_{part:03}.
+        uint64_t disc=0;uint32_t part=0;
+        if(pack.size()!=14 || pack[10]!='_' || pack.find_first_not_of("0123456789abcdef")!=10 || pack.find_first_not_of("0123456789",11)!=std::string::npos ||
+           index>0xffff)throw std::runtime_error("invalid native texture manifest copy");
+        disc=std::stoull(pack.substr(0,10),nullptr,16);part=uint32_t(std::stoul(pack.substr(11)));
+        const TextureKey key{tag,index};
+        auto [it,fresh]=variants.try_emplace({key,name});
+        if(fresh){const auto n=counts[key]++;if(n>=0x7fff)throw std::runtime_error("native texture copies outside bounds");
+            it->second=TextureKey{tag,0x80000000u|n<<16|index};files.emplace(it->second,name);}
+        if(!provenance.emplace(std::tuple{disc,part,offset},it->second).second)throw std::runtime_error("duplicate native texture manifest copy");
     }
+    for(const auto &[key,n]:counts)if(files.contains(key))throw std::runtime_error("native texture key listed both plainly and by copy");
     if(!in.eof())throw std::runtime_error("truncated native texture manifest");
+}
+TextureKey NativeTextures::resolve(TextureKey key,const AssetOrigin &header)const{
+    if(files.contains(key))return key;
+    const auto found=provenance.find({header.disc,header.part,header.offset});
+    if(header.kind!=AssetOrigin::Kind::Part || found==provenance.end())
+        throw std::runtime_error(std::format("native texture {:08x}:{:x} requires offline conversion/load provenance (header {:010x}_{:03} +{:x})",key.tag,key.index,header.disc,header.part,header.offset));
+    if(found->second.tag!=key.tag || (found->second.index&0xffff)!=key.index)
+        throw std::runtime_error(std::format("native texture copy at {:010x}_{:03} +{:x} is not {:08x}:{:x}",header.disc,header.part,header.offset,key.tag,key.index));
+    return found->second;
 }
 std::shared_ptr<const NativeTextureAsset> NativeTextures::load(TextureKey key){
     if(auto it=loaded.find(key);it!=loaded.end())return it->second;
@@ -219,6 +241,15 @@ void guestDeferredFree(Runtime *rt,uint32_t list,uint32_t pointer){
 // out: 36b5d8, which both paths reach with s2 = FIS+0x10, publishes the decoded file under
 // its blocks, and each former enqueue (36b5d4, 36b6b4) runs the queue completion's frees
 // through the same deferred-free rings.
+// A decoded FIS file's texture: its key (+14 tag, +18 index), resolved by the origin of its
+// texture header (info block +10 plus *(+1c), what the offline index names) when its disc
+// copies differ.
+TextureKey fileKey(Runtime *rt,const NativeAssets &assets,const NativeTextures &textures,uint32_t fis){
+    const TextureKey key{read<uint32_t>(rt,fis+0x14),read<uint32_t>(rt,fis+0x18)};
+    const auto header=fis+0x10+read<uint32_t>(rt,fis+0x1c);const auto origin=assets.origin(header,0x10);
+    if(!origin)throw std::runtime_error(std::format("native texture {:08x}:{:x} header {:x} is not decoded data",key.tag,key.index,header));
+    return textures.resolve(key,*origin);
+}
 std::optional<bool> nativeBattleImageInstruction(R5900Context *c,Runtime *rt,uint32_t pc){
     constexpr struct {uint32_t pc,word;} sites[]={{0x36b5d4,0x0000402d},{0x36b5d8,0x8e43000c},{0x36b6b4,0x0000402d}};
     const auto site=std::find_if(std::begin(sites),std::end(sites),[&](auto &s){return s.pc==pc;});
@@ -231,7 +262,7 @@ std::optional<bool> nativeBattleImageInstruction(R5900Context *c,Runtime *rt,uin
         const auto fis=c->r[18].uw[0]-0x10;record(rt,fis,0x30);
         if(read<uint32_t>(rt,fis)!=0x534946 || !assets->nativeAssets().origin(fis,0x30))
             throw std::runtime_error(std::format("native battle image {:x} is not a decoded FIS file (a derived image is unported)",fis));
-        const TextureKey key{read<uint32_t>(rt,fis+0x14),read<uint32_t>(rt,fis+0x18)};
+        const auto key=fileKey(rt,assets->nativeAssets(),textures->nativeTextures(),fis);
         const auto pixels=c->r[20].uw[0]&0xffff,palette=c->r[19].uw[0]&0xffff;
         if(pixels)textures->nativeTextures().publishBlock(pixels,false,key);
         if(palette)textures->nativeTextures().publishBlock(palette,true,key);
@@ -260,8 +291,8 @@ std::optional<bool> nativeBattleImageInstruction(R5900Context *c,Runtime *rt,uin
 // thunk 44d590 -> 3cc900, which tail-calls 21c9a0). Each chain is REF(0x70-byte image
 // packet)/REF(data) pairs, then a CNT tail (TEXFLUSH and a TEX0_2 write: graphics-memory
 // state) and END. Every pair uploads a CT32 rectangle of one FIS file: its palette
-// (FIS+10+*(FIS+24), the section's packet, then +80) or its pixels (descriptor
-// D = FIS+10+*(FIS+1c), packet D+10+*(D+10), then +80), to the packet's BITBLTBUF block.
+// (section FIS+10+*(FIS+24), then +80) or its pixels (descriptor D = FIS+10+*(FIS+1c),
+// section FIS+10+*(D+8), then +80), to the packet's BITBLTBUF block.
 // Natively both enqueues (3cd170, 3cd1ac) are patched: the first now calls 3cc900, the
 // second is gone; their delay slots (3cd174, 3cd1b0) publish the file under the blocks,
 // the way the battle's draws name its images (see nativeBattleImageInstruction).
@@ -299,7 +330,10 @@ std::optional<bool> nativeBattleTextureSetInstruction(R5900Context *c,Runtime *r
         // The file: the one before (its pixels follow its palette) or the nearest FIS header
         // below the data; the data must then be its palette or its pixels exactly.
         const auto paletteOf=[&](uint32_t f){const auto o=read<uint32_t>(rt,f+0x24);return o?f+0x10+o+0x80:0u;};
-        const auto pixelsOf=[&](uint32_t f){const auto desc=f+0x10+read<uint32_t>(rt,f+0x1c);return desc+0x10+read<uint32_t>(rt,desc+0x10)+0x80;};
+        // As the set's chain builder computes them (3cd69c, 3cd760): palette section FIS+10 +
+        // *(FIS+24), pixel section FIS+10 + *(D+8) with the descriptor D = FIS+10 + *(FIS+1c); the
+        // data follows each section's 0x80-byte head.
+        const auto pixelsOf=[&](uint32_t f){const auto desc=f+0x10+read<uint32_t>(rt,f+0x1c);return f+0x10+read<uint32_t>(rt,desc+8)+0x80;};
         if(!fis || (address!=paletteOf(*fis) && address!=pixelsOf(*fis))){
             fis.reset();for(uint32_t f=(address&~15u)-16;f+0x2000>address && f>=0x100000;f-=16)if(read<uint32_t>(rt,f)==0x534946){fis=f;break;}}
         if(!fis || (address!=paletteOf(*fis) && address!=pixelsOf(*fis)))
@@ -307,7 +341,7 @@ std::optional<bool> nativeBattleTextureSetInstruction(R5900Context *c,Runtime *r
         const bool palette=address==paletteOf(*fis);
         record(rt,*fis,0x30);
         if(!assets->nativeAssets().origin(*fis,0x30))throw std::runtime_error(std::format("native battle texture set image {:x} is not a decoded file",*fis));
-        const TextureKey key{read<uint32_t>(rt,*fis+0x14),read<uint32_t>(rt,*fis+0x18)};
+        const auto key=fileKey(rt,assets->nativeAssets(),textures->nativeTextures(),*fis);
         textures->nativeTextures().publishBlock(block,palette,key);
         if(std::getenv("VP2S_BOZO_TRACE_QUEUES"))
             std::fprintf(stderr,"[vp2s:texture] battle texture set %x image %x key=%08x:%x %s=%x\n",object,*fis,key.tag,key.index,palette?"palette":"pixels",block);

@@ -12,6 +12,25 @@ The earlier VP2S face/shading and general brightness comparisons remain open.
 
 ## Build and evidence
 
+### Battle ground plane 4981b4: the VU0 triangle plane natively (2026-11-21)
+
+mod028 `4981b4` fits a plane through an object's three ground points: P0 = +8f0, P1 = +900,
+P2 = +910.
+- **Loads:** vf1 = P0 before the first `4ab730` call. vf2 and vf3 are loaded after the CPU
+  may have set their y to P0's.
+- **Plane:** a = normalise(P1 - P0), b = normalise(P2 - P0) (ADDAy/MADDz sums, RSQRT);
+  n = a x b (OPMULA/OPMSUB); n.w = -(n . P0). It is stored to sp+80, then negated and
+  stored again when n.y < 0.
+- **Slope:** the CPU's k = -1/n.y enters vf1 by QMTC2. vf30 = (n.x k, 0, n.z k, n.w k) is
+  stored to +8c0 (y = f(x, z)). Its y lane is the 0 the block's own ADDy.y wrote.
+- **Native (`bozo/native_math.cpp`, `nativeBattleGroundPlane`):** word-checked sites with
+  the points kept per call frame (ps2f, nearest). Stores without their loads are refused.
+- **Matrix product:** the one that follows (`498364..4983d0`) is the existing
+  matrix-product idiom.
+- **Test:** `vp2s-bozo-math-records` covers a flat plane through y = 1 in both windings
+  (the CPU flip) and its slope, and refuses a store without the loads.
+- **Evidence:** `--battle 0x18` passes it; the next boundary is `47ae78` (entry `47ae40`).
+
 ### Battle column capture and UI completions: the first complete native battle frame (2026-11-21)
 
 The colour readback at `29a4dc` (PSMCT24) came from mod028's column capture class (vtable

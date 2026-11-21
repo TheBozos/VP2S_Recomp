@@ -902,6 +902,32 @@ int main(int argc,char **argv){try{
             float o[4];std::memcpy(o,rt.memory.hostPointer(stack+0x30,16),16);check(o[0]==0.5f && o[1]==1 && o[2]==1.5f && o[3]==0.25f && c.r[9].ud[0]==0);
             {   bool failed=false;try{vp2s::nativeMathInstruction(rt.memory.flat(),&c,&rt,0x38735c);}catch(const std::runtime_error &){failed=true;}check(failed); }   // stored twice
         }
+        {   // mod028 4981b4 battle ground plane: P0 (0,1,0), P1 (2,1,0), P2 (0,1,-2): n = x * -z = (0,1,0),
+            // w = -1 (y = 1); with P2 (0,1,2) n = (0,-1,0) is flipped by the CPU; slope k = -1/n.y.
+            struct W{uint32_t pc,word;};
+            constexpr W block[]={{0x4981f0,0xda410000},{0x498228,0xda220000},{0x498260,0xda030000},
+                {0x498264,0x4bc112ac},{0x498268,0x4bc007c3},{0x49826c,0x4bc11aec},{0x498270,0x4bca552a},{0x498274,0x4b14a03d},{0x498278,0x4b14fd0a},{0x49827c,0x4a7403be},
+                {0x498280,0x4bcb5d6a},{0x498284,0x4b15a83d},{0x498288,0x4b15fd4a},{0x49828c,0x4a0003bf},{0x498290,0x4bc0529c},{0x498294,0x4a7503be},{0x498298,0x4b000787},
+                {0x49829c,0x4a800781},{0x4982a8,0x4a0003bf},{0x4982ac,0x4bc05adc},{0x4982b0,0x4a3e0798},{0x4982b4,0x4bcb52fe},{0x4982b8,0x4bca5d2e},{0x4982bc,0x4bc1a66a},
+                {0x4982c0,0x4b19c83d},{0x4982c4,0x4b19fe4a},{0x4982c8,0x4a39f518},{0x4982d8,0xf8540000},{0x4982f0,0x4bfea518},{0x4982f4,0xf8540000},
+                {0x49834c,0x48a80800},{0x498350,0x4b61a798},{0x498354,0xf85e0000}};
+            for(const auto &w:block)std::memcpy(rt.memory.hostPointer(w.pc,4),&w.word,4);
+            constexpr uint32_t stack=0x1fff000,obj=0x1b0000;
+            const auto putv=[&](uint32_t a,std::array<float,4> v){std::memcpy(rt.memory.hostPointer(a,16),v.data(),16);};
+            const auto getv=[&](uint32_t a){std::array<float,4> v;std::memcpy(v.data(),rt.memory.hostPointer(a,16),16);return v;};
+            const auto run=[&](float z2,bool flip){
+                putv(obj+0x8f0,{0,1,0,1});putv(obj+0x900,{2,1,0,1});putv(obj+0x910,{0,1,z2,1});
+                R5900Context c{};c.r[29].uw[0]=stack;c.r[18].uw[0]=obj+0x8f0;c.r[17].uw[0]=obj+0x900;c.r[16].uw[0]=obj+0x910;c.r[2].uw[0]=stack+0x80;
+                for(const auto &w:block){
+                    if((w.pc==0x4982f0 || w.pc==0x4982f4) && !flip)continue;
+                    if(w.pc==0x49834c){const float y=getv(stack+0x80)[1];c.r[8].uw[0]=std::bit_cast<uint32_t>(-1.f/y);c.r[2].uw[0]=obj+0x8c0;}
+                    check(vp2s::nativeMathInstruction(rt.memory.flat(),&c,&rt,w.pc));}
+                const auto n=getv(stack+0x80),slope=getv(obj+0x8c0);
+                check(n[0]==0 && n[1]==1 && n[2]==0 && n[3]==-1 && slope[0]==0 && slope[1]==0 && slope[2]==0 && slope[3]==1);};
+            run(-2,false);run(2,true);
+            {   R5900Context fresh{};fresh.r[29].uw[0]=stack+0x400;bool failed=false;
+                try{vp2s::nativeMathInstruction(rt.memory.flat(),&fresh,&rt,0x4982d8);}catch(const std::runtime_error &){failed=true;}check(failed); }
+        }
         {   // mod028 3e8a34 guarded normalise: (2,2,2,2) -> QMFC2 t0 = (16,4,4,4), store (0.5,0.5,0.5,0.5).
             constexpr uint32_t words[14]={0xd8590000,0x4bc007c3,0x27a20150,0x4bf9ceaa,0x4b1ad03d,0x4b1af8be,0x4b1afe8b,0x4828d000,0x11000006,0,0x4a7a03be,0x4a0003bf,0x4be0ce5c,0xf8590000};
             std::memcpy(rt.memory.hostPointer(0x3e8a34,sizeof(words)),words,sizeof(words));

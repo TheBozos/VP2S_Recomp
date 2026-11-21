@@ -1734,6 +1734,62 @@ bool nativeBattleSideAxes(R5900Context *c,Runtime *rt,uint32_t pc){
     default:return true;   // arithmetic: folded into the stores
     }
 }
+// Battle ground plane, mod028 4981b4 (one copy; ps2f, nearest). The object's three ground
+// points P0 = +8f0 (s2), P1 = +900 (s1), P2 = +910 (s0): LQC2 vf1 = P0 (4981f0) before the
+// first 4ab730 call, vf2 = P1 (498228) and vf3 = P2 (498260) after the CPU may have set their
+// y to P0's (no COP2 in between; P0 is kept per call frame). Then (498264..4982c8):
+// a = (P1 - P0) * RSQRT(|P1 - P0|^2), b = (P2 - P0) * RSQRT(|P2 - P0|^2) (ADDAy/MADDz sums);
+// vf30 = (-1, 0, _, -1); n = a x b (OPMULA/OPMSUB); n.w = -1 * (n . P0); SQC2 n to sp+80
+// (4982d8). If n.y < 0 (CPU test), n *= -1 (4982f0) and SQC2 again (4982f4). Then the CPU's
+// k = -1 / n.y (or d51184e7 when n.y = 0) enters vf1 by QMTC2 t0 (49834c); vf30.xzw = n * k
+// (498350) and SQC2 vf30 (y = 0) to +8c0 (498354): the plane as y = f(x, z).
+struct BattleGroundPlane{VuWords p0{},p1{},p2{},n{};unsigned loaded=0;bool plane=false;uint32_t k=0;};
+std::map<std::pair<const Runtime *,uint32_t>,BattleGroundPlane> &battleGroundPlanes(){static std::map<std::pair<const Runtime *,uint32_t>,BattleGroundPlane> m;return m;}
+bool nativeBattleGroundPlane(R5900Context *c,Runtime *rt,uint32_t pc){
+    struct Site{uint32_t pc,word;};
+    constexpr Site sites[]={{0x4981f0,0xda410000},{0x498228,0xda220000},{0x498260,0xda030000},
+        {0x498264,0x4bc112ac},{0x498268,0x4bc007c3},{0x49826c,0x4bc11aec},{0x498270,0x4bca552a},{0x498274,0x4b14a03d},{0x498278,0x4b14fd0a},{0x49827c,0x4a7403be},
+        {0x498280,0x4bcb5d6a},{0x498284,0x4b15a83d},{0x498288,0x4b15fd4a},{0x49828c,0x4a0003bf},{0x498290,0x4bc0529c},{0x498294,0x4a7503be},{0x498298,0x4b000787},
+        {0x49829c,0x4a800781},{0x4982a8,0x4a0003bf},{0x4982ac,0x4bc05adc},{0x4982b0,0x4a3e0798},{0x4982b4,0x4bcb52fe},{0x4982b8,0x4bca5d2e},{0x4982bc,0x4bc1a66a},
+        {0x4982c0,0x4b19c83d},{0x4982c4,0x4b19fe4a},{0x4982c8,0x4a39f518},{0x4982d8,0xf8540000},{0x4982f0,0x4bfea518},{0x4982f4,0xf8540000},
+        {0x49834c,0x48a80800},{0x498350,0x4b61a798},{0x498354,0xf85e0000}};
+    if((pc&3) || !rt || pc<0x4981f0 || pc>0x498354)return false;
+    const auto site=std::find_if(std::begin(sites),std::end(sites),[&](const Site &x){return x.pc==pc;});
+    if(site==std::end(sites))return false;
+    uint32_t word=0;if(const auto *p=rt->memory.hostPointer(pc,4))std::memcpy(&word,p,4);
+    if(word!=site->word)return false;   // another overlay at these addresses
+    if(!c)throw std::runtime_error("native battle ground plane has no CPU record");
+    auto &states=battleGroundPlanes();const auto key=std::make_pair(static_cast<const Runtime *>(rt),c->r[29].uw[0]);
+    const auto at=[&](uint32_t w){return c->r[(w>>21)&31].uw[0]+(w&0xffff);};
+    if(pc==0x4981f0){auto &st=states[key];st=BattleGroundPlane{};st.p0=vuWords(rt,at(word));st.loaded=1;return true;}
+    auto it=states.find(key);
+    if(it==states.end())throw std::runtime_error(std::format("native battle ground plane at {:x} without its first load",pc));
+    auto &st=it->second;constexpr uint32_t one=0x3f800000u,minusOne=0xbf800000u;
+    switch(pc){
+    case 0x498228:st.p1=vuWords(rt,at(word));st.loaded|=2;return true;
+    case 0x498260:st.p2=vuWords(rt,at(word));st.loaded|=4;return true;
+    case 0x4982d8:{
+        if(st.loaded!=7)throw std::runtime_error("native battle ground plane stored without its points");
+        uint32_t f=0;const uint32_t savedCsr=_mm_getcsr();
+        const auto unit=[&](const VuWords &q){uint32_t d[3],sq[3];for(unsigned i=0;i<3;++i){d[i]=vuSub(q[i],st.p0[i]);sq[i]=vuMul(d[i],d[i]);}
+            const auto r=bozo::ps2f::rsqrt(one,vuAdd(vuAdd(sq[0],sq[1]),vuMul(one,sq[2])),f);std::array<uint32_t,3> u;for(unsigned i=0;i<3;++i)u[i]=vuMul(d[i],r);return u;};
+        const auto a=unit(st.p1),b=unit(st.p2);_mm_setcsr(savedCsr);
+        st.n[0]=vuSub(vuMul(a[1],b[2]),vuMul(b[1],a[2]));st.n[1]=vuSub(vuMul(a[2],b[0]),vuMul(b[2],a[0]));st.n[2]=vuSub(vuMul(a[0],b[1]),vuMul(b[0],a[1]));
+        uint32_t m[3];for(unsigned i=0;i<3;++i)m[i]=vuMul(st.n[i],st.p0[i]);
+        st.n[3]=vuMul(minusOne,vuAdd(vuAdd(m[0],m[1]),vuMul(one,m[2])));st.plane=true;
+        std::memcpy(record(rt,at(word),16),st.n.data(),16);return true;}
+    case 0x4982f0:if(!st.plane)throw std::runtime_error("native battle ground plane flipped before its plane");
+        for(auto &x:st.n)x=vuMul(x,minusOne);return true;
+    case 0x4982f4:if(!st.plane)throw std::runtime_error("native battle ground plane stored before its plane");
+        std::memcpy(record(rt,at(word),16),st.n.data(),16);return true;
+    case 0x49834c:st.k=c->r[8].uw[0];return true;   // QMTC2 t0: vf1.x = k
+    case 0x498354:{
+        if(!st.plane)throw std::runtime_error("native battle ground plane slope without its plane");
+        const VuWords out{vuMul(st.n[0],st.k),0u,vuMul(st.n[2],st.k),vuMul(st.n[3],st.k)};
+        std::memcpy(record(rt,at(word),16),out.data(),16);states.erase(it);return true;}
+    default:return true;   // arithmetic: folded into the stores
+    }
+}
 // Battle segment ends, mod028 3e47b0 (per element s5 of 0x30 bytes; ps2f):
 //   3e48bc..3e48d8: d = a0 - s5; vf1 = d*v1.x + s5*1, vf2 = a0 - d*v1.y (xyz; w as loaded).
 //   with s3+2c set, 3e48f0..3e494c: p = s3+10, rows = s1+90; vf11..vf14 = rows * p (lanes);
@@ -3940,6 +3996,7 @@ bool nativeMathInstruction(uint8_t *,R5900Context *c,Runtime *rt,uint32_t pc){
     if(nativeBattleSegmentEnds(c,rt,pc))return true;
     if(nativeBattleNormalise(c,rt,pc))return true;
     if(nativeBattleSideAxes(c,rt,pc))return true;
+    if(nativeBattleGroundPlane(c,rt,pc))return true;
     if(nativeBattleUnitProjection(c,rt,pc))return true;
     if(nativeBattleCameraProjection(c,rt,pc))return true;
     if(nativeBattleSegmentDirection(c,rt,pc))return true;

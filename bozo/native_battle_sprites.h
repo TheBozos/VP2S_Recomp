@@ -38,6 +38,9 @@ public:
     void sprite(Runtime *,const R5900Context *);
     // Polygon writer 42df80 after its unrotated corner loop (42e144): a 4-corner strip, flat or Gouraud, textured or not.
     void polygon(Runtime *,const R5900Context *);
+    // Band writer 383cb0 before it closes the writer (3843a0): three Gouraud strips read from
+    // the packet it wrote.
+    void band(Runtime *,const R5900Context *);
     // Rectangle writer 42ed50 where its unrotated paths join (42efe0): the same strip forms.
     void rectangle(Runtime *,const R5900Context *);
     struct Strip {uint32_t object=0,desc=0,mode=0,data=0,z=0,colours=0,st=0,image=0;std::array<std::array<int32_t,2>,4> corners{};};

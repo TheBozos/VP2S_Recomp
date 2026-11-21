@@ -139,6 +139,30 @@ int main(){try{
     rejects([&]{sprites.flushed(&rt,stack);});                    // the writer was not consumed
     put(rt,writer+8,end+16);put(rt,writer+12,end+16);sprites.flushed(&rt,stack);sprites.complete(stack);
     check(!sprites.outstanding() && sprites.build(w));             // kept: a writer may be flushed again
-    std::puts("native battle sprites: build, texture, both ST paths, flat, Gouraud and textured polygons, rectangles, flush checks");
+    // The band writer 383cb0 (the battle's writer ebc290, frame 63482): three Gouraud strips read
+    // back at 3843a0 (s4 object, s3 writer, v0 end), tag from the object's +d0/+d8, Q bytes stale.
+    { constexpr uint32_t object2=0x191000,writer2=0x1a1000,base2=0x290000,B2=base2|0x30000000u;const uint32_t w2=writer2|0x30000000u;
+      put(rt,object2,vt);put(rt,object2+0x94,w2);put(rt,object2+0xbb,uint8_t(1));put(rt,object2+0xbc,uint8_t(0));
+      put(rt,object2+0xd0,0xa400000000000001ull);put(rt,object2+0xd8,0xf515151510ull);
+      put(rt,writer2,B2);put(rt,writer2+8,B2+0x40);put(rt,writer2+12,B2+0x40);put(rt,writer2+16,0x210u);
+      vp2s::NativeBattleSprites band;check(band.begin(&rt,w2));
+      const uint16_t xy[3][4][2]={{{0x8343,0x7e2c},{0x82c0,0x7dcc},{0x8371,0x7dba},{0x8319,0x7d7a}},
+                                  {{0x8371,0x7dba},{0x8319,0x7d7a},{0x839e,0x7d49},{0x8373,0x7d29}},{{0x839e,0x7d49},{0x8373,0x7d29},{0x83b0,0x7d00},{0x8390,0x7cf0}}};
+      for(unsigned k=0;k<3;++k){const uint32_t at=base2+0x40+96*k;
+        put(rt,at,0xa400000000000001ull);put(rt,at+8,0xf515151510ull);put(rt,at+16,0x24cull);put(rt,at+88,uint64_t(0));
+        for(unsigned i=0;i<4;++i){put(rt,at+24+16*i,uint64_t(0x2193ed3au+16*k+i)|uint64_t(0x0e332b5bu+i)<<32);
+          put(rt,at+32+16*i,uint64_t(xy[k][i][0])|uint64_t(xy[k][i][1])<<16|0xfff4ddull<<32);}}
+      R5900Context b{};b.r[20].uw[0]=object2;b.r[19].uw[0]=w2;b.r[2].uw[0]=B2+0x40+3*96;
+      { auto bad=b;bad.r[2].uw[0]-=96;rejects([&]{band.band(&rt,&bad);});                                    // not three strips
+        bad=b;bad.r[19].uw[0]=w;rejects([&]{band.band(&rt,&bad);});                                         // not the object's writer
+        put(rt,base2+0x40+96+88,uint64_t(1));rejects([&]{band.band(&rt,&b);});put(rt,base2+0x40+96+88,uint64_t(0));   // the NOP
+        put(rt,base2+0x40+192+32+4,0xfff4deu);rejects([&]{band.band(&rt,&b);});put(rt,base2+0x40+192+32+4,0xfff4ddu);   // depth
+        put(rt,object2+0xd8,0x5252525210ull);rejects([&]{band.band(&rt,&b);});put(rt,object2+0xd8,0xf515151510ull); }   // another tag
+      check(band.build(w2)->sprites.empty());
+      band.band(&rt,&b);
+      const auto *bb=band.build(w2);check(bb && bb->sprites.size()==3 && bb->polygons==3 && bb->polygonBytes==288);
+      for(unsigned k=0;k<3;++k){const auto &s=bb->sprites[k];check(s.gouraud && s.depth==0xfff4dd && bb->spriteTextures[k]==vp2s::NativeBattleSpriteBuild::kUntextured);
+        for(unsigned i=0;i<4;++i)check(s.cornerColours[i]==0x2193ed3au+16*k+i && s.fixedCorners[i]==std::array<int32_t,2>{xy[k][i][0],xy[k][i][1]});} }
+    std::puts("native battle sprites: build, texture, both ST paths, flat, Gouraud and textured polygons, bands, rectangles, flush checks");
     return 0;
 }catch(const std::exception &e){std::fprintf(stderr,"%s\n",e.what());return 1;}}

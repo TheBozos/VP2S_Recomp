@@ -135,6 +135,32 @@ void NativeBattleSprites::polygon(Runtime *rt,const R5900Context *c){
         p.corners[i]={x*16,y*16};}
     strip(rt,p);
 }
+void NativeBattleSprites::band(Runtime *rt,const R5900Context *c){
+    // 383cb0(object, index) draws a band of two rows of four points as three alpha-blended
+    // Gouraud strips, after one reservation (120fa0) at the writer's open end: each is the
+    // object's GIF tag (+d0/+d8: REGLIST, PRIM, (RGBAQ, XYZ2) x 4, NOP), PRIM 24c, then per
+    // corner RGBA (only the low word is stored: Q keeps the buffer's old bytes, unused without
+    // a texture) and XYZ2 = 16 x | 16 y << 16 | fff4dd << 32, then the NOP. At 3843a0 (s4
+    // object, s3 writer, v0 the packet's end) the strips are read back as the game wrote them.
+    const auto object=c->r[20].uw[0],writer=c->r[19].uw[0],end=c->r[2].uw[0];
+    if(writer!=buildWriter(rt,object))throw std::runtime_error(std::format("native battle band writer is not its object's (object {:x})",object));
+    auto &build=bind(rt,object,writer);
+    constexpr uint32_t kStrip=96;const auto start=value<uint32_t>(rt,writer+8);
+    if(end!=start+3*kStrip)throw std::runtime_error(std::format("native battle band packet is not three strips (object {:x})",object));
+    if(value<uint64_t>(rt,object+0xd0)!=0xa400000000000001ull || value<uint64_t>(rt,object+0xd8)!=0xf515151510ull)
+        throw std::runtime_error(std::format("native battle band tag differs from the Gouraud strip (object {:x})",object));
+    if(build.sprites.size()+3>4096)throw std::runtime_error("native battle sprite count outside admitted range");
+    std::array<NativeUiSprite,3> strips{};   // all three are checked before any is recorded
+    for(unsigned k=0;k<3;++k){const auto at=start+kStrip*k;
+        if(value<uint64_t>(rt,at)!=0xa400000000000001ull || value<uint64_t>(rt,at+8)!=0xf515151510ull || value<uint64_t>(rt,at+16)!=0x24cull || value<uint64_t>(rt,at+88)!=0)
+            throw std::runtime_error(std::format("native battle band strip {} differs from its tag (object {:x})",k,object));
+        auto &s=strips[k];s=NativeUiSprite{.sprite=object,.colour=value<uint32_t>(rt,at+24),.depth=0xfff4dd,.gouraud=true};
+        for(unsigned i=0;i<4;++i){const auto xyz=value<uint64_t>(rt,at+32+16*i);
+            if((xyz>>32)!=0xfff4dd)throw std::runtime_error("native battle band depth differs from its writer's");
+            s.cornerColours[i]=value<uint32_t>(rt,at+24+16*i);s.fixedCorners[i]={int32_t(xyz&0xffff),int32_t((xyz>>16)&0xffff)};}}
+    for(auto &s:strips){build.sprites.push_back(std::move(s));build.spriteTextures.push_back(NativeBattleSpriteBuild::kUntextured);
+        build.polygonBytes+=kStrip;++build.polygons;}
+}
 void NativeBattleSprites::rectangle(Runtime *rt,const R5900Context *c){
     // 42efe0, where 42ed50's two unrotated paths join: s7 object, s5 descriptor, s0 =
     // descriptor +6c (mode), s4 = the packet after the header, s3 = depth (descriptor +8 as
@@ -203,7 +229,7 @@ void NativeBattleSprites::serialize(bozo::state::Archive &a){
 std::optional<bool> nativeBattleSpriteInstruction(R5900Context *c,Runtime *rt,uint32_t pc){
     static constexpr uint32_t pairSites[]={0x4bcd40,0x4bde08,0x4d0c34,0x4d1734,0x4d99ac,0x4ecf0c,0x4ef498,0x4f0f20,0x4f268c,0x4f2874,0x4fa19c,0x4fdcc0,0x503d50};
     const bool pairSite=std::find(std::begin(pairSites),std::end(pairSites),pc)!=std::end(pairSites);
-    if(pc!=0x120860 && !pairSite && pc!=0x3cd468 && pc!=0x3cd3c8 && pc!=0x3cd4a0 && pc!=0x42ddd8 && pc!=0x42e144 && pc!=0x42efe0 && pc!=0x3cd218 && pc!=0x3cd21c && pc!=0x42d4f0 && pc!=0x42d4f4 && pc!=0x120f4c && pc!=0x120f58)return std::nullopt;
+    if(pc!=0x120860 && !pairSite && pc!=0x3cd468 && pc!=0x3cd3c8 && pc!=0x3cd4a0 && pc!=0x42ddd8 && pc!=0x42e144 && pc!=0x42efe0 && pc!=0x3843a0 && pc!=0x3cd218 && pc!=0x3cd21c && pc!=0x42d4f0 && pc!=0x42d4f4 && pc!=0x120f4c && pc!=0x120f58)return std::nullopt;
     auto *d=rt?dynamic_cast<bozo::ee::Dispatcher *>(rt->services):nullptr;
     auto *owner=d?dynamic_cast<BattleSpriteOwner *>(&d->host()):nullptr;
     if(!owner || !c){if(pc==0x120860 || pc==0x120f4c || pc==0x120f58)return std::nullopt;throw std::runtime_error("native battle sprites require an owner");}
@@ -268,6 +294,9 @@ std::optional<bool> nativeBattleSpriteInstruction(R5900Context *c,Runtime *rt,ui
            value<uint64_t>(rt,0x50d480)!=0xe400000000000001ull || value<uint64_t>(rt,0x50d488)!=0xf5215215215210ull)
             throw std::runtime_error("native battle polygon writer differs from the USA one");
         if(pc==0x42e144)sprites.polygon(rt,c);else sprites.rectangle(rt,c);
+    }else if(pc==0x3843a0){
+        if(!code(rt,0x383cb0,0x3843f8,0x23a73ec964306dc5ull))throw std::runtime_error("native battle band writer differs from the USA one");
+        sprites.band(rt,c);
     }else if(pc==0x3cd218 || pc==0x42d4f0){
         // Delay slot of the flushes' 120eb0 call (3cd0c0 at 3cd214, object s5; the base 42d4c0 at
         // 42d4ec, object a0): the writer +90 + 4 * +bc (v0 = object + 4 * +bc) with owner +c0.

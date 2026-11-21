@@ -12,6 +12,32 @@ The earlier VP2S face/shading and general brightness comparisons remain open.
 
 ## Build and evidence
 
+### Battle band writer 383cb0: three Gouraud strips read back (2026-11-21)
+
+The battle sprite writer `ebc290` (object `ebc130`, class `16ee30`) reached its flush
+`42d4f0` with 608 bytes no recorder owned: ALPHA, then six untextured alpha-blended Gouraud
+strips (PRIM 24c, four corners each, depth fff4dd).
+- **Original:** they come from mod028 `383cb0(object, index)`, called twice. It does not use
+  the shared header `42ec70`. From the object's two rows of four points it writes three
+  strips after one reservation (`120fa0`): the object's GIF tag (+d0/+d8), PRIM 24c, then
+  per corner RGBA (`sw`: Q keeps stale buffer bytes, unused without a texture) and XYZ2 =
+  16 x | 16 y << 16 | fff4dd << 32, then a NOP.
+- **Ruled out:** the rotated paths of `42df80` and `42ed50` were checked first. They write
+  Q = 1.0, while these packets carry stale Q, so they were not hooked (not exercised here).
+- **Native (`bozo/native_battle_sprites.cpp`, `band`, site `3843a0`):** the code is checked
+  against the USA bytes (fnv 23a73ec964306dc5). At the site (s4 object, s3 writer, v0 the
+  end), the three strips are read back from the packet the game wrote, never recomputed:
+  - the tag, PRIM, NOP and depth must match;
+  - the packet must be three strips long, from the writer's open end;
+  - all three are checked before any is recorded.
+
+  The flush's byte account counts them as polygons (96 bytes each).
+- **Test:** `vp2s-bozo-battle-sprites-check` records three strips (stale Q bytes included),
+  and refuses a short packet, another writer, a NOP, a depth and a tag that differ, with no
+  partial record.
+- **Evidence:** `--battle 0x18` flushes `ebc130` with 6 sprites. The next boundary is a VU0
+  site at `47aa5c` (entry `47a9d8`).
+
 ### Battle corner crosses 481260: the side-axes block natively (2026-11-21)
 
 mod028 `481260` (called from the copier worker at `47fa4c`) tests the four corners of an

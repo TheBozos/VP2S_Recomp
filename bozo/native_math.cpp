@@ -1790,6 +1790,38 @@ bool nativeBattleGroundPlane(R5900Context *c,Runtime *rt,uint32_t pc){
     default:return true;   // arithmetic: folded into the stores
     }
 }
+// Battle colour pair, mod028 47ae40(object a0, colour a1, colour a2) (one copy): the CPU
+// widens each RGBA byte colour to four words (PEXTLB/PEXTLH with zero, compiled); QMTC2 t0
+// -> vf1, t1 -> vf2, t2 (0.5f) -> vf3; ITOF0 vf1, vf2; MULx.xyz by vf3.x; SQC2 vf1, vf2 to
+// +9a0 / +9b0 (v1): (r, g, b) / 2 and the alpha byte as is (w is not scaled). The words are
+// bytes (0..255), so ITOF0 and the halving are exact.
+struct BattleColourPair{uint32_t first[4]{},second[4]{},half=0;unsigned loaded=0;};
+std::map<std::pair<const Runtime *,uint32_t>,BattleColourPair> &battleColourPairs(){static std::map<std::pair<const Runtime *,uint32_t>,BattleColourPair> m;return m;}
+bool nativeBattleColourPair(R5900Context *c,Runtime *rt,uint32_t pc){
+    struct Site{uint32_t pc,word;};
+    constexpr Site sites[]={{0x47ae78,0x48a80800},{0x47ae7c,0x48a91000},{0x47ae80,0x48aa1800},{0x47ae84,0x4be1093c},{0x47ae88,0x4be2113c},
+        {0x47ae90,0x4bc30858},{0x47ae94,0x4bc31098},{0x47ae98,0xf8610000},{0x47ae9c,0xf8620010}};
+    if((pc&3) || !rt || pc<0x47ae78 || pc>0x47ae9c)return false;
+    const auto site=std::find_if(std::begin(sites),std::end(sites),[&](const Site &x){return x.pc==pc;});
+    if(site==std::end(sites))return false;
+    uint32_t word=0;if(const auto *p=rt->memory.hostPointer(pc,4))std::memcpy(&word,p,4);
+    if(word!=site->word)return false;   // another overlay at these addresses
+    if(!c)throw std::runtime_error("native battle colour pair has no CPU record");
+    auto &states=battleColourPairs();const auto key=std::make_pair(static_cast<const Runtime *>(rt),c->r[29].uw[0]);
+    if(pc==0x47ae78){auto &st=states[key];st=BattleColourPair{};for(unsigned i=0;i<4;++i)st.first[i]=c->r[8].uw[i];st.loaded=1;return true;}
+    auto it=states.find(key);if(it==states.end())throw std::runtime_error(std::format("native battle colour pair at {:x} without its first move",pc));
+    auto &st=it->second;
+    if(pc==0x47ae7c){for(unsigned i=0;i<4;++i)st.second[i]=c->r[9].uw[i];st.loaded|=2;return true;}
+    if(pc==0x47ae80){st.half=c->r[10].uw[0];st.loaded|=4;return true;}
+    if(pc!=0x47ae98 && pc!=0x47ae9c)return true;   // ITOF0 / MULx: folded into the stores
+    if(st.loaded!=7)throw std::runtime_error("native battle colour pair stored without its moves");
+    const auto &words=pc==0x47ae98?st.first:st.second;VuWords out;
+    for(unsigned i=0;i<4;++i){if(words[i]>0xff)throw std::runtime_error("native battle colour pair lane is not a byte");
+        const auto f=std::bit_cast<uint32_t>(float(words[i]));out[i]=i<3?vuMul(f,st.half):f;}
+    std::memcpy(record(rt,c->r[3].uw[0]+(pc==0x47ae98?0u:16u),16),out.data(),16);
+    if(pc==0x47ae9c)states.erase(it);
+    return true;
+}
 // Battle segment ends, mod028 3e47b0 (per element s5 of 0x30 bytes; ps2f):
 //   3e48bc..3e48d8: d = a0 - s5; vf1 = d*v1.x + s5*1, vf2 = a0 - d*v1.y (xyz; w as loaded).
 //   with s3+2c set, 3e48f0..3e494c: p = s3+10, rows = s1+90; vf11..vf14 = rows * p (lanes);
@@ -3997,6 +4029,7 @@ bool nativeMathInstruction(uint8_t *,R5900Context *c,Runtime *rt,uint32_t pc){
     if(nativeBattleNormalise(c,rt,pc))return true;
     if(nativeBattleSideAxes(c,rt,pc))return true;
     if(nativeBattleGroundPlane(c,rt,pc))return true;
+    if(nativeBattleColourPair(c,rt,pc))return true;
     if(nativeBattleUnitProjection(c,rt,pc))return true;
     if(nativeBattleCameraProjection(c,rt,pc))return true;
     if(nativeBattleSegmentDirection(c,rt,pc))return true;

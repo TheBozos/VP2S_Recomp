@@ -928,6 +928,16 @@ int main(int argc,char **argv){try{
             {   R5900Context fresh{};fresh.r[29].uw[0]=stack+0x400;bool failed=false;
                 try{vp2s::nativeMathInstruction(rt.memory.flat(),&fresh,&rt,0x4982d8);}catch(const std::runtime_error &){failed=true;}check(failed); }
         }
+        {   // mod028 47ae40 battle colour pair: (128, 64, 255, 128) and (0, 1, 2, 3) widened by the CPU.
+            constexpr uint32_t words[]={0x48a80800,0x48a91000,0x48aa1800,0x4be1093c,0x4be2113c,0x248309a0,0x4bc30858,0x4bc31098,0xf8610000,0xf8620010};
+            std::memcpy(rt.memory.hostPointer(0x47ae78,sizeof(words)),words,sizeof(words));
+            constexpr uint32_t stack=0x1fff000,obj=0x1b0000;
+            R5900Context c{};c.r[29].uw[0]=stack;c.r[3].uw[0]=obj+0x9a0;
+            const uint32_t a[4]={128,64,255,128},b[4]={0,1,2,3};for(unsigned i=0;i<4;++i){c.r[8].uw[i]=a[i];c.r[9].uw[i]=b[i];}c.r[10].uw[0]=0x3f000000;
+            for(unsigned i=0;i<std::size(words);++i){const uint32_t pc=0x47ae78+4*i;check(vp2s::nativeMathInstruction(rt.memory.flat(),&c,&rt,pc)==(i!=5));}
+            float o[8];std::memcpy(o,rt.memory.hostPointer(obj+0x9a0,32),32);
+            check(o[0]==64 && o[1]==32 && o[2]==127.5f && o[3]==128 && o[4]==0 && o[5]==0.5f && o[6]==1 && o[7]==3);
+        }
         {   // mod028 3e8a34 guarded normalise: (2,2,2,2) -> QMFC2 t0 = (16,4,4,4), store (0.5,0.5,0.5,0.5).
             constexpr uint32_t words[14]={0xd8590000,0x4bc007c3,0x27a20150,0x4bf9ceaa,0x4b1ad03d,0x4b1af8be,0x4b1afe8b,0x4828d000,0x11000006,0,0x4a7a03be,0x4a0003bf,0x4be0ce5c,0xf8590000};
             std::memcpy(rt.memory.hostPointer(0x3e8a34,sizeof(words)),words,sizeof(words));

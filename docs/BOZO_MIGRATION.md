@@ -12,6 +12,20 @@ The earlier VP2S face/shading and general brightness comparisons remain open.
 
 ## Build and evidence
 
+### Battle colour pair 47ae40: two RGBA bytes to VU0 floats natively (2026-11-21)
+
+mod028 `47ae40(object, a1, a2)` turns two packed RGBA byte colours into float vectors.
+- **Original:** the CPU widens each colour to four words (PEXTLB/PEXTLH with zero;
+  compiled MMI). QMTC2 moves t0/t1 to vf1/vf2 and 0.5f to vf3. ITOF0 converts them,
+  MULx.xyz halves r, g, b, and SQC2 stores them to +9a0/+9b0. The alpha word keeps its
+  byte value (w is not scaled).
+- **Native (`bozo/native_math.cpp`, `nativeBattleColourPair`):** word-checked sites. The
+  QMTC2 sources are captured per call frame and the stores computed exactly (the lanes
+  must be bytes).
+- **Test:** `vp2s-bozo-math-records` checks (128, 64, 255, 128) -> (64, 32, 127.5, 128)
+  and (0, 1, 2, 3) -> (0, 0.5, 1, 3).
+- **Evidence:** `--battle 0x18` passes it; the next boundary is `4d7068` (entry `4d7060`).
+
 ### Battle ground plane 4981b4: the VU0 triangle plane natively (2026-11-21)
 
 mod028 `4981b4` fits a plane through an object's three ground points: P0 = +8f0, P1 = +900,

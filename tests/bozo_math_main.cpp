@@ -825,6 +825,12 @@ int main(int argc,char **argv){try{
             for(uint32_t pc=0x3fd3f8;pc<=0x3fd420;pc+=4)check(vp2s::nativeMathInstruction(rt.memory.flat(),&c,&rt,pc));
             float o[4];std::memcpy(o,rt.memory.hostPointer(out,16),16);check(o[0]==5 && o[1]==16 && o[2]==0 && o[3]==7);
             c.r[3].uw[0]=0;bool bad=false;try{vp2s::nativeMathInstruction(rt.memory.flat(),&c,&rt,0x3fd3f8);}catch(const std::runtime_error &){bad=true;}check(bad);
+            // mod028 381b84 (381ae0): the same block with A = a3, B = v1, OUT = a2.
+            uint32_t copy[11];std::memcpy(copy,words,sizeof(copy));copy[0]=0xd8f80000;copy[10]=0xf8d80000;
+            std::memcpy(rt.memory.hostPointer(0x381b84,sizeof(copy)),copy,sizeof(copy));
+            R5900Context d{};d.r[7].uw[0]=a;d.r[3].uw[0]=b;d.r[6].uw[0]=out+16;
+            for(uint32_t pc=0x381b84;pc<=0x381bac;pc+=4)check(vp2s::nativeMathInstruction(rt.memory.flat(),&d,&rt,pc));
+            std::memcpy(o,rt.memory.hostPointer(out+16,16),16);check(o[0]==5 && o[1]==16 && o[2]==0 && o[3]==7);
         }
         {   // mod028 3fd5f0 box sphere: a0+20 = ((max+min)/2, |(max-min)/2|).
             constexpr uint32_t words[]={0xd93b0000,0xd89c0000,0xd91d0000,0x4bdcefe8,0x4bdcefac,0x4bdbffd8,0x4bdbf798,0x4bdef72a,
@@ -2458,5 +2464,58 @@ int main(int argc,char **argv){try{
         ++uvCases;
     }
     std::printf("%u animated-UV models (%u loader chunks, %u packet words, %u without chunks) match the original scratchpad pipeline (%u skinned, %u morphed meshes)\n",uvCases,uvChunks,uvWords,uvEmpty,skinMeshes,morphMeshes);
+    {   // Battle ribbon element (class 172b10, mod028 498940 + ground height 4ab140) on the
+        // animator: one mesh of 12 vertices = two segments, the second past e+250 (stream
+        // zeroed). Exact values: d = (1, 0), a = 4, b = 3, centre (10, 10) from O.
+        std::string path=argv[1];const auto at=path.rfind("mod010");check(at!=std::string::npos);path.replace(at,6,"mod028");
+        std::vector<uint8_t> elf;{FILE *f=std::fopen(path.c_str(),"rb");if(!f)throw std::runtime_error("mod028 image missing");
+            std::fseek(f,0,SEEK_END);elf.resize(size_t(std::ftell(f)));std::fseek(f,0,SEEK_SET);check(std::fread(elf.data(),1,elf.size(),f)==elf.size());std::fclose(f);}
+        auto &r=native.runtime();
+        const auto put=[&](uint32_t a,uint32_t v){std::memcpy(r.memory.hostPointer(a,4),&v,4);};
+        const auto putf=[&](uint32_t a,float v){put(a,std::bit_cast<uint32_t>(v));};
+        const auto get=[&](uint32_t a){uint32_t v;std::memcpy(&v,r.memory.hostPointer(a,4),4);return v;};
+        unsigned ribbonCases=0;
+        for(unsigned ground=0;ground<2;++ground){
+            std::memset(r.memory.flat(),0,bozo::kFlatBytes);
+            {uint32_t ph,count;std::memcpy(&ph,elf.data()+0x1c,4);count=uint16_t(elf[0x2c]|elf[0x2d]<<8);
+             for(uint32_t i=0;i<count;++i){uint32_t h[6];std::memcpy(h,elf.data()+ph+32*i,24);if(h[0]==1)std::memcpy(r.memory.hostPointer(h[2],h[4]),elf.data()+h[1],h[4]);}}
+            constexpr uint32_t object=0x200000,model=0x201000,iterator=0x201800,maskAt=0x200800,data=0x210000,packets=0x240000,stack=0x1ffc000,e=0x206000,boundsAt=0x206800,vt=0x172b10;
+            put(object+0x54,model);put(model+0x644,iterator);put(iterator+8,data);put(iterator+0x14,packets);
+            put(data+0x10+0x34,1);put(object+0x48,maskAt);put(maskAt,1);put(object+0x58,5);put(object+0x84,1);put(object+8,e);
+            const uint32_t source=data+0x70,packet=packets+0x60,span=0x200,posAt=0x40,streamAt=0x140;
+            put(source+4,span);put(packet+4,span);put(source+0x14,12u<<16);put(source+0x18,posAt);put(source+0x1c,streamAt<<16);
+            put(source+span+4,0);put(packet+span+4,0);
+            for(unsigned v=0;v<12;++v){putf(source+posAt+16*v,-1);putf(source+posAt+16*v+4,-2);putf(source+posAt+16*v+8,-3);putf(source+posAt+16*v+12,1);put(source+streamAt+4*v,0x11110000u+v);}
+            put(vt+0x10,0x498940);put(e,vt);put(e+8,object);r.memory.hostPointer(e+0x19,1)[0]=1;
+            putf(e+0x40,100);putf(e+0x44,-50);putf(e+0x48,200);putf(e+0x50,1);putf(e+0x58,0);
+            put(e+0x60,boundsAt);putf(e+0x64,1);putf(e+0x68,1);put(e+0x250,1);put(e+0x254,0);r.memory.hostPointer(e+0x258,1)[0]=uint8_t(ground);
+            putf(boundsAt,1000);putf(boundsAt+4,-1000);putf(boundsAt+8,1000);putf(boundsAt+12,-1000);
+            putf(e+0x70,110);putf(e+0x78,210);putf(e+0x80,118);putf(e+0x88,210);putf(e+0x90,2);
+            // Ground: one tile x 100..200, z 200..300, 32-unit cells, height 1000 (h00 a hole,
+            // filled from h01), scale 1/1024, offset -5: 995 everywhere it is asked.
+            constexpr uint32_t control=0x1a0000,owner=0x1a1000,list=0x1a2000,tile=0x1a3000,grid=0x1a4000;
+            put(0x36d880,control);r.memory.hostPointer(control+0x53,1)[0]=0x80;put(control+0x68,owner);put(owner+0xf0,list);put(list+0x118,1);put(list+0xd8,tile);
+            putf(0x513318,-3000);putf(0x51331c,-3000);putf(0x513320,3000);putf(0x513324,3000);
+            put(tile+0x270,100);put(tile+0x274,200);put(tile+0x278,200);put(tile+0x27c,300);put(tile+0x260,32);put(tile+0x264,32);put(tile+0x268,8);put(tile+0x250,grid);
+            putf(tile+0x288,1.f/32);putf(tile+0x28c,1.f/32);putf(tile+0x284,1.f/1024);putf(tile+0x280,-5);
+            for(unsigned k=0;k<64;++k){const uint16_t h=k==0?0x7fff:1000;std::memcpy(r.memory.hostPointer(grid+0x20+2*k,2),&h,2);}
+            put(stack+0xe0,e);
+            R5900Context y{};y.r[23].ud[0]=object;y.r[21].ud[0]=1;y.r[29].ud[0]=stack;
+            check(vp2s::nativeMathInstruction(r.memory.flat(),&y,&r,0x219210) && y.r[2].sd[0]==1);
+            const float xz[6][2]={{10,13},{10,7},{14,13},{14,7},{18,13},{18,7}};uint32_t f=0;
+            const uint32_t lifted=bozo::ps2f::sub(std::bit_cast<uint32_t>(1045.f),0x3e4ccccdu,f);
+            for(unsigned v=0;v<12;++v){const uint32_t p=packet+posAt+16*v;
+                if(v<6)check(get(p)==std::bit_cast<uint32_t>(xz[v][0]) && get(p+8)==std::bit_cast<uint32_t>(xz[v][1]) && get(p+4)==(ground?lifted:std::bit_cast<uint32_t>(-2.f)));
+                else check(get(p)==std::bit_cast<uint32_t>(-1.f) && get(p+4)==std::bit_cast<uint32_t>(-2.f) && get(p+8)==std::bit_cast<uint32_t>(-3.f));
+                check(get(p+12)==std::bit_cast<uint32_t>(1.f) && get(packet+streamAt+4*v)==(v<6?0x11110000u+v:0u));}
+            check(get(boundsAt)==std::bit_cast<uint32_t>(10.f) && get(boundsAt+4)==std::bit_cast<uint32_t>(18.f) && get(boundsAt+8)==std::bit_cast<uint32_t>(7.f) && get(boundsAt+12)==std::bit_cast<uint32_t>(13.f));
+            check(get(e+0x254)==2);
+            // Two tiles: the choice would read the frame's never-written y; refused.
+            if(ground){put(list+0x118,2);put(list+0xdc,tile);put(e+0x254,0);bool refused=false;R5900Context z{};z.r[23].ud[0]=object;z.r[21].ud[0]=1;z.r[29].ud[0]=stack;
+                try{vp2s::nativeMathInstruction(r.memory.flat(),&z,&r,0x219210);}catch(const std::runtime_error &){refused=true;}check(refused);}
+            ++ribbonCases;
+        }
+        std::printf("%u battle ribbon meshes (flat and ground-following, 4ab140 one tile) and the several-tile refusal passed\n",ribbonCases);
+    }
     std::printf("%u matrix/quaternion/Euler ABI cases, %u component products, %u whole CPU/RAM sphere getters,8192 independent scale cases and%u whole CPU/RAM axis-angle cases passed; no VU/device state\n",cases,products,sphereCases,axisCases);return 0;
 }catch(const std::exception &e){std::fprintf(stderr,"%s\n",e.what());return 1;}}

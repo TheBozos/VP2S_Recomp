@@ -12,6 +12,31 @@ The earlier VP2S face/shading and general brightness comparisons remain open.
 
 ## Build and evidence
 
+### Battle ribbon element, battle ground height (2026-11-21)
+
+The battle now draws from the map 79 state: frame 63400 shows the forest
+fading in, and frame 63470 the first enemy in the forest (583 batches, 17319
+vertices). The next boundary is mod028 `3e8548` (VU0 at `3e8a34`).
+- **Point distance copies:** mod028 holds the `3fd3f8` distance block 27
+  times. `381b84` (in `381ae0`) and the other 19 copies not yet covered are now in the
+  distance table, each with its own A/B/OUT registers taken from its words.
+- **Ribbon element (class `172b10`):** its `+10` method, mod028 `498940`,
+  runs natively inside the vertex animator (`219210`). Each mesh is a run of
+  6-vertex segments built from the element's points at `e+70` (stride 0x30)
+  with EE FPU arithmetic (ps2f). Segments past `e+250` zero their words of
+  the flag-4 stream, which the animator now copies (4 bytes per vertex at
+  mesh `+1e`). The xz bounds at `*(e+60)` and the cursor `e+254` are written
+  back as the original writes them. The method and the height code are
+  checked by hash (FNV-1a over `498940..498d58` and `4ab140..4ab5e4`).
+- **Ground height `4ab140`:** with byte `e+258` set, each vertex takes the
+  battle ground height, a bilinear s16 grid per tile with holes filled from
+  their neighbours. With more than one tile, the choice reads `p.y`, a slot
+  the ribbon's frame never writes (`sp+e4`): that case is refused, to be
+  defined by the user. This battle has one tile.
+- **Test:** the math suite builds a ribbon element on the animator (flat and
+  ground-following, one tile, a hole) with exact expected vertices, stream,
+  bounds and cursor, and checks the two-tile refusal.
+
 ### Battle segment tests, live fog bit, segment ends (2026-11-20)
 
 The battle runs to frame 63400 from the map 79 state.

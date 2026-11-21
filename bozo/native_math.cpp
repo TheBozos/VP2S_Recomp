@@ -1150,6 +1150,101 @@ int32_t uvScrolled(uint32_t half,float scroll){
     if(fixed>=2147483647.)return 0x7fffffff;if(fixed<=-2147483648.)return int32_t(0x80000000u);return int32_t(fixed);}
 void skinMesh(Runtime *rt,uint32_t table,unsigned vertices,uint8_t *positions,uint8_t *normals,uint8_t *packed);
 void morphMesh(Runtime *rt,uint32_t element,unsigned vertices,uint8_t *positions,uint8_t *normals,uint8_t *packed);
+bool overlayCode(Runtime *rt,uint32_t lo,uint32_t hi,uint64_t expected);
+// EE FPU (COP1) operations on raw words, as the recompiled code runs them (ps2f: add/sub
+// truncate after one guard bit; mul, div, sqrt round to nearest even).
+uint32_t eeAdd(uint32_t a,uint32_t b){uint32_t f=0;return bozo::ps2f::add(a,b,f);}
+uint32_t eeSub(uint32_t a,uint32_t b){uint32_t f=0;return bozo::ps2f::sub(a,b,f);}
+uint32_t eeMul(uint32_t a,uint32_t b){uint32_t f=0;return bozo::ps2f::mul(a,b,f);}
+int16_t uvHalf(Runtime *rt,uint32_t at){if(at&1)throw std::runtime_error("native halfword misaligned");return int16_t(uvWord(rt,at&~3u)>>((at&2)*8));}
+void uvStore(Runtime *rt,uint32_t at,uint32_t v){uvWord(rt,at);std::memcpy(rt->memory.hostPointer(at,4),&v,4);}
+uint8_t uvByte(Runtime *rt,uint32_t at){return uint8_t(uvWord(rt,at&~3u)>>((at&3)*8));}
+// Battle ground height, mod028 4ab140(p, 0, 0) as the ribbon element calls it (EE FPU):
+//   0 when bit 7 of *(*36d880+53) is clear; else 10000 unless p.x/p.z lie strictly inside
+//   the bounds at 513318 (x lo, z lo, x hi, z hi) and inside a tile of the list
+//   *(*(*36d880+68)+f0) (+118 count, tiles at +d8): ints x0 +270, z0 +274, x1 +278, z1 +27c.
+//   Cell col = cvt.w(*(+288) * (x - x0)), row = cvt.w(*(+28c) * (z - z0)); s16 heights at
+//   *(+250) + 20 + 2*(col + row * *(+268)): h00, h01 = +2, h10 = +stride, h11 = both; 7fff
+//   or more is a hole, filled from its neighbours in a fixed order (an unfilled h01 skips
+//   the tile). Bilinear over the cell (sizes *(+260), *(+264)), times *(+284), plus *(+280).
+// From the second tile on, the choice reads p.y, which the ribbon's frame never writes
+// (sp+e4): several tiles are refused until the user defines that value.
+uint32_t battleGroundHeight(Runtime *rt,uint32_t x,uint32_t z){
+    namespace F=bozo::ps2f;constexpr uint32_t none=0x461c4000u;   // 10000.0
+    const auto control=uvWord(rt,0x36d880);
+    if(!(uvByte(rt,control+0x53)&0x80))return 0;
+    if(!F::lt(uvWord(rt,0x513318),x) || !F::lt(uvWord(rt,0x51331c),z) || F::le(uvWord(rt,0x513320),x) || F::le(uvWord(rt,0x513324),z))return none;
+    const auto list=uvWord(rt,uvWord(rt,control+0x68)+0xf0);const auto tiles=int32_t(uvWord(rt,list+0x118));
+    if(tiles>1)throw std::runtime_error(std::format("native battle ground height over {} tiles reads the ribbon's never-written y (ask the user)",tiles));
+    uint32_t best=none,offset=0;
+    for(int32_t t=0;t<tiles;++t){
+        const auto tile=uvWord(rt,list+0xd8+4*uint32_t(t));
+        const auto x0=F::fromInt(uvWord(rt,tile+0x270)),x1=F::fromInt(uvWord(rt,tile+0x278)),z0=F::fromInt(uvWord(rt,tile+0x274)),z1=F::fromInt(uvWord(rt,tile+0x27c));
+        if(F::lt(x,x0) || !F::lt(x,x1) || F::lt(z,z0) || !F::lt(z,z1))continue;
+        const auto sx=uvWord(rt,tile+0x260),sz=uvWord(rt,tile+0x264),stride=uvWord(rt,tile+0x268),grid=uvWord(rt,tile+0x250);
+        const auto row=F::toInt(eeMul(uvWord(rt,tile+0x28c),eeSub(z,z0))),col=F::toInt(eeMul(uvWord(rt,tile+0x288),eeSub(x,x0)));
+        const uint32_t at=(col+row*stride)*2+grid;
+        int32_t h00=uvHalf(rt,at+0x20),h01=uvHalf(rt,at+0x22),h11=uvHalf(rt,at+0x22+2*stride),h10=uvHalf(rt,at+0x20+2*stride);
+        bool v00=h00<0x7fff,v01=h01<0x7fff,v10=h10<0x7fff;const bool v11=h11<0x7fff;
+        if(!v00){if(v01){h00=h01;v00=true;}else if(v10){h00=h10;v00=true;}}
+        if(!v01){if(v00){h01=h00;v01=true;}else if(v11)h01=h11;}
+        if(!v10){if(v00){h10=h00;v10=true;}else if(v11)h10=h11;}
+        if(!v11){if(v01)h11=h01;else if(v10)h11=h10;}
+        if(!v01)continue;
+        const uint32_t ox=F::toInt(x0)+col*sx,oz=F::toInt(z0)+row*sz;
+        const auto fx=eeSub(x,F::fromInt(ox)),rx=eeSub(F::fromInt(sx),fx),fz=eeSub(z,F::fromInt(oz)),rz=eeSub(F::fromInt(sz),fz);
+        const auto a=eeMul(eeMul(fx,fz),F::fromInt(uint32_t(h11))),b=eeMul(eeMul(rx,fz),F::fromInt(uint32_t(h10)));
+        const auto c=eeMul(eeMul(rx,rz),F::fromInt(uint32_t(h00))),d=eeMul(eeMul(fx,rz),F::fromInt(uint32_t(h01)));
+        best=eeMul(eeAdd(eeAdd(c,d),eeAdd(b,a)),uvWord(rt,tile+0x284));offset=uvWord(rt,tile+0x280);   // the first tile always takes it
+    }
+    return F::eq(none,best)?best:eeAdd(best,offset);
+}
+// Battle ribbon element (class 172b10), its +10 method mod028 498940(e, mesh record), EE FPU.
+// The mesh's vertices come in quads of 6 (two triangles per segment); segment s uses the
+// element's points at e+70+30*i (i = e+254, then +1 per segment; e+254 keeps the end):
+//   i >= e+250: the segment's 6 words of the flag-4 stream are zeroed, positions left;
+//   else p0 = +0, p1 = +10 (x, z), width w = +20: d = p1 - p0 (xz), len = sqrt(dx^2 + dz^2)
+//   (MULA/MADD), d /= len (d = e+50/e+58 when len is 0); a = len * (0.5 * e+68),
+//   b = 1.5 * (w * e+64); when a < b: back = b - a, a = b; centre c = p0 - d*back - e+40;
+//   the vertices (x, z) are c + d*a +- (-dz.. as written below) and only x, z are stored,
+//   or, with byte e+258 set, also y = height(e+40 + v) - e+40.y - 0.2 (e+40.y - 0.2 when
+//   that difference is exactly 10000). The xz bounds at *(e+60) (min x, max x, min z, max z)
+//   grow over every written vertex.
+void ribbonMesh(Runtime *rt,uint32_t element,unsigned vertices,uint8_t *positions,uint8_t *stream){
+    namespace F=bozo::ps2f;
+    if(vertices%6)throw std::runtime_error("battle ribbon mesh is not made of 6-vertex segments");
+    const auto origin=[&]{std::array<uint32_t,3> o;for(unsigned i=0;i<3;++i)o[i]=uvWord(rt,element+0x40+4*i);return o;}();
+    const auto boundsAt=uvWord(rt,element+0x60),widthScale=uvWord(rt,element+0x64),lengthScale=uvWord(rt,element+0x68);
+    const bool ground=uvByte(rt,element+0x258)!=0;const auto limit=int32_t(uvWord(rt,element+0x250));auto index=int32_t(uvWord(rt,element+0x254));
+    uint32_t bounds[4];for(unsigned i=0;i<4;++i)bounds[i]=uvWord(rt,boundsAt+4*i);
+    constexpr uint32_t half=0x3f000000u,threeHalves=0x3fc00000u,one=0x3f800000u,lift=0x3e4ccccdu,none=0x461c4000u;
+    const auto put=[](uint8_t *at,uint32_t v){std::memcpy(at,&v,4);};
+    for(unsigned s=0;s<vertices/6;++s,++index){
+        if(index>=limit){std::memset(stream+0x18*s,0,0x18);continue;}
+        if(index<0)throw std::runtime_error("battle ribbon point index negative");
+        const auto p=element+0x70+0x30*uint32_t(index);
+        const auto x0=uvWord(rt,p),z0=uvWord(rt,p+8);
+        auto dx=eeSub(uvWord(rt,p+0x10),x0),dz=eeSub(uvWord(rt,p+0x18),z0);
+        uint32_t len;{uint32_t f=0;len=F::sqrt(eeAdd(eeMul(dx,dx),eeMul(dz,dz)),f);}
+        if(F::eq(0,len)){dx=uvWord(rt,element+0x50);dz=uvWord(rt,element+0x58);}
+        else{uint32_t f=0;const auto q=F::div(one,len,f);dx=eeMul(dx,q);dz=eeMul(dz,q);}
+        auto a=eeMul(len,eeMul(half,lengthScale));const auto b=eeMul(threeHalves,eeMul(uvWord(rt,p+0x20),widthScale));uint32_t back=0;
+        if(F::lt(a,b)){back=eeSub(b,a);a=b;}
+        const auto f9=eeMul(dx,b),f8=eeMul(dz,b),f7=eeMul(dx,a),f0=eeMul(dz,a);
+        const auto cx=eeSub(eeSub(x0,eeMul(dx,back)),origin[0]),cz=eeSub(eeSub(z0,eeMul(dz,back)),origin[2]);
+        auto f6=eeAdd(f7,cx),f5=eeAdd(f0,cz);const auto f4=eeAdd(f6,f8),f3=eeSub(f5,f9);f6=eeSub(f6,f8);f5=eeAdd(f5,f9);
+        const uint32_t xz[6][2]={{eeSub(f6,f7),eeSub(f5,f0)},{eeSub(f4,f7),eeSub(f3,f0)},{f6,f5},{f4,f3},{eeAdd(f6,f7),eeAdd(f5,f0)},{eeAdd(f4,f7),eeAdd(f3,f0)}};
+        for(unsigned v=0;v<6;++v){
+            auto *out=positions+16*(6*s+v);const auto x=xz[v][0],z=xz[v][1];
+            if(ground){const auto rise=eeSub(battleGroundHeight(rt,eeAdd(origin[0],x),eeAdd(origin[2],z)),origin[1]);
+                put(out+4,F::eq(none,rise)?eeSub(origin[1],lift):eeSub(rise,lift));}
+            put(out,x);put(out+8,z);
+            bounds[0]=F::min(bounds[0],x);bounds[1]=F::max(bounds[1],x);bounds[2]=F::min(bounds[2],z);bounds[3]=F::max(bounds[3],z);
+        }
+    }
+    for(unsigned i=0;i<4;++i)uvStore(rt,boundsAt+4*i,bounds[i]);
+    uvStore(rt,element+0x254,uint32_t(index));
+}
 bool nativeUvAnimation(R5900Context *c,Runtime *rt,uint32_t pc){
     if(pc!=0x219210)return false;
     if(!c)throw std::runtime_error("native UV animation has no CPU record");
@@ -1157,9 +1252,10 @@ bool nativeUvAnimation(R5900Context *c,Runtime *rt,uint32_t pc){
     const auto halfAt=object+0x84;const int16_t chunks=int16_t(uvWord(rt,halfAt&~3u)>>((halfAt&2)*8));
     if(chunks>0){
         const auto flags=uvWord(rt,object+0x58);
-        // 1 positions, 2 normals, 8 UVs, 80 packed vectors, 20 element data;
-        // 40 is only part of the skeleton's flag word (e3). 4, 10, 100 reject.
-        if(flags&~0x1ebu){
+        // 1 positions, 2 normals, 4 the 4-byte vertex stream at +1e, 8 UVs, 80 packed
+        // vectors, 20 element data; 40 is only part of the skeleton's flag word (e3).
+        // 10 and 100 reject.
+        if(flags&~0x1efu){
             // Report the element classes: the next port step depends on them.
             std::string list;const auto n=c->r[21].uw[0],at=c->r[29].uw[0]+0xe0;
             for(unsigned i=0;i<n && i<16;++i){const auto e=uvWord(rt,at+4*i),vt=uvWord(rt,e);list+=std::format(" e{:x}:vt{:x}/+10={:x}",e,vt,uvWord(rt,vt+0x10));}
@@ -1176,7 +1272,7 @@ bool nativeUvAnimation(R5900Context *c,Runtime *rt,uint32_t pc){
         // skin positions/normals/packed vectors; their table for each included
         // mesh is the +18 cursor, which 237320 resets to +44 and each included
         // mesh advances by its leading halfword.
-        struct Element{uint32_t at,cursor;float scroll[2];bool all;uint32_t bits;bool skeleton;bool morph=false;};std::vector<Element> elements;
+        struct Element{uint32_t at,cursor;float scroll[2];bool all;uint32_t bits;bool skeleton;bool morph=false;bool ribbon=false;};std::vector<Element> elements;
         for(unsigned i=0;i<count;++i){const auto e=uvWord(rt,list+4*i);const auto vt=uvWord(rt,e);
             if(vt==0x154690){
                 if(uvWord(rt,vt+0x10)!=0x218220 || uvWord(rt,vt+0x18)!=0x2372f0)throw std::runtime_error("unqualified skeleton element methods");
@@ -1188,7 +1284,13 @@ bool nativeUvAnimation(R5900Context *c,Runtime *rt,uint32_t pc){
                 if(uvWord(rt,vt+0x10)!=0x218600)throw std::runtime_error("unqualified morph element methods");
                 if((flags&3)!=3)throw std::runtime_error("morph element without streamed positions and normals");
                 elements.push_back({e,uvWord(rt,e+0x38),{0,0},(uvWord(rt,e+0x18)>>8&0xff)!=0,uvWord(rt,e+0x24),true});elements.back().morph=true;continue;}
-            if(vt!=0x1591b0)throw std::runtime_error("unported animated vertex element class");
+            if(vt==0x172b10){
+                // Battle ribbon element: +10 is mod028 498940 (ground height 4ab140), see ribbonMesh.
+                if(uvWord(rt,vt+0x10)!=0x498940 || !overlayCode(rt,0x498940,0x498d58,0x40ff9fc8352959adull) || !overlayCode(rt,0x4ab140,0x4ab5e4,0xcc9361cbd4fb640dull))
+                    throw std::runtime_error("unqualified battle ribbon element methods");
+                if((flags&5)!=5)throw std::runtime_error("battle ribbon element without streamed positions and its vertex stream");
+                elements.push_back({e,0,{0,0},(uvWord(rt,e+0x18)>>8&0xff)!=0,uvWord(rt,e+0x24),true});elements.back().ribbon=true;continue;}
+            if(vt!=0x1591b0)throw std::runtime_error(std::format("unported animated vertex element class {:x} (+10={:x})",vt,uvWord(rt,vt+0x10)));
             Element el{e,uvWord(rt,e+0x34),{std::bit_cast<float>(uvWord(rt,e+0x40)),std::bit_cast<float>(uvWord(rt,e+0x44))},(uvWord(rt,e+0x18)>>8&0xff)!=0,uvWord(rt,e+0x24),false};
             for(float s:el.scroll)if((std::bit_cast<uint32_t>(s)&0x7f800000)==0x7f800000)throw std::runtime_error("unqualified UV scroll");
             elements.push_back(el);}
@@ -1200,7 +1302,7 @@ bool nativeUvAnimation(R5900Context *c,Runtime *rt,uint32_t pc){
             const auto bytes=uvWord(rt,e+0xc),flagWord=uvWord(rt,e+0x18);
             if(!((bytes>>8)&0xff) && !(flagWord&0xff))continue;
             chain.push_back(e);if(chain.size()>64)throw std::runtime_error("animated element chain outside bounds");}
-         for(size_t i=0;i<elements.size();++i){if(elements[i].morph)continue;
+         for(size_t i=0;i<elements.size();++i){if(elements[i].morph || elements[i].ribbon)continue;
             if(i>=chain.size() || chain[i]!=elements[i].at)throw std::runtime_error("animated element data index differs from the object's chain");}}
         music::NearestRounding rounding;
         for(int32_t j=0;j<meshes;++j){
@@ -1222,10 +1324,15 @@ bool nativeUvAnimation(R5900Context *c,Runtime *rt,uint32_t pc){
                 if((flags&0x100) && packedHalf && (packedHalf>>14))throw std::runtime_error(std::format("unported +34 stream mode {}",packedHalf>>14));
                 const bool hasPacked=(flags&0x180) && packedHalf && !(packedHalf>>14);const uint32_t packedAt=packedHalf&0x3fff,packedBytes=((uint32_t(n)+1)>>1)*16;
                 std::vector<uint8_t> positions(flags&1?16*n:0),normals(flags&2?16*n:0),packedData(hasPacked?packedBytes:0);
+                // Flag 4: 4 bytes per vertex at u16 +1e, (N+3)/4 qwords.
+                const uint32_t streamAt=uvWord(rt,source+0x1c)>>16,streamBytes=flags&4?((uint32_t(n)+3)>>2)*16:0;std::vector<uint8_t> stream(streamBytes);
+                if(n && streamBytes)std::memcpy(stream.data(),uvBytes(rt,source+streamAt,streamBytes),streamBytes);
                 if(n && (flags&1))std::memcpy(positions.data(),uvBytes(rt,source+positionAt,16*n),16*n);
                 if(n && (flags&2))std::memcpy(normals.data(),uvBytes(rt,source+normalAt,16*n),16*n);
                 if(n && hasPacked)std::memcpy(packedData.data(),uvBytes(rt,source+packedAt,packedBytes),packedBytes);
                 for(auto &el:elements){
+                    if(el.ribbon){if(!n || (!el.all && !(uvWord(rt,el.bits+4*(uint32_t(j)>>5))>>(j&31)&1)))continue;
+                        ribbonMesh(rt,el.at,unsigned(n),positions.data(),stream.data());continue;}
                     if(el.morph){if(!n || (!el.all && !(uvWord(rt,el.bits+4*(uint32_t(j)>>5))>>(j&31)&1)))continue;
                         morphMesh(rt,el.at,unsigned(n),positions.data(),normals.data(),hasPacked?packedData.data():nullptr);continue;}
                     if(!el.skeleton)continue;
@@ -1235,6 +1342,7 @@ bool nativeUvAnimation(R5900Context *c,Runtime *rt,uint32_t pc){
                 }
                 if(n && (flags&1))std::memcpy(uvBytes(rt,packet+positionAt,16*n),positions.data(),16*n);
                 if(n && (flags&2))std::memcpy(uvBytes(rt,packet+normalAt,16*n),normals.data(),16*n);
+                if(n && streamBytes)std::memcpy(uvBytes(rt,packet+streamAt,streamBytes),stream.data(),streamBytes);
                 if(n && hasPacked)std::memcpy(uvBytes(rt,packet+packedAt,packedBytes),packedData.data(),packedBytes);
                 if(n)for(auto &el:elements){
                     if(el.skeleton)continue;
@@ -1393,8 +1501,11 @@ uint32_t vuSub(uint32_t a,uint32_t b){uint32_t f=0;return bozo::ps2f::subNearest
 //   37a820 (in 37a7d8): A = a0 (s0+1f0), B = v0 (s0+200), OUT = v1 (sp+60).
 //   38256c, 3825a8 (in 382470): A = a2, B = v1, OUT = a1; 3826d0: length of t1 to t0;
 //   382798: length of t1 to a3; 3d7b34 (in 3d76a0): A = a0, B = v0, OUT = v1.
+//   381b84 (in 381ae0, state 1): A = a3 (a0+30), B = v1 (a0+200), OUT = a2 (sp+0).
 struct DistanceSite{uint32_t lo;unsigned a,b,out;};
-constexpr DistanceSite distanceSites[]={{0x3fd3f8,5,3,4},{0x382154,12,10,11},{0x37a820,4,2,3},{0x38256c,6,3,5},{0x3825a8,6,3,5},{0x3826d0,9,0,8},{0x382798,9,0,7},{0x3d7b34,4,2,3}};
+constexpr DistanceSite distanceSites[]={{0x3fd3f8,5,3,4},{0x382154,12,10,11},{0x37a820,4,2,3},{0x38256c,6,3,5},{0x3825a8,6,3,5},{0x3826d0,9,0,8},{0x382798,9,0,7},{0x3d7b34,4,2,3},{0x381b84,7,3,6},
+    // The same block elsewhere in mod028 (found by its words; served when RAM holds them):
+    {0x37abf4,4,2,3},{0x37c224,5,3,4},{0x381274,7,3,6},{0x381990,5,3,4},{0x395e74,3,4,2},{0x3960bc,4,5,3},{0x39c28c,5,6,2},{0x3a2f60,5,3,4},{0x3c0810,5,3,4},{0x3c0924,22,3,2},{0x3d65ec,7,11,5},{0x41dca0,6,4,5},{0x48ac80,5,6,4},{0x48aee0,6,7,4},{0x49c8fc,18,3,4},{0x49dadc,18,3,4},{0x49db24,4,2,3},{0x4a85d8,3,21,2},{0x502c48,5,2,3}};
 bool nativeBattlePointDistance(R5900Context *c,Runtime *rt,uint32_t pc){
     constexpr uint32_t middle[]={0x4bd9c62c,0x4bd8c62a,0x4bc00643,0x4b18c03d,0x4b18ce0a,0x4a1803bd,0x4a0003bf,0x4b000620};
     if((pc&3) || !rt)return false;

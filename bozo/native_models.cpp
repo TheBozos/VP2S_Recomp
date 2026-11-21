@@ -143,7 +143,7 @@ std::shared_ptr<const NativeModels::Pack> NativeModels::load(const AssetOrigin &
 // converts disc meshes (routines 6/8 fixed point, UV /4096); materials as
 // tools/vp2_bozo_meshes.py names them.
 void NativeModels::publishGeneratedMesh(Runtime *rt,const std::vector<std::pair<uint32_t,uint32_t>> &input){
-    if(input.size()!=6 && input.size()!=7)throw std::runtime_error("native generated mesh has an unknown section count");
+    if(input.size()!=5 && input.size()!=6 && input.size()!=7)throw std::runtime_error("native generated mesh has an unknown section count");
     std::vector<std::pair<uint32_t,uint32_t>> s;for(const auto &[at,q]:input)s.push_back({NativeAssets::address(at),q});
     uint64_t total=0;for(size_t i=0;i<s.size();++i){if(i && s[i].first!=s[i-1].first+16*s[i-1].second)throw std::runtime_error("native generated mesh sections are not contiguous");total+=16ull*s[i].second;}
     const auto mesh=s[0].first;
@@ -151,7 +151,7 @@ void NativeModels::publishGeneratedMesh(Runtime *rt,const std::vector<std::pair<
     const auto half=[&](unsigned i){return value<int16_t>(rt,mesh+4+2*i);};
     const unsigned size=uint16_t(half(0));const int32_t vertexRow=half(1),strips=half(2),lengthRow=half(3),flags=half(8),count=half(9),group=half(25);
     const bool material=flags&1;
-    if(size!=total || material!=(s.size()==7) || count<1 || count>1024 || strips<1 || strips>count || vertexRow<0 || vertexRow+4*count>1024 || lengthRow<0 || lengthRow>=1024)
+    if(size!=total || s.size()<5u+material || s.size()>6u+material || count<1 || count>1024 || strips<1 || strips>count || vertexRow<0 || vertexRow+4*count>1024 || lengthRow<0 || lengthRow>=1024)
         throw std::runtime_error(std::format("native generated mesh header outside its sections (size {} of {}, {} vertices, {} strips)",size,total,count,strips));
     auto m=std::make_shared<Mesh>();m->group=uint32_t(group);m->sourceSize=size;
     for(unsigned r=0;r<4;++r)m->algorithms[r]=half(20+r);
@@ -179,12 +179,21 @@ void NativeModels::publishGeneratedMesh(Runtime *rt,const std::vector<std::pair<
     const auto n=uint32_t(count);
     const auto lengths=lane(0x62000000u|uint32_t(strips)<<16|0xc000u|uint32_t(lengthRow),(uint32_t(strips)+15)/16+1);
     if(value<uint32_t>(rt,lengths-16+8)!=0)throw std::runtime_error("native generated mesh strip lane escaped the writer's layout");
-    // Normals: V4-32, or V4-16 signed (the battle writer subclass 174f90 with +d0 set packs
+    // Normals: absent when the battle writer subclass 174f90 has +d1 set (mod028 4d7858 skips
+    // the lane; 4d7a28 puts the STCYCL 4/1 before the UV lane instead). The VU rows keep
+    // whatever an earlier mesh left there, so they are NaN here and the draw refuses every
+    // path that reads a normal (routines 20/26/36/40, lighting modes 1/3, point/spot lights).
+    // Otherwise V4-32, or V4-16 signed (the battle writer subclass 174f90 with +d0 set packs
     // FTOI12 halves, mod028 4d71cc): VIF sign-extends them to the same 32-bit integers.
     const bool packedNormals=k<s.size() && value<uint32_t>(rt,s[k].first+12)==(0x6d000000u|n<<16|0x8000u|uint32_t(vertexRow));
     if(packedNormals && !fixed4096)throw std::runtime_error("native generated mesh packs normals its routines read as floats");
-    const auto normals=packedNormals?lane(0x6d000000u|n<<16|0x8000u|uint32_t(vertexRow),(n*8+15)/16+1):lane(0x6c000000u|n<<16|0x8000u|uint32_t(vertexRow),n+1);
-    if(value<uint32_t>(rt,normals-16+8)!=0x01000104u)throw std::runtime_error("native generated mesh stride escaped the writer's layout");
+    const uint32_t uvCode=0x75000000u|n<<16|0x8000u|uint32_t(vertexRow+1);
+    const bool hasNormals=!(k<s.size() && value<uint32_t>(rt,s[k].first+12)==uvCode);
+    if(s.size()!=5u+material+hasNormals)throw std::runtime_error("native generated mesh section count differs from its lanes");
+    if(!hasNormals && (m->has(2) || m->has(4) || m->has(20) || m->has(26) || m->has(36) || m->has(40) || (material && m->material[4]!=0)))
+        throw std::runtime_error("native generated mesh without normals runs a routine or lighting that reads them");
+    const auto normals=!hasNormals?0u:packedNormals?lane(0x6d000000u|n<<16|0x8000u|uint32_t(vertexRow),(n*8+15)/16+1):lane(0x6c000000u|n<<16|0x8000u|uint32_t(vertexRow),n+1);
+    if(value<uint32_t>(rt,(hasNormals?normals:s[k].first+16)-16+8)!=0x01000104u)throw std::runtime_error("native generated mesh stride escaped the writer's layout");
     const auto uvs=lane(0x75000000u|n<<16|0x8000u|uint32_t(vertexRow+1),(n+3)/4+1);
     const auto colours=lane(0x6e000000u|n<<16|0xc000u|uint32_t(vertexRow+2),(n+3)/4+1);
     // Positions: V4-32, or V3-16 signed (the battle writer subclass with +d0 = 2 packs FTOI4
@@ -200,12 +209,13 @@ void NativeModels::publishGeneratedMesh(Runtime *rt,const std::vector<std::pair<
     if(sum!=n)throw std::runtime_error("native generated mesh strip extent mismatch");
     for(uint32_t i=0;i<n;++i){Mesh::Vertex v{};
         for(unsigned c=0;c<3;++c){const auto pw=packedPositions?uint32_t(int32_t(value<int16_t>(rt,positions+6*i+2*c))):value<uint32_t>(rt,positions+16*i+4*c);
-            const auto nw=packedNormals?uint32_t(int32_t(value<int16_t>(rt,normals+8*i+2*c))):value<uint32_t>(rt,normals+16*i+4*c);
-            v.p[c]=fixed16?float(int32_t(pw))/16.f:std::bit_cast<float>(pw);v.n[c]=fixed4096?float(int32_t(nw))/4096.f:std::bit_cast<float>(nw);}
+            const auto nw=!hasNormals?0x7fc00000u:packedNormals?uint32_t(int32_t(value<int16_t>(rt,normals+8*i+2*c))):value<uint32_t>(rt,normals+16*i+4*c);
+            v.p[c]=fixed16?float(int32_t(pw))/16.f:std::bit_cast<float>(pw);v.n[c]=!hasNormals?std::bit_cast<float>(nw):fixed4096?float(int32_t(nw))/4096.f:std::bit_cast<float>(nw);}
         v.p[3]=packedPositions?0.f:float(value<int32_t>(rt,positions+16*i+12));
         for(unsigned c=0;c<2;++c)v.uv[c]=float(value<int16_t>(rt,uvs+4*i+2*c))/4096.f;
         for(unsigned c=0;c<4;++c)v.colour[c]=value<uint8_t>(rt,colours+4*i+c);
-        for(float f:{v.p[0],v.p[1],v.p[2],v.n[0],v.n[1],v.n[2]})finite(f);
+        for(float f:{v.p[0],v.p[1],v.p[2]})finite(f);
+        if(hasNormals)for(float f:{v.n[0],v.n[1],v.n[2]})finite(f);
         m->vertices.push_back(v);m->sources.push_back({UINT32_MAX,UINT32_MAX});}
     for(auto it=generated.begin();it!=generated.end();)
         if(it->first<mesh+size && mesh<it->first+it->second.bytes.size())it=generated.erase(it);else ++it;
@@ -447,6 +457,11 @@ NativeModelSubmission NativeModels::capture(Runtime *rt,NativeAssets &assets,Nat
         const auto source=editable?work+mesh-model:0;
         std::array<std::array<float,4>,2> screenRows{};if(m.has(40))screenRows={row(38),row(39)};
         std::array<float,2> scroll{};if(m.has(48)){if(m.scroll<0 || m.scroll>=16)throw std::runtime_error("native UV scroll index outside bounds");const auto q=row(38+m.scroll);scroll={q[2],q[3]};}
+        // A generated mesh without normals (NaN, see publishGeneratedMesh) may only take paths
+        // that never read one; the object's lights are known only here.
+        if(!m.vertices.empty() && std::isnan(m.vertices[0].n[0]) && (material[4]!=0 || pointLights || !spots.empty() ||
+           m.has(2) || m.has(4) || m.has(20) || m.has(26) || m.has(36) || m.has(40)))
+            throw std::runtime_error("native generated mesh without normals drawn with a path that reads them");
         const auto skinned=[&](size_t k,std::array<float,3> p,float w){
             const auto transform=[&](int32_t address){if(address<0x290 || ((address-0x290)&3) || uint32_t((address-0x290)/4)>=boneCount)throw std::runtime_error("native vertex bone outside palette");
                 const auto mtx=value<Mat>(rt,palette+64*((address-0x290)/4));std::array<float,3> result{};

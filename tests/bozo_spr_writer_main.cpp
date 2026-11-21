@@ -90,6 +90,18 @@ int main(){try{
      reject(strips+16,3,"strip lengths must sum to the vertex count");
      reject(mesh+4+40,uint32_t(20),"routines with frame data (sphere map) reject");
      reject(mat+12,0x6c0e8007,"the material lane is the writer's");
-     check(rejects([&]{vp2s::NativeModels fresh("");auto gap=sections;gap[3].first+=16;fresh.publishGeneratedMesh(&rt,gap);}),"sections must be contiguous");++checks;}
+     check(rejects([&]{vp2s::NativeModels fresh("");auto gap=sections;gap[3].first+=16;fresh.publishGeneratedMesh(&rt,gap);}),"sections must be contiguous");++checks;
+     // The battle subclass 174f90 with +d1 set (mod028 4d7858) leaves the normals lane out and
+     // puts STCYCL 4/1 before the UV lane: header 4, material 16, strips 2, UVs 2, colours 2, positions 6.
+     const uint32_t bare=0x1390000;std::memcpy(rt.memory.hostPointer(bare,0x160),rt.memory.hostPointer(mesh,0x160),0x160);
+     std::memcpy(rt.memory.hostPointer(bare+0x160,0xa0),rt.memory.hostPointer(uvs,0xa0),0xa0);
+     put(rt,bare+4,int16_t(512));put(rt,bare+0x40+16+20,uint32_t(0));put(rt,bare+0x160+8,uint32_t(0x01000104));
+     const std::vector<std::pair<uint32_t,uint32_t>> without{{bare,4},{bare+0x40,16},{bare+0x140,2},{bare+0x160,2},{bare+0x180,2},{bare+0x1a0,6}};
+     {vp2s::NativeModels fresh("");fresh.publishGeneratedMesh(&rt,without);check(fresh.generatedMeshes()==1,"a mesh without normals is admitted");++checks;}
+     const auto rejectBare=[&](uint32_t at,uint32_t v,const char *what){uint32_t old;std::memcpy(&old,rt.memory.hostPointer(at,4),4);put(rt,at,v);
+        vp2s::NativeModels fresh("");check(rejects([&]{fresh.publishGeneratedMesh(&rt,without);}) && !fresh.generatedMeshes(),what);put(rt,at,old);++checks;};
+     rejectBare(bare+0x40+16+20,1,"lighting that reads normals rejects a mesh without them");
+     rejectBare(bare+0x160+8,0,"without normals the UV lane carries the stride");
+     check(rejects([&]{vp2s::NativeModels fresh("");auto extra=without;extra.erase(extra.begin()+1);fresh.publishGeneratedMesh(&rt,extra);}),"the material lane cannot go missing too");++checks;}
     std::printf("scratchpad writer: %u checks passed\n",checks);return 0;
 }catch(const std::exception &e){std::fprintf(stderr,"FAIL %s\n",e.what());return 1;}}

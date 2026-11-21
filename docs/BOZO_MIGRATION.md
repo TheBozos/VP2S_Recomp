@@ -12,6 +12,27 @@ The earlier VP2S face/shading and general brightness comparisons remain open.
 
 ## Build and evidence
 
+### Battle generated meshes without normals: writer byte +d1 (2026-11-21)
+
+The battle writer subclass 174f90 (mod028 kick `4d75f0`) can leave the normals lane out
+of a generated mesh. The native mesh check refused it (`4d7ef0`: "header outside its
+sections (size 976 of 976, 40 vertices, 1 strip)"): six sections with a material, where it
+expected seven.
+- **Original:** with the writer's byte +d1 set, `4d7858` branches past the normals lane, and
+  `4d7a28` writes the STCYCL 4/1 (01000104) before the UV lane instead. The battle mesh
+  seen: header, material, strips, UVs, colours, packed positions (V3-16, +d0 = 2), routine 8,
+  lighting mode 0.
+- **Native (`bozo/native_models.cpp`):** a UV lane right after the strips means no normals.
+  The section count must then be 5 + material, and the stride sits before the UV lane.
+  The VU rows would keep an earlier mesh's normals (memory this mesh never writes), so the
+  normals are NaN and nothing may read them:
+  - publication refuses routines 2/4/20/26/36/40 and lighting modes other than 0;
+  - the draw also refuses point and spot lights, or a borrowed material in another mode.
+- **Test:** `vp2s-bozo-spr-writer` admits the route's mesh without normals, and refuses
+  mode-1 lighting, a missing stride, and a missing material lane.
+- **Evidence:** `--battle 0x18` passes it; the next boundary is an unported VU0 site at
+  `47c108` (entry `47bfa4`).
+
 ### Battle vertex packer 4d7060: FTOI4 position natively (2026-11-21)
 
 mod028 `4d7060` (sibling of the ported packer `4d7150`) turns the a1 position into 12.4 fixed

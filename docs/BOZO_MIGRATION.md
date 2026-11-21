@@ -12,6 +12,28 @@ The earlier VP2S face/shading and general brightness comparisons remain open.
 
 ## Build and evidence
 
+### Battle flash element 172080: the task's 255, a factor table per vertex group (2026-11-22)
+
+Class `172080` is the second battle task with an animated vertex element.
+- **Original:** its slot +1c, mod028 `47cdc0`, resets the cursor +3c and ends with QMTC2 t0
+  = 255.0f -> vf23, MULx.w vf23.w = vf0.w * vf23.x (`47cdd8`, `47cddc`), then returns. Only
+  its element draw +10, `47ccf0`, reads vf23.w, in a later call.
+- **Rule (user decision 2026-11-21, as for `171f20`):** each task keeps the value its own
+  `47cdc0` loaded (always 255).
+- **Draw (`taskFlashMesh` in `nativeUvAnimation`, checked against the USA bytes, fnv
+  4ccd27596acefa72):** per group of 4 stream vertices:
+  - a 24-bit index from 3 bytes at +34 + cursor (cursor += 3);
+  - k = byte (+38)[index] / 128 (EE FPU);
+  - the group's first colour c (PEXTLB/PEXTLH, ITOF0);
+  - vf21 = (c.rgb, 255 - c.a), vf20 = c + vf21 k;
+  - FTOI0, keeping each lane's low byte, stored for all four vertices.
+
+  The cursor is written back.
+- **Test:** `vp2s-bozo-math-check` runs two groups through the animator (k = 0.5 and 1,
+  including byte wrap), checks the cursor, and refuses a draw without its 47cdc0.
+- **Evidence:** `--battle 0x18` runs to frame 63923. The next boundary is a native handler
+  at `47d290` running with the stack in the scratchpad (sp 70003e60).
+
 ### Battle point scale 47e8c0: points times vf30.x before packing (2026-11-22)
 
 mod028 `47e8c0` builds battle strips through the vertex packer `4d7060`.

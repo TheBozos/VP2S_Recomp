@@ -2756,6 +2756,25 @@ int main(int argc,char **argv){try{
         for(unsigned v=0;v<6;++v)check(get(packet+streamAt+4*v)==want[v]);
         check(get(e+0x34)==table+8);   // the final cursor - 4, as 47a9a0 writes it
         std::puts("battle colour element: the task's own pair blended into the vertex stream (three pairs, wrap, cursor) and both refusals passed");
+        // Battle flash element (class 172080, mod028 47ccf0) after its task's 47cdc0 (47cdd8: 255.0):
+        // 6 vertices = two groups. Indices 0x000002 and 0x010000 into the factor table: 64 (k = .5)
+        // and 128 (k = 1). Group colours (100, 50, 10, 80) and (200, 0, 255, 255):
+        // (150, 75, 15, 80 + 175 * .5 = 167.5 -> 167) and (400 -> 0x90, 0, 510 -> 0xfe, 255).
+        put(vt+0x10,0x47ccf0);put(e,0x172080);put(e+0x3c,5);put(e+0x34,table);put(e+0x38,0x209000);
+        const uint8_t idx[11]={9,9,9,9,9,2,0,0,0,0,1};std::memcpy(r.memory.hostPointer(table,11),idx,11);
+        r.memory.hostPointer(0x209000+2,1)[0]=64;r.memory.hostPointer(0x209000+0x10000,1)[0]=128;
+        put(0x172080+0x10,0x47ccf0);
+        const uint32_t g0=100u|50u<<8|10u<<16|80u<<24,g1=200u|0u<<8|255u<<16|255u<<24;
+        for(unsigned v=0;v<8;++v)put(source+streamAt+4*v,v<4?(v?0x11111111u:g0):(v==4?g1:0x22222222u));
+        {R5900Context y2{};y2.r[23].ud[0]=object;y2.r[21].ud[0]=1;y2.r[29].ud[0]=stack;bool refused=false;   // its 47cdc0 never ran
+         try{vp2s::nativeMathInstruction(r.memory.flat(),&y2,&r,0x219210);}catch(const std::runtime_error &){refused=true;}check(refused);}
+        {R5900Context l{};l.r[4].uw[0]=e;l.r[8].uw[0]=0x437f0000;check(vp2s::nativeMathInstruction(r.memory.flat(),&l,&r,0x47cdd8) && vp2s::nativeMathInstruction(r.memory.flat(),&l,&r,0x47cddc));}
+        put(e+0x3c,5);
+        {R5900Context y2{};y2.r[23].ud[0]=object;y2.r[21].ud[0]=1;y2.r[29].ud[0]=stack;check(vp2s::nativeMathInstruction(r.memory.flat(),&y2,&r,0x219210));}
+        const uint32_t F0=150u|75u<<8|15u<<16|167u<<24,F1=0x90u|0u<<8|0xfeu<<16|255u<<24;
+        for(unsigned v=0;v<8;++v)check(get(packet+streamAt+4*v)==(v<4?F0:F1));
+        check(get(e+0x3c)==11);
+        std::puts("battle flash element: the task's 255 and the factor table brighten each 4-vertex group; refusal without 47cdc0 passed");
     }
     std::printf("%u matrix/quaternion/Euler ABI cases, %u component products, %u whole CPU/RAM sphere getters,8192 independent scale cases and%u whole CPU/RAM axis-angle cases passed; no VU/device state\n",cases,products,sphereCases,axisCases);return 0;
 }catch(const std::exception &e){std::fprintf(stderr,"%s\n",e.what());return 1;}}

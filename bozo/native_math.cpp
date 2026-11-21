@@ -1269,7 +1269,7 @@ uint32_t battleGroundHeight(Runtime *rt,uint32_t x,uint32_t z){
 //   grow over every written vertex.
 // The battle task colour pairs (class 171f20; see nativeBattleTaskColours): what each task's
 // 47a9b0 loaded into vf21/vf22, kept per task (user decision 2026-11-21).
-uint32_t vuMul(uint32_t a,uint32_t b);uint32_t vuAdd(uint32_t a,uint32_t b);
+uint32_t vuMul(uint32_t a,uint32_t b);uint32_t vuAdd(uint32_t a,uint32_t b);uint32_t vuSub(uint32_t a,uint32_t b);
 struct BattleTaskColours{std::array<uint32_t,4> first{},second{};};
 std::map<std::pair<const Runtime *,uint32_t>,BattleTaskColours> &battleTaskColours(){static std::map<std::pair<const Runtime *,uint32_t>,BattleTaskColours> m;return m;}
 // Battle colour element (class 171f20, +10 = mod028 47a910(element, mesh record)): colours
@@ -1290,6 +1290,32 @@ void taskColourMesh(Runtime *rt,uint32_t element,unsigned vertices,uint8_t *stre
         uint8_t rgba[4];for(unsigned c=0;c<4;++c)rgba[c]=uint8_t(vuFtoi(vuAdd(vuMul(pair->second.first[c],t),vuMul(pair->second.second[c],u)),0));
         std::memcpy(stream+4*i,rgba,4);std::memcpy(stream+4*i+4,rgba,4);}
     uvStore(rt,element+0x34,cursor-4);
+}
+// Battle flash element (class 172080): its slot +1c, mod028 47cdc0, resets the cursor +3c and
+// ends with QMTC2 t0 = 255.0f -> vf23, MULx.w vf23.w = vf0.w * vf23.x (47cdd8, 47cddc), then
+// returns; only its element draw +10, 47ccf0, reads vf23.w, in a later call. Same rule as the
+// colour pairs (user decision 2026-11-21): each task keeps the value its own 47cdc0 loaded.
+std::map<std::pair<const Runtime *,uint32_t>,uint32_t> &battleTaskFlashes(){static std::map<std::pair<const Runtime *,uint32_t>,uint32_t> m;return m;}
+// 47ccf0(element, mesh record): per group of 4 vertices of the 4-byte stream, a 24-bit index
+// from 3 bytes at +34 + cursor (+3c, then + 3), the factor k = byte (+38)[index] / 128 (EE FPU),
+// and the group's first colour c (bytes widened, ITOF0): vf21 = (c.rgb, vf23.w - c.a);
+// vf20 = c * 1 + vf21 k (MULAw / MADDx, xyzw); FTOI0; PPACH/PPACB keep each lane's low byte,
+// stored for all four vertices. The cursor is written back.
+void taskFlashMesh(Runtime *rt,uint32_t element,unsigned vertices,uint8_t *stream,size_t streamBytes){
+    const auto flash=battleTaskFlashes().find({rt,element});
+    if(flash==battleTaskFlashes().end())throw std::runtime_error(std::format("native battle flash element {:x} drawn without the value its 47cdc0 loads",element));
+    const unsigned groups=(vertices+3)/4;if(16ull*groups>streamBytes)throw std::runtime_error("native battle flash element outside its vertex stream");
+    constexpr uint32_t one=0x3f800000u,eighth=0x3c000000u;
+    auto cursor=uvWord(rt,element+0x3c);const auto bytes=uvWord(rt,element+0x34),table=uvWord(rt,element+0x38);
+    for(unsigned g=0;g<groups;++g,cursor+=3){
+        const auto at=bytes+cursor;const uint32_t index=uvByte(rt,at)+(uint32_t(uvByte(rt,at+1))<<8)+(uint32_t(uvByte(rt,at+2))<<16);
+        uint32_t f=0;const auto k=bozo::ps2f::mul(eighth,bozo::ps2f::fromInt(int32_t(uvByte(rt,table+index))),f);
+        uint8_t *group=stream+16*g;std::array<uint32_t,4> c{},v21{};
+        for(unsigned i=0;i<4;++i)c[i]=std::bit_cast<uint32_t>(float(group[i]));
+        v21={c[0],c[1],c[2],vuSub(flash->second,c[3])};
+        uint8_t rgba[4];for(unsigned i=0;i<4;++i)rgba[i]=uint8_t(vuFtoi(vuAdd(vuMul(c[i],one),vuMul(v21[i],k)),0));
+        for(unsigned v=0;v<4;++v)std::memcpy(group+4*v,rgba,4);}
+    uvStore(rt,element+0x3c,cursor);
 }
 void ribbonMesh(Runtime *rt,uint32_t element,unsigned vertices,uint8_t *positions,uint8_t *stream){
     namespace F=bozo::ps2f;
@@ -1353,7 +1379,7 @@ bool nativeUvAnimation(R5900Context *c,Runtime *rt,uint32_t pc){
         // skin positions/normals/packed vectors; their table for each included
         // mesh is the +18 cursor, which 237320 resets to +44 and each included
         // mesh advances by its leading halfword.
-        struct Element{uint32_t at,cursor;float scroll[2];bool all;uint32_t bits;bool skeleton;bool morph=false;bool ribbon=false;bool colour=false;};std::vector<Element> elements;
+        struct Element{uint32_t at,cursor;float scroll[2];bool all;uint32_t bits;bool skeleton;bool morph=false;bool ribbon=false;bool colour=false;bool flash=false;};std::vector<Element> elements;
         for(unsigned i=0;i<count;++i){const auto e=uvWord(rt,list+4*i);const auto vt=uvWord(rt,e);
             if(vt==0x154690){
                 if(uvWord(rt,vt+0x10)!=0x218220 || uvWord(rt,vt+0x18)!=0x2372f0)throw std::runtime_error("unqualified skeleton element methods");
@@ -1371,6 +1397,12 @@ bool nativeUvAnimation(R5900Context *c,Runtime *rt,uint32_t pc){
                     throw std::runtime_error("unqualified battle ribbon element methods");
                 if((flags&5)!=5)throw std::runtime_error("battle ribbon element without streamed positions and its vertex stream");
                 elements.push_back({e,0,{0,0},(uvWord(rt,e+0x18)>>8&0xff)!=0,uvWord(rt,e+0x24),true});elements.back().ribbon=true;continue;}
+            if(vt==0x172080){
+                // Battle flash element: +10 is mod028 47ccf0 (see taskFlashMesh).
+                if(uvWord(rt,vt+0x10)!=0x47ccf0 || !overlayCode(rt,0x47ccf0,0x47cdc0,0x4ccd27596acefa72ull))
+                    throw std::runtime_error("unqualified battle flash element methods");
+                if(!(flags&4))throw std::runtime_error("battle flash element without its vertex stream");
+                elements.push_back({e,0,{0,0},(uvWord(rt,e+0x18)>>8&0xff)!=0,uvWord(rt,e+0x24),true});elements.back().flash=true;continue;}
             if(vt==0x171f20){
                 // Battle colour element: +10 is mod028 47a910 (see taskColourMesh).
                 if(uvWord(rt,vt+0x10)!=0x47a910 || !overlayCode(rt,0x47a910,0x47a9b0,0x3a7920c6b9ab95d9ull))
@@ -1389,7 +1421,7 @@ bool nativeUvAnimation(R5900Context *c,Runtime *rt,uint32_t pc){
             const auto bytes=uvWord(rt,e+0xc),flagWord=uvWord(rt,e+0x18);
             if(!((bytes>>8)&0xff) && !(flagWord&0xff))continue;
             chain.push_back(e);if(chain.size()>64)throw std::runtime_error("animated element chain outside bounds");}
-         for(size_t i=0;i<elements.size();++i){if(elements[i].morph || elements[i].ribbon || elements[i].colour)continue;
+         for(size_t i=0;i<elements.size();++i){if(elements[i].morph || elements[i].ribbon || elements[i].colour || elements[i].flash)continue;
             if(i>=chain.size() || chain[i]!=elements[i].at)throw std::runtime_error("animated element data index differs from the object's chain");}}
         music::NearestRounding rounding;
         for(int32_t j=0;j<meshes;++j){
@@ -1418,6 +1450,8 @@ bool nativeUvAnimation(R5900Context *c,Runtime *rt,uint32_t pc){
                 if(n && (flags&2))std::memcpy(normals.data(),uvBytes(rt,source+normalAt,16*n),16*n);
                 if(n && hasPacked)std::memcpy(packedData.data(),uvBytes(rt,source+packedAt,packedBytes),packedBytes);
                 for(auto &el:elements){
+                    if(el.flash){if(!n || (!el.all && !(uvWord(rt,el.bits+4*(uint32_t(j)>>5))>>(j&31)&1)))continue;
+                        taskFlashMesh(rt,el.at,unsigned(n),stream.data(),stream.size());continue;}
                     if(el.colour){if(!n || (!el.all && !(uvWord(rt,el.bits+4*(uint32_t(j)>>5))>>(j&31)&1)))continue;
                         taskColourMesh(rt,el.at,unsigned(n),stream.data(),stream.size());continue;}
                     if(el.ribbon){if(!n || (!el.all && !(uvWord(rt,el.bits+4*(uint32_t(j)>>5))>>(j&31)&1)))continue;
@@ -1842,6 +1876,13 @@ bool nativeBattleGroundPlane(R5900Context *c,Runtime *rt,uint32_t pc){
 // and the native element draw (taskColourMesh, from 219210) blends that. The pairs live for
 // the run (not in save states: a draw without its pair is refused).
 bool nativeBattleTaskColours(R5900Context *c,Runtime *rt,uint32_t pc){
+    if(pc==0x47cdd8 || pc==0x47cddc){   // the flash task's 47cdc0 (see taskFlashMesh)
+        if(!rt)return false;
+        uint32_t word=0;if(const auto *p=rt->memory.hostPointer(pc,4))std::memcpy(&word,p,4);
+        if(word!=(pc==0x47cdd8?0x48a8b800u:0x4a3705d8u))return false;   // another overlay at these addresses
+        if(!c)throw std::runtime_error("native battle flash value has no CPU record");
+        if(pc==0x47cdd8)battleTaskFlashes()[{rt,c->r[4].uw[0]}]=vuMul(0x3f800000u,c->r[8].uw[0]);   // w = vf0.w * t0
+        return true;}
     if(pc!=0x47aa5c && pc!=0x47aa60)return false;
     if(!rt)return false;
     uint32_t word=0;if(const auto *p=rt->memory.hostPointer(pc,4))std::memcpy(&word,p,4);

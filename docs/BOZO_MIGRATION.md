@@ -12,6 +12,29 @@ The earlier VP2S face/shading and general brightness comparisons remain open.
 
 ## Build and evidence
 
+### Battle triangles: the 42fec0 writer through 42df80 (2026-11-21)
+
+`42df80` was reached with 3 corners (object `e69600`, a small Gouraud triangle fading from
+alpha 0x50 to 0).
+- **Original:** the triangle writer mod028 `42fec0` reserves space, writes its own header and
+  calls `42df80` with 3 corners. The header is flat 50d420 (PRIM 243: RGBAQ, XYZ2 x3, NOP;
+  64 bytes) or Gouraud 50d430 (PRIM 24b: (RGBAQ, XYZ2) x3, NOP; 80 bytes). The zero word
+  `42df80` writes after the corners (`42e1c8` / `42e23c`) is that NOP.
+- **A wrong turn, corrected:** before reading the packet, I first assumed the 4-corner header
+  and asked the user about bytes the GS would read past the primitive. The triangle header
+  shows the packet is complete. The answer chosen (draw the three corners as one triangle)
+  is what the GS draws.
+- **Native (`bozo/native_battle_sprites.cpp`):** `polygon()` accepts 3 corners. `strip()`
+  checks the triangle headers and counts 64 / 80 bytes. The triangle is drawn as a strip
+  whose fourth corner repeats the third (an empty second triangle). Textured triangles are
+  refused (42fec0 has no ST header). The dispatcher checks `42fec0` against the USA bytes
+  (fnv ee6b3c0b773a0526) and the two tags.
+- **Test:** `vp2s-bozo-battle-sprites-check` records the battle's Gouraud triangle and a flat
+  one. It refuses flat bits under the Gouraud header, a textured or 2-corner polygon, and the
+  4-corner header.
+- **Evidence:** `--battle 0x18` passes it. The next boundary is a texture without offline
+  provenance, `31304d42:1`, at the texture-set flush `3cd1b0` (writer `877680`).
+
 ### Battle colour element 171f20: the task's own colour pair (2026-11-21)
 
 Class `171f20` is a battle task with an animated vertex element.

@@ -163,6 +163,33 @@ int main(){try{
       const auto *bb=band.build(w2);check(bb && bb->sprites.size()==3 && bb->polygons==3 && bb->polygonBytes==288);
       for(unsigned k=0;k<3;++k){const auto &s=bb->sprites[k];check(s.gouraud && s.depth==0xfff4dd && bb->spriteTextures[k]==vp2s::NativeBattleSpriteBuild::kUntextured);
         for(unsigned i=0;i<4;++i)check(s.cornerColours[i]==0x2193ed3au+16*k+i && s.fixedCorners[i]==std::array<int32_t,2>{xy[k][i][0],xy[k][i][1]});} }
-    std::puts("native battle sprites: build, texture, both ST paths, flat, Gouraud and textured polygons, bands, rectangles, flush checks");
+    // A Gouraud triangle from the triangle writer 42fec0 through 42df80 (object e69600, frame
+    // 63484): 3 corners at sp+e0, colours 50608080 / 00608080 x2, header 50d430 + PRIM 24b. Drawn
+    // as a strip whose fourth corner repeats the third, 80 bytes; the flat form (50d420, PRIM
+    // 243) is 64; textured triangles and the 4-corner header refuse.
+    { constexpr uint32_t object3=0x192000,writer3=0x1a2000,base3=0x2a0000,B3=base3|0x30000000u,desc3=0x1b2000,sp3=0x1ffd000;const uint32_t w3=writer3|0x30000000u;
+      put(rt,object3,vt);put(rt,object3+0x94,w3);put(rt,object3+0xbb,uint8_t(1));put(rt,object3+0xbc,uint8_t(0));
+      put(rt,writer3,B3);put(rt,writer3+8,B3+0x40);put(rt,writer3+12,B3+0x40);put(rt,writer3+16,0x210u);
+      vp2s::NativeBattleSprites tri;check(tri.begin(&rt,w3));
+      put(rt,base3+0x40,0x8400000000000001ull);put(rt,base3+0x48,0xf5151510ull);put(rt,base3+0x50,0x24bull);
+      put(rt,desc3+0x40,0x50608080u);put(rt,desc3+0x44,0x00608080u);put(rt,desc3+0x48,0x00608080u);put(rt,desc3+0x4c,0x42d85504u);
+      put(rt,desc3+0x74,0xfff3e9u);put(rt,desc3+0x78,uint8_t(4));put(rt,desc3+0x70,0u);
+      const int32_t tc[3][2]={{2312,1925},{2354,1932},{2353,1914}};
+      for(unsigned i=0;i<3;++i){put(rt,sp3+0xe0+8*i,tc[i][0]);put(rt,sp3+0xe4+8*i,tc[i][1]);}put(rt,sp3+0xf8,0);put(rt,sp3+0xfc,0);
+      R5900Context t{};t.r[22].uw[0]=object3;t.r[21].uw[0]=desc3;t.r[20].uw[0]=3;t.r[16].uw[0]=4;t.r[19].uw[0]=B3+0x40+0x18;t.r[29].uw[0]=sp3;
+      { auto bad=t;put(rt,desc3+0x78,uint8_t(0));bad.r[16].uw[0]=0;rejects([&]{tri.polygon(&rt,&bad);});      // flat bits with the Gouraud header
+        put(rt,desc3+0x78,uint8_t(0xc));bad.r[16].uw[0]=0xc;rejects([&]{tri.polygon(&rt,&bad);});put(rt,desc3+0x78,uint8_t(4));   // a textured one
+        bad=t;bad.r[20].uw[0]=2;rejects([&]{tri.polygon(&rt,&bad);});                                           // 2 corners
+        put(rt,base3+0x48,0xf515151510ull);put(rt,base3+0x40,0xa400000000000001ull);put(rt,base3+0x50,0x24cull);rejects([&]{tri.polygon(&rt,&t);});   // the 4-corner header
+        put(rt,base3+0x40,0x8400000000000001ull);put(rt,base3+0x48,0xf5151510ull);put(rt,base3+0x50,0x24bull); }
+      check(tri.build(w3)->sprites.empty());
+      tri.polygon(&rt,&t);
+      const auto *tb=tri.build(w3);check(tb && tb->sprites.size()==1 && tb->polygons==1 && tb->polygonBytes==80);
+      const auto &ts=tb->sprites[0];check(ts.gouraud && ts.depth==0xfff3e9);
+      for(unsigned i=0;i<4;++i){const unsigned k=i==3?2:i;check(ts.fixedCorners[i]==std::array<int32_t,2>{tc[k][0]*16,tc[k][1]*16} && ts.cornerColours[i]==(k?0x00608080u:0x50608080u));}
+      put(rt,writer3+8,B3+0x40+80);put(rt,base3+0x40+80,0x6400000000000001ull);put(rt,base3+0x48+80,0xf55510ull);put(rt,base3+0x50+80,0x243ull);
+      put(rt,desc3+0x78,uint8_t(0));{auto f=t;f.r[16].uw[0]=0;f.r[19].uw[0]=B3+0x40+80+0x18;tri.polygon(&rt,&f);}
+      check(tb->sprites.size()==2 && !tb->sprites[1].gouraud && tb->sprites[1].colour==0x50608080u && tb->polygonBytes==80+64 && tb->sprites[1].fixedCorners[3]==tb->sprites[1].fixedCorners[2]); }
+    std::puts("native battle sprites: build, texture, both ST paths, flat, Gouraud and textured polygons, flat and Gouraud triangles, bands, rectangles, flush checks");
     return 0;
 }catch(const std::exception &e){std::fprintf(stderr,"%s\n",e.what());return 1;}}

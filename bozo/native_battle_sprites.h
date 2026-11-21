@@ -43,7 +43,7 @@ public:
     void band(Runtime *,const R5900Context *);
     // Rectangle writer 42ed50 where its unrotated paths join (42efe0): the same strip forms.
     void rectangle(Runtime *,const R5900Context *);
-    struct Strip {uint32_t object=0,desc=0,mode=0,data=0,z=0,colours=0,st=0,image=0;std::array<std::array<int32_t,2>,4> corners{};};
+    struct Strip {uint32_t object=0,desc=0,mode=0,data=0,z=0,colours=0,st=0,image=0;std::array<std::array<int32_t,2>,4> corners{};bool triangle=false;};
     void strip(Runtime *,const Strip &);
     // `image(pixels, palette)`: the image a TEX0 names by its blocks (NativeTextures::blockImage).
     using ImageLookup=std::function<std::shared_ptr<const NativeTextureAsset>(uint32_t,uint32_t)>;

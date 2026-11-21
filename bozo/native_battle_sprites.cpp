@@ -88,20 +88,27 @@ void NativeBattleSprites::strip(Runtime *rt,const Strip &p){
     //   Gouraud  tag 50d470: PRIM 24c, (RGBAQ, XYZ2) x4, NOP              96
     //   textured tag 50d460: PRIM 254, RGBAQ, (ST, XYZ2) x4                96
     //   both     tag 50d480: PRIM 25c, (RGBAQ, ST, XYZ2) x4, NOP          128
+    // Triangles come from 42fec0 (3 corners, its own header, untextured only):
+    //   flat     tag 50d420: PRIM 243, RGBAQ, XYZ2 x3, NOP                 64
+    //   Gouraud  tag 50d430: PRIM 24b, (RGBAQ, XYZ2) x3, NOP               80
+    // drawn as a strip whose fourth corner repeats the third (an empty second triangle).
     const auto writer=buildWriter(rt,p.object);
     auto &build=bind(rt,p.object,writer);
     const bool gouraud=p.mode&4,textured=p.mode&8;
+    if(p.triangle && textured)throw std::runtime_error(std::format("unported native battle textured triangle (object {:x})",p.object));
     static constexpr uint64_t tags[4][3]={{0x6400000000000001ull,0x555510ull,0x244},{0xa400000000000001ull,0xf515151510ull,0x24c},
                                           {0xa400000000000001ull,0x5252525210ull,0x254},{0xe400000000000001ull,0xf5215215215210ull,0x25c}};
-    static constexpr uint32_t sizes[4]={64,96,96,128};
-    const auto &tag=tags[gouraud+2*textured];
+    static constexpr uint64_t triangleTags[2][3]={{0x6400000000000001ull,0xf55510ull,0x243},{0x8400000000000001ull,0xf5151510ull,0x24b}};
+    static constexpr uint32_t sizes[4]={64,96,96,128},triangleSizes[2]={64,80};
+    const auto &tag=p.triangle?triangleTags[gouraud]:tags[gouraud+2*textured];
     if(p.data-0x18!=value<uint32_t>(rt,writer+8) || value<uint64_t>(rt,p.data-0x18)!=tag[0] || value<uint64_t>(rt,p.data-0x10)!=tag[1] || value<uint64_t>(rt,p.data-8)!=tag[2])
         throw std::runtime_error("native battle polygon header differs from its strip mode");
     if(textured && build.textures.empty())throw std::runtime_error(std::format("native battle polygon textured before a texture selection (writer {:x})",writer));
     if(build.sprites.size()>=4096)throw std::runtime_error("native battle sprite count outside admitted range");
     if(p.z>0xffffff)throw std::runtime_error("native battle polygon depth outside 24 bits");
     NativeUiSprite s{.sprite=p.desc,.colour=value<uint32_t>(rt,p.colours),.depth=p.z,.gouraud=gouraud};
-    if(gouraud)for(unsigned i=0;i<4;++i)s.cornerColours[i]=value<uint32_t>(rt,p.colours+4*i);
+    // A triangle repeats its third corner as the fourth: the strip's second triangle is empty.
+    if(gouraud)for(unsigned i=0;i<4;++i)s.cornerColours[i]=value<uint32_t>(rt,p.colours+4*(p.triangle && i==3?2:i));
     if(textured){
         // ST: from the image record (corners (u0,v0), (u1,v0), (u0,v1), (u1,v1) of its four
         // halfwords, 0x397fffd5 * texel) unless bit 2 is set or there is none: then the
@@ -118,7 +125,7 @@ void NativeBattleSprites::strip(Runtime *rt,const Strip &p){
     s.fixedCorners=p.corners;   // strip order: triangles (0,1,2) and (1,2,3)
     build.sprites.push_back(std::move(s));
     build.spriteTextures.push_back(textured?uint32_t(build.textures.size()-1):NativeBattleSpriteBuild::kUntextured);
-    build.polygonBytes+=sizes[gouraud+2*textured];++build.polygons;
+    build.polygonBytes+=p.triangle?triangleSizes[gouraud]:sizes[gouraud+2*textured];++build.polygons;
 }
 void NativeBattleSprites::polygon(Runtime *rt,const R5900Context *c){
     // 42e144, after 42df80's unrotated corner loop: s6 object, s5 descriptor, s4 corner count,
@@ -128,11 +135,15 @@ void NativeBattleSprites::polygon(Runtime *rt,const R5900Context *c){
     Strip p{.object=c->r[22].uw[0],.desc=desc,.mode=mode,.data=c->r[19].uw[0],.z=value<uint32_t>(rt,desc+0x74),
             .colours=desc+0x40,.st=desc+0x50,.image=value<uint32_t>(rt,desc+0x70)};
     if(value<uint8_t>(rt,desc+0x78)!=mode)throw std::runtime_error(std::format("native battle polygon mode differs from its descriptor (object {:x})",p.object));
-    if(count!=4)throw std::runtime_error(std::format("unported native battle polygon with {} corners (object {:x})",count,p.object));
+    // 3 corners: the triangle writer 42fec0 (its header 50d420 / 50d430, see strip); the zero
+    // word after the corners (42e1c8 / 42e23c) is its header's NOP.
+    if(count!=4 && count!=3)throw std::runtime_error(std::format("unported native battle polygon with {} corners (object {:x})",count,p.object));
+    p.triangle=count==3;
     const auto sp=c->r[29].uw[0];
-    for(unsigned i=0;i<4;++i){const auto x=value<int32_t>(rt,sp+0xe0+8*i),y=value<int32_t>(rt,sp+0xe4+8*i);
+    for(unsigned i=0;i<count;++i){const auto x=value<int32_t>(rt,sp+0xe0+8*i),y=value<int32_t>(rt,sp+0xe4+8*i);
         if(x<0 || x>0xfff || y<0 || y>0xfff)throw std::runtime_error("native battle polygon corner outside the GS range");
         p.corners[i]={x*16,y*16};}
+    if(p.triangle)p.corners[3]=p.corners[2];
     strip(rt,p);
 }
 void NativeBattleSprites::band(Runtime *rt,const R5900Context *c){
@@ -284,6 +295,11 @@ std::optional<bool> nativeBattleSpriteInstruction(R5900Context *c,Runtime *rt,ui
             throw std::runtime_error("native battle sprite writer differs from the USA one");
         sprites.sprite(rt,c);
     }else if(pc==0x42e144 || pc==0x42efe0){
+        // Triangles: 42fec0 writes their header (50d420 / 50d430) and calls 42df80 with 3 corners.
+        if(pc==0x42e144 && c->r[20].uw[0]==3 && (!code(rt,0x42fec0,0x42ffe8,0xee6b3c0b773a0526ull) ||
+           value<uint64_t>(rt,0x50d420)!=0x6400000000000001ull || value<uint64_t>(rt,0x50d428)!=0xf55510ull ||
+           value<uint64_t>(rt,0x50d430)!=0x8400000000000001ull || value<uint64_t>(rt,0x50d438)!=0xf5151510ull))
+            throw std::runtime_error("native battle triangle writer differs from the USA one");
         // Shared polygon writer 42df80 (callers pass the corner count) and rectangle writer
         // 42ed50, both after the header 42ec70 (tags 50d440..50d480).
         if(!code(rt,0x42df80,0x42ec20,0xf33b4cdd2a689d4eull) || !code(rt,0x42ec20,0x42ed50,0x6716509c287ca7c7ull) ||

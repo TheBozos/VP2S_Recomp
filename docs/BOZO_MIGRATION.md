@@ -12,6 +12,25 @@ The earlier VP2S face/shading and general brightness comparisons remain open.
 
 ## Build and evidence
 
+### Battle side axes 3e9470: two VU0 cross blocks natively (2026-11-21)
+
+mod028 `3e9470` (a battle UI class's placement routine) runs two VU0 blocks.
+- **Block 1 (`3e9764..3e97bc`):** loads a = sp+170, b = sp+180, P0 = sp+1a0 and
+  P = sp+160. It normalises d = P - P0 (ADDAy/MADDz sum, RSQRT, MULq) and stores
+  a x n and b x n (OPMULA/OPMSUB) to sp+100/110.
+- **Block 2 (`3e989c..3e98e0`):** runs in the following loop, around the `214100` calls.
+  It reloads only P (sp+e0) and reuses a, b, P0 and vf25 from block 1. Its results go to
+  sp+c0/d0.
+- **Native (`bozo/native_math.cpp`, `nativeBattleSideAxes`):** word-checked sites. The
+  loads are kept per call frame and the formula is computed at the vf10 store (ps2f,
+  nearest). Block 2 without block 1 in the same frame is refused.
+- **Stores write xyz only.** Their w lanes would be VU registers this function never set,
+  and it reads back only the y lanes (sp+104/114, sp+c4/d4), so w keeps its memory value.
+  The variant at `481434` (vf1/vf2 from elsewhere) is not ported.
+- **Test:** `vp2s-bozo-math-records` covers both blocks (cross products of unit axes, w
+  lanes untouched) and refuses block 2 alone.
+- **Evidence:** `--battle 0x18` passes it; the next boundary is `387330` (entry `386fbc`).
+
 ### Battle UI quads: polygons, rectangles and every build drawn natively (2026-11-21)
 
 The battle UI's second primitive family draws 4-corner triangle strips after the header

@@ -1653,6 +1653,59 @@ bool nativeBattleNormalise(R5900Context *c,Runtime *rt,uint32_t pc){
     uint32_t f=0;const auto q=bozo::ps2f::rsqrt(one,sum,f);uint32_t out[4];for(unsigned i=0;i<4;++i)out[i]=vuMul(v[i],q);
     std::memcpy(record(rt,c->r[site->store].uw[0],16),out,16);states.erase(it);return true;
 }
+// Battle side axes, mod028 3e9470 (two blocks; ps2f, nearest). Block 1 (3e9764..3e97bc):
+// LQC2 vf1 = a (sp+170), vf2 = b (sp+180), vf28 = P0 (sp+1a0), vf27 = P (sp+160);
+// vf25.xyz = 1 (ADDw vf0); d = P - P0 (xyz); ACC.x = d.x^2 + d.y^2; s = ACC + 1*d.z^2;
+// n = d * RSQRT(1, s); OPMULA/OPMSUB: vf10 = a x n, vf11 = b x n; SQC2 vf10, vf11 to v0
+// (sp+100, sp+110). Block 2 (3e989c..3e98e0, in the loop after it): LQC2 vf27 = P (sp+e0)
+// only: a, b, P0 and vf25 are the registers block 1 left (the loop's 214100 call and
+// scalar code do not touch COP2), so they are kept per call frame; SQC2 to v1 (sp+c0/d0).
+// The stores write xyz only: their w lanes are VU registers this function never set, and
+// it reads back only the y lanes (sp+104/114, sp+c4/d4), so w stays as in memory.
+struct BattleSideAxes{VuWords a{},b{},base{},point{};unsigned loaded=0;VuWords first{},second{};bool done=false;};
+std::map<std::pair<const Runtime *,uint32_t>,BattleSideAxes> &battleSideAxes(){static std::map<std::pair<const Runtime *,uint32_t>,BattleSideAxes> m;return m;}
+bool nativeBattleSideAxes(R5900Context *c,Runtime *rt,uint32_t pc){
+    struct Site{uint32_t pc,word;};
+    constexpr Site sites[]={{0x3e9764,0xd8410000},{0x3e9768,0xd8420010},{0x3e977c,0xd87c0000},{0x3e9780,0xd85b0000},
+        {0x3e9784,0x4bc00643},{0x3e9788,0x4bdcdeac},{0x3e978c,0x4bdad6ea},{0x3e9790,0x4b1bd83d},{0x3e9794,0x4b1bceca},{0x3e9798,0x4a7b03be},
+        {0x3e97a0,0x4a0003bf},{0x3e97a4,0x4bc0d69c},{0x3e97a8,0x4bda0afe},{0x3e97ac,0x4bc1d2ae},{0x3e97b0,0x4bda12fe},{0x3e97b4,0x4bc2d2ee},
+        {0x3e97b8,0xf84a0000},{0x3e97bc,0xf84b0010},
+        {0x3e989c,0xd85b0000},{0x3e98a0,0x4bdcdeac},{0x3e98a4,0x4bdad6ea},{0x3e98a8,0x4b1bd83d},{0x3e98ac,0x4b1bceca},{0x3e98b0,0x4a7b03be},
+        {0x3e98c4,0x4a0003bf},{0x3e98c8,0x4bc0d69c},{0x3e98cc,0x4bda0afe},{0x3e98d0,0x4bc1d2ae},{0x3e98d4,0x4bda12fe},{0x3e98d8,0x4bc2d2ee},
+        {0x3e98dc,0xf86a0000},{0x3e98e0,0xf86b0010}};
+    if((pc&3) || !rt || pc<0x3e9764 || pc>0x3e98e0)return false;
+    const auto site=std::find_if(std::begin(sites),std::end(sites),[&](const Site &x){return x.pc==pc;});
+    if(site==std::end(sites))return false;
+    uint32_t word=0;if(const auto *p=rt->memory.hostPointer(pc,4))std::memcpy(&word,p,4);
+    if(word!=site->word)return false;   // another overlay at these addresses
+    if(!c)throw std::runtime_error("native battle side axes have no CPU record");
+    auto &states=battleSideAxes();const auto key=std::make_pair(static_cast<const Runtime *>(rt),c->r[29].uw[0]);
+    const auto reg=[&](uint32_t w){return c->r[(w>>21)&31].uw[0]+(w&0xffff);};
+    if(pc==0x3e9764){auto &st=states[key];st=BattleSideAxes{};st.a=vuWords(rt,reg(word));st.loaded=1;return true;}
+    auto it=states.find(key);
+    if(it==states.end())throw std::runtime_error(std::format("native battle side axes at {:x} without block 1's loads",pc));
+    auto &st=it->second;
+    switch(pc){
+    case 0x3e9768:st.b=vuWords(rt,reg(word));st.loaded|=2;return true;
+    case 0x3e977c:st.base=vuWords(rt,reg(word));st.loaded|=4;return true;
+    case 0x3e9780:case 0x3e989c:st.point=vuWords(rt,reg(word));st.loaded|=8;st.done=false;return true;
+    case 0x3e97b8:case 0x3e98dc:{
+        if(st.loaded!=15)throw std::runtime_error("native battle side axes stored without their loads");
+        constexpr uint32_t one=0x3f800000u;uint32_t d[3],sq[3];
+        for(unsigned i=0;i<3;++i){d[i]=vuSub(st.point[i],st.base[i]);sq[i]=vuMul(d[i],d[i]);}
+        uint32_t f=0;const uint32_t savedCsr=_mm_getcsr();
+        const auto q=bozo::ps2f::rsqrt(one,vuAdd(vuAdd(sq[0],sq[1]),vuMul(one,sq[2])),f);_mm_setcsr(savedCsr);
+        uint32_t n[3];for(unsigned i=0;i<3;++i)n[i]=vuMul(d[i],q);
+        const auto cross=[&](const VuWords &v){VuWords r{};
+            r[0]=vuSub(vuMul(v[1],n[2]),vuMul(n[1],v[2]));r[1]=vuSub(vuMul(v[2],n[0]),vuMul(n[2],v[0]));r[2]=vuSub(vuMul(v[0],n[1]),vuMul(n[0],v[1]));return r;};
+        st.first=cross(st.a);st.second=cross(st.b);st.done=true;
+        std::memcpy(record(rt,reg(word),12),st.first.data(),12);return true;}
+    case 0x3e97bc:case 0x3e98e0:
+        if(!st.done)throw std::runtime_error("native battle side axes stored vf11 before vf10");
+        std::memcpy(record(rt,reg(word),12),st.second.data(),12);return true;
+    default:return true;   // arithmetic: folded into the stores
+    }
+}
 // Battle segment ends, mod028 3e47b0 (per element s5 of 0x30 bytes; ps2f):
 //   3e48bc..3e48d8: d = a0 - s5; vf1 = d*v1.x + s5*1, vf2 = a0 - d*v1.y (xyz; w as loaded).
 //   with s3+2c set, 3e48f0..3e494c: p = s3+10, rows = s1+90; vf11..vf14 = rows * p (lanes);
@@ -3858,6 +3911,7 @@ bool nativeMathInstruction(uint8_t *,R5900Context *c,Runtime *rt,uint32_t pc){
     if(nativeBattleApproach(c,rt,pc))return true;
     if(nativeBattleSegmentEnds(c,rt,pc))return true;
     if(nativeBattleNormalise(c,rt,pc))return true;
+    if(nativeBattleSideAxes(c,rt,pc))return true;
     if(nativeBattleUnitProjection(c,rt,pc))return true;
     if(nativeBattleSegmentDirection(c,rt,pc))return true;
     if(nativeSegmentSphere(c,rt,pc))return true;

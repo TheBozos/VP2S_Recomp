@@ -862,6 +862,34 @@ int main(int argc,char **argv){try{
                 for(uint32_t pc:{0x4d11e0u,0x4d11ecu,0x4d11f0u,0x4d11f8u})check(vp2s::nativeMathInstruction(rt.memory.flat(),&c,&rt,pc));
                 float o[4];std::memcpy(o,rt.memory.hostPointer(stack+0x70,16),16);check(o[0]==2/w && o[1]==4/w && o[2]==6/w && o[3]==1/w && c.r[9].ud[0]==0);}
         }
+        {   // mod028 3e9470 battle side axes: n = normalize(P - P0); a x n, b x n (xyz only), twice.
+            constexpr uint32_t b1[]={0xd8410000,0xd8420010,0xc7a001a4,0x27a301a0,0x27a20160,0xe7a00164,0xd87c0000,0xd85b0000,0x4bc00643,0x4bdcdeac,0x4bdad6ea,
+                0x4b1bd83d,0x4b1bceca,0x4a7b03be,0x27a20100,0x4a0003bf,0x4bc0d69c,0x4bda0afe,0x4bc1d2ae,0x4bda12fe,0x4bc2d2ee,0xf84a0000,0xf84b0010};
+            constexpr uint32_t b2[]={0xd85b0000,0x4bdcdeac,0x4bdad6ea,0x4b1bd83d,0x4b1bceca,0x4a7b03be,0x7ba20160,0x461adec0,0x27a300c0,0x7fa200e0,
+                0x4a0003bf,0x4bc0d69c,0x4bda0afe,0x4bc1d2ae,0x4bda12fe,0x4bc2d2ee,0xf86a0000,0xf86b0010};
+            std::memcpy(rt.memory.hostPointer(0x3e9764,sizeof(b1)),b1,sizeof(b1));std::memcpy(rt.memory.hostPointer(0x3e989c,sizeof(b2)),b2,sizeof(b2));
+            constexpr uint32_t stack=0x1fff000;
+            const auto putv=[&](uint32_t at,std::array<float,4> v){std::memcpy(rt.memory.hostPointer(at,16),v.data(),16);};
+            const auto getv=[&](uint32_t at){std::array<float,4> v;std::memcpy(v.data(),rt.memory.hostPointer(at,16),16);return v;};
+            putv(stack+0x170,{1,0,0,0});putv(stack+0x180,{0,1,0,0});putv(stack+0x1a0,{1,2,3,0});putv(stack+0x160,{1,2,5,0});   // n = (0,0,1)
+            putv(stack+0x100,{9,9,9,7});putv(stack+0x110,{9,9,9,8});putv(stack+0xe0,{3,2,3,0});putv(stack+0xc0,{9,9,9,5});putv(stack+0xd0,{9,9,9,6});
+            R5900Context c{};c.r[29].uw[0]=stack;
+            const auto step=[&](uint32_t pc,uint32_t w){const auto op=w>>26;const bool cop2=op==0x12 || op==0x36 || op==0x3e;
+                check(vp2s::nativeMathInstruction(rt.memory.flat(),&c,&rt,pc)==cop2);};
+            {   R5900Context fresh{};fresh.r[29].uw[0]=stack+0x400;fresh.r[3].uw[0]=stack+0xc0;bool failed=false;
+                try{vp2s::nativeMathInstruction(rt.memory.flat(),&fresh,&rt,0x3e98dc);}catch(const std::runtime_error &){failed=true;}check(failed); }   // block 2 alone
+            c.r[2].uw[0]=stack+0x170;
+            for(unsigned i=0;i<std::size(b1);++i){const uint32_t pc=0x3e9764+4*i;
+                if(pc==0x3e977c){c.r[3].uw[0]=stack+0x1a0;c.r[2].uw[0]=stack+0x160;}
+                if(pc==0x3e97b8)c.r[2].uw[0]=stack+0x100;
+                step(pc,b1[i]);}
+            {const auto x=getv(stack+0x100),y=getv(stack+0x110);   // (1,0,0) x (0,0,1) = (0,-1,0); (0,1,0) x (0,0,1) = (1,0,0)
+             check(x[0]==0 && x[1]==-1 && x[2]==0 && x[3]==7 && y[0]==1 && y[1]==0 && y[2]==0 && y[3]==8);}
+            c.r[2].uw[0]=stack+0xe0;c.r[3].uw[0]=stack+0xc0;                                                   // P = (3,2,3): n = (1,0,0)
+            for(unsigned i=0;i<std::size(b2);++i)step(0x3e989c+4*i,b2[i]);
+            {const auto x=getv(stack+0xc0),y=getv(stack+0xd0);   // (1,0,0) x (1,0,0) = 0; (0,1,0) x (1,0,0) = (0,0,-1)
+             check(x[0]==0 && x[1]==0 && x[2]==0 && x[3]==5 && y[0]==0 && y[1]==0 && y[2]==-1 && y[3]==6);}
+        }
         {   // mod028 3e8a34 guarded normalise: (2,2,2,2) -> QMFC2 t0 = (16,4,4,4), store (0.5,0.5,0.5,0.5).
             constexpr uint32_t words[14]={0xd8590000,0x4bc007c3,0x27a20150,0x4bf9ceaa,0x4b1ad03d,0x4b1af8be,0x4b1afe8b,0x4828d000,0x11000006,0,0x4a7a03be,0x4a0003bf,0x4be0ce5c,0xf8590000};
             std::memcpy(rt.memory.hostPointer(0x3e8a34,sizeof(words)),words,sizeof(words));

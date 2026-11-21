@@ -12,6 +12,20 @@ The earlier VP2S face/shading and general brightness comparisons remain open.
 
 ## Build and evidence
 
+### Battle point scale 47e8c0: points times vf30.x before packing (2026-11-22)
+
+mod028 `47e8c0` builds battle strips through the vertex packer `4d7060`.
+- **Original:** QMTC2 t0 -> vf30 at `47ec2c` (0.4f, the delay slot of `47ec28`, so every
+  path runs it). Then four blocks (`47ecc4`, `47ed9c`, `47ef64`, `47f0ec`): LQC2 vf1 = (v0),
+  MULx.xyz vf1 *= vf30.x, SQC2 back to (v0) -> {p.xyz k, p.w}.
+- **Native (`bozo/native_math.cpp`, `nativeBattlePointScale`):** word-checked sites. vf30 is
+  kept per call frame. A block without the scale, or storing elsewhere than it loaded, is
+  refused.
+- **Test:** `vp2s-bozo-math-check` runs all four blocks against the ps2f product (w kept), and
+  covers both refusals.
+- **Evidence:** `--battle 0x18` passes it to frame 63486. The next boundary is a VU0 site at
+  `47cdd8` (entry `47cdc0`, called from the task loop `218b58`).
+
 ### Battle textures by load provenance: each enemy pack's BM01:1 (2026-11-22)
 
 The battle texture set (object `e69600`, writer `877680`) loads `31304d42:1` ("BM01"): 53 enemy

@@ -948,6 +948,23 @@ int main(int argc,char **argv){try{
             {   R5900Context fresh{};fresh.r[29].uw[0]=stack+0x400;bool failed=false;
                 try{vp2s::nativeMathInstruction(rt.memory.flat(),&fresh,&rt,0x4982d8);}catch(const std::runtime_error &){failed=true;}check(failed); }
         }
+        {   // mod028 47e8c0 battle point scale: vf30.x = 0.4f once (47ec2c), then each block scales a point in place (xyz).
+            constexpr uint32_t blocks[]={0x47ecc4,0x47ed9c,0x47ef64,0x47f0ec},mulOffset[]={0x14,0x14,0x14,0x14},storeOffset[]={0x24,0x24,0x34,0x34};
+            constexpr uint32_t k=0x48a8f000;std::memcpy(rt.memory.hostPointer(0x47ec2c,4),&k,4);
+            for(unsigned b=0;b<4;++b){const uint32_t l=0xd8410000,m=0x4bde0858,st=0xf8410000;std::memcpy(rt.memory.hostPointer(blocks[b],4),&l,4);
+                std::memcpy(rt.memory.hostPointer(blocks[b]+mulOffset[b],4),&m,4);std::memcpy(rt.memory.hostPointer(blocks[b]+storeOffset[b],4),&st,4);}
+            constexpr uint32_t stack=0x1fff000;
+            R5900Context c{};c.r[29].uw[0]=stack+0x700;c.r[2].uw[0]=stack+0x220;
+            {bool failed=false;try{vp2s::nativeMathInstruction(rt.memory.flat(),&c,&rt,0x47ecc4);}catch(const std::runtime_error &){failed=true;}check(failed);}   // no scale yet
+            c.r[29].uw[0]=stack;c.r[8].uw[0]=0x3ecccccd;check(vp2s::nativeMathInstruction(rt.memory.flat(),&c,&rt,0x47ec2c));
+            for(unsigned b=0;b<4;++b){const float v[4]={10,-20,2.5f,7};std::memcpy(rt.memory.hostPointer(stack+0x220,16),v,16);
+                check(vp2s::nativeMathInstruction(rt.memory.flat(),&c,&rt,blocks[b]) && vp2s::nativeMathInstruction(rt.memory.flat(),&c,&rt,blocks[b]+mulOffset[b]) &&
+                      vp2s::nativeMathInstruction(rt.memory.flat(),&c,&rt,blocks[b]+storeOffset[b]));
+                uint32_t o[4];std::memcpy(o,rt.memory.hostPointer(stack+0x220,16),16);uint32_t f=0;
+                for(unsigned i=0;i<3;++i)check(o[i]==bozo::ps2f::mul(std::bit_cast<uint32_t>(v[i]),0x3ecccccdu,f));check(o[3]==std::bit_cast<uint32_t>(7.f));}
+            vp2s::nativeMathInstruction(rt.memory.flat(),&c,&rt,0x47ecc4);c.r[2].uw[0]=stack+0x210;
+            {bool failed=false;try{vp2s::nativeMathInstruction(rt.memory.flat(),&c,&rt,0x47ece8);}catch(const std::runtime_error &){failed=true;}check(failed);}   // stored elsewhere
+        }
         {   // mod028 47ae40 battle colour pair: (128, 64, 255, 128) and (0, 1, 2, 3) widened by the CPU.
             constexpr uint32_t words[]={0x48a80800,0x48a91000,0x48aa1800,0x4be1093c,0x4be2113c,0x248309a0,0x4bc30858,0x4bc31098,0xf8610000,0xf8620010};
             std::memcpy(rt.memory.hostPointer(0x47ae78,sizeof(words)),words,sizeof(words));

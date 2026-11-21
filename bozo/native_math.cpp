@@ -1852,6 +1852,38 @@ bool nativeBattleTaskColours(R5900Context *c,Runtime *rt,uint32_t pc){
     auto &pair=battleTaskColours()[{rt,c->r[17].uw[0]}];pair.first=vuWords(rt,c->r[2].uw[0]);pair.second=vuWords(rt,c->r[2].uw[0]+16);
     return true;
 }
+// Battle point scale, mod028 47e8c0 (one copy): QMTC2 t0 -> vf30 at 47ec2c (the delay slot
+// of 47ec28, so every path runs it; t0 = 0.4f), then four blocks (47ecc4, 47ed9c, 47ef64,
+// 47f0ec): LQC2 vf1 = (v0); MULx.xyz vf1 *= vf30.x; SQC2 vf1 back to the same (v0) before the
+// vertex packer 4d7060 -> {p.xyz * k, p.w}. vf30 is kept per call frame; a block without it,
+// or storing elsewhere than it loaded, is refused.
+struct BattlePointScale{uint32_t k=0;bool scale=false;VuWords point{};uint32_t at=0;bool loaded=false;};
+std::map<std::pair<const Runtime *,uint32_t>,BattlePointScale> &battlePointScales(){static std::map<std::pair<const Runtime *,uint32_t>,BattlePointScale> m;return m;}
+bool nativeBattlePointScale(R5900Context *c,Runtime *rt,uint32_t pc){
+    struct Site{uint32_t pc,word;char role;};
+    constexpr Site sites[]={{0x47ec2c,0x48a8f000,'k'},
+        {0x47ecc4,0xd8410000,'l'},{0x47ecd8,0x4bde0858,'-'},{0x47ece8,0xf8410000,'s'},
+        {0x47ed9c,0xd8410000,'l'},{0x47edb0,0x4bde0858,'-'},{0x47edc0,0xf8410000,'s'},
+        {0x47ef64,0xd8410000,'l'},{0x47ef78,0x4bde0858,'-'},{0x47ef98,0xf8410000,'s'},
+        {0x47f0ec,0xd8410000,'l'},{0x47f100,0x4bde0858,'-'},{0x47f120,0xf8410000,'s'}};
+    if((pc&3) || !rt || pc<0x47ec2c || pc>0x47f120)return false;
+    const auto site=std::find_if(std::begin(sites),std::end(sites),[&](const Site &x){return x.pc==pc;});
+    if(site==std::end(sites))return false;
+    uint32_t word=0;if(const auto *p=rt->memory.hostPointer(pc,4))std::memcpy(&word,p,4);
+    if(word!=site->word)return false;   // another overlay at these addresses
+    if(!c)throw std::runtime_error("native battle point scale has no CPU record");
+    auto &st=battlePointScales()[{rt,c->r[29].uw[0]}];
+    switch(site->role){
+    case 'k':st=BattlePointScale{};st.k=c->r[8].uw[0];st.scale=true;return true;
+    case 'l':if(!st.scale)throw std::runtime_error(std::format("native battle point scale at {:x} without its scale",pc));
+        st.at=c->r[2].uw[0];st.point=vuWords(rt,st.at);st.loaded=true;return true;
+    case 's':{
+        if(!st.loaded || c->r[2].uw[0]!=st.at)throw std::runtime_error(std::format("native battle point scale at {:x} stored without its load",pc));
+        VuWords out=st.point;for(unsigned i=0;i<3;++i)out[i]=vuMul(st.point[i],st.k);
+        std::memcpy(record(rt,st.at,16),out.data(),16);st.loaded=false;return true;}
+    default:return true;   // MULx: folded into the store
+    }
+}
 // Battle colour pair, mod028 47ae40(object a0, colour a1, colour a2) (one copy): the CPU
 // widens each RGBA byte colour to four words (PEXTLB/PEXTLH with zero, compiled); QMTC2 t0
 // -> vf1, t1 -> vf2, t2 (0.5f) -> vf3; ITOF0 vf1, vf2; MULx.xyz by vf3.x; SQC2 vf1, vf2 to
@@ -4104,6 +4136,7 @@ bool nativeMathInstruction(uint8_t *,R5900Context *c,Runtime *rt,uint32_t pc){
     if(nativeBattleSideAxes(c,rt,pc))return true;
     if(nativeBattleGroundPlane(c,rt,pc))return true;
     if(nativeBattleColourPair(c,rt,pc))return true;
+    if(nativeBattlePointScale(c,rt,pc))return true;
     if(nativeBattleTaskColours(c,rt,pc))return true;
     if(nativeBattleUnitProjection(c,rt,pc))return true;
     if(nativeBattleCameraProjection(c,rt,pc))return true;

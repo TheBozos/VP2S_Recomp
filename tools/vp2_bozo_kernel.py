@@ -1113,7 +1113,11 @@ def overlay_native_sites(name,data):
                 b=next((b for b in range(f+8,f+0x80,4) if word(b)==0x0c0481d0),None)
                 if b is not None and word(b+4)&0xfc00ffff==0x00002825:sheets.append(b+4)
         if len(sheets)!=13 or 0x4f0f20 not in sheets or 0x4f2874 not in sheets:raise ValueError('USA battle selection pairs mismatch')
-        return ''.join(f'native 0x{pc:x}\n' for pc in (0x4d7eac,0x4d7ed8,0x4d7ee0,0x4d7ee8,0x4d7ef0,0x3cd174,0x3cd1b0,*sheets,0x3cd468,0x3cd3c8,0x3cd4a0,0x42ddd8,0x42e144,0x42efe0,0x3cd218,0x3cd21c,0x42d4f0,0x42d4f4,0x4de910,0x4de718,0x4de888,0x4dded0,0x4ddef4,0x4ddef8,0x4ddf24))
+        # The copier worker 47f5a0's timer-0 reads (bozo/native_seed.cpp, kind 'c').
+        for pc,expected in ((0x47f60c,0x8c220000),(0x47f824,0x8c230000),(0x47f894,0x8c230000),(0x47fb4c,0x8c220000),(0x47fe0c,0x8c230000),(0x480604,0x8c220000),(0x480838,0x8c220000),(0x4809ac,0x8c230000),(0x481074,0x8c220000)):
+            s=next(s for s in segments if s[0]==1 and s[2]<=pc<pc+4<=s[2]+s[4])
+            if int.from_bytes(data[s[1]+pc-s[2]:s[1]+pc-s[2]+4],'little')!=expected:raise ValueError('USA battle copier timer site mismatch')
+        return ''.join(f'native 0x{pc:x}\n' for pc in (0x4d7eac,0x4d7ed8,0x4d7ee0,0x4d7ee8,0x4d7ef0,0x3cd174,0x3cd1b0,*sheets,0x3cd468,0x3cd3c8,0x3cd4a0,0x42ddd8,0x42e144,0x42efe0,0x3cd218,0x3cd21c,0x42d4f0,0x42d4f4,0x4de910,0x4de718,0x4de888,0x4dded0,0x4ddef4,0x4ddef8,0x4ddf24,0x47f60c,0x47f824,0x47f894,0x47fb4c,0x47fe0c,0x480604,0x480838,0x4809ac,0x481074))
     if name=='mod027':
         # The battle core's timer reads/writes (bozo/native_seed.cpp): seeded entropy, no timer.
         _,segments,_=elf_parts(data)

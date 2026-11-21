@@ -38,6 +38,16 @@ int main(){try{
         check(vp2s::nativeBootSeed(nullptr,&c,&three.runtime(),0x2c3cb4));differs|=sample!=c.r[2].ud[0];
     }
     check(differs);
+    // mod028 47f5a0, the copier's time-sliced worker: each timer-0 read is the frame's first
+    // line (0) in its own destination register; another word at the address is not claimed.
+    {constexpr struct {uint32_t pc,word;} reads[]={{0x47f60c,0x8c220000},{0x47f824,0x8c230000},{0x47f894,0x8c230000},{0x47fb4c,0x8c220000},
+        {0x47fe0c,0x8c230000},{0x480604,0x8c220000},{0x480838,0x8c220000},{0x4809ac,0x8c230000},{0x481074,0x8c220000}};
+     auto &rt=x.runtime();
+     for(const auto &r:reads){std::memcpy(rt.memory.hostPointer(r.pc,4),&r.word,4);
+        R5900Context c;std::memset(&c,0x3c,sizeof(c));auto expected=c;expected.r[(r.word>>16)&31].ud[0]=0;
+        check(vp2s::nativeBootSeed(nullptr,&c,&rt,r.pc) && !std::memcmp(&c,&expected,sizeof(c)));
+        const uint32_t other=r.word^0x10000;std::memcpy(rt.memory.hostPointer(r.pc,4),&other,4);
+        check(!vp2s::nativeBootSeed(nullptr,&c,&rt,r.pc));}}
     bool rejected=false;try{vp2s::nativeBootSeed(nullptr,nullptr,nullptr,0x1003c4);}catch(const std::runtime_error &){rejected=true;}
     check(rejected);std::puts("native boot seed ABI, scope, bounds and per-host ownership passed");return 0;
 }catch(const std::exception &e){std::fprintf(stderr,"%s\n",e.what());return 1;}}

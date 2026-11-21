@@ -12,6 +12,25 @@ The earlier VP2S face/shading and general brightness comparisons remain open.
 
 ## Build and evidence
 
+### Battle copier worker 47f5a0: timer-0 reads as the frame's first line (2026-11-21)
+
+mod028 `47f5a0` is the time-sliced worker of mod027's streaming copier.
+- **Original:** the copier calls it at `36937c` with a1 = its deadline - T0. The worker sets
+  its own deadline T0 + a1 - 3, saves its progress (+d84..+d8c) and returns once a timer-0
+  COUNT read passes it. Its nine reads are at `47f60c`, `47f824`, `47f894`, `47fb4c`,
+  `47fe0c`, `480604`, `480838`, `4809ac` and `481074`. Its step count +d80 caps the work at
+  0x1e steps.
+- **Native (`bozo/native_seed.cpp`, kind 'c'):** the copier's existing rule applies. There
+  is no scan-out, so each read is the frame's first line (0), and the worker is never cut by
+  PS2 scan timing. Its saved-progress path stays as written. The sites are word-checked,
+  and the kernel's mod028 block checks the words and lists them as native.
+- **Test:** `vp2s-bozo-seed-check` checks that each read sets only its destination
+  register, to 0, and that another word at the address is not claimed.
+- **Evidence:** `--battle 0x18` passes them. The next boundary is a VU0 site at `4813f4`
+  (entry `481260`, called from `47fa4c`).
+- **Note:** `tests/test_bozo_kernel.py` already fails without this change: COP0
+  performance consumer at `146104` in main.
+
 ### Battle 47bfa4: point advance and colour scale as macro idioms (2026-11-21)
 
 mod028 `47bfa4` places an object relative to a battle anchor. It uses two short VU0 blocks,

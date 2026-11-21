@@ -11,6 +11,9 @@ namespace {
 //      the lines left allow and yields past it. Natively there is no scan-out: a read is
 //      "the frame has just begun" (0), so a whole frame's budget always remains and the
 //      copies are never cut by PS2 scan timing.
+//      Its time-sliced worker mod028 47f5a0 (called at 36937c with a1 = deadline - T0)
+//      sets its own deadline T0 + a1 - 3 and saves its progress (+d84..+d8c) and returns
+//      when T0 passes it; the same rule (0) lets it finish its steps in one call.
 //  'r' random sources (363440: count mod n; 36cbb4: four timers mixed into the battle
 //      seed): a seeded 16-bit sample.
 //  'w' the mode/count writes: nothing to program.
@@ -21,7 +24,9 @@ constexpr TimerSite battleTimerSites[]={
     {0x367934,0x8c220000,'c'}, {0x367a7c,0x8c220000,'c'}, {0x367bcc,0x8c220000,'c'}, {0x367d74,0x8c240000,'c'},
     {0x367fe4,0x8c230000,'c'}, {0x3684dc,0x8c220000,'c'}, {0x36868c,0x8c230000,'c'}, {0x369374,0x8c220000,'c'},
     {0x36c9e0,0xac200000,'w'}, {0x36cbbc,0x8c270000,'r'}, {0x36cbd0,0x8c231800,'r'}, {0x36cc00,0x8c260800,'r'},
-    {0x36cc28,0x8c241000,'r'}, {0x36d3d4,0xac230010,'w'}, {0x36d3dc,0xac200000,'w'}};
+    {0x36cc28,0x8c241000,'r'}, {0x36d3d4,0xac230010,'w'}, {0x36d3dc,0xac200000,'w'},
+    {0x47f60c,0x8c220000,'c'}, {0x47f824,0x8c230000,'c'}, {0x47f894,0x8c230000,'c'}, {0x47fb4c,0x8c220000,'c'}, {0x47fe0c,0x8c230000,'c'},
+    {0x480604,0x8c220000,'c'}, {0x480838,0x8c220000,'c'}, {0x4809ac,0x8c230000,'c'}, {0x481074,0x8c220000,'c'}};
 }
 bool nativeBootSeed(uint8_t *,R5900Context *ctx,Runtime *rt,uint32_t pc) {
     for(const auto &site:battleTimerSites){

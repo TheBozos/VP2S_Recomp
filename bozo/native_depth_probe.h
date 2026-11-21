@@ -39,8 +39,11 @@ public:
     // At main 122ab8 called from 29a57c (return 29a584): a0 packet, a1 sbp, a2 sbw,
     // a3 psm, t0 x, t1 y, t2 w, t3 h.
     void request(const R5900Context *);
-    // At 29a4dc: fills the slot's destination; returns the node object for a0.
-    uint32_t complete(Runtime *,const R5900Context *,const NativeDepthProbeFrame &,const NativeDepthSampler &);
+    // At 29a4dc: fills the slot's destination; returns the node object for a0. A colour
+    // request (PSMCT32/24/16) goes to `colour(node, request, destination)`, which serves it
+    // natively (true) or not at all (false: refused).
+    using ColourReadback=std::function<bool(uint32_t,const NativeDepthProbeRequest &,uint32_t)>;
+    uint32_t complete(Runtime *,const R5900Context *,const NativeDepthProbeFrame &,const NativeDepthSampler &,const ColourReadback &colour={});
     size_t pending()const{return requests.size();}
     // The colour request (PSMCT32/24/16) recorded for a packet, removed: the
     // battle-entry capture serves it from its native frame snapshot.
@@ -52,6 +55,7 @@ public:
     virtual NativeDepthProbes &nativeDepthProbes()=0;
     virtual NativeDepthProbeFrame nativeDepthProbeFrame()=0;
     virtual bool nativeDepthSample(float gsX,float gsY,uint32_t &gsZ)=0;
+    virtual bool nativeColourReadback(uint32_t,const NativeDepthProbeRequest &,uint32_t){return false;}
 };
 std::optional<bool> nativeDepthProbeInstruction(R5900Context *,Runtime *,uint32_t pc);
 }

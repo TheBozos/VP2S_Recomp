@@ -48,7 +48,7 @@ public:
     bool active(uint32_t stack)const{return leases.contains(stack);}
     void retire(Runtime *,const R5900Context *);
     void flushed(Runtime *,uint32_t stack);
-    void complete(uint32_t stack);
+    uint32_t complete(uint32_t stack);   // the flushed object
     void cancel(uint32_t stack){leases.erase(stack);}
     const NativeBattleSpriteBuild *build(uint32_t writer)const{auto it=builds.find(writer);return it==builds.end()?nullptr:&it->second;}
     size_t outstanding()const{return leases.size();}

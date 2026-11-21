@@ -49,7 +49,7 @@ void NativeDepthProbes::request(const R5900Context *c){
     q.sbp=half(c,5);q.sbw=half(c,6);q.psm=half(c,7);q.x=half(c,8);q.y=half(c,9);q.width=half(c,10);q.height=half(c,11);
     requests[q.packet]=q;
 }
-uint32_t NativeDepthProbes::complete(Runtime *rt,const R5900Context *c,const NativeDepthProbeFrame &frame,const NativeDepthSampler &sample){
+uint32_t NativeDepthProbes::complete(Runtime *rt,const R5900Context *c,const NativeDepthProbeFrame &frame,const NativeDepthSampler &sample,const ColourReadback &colour){
     if(c->pc!=kEnqueue || c->r[7].uw[0]<0x100090)throw std::runtime_error("native depth probe requires the original readback enqueue");
     const uint32_t object=c->r[7].uw[0]-0x90;
     if(value<uint32_t>(rt,object)!=kNodeClass || value<uint32_t>(rt,object+0x90)!=kNodeJobClass)
@@ -60,10 +60,15 @@ uint32_t NativeDepthProbes::complete(Runtime *rt,const R5900Context *c,const Nat
     const uint32_t packet=object+0xe0+0x70*slot;
     const auto it=requests.find(packet);
     if(it==requests.end())throw std::runtime_error(std::format("native readback node {:x} slot {} has no recorded request",object,slot));
-    const auto bytes=nativeDepthProbeBytes(it->second,frame,sample);
     const uint32_t destination=value<uint32_t>(rt,object+0x200+4*slot)&0x1ffffff;
-    if(destination<0x100000 || destination+bytes.size()>0x2000000)throw std::runtime_error("native depth probe destination outside EE RAM");
-    std::memcpy(rt->memory.hostPointer(destination,uint32_t(bytes.size())),bytes.data(),bytes.size());
+    if(it->second.psm>=0 && it->second.psm<=2){
+        if(!colour || !colour(object,it->second,destination))
+            throw std::runtime_error(std::format("unported native colour readback format {:x} (node {:x})",it->second.psm,object));
+    }else{
+        const auto bytes=nativeDepthProbeBytes(it->second,frame,sample);
+        if(destination<0x100000 || destination+bytes.size()>0x2000000)throw std::runtime_error("native depth probe destination outside EE RAM");
+        std::memcpy(rt->memory.hostPointer(destination,uint32_t(bytes.size())),bytes.data(),bytes.size());
+    }
     requests.erase(it);
     store<uint8_t>(rt,object+0x64,1);   // in flight, as 29a3a0 marks it; the real completion clears it
     return object;
@@ -74,7 +79,8 @@ std::optional<bool> nativeDepthProbeInstruction(R5900Context *c,Runtime *rt,uint
     auto *owner=d?dynamic_cast<DepthProbeOwner *>(&d->host()):nullptr;
     if(!c || !owner)throw std::runtime_error("native depth probe requires its renderer owner");
     const auto object=owner->nativeDepthProbes().complete(rt,c,owner->nativeDepthProbeFrame(),
-        [owner](float x,float y,uint32_t &z){return owner->nativeDepthSample(x,y,z);});
+        [owner](float x,float y,uint32_t &z){return owner->nativeDepthSample(x,y,z);},
+        [owner](uint32_t node,const NativeDepthProbeRequest &q,uint32_t destination){return owner->nativeColourReadback(node,q,destination);});
     c->r[4].sd[0]=int32_t(object);
     return true; // Retire the job-pointer move; the patched call enters notify 299c00 with the node.
 }

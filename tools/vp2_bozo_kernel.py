@@ -585,7 +585,19 @@ def overlay_adaptations(name,data):
                                (0x3cc900,0x3cc91c,'e6e81f90b768228012c77b0ff794a4068ceb0187abc59dc45364159a238dd8ae')):
             s=next(s for s in segments if s[0]==1 and s[2]<=lo<hi<=s[2]+s[4]);at=s[1]+lo-s[2]
             if hashlib.sha256(data[at:at+hi-lo]).hexdigest()!=expected:raise ValueError('USA battle texture set mismatch')
-        return '003cd170 0c044c70 0c0f3240\n003cd1ac 0c044c70 00000000\n'
+        # Battle column capture (vtable 175290, bozo/native_column_capture.cpp): 4dde60's upload
+        # enqueue (386300, a type-3 job without owner) is retired; the columns draw from the
+        # native capture image.
+        for lo,hi,expected in ((0x4dde60,0x4ddf30,'429f1741ab7c31a71b1d6def4e1c6808dcbb9b297f36f5e47360cd277cf5bcff'),
+                               (0x386300,0x386334,'44d9a454260cbc0050da8612a75a8f6e021a76cbe6927b39b9423b9eff165340')):
+            s=next(s for s in segments if s[0]==1 and s[2]<=lo<hi<=s[2]+s[4]);at=s[1]+lo-s[2]
+            if hashlib.sha256(data[at:at+hi-lo]).hexdigest()!=expected:raise ValueError('USA battle column capture mismatch')
+        # The base UI flush 42d4c0 and the column flush 4dde60 end in their owners' completions
+        # (42d4a0 / 4ddb70 -> 21c9a0): no native queue completes their jobs.
+        for lo,hi,expected in ((0x42d4a0,0x42d500,'3740b4a1250d7d06bdf7e2dfcffd70e58c024a1d6dddb1047b90337de62706d9'),(0x4ddb70,0x4ddb8c,'e6e81f90b768228012c77b0ff794a4068ceb0187abc59dc45364159a238dd8ae')):
+            s=next(s for s in segments if s[0]==1 and s[2]<=lo<hi<=s[2]+s[4]);at=s[1]+lo-s[2]
+            if hashlib.sha256(data[at:at+hi-lo]).hexdigest()!=expected:raise ValueError('USA battle flush completion mismatch')
+        return '003cd170 0c044c70 0c0f3240\n003cd1ac 0c044c70 00000000\n004ddea0 0c0e18c0 00000000\n0042d4f8 03e00008 0810b528\n004ddf20 03e00008 081376dc\n'
     if name!='mod001':return ''
     _,segments,_=elf_parts(data)
     for lo,hi,expected in ((0x12b4a8+0x1f0,0x12b4a8+0x250,'b79cf2382262fa4251a0e08c8d0b7eb05f051c8a77915bf5863c78d7d6acd784'),
@@ -1082,7 +1094,11 @@ def overlay_native_sites(name,data):
                                (0x42d4c0,0x42d500,'a2293856370a94f12e49e4c53fb474f850576b323c83f6dee82efb25c87f3b5b'),
                                (0x42df80,0x42ec20,'e52821c472931bfdff5849677639a73d206c127d9423011ecdf15da46cb30aeb'),   # polygon writer
                                (0x42ec20,0x42ed50,'aa03a736d5f335ed0bd51aacb601ba6dbb137e35f0d9109f02d92b2fe7e4115d'),   # + its header 42ec70
-                               (0x42ed50,0x42fec0,'0d2c44132b2813962e761d7c505d9b0bb2739af5e3ba816305dca3b20041b40c')):  # rectangle writer
+                               (0x42ed50,0x42fec0,'0d2c44132b2813962e761d7c505d9b0bb2739af5e3ba816305dca3b20041b40c'),   # rectangle writer
+                               (0x4de080,0x4de130,'b1648ad756720315f52561e92676810669a51583328eb3965a45bf671570bc75'),   # column capture state 2
+                               (0x4de910,0x4deba0,'ac696f3672e834b464089b80609b7e6b7ccd146a343573a5c6dd6a9fdd837e44'),   # column capture 4de910
+                               (0x4de130,0x4de910,'7a5f9e5fd487936cb3aae1107c56c7ceb076968e83717f92fb71648efbe7df32'),   # column build
+                               (0x4dde60,0x4ddf30,'429f1741ab7c31a71b1d6def4e1c6808dcbb9b297f36f5e47360cd277cf5bcff')):  # column flush
             s=next(s for s in segments if s[0]==1 and s[2]<=lo<hi<=s[2]+s[4]);at=s[1]+lo-s[2]
             if hashlib.sha256(data[at:at+hi-lo]).hexdigest()!=expected:raise ValueError('USA battle sprite source mismatch')
         # Selection pairs outside 3cd330: a palette load (`lui rX,0x130`, `jal 120740`, delay slot `or a1,..`), then the
@@ -1097,7 +1113,7 @@ def overlay_native_sites(name,data):
                 b=next((b for b in range(f+8,f+0x80,4) if word(b)==0x0c0481d0),None)
                 if b is not None and word(b+4)&0xfc00ffff==0x00002825:sheets.append(b+4)
         if len(sheets)!=13 or 0x4f0f20 not in sheets or 0x4f2874 not in sheets:raise ValueError('USA battle selection pairs mismatch')
-        return ''.join(f'native 0x{pc:x}\n' for pc in (0x4d7eac,0x4d7ed8,0x4d7ee0,0x4d7ee8,0x4d7ef0,0x3cd174,0x3cd1b0,*sheets,0x3cd468,0x3cd3c8,0x3cd4a0,0x42ddd8,0x42e144,0x42efe0,0x3cd218,0x3cd21c,0x42d4f0,0x42d4f4))
+        return ''.join(f'native 0x{pc:x}\n' for pc in (0x4d7eac,0x4d7ed8,0x4d7ee0,0x4d7ee8,0x4d7ef0,0x3cd174,0x3cd1b0,*sheets,0x3cd468,0x3cd3c8,0x3cd4a0,0x42ddd8,0x42e144,0x42efe0,0x3cd218,0x3cd21c,0x42d4f0,0x42d4f4,0x4de910,0x4de718,0x4de888,0x4dded0,0x4ddef4,0x4ddef8,0x4ddf24))
     if name=='mod027':
         # The battle core's timer reads/writes (bozo/native_seed.cpp): seeded entropy, no timer.
         _,segments,_=elf_parts(data)

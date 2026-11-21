@@ -12,6 +12,51 @@ The earlier VP2S face/shading and general brightness comparisons remain open.
 
 ## Build and evidence
 
+### Battle column capture and UI completions: the first complete native battle frame (2026-11-21)
+
+The colour readback at `29a4dc` (PSMCT24) came from mod028's column capture class (vtable
+`175290`). It runs as a state machine at +1ea:
+- **State 2 (`4de910`):** reads the frame back as nine 64-pixel columns into image
+  records at `align128(+94) + k * (+1e4 & ~15)`, through readback nodes `+98..`.
+- **State 3, per column (`4de130`):** uploads each record into a transient texture-cache
+  allocation ('kuri', `29d9b0`/`29c5e0`, a type-3 chain) and draws it as one sprite
+  (PRIM 356, UV (0.5, 0.5) to (64, height), placement from +1a0..).
+- **Flush (`4dde60`):** enqueues the uploads (`386300`) and flushes the draw writers
+  (`120eb0`); the last one has owner +90.
+- **Native (`bozo/native_column_capture.cpp`):**
+  - `4de910`'s entry registers the effect: its nodes, records and a kept engine image
+    (the capture fade's slots).
+  - At the readback completion, a registered node's colour request copies the frame drawn
+    so far into that image, once per capture. `NativeDepthProbes::complete` now hands
+    colour requests to the owner and refuses unowned ones. The readback sits at its place
+    in the scene's list, so the frame drawn so far is what the PS2 reads.
+  - The records' pixels in EE RAM stay unwritten: only the upload read them, and its
+    enqueue (`4ddea0`) is retired.
+  - Each sprite is recorded where `4de130` computed it (`4de718`; the build's end at
+    `4de888`). Its TEX0 must have the record's format, TCC 0 and a large enough area.
+  - At the flush (`4dded0`/`4ddef4`) the sprite is drawn from column k of the image
+    (nearest, modulate, alpha blend, no depth), under a lease checked like the UI writers'.
+  - The game reads 1 + 224 * +1dc = 417 rows of a 416-row frame. The extra row clamps to
+    the frame's last row, the battle-entry capture's rule for texels past its snapshot.
+- **Completions:** no native queue completes `120eb0`'s owner jobs. The 3cd0c0 UI family
+  completes through its texture set's patched enqueue, but these two flushes had no path:
+  - the base UI flush `42d4c0` (class `16ef10`'s HP panels; its `jr ra` at `42d4f8` becomes
+    `j 42d4a0`);
+  - the column flush (`4ddf20` becomes `j 4ddb70`).
+
+  Both enter their class's own completion (`21c9a0`, the scene's) with a0 set in the delay
+  slot, as the screen rectangle's flush does. Without them the scene waited on +40ac
+  forever.
+- **Tests:**
+  - `vp2s-bozo-column-capture` (new): the nine requests with the battle's values (PSMCT24,
+    64 x 417), the first frame's column-1 sprite (1824,1840 to 1888,2256), the build end,
+    the flush lease and the last column's completion.
+  - `vp2s-bozo-battle-sprites` still passes with the completion change.
+- **Evidence:** `--battle 0x18` ends frame 63480, the first complete native battle frame.
+  It shows the stage, the enemy and the UI (party HP panels, AP gauge); the nine columns
+  draw 1:1 (identity placement). The next boundary is an unported VP2S algorithm at
+  `4981f0` (entry `4981b4`).
+
 ### Battle camera projections: four in-place program-0 copies natively (2026-11-21)
 
 mod028 projects points through the battle camera with VU0 program 0 in four places that

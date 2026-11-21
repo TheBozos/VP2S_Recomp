@@ -34,6 +34,7 @@
 #include "native_screen_zoom.h"
 #include "native_depth_blur.h"
 #include "native_depth_probe.h"
+#include "native_column_capture.h"
 #include "native_ui_sprites.h"
 #include "native_media_buffer.h"
 #include "native_publication.h"
@@ -77,7 +78,7 @@ class StrictHost final : public bozo::ee::Host,public vp2s::TimerOwner,public vp
     public vp2s::AssetOwner,public vp2s::DebugFontOwner,public vp2s::StateSetupOwner,public vp2s::ScreenRectOwner,public vp2s::CaptureFadeOwner,public vp2s::EntryCaptureOwner,public vp2s::ScreenZoomOwner,public vp2s::UiTextOwner,
     public vp2s::UiSpriteOwner,public vp2s::BattleSpriteOwner,public vp2s::MediaBufferOwner,public vp2s::ModelOwner,public vp2s::FrameFilterOwner,public vp2s::MusicOwner,
     public vp2s::UiWindowOwner,public vp2s::LoadProgressOwner,public vp2s::MotionOwner,public vp2s::FrameCopyOwner,public vp2s::DofOwner,public vp2s::FeedbackOwner,public vp2s::SquadOwner,
-    public vp2s::ParticleOwner,public vp2s::ParticleUpdateOwner,public vp2s::ParticleDrawOwner,public vp2s::ProceduralOwner,public vp2s::ProceduralDrawOwner,public vp2s::DepthBlurOwner,public vp2s::DepthProbeOwner,public vp2s::HazeOwner,public vp2s::SceneClipOwner,public vp2s::MapPanelOwner {
+    public vp2s::ParticleOwner,public vp2s::ParticleUpdateOwner,public vp2s::ParticleDrawOwner,public vp2s::ProceduralOwner,public vp2s::ProceduralDrawOwner,public vp2s::DepthBlurOwner,public vp2s::DepthProbeOwner,public vp2s::ColumnCaptureOwner,public vp2s::HazeOwner,public vp2s::SceneClipOwner,public vp2s::MapPanelOwner {
 public:
     vp2s::NativeProceduralDraws proceduralDraws;
     vp2s::NativeProceduralDraws &nativeProceduralDraws()override{return proceduralDraws;}
@@ -405,6 +406,57 @@ public:
         const auto target=scene.frameTarget();
         if(!target)throw std::runtime_error("native depth probe has no frame");
         return {int32_t(target->width),int32_t(target->height)};
+    }
+    // Colour readbacks: the battle column capture's (native_column_capture.h); others refuse.
+    bool nativeColourReadback(uint32_t node,const vp2s::NativeDepthProbeRequest &q,uint32_t destination)override{
+        auto column=columnCaptures.column(node,q,destination);if(!column)return false;
+        auto &capture=*column->first;
+        if(!capture.copied){copyNativeColumnFrame(capture);capture.copied=true;}
+        return true;
+    }
+    vp2s::NativeColumnCaptures columnCaptures;
+    vp2s::NativeColumnCaptures &nativeColumnCaptures()override{return columnCaptures;}
+    uint8_t claimNativeColumnImage(uint32_t object)override{return captureFades.capture(object);}
+    void copyNativeColumnFrame(vp2s::NativeColumnCapture &capture)override{flushDeferredModels();
+        const auto image=captureFades.pendingCopy(capture.object);if(!image || *image!=capture.image)throw std::runtime_error("native column capture has no claimed image");
+        const auto target=scene.frameTarget();if(!target)throw std::runtime_error("native column capture has no frame to copy");
+        // The frame drawn so far (source 0): the readback's place in the scene's list.
+        bozo::render::Material material;material.textured=false;material.fromFrame=1;material.source=0;
+        material.textureAlpha=false;material.target=*image;material.nearest=true;material.alphaBlend=false;material.blend=bozo::render::Material::Blend::Opaque;
+        material.depthTest=false;material.depthWrite=false;
+        vp2s::NativeCaptureFadeDraw whole{.colour=0x80808080,.width=int32_t(target->width),.height=int32_t(target->height)};
+        const auto vertices=vp2s::nativeCaptureFadeVertices(whole);
+        const float identity[16]={1,0,0,0,0,1,0,0,0,0,1,0,0,0,0,1};
+        auto &renderer=bozo::render::Renderer::instance();renderer.setTargetSize(*image,uint16_t(whole.width),uint16_t(whole.height));
+        renderer.clearClip();renderer.draw(material,identity,vertices.data(),vertices.size());
+        if(sceneClip[2]>sceneClip[0])renderer.setClip(sceneClip[0],sceneClip[1],sceneClip[2],sceneClip[3]);
+        capture.frameWidth=whole.width;capture.frameHeight=whole.height;
+        if(std::getenv("VP2S_BOZO_TRACE_QUEUES"))
+            std::fprintf(stderr,"[vp2s:screen] native column capture copy object=%x image=%u size=%dx%d frame=%llu\n",capture.object,*image,whole.width,whole.height,(unsigned long long)native.framesEnded());
+    }
+    // One column of the battle column capture: a sprite from column k of the copied frame.
+    // TEX1_2 1 (nearest), TCC 0 and modulate (the vertex colour, alpha from the vertex),
+    // ALPHA 0x44 with PRIM ABE, ZTST always with ZMSK.
+    void drawNativeColumn(const vp2s::NativeColumnCapture &capture,unsigned k)override{flushDeferredModels();
+        const auto target=scene.frameTarget();if(!target)throw std::runtime_error("native column draw has no frame");
+        // Rows the readback takes past the frame (the game asks for 1 + 224 * +1dc = 417 of a
+        // 416-row frame) clamp to its last row, the battle entry capture's rule for texels past
+        // its snapshot (the PS2 would read the graphics memory below the frame).
+        if(capture.frameWidth<64*9 || capture.frameHeight<1 || capture.height>capture.frameHeight+16)throw std::runtime_error(std::format("native column draw has no copied frame of its size (object {:x} copied {} frame {}x{} height {})",capture.object,capture.copied,capture.frameWidth,capture.frameHeight,capture.height));
+        const auto &s=capture.sprites[k];
+        bozo::render::Material material;material.textured=false;material.fromFrame=1;material.source=capture.image;material.target=0;material.nearest=true;
+        material.textureAlpha=false;material.blend=bozo::render::Material::Blend::Alpha;material.depthTest=false;material.depthWrite=false;
+        material.clampU=material.clampV=true;   // the clamp rule above
+        const float W=float(capture.frameWidth),H=float(capture.frameHeight);
+        const bool right[6]={false,true,false,true,true,false},bottom[6]={false,false,true,false,true,true};
+        std::array<bozo::render::Vertex,6> vertices;
+        for(unsigned i=0;i<6;++i){auto &v=vertices[i];v.x=float(right[i]?s.x1:s.x0);v.y=float(bottom[i]?s.y1:s.y0);v.z=float(s.z);v.rgba=s.colour;
+            v.u=(64.f*float(k)+(right[i]?s.u1:s.u0))/W;v.v=(bottom[i]?s.v1:s.v0)/H;}
+        const float identity[16]={1,0,0,0,0,1,0,0,0,0,1,0,0,0,0,1};
+        bozo::render::Renderer::instance().draw(material,identity,vertices.data(),vertices.size());
+        static unsigned traced=0;
+        if(std::getenv("VP2S_BOZO_TRACE_QUEUES") && traced++<12)
+            std::fprintf(stderr,"[vp2s:screen] native column object=%x column=%u box=%d,%d,%d,%d colour=%08x frame=%llu\n",capture.object,k,s.x0,s.y0,s.x1,s.y1,s.colour,(unsigned long long)native.framesEnded());
     }
     bool nativeDepthSample(float gsX,float gsY,uint32_t &gsZ)override{
         // The frame presented last, read back by tiles (false headless or before
@@ -739,6 +791,7 @@ bool dispatchNativeInstruction(uint8_t *ram,R5900Context *ctx,Runtime *rt,uint32
     if(auto handled=vp2s::nativeSprWriterInstruction(ctx,rt,pc))return *handled;
     if(auto handled=vp2s::nativeScreenZoomInstruction(ctx,rt,pc))return *handled;
     if(auto handled=vp2s::nativeDepthBlurInstruction(ctx,rt,pc))return *handled;
+    if(auto handled=vp2s::nativeColumnCaptureInstruction(ctx,rt,pc))return *handled;
     if(auto handled=vp2s::nativeDepthProbeInstruction(ctx,rt,pc))return *handled;
     if(auto handled=vp2s::nativeFixedImageInstruction(ctx,rt,pc))return *handled;
     if(auto handled=vp2s::nativeTextureUploaderInstruction(ctx,rt,pc))return *handled;

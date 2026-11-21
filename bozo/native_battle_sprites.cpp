@@ -185,9 +185,9 @@ void NativeBattleSprites::flushed(Runtime *rt,uint32_t stack){
         throw std::runtime_error("native battle sprites did not finish their scalar flush");
     lease.flushed=true;
 }
-void NativeBattleSprites::complete(uint32_t stack){
+uint32_t NativeBattleSprites::complete(uint32_t stack){
     auto it=leases.find(stack);if(it==leases.end() || !it->second.flushed)throw std::runtime_error("native battle sprite flush returned before it finished");
-    leases.erase(it);
+    const auto object=it->second.object;leases.erase(it);return object;
 }
 void NativeBattleSprites::serialize(bozo::state::Archive &a){
     if(!leases.empty())throw std::runtime_error("native battle sprite state saved during a flush");
@@ -280,9 +280,19 @@ std::optional<bool> nativeBattleSpriteInstruction(R5900Context *c,Runtime *rt,ui
             [&](uint32_t pixels,uint32_t palette){return textures->nativeTextures().blockImage(pixels,palette);});
         try{owner->drawNativeBattleSprites(build);}catch(...){sprites.cancel(sp);throw;}
         static unsigned traced=0;
-        if(std::getenv("VP2S_BOZO_TRACE_QUEUES") && ++traced<=4)
+        if(std::getenv("VP2S_BOZO_TRACE_QUEUES") && ++traced<=64)
             std::fprintf(stderr,"[vp2s:battle] native sprites object=%x sprites=%zu textures=%u\n",object,build.sprites.size(),unsigned(build.textures.size()));
-    }else sprites.complete(sp);   // 3cd21c / 42d4f4, the flush's return
+    }else{   // 3cd21c / 42d4f4, the flush's return
+        const auto object=sprites.complete(sp);
+        // The base flush's job (owner +c0) has no native queue to complete it: 42d4c0's return
+        // (42d4f8) is patched to its completion 42d4a0 (owner thunk 44d5a0's target; the scene's
+        // 21c9a0), entered with the object. (The 3cd0c0 family completes through its texture
+        // set's patched enqueue, 3cc900.)
+        if(pc==0x42d4f4){
+            if(value<uint32_t>(rt,0x42d4f8)!=0x03e00008u)throw std::runtime_error("native battle base flush return differs (the kernel patches its jr ra to j 42d4a0)");
+            c->r[4].sd[0]=int32_t(object);
+        }
+    }
     return false; // The original instructions and the writer's scalar flush remain.
 }
 }

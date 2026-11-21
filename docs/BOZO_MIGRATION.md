@@ -12,6 +12,29 @@ The earlier VP2S face/shading and general brightness comparisons remain open.
 
 ## Build and evidence
 
+### Battle colour element 171f20: the task's own colour pair (2026-11-21)
+
+Class `171f20` is a battle task with an animated vertex element.
+- **Original:** its slot +1c, mod028 `47a9b0(task, object)`, ends with LQC2 vf21 =
+  object +9a0, vf22 = +9b0 (`47aa5c`, `47aa60`: the pair `47ae40` fills) and returns. Only
+  its element draw +10, `47a910`, reads vf21/vf22, in a later call (from the animator
+  `219210`). Other code that also uses those registers runs in between, so on the PS2 the
+  blend gets whatever they last held.
+- **Rule (user decision 2026-11-21):** each task keeps the pair its own `47a9b0` loaded.
+- **Native (`bozo/native_math.cpp`):**
+  - `nativeBattleTaskColours` takes the two loads (the source must be the object's +9a0).
+  - `taskColourMesh` is the element in `nativeUvAnimation`, checked against the USA bytes
+    (fnv 3a7920c6b9ab95d9). It colours the 4-byte vertex stream two vertices at a time.
+    From the cursor +34 and the phase +40 (EE FPU): t = phase + entry, minus 2 when not
+    t <= 1, then |t|; u = 1 - t. The colour is FTOI0(pair.a t + pair.b u), with the low
+    byte of each lane kept (PPACH/PPACB). The cursor is written back as its final value - 4.
+  - A draw without its task's pair is refused. The pairs are not in save states.
+- **Test:** `vp2s-bozo-math-check` runs a 6-vertex mesh through the animator: three pairs
+  including the wrap, the cursor, refusal without a pair or with another source, and later
+  object changes not reaching the task.
+- **Evidence:** `--battle 0x18` passes it to frame 63484. The next boundary is a 3-corner
+  polygon from `42df80` at `42e144` (object `e69600`).
+
 ### Battle band writer 383cb0: three Gouraud strips read back (2026-11-21)
 
 The battle sprite writer `ebc290` (object `ebc130`, class `16ee30`) reached its flush

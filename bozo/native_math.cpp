@@ -1267,6 +1267,30 @@ uint32_t battleGroundHeight(Runtime *rt,uint32_t x,uint32_t z){
 //   or, with byte e+258 set, also y = height(e+40 + v) - e+40.y - 0.2 (e+40.y - 0.2 when
 //   that difference is exactly 10000). The xz bounds at *(e+60) (min x, max x, min z, max z)
 //   grow over every written vertex.
+// The battle task colour pairs (class 171f20; see nativeBattleTaskColours): what each task's
+// 47a9b0 loaded into vf21/vf22, kept per task (user decision 2026-11-21).
+uint32_t vuMul(uint32_t a,uint32_t b);uint32_t vuAdd(uint32_t a,uint32_t b);
+struct BattleTaskColours{std::array<uint32_t,4> first{},second{};};
+std::map<std::pair<const Runtime *,uint32_t>,BattleTaskColours> &battleTaskColours(){static std::map<std::pair<const Runtime *,uint32_t>,BattleTaskColours> m;return m;}
+// Battle colour element (class 171f20, +10 = mod028 47a910(element, mesh record)): colours
+// the 4-byte vertex stream (+1e) two vertices at a time. Per pair, from the cursor +34 (one
+// float each) and the phase +40 (EE FPU): t = phase + entry; when not t <= 1, t -= 2;
+// t = |t|; u = 1 - t. VU0: ACC = vf21 t; vf10 = ACC + vf22 u (xyzw); FTOI0; PPACH/PPACB keep
+// the low byte of each lane (r, g, b, a), stored for both vertices of the pair. The cursor
+// is written back as its final value - 4 (47a9a0..47a9a8, as the game does).
+void taskColourMesh(Runtime *rt,uint32_t element,unsigned vertices,uint8_t *stream,size_t streamBytes){
+    namespace F=bozo::ps2f;
+    const auto pair=battleTaskColours().find({rt,element});
+    if(pair==battleTaskColours().end())throw std::runtime_error(std::format("native battle colour element {:x} drawn without the colour pair its 47a9b0 loads",element));
+    if(4ull*((vertices+1)&~1u)>streamBytes)throw std::runtime_error("native battle colour element outside its vertex stream");
+    constexpr uint32_t one=0x3f800000u,two=0x40000000u;
+    const auto phase=uvWord(rt,element+0x40);auto cursor=uvWord(rt,element+0x34);
+    for(unsigned i=0;i<vertices;i+=2,cursor+=4){
+        auto t=eeAdd(phase,uvWord(rt,cursor));if(!F::le(t,one))t=eeSub(t,two);t&=0x7fffffffu;const auto u=eeSub(one,t);
+        uint8_t rgba[4];for(unsigned c=0;c<4;++c)rgba[c]=uint8_t(vuFtoi(vuAdd(vuMul(pair->second.first[c],t),vuMul(pair->second.second[c],u)),0));
+        std::memcpy(stream+4*i,rgba,4);std::memcpy(stream+4*i+4,rgba,4);}
+    uvStore(rt,element+0x34,cursor-4);
+}
 void ribbonMesh(Runtime *rt,uint32_t element,unsigned vertices,uint8_t *positions,uint8_t *stream){
     namespace F=bozo::ps2f;
     if(vertices%6)throw std::runtime_error("battle ribbon mesh is not made of 6-vertex segments");
@@ -1329,7 +1353,7 @@ bool nativeUvAnimation(R5900Context *c,Runtime *rt,uint32_t pc){
         // skin positions/normals/packed vectors; their table for each included
         // mesh is the +18 cursor, which 237320 resets to +44 and each included
         // mesh advances by its leading halfword.
-        struct Element{uint32_t at,cursor;float scroll[2];bool all;uint32_t bits;bool skeleton;bool morph=false;bool ribbon=false;};std::vector<Element> elements;
+        struct Element{uint32_t at,cursor;float scroll[2];bool all;uint32_t bits;bool skeleton;bool morph=false;bool ribbon=false;bool colour=false;};std::vector<Element> elements;
         for(unsigned i=0;i<count;++i){const auto e=uvWord(rt,list+4*i);const auto vt=uvWord(rt,e);
             if(vt==0x154690){
                 if(uvWord(rt,vt+0x10)!=0x218220 || uvWord(rt,vt+0x18)!=0x2372f0)throw std::runtime_error("unqualified skeleton element methods");
@@ -1347,6 +1371,12 @@ bool nativeUvAnimation(R5900Context *c,Runtime *rt,uint32_t pc){
                     throw std::runtime_error("unqualified battle ribbon element methods");
                 if((flags&5)!=5)throw std::runtime_error("battle ribbon element without streamed positions and its vertex stream");
                 elements.push_back({e,0,{0,0},(uvWord(rt,e+0x18)>>8&0xff)!=0,uvWord(rt,e+0x24),true});elements.back().ribbon=true;continue;}
+            if(vt==0x171f20){
+                // Battle colour element: +10 is mod028 47a910 (see taskColourMesh).
+                if(uvWord(rt,vt+0x10)!=0x47a910 || !overlayCode(rt,0x47a910,0x47a9b0,0x3a7920c6b9ab95d9ull))
+                    throw std::runtime_error("unqualified battle colour element methods");
+                if(!(flags&4))throw std::runtime_error("battle colour element without its vertex stream");
+                elements.push_back({e,0,{0,0},(uvWord(rt,e+0x18)>>8&0xff)!=0,uvWord(rt,e+0x24),true});elements.back().colour=true;continue;}
             if(vt!=0x1591b0)throw std::runtime_error(std::format("unported animated vertex element class {:x} (+10={:x})",vt,uvWord(rt,vt+0x10)));
             Element el{e,uvWord(rt,e+0x34),{std::bit_cast<float>(uvWord(rt,e+0x40)),std::bit_cast<float>(uvWord(rt,e+0x44))},(uvWord(rt,e+0x18)>>8&0xff)!=0,uvWord(rt,e+0x24),false};
             for(float s:el.scroll)if((std::bit_cast<uint32_t>(s)&0x7f800000)==0x7f800000)throw std::runtime_error("unqualified UV scroll");
@@ -1359,7 +1389,7 @@ bool nativeUvAnimation(R5900Context *c,Runtime *rt,uint32_t pc){
             const auto bytes=uvWord(rt,e+0xc),flagWord=uvWord(rt,e+0x18);
             if(!((bytes>>8)&0xff) && !(flagWord&0xff))continue;
             chain.push_back(e);if(chain.size()>64)throw std::runtime_error("animated element chain outside bounds");}
-         for(size_t i=0;i<elements.size();++i){if(elements[i].morph || elements[i].ribbon)continue;
+         for(size_t i=0;i<elements.size();++i){if(elements[i].morph || elements[i].ribbon || elements[i].colour)continue;
             if(i>=chain.size() || chain[i]!=elements[i].at)throw std::runtime_error("animated element data index differs from the object's chain");}}
         music::NearestRounding rounding;
         for(int32_t j=0;j<meshes;++j){
@@ -1388,6 +1418,8 @@ bool nativeUvAnimation(R5900Context *c,Runtime *rt,uint32_t pc){
                 if(n && (flags&2))std::memcpy(normals.data(),uvBytes(rt,source+normalAt,16*n),16*n);
                 if(n && hasPacked)std::memcpy(packedData.data(),uvBytes(rt,source+packedAt,packedBytes),packedBytes);
                 for(auto &el:elements){
+                    if(el.colour){if(!n || (!el.all && !(uvWord(rt,el.bits+4*(uint32_t(j)>>5))>>(j&31)&1)))continue;
+                        taskColourMesh(rt,el.at,unsigned(n),stream.data(),stream.size());continue;}
                     if(el.ribbon){if(!n || (!el.all && !(uvWord(rt,el.bits+4*(uint32_t(j)>>5))>>(j&31)&1)))continue;
                         ribbonMesh(rt,el.at,unsigned(n),positions.data(),stream.data());continue;}
                     if(el.morph){if(!n || (!el.all && !(uvWord(rt,el.bits+4*(uint32_t(j)>>5))>>(j&31)&1)))continue;
@@ -1801,6 +1833,24 @@ bool nativeBattleGroundPlane(R5900Context *c,Runtime *rt,uint32_t pc){
         std::memcpy(record(rt,at(word),16),out.data(),16);states.erase(it);return true;}
     default:return true;   // arithmetic: folded into the stores
     }
+}
+// Battle task colours (vtable 171f20): its slot +1c, mod028 47a9b0(task s1, object s0), ends
+// with LQC2 vf21 = object +9a0, vf22 = +9b0 (47aa5c, 47aa60; the pair 47ae40 fills) and
+// returns. Only its draw slot +10, 47a910, reads vf21/vf22, in a later call after other code
+// that also uses them: on the PS2 the blend gets whatever the registers last held. Rule (user
+// decision 2026-11-21): each task keeps the pair its own 47a9b0 loaded (battleTaskColours),
+// and the native element draw (taskColourMesh, from 219210) blends that. The pairs live for
+// the run (not in save states: a draw without its pair is refused).
+bool nativeBattleTaskColours(R5900Context *c,Runtime *rt,uint32_t pc){
+    if(pc!=0x47aa5c && pc!=0x47aa60)return false;
+    if(!rt)return false;
+    uint32_t word=0;if(const auto *p=rt->memory.hostPointer(pc,4))std::memcpy(&word,p,4);
+    if(word!=(pc==0x47aa5c?0xd8550000u:0xd8560010u))return false;   // another overlay at these addresses
+    if(!c)throw std::runtime_error("native battle task colours have no CPU record");
+    if(pc==0x47aa60)return true;   // the second load: taken with the first
+    if(c->r[2].uw[0]!=c->r[16].uw[0]+0x9a0)throw std::runtime_error("native battle task colours load another pair than the object's +9a0");
+    auto &pair=battleTaskColours()[{rt,c->r[17].uw[0]}];pair.first=vuWords(rt,c->r[2].uw[0]);pair.second=vuWords(rt,c->r[2].uw[0]+16);
+    return true;
 }
 // Battle colour pair, mod028 47ae40(object a0, colour a1, colour a2) (one copy): the CPU
 // widens each RGBA byte colour to four words (PEXTLB/PEXTLH with zero, compiled); QMTC2 t0
@@ -4054,6 +4104,7 @@ bool nativeMathInstruction(uint8_t *,R5900Context *c,Runtime *rt,uint32_t pc){
     if(nativeBattleSideAxes(c,rt,pc))return true;
     if(nativeBattleGroundPlane(c,rt,pc))return true;
     if(nativeBattleColourPair(c,rt,pc))return true;
+    if(nativeBattleTaskColours(c,rt,pc))return true;
     if(nativeBattleUnitProjection(c,rt,pc))return true;
     if(nativeBattleCameraProjection(c,rt,pc))return true;
     if(nativeBattleSegmentDirection(c,rt,pc))return true;

@@ -2704,5 +2704,41 @@ int main(int argc,char **argv){try{
         }
         std::printf("%u battle ribbon meshes (flat and ground-following, 4ab140 one tile) and the several-tile refusal passed\n",ribbonCases);
     }
+    {   // Battle colour element (class 171f20, mod028 47a910) on the animator, with the pair its task's
+        // 47a9b0 loaded (47aa5c): one mesh of 6 vertices, three pairs. Phase .25, entries .5, 1, -.75:
+        // t = .75 (u .25), 1.25 - 2 -> .75, .5 (u .5). Pair (64, 32, 127.5, 128) / (0, .5, 1, 3).
+        std::string path=argv[1];const auto at=path.rfind("mod010");check(at!=std::string::npos);path.replace(at,6,"mod028");
+        std::vector<uint8_t> elf;{FILE *f=std::fopen(path.c_str(),"rb");if(!f)throw std::runtime_error("mod028 image missing");
+            std::fseek(f,0,SEEK_END);elf.resize(size_t(std::ftell(f)));std::fseek(f,0,SEEK_SET);check(std::fread(elf.data(),1,elf.size(),f)==elf.size());std::fclose(f);}
+        auto &r=native.runtime();
+        const auto put=[&](uint32_t a,uint32_t v){std::memcpy(r.memory.hostPointer(a,4),&v,4);};
+        const auto putf=[&](uint32_t a,float v){put(a,std::bit_cast<uint32_t>(v));};
+        const auto get=[&](uint32_t a){uint32_t v;std::memcpy(&v,r.memory.hostPointer(a,4),4);return v;};
+        std::memset(r.memory.flat(),0,bozo::kFlatBytes);
+        {uint32_t ph,count;std::memcpy(&ph,elf.data()+0x1c,4);count=uint16_t(elf[0x2c]|elf[0x2d]<<8);
+         for(uint32_t i=0;i<count;++i){uint32_t h[6];std::memcpy(h,elf.data()+ph+32*i,24);if(h[0]==1)std::memcpy(r.memory.hostPointer(h[2],h[4]),elf.data()+h[1],h[4]);}}
+        constexpr uint32_t object=0x200000,model=0x201000,iterator=0x201800,maskAt=0x200800,data=0x210000,packets=0x240000,stack=0x1ffc000,e=0x206000,table=0x207000,owner=0x208000,vt=0x171f20;
+        put(object+0x54,model);put(model+0x644,iterator);put(iterator+8,data);put(iterator+0x14,packets);
+        put(data+0x10+0x34,1);put(object+0x48,maskAt);put(maskAt,1);put(object+0x58,4);put(object+0x84,1);put(object+8,e);
+        const uint32_t source=data+0x70,packet=packets+0x60,span=0x200,streamAt=0x140;
+        put(source+4,span);put(packet+4,span);put(source+0x14,6u<<16);put(source+0x1c,streamAt<<16);put(source+span+4,0);put(packet+span+4,0);
+        for(unsigned v=0;v<8;++v)put(source+streamAt+4*v,0x55555555u);
+        put(vt+0x10,0x47a910);put(e,vt);put(e+8,object);r.memory.hostPointer(e+0x19,1)[0]=1;
+        put(e+0x34,table);putf(e+0x40,0.25f);putf(table,0.5f);putf(table+4,1.f);putf(table+8,-0.75f);
+        put(stack+0xe0,e);
+        {R5900Context y{};y.r[23].ud[0]=object;y.r[21].ud[0]=1;y.r[29].ud[0]=stack;bool refused=false;   // no pair loaded yet
+         try{vp2s::nativeMathInstruction(r.memory.flat(),&y,&r,0x219210);}catch(const std::runtime_error &){refused=true;}check(refused);}
+        const float pair[8]={64,32,127.5f,128, 0,0.5f,1,3};std::memcpy(r.memory.hostPointer(owner+0x9a0,32),pair,32);
+        {R5900Context l{};l.r[16].uw[0]=owner;l.r[17].uw[0]=e;l.r[2].uw[0]=owner+0x9b0;bool refused=false;   // not the +9a0 pair
+         try{vp2s::nativeMathInstruction(r.memory.flat(),&l,&r,0x47aa5c);}catch(const std::runtime_error &){refused=true;}check(refused);
+         l.r[2].uw[0]=owner+0x9a0;check(vp2s::nativeMathInstruction(r.memory.flat(),&l,&r,0x47aa5c) && vp2s::nativeMathInstruction(r.memory.flat(),&l,&r,0x47aa60));}
+        for(unsigned i=0;i<8;++i)putf(owner+0x9a0+4*i,9);   // later object changes do not reach the task's pair
+        R5900Context y{};y.r[23].ud[0]=object;y.r[21].ud[0]=1;y.r[29].ud[0]=stack;
+        check(vp2s::nativeMathInstruction(r.memory.flat(),&y,&r,0x219210) && y.r[2].sd[0]==1);
+        const uint32_t A=48u|24u<<8|95u<<16|96u<<24,B=32u|16u<<8|64u<<16|65u<<24,want[6]={A,A,A,A,B,B};
+        for(unsigned v=0;v<6;++v)check(get(packet+streamAt+4*v)==want[v]);
+        check(get(e+0x34)==table+8);   // the final cursor - 4, as 47a9a0 writes it
+        std::puts("battle colour element: the task's own pair blended into the vertex stream (three pairs, wrap, cursor) and both refusals passed");
+    }
     std::printf("%u matrix/quaternion/Euler ABI cases, %u component products, %u whole CPU/RAM sphere getters,8192 independent scale cases and%u whole CPU/RAM axis-angle cases passed; no VU/device state\n",cases,products,sphereCases,axisCases);return 0;
 }catch(const std::exception &e){std::fprintf(stderr,"%s\n",e.what());return 1;}}

@@ -954,6 +954,32 @@ bool nativeFlareProjection(R5900Context *c,Runtime *rt,uint32_t pc){
     if(state.loaded!=15 || !state.point)throw std::runtime_error("native flare projection stored without its matrix and light");
     const auto result=program0Projection(state,"flare");std::memcpy(record(rt,base,16),result.data(),16);state.loaded=0;state.point=false;return true;
 }
+// Battle unit projection, mod028 4d10a0: LQC2 vf1..vf4 = the camera rows at
+// *(*(*36d880+80)+18) once (4d1140..4d114c), then for each of 4 units: LQC2 vf5 = sp+80
+// (4d11e0), VCALLMS 0, CFC2.I t1/vi0, SQC2 vf6 to sp+70 (4d11f8): program 0 (see
+// program0Projection). Between the loop's sites run only scalar code, the unit's
+// virtual +28 getter and 42db50 (no COP2), so the rows are captured once and kept.
+FlareProjection &battleUnitProjection(const Runtime *rt){static std::map<const Runtime *,FlareProjection> states;return states[rt];}
+bool nativeBattleUnitProjection(R5900Context *c,Runtime *rt,uint32_t pc){
+    constexpr std::pair<uint32_t,uint32_t> sites[]={{0x4d1140,0xd8410000},{0x4d1144,0xd8420010},{0x4d1148,0xd8430020},{0x4d114c,0xd8440030},
+        {0x4d11e0,0xd8850000},{0x4d11ec,0x4a000038},{0x4d11f0,0x48490001},{0x4d11f8,0xf8460000}};
+    if((pc&3) || !rt || pc<0x4d1140 || pc>0x4d11f8)return false;
+    const auto site=std::find_if(std::begin(sites),std::end(sites),[&](auto &x){return x.first==pc;});
+    if(site==std::end(sites))return false;
+    uint32_t word=0;if(const auto *p=rt->memory.hostPointer(pc,4))std::memcpy(&word,p,4);
+    if(word!=site->second)return false;   // another overlay at these addresses
+    if(!c)throw std::runtime_error("native battle unit projection has no CPU record");
+    auto &state=battleUnitProjection(rt);const auto stack=c->r[29].uw[0];
+    if(pc<=0x4d114c){const unsigned k=(pc-0x4d1140)/4;if(k==0){state.loaded=0;state.point=false;}
+        std::memcpy(state.rows[k],record(rt,c->r[2].uw[0]+16*k,16),16);for(float &x:state.rows[k])x=vu0Input(x);state.loaded|=1u<<k;return true;}
+    if(pc==0x4d11e0){if(c->r[4].uw[0]!=stack+0x80)throw std::runtime_error("native battle unit projection point source mismatch");
+        std::memcpy(state.v,record(rt,stack+0x80,16),16);for(float &x:state.v)x=vu0Input(x);state.point=true;return true;}
+    if(pc==0x4d11ec)return true;
+    if(pc==0x4d11f0){c->r[9].ud[0]=0;return true;}
+    if(c->r[2].uw[0]!=stack+0x70)throw std::runtime_error("native battle unit projection destination mismatch");
+    if(state.loaded!=15 || !state.point)throw std::runtime_error("native battle unit projection stored without its rows and point");
+    const auto result=program0Projection(state,"battle unit");std::memcpy(record(rt,stack+0x70,16),result.data(),16);state.point=false;return true;
+}
 // Two-point projection, mod001 2dfeb8 (block 2e0184). The MMI transpose before
 // it writes the rows at SP+120; LQC2 vf1..vf4 load them (2e0234..2e0240). Then
 // twice (2e0248 / 2e02e8): LQC2 vf5 = SP+160, VCALLMS 0, CFC2.I t1/vi0, SQC2
@@ -1595,6 +1621,37 @@ bool nativeBattleApproach(R5900Context *c,Runtime *rt,uint32_t pc){
         std::memcpy(record(rt,c->r[17].uw[0],16),point,16);return true;
     }
     return true;
+}
+// Guarded 4-lane normalise, mod028 (3e8a34 in 3e8548, 491d4c, 4938a0): LQC2 vf25 = L;
+// vf31.xyz = 0 + 1 (ADDw); vf26 = vf25 * vf25 (xyzw); ACC.x = x + y; ACC.x += 1*z;
+// vf26.x = ACC.x + 1*w; QMFC2 t0 = vf26 (the CPU branches past when its low 64 bits are 0);
+// Q = RSQRT(1, vf26.x); vf25 *= Q (xyzw); SQC2 vf25 to S. ps2f, nearest. vf25 is held
+// per call frame from the load to the store (no calls in between; the addiu and beqz
+// between are compiled). L and S are registers read at the load and the store.
+struct NormaliseSite{uint32_t lo;unsigned load,store;};
+constexpr NormaliseSite normaliseSites[]={{0x3e8a34,2,2},{0x491d4c,3,2},{0x4938a0,5,4}};
+std::map<std::pair<const Runtime *,uint32_t>,std::array<uint32_t,4>> &battleNormalise(){static std::map<std::pair<const Runtime *,uint32_t>,std::array<uint32_t,4>> m;return m;}
+bool nativeBattleNormalise(R5900Context *c,Runtime *rt,uint32_t pc){
+    constexpr uint32_t body[]={0,0x4bc007c3,0,0x4bf9ceaa,0x4b1ad03d,0x4b1af8be,0x4b1afe8b,0x4828d000,0,0,0x4a7a03be,0x4a0003bf,0x4be0ce5c,0};
+    if((pc&3) || !rt)return false;
+    const auto site=std::find_if(std::begin(normaliseSites),std::end(normaliseSites),[&](auto &s){return pc>=s.lo && pc<=s.lo+52;});
+    if(site==std::end(normaliseSites))return false;
+    const unsigned slot=(pc-site->lo)/4;
+    const uint32_t expected=slot==0?0xd8190000u|(site->load<<21):slot==13?0xf8190000u|(site->store<<21):body[slot];
+    if(!expected)return false;   // addiu, beqz, its delay slot: compiled
+    uint32_t word=0;if(const auto *p=rt->memory.hostPointer(pc,4))std::memcpy(&word,p,4);
+    if(word!=expected)return false;   // another overlay at these addresses
+    if(!c)throw std::runtime_error("native battle normalise has no CPU record");
+    auto &states=battleNormalise();const auto key=std::make_pair(static_cast<const Runtime *>(rt),c->r[29].uw[0]);
+    if(slot==0){std::array<uint32_t,4> v;std::memcpy(v.data(),record(rt,c->r[site->load].uw[0],16),16);states[key]=v;return true;}
+    if(slot!=7 && slot!=13)return true;
+    auto it=states.find(key);if(it==states.end())throw std::runtime_error("native battle normalise has no load");
+    auto &v=it->second;constexpr uint32_t one=0x3f800000u;
+    uint32_t sq[4];for(unsigned i=0;i<4;++i)sq[i]=vuMul(v[i],v[i]);
+    const auto sum=vuAdd(vuAdd(vuAdd(sq[0],sq[1]),vuMul(one,sq[2])),vuMul(one,sq[3]));
+    if(slot==7){c->r[8].uw[0]=sum;c->r[8].uw[1]=sq[1];c->r[8].uw[2]=sq[2];c->r[8].uw[3]=sq[3];return true;}
+    uint32_t f=0;const auto q=bozo::ps2f::rsqrt(one,sum,f);uint32_t out[4];for(unsigned i=0;i<4;++i)out[i]=vuMul(v[i],q);
+    std::memcpy(record(rt,c->r[site->store].uw[0],16),out,16);states.erase(it);return true;
 }
 // Battle segment ends, mod028 3e47b0 (per element s5 of 0x30 bytes; ps2f):
 //   3e48bc..3e48d8: d = a0 - s5; vf1 = d*v1.x + s5*1, vf2 = a0 - d*v1.y (xyz; w as loaded).
@@ -2924,7 +2981,7 @@ void morphMesh(Runtime *rt,uint32_t element,unsigned vertices,uint8_t *positions
 // its own PC; the store computes the fixed formula. Recognised only from the
 // exact COP2 words of a straight block (no branch in between).
 struct MacroIdiom{const char *name;std::array<int32_t,28> words;unsigned size;};
-// >=0: exact word; -1-n: LQC2 into vf n; -100-n: SQC2 from vf n.
+// >=0: exact word; -1-n: LQC2 into vf n; -100-n: SQC2 from vf n; -200: QMFC2 from vf24 to any GPR.
 constexpr MacroIdiom macroIdioms[]={
     {"negate",{-2,0x4bc1006c,-101},3},
     {"dot",{-21,-22,-23,0x4bf4adec,0x4b000603,0x4bf7b5ea,0x4b17b83d,0x4b17c5ca,-123},9},
@@ -2961,6 +3018,18 @@ constexpr MacroIdiom macroIdioms[]={
     {"muladd",{-2,-3,-4,0x4be20abe,0x4be0184b,-101},6},
     // and its third variant (22f404): LQC2 vf1, vf2; MUL.xyzw vf1 = vf1*vf2; SQC2 vf1.
     {"product2",{-2,-3,0x4be2086a,-101},4},
+    // mod028 (battle, about 44 copies, e.g. 4e6678): LQC2 vf25; ADDw.xyz vf31 = 1; MUL.xyz
+    // vf26 = vf25^2; ADDAy.x; MADDz.x vf26.x = ACC + 1*z2; RSQRT; WAITQ; MULq.xyz vf25;
+    // SQC2 vf25 -> {xyz*Q, w}, the "normalize" formula in other registers.
+    {"normalize25",{-26,0x4bc007c3,0x4bd9ceaa,0x4b1ad03d,0x4b1afe8a,0x4a7a03be,0x4a0003bf,0x4bc0ce5c,-125},9},
+    // mod028 4e6654: LQC2 vf4 (point), vf1..vf3 (rows); MULAx/MADDAy/MADDz.xyzw vf4 =
+    // (r1*x + r2*y) + r3*z per lane; SQC2 vf4.
+    {"rows3",{-5,-2,-3,-4,0x4be409bc,0x4be410bd,0x4be4190a,-104},8},
+    // mod028 xz length to a GPR (4e657c): LQC2 vf24; MUL.xyz; ADDz.x x = x2 + z2; SQRT;
+    // WAITQ; ADDq.x x = 0 + Q; QMFC2 rN = {|xz|, y2, z2, w} (v0, v1, a0 or a1). Ends in the QMFC2, not a store.
+    {"xzlength",{-25,0x4bd8c62a,0x4b18c602,0x4a1803bd,0x4a0003bf,0x4b000620,-200},7},
+    // its difference form (13 copies, e.g. 4e5fb0): LQC2 vf24 (a), vf25 (b); SUB.xyz vf24 = a - b; then the same.
+    {"xzdistance",{-25,-26,0x4bd9c62c,0x4bd8c62a,0x4b18c602,0x4a1803bd,0x4a0003bf,0x4b000620,-200},9},
     // matrix product (mod001 2b84a0): LQC2 vf1..vf4 (rows A), vf5..vf8 (rows B); per row k
     // MULAx/MADDAy/MADDAz/MADDw: A_k = ((B0*A_k.x + B1*A_k.y) + B2*A_k.z) + B3*A_k.w;
     // SQC2 vf1..vf4 (each store publishes its row; the capture lives to the last).
@@ -2986,6 +3055,7 @@ bool nativeMacroIdiom(R5900Context *c,Runtime *rt,uint32_t pc){
     const auto control=[](uint32_t w){const auto op=w>>26;return (op>=1 && op<=7) || (op>=0x14 && op<=0x17) || (op==0 && ((w&63)==8 || (w&63)==9)) || (op==0x11 && ((w>>21)&31)==8);};
     const auto matches=[](int32_t want,uint32_t w){
         if(want>=0)return w==uint32_t(want);
+        if(want==-200)return (w>>21)==0x241 && (w&0xffff)==0xc000;
         if(want<=-100)return w>>26==0x3e && int32_t((w>>16)&31)==-100-want;
         return w>>26==0x36 && int32_t((w>>16)&31)==-1-want;};
     uint32_t self;if(!word(pc,self) || !cop2(self))return false;
@@ -3014,6 +3084,15 @@ bool nativeMacroIdiom(R5900Context *c,Runtime *rt,uint32_t pc){
             if(want<0 && want>-100){   // load: capture
                 if(k==0 || capture.block!=first){capture.valid=0;capture.block=first;}
                 const unsigned n=unsigned(-1-want);capture.vf[n]=vuWords(rt,address(self));capture.valid|=1u<<n;return true;}
+            const std::string_view name=idiom.name;
+            if(k+1==idiom.size && (self>>21)==0x241 && (name=="xzlength" || name=="xzdistance")){
+                // QMFC2 at the end: the result goes to the GPR.
+                if(capture.block!=first || !(capture.valid>>24&1) || (name=="xzdistance" && !(capture.valid>>25&1)))
+                    throw std::runtime_error(std::format("native {} idiom at {:x} moved without its loads",idiom.name,first));
+                auto v=capture.vf[24];if(name=="xzdistance")for(unsigned i=0;i<3;++i)v[i]=vuSub(v[i],capture.vf[25][i]);
+                for(unsigned i=0;i<3;++i)v[i]=vuMul(v[i],v[i]);
+                const uint32_t savedCsr=_mm_getcsr();uint32_t f=0;const auto root=bozo::ps2f::sqrt(vuAdd(v[0],v[2]),f);_mm_setcsr(savedCsr);
+                v[0]=vuAdd(0,root);auto &g=c->r[(self>>16)&31];for(unsigned i=0;i<4;++i)g.uw[i]=v[i];capture.valid=0;return true;}
             if(want>=0){                // arithmetic: folded into the store
                 // QMTC2 brings a GPR's quadword into a VF register: captured here.
                 if((self>>21)==0x245){if(capture.block!=first)throw std::runtime_error(std::format("native {} idiom at {:x} moved without its loads",idiom.name,first));
@@ -3023,9 +3102,11 @@ bool nativeMacroIdiom(R5900Context *c,Runtime *rt,uint32_t pc){
             const auto need=[&](unsigned n){if(capture.block!=first || !(capture.valid>>n&1))throw std::runtime_error(std::format("native {} idiom at {:x} stored without its loads",idiom.name,first));return capture.vf[n];};
             const uint32_t one=0x3f800000u,savedCsr=_mm_getcsr();VuWords out{};
             const std::string_view kind=idiom.name;
-            if(kind=="normalize"){const auto v=need(20);uint32_t sq[3];for(unsigned i=0;i<3;++i)sq[i]=vuMul(v[i],v[i]);
+            if(kind=="normalize" || kind=="normalize25"){const auto v=need(kind=="normalize"?20:25);uint32_t sq[3];for(unsigned i=0;i<3;++i)sq[i]=vuMul(v[i],v[i]);
                 uint32_t f=0;const auto q=bozo::ps2f::rsqrt(one,vuAdd(vuAdd(sq[0],sq[1]),vuMul(one,sq[2])),f);_mm_setcsr(savedCsr);
                 for(unsigned i=0;i<3;++i)out[i]=vuMul(v[i],q);out[3]=v[3];}
+            else if(kind=="rows3"){const auto v=need(4),r1=need(1),r2=need(2),r3=need(3);
+                for(unsigned i=0;i<4;++i)out[i]=vuAdd(vuAdd(vuMul(r1[i],v[0]),vuMul(r2[i],v[1])),vuMul(r3[i],v[2]));}
             else if(kind=="squared"){const auto v=need(24);for(unsigned i=0;i<3;++i)out[i]=vuMul(v[i],v[i]);
                 out[0]=vuAdd(vuAdd(out[0],out[1]),vuMul(one,out[2]));out[3]=v[3];}
             else if(kind=="dot3"){const auto a=need(1),b=need(2);uint32_t m[3];for(unsigned i=0;i<3;++i)m[i]=vuMul(a[i],b[i]);
@@ -3776,6 +3857,8 @@ bool nativeMathInstruction(uint8_t *,R5900Context *c,Runtime *rt,uint32_t pc){
     if(nativeBattleTrackBlocks(c,rt,pc))return true;
     if(nativeBattleApproach(c,rt,pc))return true;
     if(nativeBattleSegmentEnds(c,rt,pc))return true;
+    if(nativeBattleNormalise(c,rt,pc))return true;
+    if(nativeBattleUnitProjection(c,rt,pc))return true;
     if(nativeBattleSegmentDirection(c,rt,pc))return true;
     if(nativeSegmentSphere(c,rt,pc))return true;
     if(nativeBattleSegmentBox(c,rt,pc))return true;

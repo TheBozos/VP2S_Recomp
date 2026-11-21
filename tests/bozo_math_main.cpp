@@ -832,6 +832,45 @@ int main(int argc,char **argv){try{
             for(uint32_t pc=0x381b84;pc<=0x381bac;pc+=4)check(vp2s::nativeMathInstruction(rt.memory.flat(),&d,&rt,pc));
             std::memcpy(o,rt.memory.hostPointer(out+16,16),16);check(o[0]==5 && o[1]==16 && o[2]==0 && o[3]==7);
         }
+        {   // mod028 macro idioms: normalize25, rows3, xzlength (QMFC2 v0), xzdistance.
+            constexpr uint32_t stack=0x1fff000,code=0x4e6600;
+            const auto run=[&](const std::vector<uint32_t> &words,R5900Context &c){std::memcpy(rt.memory.hostPointer(code,4*words.size()),words.data(),4*words.size());
+                for(size_t i=0;i<words.size();++i){const bool cpu=(words[i]>>26)!=0x12 && (words[i]>>26)!=0x36 && (words[i]>>26)!=0x3e;check(vp2s::nativeMathInstruction(rt.memory.flat(),&c,&rt,code+4*uint32_t(i))!=cpu);}};
+            const auto putv=[&](uint32_t at,std::array<float,4> v){std::memcpy(rt.memory.hostPointer(at,16),v.data(),16);};
+            const auto getv=[&](uint32_t at){std::array<float,4> v;std::memcpy(v.data(),rt.memory.hostPointer(at,16),16);return v;};
+            R5900Context c{};c.r[29].uw[0]=stack;c.r[2].uw[0]=stack+0xa0;c.r[3].uw[0]=stack+0x60;c.r[4].uw[0]=stack+0xa0;
+            putv(stack+0xa0,{0,3,4,7});run({0xd8590000,0x4bc007c3,0x27a200a0,0x4bd9ceaa,0x4b1ad03d,0x4b1afe8a,0x4a7a03be,0x4a0003bf,0x4bc0ce5c,0xf8590000},c);
+            {const auto v=getv(stack+0xa0);check(v[0]==0 && v[1]==0.6f && v[2]==0.8f && v[3]==7);}
+            putv(stack+0x60,{1,0,0,0});putv(stack+0x70,{0,2,0,0});putv(stack+0x80,{0,0,4,1});putv(stack+0xa0,{1,2,3,9});
+            run({0xd8840000,0xd8610000,0xd8620010,0xd8630020,0x4be409bc,0x4be410bd,0x4be4190a,0xf8440000},c);
+            {const auto v=getv(stack+0xa0);check(v[0]==1 && v[1]==4 && v[2]==12 && v[3]==3);}
+            putv(stack+0xa0,{3,5,4,9});run({0xd8580000,0x4bd8c62a,0x4b18c602,0x4a1803bd,0x4a0003bf,0x4b000620,0x4822c000},c);
+            check(c.r[2].uw[0]==std::bit_cast<uint32_t>(5.f) && c.r[2].uw[1]==std::bit_cast<uint32_t>(25.f) && c.r[2].uw[3]==std::bit_cast<uint32_t>(9.f));
+            c.r[2].uw[0]=stack+0xa0;putv(stack+0xa0,{4,1,6,2});putv(stack+0xb0,{1,1,2,0});c.r[5].uw[0]=stack+0xb0;
+            run({0xd8580000,0xd8b90000,0x4bd9c62c,0x4bd8c62a,0x4b18c602,0x4a1803bd,0x4a0003bf,0x4b000620,0x4823c000},c);   // QMFC2 v1
+            check(c.r[3].uw[0]==std::bit_cast<uint32_t>(5.f) && c.r[3].uw[1]==0 && c.r[3].uw[2]==std::bit_cast<uint32_t>(16.f) && c.r[3].uw[3]==std::bit_cast<uint32_t>(2.f));
+        }
+        {   // mod028 4d10a0 battle unit projection: rows kept across two points, program 0.
+            constexpr uint32_t words[]={0xd8410000,0xd8420010,0xd8430020,0xd8440030};std::memcpy(rt.memory.hostPointer(0x4d1140,16),words,16);
+            const uint32_t loop[3]={0xd8850000,0,0};std::memcpy(rt.memory.hostPointer(0x4d11e0,4),loop,4);
+            const uint32_t call[2]={0x4a000038,0x48490001},store=0xf8460000;std::memcpy(rt.memory.hostPointer(0x4d11ec,8),call,8);std::memcpy(rt.memory.hostPointer(0x4d11f8,4),&store,4);
+            constexpr uint32_t stack=0x1fff000,rows=0x1a0000;const float m[16]={1,0,0,0, 0,1,0,0, 0,0,1,0, 0,0,0,1};std::memcpy(rt.memory.hostPointer(rows,64),m,64);
+            R5900Context c{};c.r[29].uw[0]=stack;c.r[2].uw[0]=rows;c.r[4].uw[0]=stack+0x80;
+            for(uint32_t pc=0x4d1140;pc<=0x4d114c;pc+=4)check(vp2s::nativeMathInstruction(rt.memory.flat(),&c,&rt,pc));
+            c.r[2].uw[0]=stack+0x70;
+            for(float w:{2.f,4.f}){const float v[4]={2,4,6,w};std::memcpy(rt.memory.hostPointer(stack+0x80,16),v,16);
+                for(uint32_t pc:{0x4d11e0u,0x4d11ecu,0x4d11f0u,0x4d11f8u})check(vp2s::nativeMathInstruction(rt.memory.flat(),&c,&rt,pc));
+                float o[4];std::memcpy(o,rt.memory.hostPointer(stack+0x70,16),16);check(o[0]==2/w && o[1]==4/w && o[2]==6/w && o[3]==1/w && c.r[9].ud[0]==0);}
+        }
+        {   // mod028 3e8a34 guarded normalise: (2,2,2,2) -> QMFC2 t0 = (16,4,4,4), store (0.5,0.5,0.5,0.5).
+            constexpr uint32_t words[14]={0xd8590000,0x4bc007c3,0x27a20150,0x4bf9ceaa,0x4b1ad03d,0x4b1af8be,0x4b1afe8b,0x4828d000,0x11000006,0,0x4a7a03be,0x4a0003bf,0x4be0ce5c,0xf8590000};
+            std::memcpy(rt.memory.hostPointer(0x3e8a34,sizeof(words)),words,sizeof(words));
+            constexpr uint32_t stack=0x1fff000;const float v[4]={2,2,2,2};std::memcpy(rt.memory.hostPointer(stack+0x150,16),v,16);
+            R5900Context c{};c.r[29].uw[0]=stack;c.r[2].uw[0]=stack+0x150;
+            for(uint32_t pc=0x3e8a34;pc<=0x3e8a68;pc+=4){const bool cpu=pc==0x3e8a3c || pc==0x3e8a54 || pc==0x3e8a58;check(vp2s::nativeMathInstruction(rt.memory.flat(),&c,&rt,pc)!=cpu);}
+            check(c.r[8].uw[0]==std::bit_cast<uint32_t>(16.f) && c.r[8].uw[1]==std::bit_cast<uint32_t>(4.f) && c.r[8].uw[3]==std::bit_cast<uint32_t>(4.f));
+            float o[4];std::memcpy(o,rt.memory.hostPointer(stack+0x150,16),16);check(o[0]==0.5f && o[1]==0.5f && o[2]==0.5f && o[3]==0.5f);
+        }
         {   // mod028 3fd5f0 box sphere: a0+20 = ((max+min)/2, |(max-min)/2|).
             constexpr uint32_t words[]={0xd93b0000,0xd89c0000,0xd91d0000,0x4bdcefe8,0x4bdcefac,0x4bdbffd8,0x4bdbf798,0x4bdef72a,
                 0x4a3c01bc,0x4a3c00bd,0x4a3c074a,0x4bfd03be,0x4a0003bf,0x4a20efdc,0xf8ff0000};

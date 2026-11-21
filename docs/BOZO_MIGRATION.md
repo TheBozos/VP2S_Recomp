@@ -12,6 +12,23 @@ The earlier VP2S face/shading and general brightness comparisons remain open.
 
 ## Build and evidence
 
+### Battle VU0 normalise, xz length, unit projection (2026-11-21)
+
+The battle runs past frame 63470 (the enemy in the forest). The next boundary is a
+texture upload: main's frame-cycling texture queue (`112ed0`, channel-2 completion
+`112e00`) sends a battle effect's animated texture frames (a CT32 palette and a
+128x128 CT32 block of indices) from its file through `123220`.
+- **4-lane normalise `3e8a34`** (also `491d4c`, `4938a0`): the squares sum with w^2
+  (`MADDw`), `QMFC2 t0` feeds the CPU's zero test, then `RSQRT` and the scale.
+- **Macro idioms** (word-recognised, like the existing ones): `normalize25` (44
+  copies in mod028), `rows3` (`4e6654`), and the xz length to a GPR, alone
+  (`xzlength`) or of a difference (`xzdistance`); it ends in a `QMFC2` to v0, v1, a0
+  or a1, which now has its own idiom word.
+- **Battle unit projection `4d10a0`:** the camera rows are loaded once, then program
+  0 runs per unit; they are captured once and kept (only scalar code, a virtual
+  getter and `42db50` run between).
+- **Tests:** math-suite cases for each, with exact values.
+
 ### Battle ribbon element, battle ground height (2026-11-21)
 
 The battle now draws from the map 79 state: frame 63400 shows the forest

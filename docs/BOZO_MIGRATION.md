@@ -12,6 +12,20 @@ The earlier VP2S face/shading and general brightness comparisons remain open.
 
 ## Build and evidence
 
+### Battle text class 16ed70 (2026-11-22)
+
+The battle message window's text, class `16ed70`, is mod028's copy of `15a600`. It has:
+- the same build `2ecfa0` and text core `2e9320..2e75c0`, and +2c `2ed7e0`;
+- deferred-flag setters at +3c..+54 that are word-identical to `15a600`'s (`383800..3838c0`
+  against `2f26b0..2f2770`);
+- a +1c (`3837c0`) that calls the base update `2ed050` only when the battle's pause flags
+  (`*(*36d880+68)+4d & 9`) are clear. It stays compiled.
+- **Native:** `nativeUiTextClass` admits `16ed70`.
+- **Test:** `vp2s-bozo-ui-text-capture` checks its emitter lifetime.
+- **Evidence:** the scripted battle's tutorial window ("About Grouping") draws its title,
+  text with inline button icons, and reveal natively (frame 64120). The next boundary is
+  the window's button sprite element, class `16edd0` (`2eb3a0`), frame 64136.
+
 ### Battle UI layer 16ec80 (2026-11-22)
 
 The battle message layer (`e86bf0`) has the field pause layer's entries:

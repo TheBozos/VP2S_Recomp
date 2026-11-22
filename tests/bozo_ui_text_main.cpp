@@ -119,6 +119,9 @@ int main(int argc,char **argv){try{
     // 15a600 (15a2f0 with layer request hooks): the same emitter lifetime; another class rejects.
     put(rt,object,0x15a600u);after.texts.enter(&rt,stack,object,0,0);after.texts.activate(stack,object,0,0);after.texts.finish(stack,object);
     check(after.texts.text(object)!=nullptr);after.texts.release(object);
+    // 16ed70 (mod028's battle copy of 15a600): the same lifetime.
+    put(rt,object,0x16ed70u);after.texts.enter(&rt,stack,object,0,0);after.texts.activate(stack,object,0,0);after.texts.finish(stack,object);
+    check(after.texts.text(object)!=nullptr);after.texts.release(object);
     put(rt,object,0x15a610u);rejects([&]{after.texts.enter(&rt,stack,object,0,0);});
     {   // 15a350 (sibling text): same emitter lifetime; released at its own destructor 2eeb80.
         put(rt,object,0x15a350u);after.texts.enter(&rt,stack,object,0,0);after.texts.activate(stack,object,0,0);after.texts.finish(stack,object);

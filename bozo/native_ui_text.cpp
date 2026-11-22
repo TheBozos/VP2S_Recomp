@@ -31,7 +31,10 @@ template<class T>T value(Runtime *rt,uint32_t at){T result;std::memcpy(&result,r
 // layer's completion 2f2390 acts on them (scalar, compiled). Map 79's layer 15fef0.
 void type(Runtime *rt,uint32_t element){const auto actual=value<uint32_t>(rt,element);if(!nativeUiTextClass(actual))throw std::runtime_error(std::format("unported native UI text class {:x} at {:x}",actual,element));}
 }
-bool nativeUiTextClass(uint32_t type){return type==0x15a450 || type==0x15a2f0 || type==0x165ae0 || type==0x15a350 || type==0x15a600;}
+// 16ed70 is mod028's battle copy of 15a600: the same build 2ecfa0 and text core (2e9320..2e75c0,
+// +2c 2ed7e0), word-identical deferred-flag setters at +3c..+54, and a +1c (3837c0) that only
+// gates the base update 2ed050 on the battle's pause flags (compiled).
+bool nativeUiTextClass(uint32_t type){return type==0x15a450 || type==0x15a2f0 || type==0x165ae0 || type==0x15a350 || type==0x15a600 || type==0x16ed70;}
 void NativeUiTexts::enter(Runtime *rt,uint32_t stack,uint32_t element,uint32_t items,int32_t count){
     type(rt,element);
     if(count>8192 || builds.contains(stack))throw std::runtime_error("native UI text count/stack outside admitted lifetime");

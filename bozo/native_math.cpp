@@ -10,6 +10,8 @@
 #include "../port/vp2s_math.h"
 #include <cstring>
 #include <map>
+#include <optional>
+#include <string_view>
 #include <algorithm>
 #include <cmath>
 #include <format>
@@ -4360,6 +4362,232 @@ bool nativeTrailEmitter(R5900Context *c,Runtime *rt,uint32_t pc){
     }
     return false;
 }
+// General particle emitter (mod001, class 154810): prepare 2451d0 (the emitter's +c, called
+// from the driver at 22ec84; frame 0x40) then step 2439f0 (its +18, from 22ed30; frame 0x270).
+// Both frames sit directly under the driver's, so driver sp = sp + 40 / sp + 270.
+// Prepare (emitter a0 kept in s0) loads the step's constant registers:
+//   vf18 = gravity: (+f8) + 10 when +f8 is set (245240), else .xyz = 0 (245248);
+//   vf17.xyz = 0 (245250, the parent's push when no hook runs); vf5.x = dt = *35dee8 (245264);
+//   vf8 = drift (+c0) (24526c); vf30 = 0 (2452a8); vf29 = (255, 255, 255, 255) from sp+30 (2452b0).
+// The step walks the live particles of 0x170 bytes (s1 = [emitter+14] + s3*170, s0 = s1+10,
+// fp = s1+30; output s7, advanced s2*30 per particle). Per particle, before the loads:
+//   program end conditions: |A|^2 of +50 to sp+210 (2447e4..2447fc); the emitter's rows +80..+b0
+//   times p (+10, w = 1) to sp+200 (2448d8..) or sp+1f0 (244958..) - they reuse vf5, so dt and the
+//   drift are reloaded right after (244940/24494c, 2449a8/2449b4);
+//   offset vf15.xyz = 0 (244b50; the orbit at +108 is not ported and stays a boundary);
+//   jitter vf16 = sp+1e0 (244c58, +132 = 1, scalar code with random draws) or 0 (244ce0; the spin,
+//   +132 = 2, is not ported).
+// Loads (244ce8..244d14): p +10, v +30, acc +40, A +50, C +20, rate +60, change +70; the parent hook
+// (+f8 with its +20 set) gives vf17 = sp+260 (244d44); the curve loop (+68 rows, index a1,
+// fraction v0 = f1) adds row * fraction to p any number of times (244dd0..244de4). Main (244e1c..74):
+//   P.xyz = (((p + 0) + offset*1) + drift*1) + v*dt              (P.w = p.w)
+//   C     = min(max(((c + 0) + jitter*1) + rate*dt, 0), 255)     (vf30 = 0, vf29.x)
+//   acc'.xyz = (acc + 0) + gravity*dt
+//   A.xyz = ((A + 0) + offset*1) + v*dt,  A.w += dt
+//   V.xyz = ((v + 0) + vf17*dt) + acc'*dt, V.w -= dt
+//   R     = rate*1 + change*dt
+// P joins the driver's box (244e6c/244e74) and goes to the output (244e7c). With a collision object
+// (+fc) V is stored early (244e8c) for 2240c0; on a hit P = sp+250 (244ed4) and V.xyz += sp+260
+// (244ecc/244ee0). Stores: C to output+10, A, P, V, acc', C, R to the record (244ee8..244f0c).
+// Trails (+d7 = 2, 1, or 3 when the sp+140 flag is set): the trail emitter's formulas on the
+// particle's s2 output points. Kind 2 leaves its last direction in vf8, which is the drift of the
+// next particle unless an end condition reloads it; that carry-over is kept.
+struct ProgramSite{uint32_t pc,word;char role;unsigned param;};
+constexpr ProgramSite programSites[]={
+    {0x2447e4,0xd8440000,'q',0},{0x2447e8,0x4bc007c3,'-',0},{0x2447ec,0x4bc4206a,'-',0},{0x2447f0,0x4b01083d,'-',0},{0x2447f4,0x4b01f84a,'-',0},{0x2447fc,0xf8410000,'Q',0},
+    {0x2448d8,0xda050000,'w',0},{0x2448dc,0xd8610000,'w',1},{0x2448e0,0xd8620010,'w',2},{0x2448e4,0xd8630020,'w',3},{0x2448e8,0xd8640030,'w',4},{0x2448ec,0x4be509bc,'-',0},
+    {0x2448f0,0x4be510bd,'-',0},{0x2448f4,0x4be518be,'-',0},{0x2448f8,0x4be0214b,'-',0},{0x2448fc,0xf8450000,'W',0},{0x244940,0x48a22800,'D',0},{0x24494c,0xd8480000,'G',0},
+    {0x244958,0xda050000,'w',0},{0x24495c,0xd8610000,'w',1},{0x244960,0xd8620010,'w',2},{0x244964,0xd8630020,'w',3},{0x244968,0xd8640030,'w',4},{0x24496c,0x4be509bc,'-',0},
+    {0x244970,0x4be510bd,'-',0},{0x244974,0x4be518be,'-',0},{0x244978,0x4be0214b,'-',0},{0x24497c,0xf8450000,'W',0},{0x2449a8,0x48a22800,'D',0},{0x2449b4,0xd8480000,'G',0},
+    {0x244b50,0x4bcf033c,'f',0},{0x244c58,0xd8500000,'J',0},{0x244ce0,0x4be00418,'Z',0},{0x244ce8,0xda010000,'L',0},{0x244cec,0xdbc20000,'L',1},{0x244cf4,0xd8430000,'L',2},
+    {0x244cfc,0xd8440000,'L',3},{0x244d04,0xd8460000,'L',4},{0x244d0c,0xdac70000,'L',5},{0x244d14,0xdab40000,'L',6},{0x244d44,0xd8510000,'H',0},{0x244dd0,0xd8550000,'e',0},
+    {0x244ddc,0x48a2b000,'F',0},{0x244de0,0x4bc00abc,'-',0},{0x244de4,0x4bd6a848,'E',0},{0x244e1c,0x4bc00abc,'k',0},{0x244e20,0x4bc078bf,'k',1},{0x244e24,0x4bc040bf,'k',2},
+    {0x244e28,0x4bc51048,'k',3},{0x244e2c,0x4bfe32bc,'k',4},{0x244e30,0x4be080bf,'k',5},{0x244e34,0x4be53988,'k',6},{0x244e38,0x4bc01abc,'k',7},{0x244e3c,0x4bc590c8,'k',8},
+    {0x244e40,0x4bc022bc,'k',9},{0x244e44,0x4bc078bf,'k',10},{0x244e48,0x4bc51108,'k',11},{0x244e4c,0x4bc012bc,'k',12},{0x244e50,0x4bc588bc,'k',13},{0x244e54,0x4bc51888,'k',14},
+    {0x244e58,0x4a251084,'k',15},{0x244e5c,0x4be03190,'k',16},{0x244e60,0x4a252100,'k',17},{0x244e64,0x4be039bf,'k',18},{0x244e68,0x4be5a1c8,'k',19},{0x244e6c,0x4bc1d6af,'k',20},
+    {0x244e70,0x4bfd3194,'k',21},{0x244e74,0x4bc1deeb,'k',22},{0x244e7c,0xfae10000,'O',0},{0x244e8c,0xfbc20000,'V',0},{0x244ecc,0xd84b0000,'C',0},{0x244ed4,0xd8410000,'P',0},
+    {0x244ee0,0x4bcb10a8,'A',0},{0x244ee8,0xfae60010,'R',0},{0x244ef0,0xf8440000,'R',1},{0x244ef4,0xfa010000,'R',2},{0x244ef8,0xfbc20000,'R',3},{0x244f00,0xf8430000,'R',4},
+    {0x244f08,0xf8460000,'R',5},{0x244f0c,0xfac70000,'R',6},{0x244f68,0xd8810000,'h',2},{0x244f78,0x48a21800,'n',2},{0x244f7c,0x4be40b3c,'t',2},{0x244f98,0xd8420000,'p',2},
+    {0x244f9c,0x4be111ac,'i',1},{0x244fa0,0x4be1133c,'i',2},{0x244fa4,0x4bc007c3,'i',3},{0x244fa8,0x4bc631ea,'i',4},{0x244fac,0x4b07383d,'i',5},{0x244fb0,0x4b07f9ca,'i',6},
+    {0x244fb4,0x4a6703be,'i',7},{0x244fb8,0x4a0003bf,'i',8},{0x244fbc,0x4bc0321c,'i',9},{0x244fc0,0x4bc022bc,'i',10},{0x244fc4,0x4bc030bf,'i',11},{0x244fc8,0x4bc34108,'i',12},
+    {0x244fcc,0xf8440000,'a',13},{0x244fd0,0x4bc4d6af,'b',14},{0x244fd4,0x4bc4deeb,'b',15},{0x245008,0xd8810000,'h',1},{0x245018,0x48a21800,'n',1},{0x24501c,0x4be40b3c,'t',1},
+    {0x245038,0xd8420000,'p',1},{0x24503c,0x4be111ac,'i',1},{0x245040,0x4be1133c,'i',2},{0x245044,0x4bc007c3,'i',3},{0x245048,0x4bc631ea,'i',4},{0x24504c,0x4b07383d,'i',5},
+    {0x245050,0x4b07f9ca,'i',6},{0x245054,0x4a6703be,'i',7},{0x245058,0x4a0003bf,'i',8},{0x24505c,0x4bc0319c,'i',9},{0x245060,0x4bc022bc,'i',10},{0x245064,0x4bc33108,'i',11},
+    {0x245068,0xf8440000,'a',12},{0x24506c,0x4bc4d6af,'b',13},{0x245070,0x4bc4deeb,'b',14},{0x2450ac,0xd8810000,'h',3},{0x2450bc,0x48a21800,'n',3},{0x2450c0,0x4be40b3c,'t',3},
+    {0x2450e0,0xd8420000,'p',3},{0x2450e4,0x4be111ac,'i',1},{0x2450e8,0x4be1133c,'i',2},{0x2450ec,0x4bc022bc,'i',3},{0x2450f0,0x4bc33108,'i',4},{0x2450f4,0xf8440000,'a',5},
+    {0x2450f8,0x4bc4d6af,'b',6},{0x2450fc,0x4bc4deeb,'b',7},{0x245240,0xd8720000,'Y',0},{0x245248,0x4bd2033c,'y',0},{0x245250,0x4bd1033c,'z',0},{0x245264,0x48a32800,'d',0},
+    {0x24526c,0xd8680000,'g',0},{0x2452a8,0x4be00798,'o',0},{0x2452b0,0xd87d0000,'c',0}
+};
+struct ProgramState{
+    unsigned prepare=0;uint32_t frame=0,emitter=0,dt=0;bool dtLive=false;
+    VuWords drift{},gravity{},push{},clamp{},offset{},jitter{};
+    bool offsetSet=false,jitterSet=false;
+    char block=0;unsigned blockStep=0;VuWords blockValue{};
+    std::optional<VuWords> vf1;
+    unsigned phase=0;   // 0 between particles, 1 loading, 2 loaded, 3 main, 4 output, 5 stored
+    uint32_t record=0,output=0;unsigned loads=0,main=0,stored=0;
+    VuWords p{},v{},acc{},a{},colour{},rate{},change{},row{},P{},C{},A{},V{},R{},ACC{},hit{};uint32_t fraction=0;
+    unsigned trail=0,trailStep=0,trailIndex=0;uint32_t length=0,next=0;VuWords prev{},anchor{};
+};
+ProgramState &programState(const Runtime *rt){static std::map<const Runtime *,ProgramState> states;return states[rt];}
+bool nativeProgramEmitter(R5900Context *c,Runtime *rt,uint32_t pc){
+    if(!rt || pc<0x2447e4 || pc>0x2452b0)return false;
+    const ProgramSite *site=nullptr;for(const auto &s:programSites)if(s.pc==pc){site=&s;break;}
+    if(!site)return false;
+    uint32_t word=0;if(const auto *p=rt->memory.hostPointer(pc,4))std::memcpy(&word,p,4);
+    if(word!=site->word)return false;   // another overlay at these addresses
+    auto *d=dynamic_cast<bozo::ee::Dispatcher *>(rt->services);auto *particles=d?dynamic_cast<ParticleOwner *>(&d->host()):nullptr;
+    if(!c || !particles)throw std::runtime_error("native program emitter requires its bounds owner");
+    struct ArithmeticScope{unsigned saved=_mm_getcsr();~ArithmeticScope(){_mm_setcsr(saved);}} arithmetic;
+    auto &st=programState(rt);
+    const auto fail=[&](const char *what){st=ProgramState{};throw std::runtime_error(std::format("native program emitter at {:x}: {}",pc,what));};
+    const auto reg=[&](unsigned r){return c->r[r].uw[0];};
+    const auto address=[&]{return reg((word>>21)&31)+uint32_t(int32_t(int16_t(word&0xffff)));};
+    const auto put=[&](uint32_t at,const VuWords &v){std::memcpy(record(rt,at,16),v.data(),16);};
+    const auto field=[&](uint32_t at){const auto *p=rt->memory.hostPointer(at,4);if(!p)fail("scalar field outside RAM");uint32_t v;std::memcpy(&v,p,4);return v;};
+    constexpr uint32_t one=0x3f800000u;
+    const auto include=[&](const VuWords &v){std::array<float,4> f;for(unsigned i=0;i<4;++i)f[i]=std::bit_cast<float>(v[i]);particles->nativeParticles().includePoint(st.frame,st.emitter,f);};
+    const auto sumSquares=[&](const VuWords &v){return vuAdd(vuAdd(vuMul(v[0],v[0]),vuMul(v[1],v[1])),vuMul(one,vuMul(v[2],v[2])));};
+    // Prepare.
+    if(std::string_view("Yyzdgoc").find(site->role)!=std::string_view::npos){
+        constexpr std::string_view order="Yzdgoc";
+        if(site->role=='Y' || site->role=='y'){
+            st=ProgramState{};st.emitter=reg(16);st.frame=reg(29)+0x40;particles->nativeParticles().validateEmitter(st.frame,st.emitter);
+            const auto parent=field(st.emitter+0xf8);
+            if(site->role=='Y'){if(!parent || reg(3)!=parent+0x10)fail("gravity source");st.gravity=vuWords(rt,address());}
+            else{if(parent)fail("gravity cleared with a parent");for(unsigned i=0;i<3;++i)st.gravity[i]=0;}
+            st.prepare=1;return true;}
+        if(st.prepare!=order.find(site->role) || reg(16)!=st.emitter || reg(29)+0x40!=st.frame)fail("prepare order");
+        if(site->role=='z'){for(unsigned i=0;i<3;++i)st.push[i]=0;}
+        if(site->role=='d'){if(reg(3)!=field(0x35dee8))fail("timestep source");st.dt=reg(3);st.dtLive=true;}
+        if(site->role=='g'){if(reg(3)!=st.emitter+0xc0)fail("drift source");st.drift=vuWords(rt,address());}
+        if(site->role=='c'){if(reg(3)!=reg(29)+0x30)fail("clamp source");st.clamp=vuWords(rt,address());}
+        ++st.prepare;return true;
+    }
+    if(st.prepare!=6 || reg(20)!=st.emitter || reg(29)+0x270!=st.frame)fail("step outside its prepared emitter");
+    const auto between=[&]{
+        if(st.phase==5 && st.trail && st.trailStep!=0 && st.trailStep!=(st.trail==2?16u:st.trail==1?15u:8u))fail("particle op inside a trail");
+        if(st.phase!=0 && st.phase!=5)fail("particle op inside a particle's step");
+        if(st.block)fail("particle op inside a block");
+        st.phase=0;st.trail=0;};
+    switch(site->role){
+    case 'q':
+        between();if(address()!=reg(17)+0x50)fail("end condition source");
+        st.blockValue=vuWords(rt,address());st.block='q';st.blockStep=0;return true;
+    case 'Q':{
+        if(st.block!='q' || st.blockStep!=4 || address()!=reg(29)+0x210)fail("end condition order");
+        // MUL.xyz then x = (x^2 + y^2) + 1*z^2; vf1.w is untouched (only .x is read back at 244804).
+        VuWords out=st.vf1.value_or(VuWords{});const auto A=st.blockValue;
+        out[0]=sumSquares(A);out[1]=vuMul(A[1],A[1]);out[2]=vuMul(A[2],A[2]);st.vf1=out;put(address(),out);st.block=0;return true;}
+    case 'w':
+        if(site->param==0){between();if(reg(16)!=reg(17)+0x10 || address()!=reg(17)+0x10)fail("end condition point");st.blockValue=vuWords(rt,address());st.block='w';st.blockStep=0;st.dtLive=false;return true;}
+        if(st.block!='w' || st.blockStep!=site->param-1 || address()!=st.emitter+0x80+0x10*(site->param-1))fail("end condition rows");
+        {const auto row=vuWords(rt,address());const auto x=st.blockValue;
+            // vf5 = row0*p.x + row1*p.y + row2*p.z + row3*1 (MULAx, MADDAy, MADDAz, MADDw).
+            if(site->param==1)st.ACC={vuMul(row[0],x[0]),vuMul(row[1],x[0]),vuMul(row[2],x[0]),vuMul(row[3],x[0])};
+            else for(unsigned i=0;i<4;++i)st.ACC[i]=vuAdd(st.ACC[i],vuMul(row[i],site->param==4?one:x[site->param-1]));}
+        ++st.blockStep;return true;
+    case 'W':
+        if(st.block!='w' || st.blockStep!=8 || (address()!=reg(29)+0x200 && address()!=reg(29)+0x1f0))fail("end condition store");
+        put(address(),st.ACC);st.block=0;return true;
+    case '-':
+        if(!st.block || (st.block=='e' && st.blockStep!=2))fail("block step outside its block");
+        if(st.block=='w' && st.blockStep<4)fail("end condition rows unfinished");
+        ++st.blockStep;return true;
+    case 'D':
+        between();if(st.dtLive || reg(2)!=field(0x35dee8))fail("timestep reload");st.dt=reg(2);st.dtLive=true;return true;
+    case 'G':
+        between();if(address()!=st.emitter+0xc0)fail("drift reload");st.drift=vuWords(rt,address());return true;
+    case 'f':between();for(unsigned i=0;i<3;++i)st.offset[i]=0;st.offsetSet=true;return true;
+    case 'J':between();if(address()!=reg(29)+0x1e0)fail("jitter source");st.jitter=vuWords(rt,address());st.jitterSet=true;return true;
+    case 'Z':between();st.jitter=VuWords{};st.jitterSet=true;return true;
+    case 'L':{
+        constexpr uint32_t offsets[7]={0x10,0x30,0x40,0x50,0x20,0x60,0x70};
+        if(site->param==0){
+            between();if(!st.offsetSet || !st.jitterSet || !st.dtLive)fail("particle loads before its offset, jitter or timestep");
+            st.offsetSet=st.jitterSet=false;st.record=reg(17);
+            if(st.record!=field(st.emitter+0x14)+reg(19)*0x170)fail("particle record");
+            st.phase=1;st.loads=0;st.main=0;st.stored=0;st.output=0;}
+        else if(st.phase!=1 || st.loads!=site->param)fail("particle load order");
+        if(address()!=st.record+offsets[site->param])fail("particle field address");
+        VuWords *targets[7]={&st.p,&st.v,&st.acc,&st.a,&st.colour,&st.rate,&st.change};*targets[site->param]=vuWords(rt,address());
+        if(site->param==0)st.vf1=st.p;
+        if(++st.loads==7)st.phase=2;return true;}
+    case 'H':
+        if(st.phase!=2 || st.block || address()!=reg(29)+0x260)fail("parent push order");st.push=vuWords(rt,address());return true;
+    case 'e':
+        if(st.phase!=2 || st.block || address()!=field(st.emitter+0x68)+reg(5)*16)fail("curve row");
+        st.row=vuWords(rt,address());st.block='e';st.blockStep=1;return true;
+    case 'F':
+        if(st.block!='e' || st.blockStep!=1 || reg(2)!=std::bit_cast<uint32_t>(c->f[1]))fail("curve fraction");st.fraction=reg(2);st.blockStep=2;return true;
+    case 'E':
+        if(st.block!='e' || st.blockStep!=3)fail("curve order");
+        for(unsigned i=0;i<3;++i)st.p[i]=vuAdd(vuAdd(st.p[i],0),vuMul(st.row[i],st.fraction));
+        st.vf1=st.p;st.block=0;return true;
+    case 'k':
+        if(st.block || (site->param==0?st.phase!=2:(st.phase!=3 || st.main!=site->param)))fail("main step order");
+        if(site->param==0){
+            if(!st.dtLive)fail("main step without the timestep");
+            const auto dt=st.dt;
+            for(unsigned i=0;i<3;++i){
+                st.P[i]=vuAdd(vuAdd(vuAdd(vuAdd(st.p[i],0),vuMul(st.offset[i],one)),vuMul(st.drift[i],one)),vuMul(st.v[i],dt));
+                st.A[i]=vuAdd(vuAdd(vuAdd(st.a[i],0),vuMul(st.offset[i],one)),vuMul(st.v[i],dt));}
+            VuWords acc=st.acc;for(unsigned i=0;i<3;++i)acc[i]=vuAdd(vuAdd(st.acc[i],0),vuMul(st.gravity[i],dt));
+            for(unsigned i=0;i<3;++i)st.V[i]=vuAdd(vuAdd(vuAdd(st.v[i],0),vuMul(st.push[i],dt)),vuMul(acc[i],dt));
+            st.P[3]=st.p[3];st.A[3]=vuAdd(st.a[3],dt);st.V[3]=vuSub(st.v[3],dt);st.ACC=acc;
+            for(unsigned i=0;i<4;++i){
+                st.C[i]=bozo::ps2f::min(bozo::ps2f::max(vuAdd(vuAdd(vuAdd(st.colour[i],0),vuMul(st.jitter[i],one)),vuMul(st.rate[i],dt)),0),st.clamp[0]);
+                st.R[i]=vuAdd(vuMul(st.rate[i],one),vuMul(st.change[i],dt));}
+            VuWords vf1=st.vf1.value_or(st.p);for(unsigned i=0;i<3;++i)vf1[i]=st.P[i];st.vf1=vf1;
+            st.phase=3;st.main=0;}
+        if(word==0x4bc1d6af)include(st.P);
+        if(++st.main==23)st.phase=4;return true;
+    case 'O':
+        if(st.phase!=4 || st.output || address()!=reg(23))fail("output order");st.output=address();put(st.output,st.P);return true;
+    case 'V':
+        if(st.phase!=4 || !st.output || st.stored || address()!=st.record+0x30)fail("early velocity store");put(address(),st.V);return true;
+    case 'C':
+        if(st.phase!=4 || !st.output || st.stored || address()!=reg(29)+0x260)fail("collision push order");st.hit=vuWords(rt,address());st.block='c';return true;
+    case 'P':
+        if(st.block!='c' || address()!=reg(29)+0x250)fail("collision point order");st.P=vuWords(rt,address());st.vf1=st.P;st.block='C';return true;
+    case 'A':
+        if(st.block!='C')fail("collision velocity order");for(unsigned i=0;i<3;++i)st.V[i]=vuAdd(st.V[i],st.hit[i]);st.block=0;return true;
+    case 'R':{
+        if(st.phase!=4 || !st.output || st.block || st.stored!=site->param)fail("record store order");
+        const uint32_t at=site->param?st.record+std::array<uint32_t,7>{0,0x50,0x10,0x30,0x40,0x20,0x60}[site->param]:st.output+0x10;
+        if(address()!=at)fail("record store address");
+        const VuWords *sources[7]={&st.C,&st.A,&st.P,&st.V,&st.ACC,&st.C,&st.R};put(at,*sources[site->param]);
+        if(++st.stored==7){st.phase=5;st.trail=0;}return true;}
+    case 'h':
+        if(st.phase!=5 || st.trail || address()!=st.output)fail("trail head order");
+        {VuWords head=vuWords(rt,address());st.vf1=head;st.prev=st.anchor=head;}
+        st.trail=site->param;st.trailStep=1;return true;
+    case 'n':
+        if(st.phase!=5 || st.trail!=site->param || st.trailStep!=1 || reg(2)!=field(st.emitter+0x54))fail("trail length");st.length=reg(2);st.trailStep=2;return true;
+    case 't':
+        if(st.phase!=5 || st.trail!=site->param || st.trailStep!=2)fail("trail anchor order");st.trailStep=0;st.trailIndex=0;return true;
+    case 'p':{
+        const unsigned last=site->param==2?16:site->param==1?15:8;
+        if(st.phase!=5 || st.trail!=site->param || (st.trailStep!=0 && st.trailStep!=last) || reg(3)!=st.trailIndex+1)fail("trail point order");
+        if(address()!=st.output+reg(3)*0x30)fail("trail point address");
+        const auto next=vuWords(rt,address());VuWords delta{},direction{};
+        for(unsigned i=0;i<4;++i)delta[i]=vuSub(next[i],st.prev[i]);st.prev=next;st.vf1=next;
+        if(site->param!=3){uint32_t flags=0;const auto root=bozo::ps2f::rsqrt(one,sumSquares(delta),flags);
+            for(unsigned i=0;i<3;++i)direction[i]=vuMul(delta[i],root);}
+        for(unsigned i=0;i<3;++i){
+            const auto start=vuAdd(st.anchor[i],0);
+            st.anchor[i]=site->param==2?vuAdd(vuAdd(start,vuMul(delta[i],one)),vuMul(direction[i],st.length)):
+                         site->param==1?vuAdd(start,vuMul(direction[i],st.length)):vuAdd(start,vuMul(delta[i],st.length));}
+        if(site->param==2)for(unsigned i=0;i<3;++i)st.drift[i]=direction[i];   // vf8 (MULq.xyz)
+        st.next=address();st.trailIndex=reg(3);st.trailStep=1;return true;}
+    case 'i':case 'a':case 'b':
+        if(st.phase!=5 || !st.trail || st.trailStep!=site->param)fail("trail step order");
+        if(site->role=='a'){if(address()!=st.next)fail("trail store address");put(address(),st.anchor);}
+        if(site->role=='b' && word==0x4bc4d6af)include(st.anchor);
+        ++st.trailStep;return true;
+    }
+    return false;
+}
 // VU0 program 0x2d0 (mode 0): in-place 4x4 Gauss-Jordan inverse of rows
 // vf1..vf4, no row swaps. Each pivot is first clamped away from zero by the
 // sign of a CLIP test against |0|: negative -> min(p, c.x), else max(p, c.y),
@@ -5989,7 +6217,7 @@ bool nativeMathInstruction(uint8_t *,R5900Context *c,Runtime *rt,uint32_t pc){
     default:
         // Inlined-block recognisers last: they read code around the PC, so
         // only sites no specific handler claimed pay for that scan.
-        return nativeParticleStep(c,rt,pc) || nativeParticleBox(c,rt,pc) || nativeTrailEmitter(c,rt,pc) || nativeConstantStore(c,rt,pc) || nativeLengthIdiom(c,rt,pc) || nativeMacroIdiom(c,rt,pc) || nativeInverseIdiom(c,rt,pc) || nativeQuaternionIdiom(c,rt,pc);
+        return nativeParticleStep(c,rt,pc) || nativeParticleBox(c,rt,pc) || nativeTrailEmitter(c,rt,pc) || nativeProgramEmitter(c,rt,pc) || nativeConstantStore(c,rt,pc) || nativeLengthIdiom(c,rt,pc) || nativeMacroIdiom(c,rt,pc) || nativeInverseIdiom(c,rt,pc) || nativeQuaternionIdiom(c,rt,pc);
     }
 }
 // Save states: the marker projection rows kept between their loads and the

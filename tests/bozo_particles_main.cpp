@@ -399,6 +399,92 @@ int main(){try{
         m.r[2].uw[0]=read<uint32_t>(y,0x35dee8);check(vp2s::nativeMathInstruction(y.memory.flat(),&m,&y,0x40ba48));
         m.r[2].uw[0]=S2+0x160;refused=false;try{vp2s::nativeMathInstruction(y.memory.flat(),&m,&y,0x40ba50);}catch(const std::runtime_error &){refused=true;}check(refused);   // drift not +c0
         std::printf("%u orbit emitter particles (%u trail points, six modes, three trail kinds, curves) match the VU0 reference\n",orbitCases,orbitPoints);}
+        // mod001 2451d0 + 2439f0, the general emitter (class 154810): prepare's constant registers,
+        // then per particle of 0x170 bytes the end-condition ops (|A|^2, row transforms with the
+        // dt/drift reloads), offset, jitter, loads, parent push, curves, the main step, output,
+        // collision, stores and the three trail kinds (kind 2's last direction becomes the next
+        // particle's drift), against the same VU0 reference.
+        {const std::pair<uint32_t,uint32_t> program[]={
+            {0x2447e4,0xd8440000},{0x2447e8,0x4bc007c3},{0x2447ec,0x4bc4206a},{0x2447f0,0x4b01083d},{0x2447f4,0x4b01f84a},{0x2447fc,0xf8410000},{0x2448d8,0xda050000},{0x2448dc,0xd8610000},
+            {0x2448e0,0xd8620010},{0x2448e4,0xd8630020},{0x2448e8,0xd8640030},{0x2448ec,0x4be509bc},{0x2448f0,0x4be510bd},{0x2448f4,0x4be518be},{0x2448f8,0x4be0214b},{0x2448fc,0xf8450000},
+            {0x244940,0x48a22800},{0x24494c,0xd8480000},{0x244958,0xda050000},{0x24495c,0xd8610000},{0x244960,0xd8620010},{0x244964,0xd8630020},{0x244968,0xd8640030},{0x24496c,0x4be509bc},
+            {0x244970,0x4be510bd},{0x244974,0x4be518be},{0x244978,0x4be0214b},{0x24497c,0xf8450000},{0x2449a8,0x48a22800},{0x2449b4,0xd8480000},{0x244b50,0x4bcf033c},{0x244c58,0xd8500000},
+            {0x244ce0,0x4be00418},{0x244ce8,0xda010000},{0x244cec,0xdbc20000},{0x244cf4,0xd8430000},{0x244cfc,0xd8440000},{0x244d04,0xd8460000},{0x244d0c,0xdac70000},{0x244d14,0xdab40000},
+            {0x244d44,0xd8510000},{0x244dd0,0xd8550000},{0x244ddc,0x48a2b000},{0x244de0,0x4bc00abc},{0x244de4,0x4bd6a848},{0x244e1c,0x4bc00abc},{0x244e20,0x4bc078bf},{0x244e24,0x4bc040bf},
+            {0x244e28,0x4bc51048},{0x244e2c,0x4bfe32bc},{0x244e30,0x4be080bf},{0x244e34,0x4be53988},{0x244e38,0x4bc01abc},{0x244e3c,0x4bc590c8},{0x244e40,0x4bc022bc},{0x244e44,0x4bc078bf},
+            {0x244e48,0x4bc51108},{0x244e4c,0x4bc012bc},{0x244e50,0x4bc588bc},{0x244e54,0x4bc51888},{0x244e58,0x4a251084},{0x244e5c,0x4be03190},{0x244e60,0x4a252100},{0x244e64,0x4be039bf},
+            {0x244e68,0x4be5a1c8},{0x244e6c,0x4bc1d6af},{0x244e70,0x4bfd3194},{0x244e74,0x4bc1deeb},{0x244e7c,0xfae10000},{0x244e8c,0xfbc20000},{0x244ecc,0xd84b0000},{0x244ed4,0xd8410000},
+            {0x244ee0,0x4bcb10a8},{0x244ee8,0xfae60010},{0x244ef0,0xf8440000},{0x244ef4,0xfa010000},{0x244ef8,0xfbc20000},{0x244f00,0xf8430000},{0x244f08,0xf8460000},{0x244f0c,0xfac70000},
+            {0x244f68,0xd8810000},{0x244f78,0x48a21800},{0x244f7c,0x4be40b3c},{0x244f98,0xd8420000},{0x244f9c,0x4be111ac},{0x244fa0,0x4be1133c},{0x244fa4,0x4bc007c3},{0x244fa8,0x4bc631ea},
+            {0x244fac,0x4b07383d},{0x244fb0,0x4b07f9ca},{0x244fb4,0x4a6703be},{0x244fb8,0x4a0003bf},{0x244fbc,0x4bc0321c},{0x244fc0,0x4bc022bc},{0x244fc4,0x4bc030bf},{0x244fc8,0x4bc34108},
+            {0x244fcc,0xf8440000},{0x244fd0,0x4bc4d6af},{0x244fd4,0x4bc4deeb},{0x245008,0xd8810000},{0x245018,0x48a21800},{0x24501c,0x4be40b3c},{0x245038,0xd8420000},{0x24503c,0x4be111ac},
+            {0x245040,0x4be1133c},{0x245044,0x4bc007c3},{0x245048,0x4bc631ea},{0x24504c,0x4b07383d},{0x245050,0x4b07f9ca},{0x245054,0x4a6703be},{0x245058,0x4a0003bf},{0x24505c,0x4bc0319c},
+            {0x245060,0x4bc022bc},{0x245064,0x4bc33108},{0x245068,0xf8440000},{0x24506c,0x4bc4d6af},{0x245070,0x4bc4deeb},{0x2450ac,0xd8810000},{0x2450bc,0x48a21800},{0x2450c0,0x4be40b3c},
+            {0x2450e0,0xd8420000},{0x2450e4,0x4be111ac},{0x2450e8,0x4be1133c},{0x2450ec,0x4bc022bc},{0x2450f0,0x4bc33108},{0x2450f4,0xf8440000},{0x2450f8,0x4bc4d6af},{0x2450fc,0x4bc4deeb},
+            {0x245240,0xd8720000},{0x245248,0x4bd2033c},{0x245250,0x4bd1033c},{0x245264,0x48a32800},{0x24526c,0xd8680000},{0x2452a8,0x4be00798},{0x2452b0,0xd87d0000}
+        };
+        for(const auto &[pc,w]:program){write(y,pc,w);write(x,pc,w);}
+        const uint32_t P0=frame-0x40,S3=frame-0x270,PARENT=0x1e0000;unsigned programCases=0,programPoints=0;
+        const auto both=[&](uint32_t at,uint32_t v){write(y,at,v);write(x,at,v);};
+        for(unsigned seed=0;seed<96;++seed){
+            uint32_t state=seed*2246822519u+29;const auto rnd=[&](){state=state*1664525u+1013904223u;return state>>8;};
+            const auto value=[&](unsigned lo=105,unsigned span=40){return (rnd()&0x807fffffu)|((lo+rnd()%span)<<23);};
+            const auto vec=[&](uint32_t at){for(unsigned i=0;i<4;++i)both(at+4*i,value());};
+            const uint32_t dt=value(118,6)&0x7fffffffu;both(0x35dee8,dt);vec(E+0xc0);both(E+0x54,value(122,6));
+            both(E+0x14,B);both(E+0x68,T);both(E+0xf8,seed&1?PARENT:0);vec(PARENT+0x10);
+            for(unsigned i=0;i<4;++i)vec(E+0x80+16*i);for(unsigned i=0;i<16;++i)vec(T+16*i);
+            for(uint32_t at=B;at<B+0x170*10;at+=16)vec(at);for(uint32_t at=O;at<O+0x30*8;at+=16)vec(at);
+            const auto random=[&](unsigned r,uint32_t low){m.r[r].uw[0]=low;for(unsigned i=1;i<4;++i)m.r[r].uw[i]=rnd();};
+            m=R5900Context{};m.r[29].uw[0]=P0;m.r[16].uw[0]=E;
+            if(seed&1){m.r[3].uw[0]=PARENT+0x10;run(0x245240);}else run(0x245248);
+            run(0x245250);random(3,dt);run(0x245264);m.r[3].uw[0]=E+0xc0;run(0x24526c);run(0x2452a8);
+            for(unsigned i=0;i<4;++i)both(P0+0x30+4*i,0x437f0000u);m.r[3].uw[0]=P0+0x30;run(0x2452b0);
+            m=R5900Context{};m.r[29].uw[0]=S3;m.r[20].uw[0]=E;
+            const unsigned trail=seed%4,rows=(seed/4)%3,n=2+seed%3;
+            for(unsigned k=0;k<2;++k){
+                const unsigned index=seed%5+3*k,ops=(seed/2+k)%4;const uint32_t rec=B+index*0x170,out=O+k*0x30*4;
+                m.r[19].uw[0]=index;m.r[17].uw[0]=rec;m.r[16].uw[0]=rec+0x10;m.r[30].uw[0]=rec+0x30;
+                if(ops==1){m.r[2].uw[0]=rec+0x50;for(uint32_t pc=0x2447e4;pc<=0x2447f4;pc+=4)run(pc);m.r[2].uw[0]=S3+0x210;run(0x2447fc);}
+                if(ops==2 || ops==3){const uint32_t base=ops==2?0x2448d8:0x244958,store=ops==2?0x200:0x1f0,reload=ops==2?0x244940:0x2449a8;
+                    m.r[3].uw[0]=E+0x80;for(uint32_t pc=base;pc<base+0x24;pc+=4)run(pc);m.r[2].uw[0]=S3+store;run(base+0x24);
+                    random(2,dt);run(reload);m.r[2].uw[0]=E+0xc0;run(reload+0xc);}
+                run(0x244b50);
+                if(seed%3==0){vec(S3+0x1e0);m.r[2].uw[0]=S3+0x1e0;run(0x244c58);}else run(0x244ce0);
+                run(0x244ce8);run(0x244cec);m.r[2].uw[0]=rec+0x40;run(0x244cf4);m.r[2].uw[0]=rec+0x50;run(0x244cfc);m.r[2].uw[0]=rec+0x20;run(0x244d04);
+                m.r[22].uw[0]=rec+0x60;run(0x244d0c);m.r[21].uw[0]=rec+0x70;run(0x244d14);
+                if(seed&2){vec(S3+0x260);m.r[2].uw[0]=S3+0x260;run(0x244d44);}
+                for(unsigned j=0;j<rows;++j){const unsigned a1=j+seed%5;m.r[5].uw[0]=a1;m.r[2].uw[0]=T+16*a1;run(0x244dd0);
+                    const auto fraction=value(115,8)&0x7fffffffu;m.f[1]=std::bit_cast<float>(fraction);random(2,fraction);run(0x244ddc);run(0x244de0);run(0x244de4);}
+                for(uint32_t pc=0x244e1c;pc<=0x244e74;pc+=4)run(pc);
+                m.r[23].uw[0]=out;run(0x244e7c);
+                if(seed%4==3 || (seed%7==2 && k)){run(0x244e8c);vec(S3+0x260);vec(S3+0x250);m.r[2].uw[0]=S3+0x260;run(0x244ecc);m.r[2].uw[0]=S3+0x250;run(0x244ed4);run(0x244ee0);}
+                run(0x244ee8);m.r[2].uw[0]=rec+0x50;run(0x244ef0);run(0x244ef4);run(0x244ef8);m.r[2].uw[0]=rec+0x40;run(0x244f00);m.r[2].uw[0]=rec+0x20;run(0x244f08);run(0x244f0c);
+                if(trail){
+                    const uint32_t head=trail==2?0x244f68:trail==1?0x245008:0x2450ac,first=trail==2?0x244f98:trail==1?0x245038:0x2450e0,last=trail==2?0x244fd4:trail==1?0x245070:0x2450fc;
+                    m.r[4].uw[0]=out;run(head);random(2,read<uint32_t>(y,E+0x54));run(head+0x10);run(head+0x14);
+                    for(unsigned i=1;i<n;++i){m.r[3].uw[0]=i;m.r[2].uw[0]=out+i*0x30;for(uint32_t pc=first;pc<=last;pc+=4)run(pc);++programPoints;}
+                }
+            }
+            check(!std::memcmp(x.memory.hostPointer(B,0x170*10),y.memory.hostPointer(B,0x170*10),0x170*10));
+            check(!std::memcmp(x.memory.hostPointer(O,0x30*8),y.memory.hostPointer(O,0x30*8),0x30*8));
+            check(!std::memcmp(x.memory.hostPointer(S3+0x1f0,0x20),y.memory.hostPointer(S3+0x1f0,0x20),0x20));
+            check(!std::memcmp(x.memory.hostPointer(S3+0x210,12),y.memory.hostPointer(S3+0x210,12),12));   // .w of the |A|^2 store is never read
+            const auto box=now.particles.bounds(frame,E);
+            for(unsigned i=0;i<3;++i)check(std::bit_cast<uint32_t>(box.minimum[i])==o.vu0_vf[26].u[i] && std::bit_cast<uint32_t>(box.maximum[i])==o.vu0_vf[27].u[i]);
+            programCases+=2;
+        }
+        // A main site before the loads, a step without its prepare frame, a wrong record and another word reject.
+        m=R5900Context{};m.r[29].uw[0]=S3;m.r[20].uw[0]=E;
+        bool refused=false;try{vp2s::nativeMathInstruction(y.memory.flat(),&m,&y,0x244e1c);}catch(const std::runtime_error &){refused=true;}check(refused);
+        refused=false;try{vp2s::nativeMathInstruction(y.memory.flat(),&m,&y,0x244b50);}catch(const std::runtime_error &){refused=true;}check(refused);   // state reset: no prepare
+        m.r[29].uw[0]=P0;m.r[16].uw[0]=E;both(E+0xf8,0);check(vp2s::nativeMathInstruction(y.memory.flat(),&m,&y,0x245248) && vp2s::nativeMathInstruction(y.memory.flat(),&m,&y,0x245250));
+        m.r[3].uw[0]=read<uint32_t>(y,0x35dee8);check(vp2s::nativeMathInstruction(y.memory.flat(),&m,&y,0x245264));m.r[3].uw[0]=E+0xc0;
+        check(vp2s::nativeMathInstruction(y.memory.flat(),&m,&y,0x24526c) && vp2s::nativeMathInstruction(y.memory.flat(),&m,&y,0x2452a8));m.r[3].uw[0]=P0+0x30;
+        check(vp2s::nativeMathInstruction(y.memory.flat(),&m,&y,0x2452b0));
+        m.r[29].uw[0]=S3;m.r[20].uw[0]=E;check(vp2s::nativeMathInstruction(y.memory.flat(),&m,&y,0x244b50) && vp2s::nativeMathInstruction(y.memory.flat(),&m,&y,0x244ce0));
+        m.r[19].uw[0]=2;m.r[17].uw[0]=B+0x170;m.r[16].uw[0]=B+0x180;refused=false;try{vp2s::nativeMathInstruction(y.memory.flat(),&m,&y,0x244ce8);}catch(const std::runtime_error &){refused=true;}check(refused);
+        write(y,0x244e1c,uint32_t(0));check(!vp2s::nativeMathInstruction(y.memory.flat(),&m,&y,0x244e1c));
+        std::printf("%u general emitter particles (%u trail points, end conditions, jitter, push, curves, collision, three trail kinds) match the VU0 reference\n",programCases,programPoints);}
         now.particles=vp2s::NativeParticles{};
     }
     {auto &rt=b.runtime();initialize(rt,0);now.particles=vp2s::NativeParticles{};now.assets=vp2s::NativeAssets{};

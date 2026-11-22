@@ -12,6 +12,48 @@ The earlier VP2S face/shading and general brightness comparisons remain open.
 
 ## Build and evidence
 
+### Battle general particle emitter 154810 (2026-11-22)
+
+The attack's general emitter (class `154810`) runs two methods every frame:
+- prepare mod001 `2451d0` (its +c, called from the driver at `22ec84`), which loads the
+  step's constant registers: gravity ((+f8)+10, or 0), parent push 0, dt (`35dee8`),
+  drift (+c0), zero, and the colour clamp 255;
+- step `2439f0` (its +18, called from `22ed30`), which walks the live particles of
+  0x170 bytes.
+
+For each particle, the step does the following:
+1. Program end conditions. It computes |A|^2 to sp+210, or the emitter's rows times the
+   position to sp+200/1f0. That transform reuses vf5, so dt and the drift are reloaded
+   after it.
+2. Offset 0. The orbit at +108 is not ported and stays a boundary.
+3. Jitter, from sp+1e0 (+132 = 1, random draws) or 0. The spin (+132 = 2) is not ported.
+4. Loads, then the parent push (sp+260) and the curve rows.
+5. The trail emitter's main step:
+   - with jitter in the colour, gravity in the acceleration, and the push in the velocity;
+   - an optional collision (P = sp+250, V += sp+260);
+   - output, then the seven stores.
+6. Trail kinds 2, 1 and 3. Kind 2 leaves its last direction in vf8, which becomes the
+   next particle's drift unless an end condition reloads it. The native code keeps that
+   carry-over.
+
+The step's random draws (program opcodes 0x20..0x29 and the jitter) are 33 RNEXT/QMFC2.I
+pairs. Each target register is read only by an mtc1.
+- **Native:**
+  - `nativeProgramEmitter` covers all 135 VU0 sites, word-checked. Its state lives per
+    runtime. The steps are checked against the prepared emitter and the driver frame
+    (sp+40 / sp+270), and P and the trail anchors join the driver's box.
+  - `nativeRandomNext` lists the 33 draw sites.
+- **Test:** `vp2s-bozo-particles-check` runs 192 particles (288 trail points) against the
+  VU0 reference. They cover:
+  - end conditions, jitter, push and curves;
+  - collision and the three trail kinds;
+  - order, record and word rejections.
+- **Evidence:** the scripted 72000-frame attack run (`attack2.txt`) passes the prepare at
+  frame 65538, where it used to stop at `245248`.
+- **Not checked:** the step itself in game. The next boundary is the same emitter's +10
+  method `23f3f0` (site `23f47c`, called at `22ecec`), which runs before the step at `22ed30`.
+  So far only the unit test exercises the step.
+
 ### Battle trail element 1730d0 (2026-11-22)
 
 The attack's trail element (class `1730d0`) has the +10 method mod028 `4a83e0(e, mesh

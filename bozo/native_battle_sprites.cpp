@@ -120,11 +120,14 @@ void NativeBattleSprites::strip(Runtime *rt,const Strip &p){
     if(textured){
         // ST: from the image record (corners (u0,v0), (u1,v0), (u0,v1), (u1,v1) of its four
         // halfwords, 0x397fffd5 * texel) unless bit 2 is set or there is none: then the
-        // descriptor's corner floats (s, t per corner), admitted as an axis-aligned rectangle.
+        // descriptor's corner floats (s, t per corner, Q = 1), one per strip corner as written.
+        // An axis-aligned rectangle keeps the sprite form; any other set (e.g. a gauge's
+        // triangular tip, corner 3 repeating corner 2) is drawn with its corners' own ST.
         if(p.image && !(p.mode&2))s.uv=nativeBattleSpriteTexels({value<uint16_t>(rt,p.image),value<uint16_t>(rt,p.image+2),value<uint16_t>(rt,p.image+4),value<uint16_t>(rt,p.image+6)});
         else{float st[4][2];for(unsigned i=0;i<4;++i)for(unsigned j=0;j<2;++j)st[i][j]=value<float>(rt,p.st+8*i+4*j);
-            if(st[0][0]!=st[2][0] || st[1][0]!=st[3][0] || st[0][1]!=st[1][1] || st[2][1]!=st[3][1])
-                throw std::runtime_error(std::format("unported native battle polygon with free corner ST (object {:x})",p.object));
+            for(const auto &c:st)for(float f:c)if((std::bit_cast<uint32_t>(f)&0x7f800000)==0x7f800000)throw std::runtime_error("nonfinite native battle polygon ST");
+            if(st[0][0]!=st[2][0] || st[1][0]!=st[3][0] || st[0][1]!=st[1][1] || st[2][1]!=st[3][1]){
+                s.freeUv=true;for(unsigned i=0;i<4;++i)s.cornerUv[i]={st[i][0],st[i][1]};}
             s.uv={st[0][0],st[0][1],st[3][0],st[3][1]};}
         for(float f:s.uv)if((std::bit_cast<uint32_t>(f)&0x7f800000)==0x7f800000)throw std::runtime_error("nonfinite native battle polygon ST");
     }
@@ -153,6 +156,43 @@ void NativeBattleSprites::polygon(Runtime *rt,const R5900Context *c){
         p.corners[i]={x*16,y*16};}
     if(p.triangle)p.corners[3]=p.corners[2];
     strip(rt,p);
+}
+void NativeBattleSprites::rotatedPolygon(Runtime *rt,const R5900Context *c){
+    // 42ebd8, 42df80's common exit (s6 object, s5 descriptor, s4 corner count, s0 mode, s3 the
+    // packet's end). A descriptor rotation +3c that the EE does not compare equal to zero (any
+    // exponent: denormals compare as zero) takes 42e570: its corners are rotated by 42d8a0 and
+    // converted to screen pixels while the strip is written, so the strip is read back here in
+    // the layout of its header (see strip): per corner XYZ2 = 16 x | 16 y << 16 | z << 32.
+    // The native strip is rebuilt from those corners and must give the colours and ST the
+    // game wrote.
+    const auto desc=c->r[21].uw[0],count=c->r[20].uw[0],mode=c->r[16].uw[0]&0xff,end=c->r[19].uw[0];
+    if((value<uint32_t>(rt,desc+0x3c)&0x7f800000)==0)return;   // unrotated: recorded at 42e144
+    const auto object=c->r[22].uw[0],writer=buildWriter(rt,object);
+    if(value<uint8_t>(rt,desc+0x78)!=mode)throw std::runtime_error(std::format("native battle polygon mode differs from its descriptor (object {:x})",object));
+    if(count!=4 && count!=3)throw std::runtime_error(std::format("unported native battle rotated polygon with {} corners (object {:x})",count,object));
+    const bool gouraud=mode&4,textured=mode&8,triangle=count==3;
+    const uint32_t data=value<uint32_t>(rt,writer+8)+0x18;
+    // Byte offsets of each corner's RGBAQ / ST / XYZ2 after the header, and the packet's size.
+    const uint32_t stride=textured?(gouraud?24:16):(gouraud?16:8),lead=gouraud?0:8;
+    const auto colourAt=[&](unsigned i){return data+(gouraud?stride*i:0);};
+    const auto xyzAt=[&](unsigned i){return data+lead+stride*i+(gouraud?8:0)+(textured?8:0);};
+    const auto stAt=[&](unsigned i){return data+lead+stride*i+(gouraud?8:0);};
+    const uint32_t bytes=lead+stride*count+(gouraud || triangle?8:0);   // Gouraud and triangle forms end with a NOP
+    if((end&0x1ffffff)!=((data+bytes)&0x1ffffff))throw std::runtime_error(std::format("native battle rotated polygon packet size differs from its mode (object {:x})",object));
+    Strip p{.object=object,.desc=desc,.mode=mode,.data=data,.z=value<uint32_t>(rt,desc+0x74),.colours=desc+0x40,.st=desc+0x50,.image=value<uint32_t>(rt,desc+0x70),.triangle=triangle};
+    for(unsigned i=0;i<count;++i){const auto xyz=value<uint64_t>(rt,xyzAt(i));
+        if(uint32_t(xyz>>32)!=(p.z&0xffffffffu))throw std::runtime_error("native battle rotated polygon depth differs from its descriptor");
+        p.corners[i]={int32_t(xyz&0xffff),int32_t((xyz>>16)&0xffff)};}
+    if(triangle)p.corners[3]=p.corners[2];
+    strip(rt,p);
+    const auto &s=builds.at(writer).sprites.back();
+    for(unsigned i=0;i<count;++i){
+        const auto colour=value<uint32_t>(rt,colourAt(i));
+        if(colour!=(gouraud?s.cornerColours[i]:s.colour))throw std::runtime_error(std::format("native battle rotated polygon colour differs from the game's (object {:x})",object));
+        if(textured){const float u=value<float>(rt,stAt(i)),v=value<float>(rt,stAt(i)+4);
+            const float eu=s.freeUv?s.cornerUv[i][0]:s.uv[i&1?2:0],ev=s.freeUv?s.cornerUv[i][1]:s.uv[i>=2?3:1];
+            if(std::bit_cast<uint32_t>(u)!=std::bit_cast<uint32_t>(eu) || std::bit_cast<uint32_t>(v)!=std::bit_cast<uint32_t>(ev))
+                throw std::runtime_error(std::format("native battle rotated polygon ST differs from the game's (object {:x})",object));}}
 }
 void NativeBattleSprites::band(Runtime *rt,const R5900Context *c){
     // 383cb0(object, index) draws a band of two rows of four points as three alpha-blended
@@ -273,7 +313,7 @@ void NativeBattleSprites::serializeBlends(bozo::state::Archive &a){
 std::optional<bool> nativeBattleSpriteInstruction(R5900Context *c,Runtime *rt,uint32_t pc){
     static constexpr uint32_t pairSites[]={0x4bcd40,0x4bde08,0x4d0c34,0x4d1734,0x4d99ac,0x4ecf0c,0x4ef498,0x4f0f20,0x4f268c,0x4f2874,0x4fa19c,0x4fdcc0,0x503d50};
     const bool pairSite=std::find(std::begin(pairSites),std::end(pairSites),pc)!=std::end(pairSites);
-    if(pc!=0x120860 && pc!=0x120c30 && !pairSite && pc!=0x3cd468 && pc!=0x3cd3c8 && pc!=0x3cd4a0 && pc!=0x42ddd8 && pc!=0x42e144 && pc!=0x42efe0 && pc!=0x3843a0 && pc!=0x42d4f0 && pc!=0x42d4f4 && pc!=0x120f4c && pc!=0x120f58)return std::nullopt;
+    if(pc!=0x120860 && pc!=0x120c30 && !pairSite && pc!=0x3cd468 && pc!=0x3cd3c8 && pc!=0x3cd4a0 && pc!=0x42ddd8 && pc!=0x42e144 && pc!=0x42ebd8 && pc!=0x42efe0 && pc!=0x3843a0 && pc!=0x42d4f0 && pc!=0x42d4f4 && pc!=0x120f4c && pc!=0x120f58)return std::nullopt;
     auto *d=rt?dynamic_cast<bozo::ee::Dispatcher *>(rt->services):nullptr;
     auto *owner=d?dynamic_cast<BattleSpriteOwner *>(&d->host()):nullptr;
     if(!owner || !c){if(pc==0x120860 || pc==0x120c30 || pc==0x120f4c || pc==0x120f58)return std::nullopt;throw std::runtime_error("native battle sprites require an owner");}
@@ -336,7 +376,7 @@ std::optional<bool> nativeBattleSpriteInstruction(R5900Context *c,Runtime *rt,ui
         if(!code(rt,0x42db50,0x42df80,0x2b4a98f8aa26ef0full) || value<uint64_t>(rt,0x50d450)!=0x6400000000000001ull || value<uint64_t>(rt,0x50d458)!=0x525210ull)
             throw std::runtime_error("native battle sprite writer differs from the USA one");
         sprites.sprite(rt,c);
-    }else if(pc==0x42e144 || pc==0x42efe0){
+    }else if(pc==0x42e144 || pc==0x42ebd8 || pc==0x42efe0){
         // Triangles: 42fec0 writes their header (50d420 / 50d430) and calls 42df80 with 3 corners.
         if(pc==0x42e144 && c->r[20].uw[0]==3 && (!code(rt,0x42fec0,0x42ffe8,0xee6b3c0b773a0526ull) ||
            value<uint64_t>(rt,0x50d420)!=0x6400000000000001ull || value<uint64_t>(rt,0x50d428)!=0xf55510ull ||
@@ -351,7 +391,7 @@ std::optional<bool> nativeBattleSpriteInstruction(R5900Context *c,Runtime *rt,ui
            value<uint64_t>(rt,0x50d460)!=0xa400000000000001ull || value<uint64_t>(rt,0x50d468)!=0x5252525210ull ||
            value<uint64_t>(rt,0x50d480)!=0xe400000000000001ull || value<uint64_t>(rt,0x50d488)!=0xf5215215215210ull)
             throw std::runtime_error("native battle polygon writer differs from the USA one");
-        if(pc==0x42e144)sprites.polygon(rt,c);else sprites.rectangle(rt,c);
+        if(pc==0x42e144)sprites.polygon(rt,c);else if(pc==0x42ebd8)sprites.rotatedPolygon(rt,c);else sprites.rectangle(rt,c);
     }else if(pc==0x3843a0){
         if(!code(rt,0x383cb0,0x3843f8,0x23a73ec964306dc5ull))throw std::runtime_error("native battle band writer differs from the USA one");
         sprites.band(rt,c);

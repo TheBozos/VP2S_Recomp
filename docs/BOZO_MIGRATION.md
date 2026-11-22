@@ -12,6 +12,42 @@ The earlier VP2S face/shading and general brightness comparisons remain open.
 
 ## Build and evidence
 
+### Battle polygon with per-corner ST (42df80 at 42e144) (2026-11-22)
+
+A new pad scenario reaches the second attack turn. In `bt6/attack4.txt`, Alicia walks DOWN back
+toward the rhino after frame 69210, where the old script walked her into the map edge. On that
+turn the battle UI object `f384f0` (class `174ee0`) draws a textured 4-corner strip:
+- mode 8, no image record, so the descriptor's corner floats supply the ST;
+- tag `50d460`, PRIM 254;
+- the ST is not an axis-aligned rectangle;
+- corner 3 repeats corner 2, so the strip is really a triangle (a gauge tip):
+  - ST (.02734, .02734), (.21641, .02734), (.02734, .07617) ×2;
+  - corners (1914, 1999), (1941, 1999), (1914, 2006) ×2.
+
+The native polygon used to refuse any non-rectangular ST. Now:
+- `NativeUiSprite` carries `freeUv` and `cornerUv`;
+- the strip stores each corner's (s, t) as the descriptor holds it (Q = 1);
+- `nativeUiSpriteVertices` uses those per corner;
+- rectangles keep the sprite form, and nonfinite ST still refuses.
+
+`vp2s-bozo-battle-sprites-check` tests this case with the frame-71300 values.
+
+The same object then draws 80 more textured strips (and one Gouraud strip) through the rotated
+path:
+- descriptor +3c ≠ 0 branches at 42e054 to 42e570;
+- 42d8a0 rotates the corners;
+- the corners are converted to pixels while the strip is written, so 42e144 never sees them;
+- the flush used to stop at 42d4f0 with 7872 unowned bytes (frame 71320).
+
+They are now read back at 42df80's common exit 42ebd8:
+- s3 is the packet's end, which must match the mode's size;
+- per corner, XYZ2 = 16x | 16y << 16 | z << 32, with z equal to descriptor +74;
+- the native strip is rebuilt from those corners;
+- its colours and ST must equal the words the game wrote.
+
+Rotation counts only when +3c has a nonzero exponent: the EE compares ±0 and denormals equal to
+zero. Tested with the first strip of frame 71320 (corners (77a0,7cf0) (7950,7d10) (77a0,7d60) ×2).
+
 ### Battle xz direction idiom (3dedb0, 3db650) (2026-11-22)
 
 mod028 `3dedb0(object, point, ...)` and `3db650` both contain the same VU block, the

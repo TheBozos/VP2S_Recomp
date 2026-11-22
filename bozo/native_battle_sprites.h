@@ -47,6 +47,7 @@ public:
     void sprite(Runtime *,const R5900Context *);
     // Polygon writer 42df80 after its unrotated corner loop (42e144): a 4-corner strip, flat or Gouraud, textured or not.
     void polygon(Runtime *,const R5900Context *);
+    void rotatedPolygon(Runtime *,const R5900Context *);
     // Band writer 383cb0 before it closes the writer (3843a0): three Gouraud strips read from
     // the packet it wrote.
     void band(Runtime *,const R5900Context *);

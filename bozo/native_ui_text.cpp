@@ -235,6 +235,7 @@ std::array<bozo::render::Vertex,6> nativeUiSpriteVertices(const NativeUiSprite &
     for(unsigned i=0;i<6;++i){const auto corner=corners[i];auto &v=vertices[i];
         v.x=float(sprite.fixedCorners[corner][0])/16;v.y=float(sprite.fixedCorners[corner][1])/16;
         v.z=float(sprite.depth);v.rgba=sprite.gouraud?sprite.cornerColours[corner]:sprite.colour;v.u=sprite.uv[corner&1?2:0];v.v=sprite.uv[corner>=2?3:1];
+        if(sprite.freeUv){v.u=sprite.cornerUv[corner][0];v.v=sprite.cornerUv[corner][1];}
     }
     return vertices;
 }

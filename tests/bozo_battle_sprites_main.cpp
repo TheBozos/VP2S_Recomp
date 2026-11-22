@@ -90,7 +90,7 @@ int main(){try{
     put(rt,writer+8,B+0xc0);put(rt,poly+0x78,uint8_t(0xc));put(rt,poly+0x70,rec);
     { auto t=p;t.r[16].uw[0]=0xc;t.r[19].uw[0]=B+0xc0+0x18;sprites.polygon(&rt,&t);
       put(rt,poly+0x78,uint8_t(0xe));t.r[16].uw[0]=0xe;for(unsigned i=0;i<4;++i){put(rt,poly+0x50+8*i,float(i&1));put(rt,poly+0x54+8*i,float(i)/4);}
-      rejects([&]{sprites.polygon(&rt,&t);});                                       // bit 2: descriptor ST, here not an axis-aligned rectangle
+      put(rt,poly+0x50,std::bit_cast<float>(0x7f800000u));rejects([&]{sprites.polygon(&rt,&t);});   // bit 2: descriptor ST, a nonfinite one refuses
     }
     // A textured flat rectangle from 42ed50 (42efe0): 12.4 edges in v1/t0/v0/a0, depth s3, mode +6c,
     // colour +30, descriptor ST floats +40 (bit 2), image record +68 = s2.
@@ -190,6 +190,53 @@ int main(){try{
       put(rt,writer3+8,B3+0x40+80);put(rt,base3+0x40+80,0x6400000000000001ull);put(rt,base3+0x48+80,0xf55510ull);put(rt,base3+0x50+80,0x243ull);
       put(rt,desc3+0x78,uint8_t(0));{auto f=t;f.r[16].uw[0]=0;f.r[19].uw[0]=B3+0x40+80+0x18;tri.polygon(&rt,&f);}
       check(tb->sprites.size()==2 && !tb->sprites[1].gouraud && tb->sprites[1].colour==0x50608080u && tb->polygonBytes==80+64 && tb->sprites[1].fixedCorners[3]==tb->sprites[1].fixedCorners[2]); }
+    // A textured polygon whose descriptor ST is not a rectangle (object f384f0, class 174ee0,
+    // frame 71300): mode 8, no image record, corners (1914,1999) (1941,1999) (1914,2006) x2, ST
+    // (.02734,.02734) (.21641,.02734) (.02734,.07617) x2. Each strip corner keeps its own ST;
+    // a nonfinite one still refuses.
+    { constexpr uint32_t object7=0x193000,writer7=0x1a3000,base7=0x2b0000,B7=base7|0x30000000u,desc7=0x1b3000,sp7=0x1ffc000;const uint32_t w7=writer7|0x30000000u;
+      put(rt,object7,vt);put(rt,object7+0x94,w7);put(rt,object7+0xbb,uint8_t(1));put(rt,object7+0xbc,uint8_t(0));
+      put(rt,writer7,B7);put(rt,writer7+8,B7+0x40);put(rt,writer7+12,B7+0x40);put(rt,writer7+16,0x210u);
+      vp2s::NativeBattleSprites freeSt;check(freeSt.begin(&rt,w7));freeSt.texture(w7,{0x36a0,0x3d74,0});
+      put(rt,base7+0x40,0xa400000000000001ull);put(rt,base7+0x48,0x5252525210ull);put(rt,base7+0x50,0x254ull);
+      put(rt,desc7+0x40,0x80034243u);put(rt,desc7+0x74,0xfffa8cu);put(rt,desc7+0x78,uint8_t(8));put(rt,desc7+0x70,0u);
+      const float fst[4][2]={{0.02734367921948433f,0.02734367921948433f},{0.2164056897163391f,0.02734367921948433f},{0.02734367921948433f,0.07617168128490448f},{0.02734367921948433f,0.07617168128490448f}};
+      const int32_t fc[4][2]={{1914,1999},{1941,1999},{1914,2006},{1914,2006}};
+      for(unsigned i=0;i<4;++i){put(rt,desc7+0x50+8*i,fst[i][0]);put(rt,desc7+0x54+8*i,fst[i][1]);put(rt,sp7+0xe0+8*i,fc[i][0]);put(rt,sp7+0xe4+8*i,fc[i][1]);}
+      R5900Context t{};t.r[22].uw[0]=object7;t.r[21].uw[0]=desc7;t.r[20].uw[0]=4;t.r[16].uw[0]=8;t.r[19].uw[0]=B7+0x40+0x18;t.r[29].uw[0]=sp7;
+      put(rt,desc7+0x5c,std::bit_cast<float>(0x7fc00000u));rejects([&]{freeSt.polygon(&rt,&t);});put(rt,desc7+0x5c,fst[1][1]);
+      check(freeSt.build(w7)->sprites.empty());
+      freeSt.polygon(&rt,&t);
+      const auto *fb=freeSt.build(w7);check(fb && fb->sprites.size()==1 && fb->polygonBytes==96 && fb->spriteTextures==std::vector<uint32_t>{0});
+      const auto &fs=fb->sprites[0];check(fs.freeUv && !fs.gouraud && fs.colour==0x80034243u && fs.depth==0xfffa8c);
+      for(unsigned i=0;i<4;++i)check(fs.cornerUv[i]==std::array<float,2>{fst[i][0],fst[i][1]} && fs.fixedCorners[i]==std::array<int32_t,2>{fc[i][0]*16,fc[i][1]*16});
+      const auto fv=vp2s::nativeUiSpriteVertices(fs);const unsigned order[6]={0,1,2,1,3,2};
+      for(unsigned i=0;i<6;++i)check(fv[i].u==fst[order[i]][0] && fv[i].v==fst[order[i]][1]);
+      // A rotated one (42e570, descriptor +3c != 0) is read back at 42df80's exit 42ebd8 (s3 =
+      // the packet's end): the first of object f384f0's strips at frame 71320, written as
+      // RGBAQ 3f800000 7f056b6c, then (ST, XYZ2) x4 with corners (77a0,7cf0) (7950,7d10)
+      // (77a0,7d60) x2. An unrotated descriptor is left to 42e144; a different colour or a
+      // packet end outside the mode's size refuses.
+      const uint32_t at=B7+0x40+96;put(rt,writer7+8,at);
+      put(rt,base7+0x40+96,0xa400000000000001ull);put(rt,base7+0x48+96,0x5252525210ull);put(rt,base7+0x50+96,0x254ull);
+      const uint64_t packet[9]={0x3f8000007f056b6cull,0x3cdfffda3cdfffdaull,0xfffa8c7cf077a0ull,0x3cdfffda3e5d9974ull,0xfffa8c7d107950ull,
+                                0x3d9bffe63cdfffdaull,0xfffa8c7d6077a0ull,0x3d9bffe63cdfffdaull,0xfffa8c7d6077a0ull};
+      for(unsigned i=0;i<9;++i)put(rt,base7+0x58+96+8*i,packet[i]);
+      put(rt,desc7+0x40,0x7f056b6cu);
+      for(unsigned i=0;i<4;++i){put(rt,desc7+0x50+8*i,uint32_t(packet[1+2*i]&0xffffffffu));put(rt,desc7+0x54+8*i,uint32_t(packet[1+2*i]>>32));}
+      R5900Context r=t;r.r[19].uw[0]=at+0x18+72;
+      put(rt,desc7+0x3c,0x80000000u);freeSt.rotatedPolygon(&rt,&r);check(fb->sprites.size()==1);   // -0: unrotated
+      put(rt,desc7+0x3c,0x00000001u);freeSt.rotatedPolygon(&rt,&r);check(fb->sprites.size()==1);   // a denormal compares as zero
+      put(rt,desc7+0x3c,0.5f);
+      { auto bad=r;bad.r[19].uw[0]+=8;rejects([&]{freeSt.rotatedPolygon(&rt,&bad);});
+        put(rt,desc7+0x40,0x7f056b6du);rejects([&]{freeSt.rotatedPolygon(&rt,&r);});put(rt,desc7+0x40,0x7f056b6cu); }
+      vp2s::NativeBattleSprites rotated;put(rt,writer7+8,B7+0x40);put(rt,writer7+12,B7+0x40);check(rotated.begin(&rt,w7));rotated.texture(w7,{0x36a0,0x3d74,0});put(rt,writer7+8,at);
+      rotated.rotatedPolygon(&rt,&r);
+      const auto *rb=rotated.build(w7);check(rb && rb->sprites.size()==1 && rb->polygonBytes==96);
+      const auto &rs7=rb->sprites[0];const int32_t rc[4][2]={{0x77a0,0x7cf0},{0x7950,0x7d10},{0x77a0,0x7d60},{0x77a0,0x7d60}};
+      check(rs7.freeUv && rs7.colour==0x7f056b6cu && rs7.depth==0xfffa8c);
+      for(unsigned i=0;i<4;++i)check(rs7.fixedCorners[i]==std::array<int32_t,2>{rc[i][0],rc[i][1]} &&
+          std::bit_cast<uint32_t>(rs7.cornerUv[i][0])==uint32_t(packet[1+2*i]&0xffffffffu) && std::bit_cast<uint32_t>(rs7.cornerUv[i][1])==uint32_t(packet[1+2*i]>>32)); }
     // A later ALPHA_2 (120860 with 0x148) on an open build at exactly its recorded content: the
     // sprites after it are additive and the write's 32 bytes are accounted; a cursor elsewhere is
     // not this build's content, and another value is unported.

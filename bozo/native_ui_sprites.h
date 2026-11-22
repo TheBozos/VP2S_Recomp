@@ -13,6 +13,8 @@ struct NativeUiSprite {
     bool additive=false;
     bool gouraud=false;                       // per-corner colours (battle polygons, PRIM 24c)
     std::array<uint32_t,4> cornerColours{};
+    bool freeUv=false;                        // per-corner ST (battle polygons whose ST is not a rectangle)
+    std::array<std::array<float,2>,4> cornerUv{};
 };
 class NativeUiSprites {
     std::map<uint32_t,std::shared_ptr<const NativeButtonSheet>> sheets;

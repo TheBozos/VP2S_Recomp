@@ -19,7 +19,15 @@ At frame 72200 the battle constructs an object of class 173010 at mod028 `4a73b0
 - the mtc1 at 4a7434 is a0's only reader; the early exit at 4a7464 returns without reading a0;
 - the draw sets +3d4 = 0.13865 + 0.17453 · (r − 1).
 
-It is a `nativeRandomNext` pair now. `vp2s-bozo-random-check` checks that a0 receives the stream's next value, with the other lanes zero.
+The constructor draws four more values the same way, and they are table entries too:
+- 4a75b4 into a0: +a0 = 0.9 + 0.3 · (r − 1);
+- 4a77ec into v1: sp+78 = 0.5 − (r − 1), the z of a direction (its x comes from the scalar generator at 35da00) that the existing `normalize25` idiom then normalises;
+- 4a7894 into v1: +3d8 = 2 + 5 · (r − 1);
+- 4a78dc into v1: +3dc = 0.5 + 3 · (r − 1).
+
+Each target is read only by its mtc1. The `SQC2 vf0` at 4a7750 is already handled by the generic constant store.
+
+All five are `nativeRandomNext` pairs now. `vp2s-bozo-random-check` checks that a0 receives the stream's next value, with the other lanes zero.
 
 ### Sphere-tree walk 1f7490 (mod001) (2026-11-23)
 

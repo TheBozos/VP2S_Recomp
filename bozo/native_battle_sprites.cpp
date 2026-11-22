@@ -273,7 +273,7 @@ void NativeBattleSprites::serializeBlends(bozo::state::Archive &a){
 std::optional<bool> nativeBattleSpriteInstruction(R5900Context *c,Runtime *rt,uint32_t pc){
     static constexpr uint32_t pairSites[]={0x4bcd40,0x4bde08,0x4d0c34,0x4d1734,0x4d99ac,0x4ecf0c,0x4ef498,0x4f0f20,0x4f268c,0x4f2874,0x4fa19c,0x4fdcc0,0x503d50};
     const bool pairSite=std::find(std::begin(pairSites),std::end(pairSites),pc)!=std::end(pairSites);
-    if(pc!=0x120860 && pc!=0x120c30 && !pairSite && pc!=0x3cd468 && pc!=0x3cd3c8 && pc!=0x3cd4a0 && pc!=0x42ddd8 && pc!=0x42e144 && pc!=0x42efe0 && pc!=0x3843a0 && pc!=0x3cd218 && pc!=0x3cd21c && pc!=0x42d4f0 && pc!=0x42d4f4 && pc!=0x120f4c && pc!=0x120f58)return std::nullopt;
+    if(pc!=0x120860 && pc!=0x120c30 && !pairSite && pc!=0x3cd468 && pc!=0x3cd3c8 && pc!=0x3cd4a0 && pc!=0x42ddd8 && pc!=0x42e144 && pc!=0x42efe0 && pc!=0x3843a0 && pc!=0x42d4f0 && pc!=0x42d4f4 && pc!=0x120f4c && pc!=0x120f58)return std::nullopt;
     auto *d=rt?dynamic_cast<bozo::ee::Dispatcher *>(rt->services):nullptr;
     auto *owner=d?dynamic_cast<BattleSpriteOwner *>(&d->host()):nullptr;
     if(!owner || !c){if(pc==0x120860 || pc==0x120c30 || pc==0x120f4c || pc==0x120f58)return std::nullopt;throw std::runtime_error("native battle sprites require an owner");}
@@ -354,10 +354,11 @@ std::optional<bool> nativeBattleSpriteInstruction(R5900Context *c,Runtime *rt,ui
     }else if(pc==0x3843a0){
         if(!code(rt,0x383cb0,0x3843f8,0x23a73ec964306dc5ull))throw std::runtime_error("native battle band writer differs from the USA one");
         sprites.band(rt,c);
-    }else if(pc==0x3cd218 || pc==0x42d4f0){
-        // Delay slot of the flushes' 120eb0 call (3cd0c0 at 3cd214, object s5; the base 42d4c0 at
-        // 42d4ec, object a0): the writer +90 + 4 * +bc (v0 = object + 4 * +bc) with owner +c0.
-        const auto object=c->r[pc==0x3cd218?21:4].uw[0];
+    }else if(pc==0x42d4f0){
+        // Delay slot of the base flush's 120eb0 call (42d4c0 at 42d4ec, object a0): the writer +90 +
+        // 4 * +bc (v0 = object + 4 * +bc) with owner +c0. 3cd0c0's own flush (3cd214, +e8 set) is
+        // patched into a call of 42d4c0(object), so both flushes arrive here.
+        const auto object=c->r[4].uw[0];
         if(value<uint32_t>(rt,pc-4)!=0x0c0483ac || value<uint32_t>(rt,pc)!=0x8c440090 || c->r[2].uw[0]!=object+4u*value<uint8_t>(rt,object+0xbc) || c->r[5].uw[0]!=object+0xc0 ||
            (pc==0x42d4f0 && !code(rt,0x42d4c0,0x42d500,0xd1f5f3664cbc85a7ull)))
             throw std::runtime_error("native battle sprite flush differs from the USA submit");
@@ -368,16 +369,14 @@ std::optional<bool> nativeBattleSpriteInstruction(R5900Context *c,Runtime *rt,ui
         static unsigned traced=0;
         if(std::getenv("VP2S_BOZO_TRACE_QUEUES") && ++traced<=64)
             std::fprintf(stderr,"[vp2s:battle] native sprites object=%x sprites=%zu textures=%u\n",object,build.sprites.size(),unsigned(build.textures.size()));
-    }else{   // 3cd21c / 42d4f4, the flush's return
+    }else{   // 42d4f4, the flush's return
         const auto object=sprites.complete(sp);
         // The base flush's job (owner +c0) has no native queue to complete it: 42d4c0's return
         // (42d4f8) is patched to its completion 42d4a0 (owner thunk 44d5a0's target; the scene's
-        // 21c9a0), entered with the object. (The 3cd0c0 family completes through its texture
-        // set's patched enqueue, 3cc900.)
-        if(pc==0x42d4f4){
-            if(value<uint32_t>(rt,0x42d4f8)!=0x03e00008u)throw std::runtime_error("native battle base flush return differs (the kernel patches its jr ra to j 42d4a0)");
-            c->r[4].sd[0]=int32_t(object);
-        }
+        // 21c9a0), entered with the object. (Without +e8, the 3cd0c0 family completes through its
+        // texture set's patched enqueue, 3cc900; with it, through this flush.)
+        if(value<uint32_t>(rt,0x42d4f8)!=0x03e00008u)throw std::runtime_error("native battle base flush return differs (the kernel patches its jr ra to j 42d4a0)");
+        c->r[4].sd[0]=int32_t(object);
     }
     return false; // The original instructions and the writer's scalar flush remain.
 }

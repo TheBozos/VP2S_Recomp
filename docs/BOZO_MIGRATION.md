@@ -12,6 +12,22 @@ The earlier VP2S face/shading and general brightness comparisons remain open.
 
 ## Build and evidence
 
+### Battle UI flush with +e8: the owner's completion (2026-11-22)
+
+At frame 65313 the main loop waited forever at `221070`: the scene's pending layer object
+`ea6110` (class `16ebd0`, flush method `3cd0c0`) never completed. With `+e8` set,
+`3cd0c0` does not attach its owner (+c0) to the last texture upload (patched to `3cc900`).
+It flushes its `+bc` writer itself (`120eb0` at `3cd214`, owner +c0), and nothing native
+completes that job. On the PS2 the GS job queue calls the owner's completion after
+every owned flush.
+- **Native:** the kernel patches `3cd214` `jal 120eb0` into `jal 42d4c0` and the delay slot
+  `lw a0, 0x90(v0)` into `move a0, s5`. The base flush `42d4c0(object)` uses the same writer
+  (+90 + 4 * +bc) and owner, sets +64 = 1 as `3cd0c0` does, and its patched return enters
+  the completion (`42d4a0`, identical to `3cc900`: `21c9a0`). The old `3cd218/3cd21c` sites
+  are retired, so both flushes arrive at `42d4f0/42d4f4`.
+- **Evidence:** the scripted battle no longer hangs. The next boundary is a VIF1 DMA write
+  (`10009020`) at mod001 `235000` (from `202094`), frame 65314.
+
 ### Battle text 1748d0: glyph uploads and sprites read back (2026-11-22)
 
 The battle party panel (layer `877560`) uses twelve texts of class `1748d0`, a `15a450`

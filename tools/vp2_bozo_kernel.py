@@ -597,7 +597,10 @@ def overlay_adaptations(name,data):
         for lo,hi,expected in ((0x42d4a0,0x42d500,'3740b4a1250d7d06bdf7e2dfcffd70e58c024a1d6dddb1047b90337de62706d9'),(0x4ddb70,0x4ddb8c,'e6e81f90b768228012c77b0ff794a4068ceb0187abc59dc45364159a238dd8ae')):
             s=next(s for s in segments if s[0]==1 and s[2]<=lo<hi<=s[2]+s[4]);at=s[1]+lo-s[2]
             if hashlib.sha256(data[at:at+hi-lo]).hexdigest()!=expected:raise ValueError('USA battle flush completion mismatch')
-        return '003cd170 0c044c70 0c0f3240\n003cd1ac 0c044c70 00000000\n004ddea0 0c0e18c0 00000000\n0042d4f8 03e00008 0810b528\n004ddf20 03e00008 081376dc\n'
+        # With +e8 set, 3cd0c0 flushes its +bc writer itself (120eb0 at 3cd214, owner +c0): that
+        # call becomes the base flush 42d4c0(object) (the same writer and owner, +64 = 1), whose
+        # patched return enters the owner's completion (42d4a0, as 3cc900: 21c9a0).
+        return '003cd170 0c044c70 0c0f3240\n003cd1ac 0c044c70 00000000\n003cd214 0c0483ac 0c10b530\n003cd218 8c440090 02a0202d\n004ddea0 0c0e18c0 00000000\n0042d4f8 03e00008 0810b528\n004ddf20 03e00008 081376dc\n'
     if name!='mod001':return ''
     _,segments,_=elf_parts(data)
     for lo,hi,expected in ((0x12b4a8+0x1f0,0x12b4a8+0x250,'b79cf2382262fa4251a0e08c8d0b7eb05f051c8a77915bf5863c78d7d6acd784'),
@@ -1125,7 +1128,7 @@ def overlay_native_sites(name,data):
         # Battle text 1748d0's item callback 4c8fb0 commits its sprite cursor at 4c9f78 (sw s1, 0x60(s5)).
         s=next(s for s in segments if s[0]==1 and s[2]<=0x4c9f78<0x4c9f7c<=s[2]+s[4])
         if int.from_bytes(data[s[1]+0x4c9f78-s[2]:s[1]+0x4c9f7c-s[2]],'little')!=0xaeb10060:raise ValueError('USA battle text commit mismatch')
-        return ''.join(f'native 0x{pc:x}\n' for pc in (0x4c9f78,0x3835e0,0x383660,0x4d7eac,0x4d7ed8,0x4d7ee0,0x4d7ee8,0x4d7ef0,0x3cd174,0x3cd1b0,*sheets,0x3cd468,0x3cd3c8,0x3cd4a0,0x42ddd8,0x42e144,0x42efe0,0x3843a0,0x3cd218,0x3cd21c,0x42d4f0,0x42d4f4,0x4de910,0x4de718,0x4de888,0x4dded0,0x4ddef4,0x4ddef8,0x4ddf24,0x47ddb8,0x47ddc4,0x3d740c,0x3d7410,0x3fc3bc,0x3fc3c0,0x3fcacc,0x3fcad0,0x3fd09c,0x3fd0a0,0x42499c,0x4249a0,0x424eac,0x424eb0,0x47f60c,0x47f824,0x47f894,0x47fb4c,0x47fe0c,0x480604,0x480838,0x4809ac,0x481074))
+        return ''.join(f'native 0x{pc:x}\n' for pc in (0x4c9f78,0x3835e0,0x383660,0x4d7eac,0x4d7ed8,0x4d7ee0,0x4d7ee8,0x4d7ef0,0x3cd174,0x3cd1b0,*sheets,0x3cd468,0x3cd3c8,0x3cd4a0,0x42ddd8,0x42e144,0x42efe0,0x3843a0,0x42d4f0,0x42d4f4,0x4de910,0x4de718,0x4de888,0x4dded0,0x4ddef4,0x4ddef8,0x4ddf24,0x47ddb8,0x47ddc4,0x3d740c,0x3d7410,0x3fc3bc,0x3fc3c0,0x3fcacc,0x3fcad0,0x3fd09c,0x3fd0a0,0x42499c,0x4249a0,0x424eac,0x424eb0,0x47f60c,0x47f824,0x47f894,0x47fb4c,0x47fe0c,0x480604,0x480838,0x4809ac,0x481074))
     if name=='mod027':
         # The battle core's timer reads/writes (bozo/native_seed.cpp): seeded entropy, no timer.
         _,segments,_=elf_parts(data)

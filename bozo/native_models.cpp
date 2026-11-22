@@ -296,7 +296,7 @@ std::vector<NativeShadowDraw> nativeShadowPass(const NativeModelSubmission &s,fl
     draws.push_back({dark,quad});
     return draws;
 }
-NativeModelSubmission NativeModels::capture(Runtime *rt,NativeAssets &assets,NativeTextures &textures,const NativeScene &scene,uint32_t object){
+NativeModelSubmission NativeModels::capture(Runtime *rt,NativeAssets &assets,NativeTextures &textures,const NativeScene &scene,uint32_t object,const NativeFeedbackCopies *feedback){
     const auto word=[&](uint32_t at,std::source_location source=std::source_location::current()){return value<uint32_t>(rt,at,source);};
     const auto byte=[&](uint32_t at){return value<uint8_t>(rt,at);};
     const auto real=[&](uint32_t at){const auto v=value<float>(rt,at);finite(v);return v;};
@@ -433,7 +433,7 @@ NativeModelSubmission NativeModels::capture(Runtime *rt,NativeAssets &assets,Nat
         if(m.hasMaterial)material=m.material;
         else if(origin && block>=0x40 && block-0x40!=mesh){const auto owner=assets.origin(block-0x40);if(owner && owner->disc==origin->disc && owner->part==origin->part){
             const auto other=pack->find(owner->offset);if(other!=pack->end() && other->second->hasMaterial)material=other->second->material;}}
-        NativeModelBatch batch;batch.matrix=matrix;auto &mat=batch.material;
+        NativeModelBatch batch;batch.matrix=matrix;auto &mat=batch.material;bool feedbackTexture=false;
         mat.alphaBlend=material[0];mat.blend=mat.alphaBlend?bozo::render::Material::Blend::Alpha:bozo::render::Material::Blend::Opaque;
         if(mat.alphaBlend){mat.gsBlend=true;mat.blendA=material[7];mat.blendB=material[8];mat.blendC=material[9];mat.blendD=material[10];mat.blendFix=0x80;}
         mat.alphaTest=true;mat.depthWrite=!mat.alphaBlend || palette;mat.textureAlpha=material[2];
@@ -448,11 +448,21 @@ NativeModelSubmission NativeModels::capture(Runtime *rt,NativeAssets &assets,Nat
         if(material[1]){if(!block || !manager)throw std::runtime_error("native textured mesh missing material/manager");
             const auto slot=value<int32_t>(rt,block+0x98);if(slot<0 || slot>=256)throw std::runtime_error("native mesh texture slot outside range");
             const auto index=value<int16_t>(rt,manager+0x2670+2*slot);if(index<0)throw std::runtime_error("native mesh texture not registered");
-            const TextureKey key{word(manager+0x1008+16*index),word(manager+8+16*index)};batch.texture=textures.load(key)->picture(word(block+0x9c));}
+            const TextureKey key{word(manager+0x1008+16*index),word(manager+8+16*index)};
+            if(key.tag==0x4674404c && key.index==1){
+                // 'L@tF' 1 is the screen-feedback picture the game builds each frame (class 152e80,
+                // registered with TEX0 at manager+1010: 512 x 512, TW = TH = 9); mode 1 filters the
+                // frame into that 512 x 512 image, native image 5, so mesh UVs map onto it as they are.
+                const auto image=feedback?feedback->image(scene):std::nullopt;
+                const auto lo=word(manager+0x1010+16*index),hi=word(manager+0x1014+16*index);
+                if(!image || image->mode!=1 || image->width!=512 || image->height!=512 || ((lo>>26)&15)!=9 || ((lo>>30)|(hi&3)<<2)!=9 || word(block+0x9c))
+                    throw std::runtime_error("native mesh samples the screen feedback picture without its current 512 x 512 image");
+                mat.fromFrame=1;mat.source=5;feedbackTexture=true;}
+            else batch.texture=textures.load(key)->picture(word(block+0x9c));}
         mat.textured=bool(batch.texture);
         // The GS draws an untextured vertex colour as it is (0..255), not as 0x80 = 1
         // modulation: the inn's save-point light column (3e/3f/61) was twice as bright.
-        mat.directColour=!mat.textured;
+        mat.directColour=!mat.textured && !feedbackTexture;
         const bool editable=working && mesh>=model && !m.has(6) && !m.has(8);
         const auto source=editable?work+mesh-model:0;
         std::array<std::array<float,4>,2> screenRows{};if(m.has(40))screenRows={row(38),row(39)};
@@ -626,7 +636,8 @@ std::optional<bool> nativeModelInstruction(R5900Context *c,Runtime *rt,uint32_t 
         throw std::runtime_error("native model submission requires its complete scene producer");
     const auto object=c->r[5].uw[0]-0x650;
     NativeModelSubmission submission;
-    try{submission=owner->nativeModels().capture(rt,assets->nativeAssets(),textures->nativeTextures(),scene->nativeScene(),object);}
+    auto *feedback=dynamic_cast<FeedbackOwner *>(&d->host());
+    try{submission=owner->nativeModels().capture(rt,assets->nativeAssets(),textures->nativeTextures(),scene->nativeScene(),object,feedback?&feedback->nativeFeedbackCopies():nullptr);}
     catch(const std::runtime_error &e){throw std::runtime_error(std::format("native model object={:08x}: {}",object,e.what()));}
     owner->drawNativeModel(submission);c->r[4].sd[0]=int32_t(object);
     return true; // Original compiled scene completion follows accepted native draws.

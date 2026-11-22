@@ -12,6 +12,31 @@ The earlier VP2S face/shading and general brightness comparisons remain open.
 
 ## Build and evidence
 
+### Models that sample the screen-feedback picture 'L@tF' 1 (2026-11-22)
+
+The enemy's hit effect is object `ee14b0`, class `16e500`. Its five meshes are
+routine-40 (screen-projected UV) meshes. They blend (Cs - Cd) As + Cd, with alpha
+around 25, over texture key `4674404c:1`. That key is not a file: it is the
+screen-feedback picture the game builds each frame (class `152e80`).
+
+The manager registers that picture with TEX0 at `manager+1010+16i`: 512 x 512 (TW = TH
+= 9), CT16. The battle's feedback object is in mode 1, which filters the 576 x 416
+frame into a 512 x 512 image, native image 5. Mesh UVs therefore map onto it
+unchanged.
+- **Native:** `NativeModels::capture` takes the feedback copies. A mesh with this key
+  samples image 5 (`fromFrame` 1, source 5, not direct colour). It rejects in these
+  cases:
+  - no image is published in the current frame;
+  - the image is not mode 1 or not 512 x 512;
+  - TEX0 has another size;
+  - a picture part is not 0.
+- **Test:** `vp2s-bozo-models-check` checks the admitted case and the three rejections.
+- **Evidence:** the scripted battle draws the hit effect, frame 63760. The next boundary
+  is mod028 `4a52f4` (entry `4a50b0`, scratchpad stack), frame 63764.
+- **Not checked:** the distortion is not compared with PCSX2. A dark mode-3 object
+  appears in the same frame (`e88d90`, directional lights only, ambient weight 0.5); it
+  was not reviewed.
+
 ### Mode-3 point lights: the specular table B (2026-11-22)
 
 Code image 02a71b3e, routine `0x3350`. This is table B (point lights, `object+314`) in the

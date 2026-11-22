@@ -15,11 +15,11 @@ template<class F>void rejects(F f){bool yes=false;try{f();}catch(const std::runt
 constexpr uint32_t object=0x160000,model=0x150000,camera=0x170000,target=0x180000,current=0x190000;
 using Mat=std::array<float,16>;
 const Mat identity{1,0,0,0,0,1,0,0,0,0,1,0,0,0,0,1};
-void fixture(const std::filesystem::path &dir,int algorithm,uint32_t mode=2){
+void fixture(const std::filesystem::path &dir,int algorithm,uint32_t mode=2,uint32_t textured=0){
     std::filesystem::create_directories(dir);std::ofstream f(dir/"0000004000_001.mesh",std::ios::binary);
     for(uint32_t n:{0x314e5056,1,0x60,4,1,1})write(f,n);
     write(f,std::array<int32_t,4>{algorithm,48,0,0});write(f,uint32_t(1));
-    write(f,std::array<uint32_t,11>{0,0,0,0,mode,0,0,0,1,0,1});write(f,uint16_t(4));
+    write(f,std::array<uint32_t,11>{0,textured,0,0,mode,0,0,0,1,0,1});write(f,uint16_t(4));
     const float xy[4][2]={{-.5f,-.5f},{.5f,-.5f},{-.5f,.5f},{.5f,.5f}};
     for(unsigned k=0;k<4;++k){write(f,std::array<float,4>{xy[k][0],xy[k][1],.5f,656});write(f,std::array<float,3>{0,0,1});
         write(f,std::array<float,2>{float(k&1),float(k>>1)});write(f,uint32_t(0x80402010));}
@@ -114,7 +114,19 @@ int main(int argc,char **argv){try{
                     put(rt,block+0x3c,int32_t(0));rejects([&]{shiny.capture(&rt,assets,textures,scene,object);});   // power 0 (the VU loop wraps)
                     for(unsigned r:{20u,21u,22u,23u,27u})put(rt,object+0x230+16*r,std::array<float,4>{0,0,0,0});
                     for(uint32_t at:{0x3cu})put(rt,block+at,uint32_t(0));put(rt,block+0x50,std::array<float,4>{});
-                    put(rt,object+0x31c,uint32_t(0));put(rt,object+0x314,uint32_t(0));}}
+                    put(rt,object+0x31c,uint32_t(0));put(rt,object+0x314,uint32_t(0));}
+                // A mesh sampling 'L@tF' 1 (manager slot 0 -> entry 1, TEX0 512 x 512) takes the
+                // current mode-1 screen-feedback image 5; without one, or another size, it rejects.
+                if(algorithm==0){fixture(dir/"feedback",0,0,1);vp2s::NativeModels fed(dir/"feedback");constexpr uint32_t manager=0x1a8000;const uint32_t block=model+0x60+0x40;
+                    put(rt,0x35de38,manager);put(rt,block+0x98,int32_t(0));put(rt,manager+0x2670,int16_t(1));put(rt,manager+0x1008+16,uint32_t(0x4674404c));put(rt,manager+8+16,uint32_t(1));
+                    put(rt,manager+0x1010+16,uint32_t(0x64222ec0));put(rt,manager+0x1014+16,uint32_t(2));
+                    rejects([&]{fed.capture(&rt,assets,textures,scene,object);});
+                    vp2s::NativeFeedbackCopies copies;vp2s::NativeFeedbackCopy image{};image.frame=scene.frameTarget();image.mode=1;image.width=image.height=512;copies.published(image);
+                    {const auto r=fed.capture(&rt,assets,textures,scene,object,&copies);check(r.batches.size()==1);const auto &mt=r.batches[0].material;
+                        check(mt.fromFrame==1 && mt.source==5 && !mt.textured && !mt.directColour && !r.batches[0].texture);}
+                    put(rt,manager+0x1010+16,uint32_t(0x60222ec0));rejects([&]{fed.capture(&rt,assets,textures,scene,object,&copies);});put(rt,manager+0x1010+16,uint32_t(0x64222ec0));   // TW 8
+                    image.mode=0;copies.published(image);rejects([&]{fed.capture(&rt,assets,textures,scene,object,&copies);});
+                    put(rt,0x35de38,uint32_t(0));put(rt,block+0x98,int32_t(0));for(uint32_t at:{0x2670u,0x1018u,0x18u,0x1020u,0x1024u})put(rt,manager+at,uint32_t(0));}}
             put(rt,model+0x59,uint8_t(1));put(rt,model+0x96,uint16_t(1));put(rt,object+0x7a4,uint16_t(1));
             check(models.capture(&rt,assets,textures,scene,object).batches.empty());put(rt,object+0x7a4,uint16_t(0));
             put(rt,current+0x40dc,uint8_t(0));rejects([&]{models.capture(&rt,assets,textures,scene,object);});put(rt,current+0x40dc,uint8_t(1));

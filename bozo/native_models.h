@@ -3,6 +3,7 @@
 #include "native_assets.h"
 #include "native_scene.h"
 #include "native_textures.h"
+#include "native_feedback.h"
 #include "bozo/render/renderer.h"
 #include <array>
 #include <filesystem>
@@ -63,7 +64,8 @@ private:
     std::map<uint32_t,Generated> generated;
 public:
     explicit NativeModels(std::filesystem::path directory):root(std::move(directory)){}
-    NativeModelSubmission capture(Runtime *,NativeAssets &,NativeTextures &,const NativeScene &,uint32_t object);
+    // feedback: the screen-feedback images, for meshes that sample texture L@tF:1.
+    NativeModelSubmission capture(Runtime *,NativeAssets &,NativeTextures &,const NativeScene &,uint32_t object,const NativeFeedbackCopies *feedback=nullptr);
     // The scratchpad sprite batcher (mod001 152ac0) publishes one mesh per chunk:
     // `sections` are its published sections in the writer's order (RAM address,
     // qwords): header, material (when flagged), strip lengths, normals, UVs,

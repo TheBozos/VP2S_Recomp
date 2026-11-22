@@ -649,8 +649,9 @@ bool nativeObjectPairSpill(R5900Context *c,Runtime *rt,uint32_t pc){
 //   mod028 4f5a68: battle segment test 4f58f0, object s2 (base a2), output sp+c0.
 struct BasisLengthSite{uint32_t load,call,store;unsigned object,base,output;uint32_t offset;};
 //   mod028 4a6e10 / 4a6f40: battle object overlap 4a6c40, objects s3 / s2 (base a1), outputs sp+b0 / sp+a0.
+//   mod001 1f5d90: shape tree 1f5c30, object s0 (base a1), output sp+50.
 constexpr BasisLengthSite basisLengthSites[]={{0x43c120,0x43c130,0x43c13c,16,4,3,0x70},{0x239b54,0x239b64,0x239b70,4,2,2,0},{0x4f56f8,0x4f5708,0x4f5714,20,6,3,0x60},{0x4f5a68,0x4f5a78,0x4f5a84,18,6,3,0xc0},
-    {0x4a6e10,0x4a6e20,0x4a6e2c,19,5,2,0xb0},{0x4a6f40,0x4a6f50,0x4a6f5c,18,5,2,0xa0}};
+    {0x4a6e10,0x4a6e20,0x4a6e2c,19,5,2,0xb0},{0x4a6f40,0x4a6f50,0x4a6f5c,18,5,2,0xa0},{0x1f5d90,0x1f5da0,0x1f5dac,16,5,2,0x50}};
 bool nativeBattleBasisLengths(R5900Context *c,Runtime *rt,uint32_t pc){
     if(!rt || (pc&3))return false;
     const auto site=std::find_if(std::begin(basisLengthSites),std::end(basisLengthSites),[&](auto &s){return pc>=s.load && pc<=s.store;});
@@ -2358,30 +2359,42 @@ bool nativeBattleShapes(R5900Context *c,Runtime *rt,uint32_t pc){
 // keeps them per frame and the restore gives them back (a child's call leaves its parent's).
 struct ShapeTreeSpill{std::array<std::array<uint32_t,4>,5> rows{};bool valid=false;};
 std::map<std::pair<const Runtime *,uint32_t>,ShapeTreeSpill> &shapeTreeSpills(){static std::map<std::pair<const Runtime *,uint32_t>,ShapeTreeSpill> m;return m;}
+// mod001 1f5c30 is the same walk (the field's original; 4a6470 is the battle's compile): spill
+// to sp+70 (1f5c8c), vf5 = sp+60 (1f5df0, v0), vf1..vf4 = s0+150 (1f5df4.., v1), restores at
+// 1f5e1c, 1f5f64, 1f5fcc. Both instances are this table.
+struct ShapeTreeSite{uint32_t spill,frame,scale,scaleReg,scaleOffset,rows,rowsReg;std::array<uint32_t,3> restores;};
+constexpr ShapeTreeSite shapeTreeSites[]={{0x4a64e4,0x90,0x4a664c,3,0x80,0x4a6650,2,{0x4a6770,0x4a67a0,0}},{0x1f5c8c,0x70,0x1f5df0,2,0x60,0x1f5df4,3,{0x1f5e1c,0x1f5f64,0x1f5fcc}}};
 bool nativeBattleShapeTree(R5900Context *c,Runtime *rt,uint32_t pc){
-    if((pc&3) || !rt || pc<0x4a64e4 || pc>0x4a67b0)return false;
-    const bool spill=pc<=0x4a64f4,load=pc>=0x4a664c && pc<=0x4a665c,restore=(pc>=0x4a6770 && pc<=0x4a6780) || (pc>=0x4a67a0 && pc<=0x4a67b0);
-    if(!spill && !load && !restore)return false;
-    const unsigned index=spill?(pc-0x4a64e4)/4:restore?(pc-(pc>=0x4a67a0?0x4a67a0:0x4a6770))/4:(pc-0x4a664c)/4;   // load: 0 = vf5, 1..4 = vf1..vf4
-    const uint32_t expected=spill?0xf8400000u|(index+1)<<16|index*16:restore?0xd8400000u|(index+1)<<16|index*16:index==0?0xd8650000u:0xd8400000u|index<<16|(index-1)*16;
+    if((pc&3) || !rt)return false;
+    const ShapeTreeSite *site=nullptr;bool spill=false,restore=false,scale=false,rows=false;unsigned index=0;
+    for(const auto &t:shapeTreeSites){
+        if(pc>=t.spill && pc<t.spill+20){site=&t;spill=true;index=(pc-t.spill)/4;break;}
+        if(pc==t.scale){site=&t;scale=true;break;}
+        if(pc>=t.rows && pc<t.rows+16){site=&t;rows=true;index=(pc-t.rows)/4;break;}
+        for(auto r:t.restores)if(r && pc>=r && pc<r+20){site=&t;restore=true;index=(pc-r)/4;}
+        if(site)break;
+    }
+    if(!site)return false;
+    const uint32_t expected=spill?0xf8400000u|(index+1)<<16|index*16:restore?0xd8400000u|(index+1)<<16|index*16:
+        scale?0xd8050000u|site->scaleReg<<21:0xd8000000u|site->rowsReg<<21|(index+1)<<16|index*16;
     uint32_t word=0;if(const auto *p=rt->memory.hostPointer(pc,4))std::memcpy(&word,p,4);
     if(word!=expected)return false;   // another overlay at these addresses
-    if(!c)throw std::runtime_error("native battle shape tree has no CPU record");
+    if(!c)throw std::runtime_error("native shape tree has no CPU record");
     const auto stack=c->r[29].uw[0];auto &regs=objectPairRegisters(rt);
     if(spill || restore){
-        if(c->r[2].uw[0]!=stack+0x90)throw std::runtime_error("native battle shape tree spill escaped its frame");
+        if(c->r[2].uw[0]!=stack+site->frame)throw std::runtime_error("native shape tree spill escaped its frame");
         const auto key=std::make_pair(static_cast<const Runtime *>(rt),stack);
         if(spill && index==0){auto &saved=shapeTreeSpills()[key];for(unsigned i=0;i<5;++i)saved.rows[i]=regs.rows[i];saved.valid=regs.valid;}
-        if(restore && index==4){const auto it=shapeTreeSpills().find(key);if(it==shapeTreeSpills().end())throw std::runtime_error("native battle shape tree restore without its spill");
+        if(restore && index==4){const auto it=shapeTreeSpills().find(key);if(it==shapeTreeSpills().end())throw std::runtime_error("native shape tree restore without its spill");
             for(unsigned i=0;i<5;++i)regs.rows[i]=it->second.rows[i];regs.valid=it->second.valid;shapeTreeSpills().erase(it);}
         return true;
     }
     const auto node=c->r[16].uw[0];
-    if(index==0){if(c->r[3].uw[0]!=stack+0x80)throw std::runtime_error("native battle shape tree scale escaped its frame");
-        std::memcpy(regs.rows[4].data(),record(rt,stack+0x80,16),16);regs.valid=false;return true;}
-    if(c->r[2].uw[0]!=node+0x150)throw std::runtime_error("native battle shape tree rows escaped their record");
-    std::memcpy(regs.rows[index-1].data(),record(rt,node+0x150+16*(index-1),16),16);
-    if(index==4)regs.valid=true;
+    if(scale){if(c->r[site->scaleReg].uw[0]!=stack+site->scaleOffset)throw std::runtime_error("native shape tree scale escaped its frame");
+        std::memcpy(regs.rows[4].data(),record(rt,stack+site->scaleOffset,16),16);regs.valid=false;return true;}
+    if(c->r[site->rowsReg].uw[0]!=node+0x150)throw std::runtime_error("native shape tree rows escaped their record");
+    std::memcpy(regs.rows[index].data(),record(rt,node+0x150+16*index,16),16);
+    if(index==3)regs.valid=true;
     return true;
 }
 // Segment against battle shapes: mod028 4f58f0 loads vf5 = s3+20 (x: the object's scale

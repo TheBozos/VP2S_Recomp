@@ -12,6 +12,21 @@ The earlier VP2S face/shading and general brightness comparisons remain open.
 
 ## Build and evidence
 
+### Shape tree 1f5c30: mod001's original walk, a table with 4a6470 (2026-11-22)
+
+mod001 `1f5c30` is the walk the battle compiled as `4a6470`.
+- **Original:** spill vf1..vf5 to sp+70 (`1f5c8c`); a 0x7f0 basis-length call (`1f5d90`,
+  object s0, output sp+50); vf5 = sp+60 (`1f5df0`, v0) and vf1..vf4 = s0+150 (`1f5df4`..,
+  v1) for `1f59c0` / `1f5640`; restores at `1f5e1c`, `1f5f64`, `1f5fcc`. It recurses into
+  itself (`1f5f88`, `1f6028`).
+- **Native:** `nativeBattleShapeTree` is now a table (`shapeTreeSites`: spill and frame, the
+  scale load and its register and offset, the row loads and their register, the restores)
+  holding both instances. The basis call is a new `basisLengthSites` row.
+- **Test:** `vp2s-bozo-math-check` runs the mod001 instance (spill, loads, restore) and
+  refuses rows from another record.
+- **Evidence:** the scripted battle passes it. The next boundary is the battle sprite writer
+  `e5e7a0` (object `ee9c70`) at its flush `42d4f0`, with 1184 bytes no recorder owns.
+
 ### Battle shape tree 4a6470: the object-pair registers through a recursion (2026-11-22)
 
 mod028 `4a6470(node s5, a1, a2)` walks a node's shapes and recurses into its children

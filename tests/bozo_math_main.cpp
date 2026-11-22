@@ -1042,6 +1042,16 @@ int main(int argc,char **argv){try{
             for(unsigned i=0;i<5;++i){const uint32_t sp=0xf8400000u|(i+1)<<16|i*16,rs=0xd8400000u|(i+1)<<16|i*16;
                 std::memcpy(rt.memory.hostPointer(0x4a64e4+4*i,4),&sp,4);std::memcpy(rt.memory.hostPointer(0x4a6770+4*i,4),&rs,4);std::memcpy(rt.memory.hostPointer(0x4a67a0+4*i,4),&rs,4);}
             {const uint32_t w[5]={0xd8650000,0xd8410000,0xd8420010,0xd8430020,0xd8440030};std::memcpy(rt.memory.hostPointer(0x4a664c,20),w,20);}
+            {   // mod001 1f5c30 (the same walk): spill sp+70, vf5 = sp+60 (v0), rows from v1 = s0+150, restore 1f5e1c.
+                for(unsigned i=0;i<5;++i){const uint32_t sp=0xf8400000u|(i+1)<<16|i*16,rs=0xd8400000u|(i+1)<<16|i*16;
+                    std::memcpy(rt.memory.hostPointer(0x1f5c8c+4*i,4),&sp,4);std::memcpy(rt.memory.hostPointer(0x1f5e1c+4*i,4),&rs,4);}
+                const uint32_t w[5]={0xd8450000,0xd8610000,0xd8620010,0xd8630020,0xd8640030};std::memcpy(rt.memory.hostPointer(0x1f5df0,20),w,20);
+                constexpr uint32_t sp=0x1ffd000,node=0x1b2000;R5900Context c{};c.r[29].uw[0]=sp;c.r[16].uw[0]=node;
+                c.r[2].uw[0]=sp+0x70;for(unsigned i=0;i<5;++i)check(vp2s::nativeMathInstruction(rt.memory.flat(),&c,&rt,0x1f5c8c+4*i));
+                c.r[2].uw[0]=sp+0x60;c.r[3].uw[0]=node+0x150;for(unsigned i=0;i<5;++i)check(vp2s::nativeMathInstruction(rt.memory.flat(),&c,&rt,0x1f5df0+4*i));
+                c.r[3].uw[0]=node+0x160;bool failed=false;try{vp2s::nativeMathInstruction(rt.memory.flat(),&c,&rt,0x1f5df4);}catch(const std::runtime_error &){failed=true;}check(failed);   // rows elsewhere
+                c.r[2].uw[0]=sp+0x70;for(unsigned i=0;i<5;++i)check(vp2s::nativeMathInstruction(rt.memory.flat(),&c,&rt,0x1f5e1c+4*i));
+            }
             constexpr uint32_t parentSp=0x1ffe000,childSp=0x1ffdf00,nodeA=0x1b0000,nodeB=0x1b1000;
             const auto fill=[&](uint32_t node,float base){float m[16];for(unsigned i=0;i<16;++i)m[i]=base+i;std::memcpy(rt.memory.hostPointer(node+0x150,64),m,64);};
             fill(nodeA,100);fill(nodeB,200);

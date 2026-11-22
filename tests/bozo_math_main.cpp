@@ -1199,6 +1199,44 @@ int main(int argc,char **argv){try{
             float o[4];std::memcpy(o,rt.memory.hostPointer(stack+0xc0,16),16);check(o[0]==23 && o[1]==9 && o[2]==9 && o[3]==1);
             c.r[5].uw[0]=ca;bool failed=false;try{vp2s::nativeMathInstruction(rt.memory.flat(),&c,&rt,0x4a701c);}catch(const std::runtime_error &){failed=true;}check(failed);   // not a1 = s5+10
         }
+        {   // mod001 1f7490 sphere-tree walk (frame 71840): the same overlap of node a0+10 through
+            // object s0's +150 and point a1 through matrix a2, scale sp+80 = (+204, f12). It recurses:
+            // a child's spill keeps its parent's object-pair registers and its restore gives them back,
+            // which a parent shape test (1f8840 at 1f889c) then reads.
+            constexpr uint32_t words[]={0xd8490000,0xd86a0000,0xda4b0000,0xd8810000,0xd8820010,0x4a295298,0x4a295ad9,0xd8830020,0xd8840030,0xda250000,0xda260010,0xda270020,0xda280030,
+                0x4bea09bc,0x4bea10bd,0x4bea18be,0x4be0230b,0x4beb29bc,0x4beb30bd,0x4beb38be,0x4be0434b,0x4bcd632c,0x4a2b52a8,0x4bcc632a,0x4b000343,0x4a2a52aa,0x4b0c69bc,0x4b0c68bd,
+                0x4b0a68ff,0x4b0c6b0a,0x27a20070,0xf84c0000};
+            std::memcpy(rt.memory.hostPointer(0x1f7660,sizeof(words)),words,sizeof(words));
+            for(unsigned i=0;i<9;++i){const uint32_t sp=0xf8400000u|(i+1)<<16|i*16,rs=0xd8400000u|(i+1)<<16|i*16;
+                std::memcpy(rt.memory.hostPointer(0x1f74f4+4*i,4),&sp,4);for(uint32_t b:{0x1f76f4u,0x1f77dcu,0x1f785cu})std::memcpy(rt.memory.hostPointer(b+4*i,4),&rs,4);}
+            {const uint32_t w=0xf84b0000;std::memcpy(rt.memory.hostPointer(0x1f889c,4),&w,4);}
+            constexpr uint32_t parentSp=0x1ffe000,childSp=0x1ffde00,node=0x1b4000,child=0x1b4100,object=0x1b5000,childObject=0x1b6000,point=0x1b7000,matrix=0x1b7100,identityAt=0x1b7200;
+            const auto putm=[&](uint32_t at,float tx,float ty,float tz){const float m[16]={1,0,0,0, 0,1,0,0, 0,0,1,0, tx,ty,tz,1};std::memcpy(rt.memory.hostPointer(at,64),m,64);};
+            putm(object+0x150,1,0,0);putm(matrix,0,2,0);putm(childObject+0x150,1,0,0);putm(identityAt,0,0,0);
+            std::memcpy(rt.memory.hostPointer(node+4,4),&object,4);std::memcpy(rt.memory.hostPointer(child+4,4),&childObject,4);
+            const float pa[4]={2,0,0,0.5f},pb[4]={0,1,3,0.25f},scale[4]={2,4,0,0};
+            for(uint32_t n:{node,child})std::memcpy(rt.memory.hostPointer(n+0x10,16),pa,16);std::memcpy(rt.memory.hostPointer(point,16),pb,16);
+            for(uint32_t sp:{parentSp,childSp})std::memcpy(rt.memory.hostPointer(sp+0x80,16),scale,16);
+            const auto frame=[&](uint32_t sp,uint32_t n,uint32_t obj,uint32_t m){R5900Context c{};c.r[29].uw[0]=sp;c.r[19].uw[0]=n;c.r[16].uw[0]=obj;c.r[18].uw[0]=point;c.r[17].uw[0]=m;
+                c.r[3].uw[0]=n+0x10;c.r[4].uw[0]=obj+0x150;c.r[2].uw[0]=sp+0x90;return c;};
+            const auto spillAll=[&](R5900Context &c){c.r[2].uw[0]=c.r[29].uw[0]+0x90;for(unsigned i=0;i<9;++i)check(vp2s::nativeMathInstruction(rt.memory.flat(),&c,&rt,0x1f74f4+4*i));};
+            const auto overlap=[&](R5900Context &c){c.r[2].uw[0]=c.r[29].uw[0]+0x80;for(unsigned i=0;i<std::size(words);++i){if(i==30){c.r[2].uw[0]=c.r[29].uw[0]+0x70;continue;}
+                check(vp2s::nativeMathInstruction(rt.memory.flat(),&c,&rt,0x1f7660+4*i));}};
+            auto parent=frame(parentSp,node,object,matrix);spillAll(parent);overlap(parent);
+            // t1 = (3, 0, 0, 1), t2 = (0, 3, 3): (9 + 9 - 2^2) + 9 = 23
+            float o[4];std::memcpy(o,rt.memory.hostPointer(parentSp+0x70,16),16);check(o[0]==23 && o[1]==9 && o[2]==9 && o[3]==1);
+            auto kid=frame(childSp,child,childObject,identityAt);spillAll(kid);overlap(kid);
+            {auto bad=kid;bad.r[2].uw[0]=childSp+0x80;bool failed=false;try{vp2s::nativeMathInstruction(rt.memory.flat(),&bad,&rt,0x1f785c);}catch(const std::runtime_error &){failed=true;}check(failed);}   // restore outside sp+90
+            kid.r[2].uw[0]=childSp+0x90;for(unsigned i=0;i<9;++i)check(vp2s::nativeMathInstruction(rt.memory.flat(),&kid,&rt,0x1f785c+4*i));
+            // The parent's registers again: spheres (0,0,0,.5) -> (1,0,0) and (0,0,0,.25) -> (0,2,0): (1 + 4 - 2^2) + 0 = 1
+            // (the child's identity matrix would give 1 - 4 = -3).
+            const float sa[4]={0,0,0,0.5f},sb[4]={0,0,0,0.25f};std::memcpy(rt.memory.hostPointer(0x1d0000,16),sa,16);std::memcpy(rt.memory.hostPointer(0x1d0010,16),sb,16);
+            R5900Context d{};d.r[4].uw[0]=0x1d0000;d.r[5].uw[0]=0x1d0010;d.r[29].uw[0]=0x1fff000;d.r[2].uw[0]=0x1fff000;
+            check(vp2s::nativeMathInstruction(rt.memory.flat(),&d,&rt,0x1f889c));std::memcpy(o,rt.memory.hostPointer(0x1fff000,16),16);check(o[0]==1);
+            {auto bad=parent;bad.r[3].uw[0]=node;bad.r[2].uw[0]=parentSp+0x80;bool failed=false;try{vp2s::nativeMathInstruction(rt.memory.flat(),&bad,&rt,0x1f7664);}catch(const std::runtime_error &){failed=true;}check(failed);}   // not a0+10
+            {R5900Context lone=frame(0x1ffdc00,node,object,matrix);bool failed=false;try{vp2s::nativeMathInstruction(rt.memory.flat(),&lone,&rt,0x1f76f4+0x20);}catch(const std::runtime_error &){failed=true;}check(failed);}   // a restore with no spill
+            parent.r[2].uw[0]=parentSp+0x90;for(unsigned i=0;i<9;++i)check(vp2s::nativeMathInstruction(rt.memory.flat(),&parent,&rt,0x1f76f4+4*i));
+        }
         {   // mod028 4a6470 battle shape tree: loads fill the object-pair rows; a nested call's spill/restore gives the parent's back.
             for(unsigned i=0;i<5;++i){const uint32_t sp=0xf8400000u|(i+1)<<16|i*16,rs=0xd8400000u|(i+1)<<16|i*16;
                 std::memcpy(rt.memory.hostPointer(0x4a64e4+4*i,4),&sp,4);std::memcpy(rt.memory.hostPointer(0x4a6770+4*i,4),&rs,4);std::memcpy(rt.memory.hostPointer(0x4a67a0+4*i,4),&rs,4);}

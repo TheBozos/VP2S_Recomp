@@ -12,6 +12,32 @@ The earlier VP2S face/shading and general brightness comparisons remain open.
 
 ## Build and evidence
 
+### Sphere-tree walk 1f7490 (mod001) (2026-11-23)
+
+Frame 71840, second attack turn: mod001 `1f7490(node a0, point a1, matrix a2, scale f12)` stopped at
+its first COP2 word, 1f74f4. It is a recursive sphere-tree walk:
+- entry `1f78b0`;
+- children at node +0, 0x20 apart;
+- node object s0 = a0+4.
+
+It runs:
+1. the 0x7f0 basis-length block `1f7608` (now a `basisLengthSites` row, output sp+60, max cached in +204,
+   gated by +20e bit 6);
+2. the overlap block `1f7660..1f76dc`, the same algorithm as 1f8aa0 / 4a6c40:
+   - node a0+10 goes through the object's +150 rows, point a1 through matrix a2;
+   - radius = a.w · (+204) + b.w · f12;
+   - sp+70 = (((dx² + dy²) − r²) + dz², dy², dz², M1's w).
+
+Then vf1..vf9 are the object-pair registers for the shape tests that 1f73a0 runs (1f8840 / 1f8100, already
+native). vf1..vf9 are spilled to sp+90 on entry and restored on each miss; a hit returns with them
+loaded. A child's spill holds its parent's registers, so the native spill keeps a snapshot of the
+registers per frame (sp), and the matching restore puts it back. Nothing else reads sp+90.
+
+`vp2s-bozo-math-check` covers this with the 4a6c40 numbers (result 23, 9, 9, 1) and a nested child
+frame whose restore gives back the parent's registers. A 1f8840 sphere pair then reads 1 rather
+than the child's −3. It also checks the rejections: a restore outside sp+90, a node centre not at
+a0+10, and a restore with no spill.
+
 ### Battle polygon with per-corner ST (42df80 at 42e144) (2026-11-22)
 
 A new pad scenario reaches the second attack turn. In `bt6/attack4.txt`, Alicia walks DOWN back

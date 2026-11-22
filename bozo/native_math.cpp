@@ -653,8 +653,10 @@ struct BasisLengthSite{uint32_t load,call,store;unsigned object,base,output;uint
 //   mod028 4a6e10 / 4a6f40: battle object overlap 4a6c40, objects s3 / s2 (base a1), outputs sp+b0 / sp+a0.
 //   mod001 1f5d90: shape tree 1f5c30, object s0 (base a1), output sp+50.
 //   mod028 4a52a8: nearest-point walk 4a50b0's node path, object s1 (base a1), output sp+70.
+//   mod001 1f7608: sphere-tree walk 1f7490, node object s0 (base a1), output sp+60 (cached in +204).
 constexpr BasisLengthSite basisLengthSites[]={{0x43c120,0x43c130,0x43c13c,16,4,3,0x70},{0x239b54,0x239b64,0x239b70,4,2,2,0},{0x4f56f8,0x4f5708,0x4f5714,20,6,3,0x60},{0x4f5a68,0x4f5a78,0x4f5a84,18,6,3,0xc0},
-    {0x4a6e10,0x4a6e20,0x4a6e2c,19,5,2,0xb0},{0x4a6f40,0x4a6f50,0x4a6f5c,18,5,2,0xa0},{0x1f5d90,0x1f5da0,0x1f5dac,16,5,2,0x50},{0x4a52a8,0x4a52b8,0x4a52c4,17,5,2,0x70}};
+    {0x4a6e10,0x4a6e20,0x4a6e2c,19,5,2,0xb0},{0x4a6f40,0x4a6f50,0x4a6f5c,18,5,2,0xa0},{0x1f5d90,0x1f5da0,0x1f5dac,16,5,2,0x50},{0x4a52a8,0x4a52b8,0x4a52c4,17,5,2,0x70},
+    {0x1f7608,0x1f7618,0x1f7624,16,5,2,0x60}};
 bool nativeBattleBasisLengths(R5900Context *c,Runtime *rt,uint32_t pc){
     if(!rt || (pc&3))return false;
     const auto site=std::find_if(std::begin(basisLengthSites),std::end(basisLengthSites),[&](auto &s){return pc>=s.load && pc<=s.store;});
@@ -2427,6 +2429,66 @@ uint32_t nativeBoxPairTest(const std::array<std::array<uint32_t,4>,8> &rows,cons
 //   1f8104..1f81c0: sphere a2 through rows[4..7] (a3 set, scale y) or rows[0..3] (scale x),
 //     then through t0's rows into box space: sp+20 = (that, r^2 * sqrt(max column length^2
 //     of t0)); box a0 +- a1 * the other object's scale: sp+0 (max) and sp+10 (min).
+// Sphere-tree walk, mod001 1f7490(node a0, point a1, matrix a2, scale f12), recursive (its
+// children at node +0, 0x20 apart, via 1f7490 itself; entry 1f78b0). Node object s0 = a0+4.
+// SQC2 vf1..vf9 to sp+90 on entry (1f74f4..1f7514); a miss LQC2s them back (1f76f4..,
+// 1f77dc.., 1f785c..) while a hit returns with them loaded. Since a child's spill holds its
+// parent's registers, the spill keeps a snapshot of the object-pair registers per frame and
+// the restore puts it back (sp+90 has no other EE reader). +204 caches the object's largest
+// basis length (0x7f0 block 1f7608, a basisLengthSites row). The overlap block (1f7660..
+// 1f76dc): vf9 = sp+80 = (+204, f12, -, -), vf10 = a0+10 (r3), vf11 = a1 (s2), vf1..vf4 =
+// s0+150, vf5..vf8 = a2 (s1); vf10.w *= vf9.x, vf11.w *= vf9.y; vf12 = M1 vf10, vf13 = M2
+// vf11 (w by 1); sp+70 = (((1*dx^2 + 1*dy^2) - 1*(r1 + r2)^2) + 1*dz^2, dy^2, dz^2, M1's w).
+// Then vf1..vf9 are the object-pair registers for the shape tests 1f73a0 runs.
+bool nativeSphereTreeWalk(R5900Context *c,Runtime *rt,uint32_t pc){
+    if((pc&3) || !rt || pc<0x1f74f4 || pc>0x1f787c)return false;
+    const auto restoreBase=[](uint32_t at)->uint32_t{for(uint32_t b:{0x1f76f4u,0x1f77dcu,0x1f785cu})if(at>=b && at<=b+0x20)return b;return 0;};
+    const bool spill=pc<=0x1f7514;const uint32_t rb=restoreBase(pc);
+    constexpr uint32_t first=0x1f7660;
+    constexpr uint32_t words[]={0xd8490000,0xd86a0000,0xda4b0000,0xd8810000,0xd8820010,0x4a295298,0x4a295ad9,0xd8830020,0xd8840030,0xda250000,0xda260010,0xda270020,0xda280030,
+        0x4bea09bc,0x4bea10bd,0x4bea18be,0x4be0230b,0x4beb29bc,0x4beb30bd,0x4beb38be,0x4be0434b,0x4bcd632c,0x4a2b52a8,0x4bcc632a,0x4b000343,0x4a2a52aa,0x4b0c69bc,0x4b0c68bd,
+        0x4b0a68ff,0x4b0c6b0a,0,0xf84c0000};   // 0: the addiu v0, sp, 70 between (runs as compiled)
+    const bool block=pc>=first && pc<=0x1f76dc;
+    if(!spill && !rb && !block)return false;
+    uint32_t expected=0;
+    if(spill)expected=0xf8400000u|((pc-0x1f74f4)/4+1)<<16|(pc-0x1f74f4)*4;
+    else if(rb)expected=0xd8400000u|((pc-rb)/4+1)<<16|(pc-rb)*4;
+    else{expected=words[(pc-first)/4];if(!expected)return false;}
+    uint32_t word=0;if(const auto *p=rt->memory.hostPointer(pc,4))std::memcpy(&word,p,4);
+    if(word!=expected)return false;   // another overlay at these addresses
+    if(!c)throw std::runtime_error("native sphere-tree walk has no CPU record");
+    const auto stack=c->r[29].uw[0],object=c->r[16].uw[0];
+    static std::map<std::pair<const Runtime *,uint32_t>,ObjectPairRegisters> saved;
+    const auto key=std::make_pair(static_cast<const Runtime *>(rt),stack);
+    auto &regs=objectPairRegisters(rt);
+    if(spill || rb){
+        if(c->r[2].uw[0]!=stack+0x90)throw std::runtime_error("native sphere-tree spill escaped its frame");
+        if(spill){if(pc==0x1f74f4)saved[key]=regs;return true;}
+        auto it=saved.find(key);if(it==saved.end())throw std::runtime_error("native sphere-tree restore without its spill");
+        if(pc==rb+0x20){regs=it->second;saved.erase(it);}
+        return true;
+    }
+    const auto node=c->r[19].uw[0],point=c->r[18].uw[0],matrix=c->r[17].uw[0];
+    if(c->r[3].uw[0]!=node+0x10 || c->r[4].uw[0]!=object+0x150 || [&]{uint32_t v=0;const auto *q=rt->memory.hostPointer(node+4,4);if(!q)throw std::runtime_error("native sphere-tree node outside RAM");std::memcpy(&v,q,4);return v;}()!=object)
+        throw std::runtime_error("native sphere-tree overlap escaped its records");
+    if(pc<0x1f76d8 && c->r[2].uw[0]!=stack+0x80)throw std::runtime_error("native sphere-tree scale record mismatch");
+    if(pc!=0x1f76dc)return true;
+    if(c->r[2].uw[0]!=stack+0x70)throw std::runtime_error("native sphere-tree overlap destination mismatch");
+    using Words=std::array<uint32_t,4>;constexpr uint32_t one=0x3f800000u;
+    const auto load=[&](uint32_t at){Words v;std::memcpy(v.data(),record(rt,at,16),16);return v;};
+    std::array<Words,4> m1,m2;for(unsigned i=0;i<4;++i){m1[i]=load(object+0x150+16*i);m2[i]=load(matrix+16*i);}
+    const auto scale=load(stack+0x80),a=load(node+0x10),b=load(point);
+    const auto through=[&](const std::array<Words,4> &r,const Words &v){Words o;
+        for(unsigned k=0;k<4;++k)o[k]=vuAdd(vuAdd(vuAdd(vuMul(r[0][k],v[0]),vuMul(r[1][k],v[1])),vuMul(r[2][k],v[2])),vuMul(r[3][k],one));return o;};
+    const auto t1=through(m1,a),t2=through(m2,b);
+    auto radius=vuAdd(vuMul(a[3],scale[0]),vuMul(b[3],scale[1]));radius=vuMul(radius,radius);
+    Words out=t1;for(unsigned i=0;i<3;++i){out[i]=vuSub(t1[i],t2[i]);out[i]=vuMul(out[i],out[i]);}
+    const auto squaredX=out[0];
+    out[0]=vuAdd(vuSub(vuAdd(vuMul(one,squaredX),vuMul(one,out[1])),vuMul(one,radius)),vuMul(one,out[2]));
+    std::memcpy(record(rt,stack+0x70,16),out.data(),16);
+    for(unsigned i=0;i<4;++i){regs.rows[i]=m1[i];regs.rows[4+i]=m2[i];}regs.scale=scale;regs.valid=true;
+    return true;
+}
 struct ShapeSite{uint32_t pc,word;};
 constexpr ShapeSite battleShapeSites[]={
     {0x4f5754,0xd86a0000},{0x4f5758,0xda090040},{0x4f575c,0xda0b0000},{0x4f5760,0xd8810000},{0x4f5764,0xd8820010},{0x4f5768,0x4a295298},{0x4f576c,0xd8830020},{0x4f5770,0xd8840030},{0x4f5774,0x4bea09bc},{0x4f5778,0x4bea10bd},{0x4f577c,0x4bea18be},{0x4f5780,0x4be0230b},{0x4f5784,0x4bcb632c},{0x4f5788,0x4a2b52a8},{0x4f578c,0x4bcc632a},{0x4f5790,0x4a2a52aa},{0x4f5794,0x4b000343},{0x4f5798,0x4b0c603d},{0x4f579c,0x4b0c68be},{0x4f57a0,0x4b0a6b0f},{0x4f57a4,0xfa0c0040},
@@ -5039,6 +5101,7 @@ bool nativeMathInstruction(uint8_t *,R5900Context *c,Runtime *rt,uint32_t pc){
     if(nativeBattleColourPair(c,rt,pc))return true;
     if(nativeBattleShapeTree(c,rt,pc))return true;
     if(nativeBattleObjectOverlap(c,rt,pc))return true;
+    if(nativeSphereTreeWalk(c,rt,pc))return true;
     if(nativeBattleAdvance(c,rt,pc))return true;
     if(nativeBattleRecordShift(c,rt,pc))return true;
     if(nativeBattleSegmentPoints(c,rt,pc))return true;

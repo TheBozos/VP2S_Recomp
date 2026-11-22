@@ -12,6 +12,22 @@ The earlier VP2S face/shading and general brightness comparisons remain open.
 
 ## Build and evidence
 
+### Battle emitter box 48a820: a fourth particle-box instance (2026-11-22)
+
+mod028 `48a820` is a battle emitter's +18 method, called by mod001's particle driver at
+`22ed30`.
+- **Original:** per record it loads the point at +10 (`48a9cc`, LQC2 vf1 from v0) and grows
+  vf26/vf27 by MINI/MAX (`48aa10`, `48aa14`). Those are the driver's box registers: loaded at
+  `22ec9c`, published at `22efd8`.
+- **Native (`nativeParticleBox` in `bozo/native_math.cpp`):** the box table now carries a
+  load word, source register and emitter register per instance. This one is word d8410000,
+  v0, and s6 (a0 is reused), with frame 0xf0. Its points join `NativeParticles`' explicit
+  bounds for the driver frame, as the three mod003 instances' do.
+- **Test:** `vp2s-bozo-particle-publications` grows the bounds through the new instance, and
+  refuses an emitter that is not the frame's.
+- **Evidence:** the scripted battle passes it. The next boundary is a battle model whose
+  offline mesh pack is missing: `01089cc800_000.mesh` (object `e88d90`, site `239ff0`).
+
 ### Battle record shift 48ad10: a saved quadword fills the tail records (2026-11-22)
 
 mod028 `48ad10` keeps a ring of 0x40-byte records.

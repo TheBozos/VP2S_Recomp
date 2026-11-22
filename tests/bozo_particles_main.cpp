@@ -176,6 +176,15 @@ int main(){try{
         check(math(0x44af7c) && math(0x44afa4) && math(0x44afa8));
         const auto third=now.particles.bounds(frame,0x190000);
         check(third.minimum[0]==-4 && third.maximum[1]==11 && third.minimum[2]==-1 && third.maximum[0]==5);
+        // mod028 48a820 (a battle emitter's +18, frame 0xf0): the point at v0 (word d8410000), the
+        // emitter in s6 (a0 reused), MINI/MAX at 48aa10/48aa14.
+        for(const auto &[pc,w]:{std::pair{0x48a9ccu,0xd8410000u},{0x48aa10u,0x4bc1d6afu},{0x48aa14u,0x4bc1deebu}})write(rt,pc,w);
+        R5900Context e{};e.r[29].uw[0]=frame-0xf0;e.r[22].uw[0]=0x190000;e.r[4].uw[0]=0x1a0000;e.r[2].uw[0]=0x1d0010;write(rt,0x1d0010,std::array<float,4>{-9,3,12,9});
+        auto bmath=[&](uint32_t pc){return vp2s::nativeMathInstruction(rt.memory.flat(),&e,&rt,pc);};
+        check(bmath(0x48a9cc) && bmath(0x48aa10) && bmath(0x48aa14));
+        const auto fourth=now.particles.bounds(frame,0x190000);
+        check(fourth.minimum[0]==-9 && fourth.maximum[2]==12 && fourth.maximum[1]==11);
+        e.r[22].uw[0]=0x1a0000;order=false;try{bmath(0x48a9cc);}catch(const std::runtime_error &){order=true;}check(order);   // not the frame's emitter
         now.particles=vp2s::NativeParticles{};
     }
     // mod003 40b080, the trail emitter: every VU0 site with the game's word at its address. A

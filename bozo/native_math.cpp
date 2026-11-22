@@ -3614,21 +3614,23 @@ bool nativeParticleStep(R5900Context *c,Runtime *rt,uint32_t pc){
 struct ParticleBoxState{bool loaded=false,included=false;uint32_t frame=0,emitter=0;std::array<float,4> point{};};
 ParticleBoxState &particleBoxState(const Runtime *rt){static std::map<const Runtime *,ParticleBoxState> states;return states[rt];}
 bool nativeParticleBox(R5900Context *c,Runtime *rt,uint32_t pc){
-    struct Box{uint32_t load,min,max,frameOffset;};
-    // A third, 44aef0 (the forest emitter class; frame 0x40 as 3649f0).
-    constexpr Box boxes[]={{0x364a84,0x364ac4,0x364ac8,0x40},{0x38cfec,0x38d010,0x38d018,0},{0x44af7c,0x44afa4,0x44afa8,0x40}};
-    constexpr uint32_t words[3]={0xd8c10000,0x4bc1d6af,0x4bc1deeb};
+    struct Box{uint32_t load,min,max,frameOffset,loadWord;unsigned source,emitter;};
+    // A third, 44aef0 (the forest emitter class; frame 0x40 as 3649f0). A fourth, mod028
+    // 48a820 (a battle emitter's +18, frame 0xf0): the point is the record's +10 at v0
+    // (48a9cc), the emitter is kept in s6 (a0 is reused), MINI/MAX at 48aa10/48aa14.
+    constexpr Box boxes[]={{0x364a84,0x364ac4,0x364ac8,0x40,0xd8c10000,6,4},{0x38cfec,0x38d010,0x38d018,0,0xd8c10000,6,4},
+        {0x44af7c,0x44afa4,0x44afa8,0x40,0xd8c10000,6,4},{0x48a9cc,0x48aa10,0x48aa14,0xf0,0xd8410000,2,22}};
     const Box *box=nullptr;unsigned role=0;
     for(const auto &b:boxes){if(pc==b.load){box=&b;role=0;}else if(pc==b.min){box=&b;role=1;}else if(pc==b.max){box=&b;role=2;}}
     if(!rt || !box)return false;
     uint32_t word=0;if(const auto *p=rt->memory.hostPointer(pc,4))std::memcpy(&word,p,4);
-    if(word!=words[role])return false;   // another overlay at these addresses
+    if(word!=(role==0?box->loadWord:role==1?0x4bc1d6afu:0x4bc1deebu))return false;   // another overlay at these addresses
     auto *d=dynamic_cast<bozo::ee::Dispatcher *>(rt->services);auto *particles=d?dynamic_cast<ParticleOwner *>(&d->host()):nullptr;
     if(!c || !particles)throw std::runtime_error("native particle box requires its bounds owner");
-    auto &st=particleBoxState(rt);const auto frame=c->r[29].uw[0]+box->frameOffset,emitter=c->r[4].uw[0];
+    auto &st=particleBoxState(rt);const auto frame=c->r[29].uw[0]+box->frameOffset,emitter=c->r[box->emitter].uw[0];
     if(role==0){
         particles->nativeParticles().validateEmitter(frame,emitter);
-        std::memcpy(st.point.data(),record(rt,c->r[6].uw[0],16),16);st=ParticleBoxState{true,false,frame,emitter,st.point};return true;}
+        std::memcpy(st.point.data(),record(rt,c->r[box->source].uw[0],16),16);st=ParticleBoxState{true,false,frame,emitter,st.point};return true;}
     if(!st.loaded || st.frame!=frame || st.emitter!=emitter || st.included!=(role==2))
         throw std::runtime_error(std::format("native particle box at {:x} out of order",pc));
     if(role==1){particles->nativeParticles().includePoint(frame,emitter,st.point);st.included=true;}

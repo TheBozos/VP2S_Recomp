@@ -12,6 +12,17 @@ The earlier VP2S face/shading and general brightness comparisons remain open.
 
 ## Build and evidence
 
+### rows4 macro idiom: a point times four rows, w from the point (2026-11-22)
+
+mod001 `22b734`: LQC2 vf5 (point, a1), vf1..vf4 (rows, s2); MULAx/MADDAy/MADDAz/MADDw.xyzw
+vf5 = ((r1 x + r2 y) + r3 z) + r4 w, with w taken from the point (rows3's sibling at
+`22b6d4` adds no fourth row); SQC2 vf5.
+- **Native:** the `rows4` entry in `macroIdioms` (`bozo/native_math.cpp`), ps2f in program
+  order.
+- **Test:** `vp2s-bozo-math-check` checks exact values (6, 14, 27, 1).
+- **Evidence:** the scripted battle passes it. The next boundary is mod001 `284f14` (entry
+  `2847e0`, called from the particle driver `22ed20`), frame 63743.
+
 ### Particle templates up to 51 kinds (2026-11-22)
 
 The particle draw `22f160` needed material `1089cc800/0+30ce0` (an encrypted battle pack),

@@ -3555,6 +3555,9 @@ constexpr MacroIdiom macroIdioms[]={
     // mod028 4e6654: LQC2 vf4 (point), vf1..vf3 (rows); MULAx/MADDAy/MADDz.xyzw vf4 =
     // (r1*x + r2*y) + r3*z per lane; SQC2 vf4.
     {"rows3",{-5,-2,-3,-4,0x4be409bc,0x4be410bd,0x4be4190a,-104},8},
+    // its four-row form (mod001 22b734): LQC2 vf5 (point), vf1..vf4 (rows); MULAx/MADDAy/MADDAz/
+    // MADDw.xyzw vf5 = ((r1*x + r2*y) + r3*z) + r4*w (w from the point); SQC2 vf5.
+    {"rows4",{-6,-2,-3,-4,-5,0x4be509bc,0x4be510bd,0x4be518be,0x4be5214b,-105},10},
     // mod028 xz length to a GPR (4e657c): LQC2 vf24; MUL.xyz; ADDz.x x = x2 + z2; SQRT;
     // WAITQ; ADDq.x x = 0 + Q; QMFC2 rN = {|xz|, y2, z2, w} (v0, v1, a0 or a1). Ends in the QMFC2, not a store.
     {"xzlength",{-25,0x4bd8c62a,0x4b18c602,0x4a1803bd,0x4a0003bf,0x4b000620,-200},7},
@@ -3635,6 +3638,8 @@ bool nativeMacroIdiom(R5900Context *c,Runtime *rt,uint32_t pc){
             if(kind=="normalize" || kind=="normalize25"){const auto v=need(kind=="normalize"?20:25);uint32_t sq[3];for(unsigned i=0;i<3;++i)sq[i]=vuMul(v[i],v[i]);
                 uint32_t f=0;const auto q=bozo::ps2f::rsqrt(one,vuAdd(vuAdd(sq[0],sq[1]),vuMul(one,sq[2])),f);_mm_setcsr(savedCsr);
                 for(unsigned i=0;i<3;++i)out[i]=vuMul(v[i],q);out[3]=v[3];}
+            else if(kind=="rows4"){const auto v=need(5),r1=need(1),r2=need(2),r3=need(3),r4=need(4);
+                for(unsigned i=0;i<4;++i)out[i]=vuAdd(vuAdd(vuAdd(vuMul(r1[i],v[0]),vuMul(r2[i],v[1])),vuMul(r3[i],v[2])),vuMul(r4[i],v[3]));}
             else if(kind=="rows3"){const auto v=need(4),r1=need(1),r2=need(2),r3=need(3);
                 for(unsigned i=0;i<4;++i)out[i]=vuAdd(vuAdd(vuMul(r1[i],v[0]),vuMul(r2[i],v[1])),vuMul(r3[i],v[2]));}
             else if(kind=="squared"){const auto v=need(24);for(unsigned i=0;i<3;++i)out[i]=vuMul(v[i],v[i]);

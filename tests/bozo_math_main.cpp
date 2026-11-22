@@ -1065,6 +1065,16 @@ int main(int argc,char **argv){try{
             {R5900Context c{};c.r[29].uw[0]=childSp;c.r[2].uw[0]=childSp+0x90;bool failed=false;
              try{for(uint32_t pc:restore)vp2s::nativeMathInstruction(rt.memory.flat(),&c,&rt,pc);}catch(const std::runtime_error &){failed=true;}check(failed);}   // no spill left
         }
+        {   // mod001 22b734 rows4 idiom: vf5 = ((r1 x + r2 y) + r3 z) + r4 w, w from the point.
+            constexpr uint32_t words[]={0xd8650000,0xda410000,0xda420010,0xda430020,0xda440030,0x4be509bc,0x4be510bd,0x4be518be,0x4be5214b,0xf8450000};
+            std::memcpy(rt.memory.hostPointer(0x22b734,sizeof(words)),words,sizeof(words));
+            constexpr uint32_t pt=0x1b0000,rows=0x1b1000,out=0x1b2000;
+            const float p[4]={1,2,3,0.5f},m[16]={1,0,0,0, 0,2,0,0, 0,0,4,0, 10,20,30,2};
+            std::memcpy(rt.memory.hostPointer(pt,16),p,16);std::memcpy(rt.memory.hostPointer(rows,64),m,64);
+            R5900Context c{};c.r[29].uw[0]=0x1fff000;c.r[3].uw[0]=pt;c.r[18].uw[0]=rows;c.r[2].uw[0]=out;
+            for(unsigned i=0;i<std::size(words);++i)check(vp2s::nativeMathInstruction(rt.memory.flat(),&c,&rt,0x22b734+4*i));
+            float o[4];std::memcpy(o,rt.memory.hostPointer(out,16),16);check(o[0]==6 && o[1]==14 && o[2]==27 && o[3]==1);   // (1+5, 4+10, 12+15, 0+1)
+        }
         {   // mod028 47ae40 battle colour pair: (128, 64, 255, 128) and (0, 1, 2, 3) widened by the CPU.
             constexpr uint32_t words[]={0x48a80800,0x48a91000,0x48aa1800,0x4be1093c,0x4be2113c,0x248309a0,0x4bc30858,0x4bc31098,0xf8610000,0xf8620010};
             std::memcpy(rt.memory.hostPointer(0x47ae78,sizeof(words)),words,sizeof(words));

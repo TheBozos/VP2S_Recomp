@@ -12,11 +12,65 @@ The earlier VP2S face/shading and general brightness comparisons remain open.
 
 ## Build and evidence
 
-### Battle particle mode 4 (VU1 image 7): analysis, not yet ported (2026-11-22)
+### Battle particle mode 4 (VU1 image 7): ribbons, ported (2026-11-22)
 
-The scripted attack stops in the particle draw `22f160`: owner `1737ad0` (class `1725d0`)
-is in mode 4 (+aff = 4). The draw admits 3 and 6 only; every other admission check
-passes.
+`NativeParticleDraws::capture` admits mode 4 and draws image 7's ribbons natively.
+- **Which path:** the owner's VU rows are owner +230 + 16 row. The +220 REF opens with
+  the VIF code UNPACK 0x2f qwords to row 0; row 36 = (1a0, 240), the output buffers,
+  confirms it. Battle owner `1737ad0`: row 15 = (0, 1, 0, 0), so 15.w = 0 and the battle
+  runs the first path (`0868`..`0f28`).
+  - The second path (`0f38`..`1660`, 15.w set) is a fog variant. It writes XYZF2 with fog
+    clamp(row 68 terms, 0, 255) and puts ADC through +2048 before FTOI4. It is not ported;
+    15.w (+32c) set refuses.
+  - Row 14.w = 2 (+31c) selects another lighting pass (`1a50`); it refuses too.
+- **Subroutines `1670`..`1d78`:** identical to image 6's `1400`.. (only branch targets
+  move). `1670` is the lighting pass the existing colour code transcribes: colour x row 13
+  (+300), MINI row 0 (+230), MAX 0, skipped when row 14.x (+310) is set.
+- **Correction:** `tools/vu_disasm.py` printed FCAND as `fcand vi03, 0x3ffff`. FCEQ,
+  FCAND and FCOR always write vi01; the `03` is the top of imm24 = 0x03ffff, the last three
+  CLIPW judgements. The tool is fixed. So the guard does feed ADC: `ibeq vi01` picks vi11
+  (0xff0) or vi06 (0x8ff0, bit 15 = ADC) for each XYZ2 w word.
+- **Per ribbon** (xtop qword: x = count, z = group = points per ribbon; records of 3 qwords):
+  - The kind comes from the first point only (record +44, ILW at `0970`). The kind rows are
+    2e9 + **5** kind: +2 (u0, v0, q0), +3 (u1, v1, q1), +4 tint.
+  - T starts at v0 and steps by (v1 - v0) / (group - 1) per point. Both vertices of a point
+    share T (the second vertex stores vf27.y, `0d30`); S is u0 / u1.
+  - Direction in eye xy: first - next at the first point, prev - last at the last point,
+    0.5 (prev - cur) + 0.5 (cur - next) between. d = dir x width (+32) x ERLENG. A zero
+    direction gives ERLENG +max and 0 x max = 0: the battle's first frame has all 22
+    points at one position, a zero-width ribbon.
+  - Vertices: (p.x + d.y, p.y - d.x) and (p.x - d.y, p.y + d.x).
+  - Colour: as modes 3/6.
+  - The first point's two vertices always carry ADC, so no triangle bridges two ribbons in
+    one GIF packet. A later vertex carries ADC when any vertex of the triangle it completes
+    is outside the guard. Every FCAND the program uses is 4 or more cycles after its CLIPW.
+  - The second vertex is divided by the first one's Q (`0b58`, `0d08`, `0ea8`). That equals
+    per-vertex projection only while the screen w row has no x/y term, so a nonzero
+    screen[12] or screen[13] refuses.
+- **One pass:** image 7 never reads the pass header (VU 2e0). It draws once, with ALPHA
+  variant 0 (VU 2e5).
+- **Native:** each ribbon becomes the GS strip as a triangle list, (j-2, j-1, j) for every
+  vertex j >= 2 without ADC. A group below 2 refuses (the VU loop would never end).
+- **Test `vp2s-bozo-particle-ribbons`** (`tests/bozo_particle_ribbons_main.cpp`):
+  - It reads image 7 from `mod001.elf` at test time (table 3141a0 entry 7 -> REF -> MPG
+    uploads) and runs its words from the `0818` entry (lighting `1670`, then `0868`) in a
+    small sequential VU1 interpreter. The interpreter uses pair semantics and the engine's
+    `bozo::vu0` / `ps2f` arithmetic; ERLENG = rsqrt(1, x²+y²+z²).
+  - 72 captures (groups 2..48, 1..3 chunks, two kinds, lighting on/off, coincident points,
+    perspective w, a turned view) must equal the oracle's GIF output:
+    - the same triangles in order (1407 drawn, 2161 ADC-culled);
+    - XYZ within 1.5/16 px;
+    - ST/Q to 1e-5;
+    - RGBA exact.
+  - It also checks the 5 refusals. Three deliberate mutations of the native code (vertex
+    side, guard culling, T step) each fail it.
+- **Evidence:** in the scripted attack, `22f160` now draws owner `1737ad0` (1 batch) at
+  frame 63739. The next boundary is at frame 63740: "unported native VP2S algorithm at
+  pc=49c7a4". It is a VU0 block in mod028 function `49c3b0`: `49c7a4` is QMTC2 t0, vf4,
+  then LQC2 loads, on the scratchpad stack (sp 70003e00).
+
+Analysis notes kept from before the port (the doc's earlier "2e9 + 3 kind" was wrong: 5
+qwords per kind):
 - **Image:** mode 4 selects VU1 image 7 (table `3141a0` entry 7 = mod001 `325240`). It is a
   REF to a VIF packet (0x16e qwords) with three MPG uploads (`0x6e0` x256, `0xee0` x256,
   `0x16e0` x213), about 725 pairs. Extract it by walking the VIF codes (STMASK +1 word,

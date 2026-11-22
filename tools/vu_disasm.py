@@ -89,7 +89,12 @@ def lower(word, pc):
     if op in (0x08, 0x09):
         imm15 = (((word >> 21) & 0xF) << 11) | (word & 0x7FF)
         return '%s vi%02d, vi%02d, 0x%x' % ('iaddiu' if op == 0x08 else 'isubiu', it, is_, imm15)
-    flags = {0x10: 'fceq', 0x11: 'fcset', 0x12: 'fcand', 0x13: 'fcor', 0x14: 'fseq', 0x15: 'fsset', 0x16: 'fsand',
+    # FCEQ / FCAND / FCOR always write vi01 and FCSET has no register: their imm24 covers the it field.
+    if op in (0x10, 0x12, 0x13):
+        return '%s vi01, 0x%06x' % ({0x10: 'fceq', 0x12: 'fcand', 0x13: 'fcor'}[op], word & 0xFFFFFF)
+    if op == 0x11:
+        return 'fcset 0x%06x' % (word & 0xFFFFFF)
+    flags = {0x14: 'fseq', 0x15: 'fsset', 0x16: 'fsand',
              0x17: 'fsor', 0x18: 'fmeq', 0x1A: 'fmand', 0x1B: 'fmor', 0x1C: 'fcget'}
     if op in flags:
         return '%s vi%02d, 0x%x' % (flags[op], it, word & 0xFFFFFF)

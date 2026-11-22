@@ -8,6 +8,7 @@
 #include <cstring>
 #include <format>
 #include <fstream>
+#include <limits>
 namespace vp2s {
 namespace {
 uint8_t *record(Runtime *rt,uint32_t at,uint32_t bytes){
@@ -49,7 +50,7 @@ const NativeParticleDraws::Material &NativeParticleDraws::material(const AssetOr
 NativeModelSubmission NativeParticleDraws::capture(Runtime *rt,NativeAssets &assets,NativeTextures &textures,const NativeScene &scene,const NativeParticles &particles,uint32_t object){
     music::CodecRounding arithmetic;particles.validateDraw(object);auto *owner=record(rt,object,0xb10);
     const auto camera=scene.drawingCamera();const auto target=scene.frameTarget();const auto current=word(rt,0x35ddf8);const unsigned layer=owner[0x65];
-    if(!camera || !target || layer>1 || word(rt,current+0x40a8+4*layer)!=object || *rt->memory.hostPointer(current+0x40dc+layer,1)!=1 || !owner[0x63] || !particleClass(value<uint32_t>(owner,0)) || (owner[0xaff]!=3 && owner[0xaff]!=6) || owner[0xb04] || owner[0xaf9]>1)
+    if(!camera || !target || layer>1 || word(rt,current+0x40a8+4*layer)!=object || *rt->memory.hostPointer(current+0x40dc+layer,1)!=1 || !owner[0x63] || !particleClass(value<uint32_t>(owner,0)) || (owner[0xaff]!=3 && owner[0xaff]!=4 && owner[0xaff]!=6) || owner[0xb04] || owner[0xaf9]>1)
         throw std::runtime_error("native particle draw has no admitted scene/point owner");
     const auto first=NativeAssets::address(value<uint32_t>(owner,0xaa0)),second=NativeAssets::address(value<uint32_t>(owner,0xaa4));
     if(second<=first || second-first<0x20 || second-first>0x1000000)throw std::runtime_error("native particle draw buffer halves invalid");
@@ -94,16 +95,88 @@ NativeModelSubmission NativeParticleDraws::capture(Runtime *rt,NativeAssets &ass
     // the point record reads (ax, ay, scale, kind); see the corner loop. Its angle offsets
     // (VU row 37 = header +260/+264, the camera angles when emitter +afb / +afc) are not
     // ported: with either flag set the draw refuses.
-    const bool tilted=owner[0xaff]==6;
+    const bool tilted=owner[0xaff]==6,ribbon=owner[0xaff]==4;
     if(tilted && (owner[0xafb] || owner[0xafc]))throw std::runtime_error("unported native particle mode 6 camera angle offsets");
+    // VU1 particle program (0x6e0, image c8e40f07): MUL tint*colour (0b60), MINIi 255
+    // (0b80), FTOI0 (0ba8); no clamp at zero. FTOI0 truncates toward zero (saturating),
+    // and GIF PACKED RGBAQ keeps each word's low byte: a channel of -1 draws as 0xff.
+    // The lighting pass before it (subroutine 1400 in image 6, 1670 in image 7, the same
+    // words) multiplies by VU row 13 (+300) and clamps to [0, row 0 (+230)] unless +310 is set.
+    const auto pointColour=[&](const uint8_t *point,const uint8_t *shape){
+        uint32_t rgba=0;for(unsigned i=0;i<4;++i){auto channel=number(value<float>(point,16+4*i));const auto tint=number(value<float>(shape,64+4*i));
+            if(tint<0 || (!identity && channel<0))throw std::runtime_error("negative native particle colour");
+            if(!identity)channel=std::clamp(channel*colour[i],0.f,limit[i]);channel=std::min(channel*tint,255.f);
+            const int32_t fixed=channel<=-2147483648.f?INT32_MIN:int32_t(channel);rgba|=(uint32_t(fixed)&0xffu)<<(8*i);}
+        return rgba;
+    };
+    const auto outsideGuard=[&](const bozo::render::Vertex &v){const auto clip=transform(camera->guard,{v.x,v.y,v.z,1});
+        return std::abs(clip[0])>std::abs(clip[3]) || std::abs(clip[1])>std::abs(clip[3]) || std::abs(clip[2])>std::abs(clip[3]);};
+    if(ribbon){
+        // Mode 4 selects VU1 image 7 (table 3141a0 entry 7, mod001 325240): ribbons. The
+        // owner's VU rows are owner +230 + 16 row (the +220 REF opens with UNPACK 0x2f
+        // qwords to row 0). Only the path for row 15.w = 0 (0868..0f28) is ported; 15.w set
+        // selects a fog variant (0f38..1660: XYZF2, fog from row 68). Row 14.w = 2 selects
+        // another lighting pass (1a50) than the one pointColour transcribes.
+        if(value<uint32_t>(owner,0x32c))throw std::runtime_error("unported native particle ribbon fog variant (VU row 15.w)");
+        if((value<uint32_t>(owner,0x31c)&0xffff)==2)throw std::runtime_error("unported native particle ribbon lighting variant (VU row 14.w = 2)");
+        // Image 7 divides a point's second vertex by the first one's Q (0b58, 0d08, 0ea8):
+        // that equals a per-vertex projection only while the screen w row ignores x and y.
+        if(camera->screen[12]!=0 || camera->screen[13]!=0)throw std::runtime_error("unported native particle ribbon projection (screen w depends on x/y)");
+    }
     // VU1 0x6e0 kicks every point once per pass: pass p draws kind + p * stride with ALPHA variant p,
-    // all points of a pass before the next pass.
-    for(unsigned pass=0;pass<m.passes;++pass){
+    // all points of a pass before the next pass. Image 7 never reads the pass header (VU 2e0):
+    // one pass with ALPHA variant 0 (VU 2e5 = template +70).
+    for(unsigned pass=0;pass<(ribbon?1u:m.passes);++pass){
     mat.blendA=m.blends[pass][0];mat.blendB=m.blends[pass][1];mat.blendC=m.blends[pass][2];mat.blendD=m.blends[pass][3];mat.blendFix=m.blends[pass][4];batch.vertices.clear();
     auto cursor=base+0x20;uint32_t seen=0;
     for(unsigned chunk=0;chunk<chunks;++chunk){
         if(cursor>base+span-0x20)throw std::runtime_error("native particle chunk outside completed buffer");auto *header=record(rt,cursor,0x20);
         const auto count=value<uint32_t>(header,0x10),extent=value<uint32_t>(header,0x14),group=value<uint32_t>(header,0x18);
+        if(ribbon){
+            // Image 7 (0868, xtop qword x = count, z = points per ribbon): one GIF packet per chunk,
+            // a triangle strip of two vertices per point. A group below 2 never ends its VU loop.
+            if(!count || count>48 || extent!=count*3+2 || group<2 || group>48 || count%group || count>total-seen || uint64_t(cursor)+32+48*count>uint64_t(base)+span)
+                throw std::runtime_error("unported/incomplete native particle ribbon group");
+            auto *points=record(rt,cursor+0x20,count*48);
+            for(unsigned first=0;first<count;first+=group){
+                const auto *start=points+48*first;
+                // The ribbon's kind comes from its first point (ILW.w record +2 at 0970); kind rows
+                // 2e9 + 5 kind: +2 (u0, v0, q0), +3 (u1, v1, q1), +4 tint.
+                const auto kind=value<uint32_t>(start,44);if(kind>=m.kinds)throw std::runtime_error("native particle ribbon kind outside template");
+                const auto *shape=kindData+0xc0+80*kind;
+                if(value<uint32_t>(shape,40)!=0x3f800000 || value<uint32_t>(shape,56)!=0x3f800000)throw std::runtime_error("unported native particle projective texture coordinates");
+                const float u0=number(value<float>(shape,32)),v0=number(value<float>(shape,36)),u1=number(value<float>(shape,48)),v1=number(value<float>(shape,52));
+                // T runs from v0 by (v1 - v0) / (group - 1) per point (DIV 0980, ADDw.y 0b70 / 0d50).
+                const float step=(v1-v0)*(1.f/float(group-1));
+                std::array<std::array<float,4>,48> eye;
+                for(unsigned i=0;i<group;++i){std::array<float,4> position=value<std::array<float,4>>(start+48*i,0);for(unsigned j=0;j<3;++j)number(position[j]);position[3]=1;eye[i]=transform(toView,position);}
+                std::array<bozo::render::Vertex,96> strip;std::array<bool,96> outside;float t=v0;
+                for(unsigned i=0;i<group;++i){const auto *point=start+48*i;const auto &e=eye[i];
+                    // Direction in eye xy (z = 0): first - next at the start (0a20), last - ... at the end
+                    // (prev - last, 0d88), 0.5 (prev - cur) + 0.5 (cur - next) between (0bb0..0bd8).
+                    float dx,dy;
+                    if(!i){dx=e[0]-eye[1][0];dy=e[1]-eye[1][1];}
+                    else if(i+1==group){dx=eye[i-1][0]-e[0];dy=eye[i-1][1]-e[1];}
+                    else{dx=.5f*(eye[i-1][0]-e[0])+.5f*(e[0]-eye[i+1][0]);dy=.5f*(eye[i-1][1]-e[1])+.5f*(e[1]-eye[i+1][1]);}
+                    // ERLENG then width (record +2 .x): d = dir * width * 1/|dir|. A zero direction (points
+                    // that coincide) gives ERLENG +max and 0 * max = 0 on the VU: no offset.
+                    const float width=number(value<float>(point,32)),length=dx*dx+dy*dy;float ox=0,oy=0;
+                    if(length>=std::numeric_limits<float>::min()){const float r=1/std::sqrt(length);ox=dx*width*r;oy=dy*width*r;}
+                    else if(dx!=0 || dy!=0)throw std::runtime_error("unqualified native particle ribbon direction");
+                    const auto rgba=pointColour(point,shape);
+                    // Vertices (0a98..0ab0): p.x + d.y, p.y - d.x and p.x - d.y, p.y + d.x; S u0 / u1, both T t.
+                    auto &a=strip[2*i],&b=strip[2*i+1];
+                    a.x=e[0]+oy;a.y=e[1]-ox;b.x=e[0]-oy;b.y=e[1]+ox;a.z=b.z=e[2];a.u=u0;b.u=u1;a.v=b.v=t;a.rgba=b.rgba=rgba;t+=step;
+                    for(const auto *v:{&a,&b})for(float f:{v->x,v->y,v->z,v->u,v->v})if(!std::isfinite(f))throw std::runtime_error("native particle vertex overflow");
+                    outside[2*i]=outsideGuard(a);outside[2*i+1]=outsideGuard(b);
+                }
+                // The first point's two vertices always carry ADC (isw.w vi06): no triangle bridges two
+                // ribbons. Every later vertex gets ADC when FCAND 0x03ffff sees any of the last three
+                // CLIPW judgements (its triangle) outside the guard.
+                for(unsigned j=2;j<2*group;++j)if(!outside[j-2] && !outside[j-1] && !outside[j])for(unsigned k=j-2;k<=j;++k)batch.vertices.push_back(strip[k]);
+            }
+            seen+=count;cursor+=32+48*count;continue;
+        }
         if(!count || count>48 || extent!=count*3+2 || group!=1 || count>total-seen || uint64_t(cursor)+32+48*count>uint64_t(base)+span)throw std::runtime_error("unported/incomplete native particle quad group");
         auto *points=record(rt,cursor+0x20,count*48);
         for(unsigned p=0;p<count;++p){const auto *point=points+48*p;const auto kind=uint64_t(value<uint32_t>(point,44))+uint64_t(pass)*m.stride;if(kind>=m.kinds)throw std::runtime_error("native particle sprite kind outside template");auto *shape=kindData+0xc0+80*kind;
@@ -112,13 +185,7 @@ NativeModelSubmission NativeParticleDraws::capture(Runtime *rt,NativeAssets &ass
             const float x[2]={number(value<float>(shape,0)),number(value<float>(shape,16))},y[2]={number(value<float>(shape,4)),number(value<float>(shape,20))};
             if(value<uint32_t>(shape,40)!=0x3f800000 || value<uint32_t>(shape,56)!=0x3f800000)throw std::runtime_error("unported native particle projective texture coordinates");
             const float u[2]={number(value<float>(shape,32)),number(value<float>(shape,48))},v[2]={number(value<float>(shape,36)),number(value<float>(shape,52))};
-            // VU1 particle program (0x6e0, image c8e40f07): MUL tint*colour (0b60), MINIi 255
-            // (0b80), FTOI0 (0ba8); no clamp at zero. FTOI0 truncates toward zero (saturating),
-            // and GIF PACKED RGBAQ keeps each word's low byte: a channel of -1 draws as 0xff.
-            uint32_t rgba=0;for(unsigned i=0;i<4;++i){auto channel=number(value<float>(point,16+4*i));const auto tint=number(value<float>(shape,64+4*i));
-                if(tint<0 || (!identity && channel<0))throw std::runtime_error("negative native particle colour");
-                if(!identity)channel=std::clamp(channel*colour[i],0.f,limit[i]);channel=std::min(channel*tint,255.f);
-                const int32_t fixed=channel<=-2147483648.f?INT32_MIN:int32_t(channel);rgba|=(uint32_t(fixed)&0xffu)<<(8*i);}
+            const auto rgba=pointColour(point,shape);
             bozo::render::Vertex corners[4];bool outside[4];
             // Image 9 (mode 6): +32 ax, +36 ay, +40 a uniform scale. Each corner (x, y, z),
             // z from the shape rows (+8 / +24), turns by ax in x/y (scaled), then by ay:
@@ -132,7 +199,7 @@ NativeModelSubmission NativeParticleDraws::capture(Runtime *rt,NativeAssets &ass
                 else{out.x=eye[0]+c*sx*x[i&1]+s*sy*y[i>>1];out.y=eye[1]-s*sx*x[i&1]+c*sy*y[i>>1];out.z=eye[2];}
                 out.u=u[i&1];out.v=v[i>>1];out.rgba=rgba;
                 for(float f:{out.x,out.y,out.z,out.u,out.v})if(!std::isfinite(f))throw std::runtime_error("native particle vertex overflow");
-                const auto clip=transform(camera->guard,{out.x,out.y,out.z,1});outside[i]=std::abs(clip[0])>std::abs(clip[3]) || std::abs(clip[1])>std::abs(clip[3]) || std::abs(clip[2])>std::abs(clip[3]);}
+                outside[i]=outsideGuard(out);}
             for(const auto triangle:{std::array<unsigned,3>{0,1,2},std::array<unsigned,3>{1,3,2}})if(!outside[triangle[0]] && !outside[triangle[1]] && !outside[triangle[2]])for(auto i:triangle)batch.vertices.push_back(corners[i]);
         }
         seen+=count;cursor+=32+48*count;

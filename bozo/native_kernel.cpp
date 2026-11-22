@@ -8,20 +8,36 @@
 #include <atomic>
 
 namespace vp2s {
+std::optional<NativeWorkStackSite> nativeWorkStackSite(uint32_t pc){
+    constexpr NativeWorkStackSite sites[]={{0x2bf040,0x2bf058,17},{0x47ddb8,0x47ddc4,17},{0x3d740c,0x3d7410,16},{0x3fc3bc,0x3fc3c0,16},
+        {0x3fcacc,0x3fcad0,16},{0x3fd09c,0x3fd0a0,16},{0x42499c,0x4249a0,16},{0x424eac,0x424eb0,16}};
+    for(const auto &s:sites)if(pc==s.entry || pc==s.back)return s;
+    return std::nullopt;
+}
 void nativeWorkStack(R5900Context *c,Runtime *rt,uint32_t pc){
     auto *d=rt?dynamic_cast<bozo::ee::Dispatcher *>(rt->services):nullptr;
     auto *t=d?d->kernel().thread(d->kernel().running()):nullptr;
     if(!c || !t || t->pseudo || &t->top().ctx!=c)
         throw std::runtime_error("native work-stack handoff requires the running game frame");
-    if(pc==0x2bf040){
-        if(c->r[8].uw[0]!=0x70003ff0 || c->r[17].uw[0]!=c->r[29].uw[0])
+    // The game's scratchpad work stack: saved = sp; t0 = 70003ff0; `move sp, t0` (entry); the
+    // call; `move sp, saved` (return). mod001 2bf040/2bf058 (s1); mod028 47ddb8/47ddc4 (s1,
+    // around the battle's map pass 47cdf0) and six with s0 whose entry is the call's delay slot
+    // (3d740c, 3fc3bc, 3fcacc, 3fd09c, 42499c, 424eac, each returning at the next word). The
+    // mod028 words are checked (other overlays share the addresses).
+    const auto site=nativeWorkStackSite(pc);
+    if(!site)throw std::runtime_error("unqualified native work-stack site");
+    const bool entry=pc==site->entry;const unsigned saved=site->saved;
+    if(site->entry!=0x2bf040){uint32_t word=0;if(const auto *p=rt->memory.hostPointer(pc,4))std::memcpy(&word,p,4);
+        if(word!=(entry?0x0100e821u:(saved==17?0x0220e821u:0x0200e821u)))throw std::runtime_error("native work-stack site differs from the USA battle one");}
+    if(entry){
+        if(c->r[8].uw[0]!=0x70003ff0 || c->r[saved].uw[0]!=c->r[29].uw[0])
             throw std::runtime_error("native work-stack entry does not match original saved SP");
         d->kernel().parkThreadStack(c->r[29].uw[0]);
-    }else if(pc==0x2bf058){
+    }else{
         if(c->r[29].uw[0]<0x70000000 || c->r[29].uw[0]>0x70003ff0)
             throw std::runtime_error("native work-stack return is outside its work frame");
-        d->kernel().resumeThreadStack(c->r[17].uw[0]);
-    }else throw std::runtime_error("unqualified native work-stack site");
+        d->kernel().resumeThreadStack(c->r[saved].uw[0]);
+    }
 }
 // libc memmove (132d38): the bytes move as the original moves them (overlap allowed), and
 // their asset provenance moves with them, as memcpy's (132c88) does. The battle copies a

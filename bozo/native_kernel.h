@@ -1,4 +1,5 @@
 #pragma once
+#include <optional>
 #include "bozo/port.h"
 namespace vp2s {
 // The kernel dispatch ABI is already native. Retire only its SDK firmware-table
@@ -26,5 +27,8 @@ void retireEventFirmwareInstaller(uint8_t *,R5900Context *,Runtime *);
 void nativeCacheSync(uint8_t *,R5900Context *,Runtime *);
 // Observe the guarded object's temporary work-stack switch; original scalar
 // SP assignments still execute in generated game code.
+// The game's scratchpad work-stack switches: `move sp, t0` (entry) and `move sp, saved` (back).
+struct NativeWorkStackSite{uint32_t entry,back;unsigned saved;};
+std::optional<NativeWorkStackSite> nativeWorkStackSite(uint32_t pc);
 void nativeWorkStack(R5900Context *,Runtime *,uint32_t pc);
 }

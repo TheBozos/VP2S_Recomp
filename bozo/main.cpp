@@ -891,7 +891,7 @@ bool dispatchNativeInstruction(uint8_t *ram,R5900Context *ctx,Runtime *rt,uint32
     if(vp2s::nativeRandomSeed(ram,ctx,rt,pc))return true;
     if(pc==0x214c40 || pc==0x214ce8 || pc==0x40b040)return vp2s::nativeMathInstruction(ram,ctx,rt,pc);
     if(vp2s::nativeMathInstruction(ram,ctx,rt,pc))return true;
-    if(pc==0x2bf040 || pc==0x2bf058){vp2s::nativeWorkStack(ctx,rt,pc);return false;}
+    if(vp2s::nativeWorkStackSite(pc)){vp2s::nativeWorkStack(ctx,rt,pc);return false;}
     if(vp2s::nativeFrameInput(ram,ctx,rt,pc))return true;
     throw std::runtime_error(std::format("unported native VP2S algorithm at pc={:x}",pc));
     } catch(const std::runtime_error &e) {

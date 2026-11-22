@@ -79,6 +79,20 @@ int main() {
             require(frame.parkedStack==0 && !std::memcmp(&c,&work,sizeof(c)));
             c.r[29].sd[0]=c.r[17].sd[0]; // original move SP,s1
             rejected([&]{vp2s::nativeWorkStack(&c,&rt,0x2bf058);});
+            // mod028's copy around 47cdf0 (47ddb8 / 47ddc4), word-checked.
+            rejected([&]{vp2s::nativeWorkStack(&c,&rt,0x47ddb8);});   // not the battle's words
+            const uint32_t entry=0x0100e821,back=0x0220e821;std::memcpy(rt.memory.hostPointer(0x47ddb8,4),&entry,4);std::memcpy(rt.memory.hostPointer(0x47ddc4,4),&back,4);
+            vp2s::nativeWorkStack(&c,&rt,0x47ddb8);require(frame.parkedStack==c.r[29].uw[0]);
+            c.r[29].sd[0]=0x70003ff0;
+            {bozo::ee::QueuedHandler h2;h2.pc=0x155000;k.queue(h2);}
+            require(k.stackHandler(*k.thread(1)).sp==0x1ffff70);k.endHandler(*k.thread(1));
+            vp2s::nativeWorkStack(&c,&rt,0x47ddc4);require(frame.parkedStack==0);c.r[29].sd[0]=c.r[17].sd[0];
+            // The six with s0 (entry in the call's delay slot, back at the next word), e.g. 3d740c / 3d7410.
+            const uint32_t back0=0x0200e821;std::memcpy(rt.memory.hostPointer(0x3d740c,4),&entry,4);std::memcpy(rt.memory.hostPointer(0x3d7410,4),&back0,4);
+            c.r[16].uw[0]=c.r[29].uw[0]+16;rejected([&]{vp2s::nativeWorkStack(&c,&rt,0x3d740c);});   // s0 is not the saved SP
+            c.r[16].uw[0]=c.r[29].uw[0];vp2s::nativeWorkStack(&c,&rt,0x3d740c);require(frame.parkedStack==c.r[29].uw[0]);
+            c.r[29].sd[0]=0x70003430;vp2s::nativeWorkStack(&c,&rt,0x3d7410);require(frame.parkedStack==0);c.r[29].sd[0]=c.r[16].sd[0];
+            require(vp2s::nativeWorkStackSite(0x424eb0) && vp2s::nativeWorkStackSite(0x424eb0)->saved==16 && !vp2s::nativeWorkStackSite(0x424eb4));
         }
         const auto first=k.createSema(1,2,0,0);
         require(first>0);

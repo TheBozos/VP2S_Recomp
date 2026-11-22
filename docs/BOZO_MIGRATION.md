@@ -12,6 +12,29 @@ The earlier VP2S face/shading and general brightness comparisons remain open.
 
 ## Build and evidence
 
+### Battle scratchpad work stacks: mod028's eight switches parked like mod001's (2026-11-22)
+
+A queued handler found thread 1's only live frame with sp in the scratchpad (70003e60 at
+`47d290`, then 70003430 at mod001 `1f8f08`). The kernel takes handler stacks only from the
+thread's declared RAM stack.
+- **Original:** some battle passes run on a scratchpad work stack: saved = sp; t0 =
+  70003ff0; `move sp, t0`; the call; `move sp, saved`. mod001 `2bf040`/`2bf058` (s1) was
+  already parked. mod028 has the same idiom:
+  - `47ddb8`/`47ddc4` (s1, around the map pass `47cdf0`);
+  - six with s0, whose entry is the call's delay slot: `3d740c`, `3fc3bc`, `3fcacc`,
+    `3fd09c`, `42499c`, `424eac`, each returning at the next word.
+- **Native (`bozo/native_kernel.cpp`, `nativeWorkStackSite`):** a site table with the saved
+  register per pair. Entry parks the RAM sp (the kernel's `parkThreadStack`); return resumes
+  it. Handlers queued meanwhile get their stack below the parked RAM sp. The mod028 words
+  are checked (`move sp, t0` / `move sp, s1|s0`). The kernel's mod028 list adds the 16
+  sites.
+- **Test:** `vp2s-bozo-kernel` parks and resumes `47ddb8`/`47ddc4` and `3d740c`/`3d7410`,
+  checks the handler stack below the parked sp, and refuses another overlay's words and a
+  saved register that is not the sp.
+- **Evidence:** `--battle 0x18` runs the whole 65000-frame budget with no boundary
+  (frame 64980: party, the Ballistic Rhino, target and HP panels, minimap, turn markers, AP
+  bar and the red range area, all native).
+
 ### Battle flash element 172080: the task's 255, a factor table per vertex group (2026-11-22)
 
 Class `172080` is the second battle task with an animated vertex element.

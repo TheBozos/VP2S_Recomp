@@ -3902,6 +3902,10 @@ constexpr MacroIdiom macroIdioms[]={
     {"xzlength",{-25,0x4bd8c62a,0x4b18c602,0x4a1803bd,0x4a0003bf,0x4b000620,-200},7},
     // its difference form (13 copies, e.g. 4e5fb0): LQC2 vf24 (a), vf25 (b); SUB.xyz vf24 = a - b; then the same.
     {"xzdistance",{-25,-26,0x4bd9c62c,0x4bd8c62a,0x4b18c602,0x4a1803bd,0x4a0003bf,0x4b000620,-200},9},
+    // the xz direction (mod028 3dedb0 at 3dedd4, 3db650 at 3db750): LQC2 vf25 (a), vf26 (b); SUB.xz vf27 = b - a;
+    // MUL.xz vf28 = vf27^2; ADDz.x x = x2 + z2; RSQRT; MOVE.yw vf27 = vf0; WAITQ; MULq.xyz vf27; SQC2 vf27
+    // -> {dx*Q, 0*Q, dz*Q, 1}.
+    {"xzdirection",{-26,-27,0x4b59d6ec,0x4b5bdf2a,0x4b1ce702,0x4a7c03be,0x4abb033c,0x4a0003bf,0x4bc0dedc,-127},10},
     // matrix product (mod001 2b84a0): LQC2 vf1..vf4 (rows A), vf5..vf8 (rows B); per row k
     // MULAx/MADDAy/MADDAz/MADDw: A_k = ((B0*A_k.x + B1*A_k.y) + B2*A_k.z) + B3*A_k.w;
     // SQC2 vf1..vf4 (each store publishes its row; the capture lives to the last).
@@ -3980,6 +3984,9 @@ bool nativeMacroIdiom(R5900Context *c,Runtime *rt,uint32_t pc){
             else if(kind=="direction26"){const auto a=need(26),b=need(27);uint32_t d[3],sq[3];for(unsigned i=0;i<3;++i){d[i]=vuSub(b[i],a[i]);sq[i]=vuMul(d[i],d[i]);}
                 uint32_t f=0;const auto q=bozo::ps2f::rsqrt(one,vuAdd(vuAdd(sq[0],sq[1]),vuMul(one,sq[2])),f);_mm_setcsr(savedCsr);
                 for(unsigned i=0;i<3;++i)out[i]=vuMul(d[i],q);out[3]=a[3];}
+            else if(kind=="xzdirection"){const auto a=need(25),b=need(26);const auto dx=vuSub(b[0],a[0]),dz=vuSub(b[2],a[2]);
+                uint32_t f=0;const auto q=bozo::ps2f::rsqrt(one,vuAdd(vuMul(dx,dx),vuMul(dz,dz)),f);_mm_setcsr(savedCsr);
+                out={vuMul(dx,q),vuMul(0,q),vuMul(dz,q),one};}
             else if(kind=="rows4"){const auto v=need(5),r1=need(1),r2=need(2),r3=need(3),r4=need(4);
                 for(unsigned i=0;i<4;++i)out[i]=vuAdd(vuAdd(vuAdd(vuMul(r1[i],v[0]),vuMul(r2[i],v[1])),vuMul(r3[i],v[2])),vuMul(r4[i],v[3]));}
             else if(kind=="rows3"){const auto v=need(4),r1=need(1),r2=need(2),r3=need(3);

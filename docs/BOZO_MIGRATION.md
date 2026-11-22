@@ -12,6 +12,28 @@ The earlier VP2S face/shading and general brightness comparisons remain open.
 
 ## Build and evidence
 
+### Battle xz direction idiom (3dedb0, 3db650) (2026-11-22)
+
+mod028 `3dedb0(object, point, ...)` and `3db650` both contain the same VU block, the
+horizontal unit direction from a point to an object's +150:
+1. LQC2 vf25 (a) and vf26 (b).
+2. SUB.xz vf27 = b - a, then MUL.xz.
+3. ADDz.x: x = dx² + dz².
+4. RSQRT.
+5. MOVE.yw vf27 = vf0.
+6. MULq.xyz.
+7. SQC2: the result is (dx·Q, 0·Q, dz·Q, 1).
+
+Their xz distances (SUB.xyz, ADDz.x, SQRT, QMFC2) were already the `xzdistance` idiom.
+- **Native:** the macro idiom `xzdirection` (any copy of the ten words, store at its own
+  address).
+- **Test:** `vp2s-bozo-math-check` checks that (1,9,1) to (4,-2,5) gives (0.6, 0, 0.8, 1),
+  and that the store without its loads is refused.
+- **Evidence:** the scripted attack run (`attack2.txt`) now runs its whole 72000-frame
+  budget with no boundary (from 69211). Frame 71980 shows the battle live: Alicia in the
+  field, the target's HP lowered after the attack, and the party panel, AP gauge and
+  minimap drawn.
+
 ### Battle effect spawn 4a41b0: random size, offset and turn (2026-11-22)
 
 The battle effect spawn mod028 `4a41b0` (class `172dd0`/`172e18`, position a0 kept in s5)

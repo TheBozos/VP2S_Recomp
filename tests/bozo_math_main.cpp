@@ -864,6 +864,11 @@ int main(int argc,char **argv){try{
             c.r[4].uw[0]=stack+0xc0;c.r[3].uw[0]=stack+0xb0;c.r[2].uw[0]=stack+0xa0;putv(stack+0xc0,{1,1,1,5});putv(stack+0xb0,{1,4,5,8});
             run({0xd89a0000,0xd87b0000,0x4bc007c3,0x27a200a0,0x4bdadeac,0x4bdad6ea,0x4b1bd83d,0x4b1bfeca,0x4a7b03be,0x4a0003bf,0x4bc0d69c,0xf85a0000},c);
             {const auto v=getv(stack+0xa0);check(v[0]==0 && v[1]==0.6f && v[2]==0.8f && v[3]==5);}
+            // xzdirection (3dedb0's form): a = (a1), b = (v0) -> xz of (b - a) normalized, y 0, w 1, to (v0).
+            c.r[5].uw[0]=stack+0xd0;c.r[2].uw[0]=stack+0x10;putv(stack+0xd0,{1,9,1,1});putv(stack+0x10,{4,-2,5,3});
+            run({0xd8b90000,0xd85a0000,0x27a20010,0x4b59d6ec,0x4b5bdf2a,0x4b1ce702,0x4a7c03be,0x4abb033c,0x4a0003bf,0x4bc0dedc,0xf85b0000},c);
+            {const auto v=getv(stack+0x10);check(v[0]==0.6f && v[1]==0 && v[2]==0.8f && v[3]==1);}
+            {bool failed=false;try{vp2s::nativeMathInstruction(rt.memory.flat(),&c,&rt,code+40);}catch(const std::runtime_error &){failed=true;}check(failed);}   // the store without its loads
         }
         {   // mod028 4d10a0 battle unit projection: rows kept across two points, program 0.
             constexpr uint32_t words[]={0xd8410000,0xd8420010,0xd8430020,0xd8440030};std::memcpy(rt.memory.hostPointer(0x4d1140,16),words,16);

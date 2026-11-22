@@ -36,7 +36,8 @@ class NativeBattleSprites {
     std::map<uint32_t,Lease> leases;                     // by the flushing caller's stack
 public:
     // 120860 with ALPHA_2 = 0x44 on a reset writer: a build opens (false: not a reset writer).
-    bool begin(Runtime *,uint32_t writer);
+    // With 0x148 (Cs As + Cd, e.g. the gauge bars of class 16f0a0) the build starts additive.
+    bool begin(Runtime *,uint32_t writer,uint64_t alpha=0x44);
     void serializeBlends(bozo::state::Archive &);
     // 120860 on a writer whose build is open at exactly its recorded content: a later ALPHA_2
     // (0x44 or 0x148) for the sprites after it (false: not an open build's writer).

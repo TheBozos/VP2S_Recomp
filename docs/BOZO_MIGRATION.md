@@ -12,6 +12,19 @@ The earlier VP2S face/shading and general brightness comparisons remain open.
 
 ## Build and evidence
 
+### Battle sprite builds opened additive (gauge bars 16f0a0) (2026-11-22)
+
+The gauge-bar object `ee9060` (class `16f0a0`, flush `42d4c0`) resets its writer and opens
+it with ALPHA_2 `0x148` (Cs As + Cd), not `0x44`. Then it draws engine flat rectangles
+(`120a80`, PRIM `0x244`). The flush found no build.
+- **Native:** `NativeBattleSprites::begin` opens a reset writer with either value. `0x148`
+  makes the build additive from the start, so its sprites draw additive.
+- **Test:** `vp2s-bozo-battle-sprites-check` checks a build opened with `0x148` and its
+  flat rectangle, additive with the opening write accounted.
+- **Evidence:** the scripted battle runs to frame 65383. The attack effect draws (frame
+  65380), and the AP gauge and LEADER HP panel draw. The next boundary is the animated
+  vertex element class `1730d0` (+10 = `4a83e0`) at `219210`.
+
 ### Direction idiom (direction26) (2026-11-22)
 
 mod028 and mod068 repeat one VU0 block in 15 copies (e.g. `4a4094`, `3e4dc8`, `527948`):

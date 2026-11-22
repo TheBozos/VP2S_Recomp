@@ -33,7 +33,7 @@ std::array<float,4> nativeBattleSpriteTexels(const std::array<uint16_t,4> &texel
     for(unsigned i=0;i<4;++i)st[i]=std::bit_cast<float>(bozo::ps2f::mul(0x397fffd5u,bozo::ps2f::fromInt(texels[i]),flags));
     return st;
 }
-bool NativeBattleSprites::begin(Runtime *rt,uint32_t writer){
+bool NativeBattleSprites::begin(Runtime *rt,uint32_t writer,uint64_t alpha){
     // Writers elsewhere in the game may live in the scratchpad (0x70000000): only EE RAM ones,
     // cached or uncached, can be battle UI builds.
     const auto seg=writer>>28,at=writer&0x1ffffff;
@@ -41,7 +41,7 @@ bool NativeBattleSprites::begin(Runtime *rt,uint32_t writer){
     for(const auto &[stack,lease]:leases)if(lease.writer==writer)throw std::runtime_error("native battle sprite writer rebuilt during its flush");
     const auto base=value<uint32_t>(rt,writer);
     if(value<uint32_t>(rt,writer+8)!=base+0x40 || value<uint32_t>(rt,writer+12)!=base+0x40)return false;   // not a reset writer
-    builds[writer]=NativeBattleSpriteBuild{.begin=base+0x40};lastBuild=writer;return true;
+    builds[writer]=NativeBattleSpriteBuild{.begin=base+0x40};builds[writer].additive=alpha==0x148;lastBuild=writer;return true;
 }
 bool NativeBattleSprites::blend(Runtime *rt,uint32_t writer,uint64_t alpha){
     const auto it=builds.find(writer);if(it==builds.end())return false;
@@ -292,10 +292,11 @@ std::optional<bool> nativeBattleSpriteInstruction(R5900Context *c,Runtime *rt,ui
     if(pc==0x120860){
         // ALPHA_2 writer 120860 (writer a0, value a1), called game-wide. The battle UI build
         // methods reset their writer (+8 = +c = base + 0x40) and call it with 0x44 (standard
-        // blending) before their selections and sprites: that call opens a build.
+        // blending) before their selections and sprites: that call opens a build. The gauge bars
+        // (class 16f0a0) open theirs with 0x148 (additive) and draw engine flat rectangles.
         // A later call on an open build (cursor at its recorded content) changes the blending
         // of the sprites that follow (0x148: additive, the attack trail's fading copies).
-        if(!(c->r[5].ud[0]==0x44 && sprites.begin(rt,c->r[4].uw[0])))sprites.blend(rt,c->r[4].uw[0],c->r[5].ud[0]);
+        if(!((c->r[5].ud[0]==0x44 || c->r[5].ud[0]==0x148) && sprites.begin(rt,c->r[4].uw[0],c->r[5].ud[0])))sprites.blend(rt,c->r[4].uw[0],c->r[5].ud[0]);
         return false;
     }else if(pairSite){
         // Selection pairs outside 3cd330 (13 USA sites, e.g. 175450's UI sheet helper 4f0e90 at

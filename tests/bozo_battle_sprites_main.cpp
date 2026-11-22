@@ -204,6 +204,13 @@ int main(){try{
       rejects([&]{blended.blend(&rt,w6,0x99);});
       check(blended.blend(&rt,w6,0x148));put(rt,writer6+8,B6+0xc0);quad(base6+0xc0);blended.flatQuad(&rt,w6,B6+0xc0+64);
       const auto *bb=blended.build(w6);check(bb && bb->sprites.size()==2 && !bb->sprites[0].additive && bb->sprites[1].additive && bb->accountedBytes()==32+32+128); }
+    // A reset writer opened with 0x148 (the gauge bars of class 16f0a0): an additive build from the start.
+    { constexpr uint32_t writer7=0x1a7000,base7=0x2e0000,B7=base7|0x30000000u;const uint32_t w7=writer7|0x30000000u;
+      put(rt,writer7,B7);put(rt,writer7+8,B7+0x40);put(rt,writer7+12,B7+0x40);put(rt,writer7+16,0x198u);
+      vp2s::NativeBattleSprites gauges;check(gauges.begin(&rt,w7,0x148));put(rt,writer7+8,B7+0x60);
+      put(rt,base7+0x60,0x6400000000000001ull);put(rt,base7+0x68,0x555510ull);put(rt,base7+0x70,0x244ull);put(rt,base7+0x78,uint64_t(0x41799999u));
+      for(unsigned i=0;i<4;++i)put(rt,base7+0x80+8*i,uint64_t(0x6e00+0x200*(i&1))|uint64_t(0x7300+0x1a00*(i>>1))<<16|0xffee6bull<<32);
+      gauges.flatQuad(&rt,w7,B7+0x60+64);const auto *gb=gauges.build(w7);check(gb && gb->sprites.size()==1 && gb->sprites[0].additive && gb->accountedBytes()==32+64); }
     // main 120a80, the engine's flat rectangle writer (the battle gauge bars, writer e5e7a0): one
     // 64-byte strip read back at its cursor commit, only into an open battle build.
     { constexpr uint32_t writer5=0x1a5000,base5=0x2c0000,B5=base5|0x30000000u;const uint32_t w5=writer5|0x30000000u;

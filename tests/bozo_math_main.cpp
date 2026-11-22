@@ -837,6 +837,11 @@ int main(int argc,char **argv){try{
             R5900Context d{};d.r[7].uw[0]=a;d.r[3].uw[0]=b;d.r[6].uw[0]=out+16;
             for(uint32_t pc=0x381b84;pc<=0x381bac;pc+=4)check(vp2s::nativeMathInstruction(rt.memory.flat(),&d,&rt,pc));
             std::memcpy(o,rt.memory.hostPointer(out+16,16),16);check(o[0]==5 && o[1]==16 && o[2]==0 && o[3]==7);
+            // mod068 527cdc: A = a0, B = v0, OUT = v1.
+            copy[0]=0xd8980000;copy[1]=0xd8590000;copy[10]=0xf8780000;std::memcpy(rt.memory.hostPointer(0x527cdc,sizeof(copy)),copy,sizeof(copy));
+            R5900Context e{};e.r[4].uw[0]=a;e.r[2].uw[0]=b;e.r[3].uw[0]=out+32;
+            for(uint32_t pc=0x527cdc;pc<=0x527d04;pc+=4)check(vp2s::nativeMathInstruction(rt.memory.flat(),&e,&rt,pc));
+            std::memcpy(o,rt.memory.hostPointer(out+32,16),16);check(o[0]==5 && o[1]==16 && o[2]==0 && o[3]==7);
         }
         {   // mod028 macro idioms: normalize25, rows3, xzlength (QMFC2 v0), xzdistance.
             constexpr uint32_t stack=0x1fff000,code=0x4e6600;

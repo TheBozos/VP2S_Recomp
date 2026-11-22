@@ -1718,7 +1718,9 @@ uint32_t vuSub(uint32_t a,uint32_t b){uint32_t f=0;return bozo::ps2f::subNearest
 struct DistanceSite{uint32_t lo;unsigned a,b,out;};
 constexpr DistanceSite distanceSites[]={{0x3fd3f8,5,3,4},{0x382154,12,10,11},{0x37a820,4,2,3},{0x38256c,6,3,5},{0x3825a8,6,3,5},{0x3826d0,9,0,8},{0x382798,9,0,7},{0x3d7b34,4,2,3},{0x381b84,7,3,6},
     // The same block elsewhere in mod028 (found by its words; served when RAM holds them):
-    {0x37abf4,4,2,3},{0x37c224,5,3,4},{0x381274,7,3,6},{0x381990,5,3,4},{0x395e74,3,4,2},{0x3960bc,4,5,3},{0x39c28c,5,6,2},{0x3a2f60,5,3,4},{0x3c0810,5,3,4},{0x3c0924,22,3,2},{0x3d65ec,7,11,5},{0x41dca0,6,4,5},{0x48ac80,5,6,4},{0x48aee0,6,7,4},{0x49c8fc,18,3,4},{0x49dadc,18,3,4},{0x49db24,4,2,3},{0x4a85d8,3,21,2},{0x502c48,5,2,3}};
+    {0x37abf4,4,2,3},{0x37c224,5,3,4},{0x381274,7,3,6},{0x381990,5,3,4},{0x395e74,3,4,2},{0x3960bc,4,5,3},{0x39c28c,5,6,2},{0x3a2f60,5,3,4},{0x3c0810,5,3,4},{0x3c0924,22,3,2},{0x3d65ec,7,11,5},{0x41dca0,6,4,5},{0x48ac80,5,6,4},{0x48aee0,6,7,4},{0x49c8fc,18,3,4},{0x49dadc,18,3,4},{0x49db24,4,2,3},{0x4a85d8,3,21,2},{0x502c48,5,2,3},
+    // mod068 (a battle overlay; 527cac's caller chain): three copies, A = a0, B = v0, OUT = v1.
+    {0x5272e4,4,2,3},{0x527974,4,2,3},{0x527cdc,4,2,3}};
 bool nativeBattlePointDistance(R5900Context *c,Runtime *rt,uint32_t pc){
     constexpr uint32_t middle[]={0x4bd9c62c,0x4bd8c62a,0x4bc00643,0x4b18c03d,0x4b18ce0a,0x4a1803bd,0x4a0003bf,0x4b000620};
     if((pc&3) || !rt)return false;

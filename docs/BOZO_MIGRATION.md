@@ -12,6 +12,17 @@ The earlier VP2S face/shading and general brightness comparisons remain open.
 
 ## Build and evidence
 
+### mod068 point distances (2026-11-22)
+
+mod068 (a battle overlay) has three copies of the point-distance block (`5272e4`,
+`527974`, `527cdc`; A = a0, B = v0, OUT = v1). A scan of every overlay found no other
+copy missing (mod001 `1fedd4` has its own handler). The block after them, "point plus
+direction times distance" through QMTC2 t0, is the existing `advance` idiom.
+- **Native:** three `distanceSites` rows.
+- **Test:** `vp2s-bozo-math-check` checks the `527cdc` copy.
+- **Evidence:** the scripted battle passes `527cdc`. The next boundary is mod001 `248b84`
+  (entry `248b18`, from `527d54`'s call of `248a00`), frame 65348.
+
 ### Screen effect 1545f0: draw skipped, completion entered (2026-11-22)
 
 Scene object class `1545f0` (constructor mod001 `2369d0`, builder `2350a0` = vtable +60,

@@ -2097,6 +2097,50 @@ bool nativeBattleAdvance(R5900Context *c,Runtime *rt,uint32_t pc){
     default:return true;   // MULx / MULAw / MADDx / ADDy: folded into the stores
     }
 }
+// Battle nearest point, mod028 4a50b0(node a0, out a1, best a2), a recursive walk: per node,
+// LQC2 vf11..vf14 = the object's rows (s1+150, 4a52f4..4a5300), vf15 = the reference point
+// (*(5136d8), 4a5304), ADDw.xyz vf31 = 1 (4a5308). Per entry (a1+10, 4a5354): vf10 = ((r1 x +
+// r2 y) + r3 z) + r4 * 1 (MULAx/MADDAy/MADDAz/MADDw, all lanes); vf24.xyz = (vf10 - vf15)^2,
+// vf24.x = (x + y) + 1 * z, SQRT, ADDq.x (4a5370..4a53b0); QMFC2 a3 (4a53b4): the compiled
+// code reads only its low word (mtc1 f7), the distance. A closer entry stores vf10 to (s4)
+// (SQC2 4a5488). The other lanes of a3 are written as computed (y, z the squares; w 0: this
+// function never writes vf24.w and nothing reads it). ps2f, nearest; kept per call frame.
+struct BattleNearestPoint{std::array<VuWords,4> rows{};VuWords reference{},point{};unsigned loaded=0;bool transformed=false;uint32_t squares[3]{},distance=0;};
+std::map<std::pair<const Runtime *,uint32_t>,BattleNearestPoint> &battleNearestPoints(){static std::map<std::pair<const Runtime *,uint32_t>,BattleNearestPoint> m;return m;}
+bool nativeBattleNearestPoint(R5900Context *c,Runtime *rt,uint32_t pc){
+    struct Site{uint32_t pc,word;char role;};
+    constexpr Site sites[]={{0x4a52f4,0xd86b0000,'0'},{0x4a52f8,0xd86c0010,'1'},{0x4a52fc,0xd86d0020,'2'},{0x4a5300,0xd86e0030,'3'},{0x4a5304,0xd84f0000,'r'},{0x4a5308,0x4bc007c3,'-'},
+        {0x4a5354,0xd84a0000,'p'},{0x4a5358,0x4bea59bc,'-'},{0x4a535c,0x4bea60bd,'-'},{0x4a5360,0x4bea68be,'-'},{0x4a5364,0x4be0728b,'t'},
+        {0x4a5370,0x4bcf562c,'-'},{0x4a5374,0x4bd8c62a,'-'},{0x4a5378,0x4b18c03d,'-'},{0x4a537c,0x4b18fe0a,'-'},{0x4a5380,0x4a1803bd,'q'},{0x4a53ac,0x4a0003bf,'-'},{0x4a53b0,0x4b000620,'-'},
+        {0x4a53b4,0x4827c000,'m'},{0x4a5488,0xfa8a0000,'s'}};
+    if((pc&3) || !rt || pc<0x4a52f4 || pc>0x4a5488)return false;
+    const auto site=std::find_if(std::begin(sites),std::end(sites),[&](const Site &x){return x.pc==pc;});
+    if(site==std::end(sites))return false;
+    uint32_t word=0;if(const auto *p=rt->memory.hostPointer(pc,4))std::memcpy(&word,p,4);
+    if(word!=site->word)return false;   // another overlay at these addresses
+    if(!c)throw std::runtime_error("native battle nearest point has no CPU record");
+    auto &st=battleNearestPoints()[{rt,c->r[29].uw[0]}];
+    const auto at=[&]{return c->r[(word>>21)&31].uw[0]+(word&0xffff);};
+    switch(site->role){
+    case '0':st=BattleNearestPoint{};st.rows[0]=vuWords(rt,at());st.loaded=1;return true;
+    case '1':case '2':case '3':{const unsigned i=site->role-'0';if(st.loaded!=(1u<<i)-1)throw std::runtime_error("native battle nearest point rows out of order");
+        st.rows[i]=vuWords(rt,at());st.loaded|=1u<<i;return true;}
+    case 'r':if(st.loaded!=15)throw std::runtime_error("native battle nearest point reference without its rows");st.reference=vuWords(rt,at());st.loaded|=16;return true;
+    case 'p':if(!(st.loaded&16))throw std::runtime_error("native battle nearest point entry without its rows");st.point=vuWords(rt,at());st.loaded|=32;st.transformed=false;return true;
+    case 't':{if(!(st.loaded&32))throw std::runtime_error("native battle nearest point transform without its entry");
+        constexpr uint32_t one=0x3f800000u;VuWords v;
+        for(unsigned i=0;i<4;++i)v[i]=vuAdd(vuAdd(vuAdd(vuMul(st.rows[0][i],st.point[0]),vuMul(st.rows[1][i],st.point[1])),vuMul(st.rows[2][i],st.point[2])),vuMul(st.rows[3][i],one));
+        st.point=v;st.transformed=true;return true;}
+    case 'q':{if(!st.transformed)throw std::runtime_error("native battle nearest point distance without its transform");
+        constexpr uint32_t one=0x3f800000u;for(unsigned i=0;i<3;++i){const auto d=vuSub(st.point[i],st.reference[i]);st.squares[i]=vuMul(d,d);}
+        uint32_t flags=0;st.distance=vuAdd(0,bozo::ps2f::sqrt(vuAdd(vuAdd(st.squares[0],st.squares[1]),vuMul(one,st.squares[2])),flags));st.loaded|=64;return true;}
+    case 'm':if(!(st.loaded&64))throw std::runtime_error("native battle nearest point QMFC2 without its distance");
+        c->r[7].uw[0]=st.distance;c->r[7].uw[1]=st.squares[1];c->r[7].uw[2]=st.squares[2];c->r[7].uw[3]=0;st.loaded&=~64u;return true;
+    case 's':if(!st.transformed)throw std::runtime_error("native battle nearest point store without its transform");
+        std::memcpy(record(rt,at(),16),st.point.data(),16);return true;
+    default:return true;   // MULA/MADDA/SUB/MUL/ADDA/MADD/WAITQ/ADDq/ADDw: folded into the roles above
+    }
+}
 // Battle colour pair, mod028 47ae40(object a0, colour a1, colour a2) (one copy): the CPU
 // widens each RGBA byte colour to four words (PEXTLB/PEXTLH with zero, compiled); QMTC2 t0
 // -> vf1, t1 -> vf2, t2 (0.5f) -> vf3; ITOF0 vf1, vf2; MULx.xyz by vf3.x; SQC2 vf1, vf2 to
@@ -4413,6 +4457,7 @@ bool nativeMathInstruction(uint8_t *,R5900Context *c,Runtime *rt,uint32_t pc){
     if(nativeBattleRecordShift(c,rt,pc))return true;
     if(nativeBattleSegmentPoints(c,rt,pc))return true;
     if(nativeBattleHalfVectors(c,rt,pc))return true;
+    if(nativeBattleNearestPoint(c,rt,pc))return true;
     if(nativeBattlePointScale(c,rt,pc))return true;
     if(nativeBattleTaskColours(c,rt,pc))return true;
     if(nativeBattleUnitProjection(c,rt,pc))return true;

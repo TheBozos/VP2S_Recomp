@@ -12,6 +12,23 @@ The earlier VP2S face/shading and general brightness comparisons remain open.
 
 ## Build and evidence
 
+### Battle nearest point, mod028 4a50b0 (2026-11-22)
+
+`4a50b0(node, out, best)` walks a node tree recursively and keeps the entry that is
+closest to a reference point.
+- **Per node:** LQC2 vf11..vf14 load the object's rows (`s1+150`) and vf15 the reference
+  (`*(5136d8)`).
+- **Per entry:** vf10 = ((r1 x + r2 y) + r3 z) + r4 * 1. Its distance to the reference is
+  computed as SQRT((dx^2 + dy^2) + 1 * dz^2). QMFC2 passes it to a3, and the compiled code
+  reads only the low word.
+- **Closer entry:** SQC2 stores vf10 to `(s4)`.
+- **Native:** `nativeBattleNearestPoint`, a word-checked site table with ps2f rounding,
+  kept per call frame. The node path through VCALLMS `7f0` (`4a52a8`) is not ported.
+- **Test:** `vp2s-bozo-math-check` checks an entry at distance 6, the stored point, and
+  out-of-order refusals.
+- **Evidence:** the scripted battle passes `4a52f4`. The next boundary is `4a562c` (entry
+  `4a55e0`), frame 63764.
+
 ### Models that sample the screen-feedback picture 'L@tF' 1 (2026-11-22)
 
 The enemy's hit effect is object `ee14b0`, class `16e500`. Its five meshes are

@@ -1016,6 +1016,23 @@ int main(int argc,char **argv){try{
             // a.x k = 2: b = (1 + 4, 2 - 2, 3 + 1, 9); a.x = 4 + 3 = 7
             check(ob[0]==5 && ob[1]==0 && ob[2]==4 && ob[3]==9 && oa[0]==7 && oa[1]==6 && oa[2]==7 && oa[3]==8);
         }
+        {   // mod028 4a50b0 battle nearest point: rows (translation (1,2,2)) times an entry point,
+            // its distance to the reference in a3's low word, the transformed point stored by SQC2.
+            constexpr struct {uint32_t pc,word;} words[]={{0x4a52f4,0xd86b0000},{0x4a52f8,0xd86c0010},{0x4a52fc,0xd86d0020},{0x4a5300,0xd86e0030},{0x4a5304,0xd84f0000},{0x4a5308,0x4bc007c3},
+                {0x4a5354,0xd84a0000},{0x4a5358,0x4bea59bc},{0x4a535c,0x4bea60bd},{0x4a5360,0x4bea68be},{0x4a5364,0x4be0728b},{0x4a5370,0x4bcf562c},{0x4a5374,0x4bd8c62a},{0x4a5378,0x4b18c03d},
+                {0x4a537c,0x4b18fe0a},{0x4a5380,0x4a1803bd},{0x4a53ac,0x4a0003bf},{0x4a53b0,0x4b000620},{0x4a53b4,0x4827c000},{0x4a5488,0xfa8a0000}};
+            for(const auto &w:words)std::memcpy(rt.memory.hostPointer(w.pc,4),&w.word,4);
+            constexpr uint32_t stack=0x1ffd000,rows=0x1b0000,ref=0x1b0100,entry=0x1b0200,out=0x1b0300;
+            const float m[16]={1,0,0,0, 0,1,0,0, 0,0,1,0, 1,2,2,1},r[4]={0,0,0,1},e[4]={1,2,2,1};
+            std::memcpy(rt.memory.hostPointer(rows,64),m,64);std::memcpy(rt.memory.hostPointer(ref,16),r,16);std::memcpy(rt.memory.hostPointer(entry+0x10,16),e,16);
+            R5900Context c{};c.r[29].uw[0]=stack;c.r[3].uw[0]=rows;c.r[2].uw[0]=ref;c.r[20].uw[0]=out;
+            {bool failed=false;try{vp2s::nativeMathInstruction(rt.memory.flat(),&c,&rt,0x4a5354);}catch(const std::runtime_error &){failed=true;}check(failed);}   // an entry before the rows
+            for(unsigned i=0;i<6;++i)check(vp2s::nativeMathInstruction(rt.memory.flat(),&c,&rt,words[i].pc));
+            c.r[2].uw[0]=entry+0x10;for(unsigned i=6;i<20;++i)check(vp2s::nativeMathInstruction(rt.memory.flat(),&c,&rt,words[i].pc));
+            float d;std::memcpy(&d,&c.r[7].uw[0],4);float o[4];std::memcpy(o,rt.memory.hostPointer(out,16),16);
+            check(d==6 && o[0]==2 && o[1]==4 && o[2]==4 && o[3]==1);   // (2,4,4): length 6
+            {bool failed=false;try{vp2s::nativeMathInstruction(rt.memory.flat(),&c,&rt,0x4a53b4);}catch(const std::runtime_error &){failed=true;}check(failed);}   // QMFC2 twice
+        }
         {   // mod028 4a6c40 battle object overlap: the vf1..vf9 spill writes nothing; the block gives
             // ((dx^2 + dy^2) - (r1 a.w + r2 b.w)^2) + dz^2 between two translated centres.
             constexpr uint32_t words[]={0xd8c90000,0xd8aa0000,0xd88b0000,0xd8610000,0xd8620010,0x4a295298,0x4a295ad9,0xd8630020,0xd8640030,0xd8450000,0xd8460010,0xd8470020,0xd8480030,

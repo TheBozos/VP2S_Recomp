@@ -243,8 +243,11 @@ NativeUiLayer NativeUiTexts::layer(Runtime *rt,uint32_t layer)const{
     // the base 2eca00 first, then the layer's deferred actions by flag (+678..+680,
     // its type's +bc..+e0 methods), scalar and compiled. Its prologue is checked.
     const bool baseCompletion=value<uint32_t>(rt,jobType+0x14)==0x2eca00 && thunkAt(jobType+0x10,0x2eca00,0xffe0);
-    const bool deferredCompletion=value<uint32_t>(rt,jobType+0x14)==0x2f2390 && thunkAt(jobType+0x10,0x2f2390,0xffe0) &&
-        code(0x2f2390,{0x27bdffe0u,0xffbf0010u,0x7fb00000u,0x0c0bb280u,0x0080802du});
+    // mod028's battle layer 16ec80 (16ec9c/16ed18) has its own copy of that completion, 3830d0
+    // (the same prologue, base call and +678..+680 flags), behind thunk 44d570.
+    const auto deferredAt=[&](uint32_t completion){return value<uint32_t>(rt,jobType+0x14)==completion && thunkAt(jobType+0x10,completion,0xffe0) &&
+        code(completion,{0x27bdffe0u,0xffbf0010u,0x7fb00000u,0x0c0bb280u,0x0080802du});};
+    const bool deferredCompletion=deferredAt(0x2f2390) || deferredAt(0x3830d0);
     const bool pause=slots(layerType,{{0xc,0x2c00a0},{0x10,0x2c0070},{0x14,0x2c0040},{0x18,0x2bffe0}}) &&
         returns3(value<uint32_t>(rt,objectType+0xc)) && empty(value<uint32_t>(rt,objectType+0x14)) && colourSetter(value<uint32_t>(rt,objectType+0x1c)) &&
         empty(value<uint32_t>(rt,jobType+0x8)) && value<uint32_t>(rt,jobType+0x1c)==0x2ec9a0 &&
@@ -267,7 +270,8 @@ NativeUiLayer NativeUiTexts::layer(Runtime *rt,uint32_t layer)const{
         if(value<uint32_t>(rt,element)==0x15a1b0 || value<uint32_t>(rt,element)==0x15ac30 ||
            value<uint32_t>(rt,element)==0x15aa20 || value<uint32_t>(rt,element)==0x167560 || value<uint32_t>(rt,element)==0x15a200 ||
            value<uint32_t>(rt,element)==0x168410 || value<uint32_t>(rt,element)==0x168440 || value<uint32_t>(rt,element)==0x15a420 ||
-           value<uint32_t>(rt,element)==0x15a4e0){
+           value<uint32_t>(rt,element)==0x15a4e0 ||
+           (value<uint32_t>(rt,element)==0x16ee00 && value<uint32_t>(rt,0x16ee20)==0x2e9640)){   // the battle window (base builder 2e9640)
             auto *d=dynamic_cast<bozo::ee::Dispatcher *>(rt->services);auto *o=d?dynamic_cast<UiWindowOwner *>(&d->host()):nullptr;
             const auto captured=o?o->nativeUiWindows().window(element):nullptr;
             if(!captured)throw std::runtime_error("native window has no finished scalar snapshot");

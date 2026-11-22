@@ -264,6 +264,13 @@ int main(int argc,char **argv){try{
             for(auto [at,bad]:{std::pair{0x2f239cu,0x0c0bb284u},{0x3b3130u,0x08000000u|(0x2eca00u>>2)},{0x15ff88u+0x14,0x2f2394u}}){
                 uint32_t good;std::memcpy(&good,layerRam.memory.hostPointer(at,4),4);
                 put(layerRam,at,bad);rejects([&]{layerAfter.texts.layer(&layerRam,layer);});put(layerRam,at,good);}                       // no base call, another thunk or completion
+            // mod028's battle layer 16ec80 (16ec9c/16ed18): the same entries with its own copy of
+            // that completion, 3830d0, behind thunk 44d570.
+            entries(0x16ec80u,0x16ec9cu,0x16ed18u);put(layerRam,0x16ed18u+0x10,0x44d570u);put(layerRam,0x16ed18u+0x14,0x3830d0u);
+            words(0x44d570u,{0x08000000u|(0x3830d0u>>2),0x2484ffe0u});
+            words(0x3830d0u,{0x27bdffe0u,0xffbf0010u,0x7fb00000u,0x0c0bb280u,0x0080802du});
+            types(0x16ec80u,0x16ec9cu,0x16ed18u);layerAfter.texts.layer(&layerRam,layer);
+            put(layerRam,0x3830dcu,0u);rejects([&]{layerAfter.texts.layer(&layerRam,layer);});put(layerRam,0x3830dcu,0x0c0bb280u);              // no base call
             // mod010's layer 1693d0: its own copies of the helpers (494c10, 494c60, 494d40, 494c90)
             // and thunks (495140 -> 2ec9c0, 495150 -> 2ec9a0, 495160 -> 2eca00), admitted by their code.
             {constexpr uint32_t l=0x1693d0u,o=0x1693ecu,j=0x169468u;

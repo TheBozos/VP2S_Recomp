@@ -12,6 +12,27 @@ The earlier VP2S face/shading and general brightness comparisons remain open.
 
 ## Build and evidence
 
+### Battle UI layer 16ec80 (2026-11-22)
+
+The battle message layer (`e86bf0`) has the field pause layer's entries:
+- layer `2c00a0..2bffe0`;
+- base producer thunk `44d550`;
+- object returns3 / `2ef0f0` / empty / colour setter `4018a0`;
+- job +8 empty `440040`, and build thunk `44d560`.
+
+Only its completion differs: `3830d0`, mod028's own copy of mod001's deferred completion
+`2f2390` (same prologue, base `2eca00` call, then the +678..+680 flag methods), behind
+thunk `44d570`.
+- **Native:** `deferredCompletion` admits either copy by its words. The layer's children
+  admit the `16ee00` window (guarded by +20 == `2e9640`).
+- **Test:** `vp2s-bozo-ui-text-capture` checks the battle layer's entries and a copy
+  without its base call. The window child is covered only by the route.
+- **Also:** `test_bozo_texture_manifest.py` now expects the `(plain, copies)` result that
+  e064fde introduced. It had been failing since that commit.
+- **Evidence:** the scripted battle draws the message window (frame 64040, empty window
+  over the field). The next boundary is its text child, class `16ed70` (`2e74f0`), frame
+  64044.
+
 ### Battle window class 16ee00 (2026-11-22)
 
 The battle has a UI layer (`e86bf0`; types `16ec80/16ec9c/16ed18`) whose first child is a

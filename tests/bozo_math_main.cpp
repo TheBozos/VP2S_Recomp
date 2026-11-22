@@ -978,6 +978,20 @@ int main(int argc,char **argv){try{
                 float o[8];std::memcpy(o,rt.memory.hostPointer(obj,32),32);
                 check(o[0]==1.5f && o[1]==-2.5f && o[2]==0.125f && o[3]==9 && o[4]==5e5f && o[5]==1 && o[6]==-4 && o[7]==-1);std::memset(rt.memory.hostPointer(obj,32),0,32);}
         }
+        {   // mod028 48b260 battle segment points: A t + B u per record, t from 1 and u from 0 in steps of .25.
+            constexpr struct {uint32_t pc,word;} words[]={{0x48b280,0xd8e10000},{0x48b284,0xd8c20000},{0x48b2d0,0x48a81800},{0x48b2d4,0x48a92000},
+                {0x48b30c,0x4be309bc},{0x48b310,0x4be410c8},{0x48b314,0xf8a30000}};
+            for(const auto &w:words)std::memcpy(rt.memory.hostPointer(w.pc,4),&w.word,4);
+            constexpr uint32_t stack=0x1fff000,seg=0x1b0000,rec=0x1b1000;
+            const float a[4]={0,10,-4,1},b[4]={8,2,4,1};std::memcpy(rt.memory.hostPointer(seg,16),a,16);std::memcpy(rt.memory.hostPointer(seg+16,16),b,16);
+            R5900Context c{};c.r[29].uw[0]=stack;c.r[7].uw[0]=seg;c.r[6].uw[0]=seg+16;
+            check(vp2s::nativeMathInstruction(rt.memory.flat(),&c,&rt,0x48b280) && vp2s::nativeMathInstruction(rt.memory.flat(),&c,&rt,0x48b284));
+            c.r[5].uw[0]=rec;{bool failed=false;try{vp2s::nativeMathInstruction(rt.memory.flat(),&c,&rt,0x48b314);}catch(const std::runtime_error &){failed=true;}check(failed);}   // no weights
+            for(unsigned k=0;k<5;++k){const float t=1-0.25f*k,uu=0.25f*k;c.r[8].uw[0]=std::bit_cast<uint32_t>(t);c.r[9].uw[0]=std::bit_cast<uint32_t>(uu);c.r[5].uw[0]=rec+0x40*k;
+                for(uint32_t pc:{0x48b2d0u,0x48b2d4u,0x48b30cu,0x48b310u,0x48b314u})check(vp2s::nativeMathInstruction(rt.memory.flat(),&c,&rt,pc));
+                float o[4];std::memcpy(o,rt.memory.hostPointer(rec+0x40*k,16),16);
+                check(o[0]==8*uu && o[1]==10*t+2*uu && o[2]==-4*t+4*uu && o[3]==1);}
+        }
         {   // mod028 47ae40 battle colour pair: (128, 64, 255, 128) and (0, 1, 2, 3) widened by the CPU.
             constexpr uint32_t words[]={0x48a80800,0x48a91000,0x48aa1800,0x4be1093c,0x4be2113c,0x248309a0,0x4bc30858,0x4bc31098,0xf8610000,0xf8620010};
             std::memcpy(rt.memory.hostPointer(0x47ae78,sizeof(words)),words,sizeof(words));

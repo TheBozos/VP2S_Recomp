@@ -1956,6 +1956,37 @@ bool nativeBattleHalfVectors(R5900Context *c,Runtime *rt,uint32_t pc){
     default:return true;   // MULx: folded into the stores
     }
 }
+// Battle segment points, mod028 48b260(object, index): LQC2 vf1 = A (the segment +0), vf2 = B
+// (+10) once (48b280, 48b284); per record QMTC2 t0 -> vf3 (t, from 1), t1 -> vf4 (u, from 0)
+// (48b2d0, 48b2d4); MULAx.xyzw ACC = A t; MADDx.xyzw vf3 = ACC + B u; SQC2 vf3 to the record
+// +20 (48b314) -> A t + B u. Kept per call frame; a store without the points or its weights
+// is refused.
+struct BattleSegmentPoints{VuWords a{},b{};uint32_t t=0,u=0;unsigned loaded=0;};
+std::map<std::pair<const Runtime *,uint32_t>,BattleSegmentPoints> &battleSegmentPoints(){static std::map<std::pair<const Runtime *,uint32_t>,BattleSegmentPoints> m;return m;}
+bool nativeBattleSegmentPoints(R5900Context *c,Runtime *rt,uint32_t pc){
+    struct Site{uint32_t pc,word;char role;};
+    constexpr Site sites[]={{0x48b280,0xd8e10000,'a'},{0x48b284,0xd8c20000,'b'},{0x48b2d0,0x48a81800,'t'},{0x48b2d4,0x48a92000,'u'},
+        {0x48b30c,0x4be309bc,'-'},{0x48b310,0x4be410c8,'-'},{0x48b314,0xf8a30000,'s'}};
+    if((pc&3) || !rt || pc<0x48b280 || pc>0x48b314)return false;
+    const auto site=std::find_if(std::begin(sites),std::end(sites),[&](const Site &x){return x.pc==pc;});
+    if(site==std::end(sites))return false;
+    uint32_t word=0;if(const auto *p=rt->memory.hostPointer(pc,4))std::memcpy(&word,p,4);
+    if(word!=site->word)return false;   // another overlay at these addresses
+    if(!c)throw std::runtime_error("native battle segment points have no CPU record");
+    auto &st=battleSegmentPoints()[{rt,c->r[29].uw[0]}];
+    const auto reg=[&](uint32_t w){return c->r[(w>>21)&31].uw[0]+(w&0xffff);};
+    switch(site->role){
+    case 'a':st=BattleSegmentPoints{};st.a=vuWords(rt,reg(word));st.loaded=1;return true;
+    case 'b':st.b=vuWords(rt,reg(word));st.loaded|=2;return true;
+    case 't':st.t=c->r[8].uw[0];st.loaded=(st.loaded&3)|4;return true;
+    case 'u':st.u=c->r[9].uw[0];st.loaded|=8;return true;
+    case 's':{
+        if(st.loaded!=15)throw std::runtime_error("native battle segment point stored without its points or weights");
+        VuWords out;for(unsigned i=0;i<4;++i)out[i]=vuAdd(vuMul(st.a[i],st.t),vuMul(st.b[i],st.u));
+        std::memcpy(record(rt,reg(word),16),out.data(),16);st.loaded&=3;return true;}
+    default:return true;   // MULAx / MADDx: folded into the store
+    }
+}
 // Battle colour pair, mod028 47ae40(object a0, colour a1, colour a2) (one copy): the CPU
 // widens each RGBA byte colour to four words (PEXTLB/PEXTLH with zero, compiled); QMTC2 t0
 // -> vf1, t1 -> vf2, t2 (0.5f) -> vf3; ITOF0 vf1, vf2; MULx.xyz by vf3.x; SQC2 vf1, vf2 to
@@ -4208,6 +4239,7 @@ bool nativeMathInstruction(uint8_t *,R5900Context *c,Runtime *rt,uint32_t pc){
     if(nativeBattleSideAxes(c,rt,pc))return true;
     if(nativeBattleGroundPlane(c,rt,pc))return true;
     if(nativeBattleColourPair(c,rt,pc))return true;
+    if(nativeBattleSegmentPoints(c,rt,pc))return true;
     if(nativeBattleHalfVectors(c,rt,pc))return true;
     if(nativeBattlePointScale(c,rt,pc))return true;
     if(nativeBattleTaskColours(c,rt,pc))return true;

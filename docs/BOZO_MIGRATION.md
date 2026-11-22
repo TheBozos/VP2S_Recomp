@@ -12,6 +12,21 @@ The earlier VP2S face/shading and general brightness comparisons remain open.
 
 ## Build and evidence
 
+### Battle segment points 48b260: A t + B u per record (2026-11-22)
+
+mod028 `48b260(object, index)` fills up to 0x16 records of 0x40 bytes along the segment
+`49f310` built.
+- **Original:** LQC2 vf1 = A (+0), vf2 = B (+10) once (`48b280`, `48b284`). Per record:
+  QMTC2 t (from 1, minus the step) and u (from 0, plus the step) into vf3.x / vf4.x
+  (`48b2d0`, `48b2d4`); MULAx/MADDx.xyzw vf3 = A t + B u; SQC2 to the record's +20
+  (`48b314`).
+- **Native (`bozo/native_math.cpp`, `nativeBattleSegmentPoints`):** word-checked sites per
+  call frame. A store without the points or that record's weights is refused.
+- **Test:** `vp2s-bozo-math-check` runs five records (t = 1 .. 0 by .25) exactly, and refuses
+  a store without weights.
+- **Evidence:** the scripted battle passes it. The next boundary is a VU0 site at `48adc0`
+  (entry `48ad10`), still frame 63739.
+
 ### Battle half vectors 49f310: two vectors halved into a new object (2026-11-22)
 
 mod028 `49f310` (reached by the scripted attack) allocates a battle object and fills it.

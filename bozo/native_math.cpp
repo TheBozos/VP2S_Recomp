@@ -1987,6 +1987,23 @@ bool nativeBattleSegmentPoints(R5900Context *c,Runtime *rt,uint32_t pc){
     default:return true;   // MULAx / MADDx: folded into the store
     }
 }
+// Battle record shift, mod028 48ad10: LQC2 vf1 = the last record's +10 (48adc0) before the CPU
+// shifts the records' +10 fields along (LQ/SQ), then SQC2 vf1 into each remaining record's
+// +10 (48ae0c, a loop): a 128-bit copy of the saved value. Kept per call frame; a fill
+// without the save is refused.
+struct BattleRecordShift{VuWords saved{};bool loaded=false;};
+std::map<std::pair<const Runtime *,uint32_t>,BattleRecordShift> &battleRecordShifts(){static std::map<std::pair<const Runtime *,uint32_t>,BattleRecordShift> m;return m;}
+bool nativeBattleRecordShift(R5900Context *c,Runtime *rt,uint32_t pc){
+    if(pc!=0x48adc0 && pc!=0x48ae0c)return false;
+    if(!rt)return false;
+    uint32_t word=0;if(const auto *p=rt->memory.hostPointer(pc,4))std::memcpy(&word,p,4);
+    if(word!=(pc==0x48adc0?0xd8610000u:0xf8610000u))return false;   // another overlay at these addresses
+    if(!c)throw std::runtime_error("native battle record shift has no CPU record");
+    auto &st=battleRecordShifts()[{rt,c->r[29].uw[0]}];
+    if(pc==0x48adc0){st.saved=vuWords(rt,c->r[3].uw[0]);st.loaded=true;return true;}
+    if(!st.loaded)throw std::runtime_error("native battle record fill without its saved value");
+    std::memcpy(record(rt,c->r[3].uw[0],16),st.saved.data(),16);return true;
+}
 // Battle colour pair, mod028 47ae40(object a0, colour a1, colour a2) (one copy): the CPU
 // widens each RGBA byte colour to four words (PEXTLB/PEXTLH with zero, compiled); QMTC2 t0
 // -> vf1, t1 -> vf2, t2 (0.5f) -> vf3; ITOF0 vf1, vf2; MULx.xyz by vf3.x; SQC2 vf1, vf2 to
@@ -4239,6 +4256,7 @@ bool nativeMathInstruction(uint8_t *,R5900Context *c,Runtime *rt,uint32_t pc){
     if(nativeBattleSideAxes(c,rt,pc))return true;
     if(nativeBattleGroundPlane(c,rt,pc))return true;
     if(nativeBattleColourPair(c,rt,pc))return true;
+    if(nativeBattleRecordShift(c,rt,pc))return true;
     if(nativeBattleSegmentPoints(c,rt,pc))return true;
     if(nativeBattleHalfVectors(c,rt,pc))return true;
     if(nativeBattlePointScale(c,rt,pc))return true;

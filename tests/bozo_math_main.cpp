@@ -992,6 +992,16 @@ int main(int argc,char **argv){try{
                 float o[4];std::memcpy(o,rt.memory.hostPointer(rec+0x40*k,16),16);
                 check(o[0]==8*uu && o[1]==10*t+2*uu && o[2]==-4*t+4*uu && o[3]==1);}
         }
+        {   // mod028 48ad10 battle record shift: the saved +10 quadword fills later records even after the source changes.
+            const uint32_t lq=0xd8610000,sq=0xf8610000;std::memcpy(rt.memory.hostPointer(0x48adc0,4),&lq,4);std::memcpy(rt.memory.hostPointer(0x48ae0c,4),&sq,4);
+            constexpr uint32_t stack=0x1fff000,rec=0x1b0000;const uint32_t v[4]={0xdeadbeef,0x7f800001,0,0x80000000};std::memcpy(rt.memory.hostPointer(rec+0x10,16),v,16);
+            R5900Context c{};c.r[29].uw[0]=stack+0x40;c.r[3].uw[0]=rec+0x50;
+            {bool failed=false;try{vp2s::nativeMathInstruction(rt.memory.flat(),&c,&rt,0x48ae0c);}catch(const std::runtime_error &){failed=true;}check(failed);}   // no save
+            c.r[29].uw[0]=stack;c.r[3].uw[0]=rec+0x10;check(vp2s::nativeMathInstruction(rt.memory.flat(),&c,&rt,0x48adc0));
+            std::memset(rt.memory.hostPointer(rec+0x10,16),0x11,16);   // the CPU shift overwrites the source
+            for(unsigned k=1;k<4;++k){c.r[3].uw[0]=rec+0x10+0x40*k;check(vp2s::nativeMathInstruction(rt.memory.flat(),&c,&rt,0x48ae0c));
+                check(!std::memcmp(rt.memory.hostPointer(rec+0x10+0x40*k,16),v,16));}
+        }
         {   // mod028 47ae40 battle colour pair: (128, 64, 255, 128) and (0, 1, 2, 3) widened by the CPU.
             constexpr uint32_t words[]={0x48a80800,0x48a91000,0x48aa1800,0x4be1093c,0x4be2113c,0x248309a0,0x4bc30858,0x4bc31098,0xf8610000,0xf8620010};
             std::memcpy(rt.memory.hostPointer(0x47ae78,sizeof(words)),words,sizeof(words));

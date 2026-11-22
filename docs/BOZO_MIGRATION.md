@@ -12,6 +12,19 @@ The earlier VP2S face/shading and general brightness comparisons remain open.
 
 ## Build and evidence
 
+### Battle record shift 48ad10: a saved quadword fills the tail records (2026-11-22)
+
+mod028 `48ad10` keeps a ring of 0x40-byte records.
+- **Original:** LQC2 vf1 = the last record's +10 (`48adc0`). The CPU then shifts the
+  records' +10 fields along (LQ/SQ), and SQC2 vf1 fills each remaining record's +10
+  (`48ae0c`, a loop): a plain 128-bit copy of the saved value.
+- **Native (`bozo/native_math.cpp`, `nativeBattleRecordShift`):** the saved quadword is kept
+  per call frame and copied exactly. A fill without the save is refused.
+- **Test:** `vp2s-bozo-math-check` fills three records with the saved value after its source
+  was overwritten (NaN and -0 bit patterns kept), and refuses a fill without the save.
+- **Evidence:** the scripted battle passes it. The next boundary is a VU0 site at `48a9cc`
+  (entry `48a878`), still frame 63739.
+
 ### Battle segment points 48b260: A t + B u per record (2026-11-22)
 
 mod028 `48b260(object, index)` fills up to 0x16 records of 0x40 bytes along the segment

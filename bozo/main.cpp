@@ -889,6 +889,7 @@ bool dispatchNativeInstruction(uint8_t *ram,R5900Context *ctx,Runtime *rt,uint32
     if(vp2s::nativeBootSeed(ram,ctx,rt,pc))return true;
     if(vp2s::nativeBootstrapKey(ram,ctx,rt,pc))return true;
     if(vp2s::nativeRandomSeed(ram,ctx,rt,pc))return true;
+    if(vp2s::nativeRandomNext(ram,ctx,rt,pc))return true;
     if(pc==0x214c40 || pc==0x214ce8 || pc==0x40b040)return vp2s::nativeMathInstruction(ram,ctx,rt,pc);
     if(vp2s::nativeMathInstruction(ram,ctx,rt,pc))return true;
     if(vp2s::nativeWorkStackSite(pc)){vp2s::nativeWorkStack(ctx,rt,pc);return false;}
@@ -1019,7 +1020,13 @@ int main(int argc,char **argv) {
                 step("windows");host.windows.serialize(a,pictures);step("texts");host.uiTexts.serialize(a,pictures);step("math");vp2s::serializeMathState(a,&dispatcher.runtime());
                 // Added after the first states: an older state's section ends here.
                 step("battle images");if(!a.loading() || !a.atEnd())host.textures.serializeBlocks(a);
-                step("battle sprites");if(!a.loading() || !a.atEnd())host.battleSprites.serialize(a);step("done");},
+                step("battle sprites");if(!a.loading() || !a.atEnd())host.battleSprites.serialize(a);
+                step("random");if(!a.loading() || !a.atEnd())host.procedural.serialize(a);
+                else if(const char *seed=std::getenv("VP2S_STATE_RANDOM_SEED")){
+                    // Explicit upgrade of a state older than the random field: the stream's bits as
+                    // measured from the same seeded boot (no draw had advanced it before 4a45d8).
+                    host.procedural.seed(uint32_t(std::stoul(seed,nullptr,16)));std::fprintf(stderr,"[state] vp2s random stream set to %06x\n",host.procedural.bits());}
+                step("done");},
             [&]{for(auto why:{host.dbc->unsaveable(),host.sprites.unsaveable(),host.windows.unsaveable(),host.uiTexts.unsaveable()})
                     if(!why.empty())return why;
                 // Owners whose open records later publish into guest memory: a save waits for them.

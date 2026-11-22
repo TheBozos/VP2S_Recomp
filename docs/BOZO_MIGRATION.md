@@ -12,6 +12,29 @@ The earlier VP2S face/shading and general brightness comparisons remain open.
 
 ## Build and evidence
 
+### VU0 random draws: the procedural stream in save states (2026-11-22)
+
+mod028 `4a45d8` runs RNEXT.x vf31 and then QMFC2.I v1 (`4a45dc`). This is the first
+native consumer of VU0's R register, which the game seeds once at boot: mod001 `29e1d0`,
+from the global set-up `249914`, takes 23 bits of its RNG `10c740` and runs RINIT.
+`ProceduralRandom` already modelled that stream (the same LFSR, taps `400010`).
+- **Native:** `nativeRandomNext` (`bozo/native_random.cpp`) is a site table: draw, then
+  move. The compiled code reads only v1's low word (mtc1: the angle 2 pi (r - 1)), so the
+  other lanes are written 0.
+- **Save states:** states never carried the stream, so a loaded state had lost it (and a
+  stream at 0 never moves). The vp2s section now ends with a "random" field. An older
+  state leaves the stream unknown, and a draw refuses.
+  `VP2S_STATE_RANDOM_SEED=<hex>` upgrades such a state explicitly.
+- **Upgraded battle state:** every RNEXT was a boundary until now, so no native run had
+  advanced the stream after boot. A boot with `VP2S_BOZO_SEED=1` seeds `39d672`
+  (measured). The battle state was re-saved from `map79_63350` with that value, as
+  `map79_63351r` (scratchpad, private). The original state's boot seed is unknown. Any
+  value the game's own RNG gives at boot is a legal game state.
+- **Test:** `vp2s-bozo-random-check` checks eight draws against an independent stream, a
+  move before its draw, another overlay, and an unseeded stream refusing.
+- **Evidence:** the scripted battle passes `4a45d8` and runs to frame 63783. The next
+  boundary is `4a52a8` (4a50b0's VCALLMS `0x7f0` node path).
+
 ### Nearest of points, mod028 4ab680 (2026-11-22)
 
 `4ab680(point, points, count, out)` keeps the index of the point nearest to `point`.

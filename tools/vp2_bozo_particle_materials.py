@@ -16,7 +16,9 @@ def convert(data):
         cursor=marker+4;at=marker-0x1c
         if at<0 or at&15 or at+0xc0>len(data):continue
         n=data[at]*data[at+1]
-        if not 1<=n<=16 or at+0xc0+80*n>len(data):continue
+        # Up to 51 kinds: the kinds' UNPACK count (word +bc, 5 qwords per kind) is an 8-bit field.
+        # The battle's 32x1 grid (01089cc800/0+30ce0) has 32.
+        if not 1<=n<=51 or at+0xc0+80*n>len(data):continue
         word=lambda offset:struct.unpack_from('<I',data,at+offset)[0]
         wide=lambda offset:struct.unpack_from('<Q',data,at+offset)[0]
         if word(0xbc)!=(0x6c0002e9|((5*n)<<16)):continue

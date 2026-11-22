@@ -12,6 +12,22 @@ The earlier VP2S face/shading and general brightness comparisons remain open.
 
 ## Build and evidence
 
+### Particle templates up to 51 kinds (2026-11-22)
+
+The particle draw `22f160` needed material `1089cc800/0+30ce0` (an encrypted battle pack),
+which the converter had skipped. Its sprite grid is 32 x 1: 32 kinds, stride 160 (32 kinds
+of 5 qwords).
+- **Cause:** both `tools/vp2_bozo_particle_materials.py` and `NativeParticleDraws::material`
+  capped kinds and stride at 16. That was an assumption, not a format limit.
+- **The real ceiling:** the template's kind UNPACK count (word +bc) is 5 x kinds in an 8-bit
+  field, so at most 51 kinds.
+- **Fix:** both now admit 1..51. The other layout checks are unchanged (extent = 0xc0 + 80
+  kinds, stride a multiple of 5).
+- **Effect:** 9142 templates across the decoded files, up from 7666 (the encrypted packs
+  included).
+- **Evidence:** the particle tests pass, and the scripted battle draws it and reaches frame
+  63743. The next boundary is mod001 `22b734` (entry `22b6fc`).
+
 ### Battle gauge bars: the engine's flat rectangle writer main 120a80 (2026-11-22)
 
 The battle sprite writer `e5e7a0` (object `ee9c70`, class `16f0a0`) flushed 1184 bytes no

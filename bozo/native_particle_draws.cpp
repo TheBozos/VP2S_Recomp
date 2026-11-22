@@ -39,12 +39,13 @@ const NativeParticleDraws::Material &NativeParticleDraws::material(const AssetOr
         std::map<uint32_t,Material> pack;
         for(unsigned i=0;i<count;++i){const auto offset=take();Material m;m.kinds=take();m.extent=take();m.textureAlpha=take();m.function=take();m.passes=take();m.second=take();m.stride=take();
             for(auto &blend:m.blends)for(auto &factor:blend)factor=take();
-            if(!m.kinds || m.kinds>16 || m.extent!=0xc0+80*m.kinds || m.textureAlpha>1 || m.function>3 || !m.passes || m.passes>4 || !m.stride || m.stride>16)throw std::runtime_error("invalid native particle material semantics");
+            if(!m.kinds || m.kinds>51 || m.extent!=0xc0+80*m.kinds || m.textureAlpha>1 || m.function>3 || !m.passes || m.passes>4 || !m.stride || m.stride>51)throw std::runtime_error("invalid native particle material semantics");
             for(const auto &b:m.blends){for(unsigned j=0;j<4;++j)if(b[j]>2)throw std::runtime_error("invalid native particle blend factor");if(b[4]>255)throw std::runtime_error("invalid native particle blend constant");}
             if(!pack.emplace(offset,m).second)throw std::runtime_error("duplicate native particle material offset");
         }
         if(in.peek()!=std::char_traits<char>::eof())throw std::runtime_error("trailing native particle material bytes");found=materials.emplace(key,std::move(pack)).first;
     }
+    // kinds / stride up to 51: the template's kind UNPACK count is 5 * kinds in an 8-bit field.
     const auto record=found->second.find(origin.offset);if(record==found->second.end())throw std::runtime_error(std::format("native particle material not converted: {:x}/{}+{:x}",origin.disc,origin.part,origin.offset));return record->second;
 }
 NativeModelSubmission NativeParticleDraws::capture(Runtime *rt,NativeAssets &assets,NativeTextures &textures,const NativeScene &scene,const NativeParticles &particles,uint32_t object){

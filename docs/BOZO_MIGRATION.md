@@ -12,6 +12,22 @@ The earlier VP2S face/shading and general brightness comparisons remain open.
 
 ## Build and evidence
 
+### Palette crossfade 500df0 (2026-11-22)
+
+mod028 `500df0` (from `501114`) crossfades a2 palette entries.
+- **Once, before the loop:** vf1 = `sp` = (t, 1 - t, 255, 0) and vf2 = the entry's weights
+  (`t0+20`).
+- **Per colour:** the EE code widens two RGBA words to four words each, and QMTC2 brings
+  them into vf3 (A) and vf4 (B). Then ITOF0; ACC = A t; vf4 = min(B w, 255);
+  vf3 = min(ACC + vf4 (1 - t), 255); FTOI0; QMFC2 t0 (all four lanes). The EE code packs
+  the bytes back and keeps B's alpha byte.
+- **Native:** `nativePaletteFade`, a word-checked site table in ps2f, kept per call frame.
+  A lane outside a byte rejects.
+- **Test:** `vp2s-bozo-math-check` checks a result before its colours, a blended lane, a
+  lane capped at 255, and the alpha lane.
+- **Evidence:** the scripted battle passes `500ec0`. The next boundary is mod028 `4a4094`
+  (entry `4a407c`, on the scratchpad stack), frame 65369.
+
 ### Vector turn 4ab9a0 (2026-11-22)
 
 mod028 `4ab9a0(a0, a1, a2 vector, a3, f12 limit)` (called from mod068 `529334`) turns the

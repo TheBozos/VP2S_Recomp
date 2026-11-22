@@ -2966,6 +2966,41 @@ bool nativeVectorTurn(R5900Context *c,Runtime *rt,uint32_t pc){
         out=unitOf(out);out[3]=kPs2One;ps2Publish(rt,c->r[18].uw[0],out);st.aimed=false;return true;}
     return true;   // loads and arithmetic: folded into the stores and the QMFC2
 }
+// mod028 500df0 (a palette crossfade over a2 entries; from 501114): LQC2 vf1 = sp = (t, 1 - t,
+// 255, 0) and vf2 = the entry's weights (t0+20) once (500ec0/500ec4); per colour the EE code widens
+// two RGBA words to four words each (PEXTLB/PEXTLH), QMTC2 t0 -> vf3 (A), t1 -> vf4 (B), then ITOF0
+// both; ACC = A * t; vf4 = min(B * w, 255) (MINIz); vf3 = min(ACC + vf4 * (1 - t), 255); FTOI0;
+// QMFC2 t0 (500f10), all four lanes; the EE code packs the bytes and keeps B's alpha byte.
+struct PaletteFade{VuWords fade{},weights{};bool loaded=false;uint32_t a[4]{},b[4]{};unsigned moved=0;};
+std::map<std::pair<const Runtime *,uint32_t>,PaletteFade> &paletteFades(){static std::map<std::pair<const Runtime *,uint32_t>,PaletteFade> m;return m;}
+bool nativePaletteFade(R5900Context *c,Runtime *rt,uint32_t pc){
+    struct Site{uint32_t pc,word;char role;};
+    constexpr Site sites[]={{0x500ec0,0xd8610000,'f'},{0x500ec4,0xd8820000,'w'},{0x500ee8,0x48a81800,'a'},{0x500eec,0x48a92000,'b'},{0x500ef0,0x4be3193c,'-'},{0x500ef4,0x4be4213c,'-'},
+        {0x500ef8,0x4be119bc,'-'},{0x500efc,0x4be2212a,'-'},{0x500f00,0x4be12116,'-'},{0x500f04,0x4be120c9,'-'},{0x500f08,0x4be118d6,'-'},{0x500f0c,0x4be3197c,'-'},{0x500f10,0x48281800,'m'}};
+    if((pc&3) || !rt || pc<0x500ec0 || pc>0x500f10)return false;
+    const auto site=std::find_if(std::begin(sites),std::end(sites),[&](const Site &x){return x.pc==pc;});
+    if(site==std::end(sites))return false;
+    uint32_t word=0;if(const auto *p=rt->memory.hostPointer(pc,4))std::memcpy(&word,p,4);
+    if(word!=site->word)return false;   // another overlay at these addresses
+    if(!c)throw std::runtime_error("native palette fade has no CPU record");
+    auto &st=paletteFades()[{rt,c->r[29].uw[0]}];
+    switch(site->role){
+    case 'f':st=PaletteFade{};st.fade=vuWords(rt,c->r[3].uw[0]);return true;
+    case 'w':st.weights=vuWords(rt,c->r[4].uw[0]);st.loaded=true;return true;
+    case 'a':if(!st.loaded)throw std::runtime_error("native palette fade colour without its factors");for(unsigned i=0;i<4;++i)st.a[i]=c->r[8].uw[i];st.moved=1;return true;
+    case 'b':if(st.moved!=1)throw std::runtime_error("native palette fade colours out of order");for(unsigned i=0;i<4;++i)st.b[i]=c->r[9].uw[i];st.moved=2;return true;
+    case 'm':{if(st.moved!=2)throw std::runtime_error("native palette fade result without its colours");
+        const auto toFloat=[](uint32_t v){return std::bit_cast<uint32_t>(float(int32_t(v)));};   // ITOF0 (exact for these byte lanes)
+        const auto minimum=[](uint32_t x,uint32_t y){return std::bit_cast<float>(x)<std::bit_cast<float>(y)?x:y;};
+        for(unsigned i=0;i<4;++i){
+            if(st.a[i]>255 || st.b[i]>255)throw std::runtime_error("native palette fade lane outside a byte");
+            const auto acc=vuMul(toFloat(st.a[i]),st.fade[0]);
+            const auto b=minimum(vuMul(toFloat(st.b[i]),st.weights[i]),st.fade[2]);
+            c->r[8].uw[i]=vuFtoi(minimum(vuAdd(acc,vuMul(b,st.fade[1])),st.fade[2]),0);}
+        st.moved=0;return true;}
+    default:return true;   // ITOF0 / MULA / MUL / MINI / MADD / FTOI0: folded into the QMFC2
+    }
+}
 // mod001 1fd110 chain constraint blocks (s1 = part record, s2 = chain owner,
 // owner object = *(s2+4)). VU registers that cross EE code between blocks
 // are reread from the records the earlier block stored (bit-exact):
@@ -4662,6 +4697,7 @@ bool nativeMathInstruction(uint8_t *,R5900Context *c,Runtime *rt,uint32_t pc){
     if(nativeBattleLabelProjection(c,rt,pc))return true;
     if(nativeChainAim(c,rt,pc))return true;
     if(nativeVectorTurn(c,rt,pc))return true;
+    if(nativePaletteFade(c,rt,pc))return true;
     if(nativeBattlePointScale(c,rt,pc))return true;
     if(nativeBattleTaskColours(c,rt,pc))return true;
     if(nativeBattleUnitProjection(c,rt,pc))return true;

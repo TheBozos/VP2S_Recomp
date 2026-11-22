@@ -12,6 +12,21 @@ The earlier VP2S face/shading and general brightness comparisons remain open.
 
 ## Build and evidence
 
+### Battle button element 16edd0 (2026-11-22)
+
+The tutorial window's button prompt, class `16edd0`, is mod028's copy of `15a4e0`:
+- its +20 build is the base `2f1230`;
+- its +1c (`3838d0`) calls the base update `2f1310` only when the battle's pause flags are
+  clear;
+- its destructor `3835e0` sets its class, then inlines `2f11c0`'s body.
+- **Native:** `nativeButtonElementClass` admits `16edd0` while +20 == `2f1230`, in the
+  capture, the layer's children and the release. The new mod028 site `3835e0` is
+  word-checked in the kernel list and at run time.
+- **Test:** `vp2s-bozo-button-check` runs odd seeds as `16edd0`, with the generated
+  original against the native element and the release at `3835e0`.
+- **Evidence:** the scripted battle runs through the tutorial window and on to frame
+  65295. The next boundary is UI text class `1748d0` (`2e74f0`, from `2efca8`).
+
 ### Battle text class 16ed70 (2026-11-22)
 
 The battle message window's text, class `16ed70`, is mod028's copy of `15a600`. It has:

@@ -88,8 +88,13 @@ void NativeUiSprites::finishSprite(uint32_t stack){
     auto &text=textBuilds.at(it->second.textStack);if(text.sprites.size()>=8192)throw std::runtime_error("native button count outside admitted range");
     text.sprites.push_back(std::move(it->second.sprite));spriteBuilds.erase(it);
 }
+// The tutorial window's button element: 15a4e0, or mod028's battle copy 16edd0 (its +20 build is
+// the base 2f1230; its +1c only gates the base update 2f1310 on the battle's pause flags).
+bool nativeButtonElementClass(Runtime *rt,uint32_t type){
+    return type==0x15a4e0 || (type==0x16edd0 && value<uint32_t>(rt,0x16edf0)==0x2f1230);
+}
 std::optional<bool> nativeUiSpriteInstruction(R5900Context *c,Runtime *rt,uint32_t pc){
-    if(pc!=0x2eab28 && pc!=0x2eaa20 && pc!=0x462a60 && pc!=0x2f1050 && pc!=0x2f12cc && pc!=0x2f11c0 && pc!=0x47a1c0 && pc!=0x2ec308 && pc!=0x2ec320 && pc!=0x2efe40 && pc!=0x2effe8 && pc!=0x2eb3a0 && pc!=0x2eb5c4 && pc!=0x2ebac4 && pc!=0x2ebb0c && pc!=0x2ebb58 && pc!=0x2ebb9c && pc!=0x2ebba8 && pc!=0x2f2df0 && pc!=0x2f2fb8 && pc!=0x2f2d70)return std::nullopt;
+    if(pc!=0x2eab28 && pc!=0x2eaa20 && pc!=0x462a60 && pc!=0x2f1050 && pc!=0x2f12cc && pc!=0x2f11c0 && pc!=0x3835e0 && pc!=0x47a1c0 && pc!=0x2ec308 && pc!=0x2ec320 && pc!=0x2efe40 && pc!=0x2effe8 && pc!=0x2eb3a0 && pc!=0x2eb5c4 && pc!=0x2ebac4 && pc!=0x2ebb0c && pc!=0x2ebb58 && pc!=0x2ebb9c && pc!=0x2ebba8 && pc!=0x2f2df0 && pc!=0x2f2fb8 && pc!=0x2f2d70)return std::nullopt;
     auto *d=rt?dynamic_cast<bozo::ee::Dispatcher *>(rt->services):nullptr;
     auto *owner=d?dynamic_cast<UiSpriteOwner *>(&d->host()):nullptr;
     auto *textures=d?dynamic_cast<TextureOwner *>(&d->host()):nullptr;
@@ -115,7 +120,10 @@ std::optional<bool> nativeUiSpriteInstruction(R5900Context *c,Runtime *rt,uint32
         if(textClass==0x15a350 || !nativeUiTextClass(textClass) || !texts->nativeUiTexts().text(element))throw std::runtime_error("unported native button text class/lifetime");
         if(pc==0x2efe40){if(c->pc!=pc || sp<0xa0 || (sp&15))throw std::runtime_error("native text icons require original entry");sprites.beginText(sp-0xa0,element);}
         else texts->nativeUiTexts().icons(element,sprites.finishText(sp,element));
-    }else if(pc==0x2eab28 || pc==0x2eaa20 || pc==0x462a60 || pc==0x2f1050 || pc==0x47a1c0 || pc==0x2f12cc || pc==0x2f11c0){
+    }else if(pc==0x2eab28 || pc==0x2eaa20 || pc==0x462a60 || pc==0x2f1050 || pc==0x47a1c0 || pc==0x2f12cc || pc==0x2f11c0 || pc==0x3835e0){
+        // mod028's battle button element 16edd0: destructor 3835e0 sets its class, then inlines
+        // 2f11c0's body (another overlay's words there are not it).
+        if(pc==0x3835e0 && (value<uint32_t>(rt,0x3835e0)!=0x27bdffd0u || value<uint32_t>(rt,0x38361c)!=0x0c0bbd34u))return std::nullopt;
         // Sprite element 15a200 (build 2eaa90 calls the sprite writer 2eb3a0
         // once with its sprite +50 and returns to 2eab28; destructor 2eaa20).
         auto *windows=dynamic_cast<UiWindowOwner *>(&d->host());if(!windows)throw std::runtime_error("native sprite element has no window owner");
@@ -129,8 +137,8 @@ std::optional<bool> nativeUiSpriteInstruction(R5900Context *c,Runtime *rt,uint32
         if(!done && !element)return false;
         const auto cls=value<uint32_t>(rt,element);
         const bool fisElement=pc==0x2f1050 || pc==0x47a1c0;
-        const bool button=pc==0x2f12cc || pc==0x2f11c0;
-        const bool known=button?cls==0x15a4e0:fisElement?cls==0x168440:pc==0x462a60?cls==0x168410:(cls==0x15a200 || cls==0x168410);
+        const bool button=pc==0x2f12cc || pc==0x2f11c0 || pc==0x3835e0;
+        const bool known=button?nativeButtonElementClass(rt,cls):fisElement?cls==0x168440:pc==0x462a60?cls==0x168410:(cls==0x15a200 || cls==0x168410);
         if(!known)
             throw std::runtime_error("native sprite element has another class");
         if(!done){if(c->pc!=pc || sprites.buildingText(element))throw std::runtime_error("native sprite element destroyed during capture");
@@ -185,7 +193,7 @@ std::optional<bool> nativeUiSpriteInstruction(R5900Context *c,Runtime *rt,uint32
             // by +bc, its update 2f1310 binds sheet entry 0x25 at 2ec260 and animates
             // it (2ec090); the build passes the layer origin plus +18/+1c and colour 0.
             const auto element=c->r[16].uw[0],sprite=c->r[4].uw[0],layer=value<uint32_t>(rt,element+0x14);
-            if(c->pc!=pc || value<uint32_t>(rt,element)!=0x15a4e0 || sprite!=element+0x50 || value<uint32_t>(rt,layer)!=0x152060)
+            if(c->pc!=pc || !nativeButtonElementClass(rt,value<uint32_t>(rt,element)) || sprite!=element+0x50 || value<uint32_t>(rt,layer)!=0x152060)
                 throw std::runtime_error(std::format("unported native button sprite element: element={:x} class={:x}",element,value<uint32_t>(rt,element)));
             if(!sprites.button(sprite))throw std::runtime_error("native button sprite element has no bound sheet");
             sprites.beginText(sp,element);

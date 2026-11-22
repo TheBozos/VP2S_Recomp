@@ -187,7 +187,9 @@ int main(int argc,char **argv){try{
         put(a,manager+0x840,16.f);put(a,manager+0x844,16.f);put(a,manager+0x848,27648.f);put(a,manager+0x84c,29184.f);
         put(a,manager+0x828,0x1c0000u);put(a,0x1c0000,0x15a6f0u);put(a,0x1c0090,0x15a76cu);put(a,0x1c00c0,0x1d0000u);
         put(a,0x1d0000,0x534946u);put(a,0x1d0014,0x00494853u);put(a,0x1d0018,0x41u);
-        put(a,element,0x15a4e0u);put(a,element+0x14,layer);put(a,element+0x18,2.25f+float(seed)/8);put(a,element+0x1c,3.5f+float(seed)/4);
+        // Odd seeds: mod028's battle copy 16edd0 (+20 the base build 2f1230), released at its 3835e0.
+        put(a,element,seed&1?0x16edd0u:0x15a4e0u);put(a,0x16edf0,0x2f1230u);put(a,0x3835e0,0x27bdffd0u);put(a,0x38361c,0x0c0bbd34u);
+        put(a,element+0x14,layer);put(a,element+0x18,2.25f+float(seed)/8);put(a,element+0x1c,3.5f+float(seed)/4);
         put(a,element+0x28,128.f-float(seed));put(a,element+0x2c,4u);put(a,element+0x48,0x1f3000u);put(a,element+0xbc,uint8_t(1));
         put(a,layer,0x152060u);put(a,layer+0x10,0x15fef0u);put(a,layer+0x40,10.f);put(a,layer+0x44,20.f);put(a,layer+0xe0,128.f);put(a,layer+0xc4,0xff0000u);
         for(unsigned i=0;i<3;++i){put(a,dtt+0x14+i*16,uint16_t(0x400));put(a,dtt+0x16+i*16,uint16_t(0x800));put(a,dtt+0x18+i*16,uint16_t(0xc00));put(a,dtt+0x1a+i*16,uint16_t(0x1000));
@@ -201,8 +203,8 @@ int main(int argc,char **argv){try{
         check(!std::memcmp(&x,&y,sizeof(x)) && !std::memcmp(a.memory.flat(),b.memory.flat(),bozo::kFlatBytes));
         const auto held=after.windows.window(element);check(held && held->background.empty() && held->border.size()==1 && !after.sprites.outstanding());
         const auto &s=held->border[0];check(s.picture && s.picture->rgba[0]==0x80402041u && s.depth==0xff0004);
-        R5900Context dying{};dying.pc=0x2f11c0;dying.r[4].uw[0]=element;
-        check(vp2s::nativeUiSpriteInstruction(&dying,&b,0x2f11c0)==false && !after.windows.window(element) && !after.sprites.button(sprite));++elementCases;
+        const uint32_t destructor=seed&1?0x3835e0:0x2f11c0;R5900Context dying{};dying.pc=destructor;dying.r[4].uw[0]=element;
+        check(vp2s::nativeUiSpriteInstruction(&dying,&b,destructor)==false && !after.windows.window(element) && !after.sprites.button(sprite));++elementCases;
         // Another class at the element, or an owner that is no UI layer, rejects before any capture.
         for(unsigned spoil=0;spoil<2;++spoil){
             std::memcpy(b.memory.flat(),a.memory.flat(),bozo::kFlatBytes);put(b,element+0x3b,uint8_t(0));

@@ -485,6 +485,32 @@ int main(){try{
         m.r[19].uw[0]=2;m.r[17].uw[0]=B+0x170;m.r[16].uw[0]=B+0x180;refused=false;try{vp2s::nativeMathInstruction(y.memory.flat(),&m,&y,0x244ce8);}catch(const std::runtime_error &){refused=true;}check(refused);
         write(y,0x244e1c,uint32_t(0));check(!vp2s::nativeMathInstruction(y.memory.flat(),&m,&y,0x244e1c));
         std::printf("%u general emitter particles (%u trail points, end conditions, jitter, push, curves, collision, three trail kinds) match the VU0 reference\n",programCases,programPoints);}
+        // mod001 23f3f0, the general emitter's frame clock: vf3.x = dt, then per particle clock +140
+        // += rate +150 * dt (.xyz) to the output's +20 and back, in both branches, against the reference.
+        {const std::pair<uint32_t,uint32_t> clock[]={{0x23f47c,0x48b01800},
+            {0x23f528,0xda810000},{0x23f530,0xda020000},{0x23f644,0x4bc00abc},{0x23f648,0x4bc31048},{0x23f654,0xfa010000},{0x23f65c,0xfa810000},
+            {0x23f730,0xda810000},{0x23f734,0xda020000},{0x23f854,0x4bc00abc},{0x23f858,0x4bc31048},{0x23f864,0xfa010000},{0x23f86c,0xfa810000}};
+        for(const auto &[pc,w]:clock){write(y,pc,w);write(x,pc,w);}
+        const auto both=[&](uint32_t at,uint32_t v){write(y,at,v);write(x,at,v);};unsigned clockCases=0;
+        for(unsigned seed=0;seed<64;++seed){
+            uint32_t state=seed*2654435761u+3;const auto rnd=[&](){state=state*1664525u+1013904223u;return state>>8;};
+            const auto value=[&](unsigned lo=105,unsigned span=40){return (rnd()&0x807fffffu)|((lo+rnd()%span)<<23);};
+            const uint32_t dt=value(118,6)&0x7fffffffu;both(0x35dee8,dt);both(E+0x14,B);
+            for(uint32_t at=B;at<B+0x170*10;at+=4)both(at,value());for(uint32_t at=O;at<O+0x30*8;at+=4)both(at,value());
+            m=R5900Context{};m.r[4].uw[0]=E;m.r[16].uw[0]=dt;for(unsigned i=1;i<4;++i)m.r[16].uw[i]=rnd();run(0x23f47c);
+            const uint32_t base=seed&1?0x23f730:0x23f528,math=seed&1?0x23f854:0x23f644;
+            for(unsigned k=0;k<3;++k){const unsigned index=seed%4+2*k;const uint32_t rec=B+index*0x170;
+                m.r[15].uw[0]=index;m.r[20].uw[0]=rec+0x140;m.r[16].uw[0]=rec+0x150;run(base);run(base+(seed&1?4:8));
+                m.r[15].uw[0]=index+1;m.r[6].uw[0]=O+k*0x30;m.r[16].uw[0]=O+k*0x30+0x20;run(math);run(math+4);run(math+0x10);run(math+0x18);++clockCases;}
+            check(!std::memcmp(x.memory.hostPointer(B,0x170*10),y.memory.hostPointer(B,0x170*10),0x170*10));
+            check(!std::memcmp(x.memory.hostPointer(O,0x30*8),y.memory.hostPointer(O,0x30*8),0x30*8));
+        }
+        m=R5900Context{};m.r[4].uw[0]=E;m.r[16].uw[0]=read<uint32_t>(y,0x35dee8)^1;bool refused=false;
+        try{vp2s::nativeMathInstruction(y.memory.flat(),&m,&y,0x23f47c);}catch(const std::runtime_error &){refused=true;}check(refused);
+        refused=false;try{vp2s::nativeMathInstruction(y.memory.flat(),&m,&y,0x23f644);}catch(const std::runtime_error &){refused=true;}check(refused);
+        m.r[16].uw[0]=read<uint32_t>(y,0x35dee8);check(vp2s::nativeMathInstruction(y.memory.flat(),&m,&y,0x23f47c));
+        m.r[15].uw[0]=1;m.r[20].uw[0]=B+0x140;refused=false;try{vp2s::nativeMathInstruction(y.memory.flat(),&m,&y,0x23f528);}catch(const std::runtime_error &){refused=true;}check(refused);
+        std::printf("%u general emitter clock particles (both branches) match the VU0 reference\n",clockCases);}
         now.particles=vp2s::NativeParticles{};
     }
     {auto &rt=b.runtime();initialize(rt,0);now.particles=vp2s::NativeParticles{};now.assets=vp2s::NativeAssets{};

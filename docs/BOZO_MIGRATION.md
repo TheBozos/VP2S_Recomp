@@ -12,6 +12,23 @@ The earlier VP2S face/shading and general brightness comparisons remain open.
 
 ## Build and evidence
 
+### Battle general emitter clock 23f3f0 (2026-11-22)
+
+The general emitter's +10 method mod001 `23f3f0` is called at `22ecec`, after the prepare and
+before the step. It advances each live particle's frame clock. vf3.x is dt (QMTC2 `*35dee8`,
+`23f47c`). Then, in both the one-point and multi-point branches:
+- the clock .xyz at +140 becomes (clock + 0) + rate·dt, where the rate is at +150;
+- the result is stored to the output point +20 and back to +140.
+
+The scalar frame index then overwrites the output's +2c.
+- **Native:** `nativeEmitterClock` covers the 13 word-checked sites. Each particle record is
+  checked against [a0+14] + t7·170.
+- **Test:** `vp2s-bozo-particles-check` runs 192 particles in both branches against the VU0
+  reference, plus timestep, order and record rejections.
+- **Evidence:** the scripted attack run passes the clock at frame 65538. The next boundary
+  is the emitter's +14 method `23fa40` (site `240b2c`, called at `22ed18`), which runs before
+  the step.
+
 ### Battle general particle emitter 154810 (2026-11-22)
 
 The attack's general emitter (class `154810`) runs two methods every frame:

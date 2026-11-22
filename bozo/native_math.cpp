@@ -4588,6 +4588,45 @@ bool nativeProgramEmitter(R5900Context *c,Runtime *rt,uint32_t pc){
     }
     return false;
 }
+// General emitter +10 (mod001 23f3f0, called from the driver at 22ecec before the step): the
+// particles' frame clock. vf3.x = dt = *35dee8 (QMTC2 s0, 23f47c). Per live particle (record
+// [a0+14] + t7*170), in the one-point branch and the multi-point one alike:
+//   vf1 = clock +140, vf2 = rate +150 (23f528/23f530, 23f730/23f734)
+//   vf1.xyz = (vf1 + 0) + vf2*dt                                   (23f644/23f648, 23f854/23f858)
+// stored to the output point +20 (a2+20) and back to +140 (23f654/23f65c, 23f864/23f86c); the
+// scalar frame index then overwrites the output's +2c.
+bool nativeEmitterClock(R5900Context *c,Runtime *rt,uint32_t pc){
+    struct Site{uint32_t pc,word;unsigned role;};
+    constexpr Site sites[]={{0x23f47c,0x48b01800,0},
+        {0x23f528,0xda810000,1},{0x23f530,0xda020000,2},{0x23f644,0x4bc00abc,3},{0x23f648,0x4bc31048,4},{0x23f654,0xfa010000,5},{0x23f65c,0xfa810000,6},
+        {0x23f730,0xda810000,1},{0x23f734,0xda020000,2},{0x23f854,0x4bc00abc,3},{0x23f858,0x4bc31048,4},{0x23f864,0xfa010000,5},{0x23f86c,0xfa810000,6}};
+    if(!rt || pc<0x23f47c || pc>0x23f86c)return false;
+    const Site *site=nullptr;for(const auto &s:sites)if(s.pc==pc)site=&s;
+    if(!site)return false;
+    uint32_t word=0;if(const auto *p=rt->memory.hostPointer(pc,4))std::memcpy(&word,p,4);
+    if(word!=site->word)return false;   // another overlay at these addresses
+    if(!c)throw std::runtime_error("native emitter clock without a context");
+    struct State{bool dt=false;unsigned step=0;uint32_t emitter=0,time=0,at=0;VuWords clock{},rate{};};
+    static std::map<const Runtime *,State> states;auto &st=states[rt];
+    const auto fail=[&](const char *what){st=State{};throw std::runtime_error(std::format("native emitter clock at {:x}: {}",pc,what));};
+    const auto reg=[&](unsigned r){return c->r[r].uw[0];};
+    const auto address=[&]{return reg((word>>21)&31)+uint32_t(int32_t(int16_t(word&0xffff)));};
+    const auto field=[&](uint32_t at){const auto *p=rt->memory.hostPointer(at,4);if(!p)fail("scalar field outside RAM");uint32_t v;std::memcpy(&v,p,4);return v;};
+    struct ArithmeticScope{unsigned saved=_mm_getcsr();~ArithmeticScope(){_mm_setcsr(saved);}} arithmetic;
+    if(site->role==0){
+        if(reg(16)!=field(0x35dee8))fail("timestep source");st=State{};st.dt=true;st.emitter=reg(4);st.time=reg(16);return true;}
+    if(!st.dt || reg(4)!=st.emitter)fail("particle outside its timestep call");
+    if(site->role==1){
+        if(st.step!=0 && st.step!=6)fail("clock load order");
+        if(address()!=field(st.emitter+0x14)+reg(15)*0x170+0x140)fail("clock address");
+        st.at=address();st.clock=vuWords(rt,st.at);st.step=1;return true;}
+    if(st.step!=site->role-1)fail("clock step order");
+    if(site->role==2){if(address()!=st.at+0x10)fail("rate address");st.rate=vuWords(rt,address());}
+    if(site->role==4)for(unsigned i=0;i<3;++i)st.clock[i]=vuAdd(vuAdd(st.clock[i],0),vuMul(st.rate[i],st.time));
+    if(site->role==5){if(address()!=reg(6)+0x20)fail("output address");std::memcpy(record(rt,address(),16),st.clock.data(),16);}
+    if(site->role==6){if(address()!=st.at)fail("clock store address");std::memcpy(record(rt,address(),16),st.clock.data(),16);}
+    st.step=site->role;return true;
+}
 // VU0 program 0x2d0 (mode 0): in-place 4x4 Gauss-Jordan inverse of rows
 // vf1..vf4, no row swaps. Each pivot is first clamped away from zero by the
 // sign of a CLIP test against |0|: negative -> min(p, c.x), else max(p, c.y),
@@ -6217,7 +6256,7 @@ bool nativeMathInstruction(uint8_t *,R5900Context *c,Runtime *rt,uint32_t pc){
     default:
         // Inlined-block recognisers last: they read code around the PC, so
         // only sites no specific handler claimed pay for that scan.
-        return nativeParticleStep(c,rt,pc) || nativeParticleBox(c,rt,pc) || nativeTrailEmitter(c,rt,pc) || nativeProgramEmitter(c,rt,pc) || nativeConstantStore(c,rt,pc) || nativeLengthIdiom(c,rt,pc) || nativeMacroIdiom(c,rt,pc) || nativeInverseIdiom(c,rt,pc) || nativeQuaternionIdiom(c,rt,pc);
+        return nativeParticleStep(c,rt,pc) || nativeParticleBox(c,rt,pc) || nativeTrailEmitter(c,rt,pc) || nativeProgramEmitter(c,rt,pc) || nativeEmitterClock(c,rt,pc) || nativeConstantStore(c,rt,pc) || nativeLengthIdiom(c,rt,pc) || nativeMacroIdiom(c,rt,pc) || nativeInverseIdiom(c,rt,pc) || nativeQuaternionIdiom(c,rt,pc);
     }
 }
 // Save states: the marker projection rows kept between their loads and the

@@ -164,6 +164,15 @@ int main(int argc,char **argv){try{
         rejects([&]{after.windows.panel(&r,panel,uint64_t(5)<<32,uint64_t(6)<<32,0);});  // depths differ between registers
         put(r,panel,0x15aa20u);rejects([&]{after.windows.panel(&r,panel,0,0,0);});       // another class
         after.windows.release(panel);check(!after.windows.window(panel));imageCases+=5;}
+    // Battle window 16ee00 (mod028): admitted only while its +20 build is the base 2e9640; its
+    // destructor 383660 releases like 2e95d0 (another class, or another overlay's words, is not it).
+    {auto &r=native.runtime();std::memset(r.memory.flat(),0,bozo::kFlatBytes);constexpr uint32_t battle=0x190600;
+        put(r,battle,0x16ee00u);rejects([&]{after.windows.begin(&r,stack-0x200,battle);});   // +20 is not 2e9640
+        put(r,0x16ee20,0x2e9640u);after.windows.begin(&r,stack-0x200,battle);           // admitted (+f6 clear: nothing to capture)
+        put(r,0x383660,0x27bdffd0u);put(r,0x38369c,0x0c0bbd34u);R5900Context z{};z.r[4].uw[0]=battle;
+        const auto released=vp2s::nativeUiWindowInstruction(&z,&r,0x383660);check(released.has_value() && !*released);
+        put(r,battle,0x15a1b0u);rejects([&]{vp2s::nativeUiWindowInstruction(&z,&r,0x383660);});
+        put(r,0x38369c,0u);check(!vp2s::nativeUiWindowInstruction(&z,&r,0x383660).has_value());imageCases+=4;}
     // Scissor element 15a420 (build 2ef5b0, site 2ef780): the compiled
     // SCISSOR value becomes the element's frame-pixel rectangle.
     for(unsigned seed=0;seed<32;++seed){

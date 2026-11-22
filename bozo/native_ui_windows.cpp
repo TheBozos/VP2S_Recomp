@@ -15,7 +15,10 @@ template<class T>T value(Runtime *rt,uint32_t at){
     if(!rt || at<0x100000 || uint64_t(at)+sizeof(T)>0x2000000)throw std::runtime_error("native UI window metadata outside EE RAM");
     T v;std::memcpy(&v,rt->memory.hostPointer(at,sizeof(v)),sizeof(v));return v;
 }
-void windowType(Runtime *rt,uint32_t element){if(value<uint32_t>(rt,element)!=0x15a1b0)throw std::runtime_error("unported native window class");}
+// 15a1b0, or the battle window 16ee00 (mod028): its +20 build is the base 2e9640 itself and its
+// destructor 383660 inlines 2e95d0's body after setting its own class, so the capture is the same.
+void windowType(Runtime *rt,uint32_t element){const auto type=value<uint32_t>(rt,element);
+    if(type!=0x15a1b0 && !(type==0x16ee00 && value<uint32_t>(rt,0x16ee20)==0x2e9640))throw std::runtime_error("unported native window class");}
 }
 void NativeUiWindows::begin(Runtime *rt,uint32_t stack,uint32_t element){
     windowType(rt,element);
@@ -252,7 +255,7 @@ bozo::render::Material nativeUiFlatMaterial(bozo::render::Material::Blend blend)
 }
 std::optional<bool> nativeUiWindowInstruction(R5900Context *c,Runtime *rt,uint32_t pc){
     switch(pc){case 0x2e9640:case 0x2e970c:case 0x2e95d0:case 0x2e9e90:case 0x2ea154:case 0x2ea338:case 0x2ead10:
-        case 0x2eae90:case 0x2eb07c:case 0x2eb284:case 0x2eb2ec:case 0x2eb300:case 0x2eb320:case 0x2eb340:case 0x2eb378:
+        case 0x383660:case 0x2eae90:case 0x2eb07c:case 0x2eb284:case 0x2eb2ec:case 0x2eb300:case 0x2eb320:case 0x2eb340:case 0x2eb378:
         case 0x30ee00:case 0x30ef20:case 0x30ef2c:case 0x30ef44:case 0x30ef78:case 0x30efb8:case 0x30eff4:case 0x30f028:case 0x30f070:case 0x30ed90:case 0x30c530:case 0x460f24:case 0x460050:case 0x2ef780:case 0x2ef540:case 0x45e594:break;default:return std::nullopt;}
     auto *d=rt?dynamic_cast<bozo::ee::Dispatcher *>(rt->services):nullptr;auto *o=d?dynamic_cast<UiWindowOwner *>(&d->host()):nullptr;
     auto *s=d?dynamic_cast<UiSpriteOwner *>(&d->host()):nullptr;if(!c || !o || !s)throw std::runtime_error("native window requires per-run owners");
@@ -270,6 +273,11 @@ std::optional<bool> nativeUiWindowInstruction(R5900Context *c,Runtime *rt,uint32
     else if(pc==0x2e9640){if(c->pc!=pc)throw std::runtime_error("native window requires complete builder");w.begin(rt,sp-0x30,c->r[4].uw[0]);}
     else if(pc==0x2e970c)w.finish(rt,sp,c->r[16].uw[0]);
     else if(pc==0x2e95d0){if(c->r[4].uw[0]){w.release(c->r[4].uw[0]);s->nativeUiSprites().reset(c->r[4].uw[0]+0x50);}}
+    else if(pc==0x383660){
+        // Battle window 16ee00's destructor (mod028): the same release as 2e95d0, whose body it inlines.
+        if(value<uint32_t>(rt,0x383660)!=0x27bdffd0u || value<uint32_t>(rt,0x38369c)!=0x0c0bbd34u)return std::nullopt;   // another overlay
+        if(const auto element=c->r[4].uw[0]){if(value<uint32_t>(rt,element)!=0x16ee00)throw std::runtime_error("native battle window destructor class");
+            w.release(element);s->nativeUiSprites().reset(element+0x50);}}
     else if(pc==0x2e9e90)w.beginBackground(sp-0x40,c->r[4].uw[0]);
     else if(pc==0x2ea154)w.background(rt,sp,{c->r[10].uw[0],c->r[24].uw[0],c->r[15].uw[0]},value<uint32_t>(rt,sp+0x38),uint32_t(c->r[11].ud[0]>>32));
     else if(pc==0x2ea338)w.endBackground(sp);

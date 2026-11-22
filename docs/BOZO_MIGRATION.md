@@ -12,6 +12,21 @@ The earlier VP2S face/shading and general brightness comparisons remain open.
 
 ## Build and evidence
 
+### Battle window class 16ee00 (2026-11-22)
+
+The battle has a UI layer (`e86bf0`; types `16ec80/16ec9c/16ed18`) whose first child is a
+window of class `16ee00`. Its +20 build is the base window builder `2e9640` itself.
+Its destructor `383660` sets its own class, then inlines `2e95d0`'s body
+(`2ef4d0(+40, -1)`, `2f3320`).
+- **Native:** `windowType` admits `16ee00` while `16ee00+20 == 2e9640`.
+- **Destructor:** the new mod028 site `383660` (word-checked in `vp2_bozo_kernel.py` and
+  at run time) releases the snapshot and resets the +50 sprite, as `2e95d0` does.
+- **Test:** `vp2s-bozo-window-check` checks the admission, the refusal when +20 differs,
+  the release, another class, and another overlay.
+- **Evidence:** the scripted battle builds the window and runs to frame 64033. The next
+  boundary is the layer itself (`2ec9e4`: unported UI layer types
+  `152060/16ec80/16ec9c/16ed18`).
+
 ### Short sine/cosine leaf 213ea0 (2026-11-22)
 
 mod001 `213ea0` is `214100`'s leaf (short polynomial, x^9..x^3) with three differences:

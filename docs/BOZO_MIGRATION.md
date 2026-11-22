@@ -12,6 +12,24 @@ The earlier VP2S face/shading and general brightness comparisons remain open.
 
 ## Build and evidence
 
+### Vector turn 4ab9a0 (2026-11-22)
+
+mod028 `4ab9a0(a0, a1, a2 vector, a3, f12 limit)` (called from mod068 `529334`) turns the
+vector at a2 toward the direction a1 - a0:
+- **`4ab9c0..4ab9fc`:** n = normalize(a1 - a0) to `sp+60`; w keeps a1's.
+- **`4aba00..4aba10`** (a3 = 0): QMFC2 v0 = (v.n, v.y n.y, v.z n.z, v.w). The EE code takes
+  `acos`, clamps it with `min.s`, and calls `214100(a2, -angle)`.
+- **`4aba5c..4abab4`:** with c = v x n and d = c.v:
+  out = ((v x c) * sin + c * d) + (v - c * d) * cos, normalized, to a2 with w = 1. Its
+  vf13 (cos z, sin w) is `214100`'s result register, which is exactly the qword
+  `214100` stores at a2; it is read from there.
+- **Native:** `nativeVectorTurn`, a word-checked site table in ps2f, computed at the two
+  stores and the QMFC2.
+- **Test:** `vp2s-bozo-math-check` checks n = +z, v = +x, dot 0, and a quarter turn to
+  (0, 0, -1).
+- **Evidence:** the scripted battle passes `4ab9c0` and runs to frame 65369. The next
+  boundary is mod028 `500ec0` (entry `500df0`, from `501114`, on the scratchpad stack).
+
 ### Chain aim 248a00 (2026-11-22)
 
 mod001 `248a00` is a chain solver called from mod068 `527d54`. For each link it aims the

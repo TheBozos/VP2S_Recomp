@@ -1095,6 +1095,22 @@ int main(int argc,char **argv){try{
             for(uint32_t pc:{0x248c78u,0x248c7cu,0x248cacu})check(vp2s::nativeMathInstruction(rt.memory.flat(),&c,&rt,pc));
             std::memcpy(o,rt.memory.hostPointer(stack+0xb0,16),16);check(o[0]==1 && o[1]==2 && o[2]==3 && o[3]==4);
         }
+        {   // mod028 4ab9a0 vector turn: n = +z, v = +x; dot 0 to v0; with (cos, sin) = (0, 1) the vector
+            // becomes (v x (v x n)) = (0, 0, -1), w 1.
+            constexpr uint32_t sites[]={0x4ab9c0,0x4ab9fc,0x4aba00,0x4aba10,0x4aba5c,0x4abab4};
+            constexpr uint32_t words[]={0xd8ac0000,0xfa0c0000,0xda300000,0x48228000,0xda0e0000,0xfa4c0000};
+            for(unsigned i=0;i<6;++i)std::memcpy(rt.memory.hostPointer(sites[i],4),&words[i],4);
+            constexpr uint32_t stack=0x1ff7000,from=0x1b9000,to=0x1b9010,vec=0x1b9020;
+            const float f[4]={0,0,0,1},t[4]={0,0,2,1},v[4]={1,0,0,0};
+            std::memcpy(rt.memory.hostPointer(from,16),f,16);std::memcpy(rt.memory.hostPointer(to,16),t,16);std::memcpy(rt.memory.hostPointer(stack+0x50,16),v,16);
+            R5900Context c{};c.r[29].uw[0]=stack;c.r[4].uw[0]=from;c.r[5].uw[0]=to;c.r[16].uw[0]=stack+0x60;c.r[17].uw[0]=stack+0x50;c.r[18].uw[0]=vec;
+            for(unsigned i=0;i<4;++i)check(vp2s::nativeMathInstruction(rt.memory.flat(),&c,&rt,sites[i]));
+            float o[4];std::memcpy(o,rt.memory.hostPointer(stack+0x60,16),16);check(o[0]==0 && o[1]==0 && o[2]==1 && o[3]==1);
+            check(c.r[2].uw[0]==0);
+            const float sc[4]={9,9,0,1};std::memcpy(rt.memory.hostPointer(vec,16),sc,16);   // 214100's (k4, k5, cos, sin)
+            check(vp2s::nativeMathInstruction(rt.memory.flat(),&c,&rt,0x4aba5c) && vp2s::nativeMathInstruction(rt.memory.flat(),&c,&rt,0x4abab4));
+            std::memcpy(o,rt.memory.hostPointer(vec,16),16);check(o[0]==0 && o[1]==0 && o[2]==-1 && o[3]==1);
+        }
         {   // mod028 4fcae0 label projection: rows loaded once, program 0 in its own blocks and in
             // 4fc750's block (frame 0x70 below); a block outside the loading frame refuses.
             const uint32_t rowsWords[4]={0xd8410000,0xd8420010,0xd8430020,0xd8440030},block[7]={0xd8450000,0,0,0x4a000038,0x48490001,0x27a200e0,0xf8460000};

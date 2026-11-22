@@ -2924,6 +2924,48 @@ bool nativeChainAim(R5900Context *c,Runtime *rt,uint32_t pc){
         ps2Publish(rt,stack+0xb0,out);return true;}
     return true;   // loads and arithmetic: folded into the three stores
 }
+// mod028 4ab9a0(a0, a1, a2 vector, a3, f12 limit): the vector at a2 (copied to sp+50) turned
+// toward the direction a1 - a0, ps2f in listing order:
+//  4ab9c0..4ab9fc  n = (a1 - a0).xyz * RSQRT(|a1 - a0|^2) to s0 = sp+60 (w: a1's).
+//  4aba00..4aba10  (a3 = 0) QMFC2 v0 = (v.n, v.y n.y, v.z n.z, v.w) with v = s1 = sp+50.
+//  4aba5c..4abab4  after 214100(a2, -angle) stored (k4, k5, cos, sin) at a2 (its vf13, read from
+//                  there): c = v x n; d = (c.x v.x + c.y v.y) + c.z v.z; out = ((v x c) * sin + c*d)
+//                  + (v - c*d) * cos, normalized, to a2 with w = 1 (MAX.w vf0, vf0).
+struct VectorTurn{Ps2Lanes n{};uint32_t frame=0;bool aimed=false;};
+std::map<const Runtime *,VectorTurn> &vectorTurns(){static std::map<const Runtime *,VectorTurn> m;return m;}
+bool nativeVectorTurn(R5900Context *c,Runtime *rt,uint32_t pc){
+    struct Site{uint32_t pc,word;};
+    constexpr Site sites[]={{0x4ab9c0,0xd8ac0000},{0x4ab9c4,0xd88d0000},{0x4ab9c8,0x4bc007c3},{0x4ab9dc,0x4bcd632c},{0x4ab9e0,0x4bcc636a},{0x4ab9e4,0x4b0d683d},{0x4ab9e8,0x4b0dfb4a},{0x4ab9ec,0x4a6d03be},{0x4ab9f0,0x4a0003bf},{0x4ab9f4,0x4bc0631c},{0x4ab9fc,0xfa0c0000},
+        {0x4aba00,0xda300000},{0x4aba04,0x4bcc842a},{0x4aba08,0x4b10803d},{0x4aba0c,0x4b10fc0a},{0x4aba10,0x48228000},
+        {0x4aba5c,0xda0e0000},{0x4aba60,0xda300000},{0x4aba64,0x4a20032b},{0x4aba68,0x4bce82fe},{0x4aba6c,0x4bd073ae},{0x4aba70,0x4bc007c3},{0x4aba74,0x4bd073ea},{0x4aba78,0x4bce82fe},{0x4aba7c,0x4bd0732e},{0x4aba80,0x4b0f783d},{0x4aba84,0x4b0ffbca},{0x4aba88,0x4bcd631b},{0x4aba8c,0x4bcf7398},{0x4aba90,0x4bce842c},{0x4aba94,0x4bce62bc},{0x4aba98,0x4bcd830a},{0x4aba9c,0x4bcc636a},{0x4abaa0,0x4b0d683d},{0x4abaa4,0x4b0dfb4a},{0x4abaa8,0x4a6d03be},{0x4abaac,0x4a0003bf},{0x4abab0,0x4bc0631c},{0x4abab4,0xfa4c0000}};
+    if((pc&3) || !rt || pc<0x4ab9c0 || pc>0x4abab4)return false;
+    const auto site=std::find_if(std::begin(sites),std::end(sites),[&](const Site &x){return x.pc==pc;});
+    if(site==std::end(sites))return false;
+    uint32_t word=0;if(const auto *p=rt->memory.hostPointer(pc,4))std::memcpy(&word,p,4);
+    if(word!=site->word)return false;   // another overlay at these addresses
+    if(!c)throw std::runtime_error("native vector turn has no CPU record");
+    const auto stack=c->r[29].uw[0];auto &st=vectorTurns()[rt];
+    const auto unitOf=[](const Ps2Lanes &t){
+        const auto q=Ps2Word::reciprocalRoot(kPs2One,(t[0]*t[0]+t[1]*t[1])+kPs2One*(t[2]*t[2]));Ps2Lanes u=t;for(unsigned i=0;i<3;++i)u[i]=t[i]*q;return u;};
+    if(pc==0x4ab9fc){
+        if(c->r[16].uw[0]!=stack+0x60)throw std::runtime_error("native vector turn direction destination mismatch");
+        const auto a=ps2Record(rt,c->r[5].uw[0]),b=ps2Record(rt,c->r[4].uw[0]);Ps2Lanes d=a;for(unsigned i=0;i<3;++i)d[i]=a[i]-b[i];
+        st.n=unitOf(d);st.frame=stack;st.aimed=true;ps2Publish(rt,stack+0x60,st.n);return true;}
+    if(pc==0x4aba10){
+        if(!st.aimed || st.frame!=stack || c->r[17].uw[0]!=stack+0x50)throw std::runtime_error("native vector turn dot without its direction");
+        const auto v=ps2Record(rt,stack+0x50);Ps2Word p[3];for(unsigned i=0;i<3;++i)p[i]=v[i]*st.n[i];
+        const auto dot=(p[0]+p[1])+kPs2One*p[2];
+        c->r[2].uw[0]=dot.bits;c->r[2].uw[1]=p[1].bits;c->r[2].uw[2]=p[2].bits;c->r[2].uw[3]=v[3].bits;return true;}
+    if(pc==0x4abab4){
+        if(c->r[16].uw[0]!=stack+0x60 || c->r[17].uw[0]!=stack+0x50)throw std::runtime_error("native vector turn escaped its records");
+        const auto n=ps2Record(rt,stack+0x60),v=ps2Record(rt,stack+0x50),t=ps2Record(rt,c->r[18].uw[0]);   // t: 214100's (k4, k5, cos, sin)
+        const Ps2Word cr[3]={v[1]*n[2]-n[1]*v[2],v[2]*n[0]-n[2]*v[0],v[0]*n[1]-n[0]*v[1]};
+        const Ps2Word vc[3]={v[1]*cr[2]-cr[1]*v[2],v[2]*cr[0]-cr[2]*v[0],v[0]*cr[1]-cr[0]*v[1]};
+        const auto d=(cr[0]*v[0]+cr[1]*v[1])+kPs2One*(cr[2]*v[2]);
+        Ps2Lanes out{};for(unsigned i=0;i<3;++i){const auto turned=vc[i]*t[3],along=cr[i]*d,rest=v[i]-along;out[i]=(turned+along)+rest*t[2];}
+        out=unitOf(out);out[3]=kPs2One;ps2Publish(rt,c->r[18].uw[0],out);st.aimed=false;return true;}
+    return true;   // loads and arithmetic: folded into the stores and the QMFC2
+}
 // mod001 1fd110 chain constraint blocks (s1 = part record, s2 = chain owner,
 // owner object = *(s2+4)). VU registers that cross EE code between blocks
 // are reread from the records the earlier block stored (bit-exact):
@@ -4619,6 +4661,7 @@ bool nativeMathInstruction(uint8_t *,R5900Context *c,Runtime *rt,uint32_t pc){
     if(nativeNearestOfPoints(c,rt,pc))return true;
     if(nativeBattleLabelProjection(c,rt,pc))return true;
     if(nativeChainAim(c,rt,pc))return true;
+    if(nativeVectorTurn(c,rt,pc))return true;
     if(nativeBattlePointScale(c,rt,pc))return true;
     if(nativeBattleTaskColours(c,rt,pc))return true;
     if(nativeBattleUnitProjection(c,rt,pc))return true;

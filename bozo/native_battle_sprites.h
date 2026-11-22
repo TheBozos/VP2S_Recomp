@@ -21,6 +21,10 @@ struct NativeBattleSpriteBuild {
     std::vector<uint32_t> spriteTextures;   // per sprite: its selection (kUntextured: an untextured polygon)
     std::vector<NativeUiSprite> sprites;    // pictures set at the flush
     uint32_t polygonBytes=0,polygons=0;     // the recorded polygons (42df80, among the sprites) and what they wrote
+    uint32_t blendWrites=0;                 // ALPHA_2 writes after the opening one (32 bytes each)
+    bool additive=false;                    // the current ALPHA_2: 0x44 blending, 0x148 additive (Cs As + Cd)
+    // The bytes the recorded content wrote after the writer's header.
+    uint64_t accountedBytes()const{uint64_t n=32+uint64_t(polygonBytes)+32ull*blendWrites;for(const auto &t:textures)n+=t.bytes;return n+64ull*(sprites.size()-polygons);}
     static constexpr uint32_t kUntextured=~0u;
 };
 // The texel path of 42db50 (42de78..42df50): ST = 0x397fffd5 * float(texel) per coordinate,
@@ -33,6 +37,10 @@ class NativeBattleSprites {
 public:
     // 120860 with ALPHA_2 = 0x44 on a reset writer: a build opens (false: not a reset writer).
     bool begin(Runtime *,uint32_t writer);
+    void serializeBlends(bozo::state::Archive &);
+    // 120860 on a writer whose build is open at exactly its recorded content: a later ALPHA_2
+    // (0x44 or 0x148) for the sprites after it (false: not an open build's writer).
+    bool blend(Runtime *,uint32_t writer,uint64_t alpha);
     NativeBattleSpriteBuild &bind(Runtime *,uint32_t object,uint32_t writer);
     void texture(uint32_t writer,const NativeBattleTexture &);
     void sprite(Runtime *,const R5900Context *);

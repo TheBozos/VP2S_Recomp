@@ -43,6 +43,14 @@ bool NativeBattleSprites::begin(Runtime *rt,uint32_t writer){
     if(value<uint32_t>(rt,writer+8)!=base+0x40 || value<uint32_t>(rt,writer+12)!=base+0x40)return false;   // not a reset writer
     builds[writer]=NativeBattleSpriteBuild{.begin=base+0x40};lastBuild=writer;return true;
 }
+bool NativeBattleSprites::blend(Runtime *rt,uint32_t writer,uint64_t alpha){
+    const auto it=builds.find(writer);if(it==builds.end())return false;
+    auto &build=it->second;
+    if(value<uint32_t>(rt,writer+12)!=build.begin || uint64_t(value<uint32_t>(rt,writer+8))!=build.begin+build.accountedBytes())return false;   // not this build's open content
+    for(const auto &[stack,lease]:leases)if(lease.writer==writer)throw std::runtime_error("native battle sprite blend changed during its flush");
+    if(alpha!=0x44 && alpha!=0x148)throw std::runtime_error(std::format("native battle sprite build {:x} has an unported ALPHA_2 {:x}",writer,alpha));
+    build.additive=alpha==0x148;++build.blendWrites;return true;
+}
 NativeBattleSpriteBuild &NativeBattleSprites::bind(Runtime *rt,uint32_t object,uint32_t writer){
     // The build's object: the first sprite, polygon or flush names it; it must be of the battle
     // UI family and own this writer as its +bb build writer (or, at the flush, its +bc one).
@@ -77,7 +85,7 @@ void NativeBattleSprites::sprite(Runtime *rt,const R5900Context *c){
     for(float f:uv)if((std::bit_cast<uint32_t>(f)&0x7f800000)==0x7f800000)throw std::runtime_error("nonfinite native battle sprite ST");
     NativeUiSprite s{.sprite=desc,.colour=value<uint32_t>(rt,desc+0x24),.depth=z,
         .fixedCorners={std::array<int32_t,2>{x0,y0},{x1,y0},{x0,y1},{x1,y1}},.uv=uv};
-    build.sprites.push_back(std::move(s));build.spriteTextures.push_back(uint32_t(build.textures.size()-1));
+    s.additive=build.additive;build.sprites.push_back(std::move(s));build.spriteTextures.push_back(uint32_t(build.textures.size()-1));
 }
 void NativeBattleSprites::strip(Runtime *rt,const Strip &p){
     // A 4-corner strip after the header 42ec70 chose from the same mode bits, at the writer's
@@ -123,7 +131,7 @@ void NativeBattleSprites::strip(Runtime *rt,const Strip &p){
     // XYZ2 = x | y << 16 from sign-extended words: only 16-bit fixed corners reach the GS intact.
     for(const auto &corner:p.corners)for(int32_t v:corner)if(v<0 || v>0xffff)throw std::runtime_error("native battle polygon corner outside the GS range");
     s.fixedCorners=p.corners;   // strip order: triangles (0,1,2) and (1,2,3)
-    build.sprites.push_back(std::move(s));
+    s.additive=build.additive;build.sprites.push_back(std::move(s));
     build.spriteTextures.push_back(textured?uint32_t(build.textures.size()-1):NativeBattleSpriteBuild::kUntextured);
     build.polygonBytes+=p.triangle?triangleSizes[gouraud]:sizes[gouraud+2*textured];++build.polygons;
 }
@@ -169,7 +177,7 @@ void NativeBattleSprites::band(Runtime *rt,const R5900Context *c){
         for(unsigned i=0;i<4;++i){const auto xyz=value<uint64_t>(rt,at+32+16*i);
             if((xyz>>32)!=0xfff4dd)throw std::runtime_error("native battle band depth differs from its writer's");
             s.cornerColours[i]=value<uint32_t>(rt,at+24+16*i);s.fixedCorners[i]={int32_t(xyz&0xffff),int32_t((xyz>>16)&0xffff)};}}
-    for(auto &s:strips){build.sprites.push_back(std::move(s));build.spriteTextures.push_back(NativeBattleSpriteBuild::kUntextured);
+    for(auto &s:strips){s.additive=build.additive;build.sprites.push_back(std::move(s));build.spriteTextures.push_back(NativeBattleSpriteBuild::kUntextured);
         build.polygonBytes+=kStrip;++build.polygons;}
 }
 void NativeBattleSprites::flatQuad(Runtime *rt,uint32_t writer,uint32_t end){
@@ -189,7 +197,7 @@ void NativeBattleSprites::flatQuad(Runtime *rt,uint32_t writer,uint32_t end){
     for(unsigned i=0;i<4;++i){const auto xyz=value<uint64_t>(rt,at+32+8*i);
         if(uint32_t(xyz>>32)!=z)throw std::runtime_error("native battle flat rectangle corners differ in depth");
         s.fixedCorners[i]={int32_t(xyz&0xffff),int32_t((xyz>>16)&0xffff)};}
-    build.sprites.push_back(std::move(s));build.spriteTextures.push_back(NativeBattleSpriteBuild::kUntextured);
+    s.additive=build.additive;build.sprites.push_back(std::move(s));build.spriteTextures.push_back(NativeBattleSpriteBuild::kUntextured);
     build.polygonBytes+=64;++build.polygons;
 }
 void NativeBattleSprites::rectangle(Runtime *rt,const R5900Context *c){
@@ -213,8 +221,7 @@ NativeBattleSpriteBuild NativeBattleSprites::flush(Runtime *rt,uint32_t stack,ui
     const auto base=value<uint32_t>(rt,writer),begin=value<uint32_t>(rt,writer+12),end=value<uint32_t>(rt,writer+8);
     // The whole writer is ALPHA_2 (32 bytes), each selection's TEX0_2 writes, one sprite packet
     // per recorded sprite (64) and the polygons' packets: anything else has an unported producer.
-    uint64_t expected=32+uint64_t(build.polygonBytes);for(const auto &t:build.textures)expected+=t.bytes;
-    expected+=64ull*(build.sprites.size()-build.polygons);   // the sprite writer 42db50
+    const uint64_t expected=build.accountedBytes();
     if(begin!=build.begin || end<begin || end-begin!=expected || uint64_t(end)+16>uint64_t(base)+uint64_t(value<uint32_t>(rt,writer+16))*8)
         throw std::runtime_error(std::format("native battle sprite writer has unowned content (writer {:x}: {} bytes, {} textures and {} sprites recorded)",
             writer,int64_t(end)-int64_t(begin),build.textures.size(),build.sprites.size()));
@@ -257,6 +264,12 @@ void NativeBattleSprites::serialize(bozo::state::Archive &a){
         n=bozo::state::count(a,b.sprites.size());if(a.loading())b.sprites.resize(n);
         for(auto &s:b.sprites)bozo::state::fields(a,s.sprite,s.colour,s.depth,s.fixedCorners,s.uv,s.gouraud,s.cornerColours);});
 }
+void NativeBattleSprites::serializeBlends(bozo::state::Archive &a){
+    // Added after the "random" field: per build (in the same order as serialize), the later
+    // ALPHA_2 writes, the current blend and each sprite's. Older states end before it: no build
+    // in them had changed its blend (that was a boundary), so the defaults hold.
+    for(auto &[writer,b]:builds){bozo::state::fields(a,b.blendWrites,b.additive);for(auto &s:b.sprites)bozo::state::io(a,s.additive);}
+}
 std::optional<bool> nativeBattleSpriteInstruction(R5900Context *c,Runtime *rt,uint32_t pc){
     static constexpr uint32_t pairSites[]={0x4bcd40,0x4bde08,0x4d0c34,0x4d1734,0x4d99ac,0x4ecf0c,0x4ef498,0x4f0f20,0x4f268c,0x4f2874,0x4fa19c,0x4fdcc0,0x503d50};
     const bool pairSite=std::find(std::begin(pairSites),std::end(pairSites),pc)!=std::end(pairSites);
@@ -280,7 +293,9 @@ std::optional<bool> nativeBattleSpriteInstruction(R5900Context *c,Runtime *rt,ui
         // ALPHA_2 writer 120860 (writer a0, value a1), called game-wide. The battle UI build
         // methods reset their writer (+8 = +c = base + 0x40) and call it with 0x44 (standard
         // blending) before their selections and sprites: that call opens a build.
-        if(c->r[5].ud[0]==0x44)sprites.begin(rt,c->r[4].uw[0]);
+        // A later call on an open build (cursor at its recorded content) changes the blending
+        // of the sprites that follow (0x148: additive, the attack trail's fading copies).
+        if(!(c->r[5].ud[0]==0x44 && sprites.begin(rt,c->r[4].uw[0])))sprites.blend(rt,c->r[4].uw[0],c->r[5].ud[0]);
         return false;
     }else if(pairSite){
         // Selection pairs outside 3cd330 (13 USA sites, e.g. 175450's UI sheet helper 4f0e90 at

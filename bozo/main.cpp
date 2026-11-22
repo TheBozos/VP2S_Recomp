@@ -264,6 +264,7 @@ public:
         bozo::render::Material material;material.blend=bozo::render::Material::Blend::Alpha;material.alphaTest=true;material.alphaRef=0;
         // Flat polygons (42df80) carry no picture: untextured, the same blend.
         for(const auto &sprite:build.sprites){const auto vertices=vp2s::nativeUiSpriteVertices(sprite);material.textured=bool(sprite.picture);
+            material.blend=sprite.additive?bozo::render::Material::Blend::Additive:bozo::render::Material::Blend::Alpha;
             bozo::render::Renderer::instance().draw(material,identity,vertices.data(),vertices.size(),sprite.picture);}
     }
     vp2s::NativeScreenRects screenRects;
@@ -1026,6 +1027,7 @@ int main(int argc,char **argv) {
                     // Explicit upgrade of a state older than the random field: the stream's bits as
                     // measured from the same seeded boot (no draw had advanced it before 4a45d8).
                     host.procedural.seed(uint32_t(std::stoul(seed,nullptr,16)));std::fprintf(stderr,"[state] vp2s random stream set to %06x\n",host.procedural.bits());}
+                step("battle blends");if(!a.loading() || !a.atEnd())host.battleSprites.serializeBlends(a);
                 step("done");},
             [&]{for(auto why:{host.dbc->unsaveable(),host.sprites.unsaveable(),host.windows.unsaveable(),host.uiTexts.unsaveable()})
                     if(!why.empty())return why;

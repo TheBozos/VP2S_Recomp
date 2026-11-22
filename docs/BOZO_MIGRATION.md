@@ -12,6 +12,28 @@ The earlier VP2S face/shading and general brightness comparisons remain open.
 
 ## Build and evidence
 
+### Battle sprite builds: a later ALPHA_2 makes the sprites after it additive (2026-11-22)
+
+Writer `e9d300` holds:
+- ALPHA_2 0x44, written by 120860 when the build opens;
+- two TEX0_2 writes;
+- two sprites;
+- a second 120860 with ALPHA_2 `0x148` (Cs As + Cd);
+- six more sprites, with alpha 0x00..0x6a: fading copies.
+
+The flush (`42d4f0`) found these 32 bytes unowned.
+- **Native:** `NativeBattleSprites::blend` accepts 0x44 or 0x148 on an open build, only
+  when the writer's cursor is exactly at the build's recorded content
+  (`accountedBytes`). Later sprites carry `additive`. The flush counts each such write,
+  and `drawNativeBattleSprites` draws additive sprites with `Blend::Additive`. Other
+  values reject.
+- **Save states:** the blend fields go in a new appended state field, "battle blends", so
+  the battle-sprite section is unchanged and older states still load.
+- **Test:** `vp2s-bozo-battle-sprites-check` checks the additive tag, the accounting,
+  another writer, a cursor past the content, and an unported value.
+- **Evidence:** the scripted battle flushes `e9d300` and runs to frame 63790. The next
+  boundary is mod001 `213eb0` (entry `213ea0`, called at `227078`).
+
 ### Battle label projection, mod028 4fcae0 (2026-11-22)
 
 `4fcae0` loads vf1..vf4 once with the camera rows at `*(*(*36d880+80)+18)`

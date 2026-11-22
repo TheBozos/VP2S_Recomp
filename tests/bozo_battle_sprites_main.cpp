@@ -190,6 +190,20 @@ int main(){try{
       put(rt,writer3+8,B3+0x40+80);put(rt,base3+0x40+80,0x6400000000000001ull);put(rt,base3+0x48+80,0xf55510ull);put(rt,base3+0x50+80,0x243ull);
       put(rt,desc3+0x78,uint8_t(0));{auto f=t;f.r[16].uw[0]=0;f.r[19].uw[0]=B3+0x40+80+0x18;tri.polygon(&rt,&f);}
       check(tb->sprites.size()==2 && !tb->sprites[1].gouraud && tb->sprites[1].colour==0x50608080u && tb->polygonBytes==80+64 && tb->sprites[1].fixedCorners[3]==tb->sprites[1].fixedCorners[2]); }
+    // A later ALPHA_2 (120860 with 0x148) on an open build at exactly its recorded content: the
+    // sprites after it are additive and the write's 32 bytes are accounted; a cursor elsewhere is
+    // not this build's content, and another value is unported.
+    { constexpr uint32_t writer6=0x1a6000,base6=0x2d0000,B6=base6|0x30000000u;const uint32_t w6=writer6|0x30000000u;
+      put(rt,writer6,B6);put(rt,writer6+8,B6+0x40);put(rt,writer6+12,B6+0x40);put(rt,writer6+16,0x198u);
+      vp2s::NativeBattleSprites blended;check(blended.begin(&rt,w6));
+      const auto quad=[&](uint32_t at){put(rt,at,0x6400000000000001ull);put(rt,at+8,0x555510ull);put(rt,at+16,0x244ull);put(rt,at+24,uint64_t(0x40ffffffu));
+          for(unsigned i=0;i<4;++i)put(rt,at+32+8*i,uint64_t(0x6e00+0x200*(i&1))|uint64_t(0x7300+0x1a00*(i>>1))<<16|0x10ull<<32);};
+      put(rt,writer6+8,B6+0x60);quad(base6+0x60);blended.flatQuad(&rt,w6,B6+0x60+64);put(rt,writer6+8,B6+0xa0);
+      check(!blended.blend(&rt,w6+0x10,0x148));                    // not a build's writer
+      put(rt,writer6+8,B6+0xb0);check(!blended.blend(&rt,w6,0x148));put(rt,writer6+8,B6+0xa0);   // cursor past the content
+      rejects([&]{blended.blend(&rt,w6,0x99);});
+      check(blended.blend(&rt,w6,0x148));put(rt,writer6+8,B6+0xc0);quad(base6+0xc0);blended.flatQuad(&rt,w6,B6+0xc0+64);
+      const auto *bb=blended.build(w6);check(bb && bb->sprites.size()==2 && !bb->sprites[0].additive && bb->sprites[1].additive && bb->accountedBytes()==32+32+128); }
     // main 120a80, the engine's flat rectangle writer (the battle gauge bars, writer e5e7a0): one
     // 64-byte strip read back at its cursor commit, only into an open battle build.
     { constexpr uint32_t writer5=0x1a5000,base5=0x2c0000,B5=base5|0x30000000u;const uint32_t w5=writer5|0x30000000u;

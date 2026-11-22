@@ -67,7 +67,10 @@ NativeModelSubmission NativeParticleDraws::capture(Runtime *rt,NativeAssets &ass
     const auto fis=value<uint32_t>(owner,0x658);auto *descriptor=record(rt,fis,16);const TextureKey key{value<uint32_t>(descriptor,4),value<uint32_t>(descriptor,8)};
     const auto manager=word(rt,0x35de38);const auto slot=int16_t(word(rt,manager+0x2670)&0xffff);
     if(slot<0 || slot>=256 || word(rt,manager+0x1008+16*slot)!=key.tag || word(rt,manager+8+16*slot)!=key.index)throw std::runtime_error("native particle FIS identity differs from selected game texture");
-    const auto texture=textures.load(key);const auto palette=texture->format==0x14?kindData[2]:0;
+    // A key whose disc copies differ resolves by the origin of the texture header the info
+    // block names (info + *(info+c), as the offline index locates it).
+    const auto header=fis+value<uint32_t>(descriptor,0xc);const auto headerOrigin=assets.origin(header,0x10);
+    const auto texture=textures.load(headerOrigin?textures.resolve(key,*headerOrigin):key);const auto palette=texture->format==0x14?kindData[2]:0;
     NativeModelBatch batch;batch.texture=texture->picture(palette);auto &mat=batch.material;
     // The template carries no CLAMP: U clamps and V repeats as the earlier
     // single-pass draws did (the game's own CLAMP for these kicks is unverified).

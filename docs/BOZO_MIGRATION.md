@@ -12,6 +12,21 @@ The earlier VP2S face/shading and general brightness comparisons remain open.
 
 ## Build and evidence
 
+### Battle input: scripted attacks, and particle textures by provenance (2026-11-22)
+
+The battle waits for commands, so `tools/pad_scripts/battle_0x18_attack.txt` drives it from
+the map 79 state (`--load-state map79_63350.state --battle 0x18`, absolute frames). It walks
+UP for 120 frames from 63560, then tries Square (Alicia) and Cross (Rufus) in ten windows,
+walking a little between them. It needs `--frames 66000`.
+- **First new code reached:** the particle draw `22f160` (mod001) loads `36317076:3ac`
+  ("vp16"), whose 21 disc copies are not all alike.
+- **Native (`bozo/native_particle_draws.cpp`):** that draw now resolves its key by the
+  origin of the texture header its info block names (info + *(info+c)), through
+  `NativeTextures::resolve`. The game-manager check still compares the raw key.
+- **Evidence:** the attack starts. At frame 63720 the side-on attack view is up with the
+  party, the Rhino, the button icons and the PLAYER HP / AP bars, all native. The particle
+  tests pass. The next boundary is a VU0 site at `49f418` (entry `49f3b4`) at frame 63739.
+
 ### Battle scratchpad work stacks: mod028's eight switches parked like mod001's (2026-11-22)
 
 A queued handler found thread 1's only live frame with sp in the scratchpad (70003e60 at

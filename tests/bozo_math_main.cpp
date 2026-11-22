@@ -965,6 +965,19 @@ int main(int argc,char **argv){try{
             vp2s::nativeMathInstruction(rt.memory.flat(),&c,&rt,0x47ecc4);c.r[2].uw[0]=stack+0x210;
             {bool failed=false;try{vp2s::nativeMathInstruction(rt.memory.flat(),&c,&rt,0x47ece8);}catch(const std::runtime_error &){failed=true;}check(failed);}   // stored elsewhere
         }
+        {   // mod028 49f310 battle half vectors (both copies): (s4), (s3) times vf3.x = 0.5 into the new object +0 / +10, w kept.
+            constexpr uint32_t one[]={0x48a81800,0xda810000,0xda620000,0x24a20010,0x4bc30858,0x4bc31098,0xf8a10000,0xf8420000};
+            constexpr uint32_t two[]={0x48a81800,0xda810000,0xda620000,0x26220010,0x4bc30858,0x4bc31098,0xfa210000,0xf8420000};
+            std::memcpy(rt.memory.hostPointer(0x49f418,sizeof(one)),one,sizeof(one));std::memcpy(rt.memory.hostPointer(0x49f4e0,sizeof(two)),two,sizeof(two));
+            constexpr uint32_t stack=0x1fff000,src=0x1b0000,obj=0x1b1000;
+            for(unsigned copy=0;copy<2;++copy){const uint32_t base=copy?0x49f4e0:0x49f418;const auto *w=copy?two:one;
+                const float a[4]={3,-5,0.25f,9},b[4]={1e6f,2,-8,-1};std::memcpy(rt.memory.hostPointer(src,16),a,16);std::memcpy(rt.memory.hostPointer(src+16,16),b,16);
+                R5900Context c{};c.r[29].uw[0]=stack;c.r[20].uw[0]=src;c.r[19].uw[0]=src+16;c.r[8].uw[0]=0x3f000000;c.r[copy?17:5].uw[0]=obj;c.r[2].uw[0]=obj+16;
+                if(!copy){bool failed=false;try{vp2s::nativeMathInstruction(rt.memory.flat(),&c,&rt,base+24);}catch(const std::runtime_error &){failed=true;}check(failed);}   // a store first
+                for(unsigned i=0;i<8;++i){const auto op=w[i]>>26;check(vp2s::nativeMathInstruction(rt.memory.flat(),&c,&rt,base+4*i)==(op==0x12 || op==0x36 || op==0x3e));}
+                float o[8];std::memcpy(o,rt.memory.hostPointer(obj,32),32);
+                check(o[0]==1.5f && o[1]==-2.5f && o[2]==0.125f && o[3]==9 && o[4]==5e5f && o[5]==1 && o[6]==-4 && o[7]==-1);std::memset(rt.memory.hostPointer(obj,32),0,32);}
+        }
         {   // mod028 47ae40 battle colour pair: (128, 64, 255, 128) and (0, 1, 2, 3) widened by the CPU.
             constexpr uint32_t words[]={0x48a80800,0x48a91000,0x48aa1800,0x4be1093c,0x4be2113c,0x248309a0,0x4bc30858,0x4bc31098,0xf8610000,0xf8620010};
             std::memcpy(rt.memory.hostPointer(0x47ae78,sizeof(words)),words,sizeof(words));

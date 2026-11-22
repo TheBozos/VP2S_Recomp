@@ -12,6 +12,20 @@ The earlier VP2S face/shading and general brightness comparisons remain open.
 
 ## Build and evidence
 
+### Battle half vectors 49f310: two vectors halved into a new object (2026-11-22)
+
+mod028 `49f310` (reached by the scripted attack) allocates a battle object and fills it.
+- **Original:** QMTC2 t0 (0.5f) -> vf3; LQC2 vf1 = (s4), vf2 = (s3); MULx.xyz both by
+  vf3.x; SQC2 vf1 to the object (a1 / s1) and vf2 to its +10 -> {xyz * 0.5, w}. Two copies:
+  `49f418`, `49f4e0`.
+- **Native (`bozo/native_math.cpp`, `nativeBattleHalfVectors`):** word-checked sites per
+  call frame. Both results come from the loads, which are made before either store. Stores
+  without their loads are refused.
+- **Test:** `vp2s-bozo-math-check` runs both copies with exact halves (w kept), and refuses a
+  store first.
+- **Evidence:** the scripted battle passes it (frame 63739). The next boundary is a VU0 site
+  at `48b280` (entry `48b260`, from `48bb54` in `48baa0`, which `49f310` calls next).
+
 ### Battle input: scripted attacks, and particle textures by provenance (2026-11-22)
 
 The battle waits for commands, so `tools/pad_scripts/battle_0x18_attack.txt` drives it from

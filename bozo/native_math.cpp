@@ -1925,6 +1925,37 @@ bool nativeBattlePointScale(R5900Context *c,Runtime *rt,uint32_t pc){
     default:return true;   // MULx: folded into the store
     }
 }
+// Battle half vectors, mod028 49f310 (two copies, 49f418 and 49f4e0): QMTC2 t0 (0.5f) -> vf3;
+// LQC2 vf1 = (s4), vf2 = (s3); MULx.xyz vf1, vf2 *= vf3.x; SQC2 vf1 to the new object (a1 /
+// s1) and vf2 to its +10 (v0) -> {xyz * k, w}. Both results come from the loads, made before
+// either store. Kept per call frame; stores without their loads are refused.
+struct BattleHalfVectors{uint32_t k=0;VuWords a{},b{};unsigned loaded=0;};
+std::map<std::pair<const Runtime *,uint32_t>,BattleHalfVectors> &battleHalfVectors(){static std::map<std::pair<const Runtime *,uint32_t>,BattleHalfVectors> m;return m;}
+bool nativeBattleHalfVectors(R5900Context *c,Runtime *rt,uint32_t pc){
+    struct Site{uint32_t pc,word;char role;};
+    constexpr Site sites[]={{0x49f418,0x48a81800,'k'},{0x49f41c,0xda810000,'a'},{0x49f420,0xda620000,'b'},{0x49f428,0x4bc30858,'-'},{0x49f42c,0x4bc31098,'-'},
+        {0x49f430,0xf8a10000,'1'},{0x49f434,0xf8420000,'2'},
+        {0x49f4e0,0x48a81800,'k'},{0x49f4e4,0xda810000,'a'},{0x49f4e8,0xda620000,'b'},{0x49f4f0,0x4bc30858,'-'},{0x49f4f4,0x4bc31098,'-'},
+        {0x49f4f8,0xfa210000,'1'},{0x49f4fc,0xf8420000,'2'}};
+    if((pc&3) || !rt || pc<0x49f418 || pc>0x49f4fc)return false;
+    const auto site=std::find_if(std::begin(sites),std::end(sites),[&](const Site &x){return x.pc==pc;});
+    if(site==std::end(sites))return false;
+    uint32_t word=0;if(const auto *p=rt->memory.hostPointer(pc,4))std::memcpy(&word,p,4);
+    if(word!=site->word)return false;   // another overlay at these addresses
+    if(!c)throw std::runtime_error("native battle half vectors have no CPU record");
+    auto &st=battleHalfVectors()[{rt,c->r[29].uw[0]}];
+    const auto reg=[&](uint32_t w){return c->r[(w>>21)&31].uw[0]+(w&0xffff);};
+    const auto half=[&](const VuWords &v){VuWords o=v;for(unsigned i=0;i<3;++i)o[i]=vuMul(v[i],st.k);return o;};
+    switch(site->role){
+    case 'k':st=BattleHalfVectors{};st.k=c->r[8].uw[0];st.loaded=1;return true;
+    case 'a':st.a=vuWords(rt,reg(word));st.loaded|=2;return true;
+    case 'b':st.b=vuWords(rt,reg(word));st.loaded|=4;return true;
+    case '1':case '2':{
+        if((st.loaded&7)!=7)throw std::runtime_error(std::format("native battle half vectors at {:x} stored without their loads",pc));
+        const auto out=half(site->role=='1'?st.a:st.b);std::memcpy(record(rt,reg(word),16),out.data(),16);return true;}
+    default:return true;   // MULx: folded into the stores
+    }
+}
 // Battle colour pair, mod028 47ae40(object a0, colour a1, colour a2) (one copy): the CPU
 // widens each RGBA byte colour to four words (PEXTLB/PEXTLH with zero, compiled); QMTC2 t0
 // -> vf1, t1 -> vf2, t2 (0.5f) -> vf3; ITOF0 vf1, vf2; MULx.xyz by vf3.x; SQC2 vf1, vf2 to
@@ -4177,6 +4208,7 @@ bool nativeMathInstruction(uint8_t *,R5900Context *c,Runtime *rt,uint32_t pc){
     if(nativeBattleSideAxes(c,rt,pc))return true;
     if(nativeBattleGroundPlane(c,rt,pc))return true;
     if(nativeBattleColourPair(c,rt,pc))return true;
+    if(nativeBattleHalfVectors(c,rt,pc))return true;
     if(nativeBattlePointScale(c,rt,pc))return true;
     if(nativeBattleTaskColours(c,rt,pc))return true;
     if(nativeBattleUnitProjection(c,rt,pc))return true;

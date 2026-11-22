@@ -2878,6 +2878,52 @@ bool nativeBoneAim(R5900Context *c,Runtime *rt,uint32_t pc){
     Ps2Lanes quaternion;for(unsigned i=0;i<3;++i)quaternion[i]=cross[i]*reciprocal;quaternion[3]=q*Ps2Word{0x3f000000u};
     ps2Publish(rt,stack+0x160,quaternion);return true;
 }
+// mod001 248a00 (a chain solver: per link, aim it from P toward T; called from mod068 527d54),
+// three VU0 blocks, ps2f in listing order:
+//  248b84..248c24  rows M = sp+e0, P = sp+140, T = (s4): v10 = M.P + r4*1, v11 = M.T + r4*1 (vf0.w,
+//                  not the points' w); u = v10 * RSQRT(|v10|^2), v = v11 * RSQRT(|v11|^2);
+//                  dot = (u.x v.x + u.y v.y) + u.z v.z through MR32 rotations (their other lanes
+//                  read registers this function never wrote) stored to sp+d0 (x only: the EE code
+//                  reads x; the other lanes are left as they are); cross = v x u (OPMULA/OPMSUB).
+//  248c38..248c50  (dot < 0x3f7ffffe) axis = cross * RSQRT(|cross|^2) to sp+c0 (xyz: its w lane is
+//                  the angle the EE code stores after it).
+//  248c78..248cac  q1 = sp+b0 (215640's rotation), q2 = s2+30: xyz = (q2*q1.w + q1*q2.w) + (q1 x q2)*1,
+//                  w = ((w1w2 - z1z2) - 1*y1y2) - 1*x1x2, to sp+b0.
+struct ChainAim{Ps2Lanes cross{};uint32_t frame=0;bool aimed=false;};
+std::map<const Runtime *,ChainAim> &chainAims(){static std::map<const Runtime *,ChainAim> m;return m;}
+bool nativeChainAim(R5900Context *c,Runtime *rt,uint32_t pc){
+    struct Site{uint32_t pc,word;};
+    constexpr Site sites[]={{0x248b84,0xd8610000},{0x248b88,0xd8620010},{0x248b8c,0xd8630020},{0x248b90,0xd8640030},{0x248b94,0xd8450000},{0x248b98,0xda860000},{0x248b9c,0x4be007d3},{0x248ba0,0x4be509bc},{0x248ba4,0x4be510bd},{0x248ba8,0x4be518be},{0x248bac,0x4be0228b},{0x248bb0,0x4be609bc},{0x248bb4,0x4be610bd},{0x248bb8,0x4be618be},{0x248bbc,0x4bca532a},{0x248bc0,0x4be022cb},{0x248bc4,0x4b0c603d},{0x248bc8,0x4b0cfb4a},{0x248bcc,0x4bcb5baa},{0x248bd0,0x4a6d03be},{0x248bd4,0x4b0e703d},{0x248bd8,0x4b0efbca},{0x248be8,0x4a0003bf},{0x248bec,0x4bc0541c},{0x248bf0,0x4a0002ff},{0x248bf4,0x4a0002ff},{0x248bf8,0x4a6f03be},{0x248bfc,0x4bd2833d},{0x248c00,0x4bd3933d},{0x248c04,0x4a0003bf},{0x248c08,0x4bc05c5c},{0x248c0c,0x4b1182be},{0x248c10,0x4b1190bd},{0x248c14,0x4b119cca},{0x248c18,0x4bd08afe},{0x248c1c,0x4bd1852e},{0x248c24,0xf8530000},
+        {0x248c38,0x4bd4a2aa},{0x248c3c,0x4b0a503d},{0x248c40,0x4b0afaca},{0x248c44,0x4a6b03be},{0x248c48,0x4a0003bf},{0x248c4c,0x4bc0a31c},{0x248c50,0xf84c0000},
+        {0x248c78,0xd8410000},{0x248c7c,0xd8620000},{0x248c80,0x4be00153},{0x248c88,0x4bc20afe},{0x248c8c,0x4bc110ee},{0x248c90,0x4be2092a},{0x248c94,0x4bc111bf},{0x248c98,0x4bc208bf},{0x248c9c,0x4bc0184b},{0x248ca0,0x4a24207e},{0x248ca4,0x4a2428fd},{0x248ca8,0x4a24284c},{0x248cac,0xf8410000}};
+    if((pc&3) || !rt || pc<0x248b84 || pc>0x248cac)return false;
+    const auto site=std::find_if(std::begin(sites),std::end(sites),[&](const Site &x){return x.pc==pc;});
+    if(site==std::end(sites))return false;
+    uint32_t word=0;if(const auto *p=rt->memory.hostPointer(pc,4))std::memcpy(&word,p,4);
+    if(word!=site->word)return false;   // another overlay at these addresses
+    if(!c)throw std::runtime_error("native chain aim has no CPU record");
+    const auto stack=c->r[29].uw[0];auto &st=chainAims()[rt];
+    const auto unitOf=[](const Ps2Lanes &t){
+        const auto q=Ps2Word::reciprocalRoot(kPs2One,(t[0]*t[0]+t[1]*t[1])+kPs2One*(t[2]*t[2]));Ps2Lanes u{};for(unsigned i=0;i<3;++i)u[i]=t[i]*q;return u;};
+    if(pc==0x248c24){
+        if(c->r[2].uw[0]!=stack+0xd0)throw std::runtime_error("native chain aim dot destination mismatch");
+        const auto m=ps2Rows(rt,stack+0xe0,4);const auto u=unitOf(ps2Transform(m,ps2Record(rt,stack+0x140))),v=unitOf(ps2Transform(m,ps2Record(rt,c->r[20].uw[0])));
+        const auto dot=(u[0]*v[0]+u[1]*v[1])+u[2]*v[2];
+        st.cross={v[1]*u[2]-u[1]*v[2],v[2]*u[0]-u[2]*v[0],v[0]*u[1]-u[0]*v[1],Ps2Word{}};st.frame=stack;st.aimed=true;
+        dot.store(record(rt,stack+0xd0,16));return true;}
+    if(pc==0x248c50){
+        if(!st.aimed || st.frame!=stack || c->r[2].uw[0]!=stack+0xc0)throw std::runtime_error("native chain aim axis without its aim");
+        ps2Publish(rt,stack+0xc0,unitOf(st.cross),3);st.aimed=false;return true;}
+    if(pc==0x248cac){
+        if(c->r[2].uw[0]!=stack+0xb0 || c->r[3].uw[0]!=c->r[18].uw[0]+0x30)throw std::runtime_error("native chain aim rotation escaped its records");
+        const auto q1=ps2Record(rt,stack+0xb0),q2=ps2Record(rt,c->r[18].uw[0]+0x30);Ps2Lanes out;
+        const Ps2Word cross[3]={q1[1]*q2[2]-q2[1]*q1[2],q1[2]*q2[0]-q2[2]*q1[0],q1[0]*q2[1]-q2[0]*q1[1]};
+        for(unsigned i=0;i<3;++i)out[i]=(q2[i]*q1[3]+q1[i]*q2[3])+cross[i]*kPs2One;
+        Ps2Word p[4];for(unsigned i=0;i<4;++i)p[i]=q1[i]*q2[i];
+        out[3]=((p[3]-p[2])-kPs2One*p[1])-kPs2One*p[0];
+        ps2Publish(rt,stack+0xb0,out);return true;}
+    return true;   // loads and arithmetic: folded into the three stores
+}
 // mod001 1fd110 chain constraint blocks (s1 = part record, s2 = chain owner,
 // owner object = *(s2+4)). VU registers that cross EE code between blocks
 // are reread from the records the earlier block stored (bit-exact):
@@ -4572,6 +4618,7 @@ bool nativeMathInstruction(uint8_t *,R5900Context *c,Runtime *rt,uint32_t pc){
     if(nativeContactPoint(c,rt,pc))return true;
     if(nativeNearestOfPoints(c,rt,pc))return true;
     if(nativeBattleLabelProjection(c,rt,pc))return true;
+    if(nativeChainAim(c,rt,pc))return true;
     if(nativeBattlePointScale(c,rt,pc))return true;
     if(nativeBattleTaskColours(c,rt,pc))return true;
     if(nativeBattleUnitProjection(c,rt,pc))return true;

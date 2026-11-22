@@ -1075,6 +1075,26 @@ int main(int argc,char **argv){try{
             check(o[2][0]==3 && o[2][1]==2 && o[2][2]==4);                    // |(3,-2,4)|
             check(o[3][0]==1 && o[3][1]==1 && o[3][2]==1);
         }
+        {   // mod001 248a00 chain aim: identity rows, P on x, T on y -> dot 0 (x lane only), axis (0, 0, -1);
+            // then the identity rotation times q2 gives q2.
+            constexpr uint32_t sites[]={0x248b84,0x248b88,0x248b8c,0x248b90,0x248b94,0x248b98,0x248c24,0x248c38,0x248c50,0x248c78,0x248c7c,0x248cac};
+            constexpr uint32_t words[]={0xd8610000,0xd8620010,0xd8630020,0xd8640030,0xd8450000,0xda860000,0xf8530000,0x4bd4a2aa,0xf84c0000,0xd8410000,0xd8620000,0xf8410000};
+            for(unsigned i=0;i<12;++i)std::memcpy(rt.memory.hostPointer(sites[i],4),&words[i],4);
+            constexpr uint32_t stack=0x1ff8000,target=0x1b8000,link=0x1b8100;
+            const float m[16]={1,0,0,0, 0,1,0,0, 0,0,1,0, 0,0,0,1},p[4]={1,0,0,1},t[4]={0,1,0,7},keep[4]={9,9,9,9};
+            std::memcpy(rt.memory.hostPointer(stack+0xe0,64),m,64);std::memcpy(rt.memory.hostPointer(stack+0x140,16),p,16);std::memcpy(rt.memory.hostPointer(target,16),t,16);
+            std::memcpy(rt.memory.hostPointer(stack+0xd0,16),keep,16);std::memcpy(rt.memory.hostPointer(stack+0xc0,16),keep,16);
+            R5900Context c{};c.r[29].uw[0]=stack;c.r[20].uw[0]=target;c.r[2].uw[0]=stack+0xd0;
+            for(unsigned i=0;i<7;++i)check(vp2s::nativeMathInstruction(rt.memory.flat(),&c,&rt,sites[i]));
+            float o[4];std::memcpy(o,rt.memory.hostPointer(stack+0xd0,16),16);check(o[0]==0 && o[1]==9 && o[3]==9);
+            c.r[2].uw[0]=stack+0xc0;check(vp2s::nativeMathInstruction(rt.memory.flat(),&c,&rt,0x248c38) && vp2s::nativeMathInstruction(rt.memory.flat(),&c,&rt,0x248c50));
+            std::memcpy(o,rt.memory.hostPointer(stack+0xc0,16),16);check(o[0]==0 && o[1]==0 && o[2]==-1 && o[3]==9);
+            {bool failed=false;try{vp2s::nativeMathInstruction(rt.memory.flat(),&c,&rt,0x248c50);}catch(const std::runtime_error &){failed=true;}check(failed);}   // an axis without its aim
+            const float q1[4]={0,0,0,1},q2[4]={1,2,3,4};std::memcpy(rt.memory.hostPointer(stack+0xb0,16),q1,16);std::memcpy(rt.memory.hostPointer(link+0x30,16),q2,16);
+            c.r[2].uw[0]=stack+0xb0;c.r[3].uw[0]=link+0x30;c.r[18].uw[0]=link;
+            for(uint32_t pc:{0x248c78u,0x248c7cu,0x248cacu})check(vp2s::nativeMathInstruction(rt.memory.flat(),&c,&rt,pc));
+            std::memcpy(o,rt.memory.hostPointer(stack+0xb0,16),16);check(o[0]==1 && o[1]==2 && o[2]==3 && o[3]==4);
+        }
         {   // mod028 4fcae0 label projection: rows loaded once, program 0 in its own blocks and in
             // 4fc750's block (frame 0x70 below); a block outside the loading frame refuses.
             const uint32_t rowsWords[4]={0xd8410000,0xd8420010,0xd8430020,0xd8440030},block[7]={0xd8450000,0,0,0x4a000038,0x48490001,0x27a200e0,0xf8460000};

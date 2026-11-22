@@ -12,6 +12,30 @@ The earlier VP2S face/shading and general brightness comparisons remain open.
 
 ## Build and evidence
 
+### Chain aim 248a00 (2026-11-22)
+
+mod001 `248a00` is a chain solver called from mod068 `527d54`. For each link it aims the
+link from point P toward target T, with three VU0 blocks:
+- **`248b84..248c24`:**
+  - With rows M (`sp+e0`): v10 = M.P + r4 * 1 and v11 = M.T + r4 * 1 (vf0.w, not the points'
+    w).
+  - u and v are their normalized forms (RSQRT).
+  - dot = (u.x v.x + u.y v.y) + u.z v.z, through MR32 rotations whose other lanes read
+    registers this function never wrote. It is stored to `sp+d0`, x lane only (the EE code
+    reads x), the other lanes left as they are.
+  - cross = v x u (OPMULA/OPMSUB).
+- **`248c38..248c50`** (when dot < `0x3f7ffffe`): axis = cross * RSQRT(|cross|^2), stored to
+  `sp+c0` xyz. The EE code then writes the angle to its w lane.
+- **`248c78..248cac`:** the quaternion product of `sp+b0` (215640's rotation) and the link's
+  `s2+30`, the same formula as the bone aim's.
+- **Native:** `nativeChainAim`, a word-checked site table in ps2f (`Ps2Word`), computed
+  at the three stores.
+- **Test:** `vp2s-bozo-math-check` checks identity rows with P on x and T on y (dot 0, x
+  lane only; axis (0, 0, -1)), an axis without its aim, and the identity rotation times
+  q2.
+- **Evidence:** the scripted battle passes `248b84` and runs to frame 65363. The next
+  boundary is mod028 `4ab9c0` (entry `4ab9a0`, from mod068 `529334`).
+
 ### mod068 point distances (2026-11-22)
 
 mod068 (a battle overlay) has three copies of the point-distance block (`5272e4`,

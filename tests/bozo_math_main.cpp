@@ -1038,6 +1038,23 @@ int main(int argc,char **argv){try{
             float o[4];std::memcpy(o,rt.memory.hostPointer(stack+0xc0,16),16);check(o[0]==23 && o[1]==9 && o[2]==9 && o[3]==1);
             c.r[5].uw[0]=ca;bool failed=false;try{vp2s::nativeMathInstruction(rt.memory.flat(),&c,&rt,0x4a701c);}catch(const std::runtime_error &){failed=true;}check(failed);   // not a1 = s5+10
         }
+        {   // mod028 4a6470 battle shape tree: loads fill the object-pair rows; a nested call's spill/restore gives the parent's back.
+            for(unsigned i=0;i<5;++i){const uint32_t sp=0xf8400000u|(i+1)<<16|i*16,rs=0xd8400000u|(i+1)<<16|i*16;
+                std::memcpy(rt.memory.hostPointer(0x4a64e4+4*i,4),&sp,4);std::memcpy(rt.memory.hostPointer(0x4a6770+4*i,4),&rs,4);std::memcpy(rt.memory.hostPointer(0x4a67a0+4*i,4),&rs,4);}
+            {const uint32_t w[5]={0xd8650000,0xd8410000,0xd8420010,0xd8430020,0xd8440030};std::memcpy(rt.memory.hostPointer(0x4a664c,20),w,20);}
+            constexpr uint32_t parentSp=0x1ffe000,childSp=0x1ffdf00,nodeA=0x1b0000,nodeB=0x1b1000;
+            const auto fill=[&](uint32_t node,float base){float m[16];for(unsigned i=0;i<16;++i)m[i]=base+i;std::memcpy(rt.memory.hostPointer(node+0x150,64),m,64);};
+            fill(nodeA,100);fill(nodeB,200);
+            const auto run=[&](uint32_t sp,uint32_t node,float scale,const std::vector<uint32_t> &pcs){R5900Context c{};c.r[29].uw[0]=sp;c.r[16].uw[0]=node;
+                const float s4[4]={scale,1,0,0};std::memcpy(rt.memory.hostPointer(sp+0x80,16),s4,16);
+                for(uint32_t pc:pcs){c.r[2].uw[0]=pc>=0x4a6650 && pc<=0x4a665c?node+0x150:sp+0x90;c.r[3].uw[0]=sp+0x80;check(vp2s::nativeMathInstruction(rt.memory.flat(),&c,&rt,pc));}};
+            std::vector<uint32_t> spill,load,restore;for(unsigned i=0;i<5;++i){spill.push_back(0x4a64e4+4*i);load.push_back(0x4a664c+4*i);restore.push_back(0x4a6770+4*i);}
+            run(parentSp,nodeA,3,spill);run(parentSp,nodeA,3,load);
+            run(childSp,nodeB,5,spill);run(childSp,nodeB,5,load);run(childSp,nodeB,5,restore);   // the child returns
+            run(parentSp,nodeA,3,restore);
+            {R5900Context c{};c.r[29].uw[0]=childSp;c.r[2].uw[0]=childSp+0x90;bool failed=false;
+             try{for(uint32_t pc:restore)vp2s::nativeMathInstruction(rt.memory.flat(),&c,&rt,pc);}catch(const std::runtime_error &){failed=true;}check(failed);}   // no spill left
+        }
         {   // mod028 47ae40 battle colour pair: (128, 64, 255, 128) and (0, 1, 2, 3) widened by the CPU.
             constexpr uint32_t words[]={0x48a80800,0x48a91000,0x48aa1800,0x4be1093c,0x4be2113c,0x248309a0,0x4bc30858,0x4bc31098,0xf8610000,0xf8620010};
             std::memcpy(rt.memory.hostPointer(0x47ae78,sizeof(words)),words,sizeof(words));

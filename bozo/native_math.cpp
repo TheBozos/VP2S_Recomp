@@ -2350,6 +2350,40 @@ bool nativeBattleShapes(R5900Context *c,Runtime *rt,uint32_t pc){
     default:return true;   // loads and intermediate steps: the results are computed at the stores
     }
 }
+// Battle shape tree, mod028 4a6470(node s5, a1, a2; recursive over the node's children +0 ..
+// +20): SQC2 vf1..vf5 to sp+90 on entry (4a64e4..4a64f4), loads vf5 = sp+80 (the shape's
+// radius +204 and a global scale) and vf1..vf4 = s0+150 (4a664c..4a665c) for main's
+// segment/sphere test 1f59c0 and 1f5ba0, and LQC2 vf1..vf5 back from sp+90 on its exits
+// (4a6770.., 4a67a0..). vf1..vf5 are the object-pair registers' rows 0..3 and 4: the spill
+// keeps them per frame and the restore gives them back (a child's call leaves its parent's).
+struct ShapeTreeSpill{std::array<std::array<uint32_t,4>,5> rows{};bool valid=false;};
+std::map<std::pair<const Runtime *,uint32_t>,ShapeTreeSpill> &shapeTreeSpills(){static std::map<std::pair<const Runtime *,uint32_t>,ShapeTreeSpill> m;return m;}
+bool nativeBattleShapeTree(R5900Context *c,Runtime *rt,uint32_t pc){
+    if((pc&3) || !rt || pc<0x4a64e4 || pc>0x4a67b0)return false;
+    const bool spill=pc<=0x4a64f4,load=pc>=0x4a664c && pc<=0x4a665c,restore=(pc>=0x4a6770 && pc<=0x4a6780) || (pc>=0x4a67a0 && pc<=0x4a67b0);
+    if(!spill && !load && !restore)return false;
+    const unsigned index=spill?(pc-0x4a64e4)/4:restore?(pc-(pc>=0x4a67a0?0x4a67a0:0x4a6770))/4:(pc-0x4a664c)/4;   // load: 0 = vf5, 1..4 = vf1..vf4
+    const uint32_t expected=spill?0xf8400000u|(index+1)<<16|index*16:restore?0xd8400000u|(index+1)<<16|index*16:index==0?0xd8650000u:0xd8400000u|index<<16|(index-1)*16;
+    uint32_t word=0;if(const auto *p=rt->memory.hostPointer(pc,4))std::memcpy(&word,p,4);
+    if(word!=expected)return false;   // another overlay at these addresses
+    if(!c)throw std::runtime_error("native battle shape tree has no CPU record");
+    const auto stack=c->r[29].uw[0];auto &regs=objectPairRegisters(rt);
+    if(spill || restore){
+        if(c->r[2].uw[0]!=stack+0x90)throw std::runtime_error("native battle shape tree spill escaped its frame");
+        const auto key=std::make_pair(static_cast<const Runtime *>(rt),stack);
+        if(spill && index==0){auto &saved=shapeTreeSpills()[key];for(unsigned i=0;i<5;++i)saved.rows[i]=regs.rows[i];saved.valid=regs.valid;}
+        if(restore && index==4){const auto it=shapeTreeSpills().find(key);if(it==shapeTreeSpills().end())throw std::runtime_error("native battle shape tree restore without its spill");
+            for(unsigned i=0;i<5;++i)regs.rows[i]=it->second.rows[i];regs.valid=it->second.valid;shapeTreeSpills().erase(it);}
+        return true;
+    }
+    const auto node=c->r[16].uw[0];
+    if(index==0){if(c->r[3].uw[0]!=stack+0x80)throw std::runtime_error("native battle shape tree scale escaped its frame");
+        std::memcpy(regs.rows[4].data(),record(rt,stack+0x80,16),16);regs.valid=false;return true;}
+    if(c->r[2].uw[0]!=node+0x150)throw std::runtime_error("native battle shape tree rows escaped their record");
+    std::memcpy(regs.rows[index-1].data(),record(rt,node+0x150+16*(index-1),16),16);
+    if(index==4)regs.valid=true;
+    return true;
+}
 // Segment against battle shapes: mod028 4f58f0 loads vf5 = s3+20 (x: the object's scale
 // +204, y: s3+24) and vf1..vf4 = the rows of s2+150 (4f5ab8..4f5ac8: objectPairRegisters
 // rows[4] and rows[0..3]) and calls mod001 1f5ba0 per segment; kind 1 shapes run the
@@ -4350,6 +4384,7 @@ bool nativeMathInstruction(uint8_t *,R5900Context *c,Runtime *rt,uint32_t pc){
     if(nativeBattleSideAxes(c,rt,pc))return true;
     if(nativeBattleGroundPlane(c,rt,pc))return true;
     if(nativeBattleColourPair(c,rt,pc))return true;
+    if(nativeBattleShapeTree(c,rt,pc))return true;
     if(nativeBattleObjectOverlap(c,rt,pc))return true;
     if(nativeBattleAdvance(c,rt,pc))return true;
     if(nativeBattleRecordShift(c,rt,pc))return true;

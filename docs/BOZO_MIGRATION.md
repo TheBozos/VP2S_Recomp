@@ -12,6 +12,24 @@ The earlier VP2S face/shading and general brightness comparisons remain open.
 
 ## Build and evidence
 
+### Battle shape tree 4a6470: the object-pair registers through a recursion (2026-11-22)
+
+mod028 `4a6470(node s5, a1, a2)` walks a node's shapes and recurses into its children
+(`4a6740`).
+- **Original:** it spills vf1..vf5 to sp+90 on entry (`4a64e4`..`4a64f4`). It loads vf5 =
+  sp+80 (the shape's radius +204 and a global scale) and vf1..vf4 = s0+150
+  (`4a664c`..`4a665c`) for main's segment/sphere test `1f59c0` and `1f5ba0`. It restores
+  vf1..vf5 on its exits (`4a6770`.., `4a67a0`..).
+- **Native (`nativeBattleShapeTree` in `bozo/native_math.cpp`):** vf1..vf5 are the
+  object-pair registers' rows 0..3 and 4, which `1f59c0`'s port reads. The loads fill
+  them. The spill keeps them per call frame and the restore gives them back, so a child's
+  call leaves its parent's registers as they were. Words are checked and frames verified; a
+  restore without its spill is refused.
+- **Test:** `vp2s-bozo-math-check` runs a parent and a nested child (spill, load, restore)
+  and refuses a second restore.
+- **Evidence:** the scripted battle passes it. The next boundary is main `1f5c8c` (entry
+  `1f5c30`, from `1f5ba0`), still frame 63740.
+
 ### Battle object overlap 4a6c40: the battle's compile of 1f8aa0 (2026-11-22)
 
 mod028 `4a6c40` runs main `1f8aa0`'s object-pair overlap algorithm, compiled separately (422

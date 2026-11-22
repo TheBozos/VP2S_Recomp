@@ -12,6 +12,27 @@ The earlier VP2S face/shading and general brightness comparisons remain open.
 
 ## Build and evidence
 
+### Battle effect spawn 4a41b0: random size, offset and turn (2026-11-22)
+
+The battle effect spawn mod028 `4a41b0` (class `172dd0`/`172e18`, position a0 kept in s5)
+makes several random draws:
+- a size 1 + (r-1)/4;
+- with a3 set, an offset direction of three (0.5 - (r-1)) draws to sp+e0 and a length of
+  10(r-1);
+- a turn vector for `4ab9a0`.
+
+Its one VU block (`4a43d8..4a443c`) normalizes the direction (RSQRT of (x²+y²) + 1·z²) and
+stores position·1 + direction·Q·length to sp+d0, keeping the position's w.
+- **Native:**
+  - `nativeEffectScatter`: loads, length and store are word-checked and ordered, with the
+    stack frame checked.
+  - `nativeRandomNext` lists the nine further v1 pairs. Each v1 is read only by an mtc1,
+    checked offline up to the next write or call.
+- **Test:** `vp2s-bozo-math-check` checks that (0,0,4) with length 2 at (1,2,3,7) gives
+  (1,2,5,7), and that a store before the length is refused.
+- **Evidence:** the scripted attack run goes from frame 66450 to 69211. The next boundary
+  is `3dedd4` (entry `3dedb0`, from `3deadc`).
+
 ### Battle general emitter +14 23fa40: 48 particle-box triplets (2026-11-22)
 
 The general emitter's +14 method mod001 `23fa40` is called at `22ed18` for particles of two or

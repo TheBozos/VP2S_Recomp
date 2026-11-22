@@ -1128,6 +1128,20 @@ int main(int argc,char **argv){try{
             for(uint32_t pc:{0x500ee8u,0x500eecu,0x500f10u})check(vp2s::nativeMathInstruction(rt.memory.flat(),&c,&rt,pc));
             check(c.r[8].uw[0]==80 && c.r[8].uw[1]==0 && c.r[8].uw[2]==216 && c.r[8].uw[3]==63);   // alpha: 255 * 0.25 = 63.75 -> 63 (the EE code then keeps B's alpha)
         }
+        {   // mod028 4a41b0 effect scatter: direction (0, 0, 4) normalized (Q = 1/4), length 2, position
+            // (1, 2, 3, 7) -> (1, 2, 5, 7) at sp+d0; the store before the length refuses.
+            constexpr uint32_t sites[]={0x4a43d8,0x4a43dc,0x4a43e0,0x4a43e4,0x4a43e8,0x4a43ec,0x4a43f0,0x4a4424,0x4a442c,0x4a4430,0x4a4434,0x4a4438,0x4a443c};
+            constexpr uint32_t words[]={0xd8590000,0xdab80000,0x4bc007c3,0x4bd9ceaa,0x4b1ad03d,0x4b1afe8a,0x4a7a03be,0x48a8d800,0x4a0003bf,0x4bc0ce5c,0x4bc0c1bf,0x4bdbce08,0xf8580000};
+            for(unsigned i=0;i<13;++i)std::memcpy(rt.memory.hostPointer(sites[i],4),&words[i],4);
+            constexpr uint32_t stack=0x1ff7000,position=0x1bb000;const float d[4]={0,0,4,9},p[4]={1,2,3,7};
+            std::memcpy(rt.memory.hostPointer(stack+0xe0,16),d,16);std::memcpy(rt.memory.hostPointer(position,16),p,16);
+            R5900Context c{};c.r[29].uw[0]=stack;c.r[2].uw[0]=stack+0xe0;c.r[21].uw[0]=position;
+            for(unsigned i=0;i<7;++i)check(vp2s::nativeMathInstruction(rt.memory.flat(),&c,&rt,sites[i]));
+            c.r[2].uw[0]=stack+0xd0;{bool failed=false;try{vp2s::nativeMathInstruction(rt.memory.flat(),&c,&rt,0x4a443c);}catch(const std::runtime_error &){failed=true;}check(failed);}
+            c.r[2].uw[0]=stack+0xe0;for(unsigned i=0;i<7;++i)check(vp2s::nativeMathInstruction(rt.memory.flat(),&c,&rt,sites[i]));
+            c.r[8].uw[0]=0x40000000;c.r[2].uw[0]=stack+0xd0;for(unsigned i=7;i<13;++i)check(vp2s::nativeMathInstruction(rt.memory.flat(),&c,&rt,sites[i]));
+            float o[4];std::memcpy(o,rt.memory.hostPointer(stack+0xd0,16),16);check(o[0]==1 && o[1]==2 && o[2]==5 && o[3]==7);
+        }
         {   // mod028 4fcae0 label projection: rows loaded once, program 0 in its own blocks and in
             // 4fc750's block (frame 0x70 below); a block outside the loading frame refuses.
             const uint32_t rowsWords[4]={0xd8410000,0xd8420010,0xd8430020,0xd8440030},block[7]={0xd8450000,0,0,0x4a000038,0x48490001,0x27a200e0,0xf8460000};

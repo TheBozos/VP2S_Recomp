@@ -2992,6 +2992,37 @@ bool nativeVectorTurn(R5900Context *c,Runtime *rt,uint32_t pc){
         out=unitOf(out);out[3]=kPs2One;ps2Publish(rt,c->r[18].uw[0],out);st.aimed=false;return true;}
     return true;   // loads and arithmetic: folded into the stores and the QMFC2
 }
+// mod028 4a41b0 (a battle effect spawn, class 172dd0/172e18; a0 = the position kept in s5):
+// with a3 set, a random offset: sp+e0 = three (0.5 - (r - 1)) draws, then
+//   4a43d8/4a43dc  vf25 = sp+e0, vf24 = position (s5)
+//   4a43e0..4a43f0 Q = RSQRT(1, (x^2 + y^2) + 1*z^2) of vf25
+//   4a4424         vf27.x = t0 = 10 (r - 1) (QMTC2 t0)
+//   4a4430..4a443c vf25.xyz *= Q; vf24.xyz = position*1 + vf25 * t0 (w: the position's) -> sp+d0
+// The random draws between are nativeRandomNext's sites.
+struct EffectScatter{Ps2Lanes direction{},position{};Ps2Word length{};unsigned step=0;uint32_t frame=0;};
+std::map<const Runtime *,EffectScatter> &effectScatters(){static std::map<const Runtime *,EffectScatter> m;return m;}
+bool nativeEffectScatter(R5900Context *c,Runtime *rt,uint32_t pc){
+    struct Site{uint32_t pc,word;unsigned role;};
+    constexpr Site sites[]={{0x4a43d8,0xd8590000,0},{0x4a43dc,0xdab80000,1},{0x4a43e0,0x4bc007c3,2},{0x4a43e4,0x4bd9ceaa,2},{0x4a43e8,0x4b1ad03d,2},{0x4a43ec,0x4b1afe8a,2},{0x4a43f0,0x4a7a03be,2},
+        {0x4a4424,0x48a8d800,3},{0x4a442c,0x4a0003bf,4},{0x4a4430,0x4bc0ce5c,4},{0x4a4434,0x4bc0c1bf,4},{0x4a4438,0x4bdbce08,4},{0x4a443c,0xf8580000,5}};
+    if((pc&3) || !rt || pc<0x4a43d8 || pc>0x4a443c)return false;
+    const auto site=std::find_if(std::begin(sites),std::end(sites),[&](const Site &x){return x.pc==pc;});
+    if(site==std::end(sites))return false;
+    uint32_t word=0;if(const auto *p=rt->memory.hostPointer(pc,4))std::memcpy(&word,p,4);
+    if(word!=site->word)return false;   // another overlay at these addresses
+    if(!c)throw std::runtime_error("native effect scatter has no CPU record");
+    const auto stack=c->r[29].uw[0];auto &st=effectScatters()[rt];
+    const auto fail=[&](const char *what){st=EffectScatter{};throw std::runtime_error(std::format("native effect scatter at {:x}: {}",pc,what));};
+    if(site->role==0){if(c->r[2].uw[0]!=stack+0xe0)fail("direction source");st=EffectScatter{};st.direction=ps2Record(rt,stack+0xe0);st.frame=stack;st.step=1;return true;}
+    if(st.frame!=stack || !st.step)fail("step outside its direction load");
+    if(site->role==1){if(st.step!=1)fail("position order");st.position=ps2Record(rt,c->r[21].uw[0]);st.step=2;return true;}
+    if(site->role==2 || site->role==4){if(st.step<2 || (site->role==4 && st.step!=3))fail("arithmetic order");return true;}
+    if(site->role==3){if(st.step!=2)fail("length order");st.length={c->r[8].uw[0]};st.step=3;return true;}
+    if(st.step!=3 || c->r[2].uw[0]!=stack+0xd0)fail("store order");
+    const auto &d=st.direction;const auto q=Ps2Word::reciprocalRoot(kPs2One,(d[0]*d[0]+d[1]*d[1])+kPs2One*(d[2]*d[2]));
+    Ps2Lanes out=st.position;for(unsigned i=0;i<3;++i)out[i]=st.position[i]*kPs2One+(d[i]*q)*st.length;
+    ps2Publish(rt,stack+0xd0,out);st=EffectScatter{};return true;
+}
 // mod028 500df0 (a palette crossfade over a2 entries; from 501114): LQC2 vf1 = sp = (t, 1 - t,
 // 255, 0) and vf2 = the entry's weights (t0+20) once (500ec0/500ec4); per colour the EE code widens
 // two RGBA words to four words each (PEXTLB/PEXTLH), QMTC2 t0 -> vf3 (A), t1 -> vf4 (B), then ITOF0
@@ -5012,6 +5043,7 @@ bool nativeMathInstruction(uint8_t *,R5900Context *c,Runtime *rt,uint32_t pc){
     if(nativeChainAim(c,rt,pc))return true;
     if(nativeVectorTurn(c,rt,pc))return true;
     if(nativePaletteFade(c,rt,pc))return true;
+    if(nativeEffectScatter(c,rt,pc))return true;
     if(nativeBattlePointScale(c,rt,pc))return true;
     if(nativeBattleTaskColours(c,rt,pc))return true;
     if(nativeBattleUnitProjection(c,rt,pc))return true;

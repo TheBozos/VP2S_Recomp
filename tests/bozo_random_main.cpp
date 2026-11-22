@@ -56,6 +56,10 @@ int main(){try{
             check(vp2s::nativeRandomNext(nullptr,&ctx,&rt,0x4a45d8) && vp2s::nativeRandomNext(nullptr,&ctx,&rt,0x4a45dc));
             check(ctx.r[3].uw[0]==std::bit_cast<uint32_t>(mirror.next()) && !ctx.r[3].uw[1] && !ctx.r[3].uw[2] && !ctx.r[3].uw[3]);}
         const uint32_t other=0;std::memcpy(rt.memory.hostPointer(0x4a45d8,4),&other,4);check(!vp2s::nativeRandomNext(nullptr,&ctx,&rt,0x4a45d8));   // another overlay
+        // mod028 4a741c / 4a7420 QMFC2.I a0 (class 173010's constructor): the same stream into a0.
+        const uint32_t moveA0=0x4824f801;std::memcpy(rt.memory.hostPointer(0x4a741c,4),&next,4);std::memcpy(rt.memory.hostPointer(0x4a7420,4),&moveA0,4);
+        ctx.r[4].ud[0]=ctx.r[4].ud[1]=~0ull;check(vp2s::nativeRandomNext(nullptr,&ctx,&rt,0x4a741c) && vp2s::nativeRandomNext(nullptr,&ctx,&rt,0x4a7420));
+        check(ctx.r[4].uw[0]==std::bit_cast<uint32_t>(mirror.next()) && !ctx.r[4].uw[1] && !ctx.r[4].uw[2] && !ctx.r[4].uw[3]);
     }
     std::printf("%u independent-polynomial random steps and 64 seed ABI/isolation cases passed; no VU state used\n",steps);return 0;
 }catch(const std::exception &e){std::fprintf(stderr,"%s\n",e.what());return 1;}}

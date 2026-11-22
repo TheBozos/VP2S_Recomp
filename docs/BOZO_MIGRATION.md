@@ -12,6 +12,15 @@ The earlier VP2S face/shading and general brightness comparisons remain open.
 
 ## Build and evidence
 
+### Random draw in class 173010's constructor (4a741c) (2026-11-23)
+
+At frame 72200 the battle constructs an object of class 173010 at mod028 `4a73b0`, which draws one random value:
+- RNEXT.x vf31 at 4a741c, then QMFC2.I a0 at 4a7420;
+- the mtc1 at 4a7434 is a0's only reader; the early exit at 4a7464 returns without reading a0;
+- the draw sets +3d4 = 0.13865 + 0.17453 · (r − 1).
+
+It is a `nativeRandomNext` pair now. `vp2s-bozo-random-check` checks that a0 receives the stream's next value, with the other lanes zero.
+
 ### Sphere-tree walk 1f7490 (mod001) (2026-11-23)
 
 Frame 71840, second attack turn: mod001 `1f7490(node a0, point a1, matrix a2, scale f12)` stopped at

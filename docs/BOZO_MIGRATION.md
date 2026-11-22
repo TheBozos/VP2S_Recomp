@@ -12,6 +12,35 @@ The earlier VP2S face/shading and general brightness comparisons remain open.
 
 ## Build and evidence
 
+### Battle particle mode 4 (VU1 image 7): analysis, not yet ported (2026-11-22)
+
+The scripted attack stops in the particle draw `22f160`: owner `1737ad0` (class `1725d0`)
+is in mode 4 (+aff = 4). The draw admits 3 and 6 only; every other admission check
+passes.
+- **Image:** mode 4 selects VU1 image 7 (table `3141a0` entry 7 = mod001 `325240`). It is a
+  REF to a VIF packet (0x16e qwords) with three MPG uploads (`0x6e0` x256, `0xee0` x256,
+  `0x16e0` x213), about 725 pairs. Extract it by walking the VIF codes (STMASK +1 word,
+  STROW/STCOL +4, UNPACK sized by vn/vl, DIRECT qwc) into a 16 KiB image. Read it with
+  `tools/vu_disasm.py`.
+- **Path when VU word 15.w is 0 (`0868`..`0f28`):** a ribbon (triangle strip) builder.
+  - Per point: eye space from rows 77..80. The direction in xy (z = 0) is first - next at
+    the start (`09d0`..`0a20`) and 0.5 (prev - cur) + 0.5 (cur - next) in the middle
+    (`0bb0`..`0bd8`). ERLENG normalises it and the point's width (record -1 .x) scales
+    it.
+  - Two vertices at p.x +/- d.y, p.y -/+ d.x (`0a98`..`0ab0`).
+  - Texture: S/T from the kind rows (`2e9` + 3 kind, +2 / +3), and T steps by (t1 - t0) /
+    (count - 1) per point (DIV at `0980`, `addw.y` at `0b70`). Q comes from the
+    projection.
+  - Colour: point colour (record -2) times the kind tint (+4), MINI 255, FTOI0.
+  - Each vertex: screen rows 52..55 then FTOI4; guard rows 56..59, CLIPW / FCAND -> the
+    XYZ2 ADC bit (no drawing kick for that vertex).
+  - The last point's path is at `0d80`.
+- **Path when 15.w is set (`0f38`..`1660`):** a second variant, not read yet.
+  Subroutines: `1670`..`1d78`.
+- **Next:** transcribe both paths into `nativeParticleDraws` (mode 4 batches as strips, with
+  ADC turning off each flagged vertex's triangle), and test them against a VU1 oracle over
+  image 7.
+
 ### Battle stream-encrypted files: the offline extractor's missing assets (2026-11-22)
 
 The scripted attack needed the mesh pack `01089cc800_000.mesh`. No asset existed: nothing

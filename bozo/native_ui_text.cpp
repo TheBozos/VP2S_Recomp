@@ -34,7 +34,9 @@ void type(Runtime *rt,uint32_t element){const auto actual=value<uint32_t>(rt,ele
 // 16ed70 is mod028's battle copy of 15a600: the same build 2ecfa0 and text core (2e9320..2e75c0,
 // +2c 2ed7e0), word-identical deferred-flag setters at +3c..+54, and a +1c (3837c0) that only
 // gates the base update 2ed050 on the battle's pause flags (compiled).
-bool nativeUiTextClass(uint32_t type){return type==0x15a450 || type==0x15a2f0 || type==0x165ae0 || type==0x15a350 || type==0x15a600 || type==0x16ed70;}
+// 1748d0 (mod028 battle text, a 15a450 subclass) is admitted with its own item callback 4c8fb0, read
+// back at 4c9f78 (NativeUiTexts::battleGlyph); its +24 4ca080 only calls 2e9320 with a1 << 2.
+bool nativeUiTextClass(uint32_t type){return type==0x1748d0 || type==0x15a450 || type==0x15a2f0 || type==0x165ae0 || type==0x15a350 || type==0x15a600 || type==0x16ed70;}
 void NativeUiTexts::enter(Runtime *rt,uint32_t stack,uint32_t element,uint32_t items,int32_t count){
     type(rt,element);
     if(count>8192 || builds.contains(stack))throw std::runtime_error("native UI text count/stack outside admitted lifetime");
@@ -86,6 +88,65 @@ void NativeUiTexts::place(uint32_t stack,uint32_t element,const NativeUiGlyphPla
     if(uint64_t(glyph.cellWidth)+2*glyph.font->border>glyph.font->width || uint64_t(glyph.font->lineHeight)+2*glyph.font->border>glyph.font->height)
         throw std::runtime_error("native glyph UV extent exceeds its converted cell");
     glyph.placement=placement;glyph.placed=true;
+}
+void NativeUiTexts::beginBattleGlyph(Runtime *rt,uint32_t stack,uint32_t element,uint32_t item,uint32_t index){
+    auto &build=builds.at(stack);
+    if(value<uint32_t>(rt,element)!=0x1748d0 || !build.active || build.count<=0 || build.text.element!=element || index>=uint32_t(build.count) ||
+       item!=build.items+index*0x30 || (build.hasLast && index<=build.last) || battleGlyphs.contains(element))
+        throw std::runtime_error("native battle glyph escaped its emitter lifetime");
+    if(value<uint16_t>(rt,item+0x2c)&0x4000)throw std::runtime_error("native battle glyph received a control item");
+    battleGlyphs[element]=BattleGlyph{stack,item,index,value<uint32_t>(rt,element+0x58),value<uint32_t>(rt,element+0x60)};
+}
+void NativeUiTexts::battleGlyph(Runtime *rt,NativeGlyphs &glyphs,const NativeAssets &assets,uint32_t element,uint32_t end){
+    const auto it=battleGlyphs.find(element);
+    if(it==battleGlyphs.end())throw std::runtime_error("native battle glyph commit without its item");
+    const auto pending=it->second;battleGlyphs.erase(it);auto &build=builds.at(pending.stack);
+    // The lists are written through the uncached segment (0x30000000): read them physically.
+    const auto q=[&](uint32_t at){if((at>>28)!=0 && (at>>28)!=2 && (at>>28)!=3)throw std::runtime_error("native battle glyph list outside EE RAM");return value<uint64_t>(rt,at&0x1ffffff);};
+    // The upload block (0x80 bytes at the +58 cursor): DMA cnt 6; A+D BITBLTBUF (PSMT4HL), TRXPOS (the
+    // cache cell), TRXREG (the glyph cell), TRXDIR host-to-local; IMAGE tag; DMA ref to the glyph.
+    const auto up=pending.uploads;
+    if(value<uint32_t>(rt,element+0x58)!=up+0x80 || q(up)!=0x10000006ull || q(up+0x10)!=0x1000000000000004ull || q(up+0x18)!=0xe ||
+       q(up+0x28)!=0x50 || q(up+0x38)!=0x51 || q(up+0x48)!=0x52 || q(up+0x50)!=0 || q(up+0x58)!=0x53)
+        throw std::runtime_error(std::format("unported native battle glyph upload form (element {:x})",element));
+    const auto bitblt=q(up+0x20),trxpos=q(up+0x30),trxreg=q(up+0x40),image=q(up+0x60),ref=q(up+0x70);
+    const uint32_t dsax=uint32_t(trxpos>>32)&0x7ff,dsay=uint32_t(trxpos>>48)&0x7ff,w=uint32_t(trxreg)&0xfff,h=uint32_t(trxreg>>32)&0xfff;
+    const uint32_t qwc=uint32_t(ref)&0xffff,address=uint32_t(ref>>32);
+    const auto font=glyphs.font(rt,assets,value<uint32_t>(rt,pending.item+0x18));const auto fontObject=value<uint32_t>(rt,pending.item+0x18);
+    const auto index=uint32_t(value<uint16_t>(rt,pending.item+0x2e));
+    if(((bitblt>>56)&0x3f)!=0x24 || (trxpos&0xffffffffull) || ((ref>>28)&7)!=3 || image!=(0x0800000000008000ull|qwc) ||
+       w!=font->width || h!=font->height || (uint64_t(w)*h/2+15)/16!=qwc ||   // 4-bit pixels, padded to quadwords
+       address!=value<uint32_t>(rt,fontObject+0x10)+index*value<uint32_t>(rt,fontObject+0x20))
+        throw std::runtime_error(std::format("native battle glyph upload is not the item's font cell (element {:x}, glyph {})",element,index));
+    // The sprite tags (REGLIST TEX0_2, RGBAQ, UV, XYZ2, UV, XYZ2 per sprite) from the +60 cursor to `end`.
+    std::vector<NativeUiSprite> sprites;uint32_t at=pending.sprites;
+    while(at<end){
+        const auto tag=q(at),regs=q(at+8);const uint32_t loops=uint32_t(tag)&0x7fff,count=uint32_t(tag>>60)?uint32_t(tag>>60):16;
+        if(((tag>>58)&3)!=1 || count%6 || (tag>>46)&1)throw std::runtime_error(std::format("unported native battle glyph sprite tag {:x}",tag));
+        for(uint32_t r=0;r<count;++r)if(((regs>>(4*r))&15)!=uint64_t(std::array<uint32_t,6>{7,1,3,5,3,5}[r%6]))
+            throw std::runtime_error(std::format("unported native battle glyph register list {:x}",regs));
+        const uint32_t words=loops*count;at+=16;
+        for(uint32_t s=0;s<words;s+=6){
+            const auto tex=q(at+8*s),rgba=q(at+8*s+8),uv0=q(at+8*s+16),xyz0=q(at+8*s+24),uv1=q(at+8*s+32),xyz1=q(at+8*s+40);
+            const uint32_t csa=uint32_t(tex>>56)&0x1f,z=uint32_t(xyz0>>32);
+            if(((tex>>20)&0x3f)!=0x24 || (csa!=1 && csa!=2) || z!=uint32_t(xyz1>>32) || z>0xffffff)
+                throw std::runtime_error("unported native battle glyph sprite format");
+            NativeUiSprite sprite{.sprite=element,.colour=uint32_t(rgba),.depth=z};
+            // The converted picture holds the width x height cell at its top-left, padded to a power of two.
+            const auto texel=[&](uint64_t uv,unsigned shift,uint32_t origin,uint32_t size,uint32_t picture){
+                const float t=float(uint32_t(uv>>shift)&0x3fff)/16-float(origin);
+                if(t<0 || t>float(size))throw std::runtime_error("native battle glyph sprite samples outside its cache cell");
+                return t/float(picture);};
+            sprite.uv={texel(uv0,0,dsax,w,font->cellWidth),texel(uv0,16,dsay,h,font->cellHeight),texel(uv1,0,dsax,w,font->cellWidth),texel(uv1,16,dsay,h,font->cellHeight)};
+            const int32_t x0=int32_t(xyz0&0xffff),y0=int32_t((xyz0>>16)&0xffff),x1=int32_t(xyz1&0xffff),y1=int32_t((xyz1>>16)&0xffff);
+            sprite.fixedCorners={std::array<int32_t,2>{x0,y0},{x1,y0},{x0,y1},{x1,y1}};
+            sprite.picture=font->picture(index,csa);sprites.push_back(std::move(sprite));
+        }
+        at+=(words*8+15)/16*16;
+    }
+    if(at!=end)throw std::runtime_error("native battle glyph sprites overrun their commit");
+    for(auto &s:sprites)build.text.icons.push_back(std::move(s));
+    build.last=pending.index;build.hasLast=true;build.lastIsGlyph=false;
 }
 std::array<bozo::render::Vertex,6> nativeUiGlyphVertices(const NativeUiGlyph &glyph,bool shadow){
     if(!glyph.placed || (shadow && !glyph.shadow))throw std::runtime_error("native glyph has no completed placement/picture");
@@ -637,7 +698,9 @@ std::optional<bool> nativeNamePlateInstruction(R5900Context *c,Runtime *rt,uint3
     return false; // The original scalar builder continues; its packet is never sent.
 }
 std::optional<bool> nativeUiTextInstruction(R5900Context *c,Runtime *rt,uint32_t pc){
-    if(pc!=0x2e74f0 && pc!=0x2e7520 && pc!=0x2e7550 && pc!=0x2e757c && pc!=0x2e75a0 && pc!=0x2f0de0 && pc!=0x2eeb80 && pc!=0x2e83e4 && pc!=0x2ec9e4)return std::nullopt;
+    if(pc!=0x2e74f0 && pc!=0x2e7520 && pc!=0x2e7550 && pc!=0x2e757c && pc!=0x2e75a0 && pc!=0x2f0de0 && pc!=0x2eeb80 && pc!=0x2e83e4 && pc!=0x2ec9e4 && pc!=0x4c9f78)return std::nullopt;
+    // mod028 4c9f78 (sw s1, 0x60(s5)): the battle text item callback 4c8fb0 commits its sprite cursor.
+    if(pc==0x4c9f78 && (!rt || !rt->memory.hostPointer(pc,4) || value<uint32_t>(rt,pc)!=0xaeb10060u))return std::nullopt;
     auto *d=rt?dynamic_cast<bozo::ee::Dispatcher *>(rt->services):nullptr;
     auto *owner=d?dynamic_cast<UiTextOwner *>(&d->host()):nullptr;
     auto *assets=d?dynamic_cast<AssetOwner *>(&d->host()):nullptr;
@@ -649,6 +712,8 @@ std::optional<bool> nativeUiTextInstruction(R5900Context *c,Runtime *rt,uint32_t
         const auto submission=texts.layer(rt,layer);owner->drawNativeUiLayer(submission);
         c->r[4].sd[0]=static_cast<int32_t>(submission.object);
         return true; // Copied native draws accepted; original compiled completion follows.
+    }else if(pc==0x4c9f78){
+        texts.battleGlyph(rt,owner->nativeGlyphs(),assets->nativeAssets(),c->r[21].uw[0],c->r[17].uw[0]);
     }else if(pc==0x2e74f0){
         if(c->pc!=pc || sp<0x50 || (sp&15) || !rt->memory.hostPointer(sp-0x50,0x50))throw std::runtime_error("native text emitter requires its complete original entry");
         texts.enter(rt,sp-0x50,c->r[4].uw[0],c->r[5].uw[0],c->r[6].sw[0]);
@@ -676,6 +741,7 @@ std::optional<bool> nativeUiTextInstruction(R5900Context *c,Runtime *rt,uint32_t
     }else if(pc==0x2e7520)texts.activate(sp,c->r[19].uw[0],c->r[18].uw[0],c->r[17].sw[0]);
     else if(pc==0x2e75a0)texts.finish(sp,c->r[19].uw[0]);
     else{
+        if(pc==0x2e757c && c->r[25].uw[0]==0x4c8fb0u){texts.beginBattleGlyph(rt,sp,c->r[19].uw[0],c->r[18].uw[0],c->r[16].uw[0]);return false;}
         if(c->r[25].uw[0]!=(pc==0x2e757c?0x2e7e90u:0x2e76a0u))throw std::runtime_error("unported overridden native text item callback");
         texts.capture(rt,owner->nativeGlyphs(),assets->nativeAssets(),sp,c->r[19].uw[0],c->r[18].uw[0],c->r[16].uw[0],pc==0x2e7550);
     }

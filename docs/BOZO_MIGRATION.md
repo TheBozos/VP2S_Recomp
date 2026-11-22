@@ -12,6 +12,36 @@ The earlier VP2S face/shading and general brightness comparisons remain open.
 
 ## Build and evidence
 
+### Battle text 1748d0: glyph uploads and sprites read back (2026-11-22)
+
+The battle party panel (layer `877560`) uses twelve texts of class `1748d0`, a `15a450`
+subclass. They show names, HP and the EMPTY slots. Their +2c item callback is the game's
+own `4c8fb0`, not `2e7e90`.
+- **Upload list (+58):** per item it appends a 0x80-byte block:
+  - DMA cnt 6;
+  - A+D with BITBLTBUF PSMT4HL, TRXPOS = the cache cell (+d8/+dc), TRXREG = the font cell
+    (32 x 28), and TRXDIR host-to-local;
+  - an IMAGE tag and a DMA ref to the glyph's 4-bit pixels at `font+10 + index * font+20`.
+- **Sprite list (+60):** REGLIST tags (TEX0_2, RGBAQ, UV, XYZ2, UV, XYZ2) with four
+  sprites: a shadow (`55040404`) and the text (`55808080`), each split into a top band
+  and a stretched bottom band.
+- **Commit:** `sw s1, 0x60(s5)` at `4c9f78`.
+- **Native:**
+  - **Pending item:** `beginBattleGlyph` notes the item at the emitter's +2c call (`2e757c`)
+    with both cursors.
+  - **Read-back:** `battleGlyph` (new mod028 site `4c9f78`, word-checked) reads back both
+    lists through the uncached alias. It checks that the upload is exactly the item's font
+    cell (address, size, PSMT4HL).
+  - **Sprites:** each sprite becomes an icon on `NativeGlyphFont::picture(index, CSA)` (the
+    converter's palette parts are CSA 1/2). UV is relative to the cache cell and normalised
+    by the power-of-two picture. Corners, colour and depth come from the packet.
+- **Test:** `vp2s-bozo-ui-text-capture` checks a battle glyph read back through the
+  uncached alias (UV, corners, colour, depth, picture), a commit without its item, and
+  another glyph's address.
+- **Evidence:** the scripted battle draws the party panel natively (frame 65300: ALICIA 63,
+  RUFUS 100, EMPTY). At frame 65313 the run faults: no game frame ended for 120 fields,
+  and the main loop waits at `221070` (ra `29e468`).
+
 ### Battle button element 16edd0 (2026-11-22)
 
 The tutorial window's button prompt, class `16edd0`, is mod028's copy of `15a4e0`:

@@ -180,6 +180,31 @@ int main(int argc,char **argv){try{
         check(vertices[0].x==float(27820+seed*2)/16 && vertices[0].y==float(29348+seed*2)/16 && vertices[4].z==float(0xffff0a));
         check(vertices[0].u==0.5f/8 && vertices[0].v==0.5f/8 && vertices[4].u==4.5f/8 && vertices[4].v==5.5f/8);
         if(g.shadow){const auto shadow=vp2s::nativeUiGlyphVertices(g,true);check(shadow[0].z==float(0xffff09) && shadow[0].rgba==p.shadowColour && shadow[0].x==vertices[0].x+(seed%3==1?1.f:0.f));}
+        if(seed==0){   // Battle text 1748d0 (mod028): 4c8fb0's upload of the item's font cell and its own sprite, read back.
+            constexpr uint32_t battle=0x194000,battleItems=0x1a4000,uploads=0x1c4000,spritesAt=0x1d4000,battleStack=0x1ffe000;
+            std::memcpy(b.memory.flat()+battleItems,b.memory.flat()+items,0x30);put(b,battleItems+0x2e,uint16_t(1));put(b,battle,0x1748d0u);
+            put(b,battle+0x58,uploads|0x30000000u);put(b,battle+0x60,spritesAt|0x30000000u);   // the game's uncached aliases
+            texts.enter(&b,battleStack,battle,battleItems,1);texts.activate(battleStack,battle,battleItems,1);
+            rejects([&]{texts.battleGlyph(&b,glyphAfter.glyphs,glyphAfter.assets,battle,spritesAt);});      // a commit without its item
+            texts.beginBattleGlyph(&b,battleStack,battle,battleItems,0);
+            const uint64_t block[16]={0x10000006,0,0x1000000000000004,0xe,0x2410000000000000,0x50,uint64_t(0x20)<<32,0x51,uint64_t(6)<<32|6,0x52,0,0x53,
+                0x0800000000008002,0,uint64_t(source+0x80+18)<<32|0x30000002,0};   // glyph 1: font +10 + 1 * stride 18
+            std::memcpy(b.memory.flat()+uploads,block,sizeof(block));put(b,battle+0x58,(uploads+0x80)|0x30000000u);
+            const uint64_t sprite[8]={0x6400000000008001,0x535317,uint64_t(0x24)<<20|uint64_t(1)<<56,0x55808080,
+                uint64_t(0x20*16+8)|uint64_t(8)<<16,0x7000|uint64_t(0x7100)<<16|uint64_t(0xfff4dd)<<32,
+                uint64_t(0x20*16+88)|uint64_t(88)<<16,0x7100|uint64_t(0x7200)<<16|uint64_t(0xfff4dd)<<32};
+            std::memcpy(b.memory.flat()+spritesAt,sprite,sizeof(sprite));
+            texts.battleGlyph(&b,glyphAfter.glyphs,glyphAfter.assets,battle,(spritesAt+0x40)|0x30000000u);texts.finish(battleStack,battle);
+            const auto bt=texts.text(battle);check(bt && bt->glyphs.empty() && bt->icons.size()==1);const auto &icon=bt->icons[0];
+            check(icon.colour==0x55808080u && icon.depth==0xfff4dd && icon.fixedCorners[3]==std::array<int32_t,2>{0x7100,0x7200});
+            check(icon.uv==std::array<float,4>{0.5f/8,0.5f/8,5.5f/8,5.5f/8} && icon.picture==held->glyphs[0].font->picture(1,1));
+            // Another glyph's address is not the item's cell.
+            put(b,battle+0x58,uploads|0x30000000u);put(b,battle+0x60,spritesAt|0x30000000u);
+            texts.enter(&b,battleStack,battle,battleItems,1);texts.activate(battleStack,battle,battleItems,1);texts.beginBattleGlyph(&b,battleStack,battle,battleItems,0);
+            put(b,battle+0x58,(uploads+0x80)|0x30000000u);
+            put(b,uploads+0x74,source+0x80);rejects([&]{texts.battleGlyph(&b,glyphAfter.glyphs,glyphAfter.assets,battle,(spritesAt+0x40)|0x30000000u);});
+            texts.finish(battleStack,battle);texts.release(battle);check(!texts.outstanding());
+        }
         std::memset(b.memory.flat()+items,0xee,0x30);check(vp2s::nativeUiGlyphVertices(g,false)[0].x==vertices[0].x);
         constexpr uint32_t current=0x200000,secondary=0x210000,inactive=0x1b2000;
         const bool story=seed&32;

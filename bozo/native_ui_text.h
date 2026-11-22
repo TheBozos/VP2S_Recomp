@@ -37,12 +37,19 @@ class NativeUiTexts {
     };
     std::map<uint32_t,Build> builds;
     std::map<uint32_t,std::shared_ptr<const NativeUiText>> texts;
+    struct BattleGlyph {uint32_t stack=0,item=0,index=0,uploads=0,sprites=0;};
+    std::map<uint32_t,BattleGlyph> battleGlyphs;   // by element: the item 4c8fb0 is drawing
 public:
     void enter(Runtime *,uint32_t stack,uint32_t element,uint32_t items,int32_t count);
     void activate(uint32_t stack,uint32_t element,uint32_t items,int32_t count);
     void capture(Runtime *,NativeGlyphs &,const NativeAssets &,uint32_t stack,uint32_t element,uint32_t item,uint32_t index,bool image);
     void finish(uint32_t stack,uint32_t element);
     void place(uint32_t stack,uint32_t element,const NativeUiGlyphPlacement &);
+    // Battle text 1748d0 (mod028): its item callback 4c8fb0 uploads the item's glyph cell to a GS
+    // cache (list +58) and writes its own sprites (list +60). The item is noted at the emitter's
+    // call (2e757c) and read back from both lists when 4c8fb0 commits its cursor (4c9f78).
+    void beginBattleGlyph(Runtime *,uint32_t stack,uint32_t element,uint32_t item,uint32_t index);
+    void battleGlyph(Runtime *,NativeGlyphs &,const NativeAssets &,uint32_t element,uint32_t end);
     void release(uint32_t element);
     void icons(uint32_t element,std::vector<NativeUiSprite>);
     void spriteElement(uint32_t element,std::vector<NativeUiSprite>);
@@ -51,7 +58,7 @@ public:
     std::map<uint32_t,std::shared_ptr<const NativeUiText>> plates;
     std::shared_ptr<const NativeUiText> plate(uint32_t element)const{auto it=plates.find(element);return it==plates.end()?nullptr:it->second;}
     NativeUiLayer layer(Runtime *,uint32_t layer)const;
-    size_t outstanding()const{return builds.size();}
+    size_t outstanding()const{return builds.size()+battleGlyphs.size();}
     // Save states (native_state_ui.cpp): texts and plates; a build in flight makes a save wait.
     void serialize(bozo::state::Archive &,const PictureContext &);
     std::string unsaveable()const{return builds.empty()?"":"a native UI text build is in flight";}

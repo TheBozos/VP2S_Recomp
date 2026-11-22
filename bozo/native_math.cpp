@@ -2454,8 +2454,9 @@ bool nativeBattleShapeTree(R5900Context *c,Runtime *rt,uint32_t pc){
 bool nativeSegmentSphere(R5900Context *c,Runtime *rt,uint32_t pc){
     constexpr std::pair<uint32_t,uint32_t> sites[]={{0x1f59c4,0xd8860000},{0x1f59c8,0xd8a90000},{0x1f59cc,0xd8ca0000},{0x1f59d0,0x4bc00747},{0x1f59d4,0x4be609bc},{0x1f59d8,0x4be610bd},{0x1f59dc,0x4be618be},{0x1f59e0,0x4be021cb},{0x1f59e4,0x4a2531bc},{0x1f59e8,0x4a2501c9},{0x1f59ec,0x4bc9522c},{0x1f59f0,0x4bc74d2c},{0x1f59f4,0x4bc74daa},{0x1f59f8,0x4bc007c3},{0x1f59fc,0x4bc73dea},{0x1f5a00,0x4a2739ea},{0x1f5a04,0x4bc842ea},{0x1f5a08,0x4bd4456a},{0x1f5a0c,0x4b16b03d},{0x1f5a10,0x4b16fd8a},{0x1f5a14,0x4b0b583d},{0x1f5a18,0x4bd5ad68},{0x1f5a1c,0x4b0bfaca},{0x1f5a20,0x4b16b5a8},{0x1f5a24,0x4bc94e2a},{0x1f5a28,0x4b15a83d},{0x1f5a2c,0x4b0b5be8},{0x1f5a30,0x4b15fb0a},{0x1f5a34,0x4b17b83d},{0x1f5a38,0x4b17f8be},{0x1f5a3c,0x4a6f03bc},{0x1f5a40,0x4b18f8bc},{0x1f5a44,0x4b18f8bd},{0x1f5a48,0x4b18f8be},{0x1f5a4c,0x4b16f8fc},{0x1f5a50,0x4b07fb4f},{0x1f5a54,0x4b0c62be},{0x1f5a58,0x4b0d5afd},{0x1f5a5c,0x4b0d5afd},{0x1f5a60,0x4b0d5afd},{0x1f5a64,0x4b0b6bad},{0x1f5a68,0x4b00ebdc},{0x1f5a70,0x4a0e03bd},{0x1f5a74,0xf84e0000},
         {0x1f5ae0,0x4b0c7abe},{0x1f5ae4,0x4b007c61},{0x1f5ae8,0x4b0c7abe},{0x1f5aec,0x4b007ca5},{0x1f5af0,0xf8710000},{0x1f5af4,0xf8520000},
-        {0x4f5ab8,0xd8850000},{0x4f5abc,0xd8610000},{0x4f5ac0,0xd8620010},{0x4f5ac4,0xd8630020},{0x4f5ac8,0xd8640030}};
-    if((pc&3) || !rt || !((pc>=0x1f59c4 && pc<=0x1f5af4) || (pc>=0x4f5ab8 && pc<=0x4f5ac8)))return false;
+        {0x4f5ab8,0xd8850000},{0x4f5abc,0xd8610000},{0x4f5ac0,0xd8620010},{0x4f5ac4,0xd8630020},{0x4f5ac8,0xd8640030},
+        {0x4a562c,0xd8610000},{0x4a5630,0xd8620010},{0x4a5634,0xd8630020},{0x4a5638,0xd8640030},{0x4a563c,0x48a82800}};
+    if((pc&3) || !rt || !((pc>=0x1f59c4 && pc<=0x1f5af4) || (pc>=0x4f5ab8 && pc<=0x4f5ac8) || (pc>=0x4a562c && pc<=0x4a563c)))return false;
     const auto site=std::find_if(std::begin(sites),std::end(sites),[&](auto &x){return x.first==pc;});
     if(site==std::end(sites))return false;
     uint32_t word=0;if(const auto *p=rt->memory.hostPointer(pc,4))std::memcpy(&word,p,4);
@@ -2468,6 +2469,15 @@ bool nativeSegmentSphere(R5900Context *c,Runtime *rt,uint32_t pc){
         if(c->r[4].uw[0]!=c->r[19].uw[0]+0x20 || c->r[3].uw[0]!=c->r[18].uw[0]+0x150)throw std::runtime_error("native segment registers escaped their records");
         regs.rows[4]=load(c->r[4].uw[0]);for(unsigned i=0;i<4;++i)regs.rows[i]=load(c->r[3].uw[0]+16*i);regs.valid=true;return true;
     }
+    // mod028 4a55e0 (after the nearest-point walk 4a50b0 picked *(5136c8)): vf1..vf4 = that object's
+    // rows (v1 = +150, 4a562c..4a5638), then QMTC2 t0 -> vf5 (4a563c): the whole 128-bit register,
+    // x the object's scale +204 (mfc1), y its sign extension; 1f5ba0's tests read x and y only.
+    if(pc==0x4a563c){
+        uint32_t object;std::memcpy(&object,record(rt,0x5136c0,16)+8,4);
+        if(c->r[3].uw[0]!=object+0x150)throw std::runtime_error("native segment registers escaped the picked object's rows");
+        for(unsigned i=0;i<4;++i)regs.rows[i]=load(c->r[3].uw[0]+16*i);for(unsigned i=0;i<4;++i)regs.rows[4][i]=c->r[8].uw[i];regs.valid=true;return true;
+    }
+    if(pc>=0x4a562c && pc<0x4a563c)return true;
     if(pc!=0x1f5a74 && pc!=0x1f5af0 && pc!=0x1f5af4)return true;
     if(!regs.valid)throw std::runtime_error("native segment/sphere test has no registers");
     constexpr uint32_t one=0x3f800000u;

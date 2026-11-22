@@ -12,6 +12,19 @@ The earlier VP2S face/shading and general brightness comparisons remain open.
 
 ## Build and evidence
 
+### Picked object's segment registers, mod028 4a55e0 (2026-11-22)
+
+After the nearest-point walk picks an object (`*(5136c8)`), `4a55e0` loads vf1..vf4 with
+that object's rows (`+150`, `4a562c..4a5638`). It then runs QMTC2 t0 -> vf5 (`4a563c`),
+which copies the whole 128-bit register. x is the object's scale `+204`, from mfc1; y is
+its sign extension. Then it calls `1f5ba0`, whose tests read only vf5.x and .y.
+- **Native:** these sites record `objectPairRegisters` (rows 0..3 and row 4 = t0) in
+  `nativeSegmentSphere`, next to `4f5ab8`. Rows of an object other than the picked one
+  reject.
+- **Test:** `vp2s-bozo-math-check` checks the five sites and the rejection.
+- **Evidence:** the scripted battle passes `4a562c` and `1f5ba0`. The next boundary is main
+  `1f7f20` (entry `1f7b80`, called at `4a5658`), frame 63764.
+
 ### Battle nearest point, mod028 4a50b0 (2026-11-22)
 
 `4a50b0(node, out, best)` walks a node tree recursively and keeps the entry that is

@@ -1033,6 +1033,15 @@ int main(int argc,char **argv){try{
             check(d==6 && o[0]==2 && o[1]==4 && o[2]==4 && o[3]==1);   // (2,4,4): length 6
             {bool failed=false;try{vp2s::nativeMathInstruction(rt.memory.flat(),&c,&rt,0x4a53b4);}catch(const std::runtime_error &){failed=true;}check(failed);}   // QMFC2 twice
         }
+        {   // mod028 4a55e0: the picked object's rows (*(5136c8)+150) and QMTC2 t0 -> vf5 become the
+            // segment test's registers; rows of another object are refused.
+            constexpr struct {uint32_t pc,word;} words[]={{0x4a562c,0xd8610000},{0x4a5630,0xd8620010},{0x4a5634,0xd8630020},{0x4a5638,0xd8640030},{0x4a563c,0x48a82800}};
+            for(const auto &w:words)std::memcpy(rt.memory.hostPointer(w.pc,4),&w.word,4);
+            constexpr uint32_t picked=0x1b4000;std::memcpy(rt.memory.hostPointer(0x5136c8,4),&picked,4);
+            R5900Context c{};c.r[29].uw[0]=0x1ffc000;c.r[3].uw[0]=picked+0x150;c.r[8].uw[0]=0x3fc00000;
+            for(const auto &w:words)check(vp2s::nativeMathInstruction(rt.memory.flat(),&c,&rt,w.pc));
+            c.r[3].uw[0]=picked+0x160;bool failed=false;try{vp2s::nativeMathInstruction(rt.memory.flat(),&c,&rt,0x4a563c);}catch(const std::runtime_error &){failed=true;}check(failed);
+        }
         {   // mod028 4a6c40 battle object overlap: the vf1..vf9 spill writes nothing; the block gives
             // ((dx^2 + dy^2) - (r1 a.w + r2 b.w)^2) + dz^2 between two translated centres.
             constexpr uint32_t words[]={0xd8c90000,0xd8aa0000,0xd88b0000,0xd8610000,0xd8620010,0x4a295298,0x4a295ad9,0xd8630020,0xd8640030,0xd8450000,0xd8460010,0xd8470020,0xd8480030,

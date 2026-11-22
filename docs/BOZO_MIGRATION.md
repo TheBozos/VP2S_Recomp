@@ -12,6 +12,37 @@ The earlier VP2S face/shading and general brightness comparisons remain open.
 
 ## Build and evidence
 
+### Battle stream-encrypted files: the offline extractor's missing assets (2026-11-22)
+
+The scripted attack needed the mesh pack `01089cc800_000.mesh`. No asset existed: nothing
+between disc 0x1008510e0 and 0x109949840 had been extracted.
+- **Cause:** that region is encrypted as whole files.
+  - The battle loader (mod028 `3936f0`) reads a file and looks its first word up in a
+    six-entry (state, tag) table at 0x50fca0.
+  - It then calls the battle core's decrypt job (mod027 `3698f0`) with multiplier 0xceb3,
+    increment 0x1c7b, shift 5 and mode 2.
+  - Per halfword: s = 0xceb3 s + 0x1c7b (mod 2^32), and the halfword is XORed with
+    (s >> 5) & 0xffff (`368c90`). This matches all 64 KB of the battle's decrypted chain
+    in RAM.
+  - The plaintext is an ordinary SLZ chain (a `p@Ck` pack). `tools/extract.py` finds
+    chains only by their plain headers, and `tools/vp2_archives.py` covers another cipher
+    (pack member tables).
+- **Tool (`tools/vp2_encrypted_assets.py`):** reads the key table from the mod028 image and
+  scans every sector start for the six tags. It decrypts with a vectorised keystream (the
+  LCG jumped per block), requires an SLZ/SLE chain, and writes each part with the
+  extractor's naming (`<disc offset:010x>_<part:03d>`, `.pack` for p@Ck). Existing files
+  must match, or it stops. The USA disc gives 190 files.
+- **Then:** `tools/vp2_meshes.py` and `tools/vp2_textures.py`, with the texture index
+  rescanned (26131 -> 27380 entries). The manifest has 5295 plain keys and 440 copies by
+  provenance.
+- **Not covered:** the decrypt job's other callers (mod028 `36e32c`, `3b7058`, `3ce700`:
+  mode 4, keys from other sources).
+- **Test:** `tools/test_vp2_encrypted_assets.py` checks the vectorised keystream against the
+  game's loop across three blocks (odd length, three states), and a round trip.
+- **Evidence:** the scripted battle loads model `e88d90` from its new mesh pack. The next
+  boundary is the particle draw `22f160`: "native particle draw has no admitted scene/point
+  owner".
+
 ### Battle emitter box 48a820: a fourth particle-box instance (2026-11-22)
 
 mod028 `48a820` is a battle emitter's +18 method, called by mod001's particle driver at

@@ -12,6 +12,17 @@ The earlier VP2S face/shading and general brightness comparisons remain open.
 
 ## Build and evidence
 
+### 4a50b0's node path: basis lengths at 4a52a8 (2026-11-22)
+
+`4a50b0`'s node path loads vf12..vf14 from the node's object (s1, base a1 = s1+90), then
+runs VCALLMS `0x7f0`, CFC2.I t1, and SQC2 vf6 to `sp+70`. This is the common-math
+basis-length block.
+- **Native:** one more `basisLengthSites` row.
+- **Test:** `vp2s-bozo-math-check` gives the same lengths as the other rows (5, 2, 5,
+  with w untouched).
+- **Evidence:** the scripted battle passes `4a52a8`. The next boundary is `4fcb3c` (entry
+  `4fcae0`, called at `4fdcd0`), frame 63783.
+
 ### VU0 random draws: the procedural stream in save states (2026-11-22)
 
 mod028 `4a45d8` runs RNEXT.x vf31 and then QMFC2.I v1 (`4a45dc`). This is the first

@@ -650,8 +650,9 @@ bool nativeObjectPairSpill(R5900Context *c,Runtime *rt,uint32_t pc){
 struct BasisLengthSite{uint32_t load,call,store;unsigned object,base,output;uint32_t offset;};
 //   mod028 4a6e10 / 4a6f40: battle object overlap 4a6c40, objects s3 / s2 (base a1), outputs sp+b0 / sp+a0.
 //   mod001 1f5d90: shape tree 1f5c30, object s0 (base a1), output sp+50.
+//   mod028 4a52a8: nearest-point walk 4a50b0's node path, object s1 (base a1), output sp+70.
 constexpr BasisLengthSite basisLengthSites[]={{0x43c120,0x43c130,0x43c13c,16,4,3,0x70},{0x239b54,0x239b64,0x239b70,4,2,2,0},{0x4f56f8,0x4f5708,0x4f5714,20,6,3,0x60},{0x4f5a68,0x4f5a78,0x4f5a84,18,6,3,0xc0},
-    {0x4a6e10,0x4a6e20,0x4a6e2c,19,5,2,0xb0},{0x4a6f40,0x4a6f50,0x4a6f5c,18,5,2,0xa0},{0x1f5d90,0x1f5da0,0x1f5dac,16,5,2,0x50}};
+    {0x4a6e10,0x4a6e20,0x4a6e2c,19,5,2,0xb0},{0x4a6f40,0x4a6f50,0x4a6f5c,18,5,2,0xa0},{0x1f5d90,0x1f5da0,0x1f5dac,16,5,2,0x50},{0x4a52a8,0x4a52b8,0x4a52c4,17,5,2,0x70}};
 bool nativeBattleBasisLengths(R5900Context *c,Runtime *rt,uint32_t pc){
     if(!rt || (pc&3))return false;
     const auto site=std::find_if(std::begin(basisLengthSites),std::end(basisLengthSites),[&](auto &s){return pc>=s.load && pc<=s.store;});

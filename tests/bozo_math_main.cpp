@@ -794,6 +794,12 @@ int main(int argc,char **argv){try{
             check(!vp2s::nativeMathInstruction(rt.memory.flat(),&d,&rt,0x239b6c));   // addiu v0, sp, 0: compiled
             d.r[2].uw[0]=stack;check(vp2s::nativeMathInstruction(rt.memory.flat(),&d,&rt,0x239b70));
             std::memcpy(out,rt.memory.hostPointer(stack,16),16);check(out[0]==5 && out[1]==2 && out[2]==5 && std::bit_cast<uint32_t>(out[3])==0x5a5a5a5au);
+            // mod028 4a52a8: 4a50b0's node path, object s1 (base a1), output sp+70.
+            constexpr uint32_t third[8]={0xd8ac0000,0xd8ad0010,0xd8ae0020,0,0x4a003fb8,0x48490001,0x27a20070,0xf8460000};
+            std::memcpy(rt.memory.hostPointer(0x4a52a8,32),third,32);std::memset(rt.memory.hostPointer(stack+0x70,16),0x5a,16);
+            R5900Context e{};e.r[17].uw[0]=object;e.r[5].uw[0]=object+0x90;e.r[29].uw[0]=stack;e.r[2].uw[0]=stack+0x70;
+            for(uint32_t pc=0x4a52a8;pc<=0x4a52c4;pc+=4)if(pc!=0x4a52c0)check(vp2s::nativeMathInstruction(rt.memory.flat(),&e,&rt,pc));
+            std::memcpy(out,rt.memory.hostPointer(stack+0x70,16),16);check(out[0]==5 && out[1]==2 && out[2]==5 && std::bit_cast<uint32_t>(out[3])==0x5a5a5a5au);
         }
         {   // Battle shape tests (nativeBattleShapes): 4f5630's set-up records the pair registers,
             // 1f8840 tests two spheres on them; 216cb0's translation is -(R^T t).

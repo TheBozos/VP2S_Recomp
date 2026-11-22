@@ -648,7 +648,9 @@ bool nativeObjectPairSpill(R5900Context *c,Runtime *rt,uint32_t pc){
 //   mod028 4f56f8: battle shape test 4f5630, object s4 (base a2), output sp+60.
 //   mod028 4f5a68: battle segment test 4f58f0, object s2 (base a2), output sp+c0.
 struct BasisLengthSite{uint32_t load,call,store;unsigned object,base,output;uint32_t offset;};
-constexpr BasisLengthSite basisLengthSites[]={{0x43c120,0x43c130,0x43c13c,16,4,3,0x70},{0x239b54,0x239b64,0x239b70,4,2,2,0},{0x4f56f8,0x4f5708,0x4f5714,20,6,3,0x60},{0x4f5a68,0x4f5a78,0x4f5a84,18,6,3,0xc0}};
+//   mod028 4a6e10 / 4a6f40: battle object overlap 4a6c40, objects s3 / s2 (base a1), outputs sp+b0 / sp+a0.
+constexpr BasisLengthSite basisLengthSites[]={{0x43c120,0x43c130,0x43c13c,16,4,3,0x70},{0x239b54,0x239b64,0x239b70,4,2,2,0},{0x4f56f8,0x4f5708,0x4f5714,20,6,3,0x60},{0x4f5a68,0x4f5a78,0x4f5a84,18,6,3,0xc0},
+    {0x4a6e10,0x4a6e20,0x4a6e2c,19,5,2,0xb0},{0x4a6f40,0x4a6f50,0x4a6f5c,18,5,2,0xa0}};
 bool nativeBattleBasisLengths(R5900Context *c,Runtime *rt,uint32_t pc){
     if(!rt || (pc&3))return false;
     const auto site=std::find_if(std::begin(basisLengthSites),std::end(basisLengthSites),[&](auto &s){return pc>=s.load && pc<=s.store;});
@@ -867,6 +869,61 @@ bool nativeObjectOverlap(R5900Context *c,Runtime *rt,uint32_t pc){
         result[0]=total;result[1]=squared[1];result[2]=squared[2];result[3]=t1[3];
     }
     std::memcpy(record(rt,stack+0x80,16),result,16);return true;
+}
+// Battle object overlap, mod028 4a6c40: the battle's own compile of 1f8aa0's algorithm (not
+// a byte copy). SQC2 vf1..vf9 to sp+d0 on entry (4a6cf4..4a6d14) and LQC2 them back on each
+// exit (4a7034.., 4a7250.., 4a7290..): no native state. Its two 0x7f0 basis-length calls are
+// basisLengthSites rows. The overlap block (4a6fa4..4a701c): vf9 = sp+c0 (the two radii
+// +204 the CPU just stored), vf10 = a1 (s5+10), vf11 = a0 (s4+10), vf1..vf4 = s3+150, vf5..vf8 =
+// s2+150; vf10.w *= vf9.x, vf11.w *= vf9.y; vf12 = M1 vf10, vf13 = M2 vf11 (w by 1);
+// ((dx^2 + dy^2) - (r1 + r2)^2) + dz^2 to sp+c0 .x (y, z the squares, w M1's). vf1..vf9 stay
+// loaded for the shape tests that follow: recorded as the object-pair registers, as 1f8aa0's.
+bool nativeBattleObjectOverlap(R5900Context *c,Runtime *rt,uint32_t pc){
+    if((pc&3) || !rt || pc<0x4a6cf4 || pc>0x4a72b0)return false;
+    const bool spill=pc<=0x4a6d14,restore=(pc>=0x4a7034 && pc<=0x4a7054) || (pc>=0x4a7250 && pc<=0x4a7270) || (pc>=0x4a7290 && pc<=0x4a72b0);
+    constexpr uint32_t block[]={0x4a6fa4,0x4a6fa8,0x4a6fac,0x4a6fb0,0x4a6fb4,0x4a6fb8,0x4a6fbc,0x4a6fc0,0x4a6fc4,0x4a6fc8,0x4a6fcc,0x4a6fd0,0x4a6fd4,0x4a6fd8,0x4a6fdc,
+        0x4a6fe0,0x4a6fe4,0x4a6fe8,0x4a6fec,0x4a6ff0,0x4a6ff4,0x4a6ff8,0x4a6ffc,0x4a7000,0x4a7004,0x4a7008,0x4a700c,0x4a7010,0x4a7014,0x4a7018,0x4a701c};
+    constexpr uint32_t words[]={0xd8c90000,0xd8aa0000,0xd88b0000,0xd8610000,0xd8620010,0x4a295298,0x4a295ad9,0xd8630020,0xd8640030,0xd8450000,0xd8460010,0xd8470020,0xd8480030,
+        0x4bea09bc,0x4bea10bd,0x4bea18be,0x4be0230b,0x4beb29bc,0x4beb30bd,0x4beb38be,0x4be0434b,0x4bcd632c,0x4a2b52a8,0x4bcc632a,0x4b000343,0x4a2a52aa,0x4b0c69bc,0x4b0c68bd,
+        0x4b0a68ff,0x4b0c6b0a,0xf8cc0000};
+    const auto at=std::find(std::begin(block),std::end(block),pc);
+    if(!spill && !restore && at==std::end(block))return false;
+    uint32_t word=0;if(const auto *p=rt->memory.hostPointer(pc,4))std::memcpy(&word,p,4);
+    const uint32_t expected=spill?0xf8400000u|((pc-0x4a6cf4)/4+1)<<16|(pc-0x4a6cf4)*4:
+        restore?0xd8400000u|((pc-(pc>=0x4a7290?0x4a7290:pc>=0x4a7250?0x4a7250:0x4a7034))/4+1)<<16|(pc-(pc>=0x4a7290?0x4a7290:pc>=0x4a7250?0x4a7250:0x4a7034))*4:words[at-std::begin(block)];
+    if(word!=expected)return false;   // another overlay at these addresses
+    if(!c)throw std::runtime_error("native battle object overlap has no CPU record");
+    const auto stack=c->r[29].uw[0],first=c->r[19].uw[0],second=c->r[18].uw[0];
+    if(spill || restore){
+        if(c->r[2].uw[0]!=stack+0xd0)throw std::runtime_error("native battle object overlap spill escaped its frame");
+        objectPairRegisters(rt).valid=false;   // vf1..vf9 belong to the caller again
+        return true;
+    }
+    if(c->r[6].uw[0]!=stack+0xc0 || c->r[5].uw[0]!=c->r[21].uw[0]+0x10 || c->r[4].uw[0]!=c->r[20].uw[0]+0x10 || c->r[3].uw[0]!=first+0x150 ||
+       (pc<0x4a6fd8 && pc>=0x4a6fc8 && c->r[2].uw[0]!=second+0x150))
+        throw std::runtime_error("native battle object overlap escaped its records");
+    if(pc!=0x4a701c)return true;
+    auto &regs=objectPairRegisters(rt);
+    std::memcpy(regs.rows[0].data(),record(rt,first+0x150,64),64);std::memcpy(regs.rows[4].data(),record(rt,second+0x150,64),64);
+    std::memcpy(regs.scale.data(),record(rt,stack+0xc0,16),16);regs.valid=true;
+    float scale[4],a[4],b[4],m1[4][4],m2[4][4];
+    std::memcpy(scale,record(rt,stack+0xc0,16),16);std::memcpy(a,record(rt,c->r[5].uw[0],16),16);std::memcpy(b,record(rt,c->r[4].uw[0],16),16);
+    std::memcpy(m1,record(rt,first+0x150,64),64);std::memcpy(m2,record(rt,second+0x150,64),64);
+    for(unsigned i=0;i<2;++i)scale[i]=vu0Input(scale[i]);for(float &v:a)v=vu0Input(v);for(float &v:b)v=vu0Input(v);
+    for(auto &row:m1)for(float &v:row)v=vu0Input(v);for(auto &row:m2)for(unsigned i=0;i<3;++i)row[i]=vu0Input(row[i]);
+    float result[4];
+    {music::NearestRounding rounding;
+        const auto transform=[](const float (&m)[4][4],const float (&p)[4],float (&out)[4],unsigned lanes){
+            for(unsigned i=0;i<lanes;++i)out[i]=pairSum(pairSum(pairSum(pairProduct(m[0][i],p[0]),pairProduct(m[1][i],p[1])),pairProduct(m[2][i],p[2])),pairProduct(m[3][i],1.f));};
+        float t1[4],t2[4]{};transform(m1,a,t1,4);transform(m2,b,t2,3);
+        const auto radius=pairSum(pairProduct(a[3],scale[0]),pairProduct(b[3],scale[1]));const auto radius2=pairProduct(radius,radius);
+        float squared[3];for(unsigned i=0;i<3;++i){const auto d=pairSum(t1[i],-t2[i]);squared[i]=pairProduct(d,d);}
+        auto total=pairSum(pairProduct(1.f,squared[0]),pairProduct(1.f,squared[1]));
+        total=pairSum(total,-pairProduct(1.f,radius2));total=pairSum(total,pairProduct(1.f,squared[2]));
+        for(float v:{total,t1[3]})if(!std::isfinite(v))throw std::runtime_error("native battle object overlap overflow");
+        result[0]=total;result[1]=squared[1];result[2]=squared[2];result[3]=t1[3];
+    }
+    std::memcpy(record(rt,stack+0xc0,16),result,16);return true;
 }
 // Camera point projection, mod001 209aa0. Common-math 0x1f0 loads the camera
 // matrix at s2+330 as columns (0+x canonical lanes, diagonal moves, 1*x for
@@ -4293,6 +4350,7 @@ bool nativeMathInstruction(uint8_t *,R5900Context *c,Runtime *rt,uint32_t pc){
     if(nativeBattleSideAxes(c,rt,pc))return true;
     if(nativeBattleGroundPlane(c,rt,pc))return true;
     if(nativeBattleColourPair(c,rt,pc))return true;
+    if(nativeBattleObjectOverlap(c,rt,pc))return true;
     if(nativeBattleAdvance(c,rt,pc))return true;
     if(nativeBattleRecordShift(c,rt,pc))return true;
     if(nativeBattleSegmentPoints(c,rt,pc))return true;

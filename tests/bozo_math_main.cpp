@@ -1016,6 +1016,28 @@ int main(int argc,char **argv){try{
             // a.x k = 2: b = (1 + 4, 2 - 2, 3 + 1, 9); a.x = 4 + 3 = 7
             check(ob[0]==5 && ob[1]==0 && ob[2]==4 && ob[3]==9 && oa[0]==7 && oa[1]==6 && oa[2]==7 && oa[3]==8);
         }
+        {   // mod028 4a6c40 battle object overlap: the vf1..vf9 spill writes nothing; the block gives
+            // ((dx^2 + dy^2) - (r1 a.w + r2 b.w)^2) + dz^2 between two translated centres.
+            constexpr uint32_t words[]={0xd8c90000,0xd8aa0000,0xd88b0000,0xd8610000,0xd8620010,0x4a295298,0x4a295ad9,0xd8630020,0xd8640030,0xd8450000,0xd8460010,0xd8470020,0xd8480030,
+                0x4bea09bc,0x4bea10bd,0x4bea18be,0x4be0230b,0x4beb29bc,0x4beb30bd,0x4beb38be,0x4be0434b,0x4bcd632c,0x4a2b52a8,0x4bcc632a,0x4b000343,0x4a2a52aa,0x4b0c69bc,0x4b0c68bd,
+                0x4b0a68ff,0x4b0c6b0a,0xf8cc0000};
+            std::memcpy(rt.memory.hostPointer(0x4a6fa4,sizeof(words)),words,sizeof(words));
+            for(unsigned i=0;i<9;++i){const uint32_t w=0xf8400000u|(i+1)<<16|i*16;std::memcpy(rt.memory.hostPointer(0x4a6cf4+4*i,4),&w,4);}
+            constexpr uint32_t stack=0x1ffe000,first=0x1b0000,second=0x1b1000,ca=0x1b2000,cb=0x1b3000;
+            std::memset(rt.memory.hostPointer(stack+0xd0,0x90),0x77,0x90);
+            R5900Context c{};c.r[29].uw[0]=stack;c.r[2].uw[0]=stack+0xd0;
+            for(unsigned i=0;i<9;++i)check(vp2s::nativeMathInstruction(rt.memory.flat(),&c,&rt,0x4a6cf4+4*i));
+            check(rt.memory.hostPointer(stack+0xd0,1)[0]==0x77 && rt.memory.hostPointer(stack+0xd0+0x8f,1)[0]==0x77);   // no register words written
+            const auto putm=[&](uint32_t at,float tx,float ty,float tz){const float m[16]={1,0,0,0, 0,1,0,0, 0,0,1,0, tx,ty,tz,1};std::memcpy(rt.memory.hostPointer(at,64),m,64);};
+            putm(first+0x150,1,0,0);putm(second+0x150,0,2,0);
+            const float pa[4]={2,0,0,0.5f},pb[4]={0,1,3,0.25f},radii[4]={2,4,0,0};
+            std::memcpy(rt.memory.hostPointer(ca+0x10,16),pa,16);std::memcpy(rt.memory.hostPointer(cb+0x10,16),pb,16);std::memcpy(rt.memory.hostPointer(stack+0xc0,16),radii,16);
+            c.r[19].uw[0]=first;c.r[18].uw[0]=second;c.r[21].uw[0]=ca;c.r[20].uw[0]=cb;c.r[6].uw[0]=stack+0xc0;c.r[5].uw[0]=ca+0x10;c.r[4].uw[0]=cb+0x10;c.r[3].uw[0]=first+0x150;c.r[2].uw[0]=second+0x150;
+            for(unsigned i=0;i<std::size(words);++i)check(vp2s::nativeMathInstruction(rt.memory.flat(),&c,&rt,0x4a6fa4+4*i));
+            // t1 = (3, 0, 0, 1), t2 = (0, 3, 3): d = (3, -3, -3); r = 0.5*2 + 0.25*4 = 2: (9 + 9 - 4) + 9 = 23
+            float o[4];std::memcpy(o,rt.memory.hostPointer(stack+0xc0,16),16);check(o[0]==23 && o[1]==9 && o[2]==9 && o[3]==1);
+            c.r[5].uw[0]=ca;bool failed=false;try{vp2s::nativeMathInstruction(rt.memory.flat(),&c,&rt,0x4a701c);}catch(const std::runtime_error &){failed=true;}check(failed);   // not a1 = s5+10
+        }
         {   // mod028 47ae40 battle colour pair: (128, 64, 255, 128) and (0, 1, 2, 3) widened by the CPU.
             constexpr uint32_t words[]={0x48a80800,0x48a91000,0x48aa1800,0x4be1093c,0x4be2113c,0x248309a0,0x4bc30858,0x4bc31098,0xf8610000,0xf8620010};
             std::memcpy(rt.memory.hostPointer(0x47ae78,sizeof(words)),words,sizeof(words));

@@ -12,6 +12,26 @@ The earlier VP2S face/shading and general brightness comparisons remain open.
 
 ## Build and evidence
 
+### Battle object overlap 4a6c40: the battle's compile of 1f8aa0 (2026-11-22)
+
+mod028 `4a6c40` runs main `1f8aa0`'s object-pair overlap algorithm, compiled separately (422
+of its words differ, so it is not mapped by offset).
+- **Spills:** SQC2 vf1..vf9 to sp+d0 on entry (`4a6cf4`..`4a6d14`), LQC2 back on each exit
+  (`4a7034`, `4a7250`, `4a7290`). No native state: they write nothing and invalidate the
+  object-pair registers, as 1f8aa0's do.
+- **Basis lengths:** the two common-math 0x7f0 calls (`4a6e10` object s3 -> sp+b0, `4a6f40`
+  object s2 -> sp+a0) are new `basisLengthSites` rows.
+- **Overlap block (`4a6fa4`..`4a701c`):** radii from sp+c0, centres a1 = s5+10 and a0 =
+  s4+10, transforms s3+150 / s2+150. It computes ((dx^2 + dy^2) - (r1 a.w + r2 b.w)^2) +
+  dz^2 to sp+c0, with the same arithmetic as 1f8aa0's port (pair products, nearest
+  rounding). It records vf1..vf9 as the object-pair registers for the shape tests that
+  follow.
+- **Native:** `nativeBattleObjectOverlap` in `bozo/native_math.cpp`, word-checked.
+- **Test:** `vp2s-bozo-math-check` checks that the spill writes nothing, an exact overlap
+  value (23), and refuses a centre that is not s5+10.
+- **Evidence:** the scripted battle passes it. The next boundary is a VU0 site at `4a64e4`
+  (entry `4a6470`, called from `4a6748`), still frame 63740.
+
 ### Battle advance 49c3b0: b += c (a.x k), a.x += a.y k (2026-11-22)
 
 mod028 `49c3b0` (the scripted attack, frame 63740) steps a battle object.

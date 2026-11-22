@@ -2004,6 +2004,41 @@ bool nativeBattleRecordShift(R5900Context *c,Runtime *rt,uint32_t pc){
     if(!st.loaded)throw std::runtime_error("native battle record fill without its saved value");
     std::memcpy(record(rt,c->r[3].uw[0],16),st.saved.data(),16);return true;
 }
+// Battle advance, mod028 49c3b0 (49c7a4..49c7e8): QMTC2 t0 (f21) -> vf4; LQC2 vf1 = (s5), vf2 =
+// (s2), vf3 = (s1); MULx.xyz vf5 = vf1 * k; MULAw.xyz ACC = vf2 * 1; MADDx.xyz vf2 = ACC + vf3 *
+// vf5.x; ADDy.x vf1.x += vf5.y; SQC2 vf2 to (s2), vf1 to (s5) (the delay slot of 49c7e4).
+// So vf2.xyz += vf3.xyz * (vf1.x k) and vf1.x += vf1.y k; the other lanes are stored as loaded.
+// Kept per call frame; stores without their loads are refused.
+struct BattleAdvance{uint32_t k=0;VuWords a{},b{},c{};unsigned loaded=0;bool stored=false;VuWords outA{},outB{};};
+std::map<std::pair<const Runtime *,uint32_t>,BattleAdvance> &battleAdvances(){static std::map<std::pair<const Runtime *,uint32_t>,BattleAdvance> m;return m;}
+bool nativeBattleAdvance(R5900Context *c,Runtime *rt,uint32_t pc){
+    struct Site{uint32_t pc,word;char role;};
+    constexpr Site sites[]={{0x49c7a4,0x48a82000,'k'},{0x49c7a8,0xdaa10000,'1'},{0x49c7ac,0xda420000,'2'},{0x49c7b0,0xda230000,'3'},
+        {0x49c7d0,0x4bc40958,'-'},{0x49c7d4,0x4bc011bf,'-'},{0x49c7d8,0x4bc51888,'-'},{0x49c7dc,0x4b050841,'-'},{0x49c7e0,0xfa420000,'b'},{0x49c7e8,0xfaa10000,'a'}};
+    if((pc&3) || !rt || pc<0x49c7a4 || pc>0x49c7e8)return false;
+    const auto site=std::find_if(std::begin(sites),std::end(sites),[&](const Site &x){return x.pc==pc;});
+    if(site==std::end(sites))return false;
+    uint32_t word=0;if(const auto *p=rt->memory.hostPointer(pc,4))std::memcpy(&word,p,4);
+    if(word!=site->word)return false;   // another overlay at these addresses
+    if(!c)throw std::runtime_error("native battle advance has no CPU record");
+    auto &st=battleAdvances()[{rt,c->r[29].uw[0]}];
+    const auto reg=[&](uint32_t w){return c->r[(w>>21)&31].uw[0]+(w&0xffff);};
+    switch(site->role){
+    case 'k':st=BattleAdvance{};st.k=c->r[8].uw[0];st.loaded=1;return true;
+    case '1':st.a=vuWords(rt,reg(word));st.loaded|=2;return true;
+    case '2':st.b=vuWords(rt,reg(word));st.loaded|=4;return true;
+    case '3':st.c=vuWords(rt,reg(word));st.loaded|=8;return true;
+    case 'b':case 'a':{
+        if(st.loaded!=15)throw std::runtime_error(std::format("native battle advance at {:x} stored without its loads",pc));
+        if(!st.stored){constexpr uint32_t one=0x3f800000u;const auto fx=vuMul(st.a[0],st.k),fy=vuMul(st.a[1],st.k);
+            st.outB=st.b;for(unsigned i=0;i<3;++i)st.outB[i]=vuAdd(vuMul(st.b[i],one),vuMul(st.c[i],fx));
+            st.outA=st.a;st.outA[0]=vuAdd(st.a[0],fy);st.stored=true;}
+        const auto &out=site->role=='b'?st.outB:st.outA;std::memcpy(record(rt,reg(word),16),out.data(),16);
+        if(site->role=='a')st=BattleAdvance{};
+        return true;}
+    default:return true;   // MULx / MULAw / MADDx / ADDy: folded into the stores
+    }
+}
 // Battle colour pair, mod028 47ae40(object a0, colour a1, colour a2) (one copy): the CPU
 // widens each RGBA byte colour to four words (PEXTLB/PEXTLH with zero, compiled); QMTC2 t0
 // -> vf1, t1 -> vf2, t2 (0.5f) -> vf3; ITOF0 vf1, vf2; MULx.xyz by vf3.x; SQC2 vf1, vf2 to
@@ -4258,6 +4293,7 @@ bool nativeMathInstruction(uint8_t *,R5900Context *c,Runtime *rt,uint32_t pc){
     if(nativeBattleSideAxes(c,rt,pc))return true;
     if(nativeBattleGroundPlane(c,rt,pc))return true;
     if(nativeBattleColourPair(c,rt,pc))return true;
+    if(nativeBattleAdvance(c,rt,pc))return true;
     if(nativeBattleRecordShift(c,rt,pc))return true;
     if(nativeBattleSegmentPoints(c,rt,pc))return true;
     if(nativeBattleHalfVectors(c,rt,pc))return true;

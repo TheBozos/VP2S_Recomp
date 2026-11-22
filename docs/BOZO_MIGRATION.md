@@ -12,6 +12,22 @@ The earlier VP2S face/shading and general brightness comparisons remain open.
 
 ## Build and evidence
 
+### Battle advance 49c3b0: b += c (a.x k), a.x += a.y k (2026-11-22)
+
+mod028 `49c3b0` (the scripted attack, frame 63740) steps a battle object.
+- **Original (`49c7a4`..`49c7e8`):** QMTC2 t0 (f21) -> vf4; LQC2 vf1 = (s5), vf2 = (s2),
+  vf3 = (s1); MULx.xyz vf5 = vf1 k; MULAw/MADDx vf2.xyz = vf2 + vf3 vf5.x; ADDy.x vf1.x +=
+  vf5.y; SQC2 vf2 to (s2), vf1 to (s5). The last store is in the delay slot of `49c7e4`.
+  Other lanes are stored as loaded.
+- **Native (`bozo/native_math.cpp`, `nativeBattleAdvance`):** word-checked sites per call
+  frame. Both results come from the loads. Stores without their loads are refused.
+- **Later blocks:** the function's normalised difference (`49c834`) and distance
+  (`49c8fc`) pass through the existing idioms.
+- **Test:** `vp2s-bozo-math-check` covers exact values (w lanes kept) and refuses a store
+  first.
+- **Evidence:** the scripted battle passes it. The next boundary is a VU0 site at `4a6cf4`
+  (entry `4a6c40`, sp in the scratchpad work stack), still frame 63740.
+
 ### Battle particle mode 4 (VU1 image 7): ribbons, ported (2026-11-22)
 
 `NativeParticleDraws::capture` admits mode 4 and draws image 7's ribbons natively.

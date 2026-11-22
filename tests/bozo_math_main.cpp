@@ -1002,6 +1002,20 @@ int main(int argc,char **argv){try{
             for(unsigned k=1;k<4;++k){c.r[3].uw[0]=rec+0x10+0x40*k;check(vp2s::nativeMathInstruction(rt.memory.flat(),&c,&rt,0x48ae0c));
                 check(!std::memcmp(rt.memory.hostPointer(rec+0x10+0x40*k,16),v,16));}
         }
+        {   // mod028 49c3b0 battle advance: b += c * (a.x k); a.x += a.y k (k = 0.5).
+            constexpr struct {uint32_t pc,word;} words[]={{0x49c7a4,0x48a82000},{0x49c7a8,0xdaa10000},{0x49c7ac,0xda420000},{0x49c7b0,0xda230000},
+                {0x49c7d0,0x4bc40958},{0x49c7d4,0x4bc011bf},{0x49c7d8,0x4bc51888},{0x49c7dc,0x4b050841},{0x49c7e0,0xfa420000},{0x49c7e8,0xfaa10000}};
+            for(const auto &w:words)std::memcpy(rt.memory.hostPointer(w.pc,4),&w.word,4);
+            constexpr uint32_t stack=0x1fff000,A=0x1b0000,B=0x1b0010,C=0x1b0020;
+            const float a[4]={4,6,7,8},b[4]={1,2,3,9},cc[4]={2,-1,0.5f,5};
+            std::memcpy(rt.memory.hostPointer(A,16),a,16);std::memcpy(rt.memory.hostPointer(B,16),b,16);std::memcpy(rt.memory.hostPointer(C,16),cc,16);
+            R5900Context c{};c.r[29].uw[0]=stack;c.r[21].uw[0]=A;c.r[18].uw[0]=B;c.r[17].uw[0]=C;c.r[8].uw[0]=0x3f000000;
+            {bool failed=false;try{vp2s::nativeMathInstruction(rt.memory.flat(),&c,&rt,0x49c7e0);}catch(const std::runtime_error &){failed=true;}check(failed);}   // a store first
+            for(const auto &w:words)check(vp2s::nativeMathInstruction(rt.memory.flat(),&c,&rt,w.pc));
+            float oa[4],ob[4];std::memcpy(oa,rt.memory.hostPointer(A,16),16);std::memcpy(ob,rt.memory.hostPointer(B,16),16);
+            // a.x k = 2: b = (1 + 4, 2 - 2, 3 + 1, 9); a.x = 4 + 3 = 7
+            check(ob[0]==5 && ob[1]==0 && ob[2]==4 && ob[3]==9 && oa[0]==7 && oa[1]==6 && oa[2]==7 && oa[3]==8);
+        }
         {   // mod028 47ae40 battle colour pair: (128, 64, 255, 128) and (0, 1, 2, 3) widened by the CPU.
             constexpr uint32_t words[]={0x48a80800,0x48a91000,0x48aa1800,0x4be1093c,0x4be2113c,0x248309a0,0x4bc30858,0x4bc31098,0xf8610000,0xf8620010};
             std::memcpy(rt.memory.hostPointer(0x47ae78,sizeof(words)),words,sizeof(words));

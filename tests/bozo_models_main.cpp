@@ -75,7 +75,7 @@ int main(int argc,char **argv){try{
             check(!std::memcmp(before.data(),rt.memory.flat(),before.size()));
             put(rt,object+0x30c,0.f);check(batch.vertices[0].rgba==((seed<<24)|0x402010)); // immutable captured data
             // Light table A (mem[14].w = +31c) alone keeps the factor; its point (B, +314)
-            // and spot (C, +318) tables are not ported and reject explicitly.
+            // and spot (C, +318) tables reject in this fixture's mode 2 (mode 3 below).
             // PRIM.FGE is read live from the block's GIF tag in EE RAM (row 13: +70 EOP|nloop,
             // +74 PRIM<<15, +78 REGS 412); a tag that is not this one falls back to the pack.
             if(seed%8==5){const uint32_t block=model+0x60+0x40;check(!batch.material.fog);
@@ -96,7 +96,25 @@ int main(int argc,char **argv){try{
                     put(rt,object+0x300,std::array<float,4>{.5f,.25f,1,0});
                     for(uint32_t plainWord:{0u,1u})for(uint32_t tableWord:{0u,1u}){put(rt,object+0x310,plainWord);put(rt,object+0x31c,tableWord);
                         const auto lit=flat.capture(&rt,assets,textures,scene,object);check(lit.batches.size()==1 && lit.batches[0].vertices[0].rgba==0x400808u);}
-                    put(rt,object+0x300,std::array<float,4>{1,1,1,0});put(rt,object+0x310,uint32_t(1));put(rt,object+0x31c,uint32_t(0));}}
+                    put(rt,object+0x300,std::array<float,4>{1,1,1,0});put(rt,object+0x310,uint32_t(1));put(rt,object+0x31c,uint32_t(0));}
+                // Mode 3's point lights (VU1 routine 0x3350): light 0 at (0,0,2), strength 4,
+                // colour (.25,.5,.1); the eye at the origin; header 11 = (0,1,1,0), power 1.
+                // Vertex 0 at (-x,-x,.5) (x = the morph's .4 on these odd seeds), normal +z:
+                // dq = d*4/|d|^2, D = n.dq, h = dq + e/|e|, S = (n.h)^2; factor = colour * (D + S)
+                // (directional weights all 0).
+                if(algorithm==0){fixture(dir/"mode3",0,3);vp2s::NativeModels shiny(dir/"mode3");const uint32_t block=model+0x60+0x40;
+                    put(rt,object+0x31c,uint32_t(1));put(rt,object+0x314,uint32_t(1));
+                    put(rt,object+0x230+16*20,std::array<float,4>{0,0,2,1});put(rt,object+0x230+16*21,std::array<float,4>{9,0,0,1});put(rt,object+0x230+16*22,std::array<float,4>{0,9,0,1});
+                    put(rt,object+0x230+16*23,std::array<float,4>{.25f,.5f,.1f,0});put(rt,object+0x230+16*27,std::array<float,4>{4,1,1,0});
+                    put(rt,block+0x50,std::array<float,4>{0,1,1,0});put(rt,block+0x60,std::array<float,4>{0,0,0,0});put(rt,block+0x3c,int32_t(1));
+                    const double x=extent,dq=4/(2*x*x+2.25),D=1.5*dq,inv=1/std::sqrt(2*x*x+.25),h=1.5*dq-.5*inv,S=h*h;
+                    const auto lit=shiny.capture(&rt,assets,textures,scene,object);check(lit.batches.size()==1);const auto rgba=lit.batches[0].vertices[0].rgba;
+                    const double want[3]={16*.25*(D+S),32*.5*(D+S),64*.1*(D+S)};
+                    for(unsigned c=0;c<3;++c)check(std::fabs(double((rgba>>(8*c))&255)-std::trunc(std::min(want[c],255.0)))<=1);
+                    put(rt,block+0x3c,int32_t(0));rejects([&]{shiny.capture(&rt,assets,textures,scene,object);});   // power 0 (the VU loop wraps)
+                    for(unsigned r:{20u,21u,22u,23u,27u})put(rt,object+0x230+16*r,std::array<float,4>{0,0,0,0});
+                    for(uint32_t at:{0x3cu})put(rt,block+at,uint32_t(0));put(rt,block+0x50,std::array<float,4>{});
+                    put(rt,object+0x31c,uint32_t(0));put(rt,object+0x314,uint32_t(0));}}
             put(rt,model+0x59,uint8_t(1));put(rt,model+0x96,uint16_t(1));put(rt,object+0x7a4,uint16_t(1));
             check(models.capture(&rt,assets,textures,scene,object).batches.empty());put(rt,object+0x7a4,uint16_t(0));
             put(rt,current+0x40dc,uint8_t(0));rejects([&]{models.capture(&rt,assets,textures,scene,object);});put(rt,current+0x40dc,uint8_t(1));

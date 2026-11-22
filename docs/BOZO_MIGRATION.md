@@ -12,6 +12,30 @@ The earlier VP2S face/shading and general brightness comparisons remain open.
 
 ## Build and evidence
 
+### Mode-3 point lights: the specular table B (2026-11-22)
+
+Code image 02a71b3e, routine `0x3350`. This is table B (point lights, `object+314`) in the
+specular mode 3. It is software-pipelined one vertex behind, and its first pass goes to a
+dummy slot at `0x381`. For each of the three lights (positions mem[20..22], colours
+[23..25], strengths [27]):
+- dq = (L - p) * (S / |L - p|^2), computed as DIV then MULQ.
+- **Diffuse:** max(0, n . dq) * header 11.y. It is not raised to the power.
+- **Specular:** max(0, n . h) squared header 9.w times, with
+  h = (dq + (eye - p) / |eye - p|) * header 11.z.
+- **Factor:** it gains C0 D0 + C1 D1 + C2 D2 + C0 S0 + C1 S1 + C2 S2, summed in that order.
+
+A power of 0 rejects: the VU loop would wrap.
+
+The analysis interpreter (scratchpad) gives exactly this for lights 0 and 2 on random
+input. Light 1 differs there only because that interpreter makes DIV results available at
+once: the MULQ at `3478` reads the `3438` quotient, because the `3470` DIV has not completed
+yet.
+- **Native:** `bozo/native_models.cpp`, in the point/spot block.
+- **Test:** `vp2s-bozo-models-check` has a mode-3 fixture with one light (diffuse plus
+  specular, exact to one unit) and the power-0 rejection.
+- **Evidence:** the scripted battle draws object `dc6980`. The next boundary is native
+  texture `4674404c:1` without offline provenance (object `ee14b0`), frame 63743.
+
 ### Particle box in mod001 2847e0: ten more triplets (2026-11-22)
 
 mod001 `2847e0` is an emitter method called from the particle driver at `22ed20`. Its

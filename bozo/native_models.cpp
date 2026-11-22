@@ -540,10 +540,23 @@ NativeModelSubmission NativeModels::capture(Runtime *rt,NativeAssets &assets,Nat
                 int32_t power=0;std::array<float,4> weights{};
                 if(material[4]==3 || pointLights){if(!block)throw std::runtime_error("native point/spot lights without a mesh block");
                     power=value<int32_t>(rt,block+0x3c);if(power<0 || power>16)throw std::runtime_error("native light power outside bounds");}
-                if(material[4]==3){if(pointLights)throw std::runtime_error("unported native point lights in specular mode 3");
-                    if(power<=0)throw std::runtime_error("unported native spot light with specular power 0");weights=value<std::array<float,4>>(rt,block+0x50);}
+                if(material[4]==3){if(power<=0)throw std::runtime_error("unported native point/spot light with specular power 0");weights=value<std::array<float,4>>(rt,block+0x50);}
                 else if(material[4]!=0 && material[4]!=1)throw std::runtime_error(std::format("unported native point/spot lights in mode {}",material[4]));
-                for(unsigned i=0;pointLights && i<3;++i){const auto &l=points[i];std::array<float,3> d{l.position[0]-p[0],l.position[1]-p[1],l.position[2]-p[2]};
+                if(pointLights && material[4]==3){
+                    // Mode 3's table B (code image 02a71b3e, routine 0x3350, pipelined one vertex
+                    // behind): per light d = L - p scaled by S / |d|^2 (DIV, then MULQ); diffuse
+                    // max(0, n . dq) * header 11.y (unpowered); specular max(0, n . h) squared
+                    // header 9.w times, h = (dq + (eye - p) / |eye - p|) * header 11.z. The factor
+                    // gains C0 D0 + C1 D1 + C2 D2 + C0 S0 + C1 S1 + C2 S2, summed in that order.
+                    const float el=std::sqrt(dot(e,e)),q=el!=0?1/el:0;float diffuse[3],specular[3];
+                    for(unsigned i=0;i<3;++i){const auto &l=points[i];std::array<float,3> d{l.position[0]-p[0],l.position[1]-p[1],l.position[2]-p[2]};
+                        const float squared=dot(d,d),s=squared!=0?l.strength/squared:0;std::array<float,3> dq{d[0]*s,d[1]*s,d[2]*s},h{};
+                        diffuse[i]=std::max(0.0f,dot(n,dq))*weights[1];
+                        for(unsigned c=0;c<3;++c)h[c]=(dq[c]+e[c]*q)*weights[2];
+                        specular[i]=std::max(0.0f,dot(h,n));for(int32_t r=0;r<power;++r)specular[i]*=specular[i];}
+                    for(unsigned c=0;c<3;++c)factor[c]+=points[0].colour[c]*diffuse[0]+points[1].colour[c]*diffuse[1]+points[2].colour[c]*diffuse[2]+
+                        points[0].colour[c]*specular[0]+points[1].colour[c]*specular[1]+points[2].colour[c]*specular[2];}
+                for(unsigned i=0;pointLights && material[4]!=3 && i<3;++i){const auto &l=points[i];std::array<float,3> d{l.position[0]-p[0],l.position[1]-p[1],l.position[2]-p[2]};
                     const float squared=dot(d,d),q=squared!=0?l.strength/squared:0;float lit=std::max(0.0f,(n[0]*d[0]+n[1]*d[1]+n[2]*d[2])*q);
                     for(int32_t r=0;r<power;++r)lit*=lit;for(unsigned c=0;c<3;++c)factor[c]+=l.colour[c]*lit;}
                 for(const auto &l:spots){std::array<float,3> d{l.position[0]-p[0],l.position[1]-p[1],l.position[2]-p[2]};

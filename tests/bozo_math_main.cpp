@@ -3027,6 +3027,16 @@ int main(int argc,char **argv){try{
         for(unsigned v=0;v<8;++v)check(get(packet+streamAt+4*v)==(v<4?F0:F1));
         check(get(e+0x3c)==11);
         std::puts("battle flash element: the task's 255 and the factor table brighten each 4-vertex group; refusal without 47cdc0 passed");
+        // Battle trail element (class 1730d0, mod028 4a83e0): positions from the two rings, newest first.
+        // Entry 2 (+7c0 2, count 0), toggle set: A2, B2, A1, B1, A0, B0; count stored 3 - 1, toggle set again.
+        {constexpr uint32_t posAt=0x40;put(object+0x58,1);put(source+0x18,posAt);put(e,0x1730d0);put(0x1730d0+0x10,0x4a83e0);
+         put(e+0x7c0,2);put(e+0x808,0);put(e+0x80c,1);
+         for(unsigned k=0;k<3;++k)for(unsigned l=0;l<4;++l){putf(e+0x40+16*k+4*l,float(100+10*k+l));putf(e+0x400+16*k+4*l,float(200+10*k+l));}
+         R5900Context y3{};y3.r[23].ud[0]=object;y3.r[21].ud[0]=1;y3.r[29].ud[0]=stack;check(vp2s::nativeMathInstruction(r.memory.flat(),&y3,&r,0x219210));
+         const unsigned ring[6]={100,200,100,200,100,200},entry[6]={2,2,1,1,0,0};
+         for(unsigned v=0;v<6;++v)for(unsigned l=0;l<4;++l)check(get(packet+posAt+16*v+4*l)==std::bit_cast<uint32_t>(float(ring[v]+10*entry[v]+l)));
+         check(get(e+0x808)==2 && (get(e+0x80c)&0xff)==1);
+         std::puts("battle trail element: two rings interleaved into the positions, newest first, count and toggle stored back");}
     }
     std::printf("%u matrix/quaternion/Euler ABI cases, %u component products, %u whole CPU/RAM sphere getters,8192 independent scale cases and%u whole CPU/RAM axis-angle cases passed; no VU/device state\n",cases,products,sphereCases,axisCases);return 0;
 }catch(const std::exception &e){std::fprintf(stderr,"%s\n",e.what());return 1;}}

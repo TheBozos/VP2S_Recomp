@@ -12,6 +12,25 @@ The earlier VP2S face/shading and general brightness comparisons remain open.
 
 ## Build and evidence
 
+### Battle trail element 1730d0 (2026-11-22)
+
+The attack's trail element (class `1730d0`) has the +10 method mod028 `4a83e0(e, mesh
+record)`, which is EE code with whole 128-bit copies. It keeps two rings of 60 qwords
+(+40 and +400, one per edge of the trail). It fills the positions stream (record +4) from
+the newest entry back, which is (+7c0 - count +808), wrapping:
+- with the toggle (+80c) set, a vertex copies ring A at the entry;
+- otherwise it copies ring B, then the entry steps back and the count grows.
+
+The count is stored back minus one, and the toggle as it ends.
+- **Native:** `trailMesh` in the animated-vertex path (`nativeUvAnimation`). The class is
+  admitted by its +10 word hash, and positions must be streamed.
+- **Test:** `vp2s-bozo-math-check` interleaves A2, B2, A1, B1, A0, B0 and checks the stored
+  count and toggle.
+- **Evidence:** the scripted battle runs its whole 66000-frame budget with no boundary.
+  The attack, its effects and the party panel draw.
+- **Not checked:** the last frame (65980) shows red striped boxes over the bottom-right EMPTY
+  slot. Whether the game draws these is unverified (no PCSX2 comparison).
+
 ### Battle sprite builds opened additive (gauge bars 16f0a0) (2026-11-22)
 
 The gauge-bar object `ee9060` (class `16f0a0`, flush `42d4c0`) resets its writer and opens

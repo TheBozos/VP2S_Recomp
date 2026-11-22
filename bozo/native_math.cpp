@@ -1407,6 +1407,22 @@ void taskFlashMesh(Runtime *rt,uint32_t element,unsigned vertices,uint8_t *strea
         for(unsigned v=0;v<4;++v)std::memcpy(group+4*v,rgba,4);}
     uvStore(rt,element+0x3c,cursor);
 }
+// Battle trail element (class 1730d0), its +10 method mod028 4a83e0(e, mesh record): two rings of
+// 60 qwords (+40 and +400, newest at +7c0 minus the count +808) feed the positions stream (record +4)
+// alternately. With the toggle (+80c) set a vertex copies ring A at the current entry; otherwise it
+// copies ring B there, then the entry steps back one (wrapping from 0 to 59) and the count grows.
+// The count is stored back minus one and the toggle as it ends (EE code, whole 128-bit copies).
+void trailMesh(Runtime *rt,uint32_t element,unsigned vertices,uint8_t *positions){
+    auto count=uvWord(rt,element+0x808);const auto current=int32_t(uvWord(rt,element+0x7c0));bool toggle=uvByte(rt,element+0x80c)!=0;
+    int32_t entry=current-int32_t(count);if(entry<0)entry+=60;
+    if(entry<0 || entry>59)throw std::runtime_error("native battle trail entry outside its rings");
+    for(unsigned i=0;i<vertices;++i){
+        const auto from=element+0x10*uint32_t(entry)+(toggle?0x40u:0x400u);std::memcpy(positions+16*i,uvBytes(rt,from,16),16);
+        if(!toggle){if(--entry<0)entry=59;++count;}
+        toggle=!toggle;}
+    uvStore(rt,element+0x808,count-1);
+    const auto at=element+0x80c;auto word=uvWord(rt,at&~3u);const unsigned shift=(at&3)*8;word=(word&~(0xffu<<shift))|(uint32_t(toggle)<<shift);uvStore(rt,at&~3u,word);
+}
 void ribbonMesh(Runtime *rt,uint32_t element,unsigned vertices,uint8_t *positions,uint8_t *stream){
     namespace F=bozo::ps2f;
     if(vertices%6)throw std::runtime_error("battle ribbon mesh is not made of 6-vertex segments");
@@ -1469,7 +1485,7 @@ bool nativeUvAnimation(R5900Context *c,Runtime *rt,uint32_t pc){
         // skin positions/normals/packed vectors; their table for each included
         // mesh is the +18 cursor, which 237320 resets to +44 and each included
         // mesh advances by its leading halfword.
-        struct Element{uint32_t at,cursor;float scroll[2];bool all;uint32_t bits;bool skeleton;bool morph=false;bool ribbon=false;bool colour=false;bool flash=false;};std::vector<Element> elements;
+        struct Element{uint32_t at,cursor;float scroll[2];bool all;uint32_t bits;bool skeleton;bool morph=false;bool ribbon=false;bool colour=false;bool flash=false;bool trail=false;};std::vector<Element> elements;
         for(unsigned i=0;i<count;++i){const auto e=uvWord(rt,list+4*i);const auto vt=uvWord(rt,e);
             if(vt==0x154690){
                 if(uvWord(rt,vt+0x10)!=0x218220 || uvWord(rt,vt+0x18)!=0x2372f0)throw std::runtime_error("unqualified skeleton element methods");
@@ -1499,6 +1515,12 @@ bool nativeUvAnimation(R5900Context *c,Runtime *rt,uint32_t pc){
                     throw std::runtime_error("unqualified battle colour element methods");
                 if(!(flags&4))throw std::runtime_error("battle colour element without its vertex stream");
                 elements.push_back({e,0,{0,0},(uvWord(rt,e+0x18)>>8&0xff)!=0,uvWord(rt,e+0x24),true});elements.back().colour=true;continue;}
+            if(vt==0x1730d0){
+                // Battle trail element: +10 is mod028 4a83e0 (see trailMesh).
+                if(uvWord(rt,vt+0x10)!=0x4a83e0 || !overlayCode(rt,0x4a83e0,0x4a84bc,0x73a14087028e5f1cull))
+                    throw std::runtime_error("unqualified battle trail element methods");
+                if(!(flags&1))throw std::runtime_error("battle trail element without streamed positions");
+                elements.push_back({e,0,{0,0},(uvWord(rt,e+0x18)>>8&0xff)!=0,uvWord(rt,e+0x24),true});elements.back().trail=true;continue;}
             if(vt!=0x1591b0)throw std::runtime_error(std::format("unported animated vertex element class {:x} (+10={:x})",vt,uvWord(rt,vt+0x10)));
             Element el{e,uvWord(rt,e+0x34),{std::bit_cast<float>(uvWord(rt,e+0x40)),std::bit_cast<float>(uvWord(rt,e+0x44))},(uvWord(rt,e+0x18)>>8&0xff)!=0,uvWord(rt,e+0x24),false};
             for(float s:el.scroll)if((std::bit_cast<uint32_t>(s)&0x7f800000)==0x7f800000)throw std::runtime_error("unqualified UV scroll");
@@ -1511,7 +1533,7 @@ bool nativeUvAnimation(R5900Context *c,Runtime *rt,uint32_t pc){
             const auto bytes=uvWord(rt,e+0xc),flagWord=uvWord(rt,e+0x18);
             if(!((bytes>>8)&0xff) && !(flagWord&0xff))continue;
             chain.push_back(e);if(chain.size()>64)throw std::runtime_error("animated element chain outside bounds");}
-         for(size_t i=0;i<elements.size();++i){if(elements[i].morph || elements[i].ribbon || elements[i].colour || elements[i].flash)continue;
+         for(size_t i=0;i<elements.size();++i){if(elements[i].morph || elements[i].ribbon || elements[i].colour || elements[i].flash || elements[i].trail)continue;
             if(i>=chain.size() || chain[i]!=elements[i].at)throw std::runtime_error("animated element data index differs from the object's chain");}}
         music::NearestRounding rounding;
         for(int32_t j=0;j<meshes;++j){
@@ -1544,6 +1566,8 @@ bool nativeUvAnimation(R5900Context *c,Runtime *rt,uint32_t pc){
                         taskFlashMesh(rt,el.at,unsigned(n),stream.data(),stream.size());continue;}
                     if(el.colour){if(!n || (!el.all && !(uvWord(rt,el.bits+4*(uint32_t(j)>>5))>>(j&31)&1)))continue;
                         taskColourMesh(rt,el.at,unsigned(n),stream.data(),stream.size());continue;}
+                    if(el.trail){if(!n || (!el.all && !(uvWord(rt,el.bits+4*(uint32_t(j)>>5))>>(j&31)&1)))continue;
+                        trailMesh(rt,el.at,unsigned(n),positions.data());continue;}
                     if(el.ribbon){if(!n || (!el.all && !(uvWord(rt,el.bits+4*(uint32_t(j)>>5))>>(j&31)&1)))continue;
                         ribbonMesh(rt,el.at,unsigned(n),positions.data(),stream.data());continue;}
                     if(el.morph){if(!n || (!el.all && !(uvWord(rt,el.bits+4*(uint32_t(j)>>5))>>(j&31)&1)))continue;

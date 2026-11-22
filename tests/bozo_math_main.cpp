@@ -860,6 +860,10 @@ int main(int argc,char **argv){try{
             c.r[2].uw[0]=stack+0xa0;putv(stack+0xa0,{4,1,6,2});putv(stack+0xb0,{1,1,2,0});c.r[5].uw[0]=stack+0xb0;
             run({0xd8580000,0xd8b90000,0x4bd9c62c,0x4bd8c62a,0x4b18c602,0x4a1803bd,0x4a0003bf,0x4b000620,0x4823c000},c);   // QMFC2 v1
             check(c.r[3].uw[0]==std::bit_cast<uint32_t>(5.f) && c.r[3].uw[1]==0 && c.r[3].uw[2]==std::bit_cast<uint32_t>(16.f) && c.r[3].uw[3]==std::bit_cast<uint32_t>(2.f));
+            // direction26 (4a4094's form): a = (a0), b = (v1) -> (b - a) normalized to (v0), w from a.
+            c.r[4].uw[0]=stack+0xc0;c.r[3].uw[0]=stack+0xb0;c.r[2].uw[0]=stack+0xa0;putv(stack+0xc0,{1,1,1,5});putv(stack+0xb0,{1,4,5,8});
+            run({0xd89a0000,0xd87b0000,0x4bc007c3,0x27a200a0,0x4bdadeac,0x4bdad6ea,0x4b1bd83d,0x4b1bfeca,0x4a7b03be,0x4a0003bf,0x4bc0d69c,0xf85a0000},c);
+            {const auto v=getv(stack+0xa0);check(v[0]==0 && v[1]==0.6f && v[2]==0.8f && v[3]==5);}
         }
         {   // mod028 4d10a0 battle unit projection: rows kept across two points, program 0.
             constexpr uint32_t words[]={0xd8410000,0xd8420010,0xd8430020,0xd8440030};std::memcpy(rt.memory.hostPointer(0x4d1140,16),words,16);

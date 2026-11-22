@@ -12,6 +12,18 @@ The earlier VP2S face/shading and general brightness comparisons remain open.
 
 ## Build and evidence
 
+### Direction idiom (direction26) (2026-11-22)
+
+mod028 and mod068 repeat one VU0 block in 15 copies (e.g. `4a4094`, `3e4dc8`, `527948`):
+LQC2 vf26 (a) and vf27 (b); ADDw.xyz vf31 = 1; SUB.xyz vf26 = b - a; squared length;
+RSQRT; MULq.xyz; SQC2 vf26. The result is {(b - a) normalized, a.w}.
+- **Native:** the `direction26` macro idiom (ps2f). Copies with a specific handler earlier
+  in the chain, such as `4f5b38`'s segment direction, keep it. `481440`, whose block does
+  not end in that store, is not matched.
+- **Test:** `vp2s-bozo-math-check` checks a (0, 3, 4) direction with the w lane kept.
+- **Evidence:** the scripted battle passes `4a4094`. The next boundary is the battle sprite
+  flush `42d4f0` with no build (object `ee9060`, writer `ee91a0`), frame 65370.
+
 ### Palette crossfade 500df0 (2026-11-22)
 
 mod028 `500df0` (from `501114`) crossfades a2 palette entries.

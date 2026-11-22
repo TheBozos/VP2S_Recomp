@@ -1070,6 +1070,22 @@ int main(int argc,char **argv){try{
             check(o[2][0]==3 && o[2][1]==2 && o[2][2]==4);                    // |(3,-2,4)|
             check(o[3][0]==1 && o[3][1]==1 && o[3][2]==1);
         }
+        {   // mod028 4fcae0 label projection: rows loaded once, program 0 in its own blocks and in
+            // 4fc750's block (frame 0x70 below); a block outside the loading frame refuses.
+            const uint32_t rowsWords[4]={0xd8410000,0xd8420010,0xd8430020,0xd8440030},block[7]={0xd8450000,0,0,0x4a000038,0x48490001,0x27a200e0,0xf8460000};
+            std::memcpy(rt.memory.hostPointer(0x4fcb3c,16),rowsWords,16);std::memcpy(rt.memory.hostPointer(0x4fcd14,28),block,28);std::memcpy(rt.memory.hostPointer(0x4fc884,28),block,28);
+            constexpr uint32_t stack=0x1ff9000,rows=0x1b7000,point=0x1b7100,out=0x1b7200;
+            const float m[16]={2,0,0,0, 0,2,0,0, 0,0,1,0, 0,0,0,1},p[4]={1,2,3,1};   // w' = 1: (2, 4, 3, 1)
+            std::memcpy(rt.memory.hostPointer(rows,64),m,64);std::memcpy(rt.memory.hostPointer(point,16),p,16);
+            R5900Context c{};c.r[29].uw[0]=stack;c.r[2].uw[0]=rows;
+            for(unsigned k=0;k<4;++k)check(vp2s::nativeMathInstruction(rt.memory.flat(),&c,&rt,0x4fcb3c+4*k));
+            for(uint32_t base:{0x4fcd14u,0x4fc884u}){c.r[29].uw[0]=base==0x4fc884?stack-0x70:stack;
+                c.r[2].uw[0]=point;check(vp2s::nativeMathInstruction(rt.memory.flat(),&c,&rt,base));
+                check(vp2s::nativeMathInstruction(rt.memory.flat(),&c,&rt,base+0xc) && vp2s::nativeMathInstruction(rt.memory.flat(),&c,&rt,base+0x10));
+                c.r[2].uw[0]=out;std::memset(rt.memory.hostPointer(out,16),0,16);check(vp2s::nativeMathInstruction(rt.memory.flat(),&c,&rt,base+0x18));
+                float o[4];std::memcpy(o,rt.memory.hostPointer(out,16),16);check(o[0]==2 && o[1]==4 && o[2]==3 && o[3]==1);}
+            c.r[29].uw[0]=stack-0x40;c.r[2].uw[0]=point;bool failed=false;try{vp2s::nativeMathInstruction(rt.memory.flat(),&c,&rt,0x4fc884);}catch(const std::runtime_error &){failed=true;}check(failed);
+        }
         {   // mod028 4ab680 nearest of points: per point QMFC2 v1 = (distance, dy^2, dz^2, point.w).
             constexpr struct {uint32_t pc,word;} words[]={{0x4ab698,0xd89e0000},{0x4ab69c,0x4bc00643},{0x4ab6b8,0xd8bf0000},{0x4ab6bc,0x4bdeffec},{0x4ab6c4,0x4bdfffea},{0x4ab6c8,0x4b1ff83d},
                 {0x4ab6cc,0x4b1fcfca},{0x4ab6d0,0x4a1f03bd},{0x4ab6d4,0x4a0003bf},{0x4ab6d8,0x4b0007e0},{0x4ab6dc,0x4823f800}};

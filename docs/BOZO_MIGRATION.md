@@ -12,6 +12,25 @@ The earlier VP2S face/shading and general brightness comparisons remain open.
 
 ## Build and evidence
 
+### Battle label projection, mod028 4fcae0 (2026-11-22)
+
+`4fcae0` loads vf1..vf4 once with the camera rows at `*(*(*36d880+80)+18)`
+(`4fcb3c..4fcb48`). It then projects points with program 0 (LQC2 vf5 = (v0), VCALLMS 0,
+CFC2.I, SQC2 vf6 to (v0)):
+- in its own blocks `4fcd14`, `4fce04`, `4fceec` and `4fcfdc`, to `sp+e0`;
+- in callee `4fc750` (frame 0x70; its only caller is `4fcbcc`), at `4fc884`, to its `sp+50`.
+
+Every callee was checked recursively. The only other COP2 user is main `214100`, which
+uses vf12..vf18 and vf31, so the rows stay the loaded ones. What the projected points
+label is not identified.
+- **Native:** `nativeBattleLabelProjection` (`program0Projection` on rows kept per
+  runtime). Each block checks that it runs in the frame that loaded the rows.
+- **Test:** `vp2s-bozo-math-check` checks both kinds of block and a block outside that
+  frame.
+- **Evidence:** the scripted battle passes `4fcb3c` and runs to frame 63788. The next
+  boundary is the battle sprite flush `42d4f0`. Writer `e9d300` holds 640 bytes, but only
+  8 sprites and 1 texture are recorded.
+
 ### 4a50b0's node path: basis lengths at 4a52a8 (2026-11-22)
 
 `4a50b0`'s node path loads vf12..vf14 from the node's object (s1, base a1 = s1+90), then

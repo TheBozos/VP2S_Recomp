@@ -1070,6 +1070,37 @@ bool nativeBattleUnitProjection(R5900Context *c,Runtime *rt,uint32_t pc){
     if(state.loaded!=15 || !state.point)throw std::runtime_error("native battle unit projection stored without its rows and point");
     const auto result=program0Projection(state,"battle unit");std::memcpy(record(rt,stack+0x70,16),result.data(),16);state.point=false;return true;
 }
+// Battle label projection, mod028 4fcae0 (what the projected points label is not identified): LQC2 vf1..vf4 = the camera rows at
+// *(*(*36d880+80)+18) once (4fcb3c..4fcb48), then program-0 blocks (LQC2 vf5 = (v0), VCALLMS
+// 0, CFC2.I t1/vi0, SQC2 vf6 to (v0)) at 4fcd14, 4fce04, 4fceec, 4fcfdc (to sp+e0) and in its
+// only callee that projects, 4fc750 (frame 0x70, called from 4fcbcc only), at 4fc884 (to its
+// sp+50). Between them run scalar code and calls whose only COP2 (main 214100) uses vf12..vf18
+// and vf31, so the rows stay the loaded ones; each block checks it runs in the loading frame.
+struct BattleLabelRows{FlareProjection rows;uint32_t frame=0;};
+BattleLabelRows &battleLabelRows(const Runtime *rt){static std::map<const Runtime *,BattleLabelRows> states;return states[rt];}
+bool nativeBattleLabelProjection(R5900Context *c,Runtime *rt,uint32_t pc){
+    struct Block{uint32_t at,frameOffset;};
+    constexpr Block blocks[]={{0x4fcd14,0},{0x4fce04,0},{0x4fceec,0},{0x4fcfdc,0},{0x4fc884,0x70}};
+    if((pc&3) || !rt || pc<0x4fc884 || pc>0x4fcff4)return false;
+    const bool row=pc>=0x4fcb3c && pc<=0x4fcb48;
+    const Block *block=nullptr;unsigned slot=0;
+    if(!row){for(const auto &b:blocks)if(pc>=b.at && pc<=b.at+0x18){block=&b;slot=(pc-b.at)/4;}
+        if(!block || (slot!=0 && slot!=3 && slot!=4 && slot!=6))return false;}
+    const uint32_t expected=row?0xd8400000u|((pc-0x4fcb3c)/4+1)<<16|(pc-0x4fcb3c)*4:slot==0?0xd8450000u:slot==3?0x4a000038u:slot==4?0x48490001u:0xf8460000u;
+    uint32_t word=0;if(const auto *p=rt->memory.hostPointer(pc,4))std::memcpy(&word,p,4);
+    if(word!=expected)return false;   // another overlay at these addresses
+    if(!c)throw std::runtime_error("native battle label projection has no CPU record");
+    auto &st=battleLabelRows(rt);const auto stack=c->r[29].uw[0];
+    if(row){const unsigned k=(pc-0x4fcb3c)/4;if(k==0){st=BattleLabelRows{};st.frame=stack;}
+        else if(st.frame!=stack || st.rows.loaded!=(1u<<k)-1)throw std::runtime_error("native battle label rows out of order");
+        std::memcpy(st.rows.rows[k],record(rt,c->r[2].uw[0]+16*k,16),16);for(float &x:st.rows.rows[k])x=vu0Input(x);st.rows.loaded|=1u<<k;return true;}
+    if(st.rows.loaded!=15 || st.frame!=stack+block->frameOffset)throw std::runtime_error(std::format("native battle label projection at {:x} outside the frame that loaded its rows",pc));
+    if(slot==0){std::memcpy(st.rows.v,record(rt,c->r[2].uw[0],16),16);for(float &x:st.rows.v)x=vu0Input(x);st.rows.point=true;return true;}
+    if(slot==3)return true;
+    if(slot==4){c->r[9].ud[0]=0;return true;}
+    if(!st.rows.point)throw std::runtime_error("native battle label projection stored without its point");
+    const auto result=program0Projection(st.rows,"battle label");std::memcpy(record(rt,c->r[2].uw[0],16),result.data(),16);st.rows.point=false;return true;
+}
 // Two-point projection, mod001 2dfeb8 (block 2e0184). The MMI transpose before
 // it writes the rows at SP+120; LQC2 vf1..vf4 load them (2e0234..2e0240). Then
 // twice (2e0248 / 2e02e8): LQC2 vf5 = SP+160, VCALLMS 0, CFC2.I t1/vi0, SQC2
@@ -4538,6 +4569,7 @@ bool nativeMathInstruction(uint8_t *,R5900Context *c,Runtime *rt,uint32_t pc){
     if(nativeBattleNearestPoint(c,rt,pc))return true;
     if(nativeContactPoint(c,rt,pc))return true;
     if(nativeNearestOfPoints(c,rt,pc))return true;
+    if(nativeBattleLabelProjection(c,rt,pc))return true;
     if(nativeBattlePointScale(c,rt,pc))return true;
     if(nativeBattleTaskColours(c,rt,pc))return true;
     if(nativeBattleUnitProjection(c,rt,pc))return true;

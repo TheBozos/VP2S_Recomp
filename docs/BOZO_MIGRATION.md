@@ -12,6 +12,20 @@ The earlier VP2S face/shading and general brightness comparisons remain open.
 
 ## Build and evidence
 
+### Nearest of points, mod028 4ab680 (2026-11-22)
+
+`4ab680(point, points, count, out)` keeps the index of the point nearest to `point`.
+- **Per point:** vf31 = (a1) - vf30, squared (xyz). Then vf31.x = SQRT((x + y) + 1 * z),
+  via ADDq.
+- **QMFC2 v1:** x is the distance, y and z the squares, and w the point's own w (SUB and
+  MUL write xyz only).
+- **Native:** `nativeNearestOfPoints`, a word-checked site table with ps2f rounding, kept
+  per call frame.
+- **Test:** `vp2s-bozo-math-check` checks two points (the whole v1 each time) and a
+  point before its centre.
+- **Evidence:** the scripted battle passes `4ab698`. The next boundary is `4a45d8` (entry
+  `4a45d4`), frame 63764.
+
 ### Contact point, main 1f7b80's general path (2026-11-22)
 
 `1f7b80(out)` takes the midpoint of two objects' overlap along each axis. Its VU0 block

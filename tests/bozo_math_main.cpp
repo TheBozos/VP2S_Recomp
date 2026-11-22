@@ -1064,6 +1064,20 @@ int main(int argc,char **argv){try{
             check(o[2][0]==3 && o[2][1]==2 && o[2][2]==4);                    // |(3,-2,4)|
             check(o[3][0]==1 && o[3][1]==1 && o[3][2]==1);
         }
+        {   // mod028 4ab680 nearest of points: per point QMFC2 v1 = (distance, dy^2, dz^2, point.w).
+            constexpr struct {uint32_t pc,word;} words[]={{0x4ab698,0xd89e0000},{0x4ab69c,0x4bc00643},{0x4ab6b8,0xd8bf0000},{0x4ab6bc,0x4bdeffec},{0x4ab6c4,0x4bdfffea},{0x4ab6c8,0x4b1ff83d},
+                {0x4ab6cc,0x4b1fcfca},{0x4ab6d0,0x4a1f03bd},{0x4ab6d4,0x4a0003bf},{0x4ab6d8,0x4b0007e0},{0x4ab6dc,0x4823f800}};
+            for(const auto &w:words)std::memcpy(rt.memory.hostPointer(w.pc,4),&w.word,4);
+            constexpr uint32_t stack=0x1ffa000,centre=0x1b6000,points=0x1b6100;
+            const float ctr[4]={1,1,1,0},pts[2][4]={{4,5,1,7},{1,1,3,9}};
+            std::memcpy(rt.memory.hostPointer(centre,16),ctr,16);std::memcpy(rt.memory.hostPointer(points,32),pts,32);
+            R5900Context c{};c.r[29].uw[0]=stack;c.r[4].uw[0]=centre;
+            {bool failed=false;try{vp2s::nativeMathInstruction(rt.memory.flat(),&c,&rt,0x4ab6b8);}catch(const std::runtime_error &){failed=true;}check(failed);}   // no centre
+            check(vp2s::nativeMathInstruction(rt.memory.flat(),&c,&rt,0x4ab698) && vp2s::nativeMathInstruction(rt.memory.flat(),&c,&rt,0x4ab69c));
+            const float want[2][4]={{5,16,0,7},{2,0,4,9}};
+            for(unsigned k=0;k<2;++k){c.r[5].uw[0]=points+16*k;for(unsigned i=2;i<11;++i)check(vp2s::nativeMathInstruction(rt.memory.flat(),&c,&rt,words[i].pc));
+                float got[4];std::memcpy(got,c.r[3].uw,16);check(got[0]==want[k][0] && got[1]==want[k][1] && got[2]==want[k][2] && got[3]==want[k][3]);}
+        }
         {   // mod028 4a6c40 battle object overlap: the vf1..vf9 spill writes nothing; the block gives
             // ((dx^2 + dy^2) - (r1 a.w + r2 b.w)^2) + dz^2 between two translated centres.
             constexpr uint32_t words[]={0xd8c90000,0xd8aa0000,0xd88b0000,0xd8610000,0xd8620010,0x4a295298,0x4a295ad9,0xd8630020,0xd8640030,0xd8450000,0xd8460010,0xd8470020,0xd8480030,

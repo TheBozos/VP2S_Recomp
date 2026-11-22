@@ -2179,6 +2179,35 @@ bool nativeContactPoint(R5900Context *c,Runtime *rt,uint32_t pc){
     if(index==3)st=ContactPoint{};
     return true;
 }
+// Nearest of points, mod028 4ab680(point a0, points a1, count a2, out a3): LQC2 vf30 = (a0)
+// (4ab698), ADDw.xyz vf25 = 1; per point LQC2 vf31 = (a1) (4ab6b8), SUB.xyz / MUL.xyz, vf31.x =
+// (x + y) + 1 * z, SQRT, ADDq.x; QMFC2 v1 (4ab6dc): x the distance, y and z the squares, w the
+// point's own w (SUB/MUL write xyz only). The scalar loop keeps the smallest. ps2f, nearest.
+struct NearestOfPoints{VuWords centre{},point{};bool centred=false,loaded=false;uint32_t out[4]{};bool ready=false;};
+std::map<std::pair<const Runtime *,uint32_t>,NearestOfPoints> &nearestOfPoints(){static std::map<std::pair<const Runtime *,uint32_t>,NearestOfPoints> m;return m;}
+bool nativeNearestOfPoints(R5900Context *c,Runtime *rt,uint32_t pc){
+    struct Site{uint32_t pc,word;char role;};
+    constexpr Site sites[]={{0x4ab698,0xd89e0000,'c'},{0x4ab69c,0x4bc00643,'-'},{0x4ab6b8,0xd8bf0000,'p'},{0x4ab6bc,0x4bdeffec,'-'},{0x4ab6c4,0x4bdfffea,'-'},{0x4ab6c8,0x4b1ff83d,'-'},
+        {0x4ab6cc,0x4b1fcfca,'-'},{0x4ab6d0,0x4a1f03bd,'q'},{0x4ab6d4,0x4a0003bf,'-'},{0x4ab6d8,0x4b0007e0,'-'},{0x4ab6dc,0x4823f800,'m'}};
+    if((pc&3) || !rt || pc<0x4ab698 || pc>0x4ab6dc)return false;
+    const auto site=std::find_if(std::begin(sites),std::end(sites),[&](const Site &x){return x.pc==pc;});
+    if(site==std::end(sites))return false;
+    uint32_t word=0;if(const auto *p=rt->memory.hostPointer(pc,4))std::memcpy(&word,p,4);
+    if(word!=site->word)return false;   // another overlay at these addresses
+    if(!c)throw std::runtime_error("native nearest of points has no CPU record");
+    auto &st=nearestOfPoints()[{rt,c->r[29].uw[0]}];
+    switch(site->role){
+    case 'c':st=NearestOfPoints{};st.centre=vuWords(rt,c->r[4].uw[0]);st.centred=true;return true;
+    case 'p':if(!st.centred)throw std::runtime_error("native nearest of points without its centre");st.point=vuWords(rt,c->r[5].uw[0]);st.loaded=true;st.ready=false;return true;
+    case 'q':{if(!st.loaded)throw std::runtime_error("native nearest of points distance without its point");constexpr uint32_t one=0x3f800000u;
+        uint32_t sq[3];for(unsigned i=0;i<3;++i){const auto d=vuSub(st.point[i],st.centre[i]);sq[i]=vuMul(d,d);}
+        uint32_t flags=0;st.out[0]=vuAdd(0,bozo::ps2f::sqrt(vuAdd(vuAdd(sq[0],sq[1]),vuMul(one,sq[2])),flags));st.out[1]=sq[1];st.out[2]=sq[2];st.out[3]=st.point[3];
+        st.ready=true;st.loaded=false;return true;}
+    case 'm':if(!st.ready)throw std::runtime_error("native nearest of points QMFC2 without its distance");
+        for(unsigned i=0;i<4;++i)c->r[3].uw[i]=st.out[i];st.ready=false;return true;
+    default:return true;   // ADDw / SUB / MUL / ADDA / MADD / WAITQ / ADDq: folded into the distance
+    }
+}
 // Battle colour pair, mod028 47ae40(object a0, colour a1, colour a2) (one copy): the CPU
 // widens each RGBA byte colour to four words (PEXTLB/PEXTLH with zero, compiled); QMTC2 t0
 // -> vf1, t1 -> vf2, t2 (0.5f) -> vf3; ITOF0 vf1, vf2; MULx.xyz by vf3.x; SQC2 vf1, vf2 to
@@ -4507,6 +4536,7 @@ bool nativeMathInstruction(uint8_t *,R5900Context *c,Runtime *rt,uint32_t pc){
     if(nativeBattleHalfVectors(c,rt,pc))return true;
     if(nativeBattleNearestPoint(c,rt,pc))return true;
     if(nativeContactPoint(c,rt,pc))return true;
+    if(nativeNearestOfPoints(c,rt,pc))return true;
     if(nativeBattlePointScale(c,rt,pc))return true;
     if(nativeBattleTaskColours(c,rt,pc))return true;
     if(nativeBattleUnitProjection(c,rt,pc))return true;

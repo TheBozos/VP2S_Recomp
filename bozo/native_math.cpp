@@ -2141,6 +2141,44 @@ bool nativeBattleNearestPoint(R5900Context *c,Runtime *rt,uint32_t pc){
     default:return true;   // MULA/MADDA/SUB/MUL/ADDA/MADD/WAITQ/ADDq/ADDw: folded into the roles above
     }
 }
+// Contact point, mod001 1f7b80(out a0)'s general path (1f7f20..1f7fac): LQC2 vf11 = (a2) and
+// vf12 = (a1) (two extent vectors, sp+a0 / sp+90), vf9 = (t0) and vf10 = (v0) (two centres),
+// vf1..vf4 = rows (a0), vf5..vf8 = rows (v1). MULAx/MADDAy/MADDz: vf11 = (r1 a.x + r2 a.y) +
+// r3 a.z (all lanes, then ABS.xyz), vf12 likewise by vf5..vf7; MULAx/MADDAy/MADDAz/MADDw: vf9 =
+// ((r1 c.x + r2 c.y) + r3 c.z) + r4 * 1, vf10 by vf5..vf8. SQC2 vf9 -> sp+80, vf10 -> sp+70,
+// vf11 -> sp+60, vf12 -> sp+50; the scalar code then takes the overlap midpoints. ps2f, nearest,
+// kept per call frame.
+struct ContactPoint{std::array<VuWords,13> vf{};uint32_t loaded=0;bool done=false;VuWords out[4]{};};
+std::map<std::pair<const Runtime *,uint32_t>,ContactPoint> &contactPoints(){static std::map<std::pair<const Runtime *,uint32_t>,ContactPoint> m;return m;}
+bool nativeContactPoint(R5900Context *c,Runtime *rt,uint32_t pc){
+    // Loads: register number; stores: -1 - output index; 0: folded arithmetic.
+    struct Site{uint32_t pc,word;int role;};
+    constexpr Site sites[]={{0x1f7f20,0xd8cb0000,11},{0x1f7f24,0xd8ac0000,12},{0x1f7f28,0xd9090000,9},{0x1f7f2c,0xd8810000,1},{0x1f7f30,0xd8820010,2},{0x1f7f34,0xd8830020,3},{0x1f7f38,0xd8840030,4},
+        {0x1f7f3c,0xd84a0000,10},{0x1f7f40,0xd8650000,5},{0x1f7f44,0xd8660010,6},{0x1f7f48,0xd8670020,7},{0x1f7f4c,0xd8680030,8},
+        {0x1f7f50,0x4beb09bc,0},{0x1f7f54,0x4beb10bd,0},{0x1f7f58,0x4beb1aca,0},{0x1f7f5c,0x4bec29bc,0},{0x1f7f60,0x4bec30bd,0},{0x1f7f64,0x4bec3b0a,0},{0x1f7f68,0x4bcb59fd,0},
+        {0x1f7f6c,0x4be909bc,0},{0x1f7f70,0x4be910bd,0},{0x1f7f74,0x4bcc61fd,0},{0x1f7f78,0x4be918be,0},{0x1f7f7c,0x4be0224b,0},{0x1f7f80,0x4bea29bc,0},{0x1f7f84,0x4bea30bd,0},
+        {0x1f7f88,0x4bea38be,0},{0x1f7f8c,0x4be0428b,0},{0x1f7fa0,0xf8a90000,-1},{0x1f7fa4,0xf88a0000,-2},{0x1f7fa8,0xf86b0000,-3},{0x1f7fac,0xf84c0000,-4}};
+    if((pc&3) || !rt || pc<0x1f7f20 || pc>0x1f7fac)return false;
+    const auto site=std::find_if(std::begin(sites),std::end(sites),[&](const Site &x){return x.pc==pc;});
+    if(site==std::end(sites))return false;
+    uint32_t word=0;if(const auto *p=rt->memory.hostPointer(pc,4))std::memcpy(&word,p,4);
+    if(word!=site->word)return false;   // another overlay at these addresses
+    if(!c)throw std::runtime_error("native contact point has no CPU record");
+    auto &st=contactPoints()[{rt,c->r[29].uw[0]}];
+    const auto at=[&]{return c->r[(word>>21)&31].uw[0]+(word&0xffff);};
+    if(site->role>0){if(pc==0x1f7f20)st=ContactPoint{};else if(st.done || !(st.loaded&(1u<<11)))throw std::runtime_error("native contact point loads out of order");
+        st.vf[site->role]=vuWords(rt,at());st.loaded|=1u<<site->role;return true;}
+    if(site->role==0)return true;
+    if(st.loaded!=0x1ffeu)throw std::runtime_error(std::format("native contact point store at {:x} without its loads",pc));
+    if(!st.done){constexpr uint32_t one=0x3f800000u;const auto &v=st.vf;
+        const auto extent=[&](unsigned r,const VuWords &a){VuWords o;for(unsigned i=0;i<4;++i)o[i]=vuAdd(vuAdd(vuMul(v[r][i],a[0]),vuMul(v[r+1][i],a[1])),vuMul(v[r+2][i],a[2]));
+            for(unsigned i=0;i<3;++i)o[i]&=0x7fffffffu;return o;};
+        const auto centre=[&](unsigned r,const VuWords &p){VuWords o;for(unsigned i=0;i<4;++i)o[i]=vuAdd(vuAdd(vuAdd(vuMul(v[r][i],p[0]),vuMul(v[r+1][i],p[1])),vuMul(v[r+2][i],p[2])),vuMul(v[r+3][i],one));return o;};
+        st.out[0]=centre(1,v[9]);st.out[1]=centre(5,v[10]);st.out[2]=extent(1,v[11]);st.out[3]=extent(5,v[12]);st.done=true;}
+    const unsigned index=unsigned(-1-site->role);std::memcpy(record(rt,at(),16),st.out[index].data(),16);
+    if(index==3)st=ContactPoint{};
+    return true;
+}
 // Battle colour pair, mod028 47ae40(object a0, colour a1, colour a2) (one copy): the CPU
 // widens each RGBA byte colour to four words (PEXTLB/PEXTLH with zero, compiled); QMTC2 t0
 // -> vf1, t1 -> vf2, t2 (0.5f) -> vf3; ITOF0 vf1, vf2; MULx.xyz by vf3.x; SQC2 vf1, vf2 to
@@ -4468,6 +4506,7 @@ bool nativeMathInstruction(uint8_t *,R5900Context *c,Runtime *rt,uint32_t pc){
     if(nativeBattleSegmentPoints(c,rt,pc))return true;
     if(nativeBattleHalfVectors(c,rt,pc))return true;
     if(nativeBattleNearestPoint(c,rt,pc))return true;
+    if(nativeContactPoint(c,rt,pc))return true;
     if(nativeBattlePointScale(c,rt,pc))return true;
     if(nativeBattleTaskColours(c,rt,pc))return true;
     if(nativeBattleUnitProjection(c,rt,pc))return true;

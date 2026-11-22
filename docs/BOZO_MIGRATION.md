@@ -12,6 +12,28 @@ The earlier VP2S face/shading and general brightness comparisons remain open.
 
 ## Build and evidence
 
+### Contact point, main 1f7b80's general path (2026-11-22)
+
+`1f7b80(out)` takes the midpoint of two objects' overlap along each axis. Its VU0 block
+`1f7f20..1f7fac` loads:
+- extents vf11 (`sp+a0`) and vf12 (`sp+90`);
+- centres vf9 and vf10;
+- rows vf1..vf4 and vf5..vf8.
+
+It computes and stores:
+- vf9 and vf10: each centre through its rows, ((r1 x + r2 y) + r3 z) + r4 * 1, stored to
+  `sp+80` and `sp+70`;
+- vf11 and vf12: each extent through the 3x3 part, (r1 x + r2 y) + r3 z with ABS.xyz,
+  stored to `sp+60` and `sp+50`.
+
+The scalar code then takes the midpoints.
+- **Native:** `nativeContactPoint`, a word-checked site table with ps2f rounding, kept
+  per call frame. The kind 3/4/5 paths at `1f7bac..1f7de0` are not ported.
+- **Test:** `vp2s-bozo-math-check` checks a rotated object and a translated one, the four
+  stores, and a store before the loads.
+- **Evidence:** the scripted battle passes `1f7f20`. The next boundary is mod028 `4ab698`
+  (entry `4ab680`, called at `4a567c`), frame 63764.
+
 ### Picked object's segment registers, mod028 4a55e0 (2026-11-22)
 
 After the nearest-point walk picks an object (`*(5136c8)`), `4a55e0` loads vf1..vf4 with

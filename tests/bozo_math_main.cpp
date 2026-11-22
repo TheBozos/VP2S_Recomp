@@ -1042,6 +1042,28 @@ int main(int argc,char **argv){try{
             for(const auto &w:words)check(vp2s::nativeMathInstruction(rt.memory.flat(),&c,&rt,w.pc));
             c.r[3].uw[0]=picked+0x160;bool failed=false;try{vp2s::nativeMathInstruction(rt.memory.flat(),&c,&rt,0x4a563c);}catch(const std::runtime_error &){failed=true;}check(failed);
         }
+        {   // main 1f7b80 contact point: centres through each object's rows (+ translation), extents
+            // through the 3x3 part with ABS.xyz (rows 1: x -> -y, y -> x; rows 2: identity + (5,0,0)).
+            constexpr uint32_t words[]={0xd8cb0000,0xd8ac0000,0xd9090000,0xd8810000,0xd8820010,0xd8830020,0xd8840030,0xd84a0000,0xd8650000,0xd8660010,0xd8670020,0xd8680030,
+                0x4beb09bc,0x4beb10bd,0x4beb1aca,0x4bec29bc,0x4bec30bd,0x4bec3b0a,0x4bcb59fd,0x4be909bc,0x4be910bd,0x4bcc61fd,0x4be918be,0x4be0224b,0x4bea29bc,0x4bea30bd,0x4bea38be,0x4be0428b};
+            std::memcpy(rt.memory.hostPointer(0x1f7f20,sizeof(words)),words,sizeof(words));
+            constexpr uint32_t stores[]={0xf8a90000,0xf88a0000,0xf86b0000,0xf84c0000};std::memcpy(rt.memory.hostPointer(0x1f7fa0,16),stores,16);
+            constexpr uint32_t stack=0x1ffb000,r1=0x1b5000,r2=0x1b5100,c1=0x1b5200,c2=0x1b5300;
+            const float m1[16]={0,-1,0,0, 1,0,0,0, 0,0,1,0, 0,0,0,1},m2[16]={1,0,0,0, 0,1,0,0, 0,0,1,0, 5,0,0,1};
+            const float a[4]={2,3,4,0},b[4]={1,1,1,0},p1[4]={1,2,3,1},p2[4]={1,1,1,1};
+            std::memcpy(rt.memory.hostPointer(r1,64),m1,64);std::memcpy(rt.memory.hostPointer(r2,64),m2,64);std::memcpy(rt.memory.hostPointer(stack+0xa0,16),a,16);
+            std::memcpy(rt.memory.hostPointer(stack+0x90,16),b,16);std::memcpy(rt.memory.hostPointer(c1,16),p1,16);std::memcpy(rt.memory.hostPointer(c2,16),p2,16);
+            R5900Context c{};c.r[29].uw[0]=stack;c.r[6].uw[0]=stack+0xa0;c.r[5].uw[0]=stack+0x90;c.r[8].uw[0]=c1;c.r[4].uw[0]=r1;c.r[2].uw[0]=c2;c.r[3].uw[0]=r2;
+            {bool failed=false;try{vp2s::nativeMathInstruction(rt.memory.flat(),&c,&rt,0x1f7fa0);}catch(const std::runtime_error &){failed=true;}check(failed);}   // a store first
+            for(unsigned i=0;i<28;++i)check(vp2s::nativeMathInstruction(rt.memory.flat(),&c,&rt,0x1f7f20+4*i));
+            c.r[5].uw[0]=stack+0x80;c.r[4].uw[0]=stack+0x70;c.r[3].uw[0]=stack+0x60;c.r[2].uw[0]=stack+0x50;
+            for(unsigned i=0;i<4;++i)check(vp2s::nativeMathInstruction(rt.memory.flat(),&c,&rt,0x1f7fa0+4*i));
+            float o[4][4];for(unsigned i=0;i<4;++i)std::memcpy(o[i],rt.memory.hostPointer(stack+0x80-0x10*i,16),16);
+            check(o[0][0]==2 && o[0][1]==-1 && o[0][2]==3 && o[0][3]==1);   // R1 (1,2,3) = (2,-1,3)
+            check(o[1][0]==6 && o[1][1]==1 && o[1][2]==1 && o[1][3]==1);    // (1,1,1) + (5,0,0)
+            check(o[2][0]==3 && o[2][1]==2 && o[2][2]==4);                    // |(3,-2,4)|
+            check(o[3][0]==1 && o[3][1]==1 && o[3][2]==1);
+        }
         {   // mod028 4a6c40 battle object overlap: the vf1..vf9 spill writes nothing; the block gives
             // ((dx^2 + dy^2) - (r1 a.w + r2 b.w)^2) + dz^2 between two translated centres.
             constexpr uint32_t words[]={0xd8c90000,0xd8aa0000,0xd88b0000,0xd8610000,0xd8620010,0x4a295298,0x4a295ad9,0xd8630020,0xd8640030,0xd8450000,0xd8460010,0xd8470020,0xd8480030,

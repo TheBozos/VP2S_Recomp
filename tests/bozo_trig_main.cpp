@@ -171,6 +171,9 @@ struct Host:bozo::ee::Host,bozo::port::Host,vp2s::SquadOwner {
         // 214100: the same leaf with the short polynomial, quadrants at 35daf0.
         if(pc==0x214140){const auto result=reference(c->f[12],read(rt),2);std::memcpy(rt->memory.hostPointer(0x35daf8,8),result.quadrants.data(),8);}
         if(pc==0x214208){const auto result=reference(c->f[12],read(rt),2);std::memcpy(rt->memory.hostPointer(c->r[4].uw[0],16),result.value.data(),16);}
+        // 213ea0: the same leaf, quadrants at 35db10, the result to 35da80.
+        if(pc==0x213ee0){const auto result=reference(c->f[12],read(rt),2);std::memcpy(rt->memory.hostPointer(0x35db18,8),result.quadrants.data(),8);}
+        if(pc==0x213fac){const auto result=reference(c->f[12],read(rt),2);std::memcpy(rt->memory.hostPointer(0x35da80,16),result.value.data(),16);}
         if(pc==0x214338 || pc==0x2143c4){auto table=read(rt);table.halfPi=value<float>(rt,0x35da9c);const auto result=referenceShort(c->f[12],table);
             if(pc==0x214338)std::memcpy(rt->memory.hostPointer(0x35dadc,4),&result.quadrant,4);
             else std::memcpy(rt->memory.hostPointer(0x35da8c,4),&result.value,4);}
@@ -554,6 +557,30 @@ int main(){try{
             check(failure && !std::memcmp(&savedContext,&c,sizeof(c)) && !std::memcmp(ram.data(),rt.memory.flat(),ram.size()));};
         c.r[18].ud[0]=c.r[29].ud[0]+0x10;reject();c.r[18].ud[0]=0x1a0000;c.r[29].ud[0]=0x35da70;reject();c.r[29].ud[0]=0x1ffe000;c.r[31].uw[0]=0x170000;reject();c.r[31].uw[0]=0x214db8;reject();
     }
+    // 213ea0 (the 214100 leaf publishing to 35da80, returning W / Z): the generated original
+    // against the native leaf, whole CPU/RAM/FP compared; its 25 VU0 sites are new.
+    {const auto before=now.sites.size();unsigned tangentCases=0;
+    for(unsigned mode:{_MM_ROUND_NEAREST,_MM_ROUND_DOWN,_MM_ROUND_UP,_MM_ROUND_TOWARD_ZERO}){
+        for(unsigned seed=0;seed<96;++seed){
+            auto *x=a.runtime().memory.flat(),*y=b.runtime().memory.flat();std::memset(x,0x65,bozo::kFlatBytes);
+            init={};init.r[31].uw[0]=0x170000;a.runtime().functions.generated(0x358490)(x,&init,&a.runtime());
+            std::memcpy(y,x,bozo::kFlatBytes);
+            float angle=(float(int(seed%32)-16)*originalCoefficients.halfPi)+0.25f;
+            if(seed>=32){random=random*1664525u+1013904223u;angle=float(int32_t(random)%100000)/1024;}
+            R5900Context p{},q{};for(unsigned i=1;i<32;++i){p.r[i].ud[0]=0x1234000000000000ull+seed*32+i;p.r[i].ud[1]=~p.r[i].ud[0];}
+            std::memset(p.vu0_vf,0x4b,sizeof(p.vu0_vf));std::memset(&p.vu0_acc,0x5c,sizeof(p.vu0_acc));
+            p.r[31].ud[0]=0x170000;p.f[12]=angle;q=p;
+            const unsigned control=(saved&~(_MM_ROUND_MASK|0x8040|0x3f))|mode|(seed&1?0x8040:0);
+            _mm_setcsr(control);a.runtime().functions.generated(0x213ea0)(x,&p,&a.runtime());const unsigned expectedControl=_mm_getcsr();
+            _mm_setcsr(control);
+            try{b.runtime().functions.generated(0x213ea0)(y,&q,&b.runtime());}
+            catch(const std::exception &e){std::fprintf(stderr,"short tangent seed=%u mode=%x angle=%08x: %s\n",seed,mode,std::bit_cast<uint32_t>(angle),e.what());throw;}
+            check(_mm_getcsr()==expectedControl);check(!std::memcmp(&p,&q,sizeof(p)) && !std::memcmp(x,y,bozo::kFlatBytes));
+            ++tangentCases;
+        }
+    }
+    _mm_setcsr(saved);check(old.sites==now.sites && now.sites.size()==before+25);
+    std::printf("%u short sine/cosine (213ea0, 35da80) CPU/RAM/FP cases match the reference publications\n",tangentCases);}
     bool rejected=false;try{vp2s::sineCosine(std::numeric_limits<float>::infinity(),originalCoefficients);}catch(const std::runtime_error &){rejected=true;}check(rejected);
     rejected=false;try{vp2s::sineCosine(std::bit_cast<float>(1u),originalCoefficients);}catch(const std::runtime_error &){rejected=true;}check(rejected);
     rejected=false;try{vp2s::shortCosine(std::bit_cast<float>(1u),originalCoefficients);}catch(const std::runtime_error &){rejected=true;}check(rejected);

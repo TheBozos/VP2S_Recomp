@@ -12,6 +12,22 @@ The earlier VP2S face/shading and general brightness comparisons remain open.
 
 ## Build and evidence
 
+### Short sine/cosine leaf 213ea0 (2026-11-22)
+
+mod001 `213ea0` is `214100`'s leaf (short polynomial, x^9..x^3) with three differences:
+- its quadrant pair goes to `35db10` (Z/W);
+- the (k4, k5, cos, sin) result goes to `35da80`, the coefficient record's second qword,
+  instead of (a0);
+- its scalar tail returns `35da8c / 35da88` (W / Z).
+- **Native:** `shortTangentSites` in `bozo/native_trig.cpp`, using `reduceSineCosine` and
+  `shortSineCosine`.
+- **Test:** `vp2s-bozo-trig-check` now generates `213ea0` (fixture
+  `tools/vp2_bozo_trig_fixture.py`). It compares the original with the native leaf on 384
+  cases across four rounding modes, with whole CPU/RAM/FP equality, and covers 25 new sites.
+- **Evidence:** the scripted battle passes `213eb0` (called at `227078`) and runs to frame
+  64032. The next boundary is an unported native window class (site `2e9640`, called
+  from `2ecb90`).
+
 ### Battle sprite builds: a later ALPHA_2 makes the sprites after it additive (2026-11-22)
 
 Writer `e9d300` holds:

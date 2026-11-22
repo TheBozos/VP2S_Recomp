@@ -36,6 +36,13 @@ constexpr std::array<uint32_t,25> shortPairSites{
     0x214110,0x214114,0x214118,0x214124,0x214128,0x21412c,0x214130,0x214134,0x214138,0x21413c,
     0x214140,0x214144,0x214184,0x2141d8,0x2141dc,0x2141e0,0x2141e4,0x2141e8,0x2141ec,0x2141f0,
     0x2141f4,0x2141f8,0x2141fc,0x214200,0x214208};
+// 213ea0: the same leaf as 214100 (short polynomial), with its quadrant pair at 35db10 (Z/W)
+// and the result stored to 35da80 (the coefficient record's second qword) instead of (a0);
+// its scalar tail returns 35da8c / 35da88 (W / Z). Every VU0 word, sorted.
+constexpr std::array<uint32_t,25> shortTangentSites{
+    0x213eb0,0x213eb4,0x213eb8,0x213ec4,0x213ec8,0x213ecc,0x213ed0,0x213ed4,0x213ed8,0x213edc,
+    0x213ee0,0x213ee4,0x213f24,0x213f78,0x213f7c,0x213f80,0x213f8c,0x213f90,0x213f94,0x213f98,
+    0x213f9c,0x213fa0,0x213fa4,0x213fa8,0x213fac};
 constexpr std::array<uint32_t,24> cosineSites{
     0x214310,0x214314,0x214318,0x214324,0x214328,0x21432c,0x214330,0x214334,
     0x214338,0x21433c,0x214360,0x214388,0x214390,0x214394,0x214398,0x2143a4,
@@ -287,6 +294,15 @@ bool nativeTrigInstruction(uint8_t *,R5900Context *c,Runtime *rt,uint32_t pc){
             std::memcpy(record(rt,0x35daf0,16)+8,reduced.quadrants.data(),8);}
         else if(pc==0x214208){const auto result=shortSineCosine(c->f[12],coefficients(rt));
             std::memcpy(record(rt,c->r[4].uw[0],16),result.data(),16);}
+        return true;
+    }
+    if(std::binary_search(shortTangentSites.begin(),shortTangentSites.end(),pc)){
+        if(!c || c->pc!=0x213ea0)throw std::runtime_error("unported interior short sine/cosine (35da80) invocation");
+        if(pc==0x213ee0){const auto reduced=reduceSineCosine(c->f[12],coefficients(rt));
+            // Only Z/W are quadrant results; the inherited X/Y bytes stay as they are.
+            std::memcpy(record(rt,0x35db10,16)+8,reduced.quadrants.data(),8);}
+        else if(pc==0x213fac){const auto result=shortSineCosine(c->f[12],coefficients(rt));
+            std::memcpy(record(rt,0x35da80,16),result.data(),16);}
         return true;
     }
     if(std::binary_search(cosineSites.begin(),cosineSites.end(),pc)){

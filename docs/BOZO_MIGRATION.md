@@ -12,6 +12,31 @@ The earlier VP2S face/shading and general brightness comparisons remain open.
 
 ## Build and evidence
 
+### Screen effect 1545f0: draw skipped, completion entered (2026-11-22)
+
+Scene object class `1545f0` (constructor mod001 `2369d0`, builder `2350a0` = vtable +60,
+enqueue `235070`). Its job (+90, vtable `15466c`: start `235000`, completion `235050`) kicks
+a VIF1 DIRECT packet with two passes:
+1. Clear a 256 x 128 image (FBP `1ed`). Shrink the 576 x 416 frame (TEX0 = the frame,
+   TBP `1760`) into it in 18 strips, with alpha test LESS 0x80 on the frame's alpha and
+   ALPHA Cs + Cd * 0x16.
+2. Draw the image back over the frame (RGBAQ alpha 0x73, ALPHA 0x44). Alpha test is
+   GREATER 0 and the destination alpha test (DATE/DATM 1) keeps pixels whose alpha is
+   >= 0x80.
+
+The native frame has no PS2-style alpha (the engine keeps coverage alpha) and the engine
+has no destination alpha test, so what the effect shows cannot be determined here.
+
+**User decision (2026-11-22): skip the draw, keep porting.** The kernel patches the
+enqueue `23508c jal 201f20` into `jal 235050` (the job's completion, `21c9a0`), with a nop
+delay slot so a0 stays the object. `21c9a0` clears +64, which is what the start's +64 = 1
+would have led to. The builder still runs; nothing is drawn.
+- **Test:** `tests/test_bozo_kernel.py` (graphics enable retirement) lists the two patch words.
+- **Evidence:** the scripted battle runs to frame 65348. The next boundary is `527cdc`
+  (entry `527cac`).
+- **Open:** draw the effect once PCSX2 ground truth shows which pixels carry alpha below
+  0x80.
+
 ### Battle UI flush with +e8: the owner's completion (2026-11-22)
 
 At frame 65313 the main loop waited forever at `221070`: the scene's pending layer object

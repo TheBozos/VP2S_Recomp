@@ -543,7 +543,10 @@ class KernelGuardTests(unittest.TestCase):
             '00218230 10600005 100000ef',  # 218220 skins natively, then its epilogue
             # Battle-entry capture 15a850: enqueue -> job completion, group submit -> its
             # completion, state 2 -> 3 immediate repaint, DISPFB2 and list kick removed.
-            '00308c4c 0c0807c8 0c0c2304','00308c50 8c24dde0 24a4ff70','00307190 0c0483ac 0c0c1c4c','00307194 8c840094 00000000',
+            '00308c4c 0c0807c8 0c0c2304','00308c50 8c24dde0 24a4ff70',
+            # Screen effect 1545f0: its enqueue 235070 enters the job's completion (draw skipped).
+            '0023508c 0c0807c8 0c08d414','00235090 8c24dde0 00000000',
+            '00307190 0c0483ac 0c0c1c4c','00307194 8c840094 00000000',
             '0030a050 0c0c1e34 00000000','0030a060 fc220090 00000000','0030a0f0 0c048330 00000000',
             '0030ce84 3c011000 00000000','0030ce8c 8c230000 00000000','0030ce90 00621021 00000000',
             '0030ce94 3042000f 00000000','0030ce98 00021100 00000000','0030ce9c 02021021 00000000',

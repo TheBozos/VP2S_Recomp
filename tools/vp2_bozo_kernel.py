@@ -936,6 +936,12 @@ def overlay_adaptations(name,data):
             # 308c10(object) instead of the VIF1 queue; native site 308c48 draws it.
             '00308c4c 0c0807c8 0c0c2304\n'
             '00308c50 8c24dde0 24a4ff70\n'
+            # Screen effect 1545f0 (the battle's frame shrink/blend-back; its job's start 235000 kicks
+            # the built packet on VIF1). Not drawn natively yet (user 2026-11-22: skip the draw, keep
+            # porting): its enqueue 235070 calls the job's completion 235050(object) instead of
+            # 201f20, the delay slot keeping a0 = object (21c9a0 clears +64 as the start's 1 would be).
+            '0023508c 0c0807c8 0c08d414\n'
+            '00235090 8c24dde0 00000000\n'
             # Its readback group 15a7a0 (+a4): the frame copy and readbacks are the native
             # snapshot, so its submit 307170 runs the completion 307130(group) at once.
             '00307190 0c0483ac 0c0c1c4c\n'

@@ -185,6 +185,17 @@ int main(){try{
         const auto fourth=now.particles.bounds(frame,0x190000);
         check(fourth.minimum[0]==-9 && fourth.maximum[2]==12 && fourth.maximum[1]==11);
         e.r[22].uw[0]=0x1a0000;order=false;try{bmath(0x48a9cc);}catch(const std::runtime_error &){order=true;}check(order);   // not the frame's emitter
+        // mod001 2847e0 (frame 0x240, emitter in s5): ten triplets, the point at r3 (the output)
+        // or r4 (the record); two of them here, one per source register.
+        for(const auto &[pc,w]:{std::pair{0x284f14u,0xd8610000u},{0x284f58u,0x4bc1d6afu},{0x284f5cu,0x4bc1deebu},
+                {0x285050u,0xd8810000u},{0x2850a8u,0x4bc1d6afu},{0x2850acu,0x4bc1deebu}})write(rt,pc,w);
+        R5900Context f{};f.r[29].uw[0]=frame-0x240;f.r[21].uw[0]=0x190000;f.r[4].uw[0]=0x1d0030;f.r[3].uw[0]=0x1d0020;
+        write(rt,0x1d0020,std::array<float,4>{-13,0,0,1});write(rt,0x1d0030,std::array<float,4>{0,14,-6,1});
+        auto fmath=[&](uint32_t pc){return vp2s::nativeMathInstruction(rt.memory.flat(),&f,&rt,pc);};
+        check(fmath(0x284f14) && fmath(0x284f58) && fmath(0x284f5c) && fmath(0x285050) && fmath(0x2850a8) && fmath(0x2850ac));
+        const auto fifth=now.particles.bounds(frame,0x190000);
+        check(fifth.minimum[0]==-13 && fifth.maximum[1]==14 && fifth.minimum[2]==-6 && fifth.maximum[2]==12);
+        order=false;try{fmath(0x284f58);}catch(const std::runtime_error &){order=true;}check(order);   // MINI without its load
         now.particles=vp2s::NativeParticles{};
     }
     // mod003 40b080, the trail emitter: every VU0 site with the game's word at its address. A

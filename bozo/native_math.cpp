@@ -3762,8 +3762,13 @@ bool nativeParticleBox(R5900Context *c,Runtime *rt,uint32_t pc){
     // A third, 44aef0 (the forest emitter class; frame 0x40 as 3649f0). A fourth, mod028
     // 48a820 (a battle emitter's +18, frame 0xf0): the point is the record's +10 at v0
     // (48a9cc), the emitter is kept in s6 (a0 is reused), MINI/MAX at 48aa10/48aa14.
+    // mod001 2847e0 (an emitter method called from the driver at 22ed20, frame 0x240, the
+    // emitter kept in s5): ten copies of the triplet, one per point kind, the point loaded
+    // from the output just written (r3) or from the record (r4).
     constexpr Box boxes[]={{0x364a84,0x364ac4,0x364ac8,0x40,0xd8c10000,6,4},{0x38cfec,0x38d010,0x38d018,0,0xd8c10000,6,4},
-        {0x44af7c,0x44afa4,0x44afa8,0x40,0xd8c10000,6,4},{0x48a9cc,0x48aa10,0x48aa14,0xf0,0xd8410000,2,22}};
+        {0x44af7c,0x44afa4,0x44afa8,0x40,0xd8c10000,6,4},{0x48a9cc,0x48aa10,0x48aa14,0xf0,0xd8410000,2,22},
+        {0x284934,0x28498c,0x284990,0x240,0xd8610000,3,21},{0x2849f0,0x284a4c,0x284a50,0x240,0xd8610000,3,21},{0x284b18,0x284b74,0x284b78,0x240,0xd8810000,4,21},{0x284bd4,0x284c30,0x284c34,0x240,0xd8610000,3,21},{0x284cf0,0x284d1c,0x284d20,0x240,0xd8610000,3,21},
+        {0x284d80,0x284db8,0x284dbc,0x240,0xd8610000,3,21},{0x284e78,0x284eb0,0x284eb4,0x240,0xd8610000,3,21},{0x284f14,0x284f58,0x284f5c,0x240,0xd8610000,3,21},{0x285050,0x2850a8,0x2850ac,0x240,0xd8810000,4,21},{0x28510c,0x285150,0x285154,0x240,0xd8610000,3,21}};
     const Box *box=nullptr;unsigned role=0;
     for(const auto &b:boxes){if(pc==b.load){box=&b;role=0;}else if(pc==b.min){box=&b;role=1;}else if(pc==b.max){box=&b;role=2;}}
     if(!rt || !box)return false;

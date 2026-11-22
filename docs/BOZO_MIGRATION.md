@@ -12,6 +12,20 @@ The earlier VP2S face/shading and general brightness comparisons remain open.
 
 ## Build and evidence
 
+### Particle box in mod001 2847e0: ten more triplets (2026-11-22)
+
+mod001 `2847e0` is an emitter method called from the particle driver at `22ed20`. Its
+frame is 0x240 and it keeps the emitter in s5. It has ten LQC2 vf1 / MINI.xyz vf26 /
+MAX.xyz vf27 triplets, one per point kind. Each point comes from the output just written
+(r3) or from the record (r4).
+- **Native:** ten more `nativeParticleBox` entries (`bozo/native_math.cpp`). Each point
+  joins `NativeParticles::includePoint` for the driver frame.
+- **Test:** `vp2s-bozo-particles-check` checks one r3 site and one r4 site, plus a MINI
+  without its load.
+- **Evidence:** the scripted battle passes `284f14`. The next boundary is native point
+  lights in specular mode 3 (`native_models.cpp`, object `dc6980`, site `239ff0`), frame
+  63743.
+
 ### rows4 macro idiom: a point times four rows, w from the point (2026-11-22)
 
 mod001 `22b734`: LQC2 vf5 (point, a1), vf1..vf4 (rows, s2); MULAx/MADDAy/MADDAz/MADDw.xyzw

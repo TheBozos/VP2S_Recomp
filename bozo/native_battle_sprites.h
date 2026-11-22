@@ -41,6 +41,10 @@ public:
     // Band writer 383cb0 before it closes the writer (3843a0): three Gouraud strips read from
     // the packet it wrote.
     void band(Runtime *,const R5900Context *);
+    // The engine's flat rectangle writer main 120a80 (writer a0) where it commits its cursor
+    // (120c30, t4 the new end): one flat strip read back from the packet, into the writer's
+    // open battle build only (other writers are not battle UI builds and are left alone).
+    void flatQuad(Runtime *,uint32_t writer,uint32_t end);
     // Rectangle writer 42ed50 where its unrotated paths join (42efe0): the same strip forms.
     void rectangle(Runtime *,const R5900Context *);
     struct Strip {uint32_t object=0,desc=0,mode=0,data=0,z=0,colours=0,st=0,image=0;std::array<std::array<int32_t,2>,4> corners{};bool triangle=false;};

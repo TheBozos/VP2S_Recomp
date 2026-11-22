@@ -172,6 +172,26 @@ void NativeBattleSprites::band(Runtime *rt,const R5900Context *c){
     for(auto &s:strips){build.sprites.push_back(std::move(s));build.spriteTextures.push_back(NativeBattleSpriteBuild::kUntextured);
         build.polygonBytes+=kStrip;++build.polygons;}
 }
+void NativeBattleSprites::flatQuad(Runtime *rt,uint32_t writer,uint32_t end){
+    // 120a80(writer, x0, y0, x1, y1, z t0, ..., colour t2) builds the tag bit by bit (REGLIST,
+    // NLOOP 1, 6 registers 555510: PRIM, RGBAQ, XYZ2 x4; the same as 50d440), PRIM 0x204 or
+    // 0x244 with writer +15 (alpha blending), stores only the RGBA word (Q keeps stale bytes),
+    // and four XYZ2 = (0x800 - frame size / 2 + coordinate) << 4 with z << 32. The battle's
+    // gauge bars (class 16f0a0's build 38d5e0) draw through it.
+    auto it=builds.find(writer);if(it==builds.end())return;
+    auto &build=it->second;const auto at=value<uint32_t>(rt,writer+8);
+    if(end!=at+64)throw std::runtime_error(std::format("native battle flat rectangle is not one strip (writer {:x})",writer));
+    if(value<uint64_t>(rt,at)!=0x6400000000000001ull || value<uint64_t>(rt,at+8)!=0x555510ull || value<uint64_t>(rt,at+16)!=0x244ull)
+        throw std::runtime_error(std::format("unported native battle flat rectangle form (writer {:x}, PRIM {:x})",writer,value<uint64_t>(rt,at+16)));
+    if(build.sprites.size()>=4096)throw std::runtime_error("native battle sprite count outside admitted range");
+    const auto z=uint32_t(value<uint64_t>(rt,at+32)>>32);if(z>0xffffff)throw std::runtime_error("native battle flat rectangle depth outside 24 bits");
+    NativeUiSprite s{.sprite=writer,.colour=value<uint32_t>(rt,at+24),.depth=z};
+    for(unsigned i=0;i<4;++i){const auto xyz=value<uint64_t>(rt,at+32+8*i);
+        if(uint32_t(xyz>>32)!=z)throw std::runtime_error("native battle flat rectangle corners differ in depth");
+        s.fixedCorners[i]={int32_t(xyz&0xffff),int32_t((xyz>>16)&0xffff)};}
+    build.sprites.push_back(std::move(s));build.spriteTextures.push_back(NativeBattleSpriteBuild::kUntextured);
+    build.polygonBytes+=64;++build.polygons;
+}
 void NativeBattleSprites::rectangle(Runtime *rt,const R5900Context *c){
     // 42efe0, where 42ed50's two unrotated paths join: s7 object, s5 descriptor, s0 =
     // descriptor +6c (mode), s4 = the packet after the header, s3 = depth (descriptor +8 as
@@ -240,14 +260,20 @@ void NativeBattleSprites::serialize(bozo::state::Archive &a){
 std::optional<bool> nativeBattleSpriteInstruction(R5900Context *c,Runtime *rt,uint32_t pc){
     static constexpr uint32_t pairSites[]={0x4bcd40,0x4bde08,0x4d0c34,0x4d1734,0x4d99ac,0x4ecf0c,0x4ef498,0x4f0f20,0x4f268c,0x4f2874,0x4fa19c,0x4fdcc0,0x503d50};
     const bool pairSite=std::find(std::begin(pairSites),std::end(pairSites),pc)!=std::end(pairSites);
-    if(pc!=0x120860 && !pairSite && pc!=0x3cd468 && pc!=0x3cd3c8 && pc!=0x3cd4a0 && pc!=0x42ddd8 && pc!=0x42e144 && pc!=0x42efe0 && pc!=0x3843a0 && pc!=0x3cd218 && pc!=0x3cd21c && pc!=0x42d4f0 && pc!=0x42d4f4 && pc!=0x120f4c && pc!=0x120f58)return std::nullopt;
+    if(pc!=0x120860 && pc!=0x120c30 && !pairSite && pc!=0x3cd468 && pc!=0x3cd3c8 && pc!=0x3cd4a0 && pc!=0x42ddd8 && pc!=0x42e144 && pc!=0x42efe0 && pc!=0x3843a0 && pc!=0x3cd218 && pc!=0x3cd21c && pc!=0x42d4f0 && pc!=0x42d4f4 && pc!=0x120f4c && pc!=0x120f58)return std::nullopt;
     auto *d=rt?dynamic_cast<bozo::ee::Dispatcher *>(rt->services):nullptr;
     auto *owner=d?dynamic_cast<BattleSpriteOwner *>(&d->host()):nullptr;
-    if(!owner || !c){if(pc==0x120860 || pc==0x120f4c || pc==0x120f58)return std::nullopt;throw std::runtime_error("native battle sprites require an owner");}
+    if(!owner || !c){if(pc==0x120860 || pc==0x120c30 || pc==0x120f4c || pc==0x120f58)return std::nullopt;throw std::runtime_error("native battle sprites require an owner");}
     auto &sprites=owner->nativeBattleSprites();const auto sp=c->r[29].uw[0];
     if(pc==0x120f4c || pc==0x120f58){
         if(!sprites.active(sp+0x30))return std::nullopt;
         if(pc==0x120f4c)sprites.retire(rt,c);else sprites.flushed(rt,sp+0x30);
+        return false;
+    }
+    if(pc==0x120c30){
+        // main 120a80's cursor commit (sw t4, 8(a0)): record its strip when the writer is a battle build.
+        if(value<uint32_t>(rt,0x120c30)!=0xac8c0008u || value<uint32_t>(rt,0x120a80)!=0x27bdfff0u)return std::nullopt;
+        sprites.flatQuad(rt,c->r[4].uw[0],c->r[12].uw[0]);
         return false;
     }
     if(pc==0x120860){

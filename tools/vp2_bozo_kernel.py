@@ -304,7 +304,7 @@ def native_game_sites(data):
     at=s[1]+lo-s[2]
     if hashlib.sha256(data[at:at+hi-lo]).hexdigest()!='cb1860e4ee448add9d0d8d3d8b0c698774f9985e7ba073227421a58ffa920873':
         raise ValueError('USA depth blur builder signature mismatch')
-    return 'native 0x1003c4\nnative 0x11fb50\nnative 0x11f62c\nnative 0x1131c0\n'+asset_sites()+composition_sites()+'native 0x120860\nnative 0x120f4c\nnative 0x120f58\nnative 0x116070\nnative 0x115830\n'
+    return 'native 0x1003c4\nnative 0x11fb50\nnative 0x11f62c\nnative 0x1131c0\n'+asset_sites()+composition_sites()+'native 0x120860\nnative 0x120c30\nnative 0x120f4c\nnative 0x120f58\nnative 0x116070\nnative 0x115830\n'
 
 
 def asset_sites():

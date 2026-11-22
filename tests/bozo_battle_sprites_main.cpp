@@ -190,6 +190,23 @@ int main(){try{
       put(rt,writer3+8,B3+0x40+80);put(rt,base3+0x40+80,0x6400000000000001ull);put(rt,base3+0x48+80,0xf55510ull);put(rt,base3+0x50+80,0x243ull);
       put(rt,desc3+0x78,uint8_t(0));{auto f=t;f.r[16].uw[0]=0;f.r[19].uw[0]=B3+0x40+80+0x18;tri.polygon(&rt,&f);}
       check(tb->sprites.size()==2 && !tb->sprites[1].gouraud && tb->sprites[1].colour==0x50608080u && tb->polygonBytes==80+64 && tb->sprites[1].fixedCorners[3]==tb->sprites[1].fixedCorners[2]); }
-    std::puts("native battle sprites: build, texture, both ST paths, flat, Gouraud and textured polygons, flat and Gouraud triangles, bands, rectangles, flush checks");
+    // main 120a80, the engine's flat rectangle writer (the battle gauge bars, writer e5e7a0): one
+    // 64-byte strip read back at its cursor commit, only into an open battle build.
+    { constexpr uint32_t writer5=0x1a5000,base5=0x2c0000,B5=base5|0x30000000u;const uint32_t w5=writer5|0x30000000u;
+      put(rt,writer5,B5);put(rt,writer5+8,B5+0x40);put(rt,writer5+12,B5+0x40);put(rt,writer5+16,0x198u);
+      vp2s::NativeBattleSprites flat;
+      const auto packet=[&](uint32_t at,uint64_t prim){put(rt,at,0x6400000000000001ull);put(rt,at+8,0x555510ull);put(rt,at+16,prim);put(rt,at+24,uint64_t(0x00ffffffu)|0x752c8022ull<<32);
+          const uint16_t xy[4][2]={{0x6e00,0x7300},{0x7000,0x7300},{0x6e00,0x8d00},{0x7000,0x8d00}};
+          for(unsigned i=0;i<4;++i)put(rt,at+32+8*i,uint64_t(xy[i][0])|uint64_t(xy[i][1])<<16|0xffee6bull<<32);};
+      packet(base5+0x40,0x244);
+      flat.flatQuad(&rt,w5,B5+0x40+64);check(!flat.build(w5));   // no open build: not recorded
+      check(flat.begin(&rt,w5));
+      rejects([&]{flat.flatQuad(&rt,w5,B5+0x40+48);});            // not one strip
+      packet(base5+0x40,0x204);rejects([&]{flat.flatQuad(&rt,w5,B5+0x40+64);});packet(base5+0x40,0x244);   // no alpha blending
+      put(rt,base5+0x40+56+4,0xffee6cu);rejects([&]{flat.flatQuad(&rt,w5,B5+0x40+64);});put(rt,base5+0x40+56+4,0xffee6bu);   // a corner at another depth
+      flat.flatQuad(&rt,w5,B5+0x40+64);
+      const auto *fb=flat.build(w5);check(fb && fb->sprites.size()==1 && fb->polygons==1 && fb->polygonBytes==64 && !fb->sprites[0].gouraud && fb->sprites[0].colour==0x00ffffffu && fb->sprites[0].depth==0xffee6b &&
+          fb->sprites[0].fixedCorners[3]==std::array<int32_t,2>{0x7000,0x8d00} && fb->spriteTextures[0]==vp2s::NativeBattleSpriteBuild::kUntextured); }
+    std::puts("native battle sprites: build, texture, both ST paths, flat, Gouraud and textured polygons, flat and Gouraud triangles, engine flat rectangles, bands, rectangles, flush checks");
     return 0;
 }catch(const std::exception &e){std::fprintf(stderr,"%s\n",e.what());return 1;}}

@@ -12,6 +12,31 @@ The earlier VP2S face/shading and general brightness comparisons remain open.
 
 ## Build and evidence
 
+### Battle gauge bars: the engine's flat rectangle writer main 120a80 (2026-11-22)
+
+The battle sprite writer `e5e7a0` (object `ee9c70`, class `16f0a0`) flushed 1184 bytes no
+recorder owned: ALPHA, then 18 flat strips (PRIM 244, 2x26 px bars at depth ffee6b, stale Q).
+- **Investigation:** three hypotheses were ruled out with traces before the fix.
+  - Rotated `42df80`/`42ed50` paths: their end hooks ran for every other object and never
+    for this one.
+  - Strips recorded under another writer: no traced strip landed in this buffer.
+  - The data tag 50d440: only `42ec70` reads it.
+  A trace of the build's ALPHA call (120860) gave the build method: class `16f0a0`'s
+  `38d5e0`, which calls main `120a80` once per bar.
+- **Original:** `120a80(writer, x0, y0, x1, y1, z t0, ..., colour t2)` builds the same
+  REGLIST tag bit by bit (6 registers 555510), PRIM 0x204 or 0x244 (writer +15), stores only
+  the RGBA word, and writes four XYZ2 = (0x800 - frame size / 2 + coordinate) << 4 with z <<
+  32. It commits its cursor at `120c30`.
+- **Native (`NativeBattleSprites::flatQuad`, site `120c30`):** the strip is read back from
+  the packet into the writer's open battle build. Writers without one (any other caller of
+  this game-wide function) are left alone. It refuses a strip not 64 bytes long, PRIM 0x204,
+  or corners at differing depths. The main kernel site list (and its test) gains `120c30`.
+- **Test:** `vp2s-bozo-battle-sprites-check` covers no build, the three refusals, and one
+  recorded bar.
+- **Evidence:** the scripted battle flushes the bars and reaches frame 63741. The next
+  boundary is particle draw `22f160`: material `1089cc800/0+30ce0` (an encrypted pack) is not
+  converted.
+
 ### Shape tree 1f5c30: mod001's original walk, a table with 4a6470 (2026-11-22)
 
 mod001 `1f5c30` is the walk the battle compiled as `4a6470`.

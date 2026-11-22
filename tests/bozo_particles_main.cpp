@@ -196,6 +196,16 @@ int main(){try{
         const auto fifth=now.particles.bounds(frame,0x190000);
         check(fifth.minimum[0]==-13 && fifth.maximum[1]==14 && fifth.minimum[2]==-6 && fifth.maximum[2]==12);
         order=false;try{fmath(0x284f58);}catch(const std::runtime_error &){order=true;}check(order);   // MINI without its load
+        // mod001 23fa40 (the general emitter's +14, same frame and emitter register): three of its 48
+        // triplets, one per source register r3, r6, r7.
+        for(const auto &[pc,w]:{std::pair{0x23fb94u,0xd8610000u},{0x23fbecu,0x4bc1d6afu},{0x23fbf0u,0x4bc1deebu},{0x241fbcu,0xd8c10000u},{0x242008u,0x4bc1d6afu},{0x24200cu,0x4bc1deebu},
+                {0x2423b4u,0xd8e10000u},{0x2423d8u,0x4bc1d6afu},{0x2423dcu,0x4bc1deebu}})write(rt,pc,w);
+        f.r[3].uw[0]=0x1d0040;f.r[6].uw[0]=0x1d0050;f.r[7].uw[0]=0x1d0060;
+        write(rt,0x1d0040,std::array<float,4>{-20,0,0,1});write(rt,0x1d0050,std::array<float,4>{0,21,0,1});write(rt,0x1d0060,std::array<float,4>{0,0,22,1});
+        check(fmath(0x23fb94) && fmath(0x23fbec) && fmath(0x23fbf0) && fmath(0x241fbc) && fmath(0x242008) && fmath(0x24200c) && fmath(0x2423b4) && fmath(0x2423d8) && fmath(0x2423dc));
+        const auto sixth=now.particles.bounds(frame,0x190000);
+        check(sixth.minimum[0]==-20 && sixth.maximum[1]==21 && sixth.maximum[2]==22 && sixth.minimum[2]==-6);
+        order=false;try{fmath(0x2423dc);}catch(const std::runtime_error &){order=true;}check(order);   // MAX without its load
         now.particles=vp2s::NativeParticles{};
     }
     // mod003 40b080, the trail emitter: every VU0 site with the game's word at its address. A

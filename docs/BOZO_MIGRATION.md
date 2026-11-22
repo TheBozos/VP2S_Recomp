@@ -12,6 +12,23 @@ The earlier VP2S face/shading and general brightness comparisons remain open.
 
 ## Build and evidence
 
+### Battle general emitter +14 23fa40: 48 particle-box triplets (2026-11-22)
+
+The general emitter's +14 method mod001 `23fa40` is called at `22ed18` for particles of two or
+more points. It shifts their trail history with whole-qword EE copies. Each of its 144 VU0
+sites belongs to one of 48 box triplets:
+- LQC2 vf1 loads the point just written (r3, r4, r6 or r7);
+- VMINI/VMAX join it to the driver's box.
+
+Each triplet's MINI and MAX are adjacent, and no call falls between the load and them.
+- **Native:** the triplets are added to `nativeParticleBox` (frame 0x240, emitter in s5, as
+  in `2847e0`).
+- **Test:** `vp2s-bozo-particles-check` runs three triplets, one per source register r3, r6
+  and r7, and checks a MAX without its load is rejected.
+- **Evidence:** the scripted attack run goes from frame 65538 to 66450. The general
+  emitter's prepare, clock, +14 and step all run. The next boundary is mod028 `4a429c`
+  (entry `4a420c`).
+
 ### Battle general emitter clock 23f3f0 (2026-11-22)
 
 The general emitter's +10 method mod001 `23f3f0` is called at `22ecec`, after the prepare and

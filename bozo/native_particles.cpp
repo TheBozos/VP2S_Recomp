@@ -19,7 +19,9 @@ uint32_t word(const uint8_t *p,unsigned at){uint32_t v;std::memcpy(&v,p+at,4);re
 // Producer modes (+aff): 3 and 6 draw one sprite per point (VU1 images 6 / 9); 4 groups up
 // to 48 points per particle (the producer halves its per-chunk count and passes the emitter
 // methods a3 = 1). The records are the emitter's own, published byte for byte in every mode.
-bool producedMode(uint8_t mode){return mode==3 || mode==4 || mode==6;}
+// Mode 2 (battle 0x1c) is produced as mode 4 (halved count, a3 = 1); the producer only skips the
+// emitter's method +10 (its flag sp+c0 is mode >= 3), which stays the game's compiled code.
+bool producedMode(uint8_t mode){return mode==2 || mode==3 || mode==4 || mode==6;}
 bool overlaps(uint8_t *a,size_t na,uint8_t *b,size_t nb){const auto x=reinterpret_cast<uintptr_t>(a),y=reinterpret_cast<uintptr_t>(b);return x<y+nb && y<x+na;}
 }
 void NativeParticles::begin(Runtime *rt,R5900Context *c){
@@ -46,7 +48,7 @@ void NativeParticles::publish(Runtime *rt,R5900Context *c,NativeAssets &assets){
        c->r[30].uw[0]!=build.index || owner[0xaf9]!=build.index || owner[0xb04] ||
        NativeAssets::address(word(owner,0xaa0))!=first || NativeAssets::address(word(owner,0xaa4))!=first+span ||
        source!=bozo::kScratchpadBase+(build.chunks&1?0xa00:0) || c->r[19].uw[0]!=build.chunks+1 ||
-       !count || count>48 || !group || group>(owner[0xaff]==4?48u:16u) || count%group || qwords!=count*3+2 || c->r[4].uw[0]!=qwords*16 ||
+       !count || count>48 || !group || group>(owner[0xaff]==4 || owner[0xaff]==2?48u:16u) || count%group || qwords!=count*3+2 || c->r[4].uw[0]!=qwords*16 ||
        word(frame,0xe0)!=build.next || c->r[3].uw[0]!=build.next || qwords*16>build.limit-build.next)
         throw std::runtime_error("native particle publication escaped its explicit chunk/buffer");
     auto *from=record(rt,source,qwords*16),*to=record(rt,build.next,qwords*16);

@@ -12,6 +12,25 @@ The earlier VP2S face/shading and general brightness comparisons remain open.
 
 ## Build and evidence
 
+### Battles 0x1c, 0x1d, 0x1e: modules, mode-2 production, mesh class 152ca0 (2026-11-24, in progress)
+
+Launched from the forest state with `--battle 0x1c/0x1d/0x1e` and the attack4 pad.
+- **Captured modules:** 119, 134 and 157 (0x532200), 176 and 206 (0x53a380), 287 (0x542a80), taken from RAM before
+  each first call.
+- **Particle mode 2 (battle 0x1c):** the producer 22eadc makes it as mode 4 (half count per chunk, a3 = 1). It only
+  skips the emitter's method +10, which stays compiled. Its draw is VU1 image 5 (mode + 3), a ribbon program of its
+  own (not image 7): not ported yet.
+- **Procedural mesh class 152ca0 (battle 0x1e):** the same builder, finish and pre-enqueue as 152d50, with its own
+  mesh method +60 (202b40) and destructor. Mesh start now checks the TEX0 that the header 247f90 writes, *(35d9c0)
+  (the screen copy: PSMCT16 512 x 512, TBP 3180 or 2ec0), as well as the feedback key. Battle 0x1e then stops at the
+  submission: no feedback copy has been published there, so what the mesh samples is open (question sent).
+- **Clearer boundaries:** the mesh class and submission refusals name the failing condition.
+
+**Evidence:**
+- **0x1d:** runs boundary-free to 67000.
+- **Tests:** full ctest 97/97 (the particle test now refuses mode 5 where it refused mode 2).
+- **End RAM unchanged:** battle 64100 0c9960c8d9f6, forest 912f01332dbe, game over 9df948c13063, route a3f2c8f4395d.
+
 ### Battle HUD portraits: the party sheet the game composes in RAM (2026-11-23)
 
 In the attack HUD the party's portraits stand beside their buttons (Alicia by □, Rufus by ×). The port showed Alicia

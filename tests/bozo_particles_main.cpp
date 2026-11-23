@@ -619,7 +619,7 @@ int main(){try{
         auto reject=[&](uint32_t pc){const auto before=c;const auto fp=_mm_getcsr();const auto count=now.particles.outstanding();std::vector<uint8_t> ram(rt.memory.flat(),rt.memory.flat()+bozo::kFlatBytes);bool bad=false;
             try{invoke(pc);}catch(const std::runtime_error &){bad=true;}check(bad && _mm_getcsr()==fp && count==now.particles.outstanding() && !std::memcmp(&before,&c,sizeof(c)) && !std::memcmp(ram.data(),rt.memory.flat(),ram.size()));};
         reject(0x22ee88);c.pc=0x170000;reject(0x22eae0);c.pc=0x22eadc;
-        write(rt,0x180aff,uint8_t(2));reject(0x22eae0);write(rt,0x180aff,uint8_t(3));
+        write(rt,0x180aff,uint8_t(5));reject(0x22eae0);write(rt,0x180aff,uint8_t(3));   // mode 5 (VU1 image 8) is unported; 2 is produced as 4
         write(rt,0x180aa4,uint32_t(0x200000));reject(0x22eae0);write(rt,0x180aa4,uint32_t(0x220000));
         write(rt,0x1fff0e0,uint32_t(0x200030));reject(0x22eae0);write(rt,0x1fff0e0,uint32_t(0x200020));
         check(invoke(0x22eae0));reject(0x22eae0);reject(0x22f0a0);

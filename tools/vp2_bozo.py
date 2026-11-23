@@ -121,11 +121,13 @@ def main():
     # mod027 (the battle core at 0x35ec80, in place of mod003; captured at load, not on the disc's archive) and
     # mod028/030/060/068/112/175/179/220: the battle modules (loaded when op 0x38 starts a battle);
     # mod133 (captured in battle 0x18), mod129 (battle 0x1a) and mod144 (battle 0x1b) take mod112's slot at 0x532200; mod169 (battle 0x1a)
-    # and mod191 (battles 0x19, 0x1b) the 0x53a380 slot of mod175/179; mod271 (battle 0x1b) loads at 0x542a80.
+    # and mod191 (battles 0x19, 0x1b) the 0x53a380 slot of mod175/179; mod271 (battle 0x1b) loads at 0x542a80;
+    # battles 0x1c-0x1e: mod119, mod134 and mod157 at 0x532200, mod176 and mod206 at 0x53a380, mod287 at 0x542a80.
     # mod014-mod025: the overlays at 0x495500 (the camp menu's pages; mod020 is the Items page).
     ap.add_argument('--inputs', default='main,mod001,mod002,mod003,mod004,mod005,mod006,mod007,mod008,mod009,mod010,mod011,mod012,mod013,'
                                         'mod014,mod015,mod016,mod017,mod018,mod019,mod020,mod021,mod022,mod023,mod024,mod025,'
-                                        'mod027,mod028,mod030,mod060,mod068,mod112,mod129,mod133,mod144,mod169,mod175,mod179,mod191,mod220,mod271')
+                                        'mod027,mod028,mod030,mod060,mod068,mod112,mod119,mod129,mod133,mod134,mod144,mod157,mod169,mod175,mod176,'
+                                        'mod179,mod191,mod206,mod220,mod271,mod287')
     ap.add_argument('--stage', choices=['tools', 'generate', 'build', 'run', 'all'], default='build')
     ap.add_argument('--jobs', type=int, default=4)
     ap.add_argument('--ffmpeg', default=os.environ.get('BOZO_FFMPEG_ROOT', 'D:/tmb_kit/kit/ffmpeg'))

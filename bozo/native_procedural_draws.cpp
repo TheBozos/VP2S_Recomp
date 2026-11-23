@@ -15,14 +15,25 @@ template<class T>T value(Runtime *rt,uint32_t at){
     T v;auto *p=rt->memory.hostPointer(at,sizeof(T));if(!p)throw std::runtime_error("procedural draw missing memory");std::memcpy(&v,p,sizeof(v));return v;
 }
 uint32_t key(uint32_t at){return at>=0x70000000 && at<0x70004000?at:NativeAssets::address(at);}
+// Procedural mesh classes on the shared builder 2476b0 / 247700, finish 247ec0 and pre-enqueue 247650: 152d50 (its
+// mesh method +60 is 203ca0) and 152ca0 (battle 0x1e; +60 is 202b40, another geometry generator, and its own
+// destructor). Both vtables are otherwise the same; both write their ALPHA_1 (+294) with 1207d0 first.
+bool proceduralMeshClass(uint32_t vtable){return vtable==0x152d50 || vtable==0x152ca0;}
 }
 void NativeProceduralDraws::beginMesh(Runtime *rt,const R5900Context *c,const NativeScene &scene,const NativeProceduralTransforms &projections){
     if(!c || c->pc!=0x247700 || c->r[31].uw[0]!=0x247700)throw std::runtime_error("procedural mesh lacks scalar builder");
     music::CodecRounding arithmetic;const auto frame=key(c->r[29].uw[0]+0xb0),object=c->r[21].uw[0];const auto &projection=projections.projection(frame,object);
     const auto camera=scene.drawingCamera();const auto target=scene.frameTarget();
-    if(!target || !camera || camera->object!=projection.camera || value<uint32_t>(rt,object)!=0x152d50 || ready.contains(object))throw std::runtime_error("unqualified procedural mesh class/frame");
+    if(!target || !camera || camera->object!=projection.camera || !proceduralMeshClass(value<uint32_t>(rt,object)) || ready.contains(object))throw std::runtime_error("unqualified procedural mesh class/frame");
     const auto manager=value<uint32_t>(rt,0x35de38);const auto slot=value<int16_t>(rt,manager+0x2670);
-    if(slot<0 || slot>=256 || value<uint32_t>(rt,manager+0x1008+16*slot)!=0x4674404c || value<uint32_t>(rt,manager+8+16*slot)!=1)throw std::runtime_error("procedural mesh has no screen feedback texture key");
+    // The builder's header 247f90 writes TEX0_1 = *(35d9c0), the screen copy (PSMCT16 512 x 512, RGB, modulate;
+    // TBP 3180 or 2ec0 by scene), then TEXA, PABE and the object's ALPHA_1. With class 152d50 the selected manager
+    // texture is the feedback key as well; class 152ca0 (battle 0x1e) leaves another texture selected, which the
+    // draw never reads.
+    const auto tex0=value<uint64_t>(rt,0x35d9c0);
+    const bool feedbackKey=slot>=0 && slot<256 && value<uint32_t>(rt,manager+0x1008+16*slot)==0x4674404c && value<uint32_t>(rt,manager+8+16*slot)==1;
+    const bool screenCopy=((tex0>>20)&0x3f)==2 && ((tex0>>26)&15)==9 && ((tex0>>30)&15)==9 && !((tex0>>34)&1) && !((tex0>>35)&3);
+    if(!feedbackKey && !screenCopy)throw std::runtime_error(std::format("procedural mesh has no screen feedback texture (TEX0 {:x})",tex0));
     const auto count=c->r[20].uw[0],fan=c->r[22].uw[0],blend=c->r[16].uw[0];const auto always=value<uint8_t>(rt,object+0x244),noWrite=value<uint8_t>(rt,object+0x245);
     if(count>65536 || fan>1 || blend>1 || always>1 || noWrite>1)throw std::runtime_error("unported procedural primitive variant");
     auto found=active.find(frame);if(found!=active.end() && (found->second.object!=object || found->second.frame!=target || found->second.camera!=camera || found->second.mesh))throw std::runtime_error("procedural mesh overlaps active owner");
@@ -74,7 +85,10 @@ void NativeProceduralDraws::finish(const R5900Context *c,const NativeProceduralT
 }
 NativeModelSubmission NativeProceduralDraws::submission(Runtime *rt,const NativeScene &scene,const NativeFeedbackCopies &copies,uint32_t object)const{
     const auto found=ready.find(object);const auto image=copies.image(scene);const auto current=value<uint32_t>(rt,0x35ddf8);const auto layer=value<uint8_t>(rt,object+0x65);
-    if(found==ready.end() || !image || found->second.frame!=scene.frameTarget() || layer>1 || !value<uint8_t>(rt,current+0x40dc+layer) || value<uint32_t>(rt,current+0x40a8+4*layer)!=object || !value<uint8_t>(rt,object+0x63) || value<uint32_t>(rt,object)!=0x152d50)throw std::runtime_error("procedural submission has no current scene/feedback image");
+    if(found==ready.end() || !image || found->second.frame!=scene.frameTarget() || layer>1 || !value<uint8_t>(rt,current+0x40dc+layer) || value<uint32_t>(rt,current+0x40a8+4*layer)!=object || !value<uint8_t>(rt,object+0x63) || !proceduralMeshClass(value<uint32_t>(rt,object)))
+        throw std::runtime_error(std::format("procedural submission has no current scene/feedback image (object {:x}: ready {}, image {}, frame {}, layer {}, scene layer {}, current {:x})",
+            object,found!=ready.end(),bool(image),found!=ready.end() && found->second.frame==scene.frameTarget(),layer,layer<=1?value<uint8_t>(rt,current+0x40dc+layer):0,
+            layer<=1?value<uint32_t>(rt,current+0x40a8+4*layer):0));
     return {object,found->second.camera->object,found->second.batches};
 }
 void NativeProceduralDraws::consumed(uint32_t object){if(!ready.erase(object))throw std::runtime_error("procedural draw consumed twice");}

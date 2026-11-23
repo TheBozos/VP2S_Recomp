@@ -12,6 +12,15 @@ The earlier VP2S face/shading and general brightness comparisons remain open.
 
 ## Build and evidence
 
+### Mesh set-up routine 22 is a no-op (2026-11-23)
+
+At frame 72200, battle model object efdc60 draws a mesh whose set-up list names routine 22. The native draw
+refused it ("unported native mesh algorithm 22"), so I read the VU1 library:
+- in both layouts (set-up table 0x499 / 0x483), the table entry for 22 is `JR vi10`, a bare return;
+- this holds in every saved image and in every copy of the library in EE RAM at the boundary.
+
+So routine 22 does nothing, like 46. `publishGeneratedMesh` already admitted it, and the draw now does too.
+
 ### Random draw in class 173010's constructor (4a741c) (2026-11-23)
 
 At frame 72200 the battle constructs an object of class 173010 at mod028 `4a73b0`, which draws one random value:

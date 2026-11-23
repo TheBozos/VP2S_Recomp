@@ -8,6 +8,7 @@ NativeCheats &nativeCheats(){
     static const bool fromEnvironment=[]{
         // Headless tests: VP2S_CHEAT_INFINITE_HEALTH=1.
         if(const char *v=std::getenv("VP2S_CHEAT_INFINITE_HEALTH"))cheats.infiniteHealth=v[0]=='1';
+        if(const char *v=std::getenv("VP2S_CHEAT_WEAK_ENEMIES"))cheats.weakEnemies=v[0]=='1';
         if(const char *v=std::getenv("VP2S_CHEAT_MONEY"))cheats.setMoney=std::strtoll(v,nullptr,10);
         if(const char *v=std::getenv("VP2S_CHEAT_EXP"))cheats.expMultiplier=std::atoi(v);
         if(const char *v=std::getenv("VP2S_CHEAT_GIVE")){char *end=nullptr;cheats.giveItem=int(std::strtol(v,&end,0));
@@ -84,9 +85,27 @@ static void applyExp(Runtime *rt){
     }
     primed=true;
 }
+// Weak enemies: each enemy unit in the combatant table ([*1d366c + cb88] +44..+60) whose record (+818) is a live
+// enemy (kind 2, valid HP checksum, not fallen) drops to 1 HP, its checksum rewritten as the HP setter does.
+static void weakenEnemies(Runtime *rt){
+    uint32_t battle,table;
+    if(!readWord(rt,0x1d366c,battle) || !readWord(rt,battle+party::kCombatants,table) || !readWord(rt,table,battle) || battle!=0x16f7a0)return;
+    for(unsigned i=0;i<8;++i){
+        uint32_t unit,record,base,maxHp,hp,check,salt;
+        if(!readWord(rt,table+0x44+4*i,unit) || !unit || !readWord(rt,unit+party::kUnitRecord,record))continue;
+        const auto *kind=rt->memory.hostPointer(record+0x5a,1);const auto *flags=rt->memory.hostPointer(record+0x62,2);
+        if(!kind || !flags || record<0x100000 || ((*kind^party::kKindKey)&3)!=2)continue;
+        if(!readWord(rt,record+0x8,base) || !readWord(rt,record+0xc,maxHp) || !readWord(rt,record+0x10,hp) || !readWord(rt,record+0x18,check) || !readWord(rt,record+0x1c,salt))continue;
+        if(hpChecksum(base,maxHp,hp,salt)!=check)continue;
+        uint16_t f;std::memcpy(&f,flags,2);if((f^party::kFlagsKey)&0x20)continue;
+        if((hp^party::kHpKey)<=1)continue;
+        const uint32_t one=1u^party::kHpKey;writeWord(rt,record+0x10,one);writeWord(rt,record+0x18,hpChecksum(base,maxHp,one,salt));
+    }
+}
 void applyNativeCheats(Runtime *rt){
     if(!rt)return;
     applyMoney(rt);applyItems(rt);applyExp(rt);
+    if(nativeCheats().weakEnemies)weakenEnemies(rt);
     if(!nativeCheats().infiniteHealth)return;
     // Battle: the party's battle records, [*1d366c + cbcc] (4 slots, -1 or empty outside battle).
     uint32_t battle;

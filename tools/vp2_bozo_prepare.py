@@ -174,6 +174,12 @@ def overlay_entries(name,data):
         for lo,hi in ((0x4949b0,0x4949c0),(0x4949c0,0x4949d0),(0x4949d0,0x4949e0),(0x4949e0,0x4949f0),(0x4949f0,0x494a00),
                       (0x494a00,0x494a20),(0x494a20,0x494a30),(0x494a30,0x494aa0),(0x494aa0,0x494ab0)):
             entries.append(dict(Name=f'virtual_leaf_{lo:08x}',Start=hex(lo),End=hex(hi)))
+    if name=='mod028':
+        # The screen lens's closing block 375c80 (called from its build 377180; native site 375d8c at its
+        # commit), which the export omitted.
+        if hashlib.sha256(span(0x375c80,0x375da4)).hexdigest()!='d44d48ea9de6ed6f4c005807578d6944ae6410bbd23522fb181495df1b2df188':
+            raise ValueError('USA screen lens restore 375c80 mismatch')
+        entries.append(dict(Name='lens_restore_00375c80',Start='0x375c80',End='0x375da4'))
     return entries
 
 

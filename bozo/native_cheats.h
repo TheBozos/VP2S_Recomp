@@ -7,6 +7,7 @@
 namespace vp2s {
 struct NativeCheats {
     std::atomic<bool> infiniteHealth{false};   // party HP held at its maximum in battle
+    std::atomic<bool> weakEnemies{false};      // live enemies in battle held at 1 HP (one hit wins)
     std::atomic<int64_t> setMoney{-1};          // a request: the party's money (OTH) becomes this, then -1
     std::atomic<int64_t> money{-1};             // the money last read (-1: not known yet)
     // EXP: gains multiplied by this (1: off). Each party member's EXP is watched between frames; a rise of d becomes
@@ -28,6 +29,9 @@ constexpr uint32_t kMoneyKey=0x37ce67a3,kMoneyMax=99999999;
 // 0x38 bytes per item, +30 its stack limit (99 for most).
 constexpr uint32_t kExpKey=0x6cdf397e;   // +04, under the flags checksum +14
 constexpr uint32_t kInventory=0x35ec18,kItemTable=0x35ec08;
+// Battle combatants: [*1d366c + cb88] (class 16f7a0): party units +34..+40, enemy units +44..+60; each unit's
+// record at +818.
+constexpr uint32_t kCombatants=0xcb88,kUnitRecord=0x818;
 }
 // At each frame's end (the game's thread, between frames): live party members in battle back to full HP, and a
 // money request applied.

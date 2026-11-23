@@ -36,6 +36,12 @@ int main(){try{
     member(rt,alicia,63,100,0,0);member(rt,rufus,0,100,0,0x20);   // Rufus fallen
     put(rt,0x1d3694,persistent);member(rt,persistent,100,100,120,0);member(rt,persistent+0x140,100,100,80,0);
     put(rt,0x1d3690,general);put(rt,general+4,0x12345678);put(rt,general+0x6c,500^kMoneyKey);put(rt,general+0x18,generalHash(rt,general));
+    // Combatants [*1d366c + cb88] (class 16f7a0): enemy units from +44, each record at +818; a live enemy and a fallen one.
+    constexpr uint32_t combatants=0x5a0000,live=0x5a1000,fallen=0x5a2000,liveRecord=0x5a3000,fallenRecord=0x5a3200;
+    put(rt,battle+kCombatants,combatants);put(rt,combatants,0x16f7a0u);put(rt,combatants+0x44,live);put(rt,combatants+0x48,fallen);
+    put(rt,live+kUnitRecord,liveRecord);put(rt,fallen+kUnitRecord,fallenRecord);
+    member(rt,liveRecord,600,816,0,0);member(rt,fallenRecord,0,816,0,0x20);
+    for(const uint32_t r:{liveRecord,fallenRecord})*rt.memory.hostPointer(r+0x5a,1)=kKindKey^2;
     put(rt,kInventory,inventory);put(rt,kItemTable,table);for(uint32_t i=0;i<999;++i)put(rt,inventory+4*i,i);
     *rt.memory.hostPointer(table+0xe7*0x38+0x30,1)=99;*rt.memory.hostPointer(table+0x10*0x38+0x30,1)=1;
     const std::vector<uint8_t> before(rt.memory.flat(),rt.memory.flat()+0x2000000);
@@ -47,6 +53,11 @@ int main(){try{
     cheats.infiniteHealth=true;vp2s::applyNativeCheats(&rt);cheats.infiniteHealth=false;
     check((word(rt,alicia+0x10)^kHpKey)==100 && hpCheck(rt,alicia)==word(rt,alicia+0x18),"Alicia healed under her checksum");
     check((word(rt,rufus+0x10)^kHpKey)==0,"a fallen member is not revived");
+    // Weak enemies: the live enemy drops to 1 HP under its checksum; the fallen one stays at 0; party records untouched.
+    cheats.weakEnemies=true;vp2s::applyNativeCheats(&rt);cheats.weakEnemies=false;
+    check((word(rt,liveRecord+0x10)^kHpKey)==1 && hpCheck(rt,liveRecord)==word(rt,liveRecord+0x18),"a live enemy at 1 HP under its checksum");
+    check((word(rt,fallenRecord+0x10)^kHpKey)==0,"a fallen enemy is left alone");
+    check((word(rt,alicia+0x10)^kHpKey)==100,"party records are not enemies");
     // Money: 123456 under the general record's hash; above the cap clamps to 99 999 999.
     cheats.setMoney=123456;vp2s::applyNativeCheats(&rt);
     check((word(rt,general+0x6c)^kMoneyKey)==123456 && generalHash(rt,general)==word(rt,general+0x18) && cheats.money==123456,"money under its hash");
@@ -63,6 +74,6 @@ int main(){try{
     check((word(rt,r+4)^kExpKey)==210 && flagsCheck(rt,r)==word(rt,r+0x14),"EXP gain multiplied under the flags checksum");
     check((word(rt,r+0x144)^kExpKey)==80,"the other member's EXP untouched");
     vp2s::applyNativeCheats(&rt);check((word(rt,r+4)^kExpKey)==210,"no second multiplication");
-    std::printf("cheats: health, money, items and EXP keep the game's checksums; nothing written with cheats off\n");
+    std::printf("cheats: health, weak enemies, money, items and EXP keep the game's checksums; nothing written with cheats off\n");
     return 0;
 }catch(const std::exception &e){std::fprintf(stderr,"%s\n",e.what());return 1;}}

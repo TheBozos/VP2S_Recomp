@@ -127,6 +127,9 @@ int main(){try{
         auto &x=a.runtime(),&y=b.runtime();std::memset(x.memory.flat(),0x53,bozo::kFlatBytes);
         const uint32_t object=seed%3==0?0x70000100:0x180000,table=0x190000,out=seed%5==0?object+0x180:0x1a0004;
         const uint32_t stack=seed&1?0x70003f00:0x1fff000,count=seed%17;
+        // mod003's words at the height-bound sites (the handler checks them: mod028 has other code there in battle).
+        for(const auto &[at,w]:{std::pair{0x3e5ca4u,0xd88c0000u},{0x3e5ca8u,0xd88d0010u},{0x3e5cacu,0xd88e0020u},{0x3e5cb4u,0x4a003fb8u},
+                                {0x3e5cb8u,0x48490001u},{0x3e5cc0u,0xf8660000u}})put(x,at,w);
         put(x,object,0x1b0000u);put(x,0x1b0064,0x172000u);put(x,object+0x250,table);put<uint8_t>(x,object+0x61,seed%4?1:0);
         put(x,table+8,count);put(x,table+12,1u);
         for(unsigned i=0;i<count;++i)put<int16_t>(x,table+0x20+i*2,i%5==0?0x7fff:int16_t(int(i)*19-int(seed)*2));

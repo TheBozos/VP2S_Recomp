@@ -27,6 +27,8 @@ struct NativeBattleSpriteBuild {
     // The bytes the recorded content wrote after the writer's header.
     uint64_t accountedBytes()const{uint64_t n=32+uint64_t(polygonBytes)+32ull*blendWrites;for(const auto &t:textures)n+=t.bytes;return n+64ull*(sprites.size()-polygons);}
     static constexpr uint32_t kUntextured=~0u;
+    // Sampling the frame presented last (the display buffer the GS reads at the record's +670 page): screen lenses.
+    static constexpr uint32_t kPreviousFrame=~1u;
 };
 // The texel path of 42db50 (42de78..42df50): ST = 0x397fffd5 * float(texel) per coordinate,
 // from the image record's four halfwords (u0, v0, u1, v1), EE single-precision multiply.
@@ -46,6 +48,7 @@ public:
     // With 0x148 (Cs As + Cd, e.g. the gauge bars of class 16f0a0) the build starts additive.
     bool begin(Runtime *,uint32_t writer,uint64_t alpha=0x44);
     void serializeBlends(bozo::state::Archive &);
+    void serializeUvs(bozo::state::Archive &);   // appended after the blends: per-corner UVs
     // 120860 on a writer whose build is open at exactly its recorded content: a later ALPHA_2
     // (0x44 or 0x148) for the sprites after it (false: not an open build's writer).
     bool blend(Runtime *,uint32_t writer,uint64_t alpha);
@@ -69,6 +72,12 @@ public:
     void cornerShadeOpen(Runtime *,uint32_t object,uint32_t writer);
     bool cornerShade(Runtime *,uint32_t object,uint32_t writer);
     void cornerShadeClose(Runtime *,uint32_t object,uint32_t writer);
+    // Screen lens, class 16e9e0 (mod028 build 377180, the victory's): its producers write raw packets that
+    // sample the displayed frame; at their commits the vertices they wrote are read back under exact checks.
+    // 3764e0's fans (at 376f68), 375db0's frame strips (at 376490), 375c80's restore block (at 375d88), each before its commit.
+    void lensFans(Runtime *,uint32_t object,uint32_t writer,uint32_t end);
+    void lensStrips(Runtime *,uint32_t object,uint32_t writer,uint32_t end);
+    void lensRestore(Runtime *,uint32_t writer,uint32_t end);
     // VIF1-direct battle UI, class 174530: its header vt+7c 42d3e0 reserves one quadword for a VIF
     // DIRECT code on the reset writer, so the ALPHA_2 that follows opens the build one quadword in.
     // Its enqueue 42d340 (patched to complete the job at once) draws the +bc writer's build.

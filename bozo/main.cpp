@@ -279,8 +279,14 @@ public:
         const float identity[16]={1,0,0,0,0,1,0,0,0,0,1,0,0,0,0,1};
         bozo::render::Material material;material.blend=bozo::render::Material::Blend::Alpha;material.alphaTest=true;material.alphaRef=0;
         // Flat polygons (42df80) carry no picture: untextured, the same blend.
-        for(const auto &sprite:build.sprites){const auto vertices=vp2s::nativeUiSpriteVertices(sprite);material.textured=bool(sprite.picture);
-            material.blend=sprite.additive?bozo::render::Material::Blend::Additive:bozo::render::Material::Blend::Alpha;
+        // Screen lenses (class 16e9e0) sample the frame presented last, nearest, depth-tested GREATER with depth
+        // writes (TEST_2 70000, ZBUF_2 without ZMSK); their vertex alpha already carries TEXA's 0x60.
+        bozo::render::Material lens;lens.textured=false;lens.fromFrame=1;lens.source=bozo::render::Material::kPreviousFrame;lens.nearest=true;
+        lens.textureAlpha=false;lens.depthTest=true;lens.depthGreater=true;lens.depthWrite=true;
+        for(size_t i=0;i<build.sprites.size();++i){const auto &sprite=build.sprites[i];const auto vertices=vp2s::nativeUiSpriteVertices(sprite);
+            const auto blend=sprite.additive?bozo::render::Material::Blend::Additive:bozo::render::Material::Blend::Alpha;
+            if(build.spriteTextures.at(i)==vp2s::NativeBattleSpriteBuild::kPreviousFrame){lens.blend=blend;bozo::render::Renderer::instance().draw(lens,identity,vertices.data(),vertices.size());continue;}
+            material.textured=bool(sprite.picture);material.blend=blend;
             bozo::render::Renderer::instance().draw(material,identity,vertices.data(),vertices.size(),sprite.picture);}
     }
     vp2s::NativeScreenRects screenRects;
@@ -1179,6 +1185,7 @@ int main(int argc,char **argv) {
                     // measured from the same seeded boot (no draw had advanced it before 4a45d8).
                     host.procedural.seed(uint32_t(std::stoul(seed,nullptr,16)));std::fprintf(stderr,"[state] vp2s random stream set to %06x\n",host.procedural.bits());}
                 step("battle blends");if(!a.loading() || !a.atEnd())host.battleSprites.serializeBlends(a);
+                step("battle uvs");if(!a.loading() || !a.atEnd())host.battleSprites.serializeUvs(a);
                 step("done");},
             [&]{for(auto why:{host.dbc->unsaveable(),host.sprites.unsaveable(),host.windows.unsaveable(),host.uiTexts.unsaveable()})
                     if(!why.empty())return why;
@@ -1245,6 +1252,8 @@ int main(int argc,char **argv) {
                 auto &cheats=vp2s::nativeCheats();
                 bool health=cheats.infiniteHealth;
                 if(ImGui::Checkbox("Infinite health (party, in battle)",&health))cheats.infiniteHealth=health;
+                bool weak=cheats.weakEnemies;
+                if(ImGui::Checkbox("Weak enemies (1 HP, in battle)",&weak))cheats.weakEnemies=weak;
                 ImGui::TextDisabled("Live party members return to full HP every frame; the records' anti-cheat checksums are rewritten as the game does.");
                 int multiplier=cheats.expMultiplier;ImGui::SetNextItemWidth(160);
                 if(ImGui::SliderInt("EXP multiplier",&multiplier,1,10,"x%d"))cheats.expMultiplier=multiplier;

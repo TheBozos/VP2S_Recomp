@@ -329,6 +329,39 @@ int main(){try{
       const auto drawn=ui.submitDirect(&rt,direct,[](uint32_t,uint32_t){return nullptr;});
       check(drawn.sprites.size()==1 && drawn.sprites[0].colour==0x80000000u && drawn.accountedBytes()==0x70);
       put(rt,direct+0xc4,qwc+1);rejects([&]{ui.submitDirect(&rt,direct,[](uint32_t,uint32_t){return nullptr;});}); }
-    std::puts("native battle sprites: build, texture, both ST paths, flat, Gouraud and textured polygons, flat and Gouraud triangles, engine flat rectangles, bands, rectangles, corner shades, VIF1-direct UI, flush checks");
+    // Screen lens 16e9e0 (mod028 3764e0 / 375db0 / 375c80): read back at the producers' commits under exact checks.
+    // The display record [[[36d880] + 80] + 8]: page +670 = 0x75 (TEX0_2 668128ea0), ZBUF_2 +170; a field (f = 0.5).
+    { constexpr uint32_t lens=0x2da000,writerL=0x1aa000,baseL=0x300000,BL=baseL|0x30000000u,rec=0x2dc000;const uint32_t wl=writerL|0x30000000u;
+      put(rt,0x36d880,0x2db000u);put(rt,0x2db000u+0x80,0x2db100u);put(rt,0x2db100u+8,rec);put(rt,rec+0x670,uint16_t(0x75));put(rt,rec+0x170,0x1000000u);
+      put(rt,0x1e5984,uint8_t(0));
+      put(rt,0x16e9e0+0x18,0x42d4c0u);put(rt,lens,0x16e9e0u);put(rt,lens+0x90,wl);put(rt,lens+0xbb,uint8_t(0));put(rt,lens+0x17c,1);
+      put(rt,writerL,BL);put(rt,writerL+8,BL+0x40);put(rt,writerL+12,BL+0x40);put(rt,writerL+16,0x400u);
+      vp2s::NativeBattleSprites lenses;check(lenses.begin(&rt,wl,0x148));put(rt,writerL+8,BL+0x60);check(lenses.blend(&rt,wl,0x44));
+      const uint64_t tex0=0x668128ea0ull;
+      const auto ad=[&](uint32_t at,std::initializer_list<std::pair<uint64_t,uint64_t>> regs){put(rt,at,0x1000000000008000ull|regs.size());put(rt,at+8,0xeull);
+          unsigned i=0;for(const auto &[d,r]:regs){put(rt,at+16+16*i,d);put(rt,at+24+16*i,r);++i;}};
+      const uint32_t fan=baseL+0x60;
+      ad(fan,{{tex0,7},{0x15,0x15},{0x35d,0},{1,0x46},{0x1000000,0x4f},{0x70000,0x48},{0x60,0x3b}});
+      put(rt,fan+0x80,0x3400000000008022ull);put(rt,fan+0x88,0x531ull);
+      for(unsigned v=0;v<34;++v){const auto q=fan+0x90+24*v;put(rt,q,uint64_t(v?0x40808080u:0x80808080u));
+          put(rt,q+8,uint64_t(16*320+v)|uint64_t(16*112)<<16);put(rt,q+16,uint64_t(0x8000+16*v)|uint64_t(0x8000)<<16|0xffec7cull<<32);}
+      const uint32_t fanEnd=BL+0x60+0x3c0;
+      put(rt,fan+0x80,0x3400000000008021ull);rejects([&]{lenses.lensFans(&rt,lens,wl,fanEnd);});put(rt,fan+0x80,0x3400000000008022ull);   // another vertex count
+      lenses.lensFans(&rt,lens,wl,fanEnd);put(rt,writerL+8,fanEnd);
+      const auto *lb=lenses.build(wl);check(lb && lb->sprites.size()==32 && lb->spriteTextures[0]==vp2s::NativeBattleSpriteBuild::kPreviousFrame);
+      check(lb->sprites[0].freeUv && lb->sprites[0].cornerUv[0][0]==0.5f && lb->sprites[0].cornerUv[0][1]==0.5f);   // (320, 112) of 640 x 224
+      check(lb->sprites[0].cornerColours[0]==0x60808080u && lb->sprites[0].cornerColours[1]==0x30808080u);           // alpha * 0x60 / 0x80
+      const uint32_t strip=fanEnd&0x1ffffff;
+      ad(strip,{{1,0x15},{0x354,0},{0x01808080,1},{1,0x46},{0x1000000,0x4f},{0x70000,0x48},{0x60,0x3b}});
+      put(rt,strip+0x80,0xa400000000008001ull);put(rt,strip+0x88,0xf535353537ull);put(rt,strip+0x90,tex0);
+      for(unsigned j=0;j<4;++j){put(rt,strip+0x98+16*j,uint64_t(0x2800*(j&1))|uint64_t(0xe00*(j>>1))<<16);put(rt,strip+0xa0+16*j,uint64_t(0x6e00+0x2400*(j&1))|uint64_t(0x7300+0x1a00*(j>>1))<<16|0xffec7cull<<32);}
+      const uint32_t stripEnd=fanEnd+0xe0;
+      lenses.lensStrips(&rt,lens,wl,stripEnd);put(rt,writerL+8,stripEnd);
+      check(lb->sprites.size()==33 && lb->sprites[32].cornerUv[3][0]==1.f && lb->sprites[32].cornerUv[3][1]==1.f);
+      const uint32_t restore=stripEnd&0x1ffffff;
+      ad(restore,{{1,0x3f},{4,0x1c},{0x61,0x15},{0x44,0x43},{0x5000d,0x48},{0x8000008080ull,0x3b},{0x1000000,0x4f}});
+      lenses.lensRestore(&rt,wl,stripEnd+0x80);
+      check(lb->accountedBytes()==0x20+0x20+0x3c0+0xe0+0x80); }   // two ALPHA_2 writes, fans, strips, restore
+    std::puts("native battle sprites: build, texture, both ST paths, flat, Gouraud and textured polygons, flat and Gouraud triangles, engine flat rectangles, bands, rectangles, corner shades, VIF1-direct UI, screen lenses, flush checks");
     return 0;
 }catch(const std::exception &e){std::fprintf(stderr,"%s\n",e.what());return 1;}}

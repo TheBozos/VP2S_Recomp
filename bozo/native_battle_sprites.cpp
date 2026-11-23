@@ -357,6 +357,96 @@ void NativeBattleSprites::cornerShadeClose(Runtime *rt,uint32_t object,uint32_t 
     for(unsigned i=0;i<6;++i)if(value<uint64_t>(rt,at+8*i)!=block[i])throw std::runtime_error(std::format("native corner shade closing block differs (object {:x})",object));
     build.polygonBytes+=48;
 }
+// Screen lens, class 16e9e0 (mod028; the victory's). Build 377180: ALPHA_2 [3140e8] (0x148) on the reset +bb writer,
+// producer 376fd0, ALPHA_2 from [3140e0 + 8 * +ec], then three producers, each one reservation:
+// - 3764e0, per item (+17c of them, 0x1c bytes from +160: centre x, y, radii x, y, centre colour, rim colour,
+//   rotation in degrees): an A+D block (TEX0_2 the display buffer, TEX1_2 15, PRIM 35d, COLCLAMP 1, ZBUF_2 the
+//   record's +170, TEST_2 70000 = depth GREATER, TEXA 60) and a REGLIST fan of 34 (RGBAQ, UV, XYZ2): the centre,
+//   then 33 rim points on a 32-step circle. UVs sample the displayed frame around the item; positions are the
+//   same circle scaled by +114 (and rotated), mapped by +a8, +ac / 2 and offset +98, +9c.
+// - 375db0: an A+D block (TEX1_2 1, PRIM 354, RGBAQ, COLCLAMP, ZBUF_2, TEST_2, TEXA) and REGLIST strips of
+//   (TEX0_2, (UV, XYZ2) x 4, NOP): the displayed frame drawn over the screen.
+// - 375c80: the closing A+D block (TEXFLUSH, TEXCLUT 4, TEX1_2 61, ALPHA_2 44, TEST_2 5000d, TEXA, ZBUF_2).
+// The texture is the display buffer (TEX0_2 = page (record +670 & 0x1ff) * 32 | TBW 10 | PSMCT24 | TCC, the record
+// [[[36d880] + 80] + 8]): the frame presented last, 640 wide and 448 * f high, f = 1 with [1e5984] set, else 0.5
+// (a field). PSMCT24 with TCC takes TEXA's TA0 (0x60) as texel alpha, so the vertex alpha is scaled by 0x60 / 0x80.
+namespace {
+uint32_t displayRecord(Runtime *rt){return value<uint32_t>(rt,value<uint32_t>(rt,value<uint32_t>(rt,0x36d880)+0x80)+8);}
+uint64_t displayTex0(Runtime *rt){return uint64_t((value<uint16_t>(rt,displayRecord(rt)+0x670)&0x1ff)<<5)|0x68128000ull|6ull<<32;}
+float displayHeight(Runtime *rt){return value<uint8_t>(rt,0x1e5984)?448.f:224.f;}
+uint32_t lensAlpha(uint32_t rgba){return (rgba&0xffffff)|(((rgba>>24)*0x60)>>7)<<24;}
+void checkAd(Runtime *rt,uint32_t at,const std::vector<std::pair<int64_t,uint64_t>> &regs,const char *what){
+    if(value<uint64_t>(rt,at)!=(0x1000000000008000ull|regs.size()) || (value<uint64_t>(rt,at+8)&15)!=0xe)
+        throw std::runtime_error(std::format("native screen lens {} has another register tag",what));
+    for(size_t i=0;i<regs.size();++i){const auto data=value<uint64_t>(rt,at+16+16*i),reg=value<uint64_t>(rt,at+24+16*i);
+        if(reg!=regs[i].second || (regs[i].first>=0 && data!=uint64_t(regs[i].first)))
+            throw std::runtime_error(std::format("native screen lens {} register {} differs ({:x} = {:x})",what,i,reg,data));}
+}
+NativeUiSprite lensVertex(Runtime *rt,uint32_t object,uint32_t uvAt,uint32_t xyzAt,uint32_t rgba,std::array<float,2> &uv,std::array<int32_t,2> &xy,uint32_t &z){
+    const auto t=value<uint64_t>(rt,uvAt),p=value<uint64_t>(rt,xyzAt);
+    uv={float(t&0x3fff)/16.f/640.f,float((t>>16)&0x3fff)/16.f/displayHeight(rt)};
+    xy={int32_t(p&0xffff),int32_t((p>>16)&0xffff)};z=uint32_t(p>>32);
+    if(z>0xffffff)throw std::runtime_error(std::format("native screen lens depth outside 24 bits (object {:x})",object));
+    return NativeUiSprite{.sprite=object,.colour=lensAlpha(rgba)};
+}
+}
+void NativeBattleSprites::lensFans(Runtime *rt,uint32_t object,uint32_t writer,uint32_t end){
+    if(value<uint32_t>(rt,object)!=0x16e9e0 || writer!=buildWriter(rt,object))throw std::runtime_error(std::format("native screen lens writer is not its object's (object {:x})",object));
+    auto &build=bind(rt,object,writer);const auto start=value<uint32_t>(rt,writer+8);
+    constexpr uint32_t kItem=0x10+0x70+0x10+34*24;
+    const auto items=value<int32_t>(rt,object+0x17c);
+    if(items<1 || items>16 || end!=start+uint32_t(items)*kItem)throw std::runtime_error(std::format("native screen lens fans are not {} items (object {:x})",items,object));
+    const auto zbuf=value<uint32_t>(rt,displayRecord(rt)+0x170);const auto tex0=displayTex0(rt);
+    std::vector<NativeUiSprite> fans;
+    for(int32_t k=0;k<items;++k){const auto at=start+uint32_t(k)*kItem;
+        checkAd(rt,at,{{int64_t(tex0),7},{0x15,0x15},{0x35d,0},{1,0x46},{zbuf,0x4f},{0x70000,0x48},{0x60,0x3b}},"fan");
+        const auto tag=at+0x80;
+        if(value<uint64_t>(rt,tag)!=0x3400000000008022ull || value<uint64_t>(rt,tag+8)!=0x531)throw std::runtime_error("native screen lens fan has another vertex tag");
+        std::array<std::array<float,2>,34> uv{};std::array<std::array<int32_t,2>,34> xy{};std::array<uint32_t,34> z{},rgba{};
+        for(unsigned v=0;v<34;++v){const auto q=tag+0x10+24*v;rgba[v]=value<uint32_t>(rt,q);lensVertex(rt,object,q+8,q+16,rgba[v],uv[v],xy[v],z[v]);}
+        for(unsigned i=1;i<33;++i){   // the fan's triangles (centre, rim i, rim i + 1)
+            NativeUiSprite s{.sprite=object,.colour=lensAlpha(rgba[0]),.depth=z[0],.gouraud=true};s.freeUv=true;
+            const unsigned c[4]={0,i,i+1,i+1};
+            for(unsigned j=0;j<4;++j){s.fixedCorners[j]=xy[c[j]];s.cornerUv[j]=uv[c[j]];s.cornerColours[j]=lensAlpha(rgba[c[j]]);}
+            fans.push_back(std::move(s));}
+    }
+    if(build.sprites.size()+fans.size()>4096)throw std::runtime_error("native battle sprite count outside admitted range");
+    for(auto &s:fans){s.additive=build.additive;build.sprites.push_back(std::move(s));build.spriteTextures.push_back(NativeBattleSpriteBuild::kPreviousFrame);++build.polygons;}
+    build.polygonBytes+=end-start;
+}
+void NativeBattleSprites::lensStrips(Runtime *rt,uint32_t object,uint32_t writer,uint32_t end){
+    if(value<uint32_t>(rt,object)!=0x16e9e0 || writer!=buildWriter(rt,object))throw std::runtime_error(std::format("native screen lens writer is not its object's (object {:x})",object));
+    auto &build=bind(rt,object,writer);const auto start=value<uint32_t>(rt,writer+8);
+    if(end<start+0x90)throw std::runtime_error("native screen lens strips are shorter than their header");
+    const auto zbuf=value<uint32_t>(rt,displayRecord(rt)+0x170);const auto tex0=displayTex0(rt);
+    checkAd(rt,start,{{1,0x15},{0x354,0},{-1,1},{1,0x46},{zbuf,0x4f},{0x70000,0x48},{0x60,0x3b}},"strip");
+    const auto colour=lensAlpha(value<uint32_t>(rt,start+0x30));
+    const auto tag=start+0x80;const auto loops=uint32_t(value<uint64_t>(rt,tag)&0x7fff);
+    if((value<uint64_t>(rt,tag)&~0x7fffull)!=0xa400000000008000ull || (value<uint64_t>(rt,tag+8)&0xffffffffffull)!=0xf535353537ull || !loops || end!=tag+0x10+0x50*loops)
+        throw std::runtime_error(std::format("native screen lens strips have another tag (object {:x})",object));
+    std::vector<NativeUiSprite> strips;
+    for(uint32_t l=0;l<loops;++l){const auto q=tag+0x10+0x50*l;
+        if(value<uint64_t>(rt,q)!=tex0)throw std::runtime_error("native screen lens strip samples another texture");
+        NativeUiSprite s{.sprite=object,.colour=colour,.gouraud=true};s.freeUv=true;
+        for(unsigned j=0;j<4;++j){uint32_t z;lensVertex(rt,object,q+8+16*j,q+16+16*j,colour,s.cornerUv[j],s.fixedCorners[j],z);s.depth=z;s.cornerColours[j]=colour;}
+        strips.push_back(std::move(s));}
+    if(build.sprites.size()+strips.size()>4096)throw std::runtime_error("native battle sprite count outside admitted range");
+    for(auto &s:strips){s.additive=build.additive;build.sprites.push_back(std::move(s));build.spriteTextures.push_back(NativeBattleSpriteBuild::kPreviousFrame);++build.polygons;}
+    build.polygonBytes+=end-start;
+}
+void NativeBattleSprites::lensRestore(Runtime *rt,uint32_t writer,uint32_t end){
+    auto it=builds.find(writer);if(it==builds.end() || !it->second.object || value<uint32_t>(rt,it->second.object)!=0x16e9e0)
+        throw std::runtime_error(std::format("native screen lens restore has no lens build (writer {:x})",writer));
+    const auto start=value<uint32_t>(rt,writer+8);
+    if(end!=start+0x80)throw std::runtime_error("native screen lens restore is not one block");
+    checkAd(rt,start,{{1,0x3f},{4,0x1c},{0x61,0x15},{0x44,0x43},{0x5000d,0x48},{0x8000008080ll,0x3b},{value<uint32_t>(rt,displayRecord(rt)+0x170),0x4f}},"restore");
+    it->second.polygonBytes+=0x80;
+}
+void NativeBattleSprites::serializeUvs(bozo::state::Archive &a){
+    // Added after the blends: each sprite's per-corner UVs (rotated polygons, screen lenses). Older states end
+    // before it; their builds are redrawn within a frame.
+    for(auto &[writer,b]:builds)for(auto &s:b.sprites){bozo::state::io(a,s.freeUv);for(auto &uv:s.cornerUv)bozo::state::fields(a,uv[0],uv[1]);}
+}
 NativeBattleSpriteBuild NativeBattleSprites::flush(Runtime *rt,uint32_t stack,uint32_t object,uint32_t writer,const ImageLookup &image){
     if(leases.contains(stack))throw std::runtime_error("native battle sprite flush stack reused");
     if(!builds.contains(writer))throw std::runtime_error(std::format("native battle sprite flush has no build (object {:x} writer {:x})",object,writer));
@@ -378,7 +468,7 @@ NativeBattleSpriteBuild NativeBattleSprites::resolve(const NativeBattleSpriteBui
         if(!asset)
             throw std::runtime_error(std::format("native battle sprites name no published image (pixels {:x} palette {:x})",t.pixels,t.palette));
         pictures.push_back(asset->picture(t.csa));}
-    for(size_t i=0;i<resolved.sprites.size();++i)if(const auto t=resolved.spriteTextures.at(i);t!=NativeBattleSpriteBuild::kUntextured)
+    for(size_t i=0;i<resolved.sprites.size();++i)if(const auto t=resolved.spriteTextures.at(i);t!=NativeBattleSpriteBuild::kUntextured && t!=NativeBattleSpriteBuild::kPreviousFrame)
         resolved.sprites[i].picture=pictures.at(t);
     return resolved;
 }
@@ -450,7 +540,7 @@ std::optional<bool> nativeBattleSpriteInstruction(R5900Context *c,Runtime *rt,ui
     if(!nativeBattleSpriteSite(pc))return std::nullopt;   // its sites: native_conditional_sites.h
     static constexpr uint32_t pairSites[]={0x4bcd40,0x4bde08,0x4d0c34,0x4d1734,0x4d99ac,0x4ecf0c,0x4ef498,0x4f0f20,0x4f268c,0x4f2874,0x4fa19c,0x4fdcc0,0x503d50};
     const bool pairSite=std::find(std::begin(pairSites),std::end(pairSites),pc)!=std::end(pairSites);
-    if(pc!=0x120860 && pc!=0x120c30 && !pairSite && pc!=0x3cd468 && pc!=0x3cd3c8 && pc!=0x3cd4a0 && pc!=0x42ddd8 && pc!=0x42e144 && pc!=0x42ebd8 && pc!=0x42efe0 && pc!=0x3843a0 && pc!=0x42d4f0 && pc!=0x42d4f4 && pc!=0x120f4c && pc!=0x120f58 && pc!=0x4f7a40 && pc!=0x4f72d0 && pc!=0x4f7a00 && pc!=0x42d3e0 && pc!=0x42d340)return std::nullopt;
+    if(pc!=0x120860 && pc!=0x120c30 && !pairSite && pc!=0x3cd468 && pc!=0x3cd3c8 && pc!=0x3cd4a0 && pc!=0x42ddd8 && pc!=0x42e144 && pc!=0x42ebd8 && pc!=0x42efe0 && pc!=0x3843a0 && pc!=0x42d4f0 && pc!=0x42d4f4 && pc!=0x120f4c && pc!=0x120f58 && pc!=0x4f7a40 && pc!=0x4f72d0 && pc!=0x4f7a00 && pc!=0x42d3e0 && pc!=0x42d340 && pc!=0x376f68 && pc!=0x376490 && pc!=0x375d88)return std::nullopt;
     auto *d=rt?vp2s::nativeCast<bozo::ee::Dispatcher>(rt->services):nullptr;
     auto *owner=d?vp2s::nativeCast<BattleSpriteOwner>(&d->host()):nullptr;
     if(!owner || !c){if(pc==0x120860 || pc==0x120c30 || pc==0x120f4c || pc==0x120f58)return std::nullopt;throw std::runtime_error("native battle sprites require an owner");}
@@ -529,6 +619,15 @@ std::optional<bool> nativeBattleSpriteInstruction(R5900Context *c,Runtime *rt,ui
            value<uint64_t>(rt,0x50d480)!=0xe400000000000001ull || value<uint64_t>(rt,0x50d488)!=0xf5215215215210ull)
             throw std::runtime_error("native battle polygon writer differs from the USA one");
         if(pc==0x42e144)sprites.polygon(rt,c);else if(pc==0x42ebd8)sprites.rotatedPolygon(rt,c);else sprites.rectangle(rt,c);
+    }else if(pc==0x376f68 || pc==0x376490 || pc==0x375d88){
+        // Screen lens 16e9e0's producers just before their commits (jal 120f70, whose delay slot sets a1 = the end):
+        // fans at 376f68 (s7 object, s5 end, the writer at sp+110), frame strips at 376490 (s4 writer, the end s3 + 16
+        // once this addiu runs; the object + d0 kept at sp+c0, s5 being reused), restore block at 375d88 (s0 writer, the end v0 + 16). Another overlay's
+        // code there is not them.
+        if(!code(rt,0x375c80,0x3772b0,0x48141ee4f5e02c3bull))return std::nullopt;
+        if(pc==0x376f68)sprites.lensFans(rt,c->r[23].uw[0],value<uint32_t>(rt,sp+0x110),c->r[21].uw[0]);
+        else if(pc==0x376490)sprites.lensStrips(rt,value<uint32_t>(rt,sp+0xc0)-0xd0,c->r[20].uw[0],c->r[19].uw[0]+0x10);
+        else sprites.lensRestore(rt,c->r[16].uw[0],c->r[2].uw[0]+0x10);
     }else if(pc==0x42d3e0 || pc==0x42d340){
         // VIF1-direct battle UI 174530 (mod028; another overlay's code there is not it).
         // (RAM keeps the original words; the kernel's patch of 42d35c is in the generated code.)

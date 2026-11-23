@@ -12,6 +12,65 @@ The earlier VP2S face/shading and general brightness comparisons remain open.
 
 ## Build and evidence
 
+### Battle: the victory (scenario, screen lens 16e9e0, the scatter's VU0 blocks) (2026-11-23)
+
+**Scenario.** The attack5 pad from the 74000 state, with two cheats as test switches:
+- `VP2S_CHEAT_INFINITE_HEALTH=1`: the party survives.
+- `VP2S_CHEAT_WEAK_ENEMIES=1`: a new cheat (also an F2 checkbox). Live enemies drop to 1 HP under their own checksum;
+  fallen enemies are left alone. It finds them through the combatant table `[*1d366c + cb88]` (class 16f7a0): party
+  units at +34..+40, enemy units at +44..+60, each unit's record at +818.
+
+The Ballistic Rhino falls, then "Leader Down!", "OVER ATTACK!", and the units scatter. The run now reaches frame 75460.
+
+**Screen lens, class 16e9e0** (build 377180; the "OVER ATTACK" zoom).
+- **The producers write raw packets that sample the displayed frame:**
+  - 3764e0: per item, an A+D block and a REGLIST fan of 34 (centre + 33 rim points on a 32-step circle; UVs at the
+    item, positions scaled by +114 and rotated by +18);
+  - 375db0: frame strips;
+  - 375c80: a closing block.
+- **The texture is the display buffer:** TEX0_2 = page (record +670) × 32, PSMCT24 + TCC; the frame presented last,
+  640 × (448 × f), with f = 0.5 per field ([1e5984]).
+- **Native:**
+  - the vertices are read back just before each commit (376f68, 376490, 375d88) under exact tag, register and TEX0 checks;
+  - they become frame-sampling strips (`NativeBattleSpriteBuild::kPreviousFrame`), drawn from the previous
+    presentation, nearest, depth GREATER with depth writes, with TEXA's 0x60 folded into the vertex alpha;
+  - per-corner UVs join the save state as an appended block (older states load without it).
+- **Fix:** 375c80 had no export row, so it got an overlay entry; hook sites never sit on a `jal`.
+
+**VIF-free VU0 blocks of the scatter** (each matched by its exact words, ps2f in listing order):
+- **New formulas:**
+  - `cross` (4cf0c0);
+  - `scaledoffset` (4ce2c8);
+  - `plane3`, the plane through three points (4cea70);
+  - `doublesquare`;
+  - `selfdiff` (both loads read one address in the listing);
+  - an `advance` copy with k from v0.
+- **Stateful handlers:**
+  - unit collision 4cece0 (elastic response along the normal; VU state across a 20-slot loop with QMFC2 reads);
+  - spin 4ce170 (half-angle quaternion from 213fd0's vf13, composed and normalised);
+  - ground contact 4ceae0 with its callers' position steps (bounce, friction, spin axis; vf17 read after the return);
+  - turn matrix 3e63e4 / 3e5cac;
+  - row point 497508 / 496810 / 48e118 (with a second store);
+  - shape extent 496fa0;
+  - scatter offsets and scale in 48da30.
+- **Random draws:** 12 more (3e6c90, 3e6cc0, ten in 48da30), each target read only by its `mtc1`.
+- **Quaternion idiom:** now tolerates a `SQC2 vf0` before its CFC2.
+- **Fix:** mathBlock22 (mod003's height bound) now checks mod003's words; mod028 has other code at 3e5ca4.
+
+**Where the original reads VU registers the function never wrote, the native result uses defined values:**
+- the turn matrix's fourth row (vf11) is the row the CPU wrote at sp+130 / sp+120;
+- velocity w lanes keep their own w (the collision's vf9.w, the contact's vf12.w).
+
+**Evidence:**
+- **Victory run:** 74000 → 75460 with no boundary until the next one; the next boundary is the scattered bodies'
+  integrator 48f600 (an RK4 step; its blocks share vf29..vf31).
+- **End RAM unchanged:** battle 64100 54ed654e0383, forest walk 64000 912f01332dbe, game over 77000 fce9a8b43db4,
+  boot route 12000 a3f2c8f4395d.
+- **Unit checks:** `vp2s-bozo-battle-sprites` (lens fans, strips and restore: structure, UV normalisation, TEXA
+  alpha, byte accounting, a wrong vertex count rejected), `vp2s-bozo-cheats` (weak enemies), `vp2s-bozo-height-bounds`
+  (now with mod003's words in memory).
+- **ctest:** 96/96 pass.
+
 ### Battle: game over to the Load screen (corner shade 175600, VIF1-direct UI 174530) (2026-11-23)
 
 The attack5 scenario (party falls around 75000) now runs from the 74000 state to 77000 with no boundary. The run

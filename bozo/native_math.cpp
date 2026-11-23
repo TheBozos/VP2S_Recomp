@@ -2007,6 +2007,395 @@ bool nativeBattleSideAxes(R5900Context *c,Runtime *rt,uint32_t pc){
     default:return true;   // arithmetic: folded into the stores
     }
 }
+// Battle unit collision, mod028 4cece0(a0, s3 = a1 the unit, a2 its position) (the victory's fall, battle frame
+// 75400): VU0 state lives across the loop over the stage's 20 unit slots. Once: LQC2 vf1 = position (4ced18),
+// QMTC2 vf3.x = radius (+3f0, 4ced24), MAX.w vf31 = 1. Per candidate: LQC2 vf2 = its position (vt+28, 4ced80),
+// QMTC2 vf4.x = its radius (4ced8c); vf5 = vf2 - vf1; dist = SQRT((d.x^2 + d.y^2) + 1*d.z^2); vf7.x = r1 + r2,
+// vf8.x = 0 + dist, read back by QMFC2 (4cedb0, 4cedb8; the CPU skips it unless dist <= r1 + r2). On contact
+// (4cedf8..4ceec8): n = d * (1 / dist) (xyz); LQC2 vf10 = v1 (+3d0), vf11 = v2; QMTC2 vf29.x = m2, vf30.x = m1
+// (+3f8); r = m2 / m1; u1 = (v1 n).x-y-z sum, u2 likewise; P = u1*1 + u2*r; D = P^2 - ((2 u1 u2) +
+// ((1 - r) u1) u1) (1 + r); u1' = (P - SQRT(D)) / (1 + r); u2' = (P - u1') / r; SQC2 v1 + n*(u1' - u1),
+// v2 + n*(u2' - u2). ps2f, in listing order. The stores' w lanes add vf9.w (a VU register this function
+// never writes) times the change; the native result keeps each velocity's own w.
+struct BattleCollision{VuWords p1{},p2{},v1{},v2{},d{};uint32_t r1=0,r2=0,m1=0,m2=0,sum=0,dist=0;unsigned loaded=0;VuWords out1{},out2{};bool solved=false;};
+std::map<const Runtime *,BattleCollision> &battleCollisions(){static std::map<const Runtime *,BattleCollision> m;return m;}
+bool nativeBattleCollision(R5900Context *c,Runtime *rt,uint32_t pc){
+    struct Site{uint32_t pc,word;char role;};
+    static constexpr Site sites[]={{0x4ced18,0xd8c10000,'A'},{0x4ced24,0x48a21800,'r'},{0x4ced28,0x4be007d3,'-'},
+        {0x4ced80,0xd8420000,'B'},{0x4ced8c,0x48a22000,'s'},{0x4ced90,0x4be1116c,'-'},{0x4ced94,0x4be529aa,'-'},{0x4ced98,0x4b06303d,'-'},
+        {0x4ced9c,0x4b06f98a,'-'},{0x4ceda0,0x4a0603bd,'-'},{0x4ceda4,0x4b0419c0,'-'},{0x4ceda8,0x4a0003bf,'-'},{0x4cedac,0x4b000220,'-'},
+        {0x4cedb0,0x48223800,'7'},{0x4cedb8,0x48224000,'8'},{0x4cedf8,0x4a6803bc,'-'},{0x4cedfc,0xd8aa0000,'V'},{0x4cee00,0xd86b0000,'W'},
+        {0x4cee0c,0x48a2e800,'m'},{0x4cee18,0x48a2f000,'n'},
+        {0x4cee1c,0x4a0003bf,'-'},{0x4cee20,0x4bc02a5c,'-'},{0x4cee24,0x4a1eebbc,'-'},{0x4cee28,0x4be9532a,'-'},{0x4cee2c,0x4b0c603d,'-'},
+        {0x4cee30,0x4b0cfb0a,'-'},{0x4cee34,0x4be95b6a,'-'},{0x4cee38,0x4b0d683d,'-'},{0x4cee3c,0x4b0dfb4a,'-'},{0x4cee40,0x4a0003bf,'-'},
+        {0x4cee44,0x4b000660,'-'},{0x4cee48,0x4b0061bf,'-'},{0x4cee4c,0x4b006f61,'-'},{0x4cee50,0x4b00fee4,'-'},{0x4cee54,0x4b1def98,'-'},
+        {0x4cee58,0x4b00ff20,'-'},{0x4cee5c,0x4b0cded8,'-'},{0x4cee60,0x4b0cded8,'-'},{0x4cee64,0x4b0d61bc,'-'},{0x4cee68,0x4b0d60bc,'-'},
+        {0x4cee6c,0x4b00decb,'-'},{0x4cee70,0x4b1cded8,'-'},{0x4cee74,0x4b1bf6c4,'-'},{0x4cee78,0x4a1b03bd,'-'},{0x4cee7c,0x4a0003bf,'-'},
+        {0x4cee80,0x4b00efa4,'-'},{0x4cee84,0x4a1cf3bc,'-'},{0x4cee88,0x4a0003bf,'-'},{0x4cee8c,0x4b0007a0,'-'},{0x4cee90,0x4b1eef44,'-'},
+        {0x4cee94,0x4a19ebbc,'-'},{0x4cee98,0x4a0003bf,'-'},{0x4cee9c,0x4b000760,'-'},{0x4ceeac,0x4b0cf384,'-'},{0x4ceeb0,0x4b0debc4,'-'},
+        {0x4ceeb4,0x4bee49bc,'-'},{0x4ceeb8,0x4be0540b,'-'},{0x4ceebc,0x4bef49bc,'-'},{0x4ceec0,0x4be05c4b,'-'},
+        {0x4ceec4,0xf8700000,'1'},{0x4ceec8,0xf8510000,'2'}};
+    if((pc&3) || !rt || pc<0x4ced18 || pc>0x4ceec8)return false;
+    const auto site=std::find_if(std::begin(sites),std::end(sites),[&](const Site &x){return x.pc==pc;});
+    if(site==std::end(sites))return false;
+    uint32_t word=0;if(const auto *p=rt->memory.hostPointer(pc,4))std::memcpy(&word,p,4);
+    if(word!=site->word)return false;   // another overlay at these addresses
+    if(!c)throw std::runtime_error("native battle collision has no CPU record");
+    auto &st=battleCollisions()[rt];
+    const auto reg=[&](uint32_t w){return c->r[(w>>21)&31].uw[0]+(w&0xffff);};
+    const auto need=[&](unsigned bits){if((st.loaded&bits)!=bits)throw std::runtime_error(std::format("native battle collision at {:x} without its loads ({:x})",pc,st.loaded));};
+    const uint32_t one=0x3f800000u;
+    switch(site->role){
+    case 'A':st=BattleCollision{};st.p1=vuWords(rt,reg(word));st.loaded=1;return true;
+    case 'r':need(1);st.r1=c->r[(word>>16)&31].uw[0];st.loaded|=2;return true;
+    case 'B':need(3);st.p2=vuWords(rt,reg(word));st.loaded=(st.loaded&3)|4;st.solved=false;return true;
+    case 's':{need(7);st.r2=c->r[(word>>16)&31].uw[0];st.loaded|=8;
+        uint32_t sq[3];for(unsigned i=0;i<4;++i)st.d[i]=vuSub(st.p2[i],st.p1[i]);for(unsigned i=0;i<3;++i)sq[i]=vuMul(st.d[i],st.d[i]);
+        const uint32_t savedCsr=_mm_getcsr();uint32_t f=0;st.dist=vuAdd(0,bozo::ps2f::sqrt(vuAdd(vuAdd(sq[0],sq[1]),vuMul(one,sq[2])),f));_mm_setcsr(savedCsr);
+        st.sum=vuAdd(st.r1,st.r2);return true;}
+    case '7':case '8':{need(15);auto &g=c->r[(word>>16)&31];g.uw[0]=site->role=='7'?st.sum:st.dist;g.uw[1]=g.uw[2]=g.uw[3]=0;return true;}
+    case 'V':need(15);st.v1=vuWords(rt,reg(word));st.loaded|=16;return true;
+    case 'W':need(31);st.v2=vuWords(rt,reg(word));st.loaded|=32;return true;
+    case 'm':need(63);st.m2=c->r[(word>>16)&31].uw[0];st.loaded|=64;return true;
+    case 'n':need(127);st.m1=c->r[(word>>16)&31].uw[0];st.loaded|=128;return true;
+    case '1':{
+        need(255);const uint32_t savedCsr=_mm_getcsr();uint32_t f=0;
+        const auto inverse=bozo::ps2f::div(one,st.dist,f);uint32_t n[3];for(unsigned i=0;i<3;++i)n[i]=vuMul(st.d[i],inverse);
+        const auto r=bozo::ps2f::div(st.m2,st.m1,f);
+        const auto dot=[&](const VuWords &v){uint32_t p[3];for(unsigned i=0;i<3;++i)p[i]=vuMul(v[i],n[i]);return vuAdd(vuAdd(p[0],p[1]),vuMul(one,p[2]));};
+        const auto u1=dot(st.v1),u2=dot(st.v2);
+        const auto P=vuAdd(vuMul(u1,one),vuMul(u2,r));
+        auto a=vuSub(one,r);const auto P2=vuMul(P,P),b=vuAdd(one,r);a=vuMul(a,u1);a=vuMul(a,u1);
+        auto e=vuAdd(vuAdd(vuMul(u1,u2),vuMul(u1,u2)),vuMul(a,one));e=vuMul(e,b);e=vuSub(P2,e);
+        const auto root=bozo::ps2f::sqrt(e,f);
+        const auto u1n=vuAdd(0,bozo::ps2f::div(vuSub(P,root),b,f));
+        const auto u2n=vuAdd(0,bozo::ps2f::div(vuSub(P,u1n),r,f));
+        _mm_setcsr(savedCsr);
+        const auto du1=vuSub(u1n,u1),du2=vuSub(u2n,u2);
+        for(unsigned i=0;i<3;++i){st.out1[i]=vuAdd(vuMul(n[i],du1),vuMul(st.v1[i],one));st.out2[i]=vuAdd(vuMul(n[i],du2),vuMul(st.v2[i],one));}
+        st.out1[3]=st.v1[3];st.out2[3]=st.v2[3];st.solved=true;
+        std::memcpy(record(rt,reg(word),16),st.out1.data(),16);return true;}
+    case '2':
+        if(!st.solved)throw std::runtime_error("native battle collision stored vf17 before vf16");
+        std::memcpy(record(rt,reg(word),16),st.out2.data(),16);st.solved=false;return true;
+    default:return true;   // arithmetic: folded into the reads and stores
+    }
+}
+// Battle spin, mod028 4ce170(a0 = unit) (the victory's fall, battle frame 75400), when +3ec != 0: LQC2 vf1 = the
+// spin record +3e0 (4ce198); sine/cosine 213fd0(a0 = +3e0, f12 = 0.5 * +3ec * [35dee8]) ends with SQC2 vf13 to
+// +3e0 and leaves vf13 live; SQC2 vf1 back to +3e0 (4ce1c4). q = (vf1.xyz * vf13.w, 1 * vf13.z), normalised:
+// RSQRT(((w^2 + z^2) + 1*y^2) + 1*x^2) (4ce1c8..4ce1e8). The unit's rotation p (LQC2 vf1 from vt+34's pointer,
+// 4ce200) becomes p q: xyz = (q*p.w + p*q.w) + (p x q)*1, w = ((pw qw - pz qz) - 1*py qy) - 1*px qx, normalised
+// the same way; SQC2 to the same pointer (4ce244). ps2f, in listing order.
+struct BattleSpin{VuWords a{},q{},p{};unsigned loaded=0;};
+std::map<const Runtime *,BattleSpin> &battleSpins(){static std::map<const Runtime *,BattleSpin> m;return m;}
+bool nativeBattleSpin(R5900Context *c,Runtime *rt,uint32_t pc){
+    struct Site{uint32_t pc,word;char role;};
+    static constexpr Site sites[]={{0x4ce198,0xda010000,'a'},{0x4ce1c4,0xfa010000,'b'},
+        {0x4ce1c8,0x4bcd089b,'-'},{0x4ce1cc,0x4a2d009a,'-'},{0x4ce1d0,0x4be210ea,'-'},{0x4ce1d4,0x4a23183e,'-'},{0x4ce1d8,0x4a2300bd,'-'},
+        {0x4ce1dc,0x4a2300c8,'-'},{0x4ce1e0,0x4be303be,'-'},{0x4ce1e4,0x4a0003bf,'-'},{0x4ce1e8,0x4be0109c,'-'},
+        {0x4ce200,0xd8410000,'p'},{0x4ce204,0x4bc20afe,'-'},{0x4ce208,0x4bc110ee,'-'},{0x4ce20c,0x4be2092a,'-'},{0x4ce210,0x4bc111bf,'-'},
+        {0x4ce214,0x4bc208bf,'-'},{0x4ce218,0x4bc0184b,'-'},{0x4ce21c,0x4a24207e,'-'},{0x4ce220,0x4a2400fd,'-'},{0x4ce224,0x4a24004c,'-'},
+        {0x4ce228,0x4be108ea,'-'},{0x4ce22c,0x4a23183e,'-'},{0x4ce230,0x4a2300bd,'-'},{0x4ce234,0x4a2300c8,'-'},{0x4ce238,0x4be303be,'-'},
+        {0x4ce23c,0x4a0003bf,'-'},{0x4ce240,0x4be0085c,'-'},{0x4ce244,0xf8410000,'o'}};
+    if((pc&3) || !rt || pc<0x4ce198 || pc>0x4ce244)return false;
+    const auto site=std::find_if(std::begin(sites),std::end(sites),[&](const Site &x){return x.pc==pc;});
+    if(site==std::end(sites))return false;
+    uint32_t word=0;if(const auto *p=rt->memory.hostPointer(pc,4))std::memcpy(&word,p,4);
+    if(word!=site->word)return false;   // another overlay at these addresses
+    if(!c)throw std::runtime_error("native battle spin has no CPU record");
+    auto &st=battleSpins()[rt];
+    const auto reg=[&](uint32_t w){return c->r[(w>>21)&31].uw[0]+(w&0xffff);};
+    const uint32_t one=0x3f800000u;
+    // ((w^2 + z^2) + 1*y^2) + 1*x^2, then every lane times RSQRT(1, that).
+    const auto unit=[&](VuWords v){uint32_t s[4];for(unsigned i=0;i<4;++i)s[i]=vuMul(v[i],v[i]);
+        const uint32_t savedCsr=_mm_getcsr();uint32_t f=0;
+        const auto q=bozo::ps2f::rsqrt(one,vuAdd(vuAdd(vuAdd(s[3],s[2]),vuMul(one,s[1])),vuMul(one,s[0])),f);_mm_setcsr(savedCsr);
+        for(unsigned i=0;i<4;++i)v[i]=vuMul(v[i],q);return v;};
+    switch(site->role){
+    case 'a':st=BattleSpin{};st.a=vuWords(rt,reg(word));st.loaded=1;return true;
+    case 'b':{
+        if(st.loaded!=1)throw std::runtime_error("native battle spin restored its record without loading it");
+        const auto s=vuWords(rt,reg(word));   // 213fd0's SQC2 vf13: (_, _, cos, sin) of the half angle
+        VuWords q{};for(unsigned i=0;i<3;++i)q[i]=vuMul(st.a[i],s[3]);q[3]=vuMul(one,s[2]);
+        st.q=unit(q);st.loaded=3;std::memcpy(record(rt,reg(word),16),st.a.data(),16);return true;}
+    case 'p':if(!(st.loaded&2))throw std::runtime_error("native battle spin composed without its turn");st.p=vuWords(rt,reg(word));st.loaded|=4;return true;
+    case 'o':{
+        if(st.loaded!=7)throw std::runtime_error("native battle spin stored without its loads");
+        const auto &p=st.p,&q=st.q;VuWords r{};
+        const uint32_t cross[3]={vuSub(vuMul(p[1],q[2]),vuMul(q[1],p[2])),vuSub(vuMul(p[2],q[0]),vuMul(q[2],p[0])),vuSub(vuMul(p[0],q[1]),vuMul(q[0],p[1]))};
+        for(unsigned i=0;i<3;++i)r[i]=vuAdd(vuAdd(vuMul(q[i],p[3]),vuMul(p[i],q[3])),vuMul(cross[i],one));
+        r[3]=vuSub(vuSub(vuSub(vuMul(p[3],q[3]),vuMul(p[2],q[2])),vuMul(one,vuMul(p[1],q[1]))),vuMul(one,vuMul(p[0],q[0])));
+        r=unit(r);std::memcpy(record(rt,reg(word),16),r.data(),16);st.loaded=0;return true;}
+    default:return true;   // arithmetic: folded into the stores
+    }
+}
+// Battle ground contact, mod028 4ceae0(a0 = unit, a1 = ground plane, f12 = +400, f13 = +404) and the position steps
+// of its callers 4ce260 (4ce648..4ce660, 4ce7a4..4ce7c0) that read its vf17 (the victory's fall, battle frame 75380).
+// N = plane (a1), V = velocity +3d0, S = spin +3e0 (axis, w rate); ps2f, in listing order:
+//   vn = (N.V) (x-y-z sum), vf5 = N * (0 - vn) (xyzw), Vt = V + vf5; c = unit(N x S); vs = (c * S.w) * k1
+//   (k1 = +3f4 / 2pi, QMTC2 4ceb50); vf11 = vs*0.5 + Vt*0.5, vf12 = Vt*0.5 + vs*0.5 (0.5s by QMTC2 4ceb90/4ceb9c);
+//   vf13 = vf11 x N, w = 1*|vf13|^2, SQC2 to +3e0 (4cebcc). The CPU then reads +3ec: under 1e-5 it writes
+//   (1, 0, 0, 0) there itself; otherwise (4cec30..4cec64) axis = vf13 * RSQRT(1, w), w = 1*(k2 * |vf11|)
+//   (k2 = 2pi / +3f4, QMTC2 4cec54), SQC2 to +3e0. Then m = min(f13 * |vf5|, |vf12|) (QMTC2 4cec70);
+//   V' = vf12 * ((|vf12| - m) / |vf12|) + vf5 * f12 (QMTC2 4cecb0), SQC2 to +3d0 (4cecd4), kept as vf17.
+//   The callers: p.xyz = p*1 + V' * k (LQC2 p, QMTC2 k, SQC2 p).
+// V' and vf11/vf12 carry w lanes from VU registers this function never writes (vf12.w): the native velocity keeps
+// its own w; the callers' stores are xyz only.
+struct BattleRoll{VuWords n{},v{},s{},vf5{},vf11{},vf12{},vf13{},vf17{},p{};uint32_t k1=0,h1=0,h2=0,k2=0,e=0,f=0,k=0;unsigned loaded=0;bool rolled=false;};
+std::map<const Runtime *,BattleRoll> &battleRolls(){static std::map<const Runtime *,BattleRoll> m;return m;}
+bool nativeBattleRoll(R5900Context *c,Runtime *rt,uint32_t pc){
+    struct Site{uint32_t pc,word;char role;};
+    static constexpr Site sites[]={
+        {0x4ce648,0xd8810000,'P'},{0x4ce654,0x48a21000,'q'},{0x4ce658,0x4bc009bf,'-'},{0x4ce65c,0x4bc28848,'-'},{0x4ce660,0xf8810000,'O'},
+        {0x4ce7a4,0xd8610000,'P'},{0x4ce7b0,0x48a21000,'q'},{0x4ce7b4,0x4bc009bf,'-'},{0x4ce7b8,0x4bc28848,'-'},{0x4ce7c0,0xf8610000,'O'},
+        {0x4ceae4,0xd8a10000,'N'},{0x4ceae8,0xd8620000,'V'},{0x4ceaec,0x4be007d3,'-'},{0x4ceaf0,0x4be2092a,'-'},{0x4ceaf4,0x4b04203d,'-'},
+        {0x4ceaf8,0x4b04f90a,'-'},{0x4ceafc,0x4b040104,'-'},{0x4ceb00,0x4be40958,'-'},{0x4ceb04,0x4be511a8,'-'},{0x4ceb0c,0xd8630000,'S'},
+        {0x4ceb10,0x4bc30afe,'-'},{0x4ceb14,0x4bc119ee,'-'},{0x4ceb18,0x4bc73a2a,'-'},{0x4ceb1c,0x4b08403d,'-'},{0x4ceb20,0x4b08fa0a,'-'},
+        {0x4ceb24,0x4a6803be,'-'},{0x4ceb28,0x4a0003bf,'-'},{0x4ceb2c,0x4bc039dc,'-'},{0x4ceb50,0x48a34000,'k'},{0x4ceb54,0x4bc339db,'-'},
+        {0x4ceb58,0x4bc839d8,'-'},{0x4ceb5c,0x4bc73a2a,'-'},{0x4ceb60,0x4b08403d,'-'},{0x4ceb64,0x4b08fa0a,'-'},{0x4ceb68,0x4a0803bd,'-'},
+        {0x4ceb6c,0x4a0003bf,'-'},{0x4ceb70,0x4b000220,'-'},{0x4ceb90,0x48a34800,'h'},{0x4ceb9c,0x48a35000,'H'},{0x4ceba0,0x4bc939bc,'-'},
+        {0x4ceba4,0x4bca32c8,'-'},{0x4ceba8,0x4bc931bc,'-'},{0x4cebac,0x4bca3b08,'-'},{0x4cebb4,0x4bc15afe,'-'},{0x4cebb8,0x4bcb0b6e,'-'},
+        {0x4cebbc,0x4bcd6baa,'-'},{0x4cebc0,0x4b0e703d,'-'},{0x4cebc4,0x4b0efb8a,'-'},{0x4cebc8,0x4a2e0358,'-'},{0x4cebcc,0xf86d0000,'1'},
+        {0x4cec30,0x4bed03be,'-'},{0x4cec34,0x4bcb5baa,'-'},{0x4cec38,0x4b0e703d,'-'},{0x4cec3c,0x4b0efb8a,'-'},{0x4cec40,0x4a0003bf,'-'},
+        {0x4cec44,0x4bc06b5c,'-'},{0x4cec48,0x4a0e03bd,'-'},{0x4cec54,0x48a37800,'K'},{0x4cec58,0x4a0003bf,'-'},{0x4cec5c,0x4b007b9c,'-'},
+        {0x4cec60,0x4a2e0358,'-'},{0x4cec64,0xf8ad0000,'3'},{0x4cec70,0x48a36800,'e'},{0x4cec74,0x4bc52baa,'-'},{0x4cec78,0x4b0e703d,'-'},
+        {0x4cec7c,0x4b0efb8a,'-'},{0x4cec80,0x4a0e03bd,'-'},{0x4cec84,0x4a0003bf,'-'},{0x4cec88,0x4b006b5c,'-'},{0x4cec8c,0x4bcc63aa,'-'},
+        {0x4cec90,0x4b0e703d,'-'},{0x4cec94,0x4b0efb8a,'-'},{0x4cec98,0x4a0e03bd,'-'},{0x4cec9c,0x4a0003bf,'-'},{0x4ceca0,0x4b0003a0,'-'},
+        {0x4ceca4,0x4b0e6b54,'-'},{0x4cecb0,0x48a37800,'f'},{0x4cecb8,0x4b0d742c,'-'},{0x4cecbc,0x4a0e83bc,'-'},{0x4cecc0,0x4bef2c98,'-'},
+        {0x4cecc4,0x4a0003bf,'-'},{0x4cecc8,0x4be0645c,'-'},{0x4ceccc,0x4bf28c68,'-'},{0x4cecd4,0xf8710000,'4'}};
+    if((pc&3) || !rt || pc<0x4ce648 || pc>0x4cecd4)return false;
+    const auto site=std::find_if(std::begin(sites),std::end(sites),[&](const Site &x){return x.pc==pc;});
+    if(site==std::end(sites))return false;
+    uint32_t word=0;if(const auto *p=rt->memory.hostPointer(pc,4))std::memcpy(&word,p,4);
+    if(word!=site->word)return false;   // another overlay at these addresses
+    if(!c)throw std::runtime_error("native battle ground contact has no CPU record");
+    auto &st=battleRolls()[rt];
+    const auto reg=[&](uint32_t w){return c->r[(w>>21)&31].uw[0]+(w&0xffff);};
+    const auto gpr=[&](uint32_t w){return c->r[(w>>16)&31].uw[0];};
+    const auto need=[&](unsigned bits){if((st.loaded&bits)!=bits)throw std::runtime_error(std::format("native battle ground contact at {:x} without its inputs ({:x})",pc,st.loaded));};
+    const uint32_t one=0x3f800000u;
+    const auto sum3=[&](const uint32_t *v){uint32_t s[3];for(unsigned i=0;i<3;++i)s[i]=vuMul(v[i],v[i]);return vuAdd(vuAdd(s[0],s[1]),vuMul(one,s[2]));};
+    const auto root=[&](uint32_t x){const uint32_t saved=_mm_getcsr();uint32_t f=0;const auto r=bozo::ps2f::sqrt(x,f);_mm_setcsr(saved);return r;};
+    const auto key=[](uint32_t b){const int64_t m=b&0x7fffffffu;return (b&0x80000000u)?-m:m;};
+    switch(site->role){
+    case 'N':st=BattleRoll{};st.n=vuWords(rt,reg(word));st.loaded=1;return true;
+    case 'V':need(1);st.v=vuWords(rt,reg(word));st.loaded|=2;return true;
+    case 'S':need(3);st.s=vuWords(rt,reg(word));st.loaded|=4;return true;
+    case 'k':need(7);st.k1=gpr(word);st.loaded|=8;return true;
+    case 'h':need(15);st.h1=gpr(word);st.loaded|=16;return true;
+    case 'H':need(31);st.h2=gpr(word);st.loaded|=32;return true;
+    case '1':{
+        need(63);const auto &n=st.n,&v=st.v,&s=st.s;
+        uint32_t p[3];for(unsigned i=0;i<3;++i)p[i]=vuMul(n[i],v[i]);
+        const auto minusVn=vuSub(0,vuAdd(vuAdd(p[0],p[1]),vuMul(one,p[2])));
+        VuWords vt{};for(unsigned i=0;i<4;++i){st.vf5[i]=vuMul(n[i],minusVn);vt[i]=vuAdd(v[i],st.vf5[i]);}
+        uint32_t cr[3]={vuSub(vuMul(n[1],s[2]),vuMul(s[1],n[2])),vuSub(vuMul(n[2],s[0]),vuMul(s[2],n[0])),vuSub(vuMul(n[0],s[1]),vuMul(s[0],n[1]))};
+        {const uint32_t saved=_mm_getcsr();uint32_t f=0;const auto q=bozo::ps2f::rsqrt(one,sum3(cr),f);_mm_setcsr(saved);for(auto &x:cr)x=vuMul(x,q);}
+        uint32_t vs[3];for(unsigned i=0;i<3;++i)vs[i]=vuMul(vuMul(cr[i],s[3]),st.k1);
+        for(unsigned i=0;i<3;++i){st.vf11[i]=vuAdd(vuMul(vs[i],st.h1),vuMul(vt[i],st.h2));st.vf12[i]=vuAdd(vuMul(vt[i],st.h1),vuMul(vs[i],st.h2));}
+        const auto &a=st.vf11;
+        st.vf13={vuSub(vuMul(a[1],n[2]),vuMul(n[1],a[2])),vuSub(vuMul(a[2],n[0]),vuMul(n[2],a[0])),vuSub(vuMul(a[0],n[1]),vuMul(n[0],a[1])),0};
+        st.vf13[3]=vuMul(one,sum3(st.vf13.data()));st.loaded|=64;
+        std::memcpy(record(rt,reg(word),16),st.vf13.data(),16);return true;}
+    case 'K':need(127);st.k2=gpr(word);st.loaded|=128;return true;
+    case '3':{
+        need(255);const uint32_t saved=_mm_getcsr();uint32_t f=0;const auto q=bozo::ps2f::rsqrt(one,st.vf13[3],f);_mm_setcsr(saved);
+        VuWords axis{};for(unsigned i=0;i<3;++i)axis[i]=vuMul(st.vf13[i],q);axis[3]=vuMul(one,vuMul(st.k2,root(sum3(st.vf11.data()))));
+        std::memcpy(record(rt,reg(word),16),axis.data(),16);return true;}
+    case 'e':need(127);st.e=gpr(word);st.loaded|=256;return true;
+    case 'f':need(127|256);st.f=gpr(word);st.loaded|=512;return true;
+    case '4':{
+        need(127|256|512);
+        const auto bounce=vuMul(st.e,root(sum3(st.vf5.data())));
+        const auto slide=vuAdd(0,root(sum3(st.vf12.data())));
+        const auto m=key(bounce)<key(slide)?bounce:slide;
+        const uint32_t saved=_mm_getcsr();uint32_t fl=0;const auto q=bozo::ps2f::div(vuSub(slide,m),slide,fl);_mm_setcsr(saved);
+        for(unsigned i=0;i<3;++i)st.vf17[i]=vuAdd(vuMul(st.vf12[i],q),vuMul(st.vf5[i],st.f));
+        st.vf17[3]=st.v[3];st.rolled=true;
+        std::memcpy(record(rt,reg(word),16),st.vf17.data(),16);return true;}
+    case 'P':if(!st.rolled)throw std::runtime_error("native battle ground contact step without its velocity");st.p=vuWords(rt,reg(word));return true;
+    case 'q':if(!st.rolled)throw std::runtime_error("native battle ground contact step without its velocity");st.k=gpr(word);return true;
+    case 'O':{
+        if(!st.rolled)throw std::runtime_error("native battle ground contact step without its velocity");
+        VuWords p=st.p;for(unsigned i=0;i<3;++i)p[i]=vuAdd(vuMul(st.p[i],one),vuMul(st.vf17[i],st.k));
+        std::memcpy(record(rt,reg(word),16),p.data(),16);return true;}
+    default:return true;   // arithmetic: folded into the stores
+    }
+}
+// Battle unit turn matrix, mod028 3e5ec0 at 3e63e4 and 3e5bdc at 3e5cac (the victory's scatter, battle frame 75420): after program 0x720
+// turned the quaternion sp+150 into rows vf8..vf10, stored at sp+100.. (3e6384..3e638c, the quaternion idiom), and
+// the CPU wrote sp+130 = (0, 0, 0, 1), the object's matrix rows A = [*(s2+208) + d0] (LQC2 vf1..vf4) are composed with
+// them: A_k = ((B0*A_k.x + B1*A_k.y) + B2*A_k.z) + B3*A_k.w (MULAx/MADDAy/MADDAz/MADDw), SQC2 vf1..vf4 to sp+100..
+// (the B rows' own place). ps2f. The original's fourth row is VU register vf11, which this function never writes;
+// the native B3 is the row the CPU wrote for it at sp+130. B is captured at the first load, before the stores.
+struct BattleTurnMatrix{std::array<VuWords,4> a{},b{};unsigned loaded=0;};
+std::map<const Runtime *,BattleTurnMatrix> &battleTurnMatrices(){static std::map<const Runtime *,BattleTurnMatrix> m;return m;}
+bool nativeBattleTurnMatrix(R5900Context *c,Runtime *rt,uint32_t pc){
+    static constexpr uint32_t words[]={0xd8610000,0xd8620010,0xd8630020,0xd8640030,
+        0x4be141bc,0x4be148bd,0x4be150be,0x4be1584b,0x4be241bc,0x4be248bd,0x4be250be,0x4be2588b,
+        0x4be341bc,0x4be348bd,0x4be350be,0x4be358cb,0x4be441bc,0x4be448bd,0x4be450be,0x4be4590b,
+        0xf8410000,0xf8420010,0xf8430020,0xf8440030};
+    static constexpr uint32_t blocks[]={0x3e63e4,0x3e5cac};   // 3e5ec0's and 3e5bdc's (B at sp+f0, its fourth row sp+120)
+    if((pc&3) || !rt)return false;
+    const uint32_t *block=nullptr;for(const auto &b:blocks)if(pc>=b && pc<=b+23*4)block=&b;
+    if(!block)return false;
+    const unsigned index=(pc-*block)/4;
+    uint32_t word=0;if(const auto *p=rt->memory.hostPointer(pc,4))std::memcpy(&word,p,4);
+    if(word!=words[index])return false;   // another overlay at these addresses
+    if(!c)throw std::runtime_error("native battle turn matrix has no CPU record");
+    auto &st=battleTurnMatrices()[rt];
+    const auto reg=[&](uint32_t w){return c->r[(w>>21)&31].uw[0]+(w&0xffff);};
+    if(index<4){
+        if(index==0){st=BattleTurnMatrix{};for(unsigned r=0;r<4;++r)st.b[r]=vuWords(rt,c->r[2].uw[0]+16*r);}
+        else if(st.loaded!=(1u<<index)-1)throw std::runtime_error("native battle turn matrix rows loaded out of order");
+        st.a[index]=vuWords(rt,reg(word));st.loaded|=1u<<index;return true;}
+    if(index<20)return true;   // arithmetic: folded into the stores
+    if(st.loaded!=15)throw std::runtime_error("native battle turn matrix stored without its rows");
+    const auto &a=st.a[index-20];VuWords out{};
+    for(unsigned i=0;i<4;++i)out[i]=vuAdd(vuAdd(vuAdd(vuMul(st.b[0][i],a[0]),vuMul(st.b[1][i],a[1])),vuMul(st.b[2][i],a[2])),vuMul(st.b[3][i],a[3]));
+    std::memcpy(record(rt,reg(word),16),out.data(),16);if(index==23)st.loaded=0;return true;
+}
+// Battle row point, mod028 497100 at 497508, 4967a0 at 496810 and 48da30 at 48e118 (the victory's scatter, battle frame 75420): the
+// "rowpoint" formula in other registers. LQC2 vf15 (point p), vf1..vf4 (rows at 0/16/32/48 of one base); ADDw.xyz
+// vf6 = 1; MUL.xyzw vf11..vf14 = row_k * p; per lane x ((x+y)+1z)+1w, y ((y+x)+1z)+1w, z ((z+y)+1x)+1w,
+// w ((w+y)+1z)+1x; SQC2 vf15. At 497508 it is stored to v0 (497560) and, when the CPU then finds *s3 == 0, again
+// to s5+720 (497578's delay slot 49757c).
+struct BattleRowPoint{std::array<VuWords,4> rows{};VuWords p{},out{};unsigned loaded=0;bool done=false;};
+std::map<const Runtime *,BattleRowPoint> &battleRowPoints(){static std::map<const Runtime *,BattleRowPoint> m;return m;}
+bool nativeBattleRowPoint(R5900Context *c,Runtime *rt,uint32_t pc){
+    static constexpr uint32_t arithmetic[]={0x4bc00183,
+        0x4bef0aea,0x4bef132a,0x4bef1b6a,0x4bef23aa,0x4b0b583d,0x4b0b30be,0x4b0b33cb,0x4a8c603c,0x4a8c30be,0x4a8c33cb,
+        0x4a4d683d,0x4a4d30bc,0x4a4d33cb,0x4a2e703d,0x4a2e00be,0x4a2e03c8};
+    static constexpr uint32_t blocks[]={0x497508,0x496810,0x48e118};
+    if((pc&3) || !rt)return false;
+    const bool again=pc==0x49757c;
+    const uint32_t *block=nullptr;for(const auto &b:blocks)if(pc>=b && pc<=b+22*4)block=&b;
+    if(!again && !block)return false;
+    uint32_t word=0;if(const auto *p=rt->memory.hostPointer(pc,4))std::memcpy(&word,p,4);
+    const unsigned index=again?22:(pc-*block)/4;
+    const auto lqc2=[](uint32_t w,unsigned vf,int off){return w>>26==0x36 && ((w>>16)&31)==vf && int16_t(w&0xffff)==off;};
+    bool ok;
+    if(index==0)ok=lqc2(word,15,0);
+    else if(index<5)ok=lqc2(word,index,16*int(index-1));
+    else if(index<22)ok=word==arithmetic[index-5];
+    else ok=word>>26==0x3e && ((word>>16)&31)==15 && !(word&0xffff);
+    if(!ok)return false;   // another overlay at these addresses
+    if(!c)throw std::runtime_error("native battle row point has no CPU record");
+    auto &st=battleRowPoints()[rt];
+    const auto reg=[&](uint32_t w){return c->r[(w>>21)&31].uw[0]+(w&0xffff);};
+    if(again){if(!st.done)throw std::runtime_error("native battle row point stored again without its result");
+        std::memcpy(record(rt,reg(word),16),st.out.data(),16);st.done=false;return true;}
+    if(index==0){st=BattleRowPoint{};st.p=vuWords(rt,reg(word));st.loaded=1;return true;}
+    if(index<5){if(st.loaded!=(1u<<index)-1)throw std::runtime_error("native battle row point loaded out of order");
+        st.rows[index-1]=vuWords(rt,reg(word));st.loaded|=1u<<index;return true;}
+    if(index<22)return true;   // arithmetic: folded into the store
+    if(st.loaded!=31)throw std::runtime_error("native battle row point stored without its loads");
+    const uint32_t one=0x3f800000u;constexpr unsigned order[4][4]={{0,1,2,3},{1,0,2,3},{2,1,0,3},{3,1,2,0}};
+    for(unsigned row=0;row<4;++row){uint32_t t[4];for(unsigned i=0;i<4;++i)t[i]=vuMul(st.rows[row][i],st.p[i]);
+        st.out[row]=vuAdd(vuAdd(vuAdd(t[order[row][0]],t[order[row][1]]),vuMul(one,t[order[row][2]])),vuMul(one,t[order[row][3]]));}
+    st.done=true;std::memcpy(record(rt,reg(word),16),st.out.data(),16);return true;
+}
+// Battle shape extent, mod028 496fa0(a0) (the victory's scatter, battle frame 75420): LQC2 vf1 = the centre a0+720;
+// MOVE vf30 = vf0 (0, 0, 0, 1); over the shape list at a0+690: a box node (+1c == 0) brings its 8 corners (+20 +
+// 16 k): vf30.xyz = MAX(vf30, ABS(corner - centre)) (496fe4..496ff0); a sphere node its centre +1b0 and radius +1d0
+// (QMTC2 r -> vf11.x): d = centre' - centre, vf30.xyz = MAX(MAX(vf30, ABS(d + r)), ABS(d - r)) (497018..497044);
+// SQC2 vf30 to a0+750 (497050, the jr ra's delay slot). ps2f; MAX compares as the VU does (signed magnitude).
+struct BattleExtent{VuWords centre{},extent{},other{};bool open=false,sphere=false;};
+std::map<const Runtime *,BattleExtent> &battleExtents(){static std::map<const Runtime *,BattleExtent> m;return m;}
+bool nativeBattleExtent(R5900Context *c,Runtime *rt,uint32_t pc){
+    struct Site{uint32_t pc,word;char role;};
+    static constexpr Site sites[]={{0x496fa4,0xd8610000,'c'},{0x496fa8,0x4bfe033c,'-'},{0x496fe4,0xd86a0000,'p'},{0x496fe8,0x4bc152ac,'-'},
+        {0x496fec,0x4bca51fd,'-'},{0x496ff0,0x4bcaf7ab,'-'},{0x497018,0xd86a0000,'q'},{0x497024,0x48a85800,'r'},{0x497028,0x4bc152ac,'-'},
+        {0x49702c,0x4bcb5300,'-'},{0x497030,0x4bcb5344,'-'},{0x497034,0x4bcc61fd,'-'},{0x497038,0x4bcd69fd,'-'},{0x49703c,0x4bccf7ab,'-'},
+        {0x497044,0x4bcdf7ab,'-'},{0x497050,0xf87e0000,'s'}};
+    if((pc&3) || !rt || pc<0x496fa4 || pc>0x497050)return false;
+    const auto site=std::find_if(std::begin(sites),std::end(sites),[&](const Site &x){return x.pc==pc;});
+    if(site==std::end(sites))return false;
+    uint32_t word=0;if(const auto *p=rt->memory.hostPointer(pc,4))std::memcpy(&word,p,4);
+    if(word!=site->word)return false;   // another overlay at these addresses
+    if(!c)throw std::runtime_error("native battle shape extent has no CPU record");
+    auto &st=battleExtents()[rt];
+    const auto reg=[&](uint32_t w){return c->r[(w>>21)&31].uw[0]+(w&0xffff);};
+    const auto key=[](uint32_t b){const int64_t m=b&0x7fffffffu;return (b&0x80000000u)?-m:m;};
+    const auto widen=[&](uint32_t lane,uint32_t v){if(key(v)>key(st.extent[lane]))st.extent[lane]=v;};
+    switch(site->role){
+    case 'c':st=BattleExtent{};st.centre=vuWords(rt,reg(word));st.extent={0,0,0,0x3f800000u};st.open=true;return true;
+    case 'p':{if(!st.open)throw std::runtime_error("native battle shape extent without its centre");
+        const auto p=vuWords(rt,reg(word));for(unsigned i=0;i<3;++i)widen(i,vuSub(p[i],st.centre[i])&0x7fffffffu);return true;}
+    case 'q':if(!st.open)throw std::runtime_error("native battle shape extent without its centre");st.other=vuWords(rt,reg(word));st.sphere=true;return true;
+    case 'r':{if(!st.sphere)throw std::runtime_error("native battle shape extent radius without its sphere");
+        const auto r=c->r[(word>>16)&31].uw[0];uint32_t d[3],plus[3],minus[3];
+        for(unsigned i=0;i<3;++i){d[i]=vuSub(st.other[i],st.centre[i]);plus[i]=vuAdd(d[i],r)&0x7fffffffu;minus[i]=vuSub(d[i],r)&0x7fffffffu;}
+        for(unsigned i=0;i<3;++i)widen(i,plus[i]);for(unsigned i=0;i<3;++i)widen(i,minus[i]);st.sphere=false;return true;}
+    case 's':if(!st.open)throw std::runtime_error("native battle shape extent stored without its centre");
+        std::memcpy(record(rt,reg(word),16),st.extent.data(),16);st.open=false;return true;
+    default:return true;   // arithmetic: folded into the loads
+    }
+}
+// Battle scattered direction, mod028 48da30 at 48e044 (the victory's scatter, battle frame 75460): after the normalize25
+// words left vf25 = unit(sp+90) at sp+90 (48e030; only mfc1s follow), QMTC2 t0, t1, t2 -> vf2, vf3, vf4 (scalars in
+// .x); MULx.xyz vf25 *= a; MULx.y vf25 *= b; MULx.xz vf25 *= c; SQC2 vf25 to s2+5b0 -> {(x a) c, (y a) b, (z a) c, w}.
+struct BattleScale3{VuWords v{};uint32_t a=0,b=0,c=0;unsigned loaded=0;};
+std::map<const Runtime *,BattleScale3> &battleScale3s(){static std::map<const Runtime *,BattleScale3> m;return m;}
+bool nativeBattleScale3(R5900Context *c,Runtime *rt,uint32_t pc){
+    static constexpr std::pair<uint32_t,uint32_t> sites[]={{0x48e044,0x48a81000},{0x48e048,0x48a91800},{0x48e04c,0x48aa2000},
+        {0x48e054,0x4bc2ce58},{0x48e058,0x4a83ce58},{0x48e05c,0x4b44ce58},{0x48e060,0xf8790000}};
+    if((pc&3) || !rt || pc<0x48e044 || pc>0x48e060)return false;
+    const auto site=std::find_if(std::begin(sites),std::end(sites),[&](const auto &x){return x.first==pc;});
+    if(site==std::end(sites))return false;
+    uint32_t word=0;if(const auto *p=rt->memory.hostPointer(pc,4))std::memcpy(&word,p,4);
+    if(word!=site->second)return false;   // another overlay at these addresses
+    if(!c)throw std::runtime_error("native battle scattered direction has no CPU record");
+    uint32_t w30=0;if(const auto *p=rt->memory.hostPointer(0x48e030,4))std::memcpy(&w30,p,4);
+    if(w30!=0xf8790000u)throw std::runtime_error("native battle scattered direction lost its normalize25 store");
+    auto &st=battleScale3s()[rt];const auto gpr=[&](unsigned r){return c->r[r].uw[0];};
+    if(pc==0x48e044){st=BattleScale3{};st.v=vuWords(rt,gpr(3));st.a=gpr(8);st.loaded=1;return true;}
+    if(pc==0x48e048){if(st.loaded!=1)throw std::runtime_error("native battle scattered direction out of order");st.b=gpr(9);st.loaded=3;return true;}
+    if(pc==0x48e04c){if(st.loaded!=3)throw std::runtime_error("native battle scattered direction out of order");st.c=gpr(10);st.loaded=7;return true;}
+    if(pc!=0x48e060)return true;   // arithmetic: folded into the store
+    if(st.loaded!=7)throw std::runtime_error("native battle scattered direction stored without its scalars");
+    VuWords out=st.v;out[0]=vuMul(vuMul(st.v[0],st.a),st.c);out[1]=vuMul(vuMul(st.v[1],st.a),st.b);out[2]=vuMul(vuMul(st.v[2],st.a),st.c);
+    std::memcpy(record(rt,gpr(3)+(word&0xffff),16),out.data(),16);st.loaded=0;return true;
+}
+// Battle scatter offsets, mod028 48da30 (the victory's scatter, battle frame 75460), ps2f:
+//   48e0cc..48e0f4: LQC2 vf26 = sp+60 (three draws r - 1), vf25 = the extent s2+750; QMTC2 t0 (f20) -> vf27.x = k;
+//     ADD.xyz vf26 += vf26; SUBw.xyz vf26 -= 1; MULx.xyz vf25 *= k; MUL.xyz vf25 *= vf26; SQC2 vf25 to s2+5d0
+//     -> {(e k) (2 (r - 1) - 1) per lane, e.w}.
+//   48e104..48e17c: LQC2 vf20 = s2+5b0; QMTC2 t0 (+870) -> vf21.x; (the row point block at 48e118); MULx.xyz vf20 *=
+//     vf21.x; SQC2 vf20 to s2+5c0.
+struct BattleScatter{VuWords r{},e{},v{};uint32_t k=0,k2=0;unsigned loaded=0;};
+std::map<const Runtime *,BattleScatter> &battleScatters(){static std::map<const Runtime *,BattleScatter> m;return m;}
+bool nativeBattleScatter(R5900Context *c,Runtime *rt,uint32_t pc){
+    struct Site{uint32_t pc,word;char role;};
+    static constexpr Site sites[]={{0x48e0cc,0xd87a0000,'a'},{0x48e0d0,0xd8b90000,'b'},{0x48e0dc,0x48a8d800,'k'},{0x48e0e4,0x4bdad6a8,'-'},
+        {0x48e0e8,0x4bc0d687,'-'},{0x48e0ec,0x4bdbce58,'-'},{0x48e0f0,0x4bdace6a,'-'},{0x48e0f4,0xf8790000,'s'},
+        {0x48e104,0xd8740000,'v'},{0x48e108,0x48a8a800,'K'},{0x48e178,0x4bd5a518,'-'},{0x48e17c,0xf8740000,'t'}};
+    if((pc&3) || !rt || pc<0x48e0cc || pc>0x48e17c)return false;
+    const auto site=std::find_if(std::begin(sites),std::end(sites),[&](const Site &x){return x.pc==pc;});
+    if(site==std::end(sites))return false;
+    uint32_t word=0;if(const auto *p=rt->memory.hostPointer(pc,4))std::memcpy(&word,p,4);
+    if(word!=site->word)return false;   // another overlay at these addresses
+    if(!c)throw std::runtime_error("native battle scatter has no CPU record");
+    auto &st=battleScatters()[rt];
+    const auto reg=[&](uint32_t w){return c->r[(w>>21)&31].uw[0]+(w&0xffff);};
+    const auto gpr=[&](uint32_t w){return c->r[(w>>16)&31].uw[0];};
+    const auto need=[&](unsigned bits){if((st.loaded&bits)!=bits)throw std::runtime_error(std::format("native battle scatter at {:x} without its inputs",pc));};
+    const uint32_t one=0x3f800000u;
+    switch(site->role){
+    case 'a':st.r=vuWords(rt,reg(word));st.loaded=1;return true;
+    case 'b':need(1);st.e=vuWords(rt,reg(word));st.loaded|=2;return true;
+    case 'k':need(3);st.k=gpr(word);st.loaded|=4;return true;
+    case 's':{need(7);VuWords out=st.e;
+        for(unsigned i=0;i<3;++i)out[i]=vuMul(vuMul(st.e[i],st.k),vuSub(vuAdd(st.r[i],st.r[i]),one));
+        std::memcpy(record(rt,reg(word),16),out.data(),16);st.loaded=0;return true;}
+    case 'v':st.v=vuWords(rt,reg(word));st.loaded=8;return true;
+    case 'K':need(8);st.k2=gpr(word);st.loaded|=16;return true;
+    case 't':{need(24);VuWords out=st.v;for(unsigned i=0;i<3;++i)out[i]=vuMul(st.v[i],st.k2);
+        std::memcpy(record(rt,reg(word),16),out.data(),16);st.loaded=0;return true;}
+    default:return true;   // arithmetic: folded into the stores
+    }
+}
 // Battle ground plane, mod028 4981b4 (one copy; ps2f, nearest). The object's three ground
 // points P0 = +8f0 (s2), P1 = +900 (s1), P2 = +910 (s0): LQC2 vf1 = P0 (4981f0) before the
 // first 4ab730 call, vf2 = P1 (498228) and vf3 = P2 (498260) after the CPU may have set their
@@ -4000,6 +4389,8 @@ constexpr MacroIdiom macroIdioms[]={
     // (direction); QMTC2 t0 -> vf3 (k in .x: the FPU's (f2 + f1) + 0.5 f3, moved by MFC1);
     // MULAw.xyz ACC = vf1*1; MADDx.xyz vf1 = ACC + vf2*k; SQC2 vf1 -> {p + d*k (xyz), p.w}.
     {"advance",{-2,-3,0x48a81800,0x4bc009bf,0x4bc31048,-101},6},
+    // the same with k from v0 (QMTC2 v0 -> vf3: mod028 4ce260 at 4ce598 and 4ce710, the victory's fall).
+    {"advance",{-2,-3,0x48a21800,0x4bc009bf,0x4bc31048,-101},6},
     // colour scale (mod028 47bfa4 at 47c280): LQC2 vf1 (the object's +9a0 colour); QMTC2 t0
     // -> vf2 (k in .x: 1/128 there); MULx.xyz vf1 = vf1*k; MULx.w vf1 = vf1.w*vf0.x (0);
     // SQC2 vf1 -> {rgb*k, w*0}.
@@ -4024,6 +4415,27 @@ constexpr MacroIdiom macroIdioms[]={
     // vf26 = vf25^2; ADDAy.x; MADDz.x vf26.x = ACC + 1*z2; RSQRT; WAITQ; MULq.xyz vf25;
     // SQC2 vf25 -> {xyz*Q, w}, the "normalize" formula in other registers.
     {"normalize25",{-26,0x4bc007c3,0x4bd9ceaa,0x4b1ad03d,0x4b1afe8a,0x4a7a03be,0x4a0003bf,0x4bc0ce5c,-125},9},
+    // cross with w = 1 (mod028 4cef40 at 4cf0c0, the victory turn, battle frame 75360): LQC2 vf1 (a), vf2 (b);
+    // MAX.w vf3 = max(vf0.w, vf0.w) (1); OPMULA.xyz ACC = a x b's first terms; OPMSUB.xyz vf3 = ACC - b x a's;
+    // SQC2 vf3 -> {a.y b.z - b.y a.z, a.z b.x - b.z a.x, a.x b.y - b.x a.y, 1}. (Its caller then normalizes it with
+    // the normalize25 words.)
+    {"cross",{-2,-3,0x4a2000eb,0x4bc20afe,0x4bc110ee,-103},6},
+    // doubled square (mod028 4967a0 at 4968a8, battle frame 75420): LQC2 vf1; ADDw.w vf2 = 1 + 1; MULw.xyzw vf1 =
+    // vf1 * 2; MUL.xyzw vf1 = vf1 * vf1; SQC2 vf1 -> {(2v)^2 per lane}.
+    {"doublesquare",{-2,0x4a200083,0x4be2085b,0x4be1086a,-101},5},
+    // difference and its square (mod028 4967a0 at 496960; both loads read v1 there): LQC2 vf12 (a), vf13 (b); SUB.xyz
+    // vf12 = a - b; SQC2 vf12 -> {a - b, a.w}; MUL.xyzw vf12 = vf12^2; SQC2 vf12 -> {(a - b)^2, a.w^2}.
+    {"selfdiff",{-13,-14,0x4bcd632c,-112,0x4bec632a,-112},6},
+    // plane through three points (mod028 4ce840 at 4cea70, the victory's fall, battle frame 75380): LQC2 vf1..vf3
+    // (P0, P1, P2); SUB.xyz vf5 = P1 - P0, vf6 = P2 - P0; MAX.w vf31 = 1; OPMULA/OPMSUB.xyz vf7 = vf5 x vf6;
+    // squares, ADDAy/MADDz.x, RSQRT, WAITQ, MULq.xyz vf7 = n; MUL.xyz vf9 = n*P0, ADDAy/MADDz.x d; SUBAw.w ACC =
+    // 1 - 1; MSUBx.w vf7.w = ACC - 1*d; SQC2 vf7 -> {n, 0 - d}.
+    {"plane3",{-2,-3,-4,0x4bc1116c,0x4bc119ac,0x4be007d3,0x4bc62afe,0x4bc531ee,0x4bc73a2a,0x4b08403d,0x4b08fa0a,0x4a6803be,0x4a0003bf,
+        0x4bc039dc,0x4bc13a6a,0x4b09483d,0x4b09fa4a,0x4a20007f,0x4a2901cc,-107},20},
+    // scaled offset (mod028 4ce260 at 4ce2c8, the victory's turn, battle frame 75340): LQC2 vf1 (a = object +3d0);
+    // QMTC2 v1 -> vf2 (k in .x: f22 by MFC1); LQC2 vf3 (p, from the object's vt+28); MULx.xyzw vf4 = a*k;
+    // MULAx.xyzw ACC = a*k; MADDw.xyzw vf5 = ACC + p*1; SQC2 vf4 -> {a*k}, SQC2 vf5 -> {a*k + p}.
+    {"scaledoffset",{-2,0x48a31000,-4,0x4be20918,0x4be209bc,0x4be0194b,-104,-105},8},
     // mod028/mod068 direction (15 copies, e.g. 4a4094, 3e4dc8, 527948): LQC2 vf26 (a), vf27 (b); ADDw.xyz
     // vf31 = 1; SUB.xyz vf26 = b - a; MUL.xyz vf27 = vf26^2; ADDAy.x; MADDz.x vf27.x = ACC + 1*z2; RSQRT;
     // WAITQ; MULq.xyz vf26; SQC2 vf26 -> {(b - a).xyz * Q, a.w}.
@@ -4121,6 +4533,23 @@ bool nativeMacroIdiom(R5900Context *c,Runtime *rt,uint32_t pc){
             if(kind=="normalize" || kind=="normalize25"){const auto v=need(kind=="normalize"?20:25);uint32_t sq[3];for(unsigned i=0;i<3;++i)sq[i]=vuMul(v[i],v[i]);
                 uint32_t f=0;const auto q=bozo::ps2f::rsqrt(one,vuAdd(vuAdd(sq[0],sq[1]),vuMul(one,sq[2])),f);_mm_setcsr(savedCsr);
                 for(unsigned i=0;i<3;++i)out[i]=vuMul(v[i],q);out[3]=v[3];}
+            else if(kind=="plane3"){const auto p0=need(1),p1=need(2),p2=need(3);uint32_t e1[3],e2[3],sq[3],m[3];
+                for(unsigned i=0;i<3;++i){e1[i]=vuSub(p1[i],p0[i]);e2[i]=vuSub(p2[i],p0[i]);}
+                out[0]=vuSub(vuMul(e1[1],e2[2]),vuMul(e2[1],e1[2]));out[1]=vuSub(vuMul(e1[2],e2[0]),vuMul(e2[2],e1[0]));out[2]=vuSub(vuMul(e1[0],e2[1]),vuMul(e2[0],e1[1]));
+                for(unsigned i=0;i<3;++i)sq[i]=vuMul(out[i],out[i]);
+                uint32_t f=0;const auto q=bozo::ps2f::rsqrt(one,vuAdd(vuAdd(sq[0],sq[1]),vuMul(one,sq[2])),f);_mm_setcsr(savedCsr);
+                for(unsigned i=0;i<3;++i){out[i]=vuMul(out[i],q);m[i]=vuMul(out[i],p0[i]);}
+                const auto d=vuAdd(vuAdd(m[0],m[1]),vuMul(one,m[2]));out[3]=vuSub(vuSub(one,one),vuMul(one,d));}
+            else if(kind=="scaledoffset"){const auto a=need(1),k=need(2),p=need(3);
+                for(unsigned i=0;i<4;++i)out[i]=want==-104?vuMul(a[i],k[0]):vuAdd(vuMul(a[i],k[0]),vuMul(p[i],one));
+                _mm_setcsr(savedCsr);std::memcpy(record(rt,address(self),16),out.data(),16);if(want==-105)capture.valid=0;return true;}
+            else if(kind=="doublesquare"){const auto v=need(1);const auto two=vuAdd(one,one);
+                for(unsigned i=0;i<4;++i){const auto d=vuMul(v[i],two);out[i]=vuMul(d,d);}}
+            else if(kind=="selfdiff"){const auto a=need(12),b=need(13);for(unsigned i=0;i<3;++i)out[i]=vuSub(a[i],b[i]);out[3]=a[3];
+                if(k==5)for(unsigned i=0;i<4;++i)out[i]=vuMul(out[i],out[i]);
+                _mm_setcsr(savedCsr);std::memcpy(record(rt,address(self),16),out.data(),16);if(k==5)capture.valid=0;return true;}
+            else if(kind=="cross"){const auto a=need(1),b=need(2);
+                out={vuSub(vuMul(a[1],b[2]),vuMul(b[1],a[2])),vuSub(vuMul(a[2],b[0]),vuMul(b[2],a[0])),vuSub(vuMul(a[0],b[1]),vuMul(b[0],a[1])),one};}
             else if(kind=="direction26"){const auto a=need(26),b=need(27);uint32_t d[3],sq[3];for(unsigned i=0;i<3;++i){d[i]=vuSub(b[i],a[i]);sq[i]=vuMul(d[i],d[i]);}
                 uint32_t f=0;const auto q=bozo::ps2f::rsqrt(one,vuAdd(vuAdd(sq[0],sq[1]),vuMul(one,sq[2])),f);_mm_setcsr(savedCsr);
                 for(unsigned i=0;i<3;++i)out[i]=vuMul(d[i],q);out[3]=a[3];}
@@ -5293,7 +5722,9 @@ bool nativeQuaternionIdiom(R5900Context *c,Runtime *rt,uint32_t pc){
         for(uint32_t k=4;k<=8;k+=4){uint32_t x;if(!word(load+k,x))break;if(x==0x4a003938u){call=load+k;break;}if(cop2(x) || control(x))break;}
         if(!call)continue;
         uint32_t cfc=0,at=call+4;
-        for(unsigned n=0;n<24;++n,at+=4){uint32_t x;if(!word(at,x))break;if(x==0x48490001u){cfc=at;break;}if(cop2(x) || control(x))break;}
+        // A SQC2 vf0 (a constant store, nativeConstantStore) may stand before the CFC2 (mod028 496b44).
+        for(unsigned n=0;n<24;++n,at+=4){uint32_t x;if(!word(at,x))break;if(x==0x48490001u){cfc=at;break;}
+            if((cop2(x) && !(x>>26==0x3e && ((x>>16)&31)==0)) || control(x))break;}
         if(!cfc)continue;
         uint32_t store=0;at=cfc+4;
         for(unsigned n=0;n<4;++n,at+=4){uint32_t x;if(!word(at,x))break;if(x>>26==0x3e && ((x>>16)&31)==8 && !(x&0xffff)){store=at;break;}if(cop2(x) || control(x))break;}
@@ -5728,6 +6159,11 @@ bool mathBlock21(R5900Context *c,Runtime *rt,uint32_t pc){
 }
 bool mathBlock22(R5900Context *c,Runtime *rt,uint32_t pc){
     if(pc==0x3e5ca4 || pc==0x3e5ca8 || pc==0x3e5cac || pc==0x3e5cb4 || pc==0x3e5cb8 || pc==0x3e5cc0){
+        // mod003's words (the battle's mod028 has other code at these addresses).
+        static constexpr std::pair<uint32_t,uint32_t> words[]={{0x3e5ca4,0xd88c0000},{0x3e5ca8,0xd88d0010},{0x3e5cac,0xd88e0020},
+            {0x3e5cb4,0x4a003fb8},{0x3e5cb8,0x48490001},{0x3e5cc0,0xf8660000}};
+        uint32_t word=0;if(const auto *p=rt->memory.hostPointer(pc,4))std::memcpy(&word,p,4);
+        if(std::find(std::begin(words),std::end(words),std::pair<uint32_t,uint32_t>{pc,word})==std::end(words))return false;
         const auto object=c->r[18].uw[0],stack=c->r[29].uw[0],output=c->r[19].uw[0];
         if(c->r[4].uw[0]!=object+0x90 || (pc==0x3e5cc0 && c->r[3].uw[0]!=stack+0x50))
             throw std::runtime_error("native height-bound argument setup mismatch");
@@ -6454,6 +6890,14 @@ bool nativeMathInstruction(uint8_t *,R5900Context *c,Runtime *rt,uint32_t pc){
     if(CLAIM(nativeSpacedNormalise))return true;
     if(CLAIM(nativeBattleSideAxes))return true;
     if(CLAIM(nativeBattleGroundPlane))return true;
+    if(CLAIM(nativeBattleCollision))return true;
+    if(CLAIM(nativeBattleSpin))return true;
+    if(CLAIM(nativeBattleRoll))return true;
+    if(CLAIM(nativeBattleTurnMatrix))return true;
+    if(CLAIM(nativeBattleRowPoint))return true;
+    if(CLAIM(nativeBattleExtent))return true;
+    if(CLAIM(nativeBattleScale3))return true;
+    if(CLAIM(nativeBattleScatter))return true;
     if(CLAIM(nativeBattleColourPair))return true;
     if(CLAIM(nativeBattleShapeTree))return true;
     if(CLAIM(nativeBattleObjectOverlap))return true;

@@ -36,7 +36,7 @@ The constructor draws four more values the same way, and they are table entries 
 
 Each target is read only by its mtc1. The `SQC2 vf0` at 4a7750 is already handled by the generic constant store.
 
-All five are `nativeRandomNext` pairs now. `vp2s-bozo-random-check` checks that a0 receives the stream's next value, with the other lanes zero.
+All five are `nativeRandomNext` pairs now. So is the class's method 4a7b0c, reached at frame 72240: 4a7bcc into a0, mtc1 at 4a7be0, then a0 = s3, giving int(−201.2 + 507.2 · (r − 1)). `vp2s-bozo-random-check` checks that a0 receives the stream's next value, with the other lanes zero.
 
 ### Sphere-tree walk 1f7490 (mod001) (2026-11-23)
 

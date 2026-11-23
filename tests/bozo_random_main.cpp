@@ -61,7 +61,7 @@ int main(){try{
         ctx.r[4].ud[0]=ctx.r[4].ud[1]=~0ull;check(vp2s::nativeRandomNext(nullptr,&ctx,&rt,0x4a741c) && vp2s::nativeRandomNext(nullptr,&ctx,&rt,0x4a7420));
         check(ctx.r[4].uw[0]==std::bit_cast<uint32_t>(mirror.next()) && !ctx.r[4].uw[1] && !ctx.r[4].uw[2] && !ctx.r[4].uw[3]);
         // The constructor's later pairs (a0 at 4a75b4, v1 at 4a77ec, 4a7894, 4a78dc) continue the same stream.
-        for(const auto [at,reg]:{std::pair<uint32_t,unsigned>{0x4a75b4,4},{0x4a77ec,3},{0x4a7894,3},{0x4a78dc,3}}){
+        for(const auto [at,reg]:{std::pair<uint32_t,unsigned>{0x4a75b4,4},{0x4a77ec,3},{0x4a7894,3},{0x4a78dc,3},{0x4a7bcc,4}}){
             const uint32_t mv=0x4820f801u|reg<<16;std::memcpy(rt.memory.hostPointer(at,4),&next,4);std::memcpy(rt.memory.hostPointer(at+4,4),&mv,4);
             ctx.r[reg].ud[0]=ctx.r[reg].ud[1]=~0ull;check(vp2s::nativeRandomNext(nullptr,&ctx,&rt,at) && vp2s::nativeRandomNext(nullptr,&ctx,&rt,at+4));
             check(ctx.r[reg].uw[0]==std::bit_cast<uint32_t>(mirror.next()) && !ctx.r[reg].uw[1] && !ctx.r[reg].uw[2] && !ctx.r[reg].uw[3]);}

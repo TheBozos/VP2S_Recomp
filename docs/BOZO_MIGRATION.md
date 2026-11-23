@@ -12,6 +12,25 @@ The earlier VP2S face/shading and general brightness comparisons remain open.
 
 ## Build and evidence
 
+### Battle: the second particle emitter class, prepare 295f20 and step 295580 (2026-11-23)
+
+The party's fall (frame 75120) uses an emitter of another class (vtables `1563f0` / `156500`). Its +c prepare
+`295f20` and its +18 step `295580` are the general emitter's formulas without end conditions, offset or jitter:
+- **Prepare.** It loads gravity from `[+f0]+10` (or 0), the drift (+c0), push 0, dt, 0 and the 255 clamp, in vf9,
+  vf13, vf10, vf5, vf30 and vf29.
+- **Step.** Particles are 0xb0 bytes. It loads p, v, A, acc, C, rate and change, then the parent push (sp+1a0) and
+  the curve rows. The main step, output and collision come next, then the stores of each +d0 kind:
+  - kind 2 adds |A|^2 to sp+180;
+  - kind 5 adds rows * P to sp+170. Its row loads leave gravity = row 1 and push = row 2 for the particles after it,
+    as in the game.
+- **Trails.** The general emitter's three trail kinds, word for word. vf8 is reloaded per particle here, so there
+  is no drift carry-over.
+- **Native:** `nativeSimpleEmitter` covers 163 sites, word-checked, with strict order and the particle box.
+- **Test:** `vp2s-bozo-particles-check` runs 360 particles (540 trail points) against the VU0 reference. They cover
+  every store kind, push, curves, collision and the three trail kinds, plus order, record and word rejections.
+- **Evidence:** the run passes both methods and reaches frame 75160. The next boundary is a battle sprite flush with
+  no build (object 877ab0, site 42d4f0).
+
 ### Battle game-over object: row normalise, affine rows, spaced normalise (2026-11-23)
 
 Three more VU0 forms in mod001, met at frame 75120 while the party falls:

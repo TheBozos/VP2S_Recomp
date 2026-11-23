@@ -447,8 +447,16 @@ int main(){try{
         for(unsigned i=0;i<2;++i)check(translation[i]==0?held.projected[i]==0:std::abs(held.projected[i])==std::numeric_limits<float>::max());
         check(held.projected[2]==0 && held.projected[3]==10000 && held.nearPoint[2]==-10000 && held.farPoint[2]==10000);
     }
-    bool radiusRejected=false;
-    try{vp2s::sphereVisibility(clip,planes,_mm_setr_ps(0,0,4,-1));}catch(const std::exception &){radiusRejected=true;}check(radiusRejected);
+    {   // Denormal lanes (battle 0x1a's class 16e3c0 keeps integers 0x20, 0, 2, 0x407 at +7f0) read as signed zeros, as VU0 does.
+        const uint32_t bits[4]={0x20,0,2,0x407};__m128 raw;std::memcpy(&raw,bits,16);
+        const auto flushed=vp2s::sphereVisibility(clip,planes,raw),zero=vp2s::sphereVisibility(clip,planes,_mm_setzero_ps());
+        check(!std::memcmp(flushed.projected.data(),zero.projected.data(),16) && flushed.outside==zero.outside && flushed.intersects==zero.intersects);
+        bool nan=false;try{vp2s::sphereVisibility(clip,planes,_mm_setr_ps(std::numeric_limits<float>::quiet_NaN(),0,4,1));}catch(const std::exception &){nan=true;}check(nan);
+    }
+    {   // A negative radius is evaluated literally (near = z - r, far = z + r), as VU0 does.
+        const auto negative=vp2s::sphereVisibility(clip,planes,_mm_setr_ps(0,0,4,-1)),positive=vp2s::sphereVisibility(clip,planes,_mm_setr_ps(0,0,4,1));
+        check(negative.nearPoint[2]==positive.farPoint[2] && negative.farPoint[2]==positive.nearPoint[2] && negative.projected[3]==-1);
+    }
     {bool bad=false;try{vp2s::sphereAngleVisibility(planes,_mm_setr_ps(0,0,4,-1));}catch(const std::runtime_error &){bad=true;}check(bad);
         auto invalid=planes;invalid.normals[6]=_mm_setr_ps(std::numeric_limits<float>::quiet_NaN(),0,0,0);bad=false;
         try{vp2s::sphereAngleVisibility(invalid,_mm_setr_ps(0,0,4,1));}catch(const std::runtime_error &){bad=true;}check(bad);

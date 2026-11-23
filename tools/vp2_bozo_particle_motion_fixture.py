@@ -5,12 +5,15 @@ from vp2_bozo_prepare import prepare,elf_parts
 from vp2_bozo_kernel import overlay_adaptations
 p=argparse.ArgumentParser(description=__doc__)
 p.add_argument('source',type=Path);p.add_argument('out',type=Path);p.add_argument('--build',type=Path,required=True)
-p.add_argument('--variant',choices=['original','adapted'],required=True);a=p.parse_args()
+p.add_argument('--variant',choices=['original','adapted'],required=True)
+# 408e90 (default) or the second emitter routine 408620..408d68 (26 vector sites each).
+p.add_argument('--start',type=lambda v:int(v,0),default=0x408e90);p.add_argument('--end',type=lambda v:int(v,0),default=0x4095d8)
+a=p.parse_args()
 if not a.out.resolve().is_relative_to(a.build.resolve()):raise ValueError('private build directory required')
 data=a.source.read_bytes();overlay_adaptations('mod003',data)
-fixture,_=prepare(data,[dict(Name='particle_motion',Start='0x408e90',End='0x4095d8')],{})
+fixture,_=prepare(data,[dict(Name='particle_motion',Start=hex(a.start),End=hex(a.end))],{})
 _,segments,_=elf_parts(fixture);sites=[]
-for pc in range(0x408e90,0x4095d8,4):
+for pc in range(a.start,a.end,4):
     s=next(s for s in segments if s[0]==1 and s[2]<=pc<pc+4<=s[2]+s[4]);word=int.from_bytes(fixture[s[1]+pc-s[2]:s[1]+pc-s[2]+4],'little')
     if word>>26 in (0x12,0x36,0x3e):sites.append(f'native 0x{pc:x}\n')
 if len(sites)!=26:raise ValueError('particle motion vector site coverage mismatch')

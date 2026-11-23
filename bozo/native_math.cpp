@@ -5018,6 +5018,9 @@ constexpr MacroIdiom macroIdioms[]={
     // negated pair (mod028 494ea0 at 4953a4): LQC2 vf1 (a); SUBw.x vf3.x = -1; LQC2 vf2 (b); MULx.xyz both by -1; SQC2 vf1
     // -> {-a, a.w}; MULw.w vf2 = 1; SQC2 vf2 -> {-b, 1}.
     {"negpair",{-2,0x4b0000c7,-3,0x4bc30858,0x4bc31098,-101,0x4a20009b,-102},8},
+    // offsetpair (mod028 3e4e3c, battle 0x19): LQC2 vf1 = P, vf2 = D; QMTC2 t0 -> vf3, t1 -> vf4; MULAw.xyz ACC = P 1;
+    // MSUBx.xyz vf1 = ACC - D vf3.x, SQC2 vf1; MSUBx.xyz vf1 = ACC - D vf4.x, SQC2 vf1 -> {P - D s, P.w} twice.
+    {"offsetpair",{-2,-3,0x48a81800,0x48a92000,0x4bc009bf,0x4bc3104c,-101,0x4bc4104c,-101},9},
     // three copies (mod028 494590 at 4945a4): LQC2 vf1; SQC2 vf1 at 0, 16, 32 of v0.
     {"copy3",{-2,-101,-101,-101},4},
     // plane through three points, second form (mod028 494530; its store the jr ra's delay slot): LQC2 vf1..vf3; ADDw.xyz vf31
@@ -5195,6 +5198,9 @@ bool nativeMacroIdiom(R5900Context *c,Runtime *rt,uint32_t pc){
             else if(kind=="impulse"){const auto v=need(1),k=need(2);for(unsigned i=0;i<3;++i)out[i]=vuMul(v[i],k[0]);out[3]=vuMul(v[3],0);}
             else if(kind=="negate1"){const auto v=need(1);const auto m=vuSub(0,one);for(unsigned i=0;i<3;++i)out[i]=vuMul(v[i],m);out[3]=v[3];}
             else if(kind=="dot26"){const auto a=need(26),b=need(27);out=a;out[0]=vuAdd(vuAdd(vuMul(a[0],b[0]),vuMul(a[1],b[1])),vuMul(one,vuMul(a[2],b[2])));}
+            else if(kind=="offsetpair"){const auto p=need(1),d=need(2),s=need(k==6?3:4);
+                for(unsigned i=0;i<3;++i)out[i]=vuSub(vuMul(p[i],one),vuMul(d[i],s[0]));out[3]=p[3];
+                _mm_setcsr(savedCsr);std::memcpy(record(rt,address(self),16),out.data(),16);if(k==8)capture.valid=0;return true;}
             else if(kind=="negpair"){const auto v=need(want==-101?1:2);const auto m=vuSub(0,one);for(unsigned i=0;i<3;++i)out[i]=vuMul(v[i],m);out[3]=want==-101?v[3]:one;
                 _mm_setcsr(savedCsr);std::memcpy(record(rt,address(self),16),out.data(),16);if(want==-102)capture.valid=0;return true;}
             else if(kind=="cross"){const auto a=need(1),b=need(2);
@@ -5353,7 +5359,11 @@ bool nativeParticleBox(R5900Context *c,Runtime *rt,uint32_t pc){
         {0x2416ec,0x241744,0x241748,0x240,0xd8610000,3,21},{0x24177c,0x2417e0,0x2417e4,0x240,0xd8610000,3,21},{0x241914,0x241970,0x241974,0x240,0xd8610000,3,21},{0x2419ac,0x241a10,0x241a14,0x240,0xd8610000,3,21},
         {0x241b3c,0x241b68,0x241b6c,0x240,0xd8610000,3,21},{0x241ba4,0x241be0,0x241be4,0x240,0xd8610000,3,21},{0x241d0c,0x241d44,0x241d48,0x240,0xd8610000,3,21},{0x241d7c,0x241dc8,0x241dcc,0x240,0xd8610000,3,21},
         {0x241f2c,0x241f84,0x241f88,0x240,0xd8610000,3,21},{0x241fbc,0x242008,0x24200c,0x240,0xd8c10000,6,21},{0x24213c,0x242198,0x24219c,0x240,0xd8610000,3,21},{0x2421d4,0x242220,0x242224,0x240,0xd8610000,3,21},
-        {0x24234c,0x242378,0x24237c,0x240,0xd8610000,3,21},{0x2423b4,0x2423d8,0x2423dc,0x240,0xd8e10000,7,21},{0x242504,0x24253c,0x242540,0x240,0xd8610000,3,21},{0x242574,0x2425a8,0x2425ac,0x240,0xd8610000,3,21}};
+        {0x24234c,0x242378,0x24237c,0x240,0xd8610000,3,21},{0x2423b4,0x2423d8,0x2423dc,0x240,0xd8e10000,7,21},{0x242504,0x24253c,0x242540,0x240,0xd8610000,3,21},{0x242574,0x2425a8,0x2425ac,0x240,0xd8610000,3,21},
+        // mod003 40a700 and 40a7d0 (leaf emitter methods, the driver frame is their sp; point at a2 after its copy), and their
+        // mod001 copies 290eb0 / 290f80 (179850 lower; battle 0x1b).
+        {0x40a75c,0x40a76c,0x40a770,0,0xd8c10000,6,4},{0x40a82c,0x40a83c,0x40a840,0,0xd8c10000,6,4},
+        {0x290f0c,0x290f1c,0x290f20,0,0xd8c10000,6,4},{0x290fdc,0x290fec,0x290ff0,0,0xd8c10000,6,4}};
     const Box *box=nullptr;unsigned role=0;
     for(const auto &b:boxes){if(pc==b.load){box=&b;role=0;}else if(pc==b.min){box=&b;role=1;}else if(pc==b.max){box=&b;role=2;}}
     if(!rt || !box)return false;
@@ -7496,6 +7506,174 @@ bool mathBlock71(R5900Context *c,Runtime *rt,uint32_t pc){
     }
     return false;
 }
+// Particle motion, the second emitter routine: mod003 408620 and its byte-identical mod001 copy 277290 (191390 lower;
+// battle 0x1b). Points are 0x60 apart (position pool + 0x60 i + 0x30, velocity 0x10 after it). Four paths: simple
+// (owner +d8 bit 0) or full, one point (+10 = 1) or a group. Each runs P' = (0 + P) + V t (xyz, w of P), t = the QMTC2 of
+// [35dee8] (277310 simple, 277518 full), then SQC2 P' to the output and back to the point. Arithmetic as 408e90's port.
+struct ParticleMotion2{uint32_t time=0,object=0,point=0;unsigned path=0;std::array<float,4> position{},velocity{},result{};bool timed=false,loaded=false,stored=false;};
+std::map<const Runtime *,ParticleMotion2> &particleMotions2(){static std::map<const Runtime *,ParticleMotion2> m;return m;}
+bool nativeParticleMotion2(R5900Context *c,Runtime *rt,uint32_t pc){
+    struct Site{uint32_t pc,word;char role;unsigned path;};
+    static constexpr Site sites[]={
+        {0x277310,0x48a31800,'t',0},{0x277384,0xd9410000,'P',0},{0x277388,0xd8620000,'V',0},{0x2773a8,0x4bc00abc,'-',0},{0x2773ac,0x4bc31048,'-',0},
+        {0x2773b8,0xf8610000,'1',0},{0x2773bc,0xf9410000,'2',0},{0x277464,0xd8610000,'P',1},{0x277468,0xd9220000,'V',1},{0x27748c,0x4bc00abc,'-',1},
+        {0x277490,0x4bc31048,'-',1},{0x27749c,0xf9210000,'1',1},{0x2774a0,0xf8610000,'2',1},{0x277518,0x48b01800,'t',2},{0x2775c0,0xdac10000,'P',2},
+        {0x2775c8,0xda020000,'V',2},{0x27771c,0x4bc00abc,'-',2},{0x277720,0x4bc31048,'-',2},{0x27772c,0xfa010000,'1',2},{0x277734,0xfac10000,'2',2},
+        {0x277800,0xdaa10000,'P',3},{0x277804,0xda020000,'V',3},{0x27796c,0x4bc00abc,'-',3},{0x277970,0x4bc31048,'-',3},{0x27797c,0xfa010000,'1',3},
+        {0x277984,0xfaa10000,'2',3}};
+    constexpr uint32_t shift=0x191390;
+    if((pc&3) || !rt)return false;
+    const uint32_t copy=pc>=0x277310 && pc<=0x277984?pc:pc-shift;
+    if(copy<0x277310 || copy>0x277984)return false;
+    const auto site=std::find_if(std::begin(sites),std::end(sites),[&](const Site &x){return x.pc==copy;});
+    if(site==std::end(sites))return false;
+    uint32_t word=0;if(const auto *p=rt->memory.hostPointer(pc,4))std::memcpy(&word,p,4);
+    if(word!=site->word)return false;   // another overlay at these addresses
+    if(site->role=='-')return true;      // arithmetic: folded into the first store
+    if(!c)throw std::runtime_error("native particle motion (408620) has no CPU record");
+    const auto fail=[&](const char *why){return std::runtime_error(std::format("native particle motion (408620) at {:x}: {}",pc,why));};
+    auto &st=particleMotions2()[rt];const auto object=c->r[4].uw[0];auto *owner=record(rt,object,0xf0);
+    const auto readWord=[](const uint8_t *p,unsigned at){uint32_t v;std::memcpy(&v,p+at,4);return v;};
+    const auto group=readWord(owner,0x10),pool=readWord(owner,0x14),count=readWord(owner,0xc);
+    const bool simple=owner[0xd8]&1;
+    if(!group || group>16 || !count || count>65536 || simple!=(site->path<2) || (site->role!='t' && (group==1)!=(site->path%2==0)))
+        throw fail("owner/branch mismatch");
+    const auto address=[&]{return c->r[(word>>21)&31].uw[0]+uint32_t(int32_t(int16_t(word&0xffff)));};
+    uint32_t time;std::memcpy(&time,record(rt,0x35dee0,16)+8,4);
+    switch(site->role){
+    case 't':if(c->r[(word>>16)&31].uw[0]!=time)throw fail("timestep is not [35dee8]");st=ParticleMotion2{time,object};st.timed=true;return true;
+    case 'P':{if(!st.timed || st.object!=object || st.time!=time)throw fail("point without its timestep");
+        const auto at=address();if(at<pool+0x30 || (at-pool-0x30)%0x60 || (at-pool-0x30)/0x60>=count)throw fail("position outside the owner's pool");
+        record(rt,pool,count*0x60);std::memcpy(st.position.data(),record(rt,at,16),16);st.point=at;st.path=site->path;st.loaded=true;st.stored=false;return true;}
+    case 'V':{if(!st.loaded || st.path!=site->path || address()!=st.point+0x10)throw fail("velocity is not the point's");
+        std::memcpy(st.velocity.data(),record(rt,address(),16),16);
+        float t;std::memcpy(&t,&time,4);pairQualified(t);if(std::abs(t)>1.e8f)throw fail("unqualified timestep");
+        for(unsigned i=0;i<3;++i){pairQualified(st.position[i]);pairQualified(st.velocity[i]);
+            if(std::abs(st.position[i])>1.e8f || std::abs(st.velocity[i])>1.e8f)throw fail("unqualified position/velocity");}
+        struct ArithmeticScope {unsigned saved=_mm_getcsr();~ArithmeticScope(){_mm_setcsr(saved);}} arithmetic;
+        st.result=st.position;for(unsigned i=0;i<3;++i)st.result[i]=pairSum(pairSum(st.position[i],0.f),pairProduct(st.velocity[i],t));return true;}
+    case '1':{if(!st.loaded || st.path!=site->path || st.stored)throw fail("output without its point");
+        const auto at=address();if(at>=st.point-0x30 && at<st.point+0x30)throw fail("output aliases its point");
+        std::memcpy(record(rt,at,16),st.result.data(),16);st.stored=true;return true;}
+    case '2':if(!st.stored || st.path!=site->path || address()!=st.point)throw fail("feedback is not the point");
+        std::memcpy(record(rt,st.point,16),st.result.data(),16);st.loaded=st.stored=false;return true;
+    }
+    return false;
+}
+// Radial force field, mod001 1fb950 (a0 = the field, a1 = the point, a3 = the output; battle 0x1b). ps2f in listing order:
+// d = P - C (a1, field +230); with +228 < 0 the field turns: d = (0 - d.z, d.y, 0 + d.x) (1fb9bc..1fb9c8); s = |+228|
+// (QMTC2 vf12); len2 = (dx2 + dy2) + 1 dz2; Q = RSQRT(1, len2); m = +220 + +224 (r - 1) from the EE's own LCG (QMTC2 vf13);
+// out = {((d Q) m) (s2 / (len2 + s2)), 1 1} to a3. Without a turn the EE branch skips 1fb9b8..1fb9c8.
+struct ForceField{VuWords p{},c{},d{};uint32_t s=0,m=0;unsigned have=0;};
+std::map<const Runtime *,ForceField> &forceFields(){static std::map<const Runtime *,ForceField> m;return m;}
+bool nativeForceField(R5900Context *c,Runtime *rt,uint32_t pc){
+    struct Site{uint32_t pc,word;char role;};
+    static constexpr Site sites[]={{0x1fb9a4,0xd8aa0000,'P'},{0x1fb9a8,0xd86b0000,'C'},{0x1fb9b4,0x48a36000,'s'},{0x1fb9b8,0x4bcb552c,'d'},
+        {0x1fb9bc,0x4b140568,'-'},{0x1fb9c0,0x4b140506,'r'},{0x1fb9c8,0x4a550500,'-'},{0x1fb9d0,0x4bcb552c,'d'},{0x1fb9d8,0x4be007d3,'-'},
+        {0x1fb9dc,0x4b0c632a,'-'},{0x1fb9e0,0x4bd4a56a,'-'},{0x1fb9e4,0x4b15a83d,'-'},{0x1fb9e8,0x4b15fd8a,'-'},{0x1fb9ec,0x4a7603be,'-'},
+        {0x1fb9f0,0x4b0cb5e8,'-'},{0x1fba94,0x48a36800,'m'},{0x1fba98,0x4a0003bf,'-'},{0x1fba9c,0x4bc0a61c,'-'},{0x1fbaa0,0x4a0002ff,'-'},
+        {0x1fbaa4,0x4a0002ff,'-'},{0x1fbaa8,0x4a1763bc,'-'},{0x1fbaac,0x4bcdc658,'-'},{0x1fbab0,0x4a20065b,'-'},{0x1fbab4,0x4a0003bf,'-'},
+        {0x1fbab8,0x4bc0ce5c,'-'},{0x1fbabc,0xf8f90000,'S'}};
+    if((pc&3) || !rt || pc<0x1fb9a4 || pc>0x1fbabc)return false;
+    const auto site=std::find_if(std::begin(sites),std::end(sites),[&](const Site &x){return x.pc==pc;});
+    if(site==std::end(sites))return false;
+    uint32_t word=0;if(const auto *p=rt->memory.hostPointer(pc,4))std::memcpy(&word,p,4);
+    if(word!=site->word)return false;   // another overlay at these addresses
+    if(site->role=='-')return true;      // arithmetic: folded into the store
+    if(!c)throw std::runtime_error("native force field has no CPU record");
+    auto &st=forceFields()[rt];const uint32_t one=0x3f800000u;
+    const auto fail=[&](const char *why){return std::runtime_error(std::format("native force field at {:x}: {}",pc,why));};
+    const auto address=[&]{return c->r[(word>>21)&31].uw[0]+uint32_t(int32_t(int16_t(word&0xffff)));};
+    switch(site->role){
+    case 'P':st=ForceField{};st.p=vuWords(rt,address());st.have=1;return true;
+    case 'C':if(st.have!=1)throw fail("centre without its point");st.c=vuWords(rt,address());st.have=2;return true;
+    case 's':if(st.have!=2)throw fail("strength without its vectors");st.s=c->r[(word>>16)&31].uw[0];st.have=3;return true;
+    case 'd':if(st.have!=3)throw fail("difference without its inputs");for(unsigned i=0;i<3;++i)st.d[i]=vuSub(st.p[i],st.c[i]);st.have=4;return true;
+    case 'r':{if(st.have!=4)throw fail("turn without its difference");const auto x=vuAdd(0,st.d[0]);st.d[0]=vuSub(0,st.d[2]);st.d[2]=vuAdd(0,x);return true;}
+    case 'm':if(st.have!=4)throw fail("magnitude without its difference");st.m=c->r[(word>>16)&31].uw[0];st.have=5;return true;
+    case 'S':{if(st.have!=5)throw fail("output without its terms");
+        const uint32_t saved=_mm_getcsr();uint32_t sq[3];for(unsigned i=0;i<3;++i)sq[i]=vuMul(st.d[i],st.d[i]);
+        const auto s2=vuMul(st.s,st.s),len2=vuAdd(vuAdd(sq[0],sq[1]),vuMul(one,sq[2])),den=vuAdd(len2,s2);
+        uint32_t f=0;const auto q=bozo::ps2f::rsqrt(one,len2,f);f=0;const auto ratio=bozo::ps2f::div(s2,den,f);_mm_setcsr(saved);
+        VuWords out{};for(unsigned i=0;i<3;++i)out[i]=vuMul(vuMul(vuMul(st.d[i],q),st.m),ratio);out[3]=vuMul(one,one);
+        std::memcpy(record(rt,address(),16),out.data(),16);st.have=0;return true;}
+    }
+    return false;
+}
+// Battle table scales, mod028 3e4eb0's loop (battle 0x19): 3e511c LQC2 vf1 = 5134a0 + 16 s1, MULx.xyz vf1 *= vf2.x, SQC2
+// to sp+110; 3e51c0 the same with 5134e0 + 16 (s1 >> 1) to sp+100 -> {v k, v.w}. vf2.x is the QMTC2 of f22 at 3e502c (the
+// scale1 block 3e5020). Every path to both passes it (the branches between, 3e5048..3e51e4, are forward and internal),
+// with no call and no write to f22 before 3e525c, so k = f22's bits.
+struct BattleTableScale{VuWords v{};uint32_t block=0;bool loaded=false;};
+std::map<const Runtime *,BattleTableScale> &battleTableScales(){static std::map<const Runtime *,BattleTableScale> m;return m;}
+bool nativeBattleTableScale(R5900Context *c,Runtime *rt,uint32_t pc){
+    static constexpr uint32_t blocks[][3]={{0x3e511c,0x3e5124,0x3e5128},{0x3e51c0,0x3e51c8,0x3e51cc}};
+    static constexpr uint32_t words[3]={0xd8410000,0x4bc20858,0xf8410000};
+    if(!rt || (pc&3))return false;
+    const auto block=std::find_if(std::begin(blocks),std::end(blocks),[&](const auto &b){return pc==b[0] || pc==b[1] || pc==b[2];});
+    if(block==std::end(blocks))return false;
+    for(unsigned i=0;i<3;++i){uint32_t w=0;if(const auto *p=rt->memory.hostPointer((*block)[i],4))std::memcpy(&w,p,4);if(w!=words[i])return false;}
+    uint32_t guard=0;if(const auto *p=rt->memory.hostPointer(0x3e502c,4))std::memcpy(&guard,p,4);if(guard!=0x48a81000)return false;   // the QMTC2 vf2 the scale comes from
+    if(!c)throw std::runtime_error("native battle table scale has no CPU record");
+    auto &st=battleTableScales()[rt];
+    if(pc==(*block)[0]){st.v=vuWords(rt,c->r[2].uw[0]);st.block=(*block)[0];st.loaded=true;return true;}
+    if(pc==(*block)[1])return true;   // folded into the store
+    if(!st.loaded || st.block!=(*block)[0])throw std::runtime_error("native battle table scale stored without its load");
+    uint32_t k;std::memcpy(&k,&c->f[22],4);VuWords out=st.v;for(unsigned i=0;i<3;++i)out[i]=vuMul(st.v[i],k);
+    std::memcpy(record(rt,c->r[2].uw[0],16),out.data(),16);st.loaded=false;return true;
+}
+// Particle trails, after the physics step's points (40a8b0 at 40ae30.., its mod001 copy 291910 at 291e90..; battle 0x19).
+// a0 = the group's first 0x30 record (s4 - s2*0x30), k = emitter +54 (QMTC2 v0). vf1 = P0, vf4 = P0 (xyzw); per point
+// i = 1..s2-1: d = P_i - vf1 (the original previous point), vf1 = P_i; three variants, ps2f in listing order:
+//   291e90: vf4.xyz = ((0 + vf4) + d 1) + unit(d) k;   291f30: vf4.xyz = (0 + vf4) + unit(d) k;   291fd0: (0 + vf4) + d k;
+//   unit(d) = d Q, Q = RSQRT(1, (dx2 + dy2) + 1 dz2). SQC2 vf4 to P_i (w stays P0's); MINI/MAX vf26/vf27 = the bounds.
+struct ParticleTrail{uint32_t stack=0,emitter=0,k=0;VuWords previous{},current{},d{};bool loaded=false,step=false;};
+std::map<const Runtime *,ParticleTrail> &particleTrails(){static std::map<const Runtime *,ParticleTrail> m;return m;}
+bool nativeParticleTrailInstruction(R5900Context *c,Runtime *rt,uint32_t pc){
+    struct Site{uint32_t pc,word;char role;unsigned variant;};
+    static constexpr Site sites[]={
+        {0x291e90,0xd8810000,'P',0},{0x291ea0,0x48a21800,'k',0},{0x291ea4,0x4be40b3c,'-',0},{0x291ec0,0xd8420000,'L',0},{0x291ec4,0x4be111ac,'-',0},
+        {0x291ec8,0x4be1133c,'-',0},{0x291ecc,0x4bc007c3,'-',0},{0x291ed0,0x4bc631ea,'-',0},{0x291ed4,0x4b07383d,'-',0},{0x291ed8,0x4b07f9ca,'-',0},
+        {0x291edc,0x4a6703be,'-',0},{0x291ee0,0x4a0003bf,'-',0},{0x291ee4,0x4bc0321c,'-',0},{0x291ee8,0x4bc022bc,'-',0},{0x291eec,0x4bc030bf,'-',0},
+        {0x291ef0,0x4bc34108,'-',0},{0x291ef4,0xf8440000,'S',0},{0x291ef8,0x4bc4d6af,'B',0},{0x291efc,0x4bc4deeb,'-',0},
+        {0x291f30,0xd8810000,'P',1},{0x291f40,0x48a21800,'k',1},{0x291f44,0x4be40b3c,'-',1},{0x291f60,0xd8420000,'L',1},{0x291f64,0x4be111ac,'-',1},
+        {0x291f68,0x4be1133c,'-',1},{0x291f6c,0x4bc007c3,'-',1},{0x291f70,0x4bc631ea,'-',1},{0x291f74,0x4b07383d,'-',1},{0x291f78,0x4b07f9ca,'-',1},
+        {0x291f7c,0x4a6703be,'-',1},{0x291f80,0x4a0003bf,'-',1},{0x291f84,0x4bc0319c,'-',1},{0x291f88,0x4bc022bc,'-',1},{0x291f8c,0x4bc33108,'-',1},
+        {0x291f90,0xf8440000,'S',1},{0x291f94,0x4bc4d6af,'B',1},{0x291f98,0x4bc4deeb,'-',1},
+        {0x291fd0,0xd8810000,'P',2},{0x291fe0,0x48a21800,'k',2},{0x291fe4,0x4be40b3c,'-',2},{0x292000,0xd8420000,'L',2},{0x292004,0x4be111ac,'-',2},
+        {0x292008,0x4be1133c,'-',2},{0x29200c,0x4bc022bc,'-',2},{0x292010,0x4bc33108,'-',2},{0x292014,0xf8440000,'S',2},{0x292018,0x4bc4d6af,'B',2},
+        {0x29201c,0x4bc4deeb,'-',2}};
+    if((pc&3) || !rt)return false;
+    const uint32_t copy=pc>=0x291e90 && pc<=0x29201c?pc:pc-kPhysicsCopyShift;
+    if(copy<0x291e90 || copy>0x29201c)return false;
+    const auto site=std::find_if(std::begin(sites),std::end(sites),[&](const Site &x){return x.pc==copy;});
+    if(site==std::end(sites))return false;
+    uint32_t word=0;if(const auto *p=rt->memory.hostPointer(pc,4))std::memcpy(&word,p,4);
+    if(word!=site->word)return false;   // another overlay at these addresses
+    if(site->role=='-')return true;      // arithmetic: folded into the store
+    auto *d=nativeCast<bozo::ee::Dispatcher>(rt->services);auto *particles=d?nativeCast<ParticleOwner>(&d->host()):nullptr;
+    if(!c || !particles)throw std::runtime_error("native particle trail requires the particle owner");
+    auto &st=particleTrails()[rt];const auto stack=c->r[29].uw[0],emitter=c->r[21].uw[0];
+    const auto fail=[&](const char *why){return std::runtime_error(std::format("native particle trail at {:x}: {}",pc,why));};
+    const auto address=[&]{return c->r[(word>>21)&31].uw[0]+uint32_t(int32_t(int16_t(word&0xffff)));};
+    const uint32_t one=0x3f800000u;
+    switch(site->role){
+    case 'P':particles->nativeParticles().validateEmitter(stack+0x150,emitter);
+        st=ParticleTrail{stack,emitter};st.previous=st.current=vuWords(rt,address());st.loaded=true;return true;
+    case 'k':{if(!st.loaded || st.stack!=stack || st.emitter!=emitter)throw fail("scale without its first point");
+        uint32_t k;const auto *scale=rt->memory.hostPointer(emitter+0x54,4);if(!scale)throw fail("emitter outside owned RAM");std::memcpy(&k,scale,4);if(c->r[(word>>16)&31].uw[0]!=k)throw fail("scale is not the emitter's +54");st.k=k;return true;}
+    case 'L':{if(!st.loaded || st.stack!=stack || st.emitter!=emitter)throw fail("point without the trail's start");
+        const auto p=vuWords(rt,address());for(unsigned i=0;i<3;++i)st.d[i]=vuSub(p[i],st.previous[i]);st.previous=p;st.step=true;return true;}   // d.w is never read
+    case 'S':{if(!st.step)throw fail("store without its point");
+        const uint32_t saved=_mm_getcsr();VuWords step=st.d;
+        if(site->variant<2){uint32_t sq[3];for(unsigned i=0;i<3;++i)sq[i]=vuMul(st.d[i],st.d[i]);uint32_t f=0;
+            const auto q=bozo::ps2f::rsqrt(one,vuAdd(vuAdd(sq[0],sq[1]),vuMul(one,sq[2])),f);_mm_setcsr(saved);for(unsigned i=0;i<3;++i)step[i]=vuMul(st.d[i],q);}
+        for(unsigned i=0;i<3;++i){auto acc=vuAdd(0,st.current[i]);if(site->variant==0)acc=vuAdd(acc,vuMul(st.d[i],one));st.current[i]=vuAdd(acc,vuMul(step[i],st.k));}
+        _mm_setcsr(saved);std::memcpy(record(rt,address(),16),st.current.data(),16);st.step=false;return true;}
+    case 'B':{std::array<float,4> v;std::memcpy(v.data(),st.current.data(),16);particles->nativeParticles().includePoint(stack+0x150,emitter,v);return true;}
+    }
+    return false;
+}
 bool mathBlock72(R5900Context *c,Runtime *rt,uint32_t pc){
     if(pc==0x29e1a0 || pc==0x29e160){
         // The default math code installation has no execution or game-data
@@ -7516,6 +7694,10 @@ bool mathBlock72(R5900Context *c,Runtime *rt,uint32_t pc){
 #define CLAIM(f) (f(c,rt,pc) && (mathClaimer=&f,true))
 bool nativeMathInstruction(uint8_t *,R5900Context *c,Runtime *rt,uint32_t pc){
     mathClaimer=nullptr;
+    if(CLAIM(nativeBattleTableScale))return true;
+    if(CLAIM(nativeForceField))return true;
+    if(CLAIM(nativeParticleMotion2))return true;
+    if(CLAIM(nativeParticleTrailInstruction))return true;   // ahead of the generic idioms, which would take its blocks
     if(CLAIM(nativeSkinUpload) || CLAIM(nativeSoftSkin))return true;
     if(CLAIM(nativeFacingPath) || CLAIM(nativeRotationBlocks))return true;
     if(CLAIM(nativeProjectionBlocks) || CLAIM(nativeBoneAim) || CLAIM(nativeChainBlocks) || CLAIM(nativeCapsulePair) || CLAIM(nativePlaneContact) || CLAIM(nativeRangeTest) || CLAIM(nativeMatrixBuild) || CLAIM(nativeCullTransform) || CLAIM(nativeBoxFrustum) || CLAIM(nativeListBoxQuery) || CLAIM(nativeHitFrame) || CLAIM(nativePlaneDistance) || CLAIM(nativeSphereSweep) || CLAIM(nativeSegmentApproach) || CLAIM(nativeWorldPosition) || CLAIM(nativeCameraTarget) || CLAIM(nativeRootLength) || CLAIM(nativeVisibilityLoop) || CLAIM(nativeMarkerProjection) || CLAIM(nativeQuaternionLeaf) || CLAIM(nativeBonePalette))return true;

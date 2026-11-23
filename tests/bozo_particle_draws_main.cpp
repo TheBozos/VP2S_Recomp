@@ -175,6 +175,12 @@ int main(int argc,char **argv){try{
             const auto first=batch.vertices[0];put(rt,(seed&1?0x210000u:0x200000u)+0x40,99.f);check(batch.vertices[0].x==first.x && batch.vertices[0].rgba==first.rgba);vertices+=batch.vertices.size();}
         ++cases;
     }
+    // Mode 3 (image 6) never reads the chunk header's group (z): a group of 2 draws exactly as group 1. Mode 6 keeps group 1.
+    {initialize(rt,scene,assets,4);const auto one=draws.capture(&rt,assets,textures,scene,particles,object);
+     put(rt,0x200020+0x18,uint32_t(2));const auto two=draws.capture(&rt,assets,textures,scene,particles,object);
+     check(one.batches.size()==1 && two.batches.size()==1 && one.batches[0].vertices.size()==two.batches[0].vertices.size());
+     for(size_t i=0;i<one.batches[0].vertices.size();++i){const auto &a=one.batches[0].vertices[i],&b=two.batches[0].vertices[i];check(a.x==b.x && a.y==b.y && a.z==b.z && a.u==b.u && a.v==b.v && a.rgba==b.rgba);}
+     put(rt,object+0xaff,uint8_t(6));bool refused=false;try{draws.capture(&rt,assets,textures,scene,particles,object);}catch(const std::runtime_error &){refused=true;}check(refused);}
     // Mode 6 (VU1 image 9): the record's +32 ax 0, +36 ay .5, +40 scale 1; shape z .1 / .3.
     // Corners: x' = x, y' = cos(ay) y, z' = .5 + sin(ay) y + cos(ay) z (no z term in y).
     {initialize(rt,scene,assets,1);put(rt,object+0xaff,uint8_t(6));put(rt,kinds+0xc0+8,.1f);put(rt,kinds+0xc0+24,.3f);
@@ -186,7 +192,7 @@ int main(int argc,char **argv){try{
      put(rt,object+0xafb,uint8_t(1));bool refused=false;try{draws.capture(&rt,assets,textures,scene,particles,object);}catch(const std::runtime_error &){refused=true;}check(refused);}
     for(unsigned which=0;which<28;++which){initialize(rt,scene,assets,1);particles=vp2s::NativeParticles{};constexpr uint32_t chunk=0x210020,point=chunk+32;
         if(which==0)put(rt,object,uint32_t(0));else if(which==1)put(rt,object+0xaff,uint8_t(2));else if(which==2)put(rt,object+0xb04,uint8_t(1));
-        else if(which==3)put(rt,current+0x40dd,uint8_t(0));else if(which==4)put(rt,object+0xabc,uint32_t(2));else if(which==5)put(rt,chunk+0x10,uint32_t(49));else if(which==6)put(rt,chunk+0x18,uint32_t(2));
+        else if(which==3)put(rt,current+0x40dd,uint8_t(0));else if(which==4)put(rt,object+0xabc,uint32_t(2));else if(which==5)put(rt,chunk+0x10,uint32_t(49));else if(which==6)put(rt,chunk+0x18,uint32_t(0));
         else if(which==7)put(rt,chunk+0x14,uint32_t(6));else if(which==8)put(rt,point+44,uint32_t(1));else if(which==9)put(rt,kinds+0xc0+40,.5f);
         else if(which==10)put(rt,point+28,uint32_t(0x7fa01234));else if(which==11)put(rt,point+32,uint32_t(0x7fa01234));else if(which==12)put(rt,point+36,uint32_t(1));
         else if(which==13)put(rt,object+0x634,uint16_t(4));else if(which==14)put(rt,object+0x634,uint16_t(1));else if(which==15)put(rt,fis+4,uint32_t(0));

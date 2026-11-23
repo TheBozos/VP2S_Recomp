@@ -2,6 +2,7 @@
 #include "native_particles.h"
 #include "native_float_oracle.h"
 #include "bozo/ee/dispatcher.h"
+#include "bozo/ops_fpu.h"
 #include "bozo/port.h"
 #include "particle_physics_original_functions.h"
 #include "particle_physics_adapted_functions.h"
@@ -22,12 +23,13 @@ struct Host:bozo::ee::Host,bozo::port::Host,vp2s::ParticleOwner,vp2s::AssetOwner
     bool reference=false;vp2s::NativeParticles particles;vp2s::NativeAssets assets;vp2s::NativeParticleUpdates updates;
     vp2s::ParticleBounds expectedBounds;std::set<uint32_t> sites;unsigned publications=0,segments=0,callbacks=0;
     struct Point {uint32_t source,output,time;Record position,rate,attributes,change,drift;};std::map<uint32_t,Point> points;
+    struct Trail {Record previous,current,d;uint32_t k=0;};std::map<uint32_t,Trail> trails;unsigned trailPoints=0;
     vp2s::NativeParticles &nativeParticles()override{return particles;}vp2s::NativeAssets &nativeAssets()override{return assets;}
     vp2s::NativeParticleUpdates &nativeParticleUpdates()override{return updates;}
     bozo::libs::Libraries &libraries()override{throw std::runtime_error("libraries");}bool nativeGraphics()const override{return true;}
     bool nativeInstruction(uint8_t *r,R5900Context *c,Runtime *rt,uint32_t pc)override{
         sites.insert(pc);if(pc==0x40ab5c)++publications;if(pc==0x40aaec)++segments;
-        if(!reference){const auto handled=vp2s::nativeMathInstruction(r,c,rt,pc);check(handled || pc==0x40b040);return handled;}
+        if(!reference){const auto handled=vp2s::nativeMathInstruction(r,c,rt,pc);if(!handled && pc!=0x40b040)std::fprintf(stderr,"unclaimed native site %x\n",pc);check(handled || pc==0x40b040);return handled;}
         if(pc>=0x410640 && pc<0x4107c4){
             if(pc==0x410684 || pc==0x4106cc || pc==0x410714){const bool position=pc==0x410684;const auto emitter=c->r[4].uw[0];
                 const auto matrix=read<std::array<uint32_t,16>>(*rt,emitter+0x80);const auto input=read<Record>(*rt,c->r[position?5:pc==0x4106cc?6:7].uw[0]);Record out;
@@ -36,6 +38,26 @@ struct Host:bozo::ee::Host,bozo::port::Host,vp2s::ParticleOwner,vp2s::AssetOwner
         }
         const auto frame=c->r[29].uw[0],emitter=c->r[21].uw[0];
         if(pc==0x40b040){check(points.empty());return false;}
+        // Particle trails (40ae30 / 40aed0 / 40af70 variants: d + unit(d) k, unit(d) k, d k after (0 + previous)).
+        {   static constexpr uint32_t starts[]={0x40ae30,0x40aed0,0x40af70},scales[]={0x40ae40,0x40aee0,0x40af80},loads[]={0x40ae60,0x40af00,0x40afa0},
+                stores[]={0x40ae94,0x40af30,0x40afb4},minima[]={0x40ae98,0x40af34,0x40afb8},ends[]={0x40ae9c,0x40af38,0x40afbc};
+            for(unsigned v=0;v<3;++v){if(pc<starts[v] || pc>ends[v])continue;
+                if(pc==starts[v]){trails[frame]=Trail{read<Record>(*rt,c->r[4].uw[0]),read<Record>(*rt,c->r[4].uw[0])};return true;}
+                auto &t=trails.at(frame);
+                if(pc==scales[v]){t.k=c->r[2].uw[0];check(t.k==read<uint32_t>(*rt,emitter+0x54));return true;}
+                // VU0 macro arithmetic rounds to nearest whatever the host mode (ps2f; the integration above follows the CSR).
+                struct Nearest {unsigned saved=_mm_getcsr();Nearest(){_mm_setcsr((saved&~_MM_ROUND_MASK)|_MM_ROUND_NEAREST);}~Nearest(){_mm_setcsr(saved);}} nearest;
+                if(pc==loads[v]){const auto point=read<Record>(*rt,c->r[2].uw[0]);for(unsigned i=0;i<3;++i)t.d[i]=sum(point[i],t.previous[i]^0x80000000u);t.previous=point;return true;}
+                if(pc==stores[v]){Record step=t.d;
+                    if(v<2){uint32_t f=0;const auto csr=_mm_getcsr();
+                        const auto q=bozo::ps2f::rsqrt(0x3f800000u,sum(sum(product(t.d[0],t.d[0]),product(t.d[1],t.d[1])),product(0x3f800000u,product(t.d[2],t.d[2]))),f);_mm_setcsr(csr);
+                        for(unsigned i=0;i<3;++i)step[i]=product(t.d[i],q);}
+                    for(unsigned i=0;i<3;++i){auto acc=sum(0,t.current[i]);if(v==0)acc=sum(acc,product(t.d[i],0x3f800000u));t.current[i]=sum(acc,product(step[i],t.k));}
+                    write(*rt,c->r[2].uw[0],t.current);++trailPoints;return true;}
+                if(pc==minima[v])for(unsigned i=0;i<3;++i){const float value=std::bit_cast<float>(t.current[i]);
+                    if(value<expectedBounds.minimum[i])expectedBounds.minimum[i]=value;if(value>expectedBounds.maximum[i])expectedBounds.maximum[i]=value;}
+                return true;}
+        }
         if(pc==0x40aa30){const auto source=c->r[6].uw[0];points.emplace(frame,Point{source,c->r[20].uw[0],read<uint32_t>(*rt,0x35dee8),read<Record>(*rt,source+0x10),read<Record>(*rt,source+0x30),read<Record>(*rt,source+0x50),read<Record>(*rt,source+0x40),read<Record>(*rt,emitter+0xc0)});return true;}
         if(pc==0x40aaec){auto &p=points.at(frame);const auto curve=read<Record>(*rt,read<uint32_t>(*rt,emitter+0x68)+c->r[5].uw[0]*16);const auto duration=std::bit_cast<uint32_t>(c->f[1]);
             for(unsigned i=0;i<3;++i)p.position[i]=sum(sum(p.position[i],0),product(curve[i],duration));return true;}
@@ -101,9 +123,9 @@ int main(){try{
     for(unsigned mode:{_MM_ROUND_NEAREST,_MM_ROUND_DOWN,_MM_ROUND_UP,_MM_ROUND_TOWARD_ZERO})for(unsigned seed=0;seed<128;++seed){
         auto &x=a.runtime(),&y=b.runtime();std::memset(x.memory.flat(),0x51,bozo::kFlatBytes);
         constexpr uint32_t emitter=0x190000,pool=0x200000,maskOwner=0x1a0000,mask=0x1b0000,curve=0x260000;
-        std::memset(x.memory.hostPointer(emitter,0xe0),0,0xe0);write(x,emitter,uint32_t(0x162ff0));write(x,emitter+0xc,uint32_t(130));write(x,emitter+0x10,uint32_t(1));write(x,emitter+0x14,pool);
+        std::memset(x.memory.hostPointer(emitter,0xe0),0,0xe0);write(x,emitter,uint32_t(0x162ff0));write(x,emitter+0xc,uint32_t(130));write(x,emitter+0x10,uint32_t(1+(seed/40)%3));write(x,emitter+0x14,pool);
         write(x,emitter+0x1c,maskOwner);write(x,maskOwner+8,mask);const uint32_t starts[]={0,63,64,127};write(x,emitter+0x48,starts[(seed/4)%4]);
-        const float steps[]={0,.016666668f,.035f,.1f};write(x,0x35dee8,steps[seed%4]);write(x,emitter+0x4c,float(seed%4)*.25f);write(x,emitter+0x54,1.f);write(x,emitter+0x64,1.f);
+        const float steps[]={0,.016666668f,.035f,.1f};write(x,0x35dee8,steps[seed%4]);write(x,emitter+0x4c,float(seed%4)*.25f);write(x,emitter+0x54,seed&64?.375f:1.f);write(x,emitter+0xd7,uint8_t((seed/16)%3));write(x,emitter+0x64,1.f);
         write(x,emitter+0x68,uint32_t(seed&4?curve:0));const uint8_t modes[]={0,1,2,5,6};write(x,emitter+0xd0,modes[(seed/8)%5]);write(x,0x35dbf0,uint32_t(0));
         const std::array<float,16> matrix{1,.25f,0,0,0,1,0,.125f,0,0,1,0,.25f,-.5f,.75f,1};write(x,emitter+0x80,matrix);
         write(x,emitter+0x6c,uint32_t(seed&32?0x270000:0));write(x,emitter+0xd2,uint8_t(seed&7));write(x,emitter+0xd3,uint8_t(seed));
@@ -115,6 +137,8 @@ int main(){try{
             const std::array<float,4> rate{.1f,-.05f,.025f,float(seed%5)*.05f},attributes{.5f,.75f,.25f,float(seed%6)*.025f},change{.01f,.02f,-.03f,std::bit_cast<float>(0xffc05678u)};
             write(x,at+0x10,position);write(x,at+0x20,Record{17,34,51,128});write(x,at+0x30,rate);write(x,at+0x40,change);write(x,at+0x50,attributes);
         }
+        static constexpr uint32_t trailCode[][2]={{0x40ae30,0xd8810000},{0x40ae40,0x48a21800},{0x40ae44,0x4be40b3c},{0x40ae60,0xd8420000},{0x40ae64,0x4be111ac},{0x40ae68,0x4be1133c},{0x40ae6c,0x4bc007c3},{0x40ae70,0x4bc631ea},{0x40ae74,0x4b07383d},{0x40ae78,0x4b07f9ca},{0x40ae7c,0x4a6703be},{0x40ae80,0x4a0003bf},{0x40ae84,0x4bc0321c},{0x40ae88,0x4bc022bc},{0x40ae8c,0x4bc030bf},{0x40ae90,0x4bc34108},{0x40ae94,0xf8440000},{0x40ae98,0x4bc4d6af},{0x40ae9c,0x4bc4deeb},{0x40aed0,0xd8810000},{0x40aee0,0x48a21800},{0x40aee4,0x4be40b3c},{0x40af00,0xd8420000},{0x40af04,0x4be111ac},{0x40af08,0x4be1133c},{0x40af0c,0x4bc007c3},{0x40af10,0x4bc631ea},{0x40af14,0x4b07383d},{0x40af18,0x4b07f9ca},{0x40af1c,0x4a6703be},{0x40af20,0x4a0003bf},{0x40af24,0x4bc0319c},{0x40af28,0x4bc022bc},{0x40af2c,0x4bc33108},{0x40af30,0xf8440000},{0x40af34,0x4bc4d6af},{0x40af38,0x4bc4deeb},{0x40af70,0xd8810000},{0x40af80,0x48a21800},{0x40af84,0x4be40b3c},{0x40afa0,0xd8420000},{0x40afa4,0x4be111ac},{0x40afa8,0x4be1133c},{0x40afac,0x4bc022bc},{0x40afb0,0x4bc33108},{0x40afb4,0xf8440000},{0x40afb8,0x4bc4d6af},{0x40afbc,0x4bc4deeb}};
+        for(const auto &[at,word]:trailCode)write(x,at,word);   // the trail sites check their words (mod028 shares these addresses)
         const auto parent=seed&1?0x70003d00u:0x1fff000u;prepareBounds(old,x,parent,seed&1);
         std::memcpy(y.memory.flat(),x.memory.flat(),bozo::kFlatBytes);prepareBounds(now,y,parent,seed&1);
         R5900Context p{};for(unsigned i=1;i<32;++i){p.r[i].ud[0]=seed*32+i;p.r[i].ud[1]=~p.r[i].ud[0];p.f[i]=float(i)/8;}
@@ -124,12 +148,17 @@ int main(){try{
         x.functions.generated(0x40a8b0)(x.memory.flat(),&p,&x);const auto fp=_mm_getcsr();_mm_setcsr(control);
         try{y.functions.generated(0x40a8b0)(y.memory.flat(),&q,&y);}catch(const std::exception &e){std::fprintf(stderr,"particle physics seed=%u mode=%x: %s\n",seed,mode,e.what());throw;}
         check(_mm_getcsr()==fp);_mm_setcsr(saved);p.cycleLimit=q.cycleLimit;
+        if(std::memcmp(x.memory.flat(),y.memory.flat(),bozo::kFlatBytes)){const auto *u=x.memory.flat(),*v=y.memory.flat();size_t i=0;while(u[i]==v[i])++i;
+            i&=~size_t(15);uint32_t a4[4],b4[4];std::memcpy(a4,u+i,16);std::memcpy(b4,v+i,16);
+            std::fprintf(stderr,"seed %u mode %x: RAM differs first at %zx (%08x %08x %08x %08x / %08x %08x %08x %08x)\n",seed,mode,i,a4[0],a4[1],a4[2],a4[3],b4[0],b4[1],b4[2],b4[3]);}
+        if(std::memcmp(&p,&q,sizeof(p)))std::fprintf(stderr,"seed %u mode %x: CPU state differs (pc %x / %x)\n",seed,mode,p.pc,q.pc);
         check(p.pc==0x22ed38 && !std::memcmp(&p,&q,sizeof(p)) && !std::memcmp(x.memory.flat(),y.memory.flat(),bozo::kFlatBytes));
         const auto &actualBounds=now.particles.bounds(parent,emitter);check(!std::memcmp(&old.expectedBounds,&actualBounds,sizeof(actualBounds)));
         check(now.updates.outstanding()==0 && old.points.empty() && old.publications==now.publications && old.segments==now.segments && old.callbacks==now.callbacks);
         published+=now.publications;segments+=now.segments;callbacks+=now.callbacks;++callers;
     }
-    check(old.sites==now.sites && published && segments && callbacks);
+    check(old.sites==now.sites && published && segments && callbacks && old.trailPoints);
+    std::printf("particle trails: %u reference points\n",old.trailPoints);
     for(uint32_t pc:{0x41074cu,0x410750u,0x410790u,0x410794u,0x4107a8u,0x4107b0u,0x4107b4u})check(now.sites.contains(pc));
     {auto &rt=b.runtime();constexpr uint32_t parent=0x1ffe000,frame=parent-0x150,emitter=0x190000,point=0x200000,output=0x70000020;
         prepareBounds(now,rt,parent,0);write(rt,emitter+0xc,uint32_t(1));write(rt,emitter+0x10,uint32_t(1));write(rt,emitter+0x14,point);write(rt,emitter+0x68,uint32_t(0x260000));write(rt,emitter+0xd0,uint8_t(0));write(rt,0x35dee8,.25f);

@@ -505,7 +505,12 @@ NativeModelSubmission NativeModels::capture(Runtime *rt,NativeAssets &assets,Nat
                 for(unsigned r=0;r<3;++r)view[r]=(viewObject[4*r]*reflection[0]+viewObject[4*r+1]*reflection[1]+viewObject[4*r+2]*reflection[2])*inv;
                 const float q=std::sqrt(std::max(1-view[2],0.1f));vout.u=(-view[0]+1.41421f*q)/(2.82843f*q);vout.v=(view[1]+1.41421f*q)/(2.82843f*q);}
             if(m.has(20)){
-                if(m.has(2) || m.has(4) || m.has(36))throw std::runtime_error("unqualified native sphere map with skinning or routine 36");
+                // Skinning (2, 4) before 20 gives it the skinned normal, as computed above (battle 0x1a: routines 8 2 20; the
+                // palette's output is object space, drawn through the same screen matrix as unskinned meshes).
+                const auto at20=std::find(m.algorithms.begin(),m.algorithms.end(),20);
+                const bool skinAfter=std::find(at20,m.algorithms.end(),2)!=m.algorithms.end() || std::find(at20,m.algorithms.end(),4)!=m.algorithms.end();
+                if(skinAfter || m.has(36)){std::string order;for(const auto r:m.algorithms)order+=std::format(" {}",int(r));
+                    throw std::runtime_error("unqualified native sphere map with routine 36 or skinning after it (routines"+order+")");}
                 // Routine 20 writes S, T, Q; a later routine 48 adds its offset to S
                 // and T (12-bit); the GS then divides by Q.
                 auto stq=sphereMapTexture(n,eyeDirection,rotation);

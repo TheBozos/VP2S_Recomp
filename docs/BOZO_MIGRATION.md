@@ -12,6 +12,35 @@ The earlier VP2S face/shading and general brightness comparisons remain open.
 
 ## Build and evidence
 
+### Battles 0x19, 0x1a, 0x1b: new modules, particle routines, force field (2026-11-23, in progress)
+
+Launched from the forest state with `--battle 0x19/0x1a/0x1b` and the attack4 pad.
+- **Captured modules:** 129, 144 (0x532200), 169, 191 (0x53a380) and 271 (0x542a80), each taken from RAM at its first
+  call and added to `CAPTURED_BATTLE_MODULES` and the default inputs.
+- **VU0 blocks:**
+  - mod028 3e4e3c `offsetpair` formula (P - D t0, P - D t1);
+  - table scales 3e511c / 3e51c0, where vf2.x is the f22 bits moved at 3e502c (every path passes it, no call between);
+  - mod001 1fb950 radial force field: unit(d) m s2 / (len2 + s2), d turned when +228 < 0, m from the EE's own LCG.
+- **Particles:**
+  - trails after the physics step (40ae30 / 40aed0 / 40af70 and mod001 copies 291e90.., three variants), in the
+    physics test's oracle;
+  - the second emitter routine 408620 (mod001 copy 277290), with its own differential test
+    (`vp2s-bozo-particle-motion2`, fixture script now takes `--start/--end`);
+  - box leaves 40a700 / 40a7d0 (mod001 290eb0 / 290f80);
+  - owner class 175920 (1725d0 with a gated producer 3d58e0);
+  - mode-3 chunks with a producer group above 1: image 6 reads only the header's count (VU1 listing built from the
+    MPGs at mod001 326940).
+- **Visibility:** denormal sphere lanes read as signed zero (VU0), and a negative radius is evaluated literally
+  (classes 16e3c0 and 172b40 keep other data at +7f0).
+- **Models:** sphere map 20 after skinning 2/4 (battle 0x1a: routines 8 2 20) uses the skinned normal.
+- **Runner icon:** `bozo/vp2s_bozo.rc` gives vp2s-bozo.exe the VP2S icon and version information.
+
+**Evidence so far:**
+- **0x19 and 0x1a:** both run boundary-free to 67000 (a Goblin and a Skeleton Soldier fight).
+- **0x1b:** reached its grouped particle chunk; not rerun after that fix.
+- **Tests:** math, particle, particle-draw, graphics and model tests pass.
+- **Not yet run:** the full ctest and the reference hashes.
+
 ### Battle victory: contact impulses, results screen, return to the field (2026-11-23)
 
 The victory run (attack5 from the 74000 state, weak enemies and infinite health) now goes through the whole victory:

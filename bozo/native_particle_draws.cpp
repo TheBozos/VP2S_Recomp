@@ -179,7 +179,10 @@ NativeModelSubmission NativeParticleDraws::capture(Runtime *rt,NativeAssets &ass
             }
             seen+=count;cursor+=32+48*count;continue;
         }
-        if(!count || count>48 || extent!=count*3+2 || group!=1 || count>total-seen || uint64_t(cursor)+32+48*count>uint64_t(base)+span)throw std::runtime_error("unported/incomplete native particle quad group");
+        // Image 6 (mode 3) reads only the header's x, the point count (ilw.x 0(vi14) at 0990, 0f48 and in its lighting
+        // pass 1400); it never reads z, the producer's group (battle 0x1b: 16 points in groups of 8), so any group draws
+        // the same. Image 9 (mode 6) is unchecked: it keeps group 1.
+        if(!count || count>48 || extent!=count*3+2 || (tilted?group!=1:(!group || group>48)) || count>total-seen || uint64_t(cursor)+32+48*count>uint64_t(base)+span)throw std::runtime_error(std::format("unported/incomplete native particle quad group (count {} extent {} group {} seen {} of {}, mode {})",count,extent,group,seen,total,int(owner[0xaff])));
         auto *points=record(rt,cursor+0x20,count*48);
         for(unsigned p=0;p<count;++p){const auto *point=points+48*p;const auto kind=uint64_t(value<uint32_t>(point,44))+uint64_t(pass)*m.stride;if(kind>=m.kinds)throw std::runtime_error("native particle sprite kind outside template");auto *shape=kindData+0xc0+80*kind;
             std::array<float,4> position=value<std::array<float,4>>(point,0);for(unsigned i=0;i<3;++i)number(position[i]);position[3]=1;const auto eye=transform(toView,position);

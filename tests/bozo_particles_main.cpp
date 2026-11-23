@@ -87,11 +87,12 @@ struct Host:bozo::ee::Host,bozo::port::Host,vp2s::ParticleOwner,vp2s::AssetOwner
     void ioWrite(bozo::ee::Dispatcher &,R5900Context *,uint32_t,uint32_t,const uint64_t[2])override{throw std::runtime_error("device write");}
     void fault(bozo::ee::Dispatcher &,R5900Context *,const std::string &s)override{throw std::runtime_error(s);}
 };
-void initialize(Runtime &rt,unsigned index){
+// cls: the owner class (154180, or battle 0x1b's 175920, a 1725d0 subclass with the same producer).
+void initialize(Runtime &rt,unsigned index,uint32_t cls=0x154180){
     constexpr uint32_t object=0x180000,emitter=0x190000,table=0x1a0000;
     std::memset(rt.memory.flat(),0x51,bozo::kFlatBytes);std::memset(rt.memory.hostPointer(object,0xb10),0,0xb10);
     std::memset(rt.memory.hostPointer(emitter,0x100),0,0x100);std::memset(rt.memory.hostPointer(table,0x200),0,0x200);
-    write(rt,object,uint32_t(0x154180));write(rt,0x1541e4,uint32_t(0x172010));
+    write(rt,object,cls);write(rt,cls+0x64,uint32_t(0x172010));
     write(rt,object+0xa90,emitter);write(rt,emitter,table);write(rt,object+0xaa0,uint32_t(0x200000));write(rt,object+0xaa4,uint32_t(0x220000));
     write(rt,object+0xaf9,uint8_t(index));write(rt,object+0xaff,uint8_t(3));write(rt,object+0xad0,1.f);
     write(rt,0x35ded8,1.f);write(rt,0x35dee8,.25f);write(rt,0x35ddc8,uint32_t(0x1b0000));
@@ -111,7 +112,7 @@ int main(){try{
     for(auto *d:{&a,&b}){for(uint32_t pc=0x172000;pc<0x1720b0;pc+=0x10)d->bindLibrary(pc);for(uint32_t pc:{0x2a1230u,0x137d90u,0x137df8u})d->bindLibrary(pc);}
     const auto saved=_mm_getcsr();unsigned callers=0,chunks=0,points=0;
     for(unsigned mode:{_MM_ROUND_NEAREST,_MM_ROUND_DOWN,_MM_ROUND_UP,_MM_ROUND_TOWARD_ZERO})for(unsigned seed=0;seed<128;++seed){
-        auto &x=a.runtime(),&y=b.runtime();initialize(x,seed&1);
+        auto &x=a.runtime(),&y=b.runtime();initialize(x,seed&1,seed&8?0x175920u:0x154180u);
         write(x,0x190004,uint8_t(seed&4?1:0));write(x,0x180ab4,float(seed%3)/16);write(x,0x180ab0,float(seed%5)/8);write(x,0x180ab8,float(seed%7)/4);
         std::memcpy(y.memory.flat(),x.memory.flat(),bozo::kFlatBytes);
         old.group=now.group=1+seed%3;old.total=now.total=(seed%20)*old.group;
@@ -138,7 +139,7 @@ int main(){try{
     }
     check(old.sites==now.sites && now.sites.size()==24);
     for(unsigned seed=0;seed<64;++seed){
-        auto &x=a.runtime(),&y=b.runtime();initialize(x,seed&1);old.ready=now.ready=seed%4!=0;old.dirty=now.dirty=seed%4!=1;
+        auto &x=a.runtime(),&y=b.runtime();initialize(x,seed&1,seed&8?0x175920u:0x154180u);old.ready=now.ready=seed%4!=0;old.dirty=now.dirty=seed%4!=1;
         if(seed%4==2)write(x,0x180a90,uint32_t(0));if(seed%4==3)write(x,0x35ded8,0.f);
         std::memcpy(y.memory.flat(),x.memory.flat(),bozo::kFlatBytes);R5900Context p{};p.r[4].uw[0]=0x180000;p.r[29].uw[0]=0x1fff000;p.r[31].uw[0]=0x170000;auto q=p;
         old.publications=now.publications=0;x.functions.generated(0x22e650)(x.memory.flat(),&p,&x);y.functions.generated(0x22e650)(y.memory.flat(),&q,&y);

@@ -118,8 +118,11 @@ std::array<float,4> objectFacing(const std::array<float,16> &view,const std::arr
     for(float value:transformed)if(!std::isfinite(value))throw std::runtime_error("native object-facing result overflow");return transformed;
 }
 NativeSphereVisibility sphereVisibility(math::Matrix clip,const FrustumResult &planes,__m128 sphere){
-    qualified(sphere);const auto radius=music::laneValue(sphere,3);
-    if(radius<0)throw std::runtime_error("negative native visibility sphere radius");
+    // VU0 reads a denormal as a signed zero. Battle 0x1a's class 16e3c0 keeps small integers at +7f0
+    // (0x20, 0, 2, 0x407): the original tests a sphere at the origin with radius 0. NaN and infinity stay rejected.
+    // A negative radius only enters sums and differences below, as on VU0 (battle 0x1b's class 172b40 keeps a vector
+    // with w = -77 at +7f0): outside and intersecting swap their margins, near and far their sides.
+    sphere=normal(sphere);qualified(sphere);const auto radius=music::laneValue(sphere,3);
     for(auto &column:clip){qualified(column,3);column=xyz(column);}
     for(unsigned i=0;i<6;++i){qualified(planes.points[i],3);qualified(planes.normals[i],3);}
     music::CodecRounding rounding;

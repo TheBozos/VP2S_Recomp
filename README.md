@@ -67,7 +67,7 @@ The port has two runners. Work now goes into the second.
 | Runner | Base | State |
 |---|---|---|
 | `vp2s.exe` | [PS2Recomp](https://github.com/TheBozos/PS2Recomp) fork | Playable through the start of chapter 1. Frozen since early November 2026. |
-| `vp2s-bozo-headless` | [BozoEngine](https://github.com/TheBozos/BozoEngine) | Fully native, with no emulation fallback at all. It runs hidden from pad scripts and saved states, saving frames as PNG files; there is no game window or sound output yet. |
+| `vp2s-bozo` / `vp2s-bozo-headless` | [BozoEngine](https://github.com/TheBozos/BozoEngine) | Fully native, with no emulation fallback at all. `vp2s-bozo --window` plays in a window with your controller and sound; `vp2s-bozo-headless` runs hidden from pad scripts and saved states, for tests. |
 
 **BozoEngine runner:**
 
@@ -82,7 +82,8 @@ The port has two runners. Work now goes into the second.
 | Logun's harbour, the town of Solde: streets, houses, camp menu | ✅ |
 | Leaving town, the world map, the Lost Forest (haze, particles, minimap) | ✅ |
 | First battle (Ballistic Rhino, started with the `--battle` debug launcher): HUD, attack turns, effects, 16 000+ frames with no unported site | 🔧 |
-| Game window, live input and sound output | ⏳ |
+| Game window, controllers and keyboard, sound, memory cards, save states (`vp2s-bozo --window`) | ✅ |
+| Full speed everywhere: boot, movies and menus run at 60 frames a second; the field and battles not yet | 🔧 |
 | Rest of the game | ⏳ |
 
 ✅ works · 🔧 in progress · ⏳ not reached yet
@@ -102,7 +103,7 @@ your disc ──► tools/extract.py ──► main ELF + overlay modules (decry
                     │                          │                                                               │
                     │                          └─► Ghidra + ps2_recomp (PS2Recomp, the older runner) ──► C++    │
                     │                                                                                          ▼
-                    └─► offline conversions (textures, meshes, glyphs, music tables) ──► BozoEngine runtime + bozo/ ──► vp2s-bozo-headless
+                    └─► offline conversions (textures, meshes, glyphs, music tables) ──► BozoEngine runtime + bozo/ ──► vp2s-bozo, vp2s-bozo-headless
 ```
 
 - Most of the game's code is loaded at run time as overlay modules, stored encrypted (SLE) and compressed (SLZ).
@@ -130,6 +131,8 @@ shared with the team's other ports. The older runner's PS2Recomp fork is still i
 - For the BozoEngine runner:
   - MSYS2 UCRT64 (`C:\msys64\ucrt64`: g++, CMake, Ninja);
   - an FFmpeg development tree (`BOZO_FFMPEG_ROOT` or `--ffmpeg`).
+  - for the windowed runner, SDL3 and Dear ImGui: the first configure downloads them (pinned versions), or
+    `FETCHCONTENT_SOURCE_DIR_SDL3` / `FETCHCONTENT_SOURCE_DIR_IMGUI` name local copies.
 - For the extraction pipeline and the older runner:
   - Visual Studio 2022 Build Tools ("Desktop development with C++": MSVC, CMake, Ninja);
   - Ghidra (`GHIDRA_INSTALL_DIR`) with the Emotion Engine extension zip (`VP2S_GHIDRA_EE_ZIP`).
@@ -166,14 +169,37 @@ python tools/vp2_bozo.py --stage build --jobs 4
 
 This builds the engine's tools and generates the C++ for main and the 23 overlay modules (`--inputs`). It also
 converts particle materials, meshes, glyphs and music tables into `build_usa/bozo`, then builds
-`build_usa/bozo_port/vp2s-bozo-headless.exe` and runs its 95 unit checks (`ctest`). `--stage generate` stops after the
+`build_usa/bozo_port/vp2s-bozo.exe` (windowed) and `vp2s-bozo-headless.exe` (tests) and runs its 95 unit checks (`ctest`). `--stage generate` stops after the
 generated code. After changing only `bozo/` sources, `cmake --build build_usa/bozo_port` is enough.
 
 [tools/README.md](tools/README.md) documents every stage and tool.
 
 ## Run
 
-### BozoEngine runner
+### BozoEngine runner: play
+
+```powershell
+build_usaozo_portp2s-bozo.exe --window --iso "Valkyrie Profile 2 - Silmeria (USA).iso"
+```
+
+(or set `VP2S_ISO` and pass `--window` alone). The game opens in a window, with:
+- your controller, or the keyboard (the same keys as the older runner's, below; `input.ini` in the user folder
+  changes them);
+- sound;
+- its memory cards in `%APPDATA%\VP2S_BozoEngine\cards` (never the older runner's), and its log in `logs\`
+  beside them.
+
+| Key | What it does |
+|---|---|
+| F11 or Alt+Enter | Fullscreen |
+| F2 / F3 | Settings window / frame counter |
+| F5 / F7, F6 | Save / load a state, choose its slot (0-9) |
+| F8 | Screenshot |
+
+The game stops with a message when it reaches code that is not native yet (see Status).
+
+### BozoEngine runner: tests
+
 
 ```powershell
 build_usa\bozo_port\vp2s-bozo-headless.exe --iso "Valkyrie Profile 2 - Silmeria (USA).iso" --frames 40000 `
@@ -265,8 +291,9 @@ In the field, Start pauses and Select opens the camp menu.
 
 ## Known issues
 
-- **BozoEngine runner:** no game window, live input or sound output yet. Battles are reached only with the `--battle`
-  debug launcher, not by playing into one. A scene the route has not visited may stop at a site that is not native yet.
+- **BozoEngine runner:** the field runs at about 20 to 35 frames a second and battles at about 22, so their music and
+  sound slow down with them. Battles are reached only with the `--battle` debug launcher, not by playing into one. A
+  scene the route has not visited may stop at a site that is not native yet.
 - **Field pause (BozoEngine runner):** the PAUSE screen's background is black; the game shows the frozen scene behind it.
 - **Older runner:** frozen in early November 2026. Its field pause screen loses the town, and Logun's far distance
   is less blurred and a little brighter than on PCSX2.

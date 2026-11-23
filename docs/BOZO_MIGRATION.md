@@ -12,6 +12,46 @@ The earlier VP2S face/shading and general brightness comparisons remain open.
 
 ## Build and evidence
 
+### A window to play in: `vp2s-bozo --window` (2026-11-23)
+
+The runner was a test harness only. `vp2s-bozo` is the same program built with the engine's real-time layer
+(`bozo_app`):
+- `--window`: the free host on the PC's clock (`FreeOptions::realTime`), the game on its own thread, and the window
+  showing what the renderer publishes;
+- input: the PC's gamepads and keyboard through `DevicePad` (`input.ini`);
+- sound: the native DBC mixer's samples (`audioProvider`) go through `onAudio` to the 48 kHz `AudioDevice`;
+- memory cards: in the user folder (`%APPDATA%\VP2S_BozoEngine\cards`), never the older runner's;
+- save states: F5/F7 slots;
+- a boundary ends the game with a message box naming the site.
+
+`--hidden-window` is for tests only: no device is read and nothing is played; the run counts the samples instead.
+
+**Evidence** (hidden window, RTX 5070 Ti):
+- **Boot:** 1200 frames hold 59.9 frames a second, with 20.4 s of sound over the 20 s run.
+- **Lost Forest field walk** (`map79_63350.state`): 21 to 36 frames a second.
+- **Battle 0x18:** 12 to 14 frames a second. The sound is made on the EE clock, so below 60 frames a second it falls
+  behind real time.
+
+**Speed.** A profile of the battle (750 frames, headless) put most of the time in the native site dispatch.
+- **The chain:** every site is offered to about 50 handlers in turn, and the math handler offers it to about 120
+  sub-handlers, each scanning its own site table. 46 of those tables were function-local `constexpr` arrays, which
+  can be rebuilt on the stack on every call (`nativeRandomNext` copied 588 bytes per site); they are now `static`.
+- **The dispatcher:** it now remembers the handler that first claimed each site. On the next call it offers the site
+  to that handler, preceded only by the handlers that may decline a site they claimed before:
+  - overlay word checks;
+  - shared sites whose owner is absent;
+  - sites observed and then passed on.
+
+  These are listed in `kConditionalSteps`. Every other handler decides by the address alone.
+  `VP2S_BOZO_NO_SITE_CACHE=1` restores the whole chain.
+- **Equivalence:** the end-of-run EE RAM is identical with and without the cache on the battle (750 frames), the
+  forest walk (650 frames) and the boot route.
+- **Effect:** the battle bench went from 41 s to 32 s, the boot route (12000 frames) from 824 s to 692 s, and the
+  battle in the window from 12 to 14 frames a second to 22.
+
+The math handler's own chain is not cached yet: its sub-handlers decline on overlay words, words at other addresses
+and recorded state, so it needs per-site declarations first.
+
 ### Mesh set-up routine 22 is a no-op (2026-11-23)
 
 At frame 72200, battle model object efdc60 draws a mesh whose set-up list names routine 22. The native draw

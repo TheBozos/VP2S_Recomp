@@ -9,7 +9,7 @@
 
 namespace vp2s {
 std::optional<NativeWorkStackSite> nativeWorkStackSite(uint32_t pc){
-    constexpr NativeWorkStackSite sites[]={{0x2bf040,0x2bf058,17},{0x47ddb8,0x47ddc4,17},{0x3d740c,0x3d7410,16},{0x3fc3bc,0x3fc3c0,16},
+    static constexpr NativeWorkStackSite sites[]={{0x2bf040,0x2bf058,17},{0x47ddb8,0x47ddc4,17},{0x3d740c,0x3d7410,16},{0x3fc3bc,0x3fc3c0,16},
         {0x3fcacc,0x3fcad0,16},{0x3fd09c,0x3fd0a0,16},{0x42499c,0x4249a0,16},{0x424eac,0x424eb0,16}};
     for(const auto &s:sites)if(pc==s.entry || pc==s.back)return s;
     return std::nullopt;

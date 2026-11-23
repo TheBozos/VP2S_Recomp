@@ -1,5 +1,7 @@
 // Initial BozoEngine bring-up. Unsupported boundaries fail explicitly.
 #include "bozo/ee/dispatcher.h"
+#include <bit>
+#include <unordered_map>
 #include "bozo/host/free_host.h"
 #include "bozo/port.h"
 #include "vp2_bozo_images.h"
@@ -18,6 +20,14 @@
 #include "native_controller.h"
 #include "native_frame.h"
 #include "native_bootstrap.h"
+#ifdef VP2S_BOZO_WINDOW
+#include "bozo/app/app.h"
+#include "bozo/app/audio_device.h"
+#include "bozo/app/device_pad.h"
+#include "bozo/app/frame_pacer.h"
+#include "bozo/app/window.h"
+#include <sstream>
+#endif
 #include "native_random.h"
 #include "native_math.h"
 #include "native_textures.h"
@@ -767,47 +777,11 @@ public:
     void waitCompleted(bozo::ee::Dispatcher &d,bozo::ee::Thread &t) override { native.waitCompleted(d,t); }
     void handlerCompleted(bozo::ee::Dispatcher &d,bozo::ee::Thread &t,const bozo::ee::Frame &f) override { native.handlerCompleted(d,t,f); }
 };
-bool dispatchNativeInstruction(uint8_t *ram,R5900Context *ctx,Runtime *rt,uint32_t pc) {
-    try {
-    if(auto handled=vp2s::nativeLoadProgressInstruction(ctx,rt,pc))return *handled;
-    if(auto handled=vp2s::nativeUiWindowInstruction(ctx,rt,pc))return *handled;
-    if(auto handled=vp2s::nativeUiTextInstruction(ctx,rt,pc))return *handled;
-    if(auto handled=vp2s::nativeModelInstruction(ctx,rt,pc))return *handled;
-    if(auto handled=vp2s::nativeParticleDrawInstruction(ctx,rt,pc))return *handled;
-    if(auto handled=vp2s::nativeProceduralDrawInstruction(ctx,rt,pc))return *handled;
-    if(auto handled=vp2s::nativeProceduralInstruction(ctx,rt,pc))return *handled;
-    if(auto handled=vp2s::nativeFrameFilterInstruction(ctx,rt,pc))return *handled;
-    if(auto handled=vp2s::nativeFrameCopyInstruction(ctx,rt,pc))return *handled;
-    if(auto handled=vp2s::nativeDofInstruction(ctx,rt,pc))return *handled;
-    if(auto handled=vp2s::nativeHazeInstruction(ctx,rt,pc))return *handled;
-    if(auto handled=vp2s::nativeSceneClipInstruction(ctx,rt,pc))return *handled;
-    if(auto handled=vp2s::nativeMapPanelInstruction(ctx,rt,pc))return *handled;
-    if(auto handled=vp2s::nativeFeedbackInstruction(ctx,rt,pc))return *handled;
-    if(auto handled=vp2s::nativeParticleInstruction(ctx,rt,pc))return *handled;
-    if(auto handled=vp2s::nativeUiSpriteInstruction(ctx,rt,pc))return *handled;
-    if(auto handled=vp2s::nativeMediaBufferInstruction(ctx,rt,pc))return *handled;
-    if(auto handled=vp2s::nativeScreenRectInstruction(ctx,rt,pc))return *handled;
-    if(auto handled=vp2s::nativeCaptureFadeInstruction(ctx,rt,pc))return *handled;
-    if(auto handled=vp2s::nativeEntryCaptureInstruction(ctx,rt,pc))return *handled;
-    if(auto handled=vp2s::nativeSprWriterInstruction(ctx,rt,pc))return *handled;
-    if(auto handled=vp2s::nativeScreenZoomInstruction(ctx,rt,pc))return *handled;
-    if(auto handled=vp2s::nativeDepthBlurInstruction(ctx,rt,pc))return *handled;
-    if(auto handled=vp2s::nativeColumnCaptureInstruction(ctx,rt,pc))return *handled;
-    if(auto handled=vp2s::nativeDepthProbeInstruction(ctx,rt,pc))return *handled;
-    if(auto handled=vp2s::nativeFixedImageInstruction(ctx,rt,pc))return *handled;
-    if(auto handled=vp2s::nativeTextureUploaderInstruction(ctx,rt,pc))return *handled;
-    if(auto handled=vp2s::nativeMenuImageInstruction(ctx,rt,pc))return *handled;
-    if(auto handled=vp2s::nativeBattleImageInstruction(ctx,rt,pc))return *handled;
-    if(auto handled=vp2s::nativeBattleTextureSetInstruction(ctx,rt,pc))return *handled;
-    if(auto handled=vp2s::nativeBattleSpriteInstruction(ctx,rt,pc))return *handled;
-    if(auto handled=vp2s::nativeNamePlateInstruction(ctx,rt,pc))return *handled;
-    if(auto handled=vp2s::nativeTextureManagerInstruction(ctx,rt,pc))return *handled;
-    if(auto handled=vp2s::nativeVisibilityInstruction(ctx,rt,pc))return *handled;
-    if(auto handled=vp2s::nativeStateSetupInstruction(ram,ctx,rt,pc))return *handled;
-    if(auto handled=vp2s::nativeDebugFontInstruction(ram,ctx,rt,pc))return *handled;
-    if(auto handled=vp2s::nativeCompositionInstruction(ram,ctx,rt,pc))return *handled;
-    if(auto handled=vp2s::nativeAssetInstruction(ram,ctx,rt,pc))return *handled;
-    if(auto handled=vp2s::nativeWarpInstruction(ctx,rt,pc))return *handled;
+// The native sites' handlers, in the order they are offered a site. Each declines a site that is not
+// its own (nullopt) or claims it (true: the site is done; false: the original instruction runs on).
+using NativeStep=std::optional<bool>(*)(uint8_t *,R5900Context *,Runtime *,uint32_t);
+std::optional<bool> nativeObservedSites(uint8_t *ram,R5900Context *ctx,Runtime *rt,uint32_t pc){
+    (void)ram;
     if(pc==0x239f70 || pc==0x25aa30){
         if(pc==0x25aa30){
             const auto object=ctx->r[5].uw[0]-0x90;
@@ -885,16 +859,87 @@ bool dispatchNativeInstruction(uint8_t *ram,R5900Context *ctx,Runtime *rt,uint32
         }
         return false; // Observe the original CPU entry; execute its scalar prologue unchanged.
     }
-    if(vp2s::nativeSceneInstruction(ram,ctx,rt,pc))return true;
-    if(vp2s::nativeTextureInstruction(ram,ctx,rt,pc))return true;
-    if(vp2s::nativeBootSeed(ram,ctx,rt,pc))return true;
-    if(vp2s::nativeBootstrapKey(ram,ctx,rt,pc))return true;
-    if(vp2s::nativeRandomSeed(ram,ctx,rt,pc))return true;
-    if(vp2s::nativeRandomNext(ram,ctx,rt,pc))return true;
-    if(pc==0x214c40 || pc==0x214ce8 || pc==0x40b040)return vp2s::nativeMathInstruction(ram,ctx,rt,pc);
-    if(vp2s::nativeMathInstruction(ram,ctx,rt,pc))return true;
-    if(vp2s::nativeWorkStackSite(pc)){vp2s::nativeWorkStack(ctx,rt,pc);return false;}
-    if(vp2s::nativeFrameInput(ram,ctx,rt,pc))return true;
+    return std::nullopt;
+}
+constexpr NativeStep nativeSteps[]={
+    [](uint8_t *ram,R5900Context *ctx,Runtime *rt,uint32_t pc)->std::optional<bool>{(void)ram;return vp2s::nativeLoadProgressInstruction(ctx,rt,pc);},
+    [](uint8_t *ram,R5900Context *ctx,Runtime *rt,uint32_t pc)->std::optional<bool>{(void)ram;return vp2s::nativeUiWindowInstruction(ctx,rt,pc);},
+    [](uint8_t *ram,R5900Context *ctx,Runtime *rt,uint32_t pc)->std::optional<bool>{(void)ram;return vp2s::nativeUiTextInstruction(ctx,rt,pc);},
+    [](uint8_t *ram,R5900Context *ctx,Runtime *rt,uint32_t pc)->std::optional<bool>{(void)ram;return vp2s::nativeModelInstruction(ctx,rt,pc);},
+    [](uint8_t *ram,R5900Context *ctx,Runtime *rt,uint32_t pc)->std::optional<bool>{(void)ram;return vp2s::nativeParticleDrawInstruction(ctx,rt,pc);},
+    [](uint8_t *ram,R5900Context *ctx,Runtime *rt,uint32_t pc)->std::optional<bool>{(void)ram;return vp2s::nativeProceduralDrawInstruction(ctx,rt,pc);},
+    [](uint8_t *ram,R5900Context *ctx,Runtime *rt,uint32_t pc)->std::optional<bool>{(void)ram;return vp2s::nativeProceduralInstruction(ctx,rt,pc);},
+    [](uint8_t *ram,R5900Context *ctx,Runtime *rt,uint32_t pc)->std::optional<bool>{(void)ram;return vp2s::nativeFrameFilterInstruction(ctx,rt,pc);},
+    [](uint8_t *ram,R5900Context *ctx,Runtime *rt,uint32_t pc)->std::optional<bool>{(void)ram;return vp2s::nativeFrameCopyInstruction(ctx,rt,pc);},
+    [](uint8_t *ram,R5900Context *ctx,Runtime *rt,uint32_t pc)->std::optional<bool>{(void)ram;return vp2s::nativeDofInstruction(ctx,rt,pc);},
+    [](uint8_t *ram,R5900Context *ctx,Runtime *rt,uint32_t pc)->std::optional<bool>{(void)ram;return vp2s::nativeHazeInstruction(ctx,rt,pc);},
+    [](uint8_t *ram,R5900Context *ctx,Runtime *rt,uint32_t pc)->std::optional<bool>{(void)ram;return vp2s::nativeSceneClipInstruction(ctx,rt,pc);},
+    [](uint8_t *ram,R5900Context *ctx,Runtime *rt,uint32_t pc)->std::optional<bool>{(void)ram;return vp2s::nativeMapPanelInstruction(ctx,rt,pc);},
+    [](uint8_t *ram,R5900Context *ctx,Runtime *rt,uint32_t pc)->std::optional<bool>{(void)ram;return vp2s::nativeFeedbackInstruction(ctx,rt,pc);},
+    [](uint8_t *ram,R5900Context *ctx,Runtime *rt,uint32_t pc)->std::optional<bool>{(void)ram;return vp2s::nativeParticleInstruction(ctx,rt,pc);},
+    [](uint8_t *ram,R5900Context *ctx,Runtime *rt,uint32_t pc)->std::optional<bool>{(void)ram;return vp2s::nativeUiSpriteInstruction(ctx,rt,pc);},
+    [](uint8_t *ram,R5900Context *ctx,Runtime *rt,uint32_t pc)->std::optional<bool>{(void)ram;return vp2s::nativeMediaBufferInstruction(ctx,rt,pc);},
+    [](uint8_t *ram,R5900Context *ctx,Runtime *rt,uint32_t pc)->std::optional<bool>{(void)ram;return vp2s::nativeScreenRectInstruction(ctx,rt,pc);},
+    [](uint8_t *ram,R5900Context *ctx,Runtime *rt,uint32_t pc)->std::optional<bool>{(void)ram;return vp2s::nativeCaptureFadeInstruction(ctx,rt,pc);},
+    [](uint8_t *ram,R5900Context *ctx,Runtime *rt,uint32_t pc)->std::optional<bool>{(void)ram;return vp2s::nativeEntryCaptureInstruction(ctx,rt,pc);},
+    [](uint8_t *ram,R5900Context *ctx,Runtime *rt,uint32_t pc)->std::optional<bool>{(void)ram;return vp2s::nativeSprWriterInstruction(ctx,rt,pc);},
+    [](uint8_t *ram,R5900Context *ctx,Runtime *rt,uint32_t pc)->std::optional<bool>{(void)ram;return vp2s::nativeScreenZoomInstruction(ctx,rt,pc);},
+    [](uint8_t *ram,R5900Context *ctx,Runtime *rt,uint32_t pc)->std::optional<bool>{(void)ram;return vp2s::nativeDepthBlurInstruction(ctx,rt,pc);},
+    [](uint8_t *ram,R5900Context *ctx,Runtime *rt,uint32_t pc)->std::optional<bool>{(void)ram;return vp2s::nativeColumnCaptureInstruction(ctx,rt,pc);},
+    [](uint8_t *ram,R5900Context *ctx,Runtime *rt,uint32_t pc)->std::optional<bool>{(void)ram;return vp2s::nativeDepthProbeInstruction(ctx,rt,pc);},
+    [](uint8_t *ram,R5900Context *ctx,Runtime *rt,uint32_t pc)->std::optional<bool>{(void)ram;return vp2s::nativeFixedImageInstruction(ctx,rt,pc);},
+    [](uint8_t *ram,R5900Context *ctx,Runtime *rt,uint32_t pc)->std::optional<bool>{(void)ram;return vp2s::nativeTextureUploaderInstruction(ctx,rt,pc);},
+    [](uint8_t *ram,R5900Context *ctx,Runtime *rt,uint32_t pc)->std::optional<bool>{(void)ram;return vp2s::nativeMenuImageInstruction(ctx,rt,pc);},
+    [](uint8_t *ram,R5900Context *ctx,Runtime *rt,uint32_t pc)->std::optional<bool>{(void)ram;return vp2s::nativeBattleImageInstruction(ctx,rt,pc);},
+    [](uint8_t *ram,R5900Context *ctx,Runtime *rt,uint32_t pc)->std::optional<bool>{(void)ram;return vp2s::nativeBattleTextureSetInstruction(ctx,rt,pc);},
+    [](uint8_t *ram,R5900Context *ctx,Runtime *rt,uint32_t pc)->std::optional<bool>{(void)ram;return vp2s::nativeBattleSpriteInstruction(ctx,rt,pc);},
+    [](uint8_t *ram,R5900Context *ctx,Runtime *rt,uint32_t pc)->std::optional<bool>{(void)ram;return vp2s::nativeNamePlateInstruction(ctx,rt,pc);},
+    [](uint8_t *ram,R5900Context *ctx,Runtime *rt,uint32_t pc)->std::optional<bool>{(void)ram;return vp2s::nativeTextureManagerInstruction(ctx,rt,pc);},
+    [](uint8_t *ram,R5900Context *ctx,Runtime *rt,uint32_t pc)->std::optional<bool>{(void)ram;return vp2s::nativeVisibilityInstruction(ctx,rt,pc);},
+    [](uint8_t *ram,R5900Context *ctx,Runtime *rt,uint32_t pc)->std::optional<bool>{(void)ram;return vp2s::nativeStateSetupInstruction(ram,ctx,rt,pc);},
+    [](uint8_t *ram,R5900Context *ctx,Runtime *rt,uint32_t pc)->std::optional<bool>{(void)ram;return vp2s::nativeDebugFontInstruction(ram,ctx,rt,pc);},
+    [](uint8_t *ram,R5900Context *ctx,Runtime *rt,uint32_t pc)->std::optional<bool>{(void)ram;return vp2s::nativeCompositionInstruction(ram,ctx,rt,pc);},
+    [](uint8_t *ram,R5900Context *ctx,Runtime *rt,uint32_t pc)->std::optional<bool>{(void)ram;return vp2s::nativeAssetInstruction(ram,ctx,rt,pc);},
+    [](uint8_t *ram,R5900Context *ctx,Runtime *rt,uint32_t pc)->std::optional<bool>{(void)ram;return vp2s::nativeWarpInstruction(ctx,rt,pc);},
+    nativeObservedSites,
+    [](uint8_t *ram,R5900Context *ctx,Runtime *rt,uint32_t pc)->std::optional<bool>{return vp2s::nativeSceneInstruction(ram,ctx,rt,pc)?std::optional(true):std::nullopt;},
+    [](uint8_t *ram,R5900Context *ctx,Runtime *rt,uint32_t pc)->std::optional<bool>{return vp2s::nativeTextureInstruction(ram,ctx,rt,pc)?std::optional(true):std::nullopt;},
+    [](uint8_t *ram,R5900Context *ctx,Runtime *rt,uint32_t pc)->std::optional<bool>{return vp2s::nativeBootSeed(ram,ctx,rt,pc)?std::optional(true):std::nullopt;},
+    [](uint8_t *ram,R5900Context *ctx,Runtime *rt,uint32_t pc)->std::optional<bool>{return vp2s::nativeBootstrapKey(ram,ctx,rt,pc)?std::optional(true):std::nullopt;},
+    [](uint8_t *ram,R5900Context *ctx,Runtime *rt,uint32_t pc)->std::optional<bool>{return vp2s::nativeRandomSeed(ram,ctx,rt,pc)?std::optional(true):std::nullopt;},
+    [](uint8_t *ram,R5900Context *ctx,Runtime *rt,uint32_t pc)->std::optional<bool>{return vp2s::nativeRandomNext(ram,ctx,rt,pc)?std::optional(true):std::nullopt;},
+    [](uint8_t *ram,R5900Context *ctx,Runtime *rt,uint32_t pc)->std::optional<bool>{if(pc==0x214c40 || pc==0x214ce8 || pc==0x40b040)return vp2s::nativeMathInstruction(ram,ctx,rt,pc);return std::nullopt;},
+    [](uint8_t *ram,R5900Context *ctx,Runtime *rt,uint32_t pc)->std::optional<bool>{return vp2s::nativeMathInstruction(ram,ctx,rt,pc)?std::optional(true):std::nullopt;},
+    [](uint8_t *,R5900Context *ctx,Runtime *rt,uint32_t pc)->std::optional<bool>{if(vp2s::nativeWorkStackSite(pc)){vp2s::nativeWorkStack(ctx,rt,pc);return false;}return std::nullopt;},
+    [](uint8_t *ram,R5900Context *ctx,Runtime *rt,uint32_t pc)->std::optional<bool>{return vp2s::nativeFrameInput(ram,ctx,rt,pc)?std::optional(true):std::nullopt;},
+};
+// The handlers that may decline a site they claimed before (another overlay at the address, a
+// shared site whose owner is absent, a site observed then passed on): always offered the site.
+// Every other handler decides by the site's address alone, so once a site has been claimed by
+// handler i, the handlers before i that are not in this set decline it for the whole run.
+constexpr uint64_t kConditionalSteps=0x22524fff68026ull;
+constexpr size_t kNativeSteps=std::size(nativeSteps);
+static_assert(kNativeSteps<=64);
+bool dispatchNativeInstruction(uint8_t *ram,R5900Context *ctx,Runtime *rt,uint32_t pc) {
+    try {
+    // The handler that first claimed each site (VP2S_BOZO_NO_SITE_CACHE=1: every site through the
+    // whole chain, as before the cache).
+    static const bool cached=!std::getenv("VP2S_BOZO_NO_SITE_CACHE");
+    static std::unordered_map<uint32_t,uint8_t> claimant;
+    size_t from=0;
+    if(cached)if(const auto it=claimant.find(pc);it!=claimant.end()){
+        const size_t owner=it->second;
+        for(uint64_t m=kConditionalSteps&((uint64_t(1)<<owner)-1);m;m&=m-1)
+            if(auto handled=nativeSteps[std::countr_zero(m)](ram,ctx,rt,pc))return *handled;
+        if(auto handled=nativeSteps[owner](ram,ctx,rt,pc))return *handled;
+        from=owner+1;
+        for(size_t i=from;i<kNativeSteps;++i)if(auto handled=nativeSteps[i](ram,ctx,rt,pc))return *handled;
+        throw std::runtime_error(std::format("unported native VP2S algorithm at pc={:x}",pc));
+    }
+    for(size_t i=0;i<kNativeSteps;++i)if(auto handled=nativeSteps[i](ram,ctx,rt,pc)){
+        if(cached)claimant.emplace(pc,uint8_t(i));
+        return *handled;
+    }
     throw std::runtime_error(std::format("unported native VP2S algorithm at pc={:x}",pc));
     } catch(const std::runtime_error &e) {
         throw std::runtime_error(std::format("{} [native site={:x} entry={:x} ra={:x} a0={:x} a1={:x} a2={:x} a3={:x} sp={:x}]",
@@ -953,7 +998,7 @@ struct SamplingProfiler{
         const auto dump=[&](const char *name,auto &map){std::vector<std::pair<uint64_t,uint64_t>> v(map.begin(),map.end());
             std::sort(v.begin(),v.end(),[](auto a,auto b){return a.second>b.second;});
             std::fprintf(f,"## %s (%llu samples)\n",name,(unsigned long long)samples);
-            for(size_t i=0;i<v.size() && i<400;++i)std::fprintf(f,"%llx %llu\n",(unsigned long long)v[i].first,(unsigned long long)v[i].second);};
+            for(size_t i=0;i<v.size() && i<100000;++i)std::fprintf(f,"%llx %llu\n",(unsigned long long)v[i].first,(unsigned long long)v[i].second);};
         dump("host rva",host);dump("guest pc",guest);dump("guest ra",caller);std::fclose(f);}
 };
 }
@@ -963,8 +1008,15 @@ int main(int argc,char **argv) {
     options.elf=std::string(VP2S_BOZO_IMAGES)+"/main.elf";
     options.frames=1; options.stallFields=120; options.printGameOutput=true;
     std::string capturePath;
+    bool windowed=false,hiddenWindow=false,framesGiven=false;
     for(int i=1;i<argc;++i) {
         const std::string arg=argv[i];
+        if(arg=="--frames")framesGiven=true;
+#ifdef VP2S_BOZO_WINDOW
+        if(arg=="--window"){windowed=true;continue;}
+        // Test runs only: the window never shows and never takes the PC's devices (with --pad-script).
+        if(arg=="--hidden-window"){windowed=hiddenWindow=true;continue;}
+#endif
         if(arg=="--iso" && i+1<argc)options.iso=argv[++i];
         else if(arg=="--card-dir" && i+1<argc)options.cardDir=argv[++i];
         else if(arg=="--frames" && i+1<argc)options.frames=std::stoul(argv[++i]);
@@ -985,9 +1037,27 @@ int main(int argc,char **argv) {
 #ifdef VP2S_BOZO_CAPTURE
             std::fprintf(stderr,"GPU build also accepts --capture OUTPUT.png (hidden window, no host input)\n");
 #endif
+#ifdef VP2S_BOZO_WINDOW
+            std::fprintf(stderr,"       [--window] (play: a window, the PC's gamepads and keyboard, sound, cards in the user folder)\n");
+#endif
             return 2; }
     }
+    if(options.iso.empty())if(const char *iso=std::getenv("VP2S_ISO"))options.iso=iso;
     if(options.iso.empty()) {std::fprintf(stderr,"user-owned USA ISO required\n");return 2;}
+#ifdef VP2S_BOZO_WINDOW
+    if(windowed) {
+        // Play: the game on the PC's clock, until the window closes (unless --frames).
+        if(!capturePath.empty()){std::fprintf(stderr,"--capture is for headless runs (the window has F8)\n");return 2;}
+        options.realTime=true;options.printGameOutput=false;options.stallFields=600;
+        if(!framesGiven)options.frames=0;
+        bozo::app::setIdentity({.title="Valkyrie Profile 2: Silmeria",.folder="VP2S_BozoEngine",.xdgFolder="vp2s-bozoengine",.bootElf="SLUS_214.52"});
+        // The memory cards in the user folder (%APPDATA%\VP2S_BozoEngine\cards), never the
+        // older runner's: test runs (--hidden-window) keep fresh cards in memory.
+        if(options.cardDir.empty() && !hiddenWindow && !bozo::app::userDirectory().empty()){
+            const auto cards=bozo::app::userDirectory()/"cards";std::filesystem::create_directories(cards);options.cardDir=cards.string();}
+        if(!hiddenWindow){bozo::app::startLogging();bozo::app::installCrashHandler();}
+    }
+#endif
     options.gameTag="SLUS-21452";
     try {
         StrictHost host(options);
@@ -1073,6 +1143,51 @@ int main(int argc,char **argv) {
         }
 #endif
         uint64_t frames=0;
+#ifdef VP2S_BOZO_WINDOW
+        if(windowed) {
+            // The engine's real-time layer: the game on a thread of its own, the window showing what the
+            // renderer publishes, the PC's gamepads and keyboard as the pads, the mixer's samples played.
+            bozo::app::DevicePad pad;
+            if(options.padScript.empty() && !hiddenWindow)host.native.libraries().pad.input=&pad;
+            bozo::app::AudioDevice audio;
+            // A test run plays nothing on the PC's speakers: it counts the samples and their loudest.
+            uint64_t testSamples=0;int testPeak=0;
+            if(hiddenWindow)host.native.onAudio=[&](uint64_t,const int16_t *samples,size_t count){testSamples+=count;
+                for(size_t k=0;k<2*count;++k)testPeak=std::max(testPeak,std::abs(int(samples[k])));};
+            else if(audio.open())host.native.onAudio=[&audio](uint64_t,const int16_t *samples,size_t count){audio.push(samples,count);};
+            else std::fprintf(stderr,"[vp2s:window] no audio device: the game plays without sound\n");
+            // Frames held to 60 a second at most; a slower frame is not held.
+            bozo::app::FramePacer pacer;
+            {auto previous=host.native.onFrame;host.native.onFrame=[previous,&pacer](uint64_t frame,const R5900Context *ctx){if(previous)previous(frame,ctx);pacer.frameEnd();};}
+            bozo::app::WindowOptions window;
+            window.title="Valkyrie Profile 2: Silmeria";window.aspect=4.0f/3.0f;window.stats=std::getenv("VP2S_WINDOW_STATS")!=nullptr;
+            window.hidden=hiddenWindow;window.captureScene=hiddenWindow;
+            if(const char *dir=std::getenv("VP2S_WINDOW_CAPTURE_DIR"))window.captureDir=dir;
+            if(const char *list=std::getenv("VP2S_WINDOW_CAPTURE_FRAMES")){std::stringstream in(list);for(std::string item;std::getline(in,item,',');)if(!item.empty())window.captureFrames.push_back(std::stoull(item));}
+            std::string failure;
+            bozo::app::Game game;
+            game.run=[&]{try{frames=host.native.run();return 0;}catch(const std::exception &e){failure=e.what();return 1;}};
+            game.stop=[&]{host.native.requestStop();};
+            game.framesEnded=[&]{return host.native.framesEnded();};
+            game.saveState=[&](int slot){host.native.requestSave(bozo::app::stateSlotPath(slot));};
+            game.loadState=[&](int slot){host.native.requestLoad(bozo::app::stateSlotPath(slot));};
+            // A failed load is reported, not fatal, while playing.
+            host.native.onStateMessage=[](bool,const std::string &message){std::fprintf(stderr,"[state] %s\n",message.c_str());bozo::app::notify(message);};
+            const int code=bozo::app::runWindow(window,game,hiddenWindow?nullptr:&pad);
+            audio.close();
+            if(hiddenWindow)std::fprintf(stderr,"[vp2s:window] sound: %llu stereo frames at 48 kHz (%.1f s), peak %d\n",
+                                         (unsigned long long)testSamples,testSamples/48000.0,testPeak);
+            const auto &stats=host.native.stats();
+            std::fprintf(stderr,"[vp2s:bozo] frames=%llu libraries=%llu end=%s\n",(unsigned long long)frames,(unsigned long long)stats.libraryCalls,
+                         failure.empty()?host.native.endReason().c_str():"native boundary");
+            if(!failure.empty()){
+                std::fprintf(stderr,"[vp2s:bozo] native boundary: %s\n",failure.c_str());
+                if(!hiddenWindow)bozo::app::showMessage("The game reached code that is not native yet, so it stopped:\n\n"+failure,true);
+                return 1;
+            }
+            return code==3?3:0;
+        }
+#endif
         try{frames=host.native.run();}catch(...){
             // Diagnostic only: EE RAM at the rejecting boundary, for comparison with a PCSX2 state's eeMemory.bin.
             if(const char *ramPath=std::getenv("VP2S_BOZO_BOUNDARY_RAM")){

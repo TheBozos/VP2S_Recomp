@@ -374,7 +374,7 @@ void qualifySquadSines(Runtime *rt,R5900Context *c,uint32_t leafFrame){
     const auto it=calls.find(leafFrame+0x50);
     if(it==calls.end() || it->second.phase>=3 || it->second.published)throw std::runtime_error("native squad helper has no live phase");
     const auto &call=it->second;const auto frame=leafFrame+0x50;
-    constexpr uint32_t returns[]={0x214c74,0x214cb8,0x214cdc};uint32_t savedReturn;
+    static constexpr uint32_t returns[]={0x214c74,0x214cb8,0x214cdc};uint32_t savedReturn;
     std::memcpy(&savedReturn,record(rt,leafFrame+0x30,16),4);
     const auto first=call.phase==2?frame+0x60:call.inputs[call.phase*2];
     const auto second=call.phase==2?frame+0x50:call.inputs[call.phase*2+1];
@@ -424,7 +424,7 @@ bool nativeSquadInstruction(R5900Context *c,Runtime *rt,uint32_t pc){
         if(c->pc!=0x214cdc || call.phase!=3 || call.published)throw std::runtime_error("native squad incomplete exit");
         calls.erase(it);return false;
     }
-    constexpr uint32_t entries[]={0x214c74,0x214cb8,0x214cdc},starts[]={0x214c98,0x214cbc,0x214cdc},stores[]={0x214ca0,0x214cc4,0x214ce4};
+    static constexpr uint32_t entries[]={0x214c74,0x214cb8,0x214cdc},starts[]={0x214c98,0x214cbc,0x214cdc},stores[]={0x214ca0,0x214cc4,0x214ce4};
     if(call.phase>=3 || !call.published || c->pc!=entries[call.phase] || pc<starts[call.phase] || pc>stores[call.phase])
         throw std::runtime_error("native squad publication order mismatch");
     const auto destination=call.phase==0?stack+0x60:call.phase==1?stack+0x50:call.output;
@@ -436,7 +436,7 @@ bool nativeSquadInstruction(R5900Context *c,Runtime *rt,uint32_t pc){
 // 291910 = 40a8b0 - 178fa0 calls its own callback 299140 = 410640 - 177500.
 constexpr uint32_t kPhysicsCopyShift=0x178fa0,kCallbackCopyShift=0x177500;
 bool nativeParticleCallbackInstruction(R5900Context *c,Runtime *rt,uint32_t pc){
-    constexpr uint32_t sites[]={0x41074c,0x410750,0x410790,0x410794,0x4107a8,0x4107b0,0x4107b4};
+    static constexpr uint32_t sites[]={0x41074c,0x410750,0x410790,0x410794,0x4107a8,0x4107b0,0x4107b4};
     const bool copy=pc>=sites[0]-kCallbackCopyShift && pc<=sites[6]-kCallbackCopyShift;
     const uint32_t shift=copy?kCallbackCopyShift:0,physicsShift=copy?kPhysicsCopyShift:0;pc+=shift;
     const auto site=std::find(std::begin(sites),std::end(sites),pc);if(site==std::end(sites))return false;
@@ -743,7 +743,7 @@ bool nativeBattleShapeOrigin(R5900Context *c,Runtime *rt,uint32_t pc){
 // takes the shape origin a2 = a0+1b0 through the matrix's rows to v1 = a0+1c0.
 bool nativeBattleShapePoint(R5900Context *c,Runtime *rt,uint32_t pc){
     if(pc<0x48edc0 || pc>0x48ee18 || (pc&3) || !rt)return false;
-    constexpr uint32_t words[]={0xd8cf0000,0xd8a10000,0xd8a20010,0xd8a30020,0xd8a40030,0x4bc00183,0x4bef0aea,0x4bef132a,0x4bef1b6a,0x4bef23aa,
+    static constexpr uint32_t words[]={0xd8cf0000,0xd8a10000,0xd8a20010,0xd8a30020,0xd8a40030,0x4bc00183,0x4bef0aea,0x4bef132a,0x4bef1b6a,0x4bef23aa,
         0x4b0b583d,0x4b0b30be,0x4b0b33cb,0x4a8c603c,0x4a8c30be,0x4a8c33cb,0x4a4d683d,0x4a4d30bc,0x4a4d33cb,0x4a2e703d,0x4a2e00be,0x4a2e03c8,0xf86f0000};
     uint32_t word=0;if(const auto *p=rt->memory.hostPointer(pc,4))std::memcpy(&word,p,4);
     if(word!=words[(pc-0x48edc0)/4])return false;   // another overlay at these addresses
@@ -761,10 +761,10 @@ bool nativeBattleShapePoint(R5900Context *c,Runtime *rt,uint32_t pc){
 bool nativeBattleBoxCorners(R5900Context *c,Runtime *rt,uint32_t pc){
     const bool build=pc>=0x48f0dc && pc<=0x48f164,loop=pc>=0x48f168 && pc<=0x48f1cc;
     if(!(build || loop) || (pc&3) || !rt)return false;
-    constexpr uint32_t buildWords[]={0xd8e10000,0xd8aa0000,0xf8610000,0x4a21033c,0x4be20b3c,0x4be30b3c,0x4be40b3c,0x4be50b3c,0x4be60b3c,0x4be70b3c,0x4be80b3c,0x24830020,
+    static constexpr uint32_t buildWords[]={0xd8e10000,0xd8aa0000,0xf8610000,0x4a21033c,0x4be20b3c,0x4be30b3c,0x4be40b3c,0x4be50b3c,0x4be60b3c,0x4be70b3c,0x4be80b3c,0x24830020,
         0x4b4a0868,0x4b0a1080,0x4bca18e8,0x4b8a2128,0x4a4a2942,0x4aca39e8,0x4a8a4201,0x4a8a0845,0x4aca10ac,0x4a4a2106,0x4b8a296c,0x4bca31ac,0x4b0a39c4,0x4b4a422c,
         0xf8610000,0xf8620010,0xf8630020,0xf8640030,0xf8650040,0xf8660050,0xf8670060,0x10c00021,0xf8680070};
-    constexpr uint32_t loopWords[]={0xd8cb0000,0xd8cc0010,0xd8cd0020,0xd8ce0030,0x4bc007c3,0x24850020,0x10000015,0x0000202d,0x4be15d6a,0x4be165aa,0x4be16dea,0x4be1762a,
+    static constexpr uint32_t loopWords[]={0xd8cb0000,0xd8cc0010,0xd8cd0020,0xd8ce0030,0x4bc007c3,0x24850020,0x10000015,0x0000202d,0x4be15d6a,0x4be165aa,0x4be16dea,0x4be1762a,
         0xd8a10010,0x4b15a83d,0x4b15f8be,0x4b15f94b,0x4a96b03c,0x4a96f8be,0x4a96f94b,0x4a57b83d,0x4a57f8bc,0x4a57f94b,0x4a38c03d,0x4a3800be,0x4a380148,0xf8a50000};
     uint32_t word=0;if(const auto *p=rt->memory.hostPointer(pc,4))std::memcpy(&word,p,4);
     if(word!=(build?buildWords[(pc-0x48f0dc)/4]:loopWords[(pc-0x48f168)/4]))return false;   // another overlay at these addresses
@@ -795,9 +795,9 @@ std::map<std::pair<const Runtime *,uint32_t>,uint32_t> &battleBoxMatrices(){stat
 bool nativeBattleBoxWorld(R5900Context *c,Runtime *rt,uint32_t pc){
     const bool load=pc>=0x48efdc && pc<=0x48efec,corner=pc>=0x48f000 && pc<=0x48f044,centre=pc>=0x48f06c && pc<=0x48f0b0;
     if(!(load || corner || centre) || (pc&3) || !rt)return false;
-    constexpr uint32_t block[]={0x4bef0aea,0x4bef132a,0x4bef1b6a,0x4bef23aa,0x4b0b583d,0x4b0bf8be,0x4b0bfbcb,0x4a8c603c,0x4a8cf8be,0x4a8cfbcb,
+    static constexpr uint32_t block[]={0x4bef0aea,0x4bef132a,0x4bef1b6a,0x4bef23aa,0x4b0b583d,0x4b0bf8be,0x4b0bfbcb,0x4a8c603c,0x4a8cf8be,0x4a8cfbcb,
         0x4a4d683d,0x4a4df8bc,0x4a4dfbcb,0x4a2e703d,0x4a2e00be,0x4a2e03c8};   // MUL vf11..vf14 .. MADDx.w vf15
-    constexpr uint32_t loadWords[]={0xd8a10000,0xd8a20010,0xd8a30020,0xd8a40030,0x4bc007c3};
+    static constexpr uint32_t loadWords[]={0xd8a10000,0xd8a20010,0xd8a30020,0xd8a40030,0x4bc007c3};
     uint32_t expected;
     if(load)expected=loadWords[(pc-0x48efdc)/4];
     else{const auto first=corner?0x48f000u:0x48f06cu,last=corner?0x48f044u:0x48f0b0u;
@@ -887,9 +887,9 @@ bool nativeObjectOverlap(R5900Context *c,Runtime *rt,uint32_t pc){
 bool nativeBattleObjectOverlap(R5900Context *c,Runtime *rt,uint32_t pc){
     if((pc&3) || !rt || pc<0x4a6cf4 || pc>0x4a72b0)return false;
     const bool spill=pc<=0x4a6d14,restore=(pc>=0x4a7034 && pc<=0x4a7054) || (pc>=0x4a7250 && pc<=0x4a7270) || (pc>=0x4a7290 && pc<=0x4a72b0);
-    constexpr uint32_t block[]={0x4a6fa4,0x4a6fa8,0x4a6fac,0x4a6fb0,0x4a6fb4,0x4a6fb8,0x4a6fbc,0x4a6fc0,0x4a6fc4,0x4a6fc8,0x4a6fcc,0x4a6fd0,0x4a6fd4,0x4a6fd8,0x4a6fdc,
+    static constexpr uint32_t block[]={0x4a6fa4,0x4a6fa8,0x4a6fac,0x4a6fb0,0x4a6fb4,0x4a6fb8,0x4a6fbc,0x4a6fc0,0x4a6fc4,0x4a6fc8,0x4a6fcc,0x4a6fd0,0x4a6fd4,0x4a6fd8,0x4a6fdc,
         0x4a6fe0,0x4a6fe4,0x4a6fe8,0x4a6fec,0x4a6ff0,0x4a6ff4,0x4a6ff8,0x4a6ffc,0x4a7000,0x4a7004,0x4a7008,0x4a700c,0x4a7010,0x4a7014,0x4a7018,0x4a701c};
-    constexpr uint32_t words[]={0xd8c90000,0xd8aa0000,0xd88b0000,0xd8610000,0xd8620010,0x4a295298,0x4a295ad9,0xd8630020,0xd8640030,0xd8450000,0xd8460010,0xd8470020,0xd8480030,
+    static constexpr uint32_t words[]={0xd8c90000,0xd8aa0000,0xd88b0000,0xd8610000,0xd8620010,0x4a295298,0x4a295ad9,0xd8630020,0xd8640030,0xd8450000,0xd8460010,0xd8470020,0xd8480030,
         0x4bea09bc,0x4bea10bd,0x4bea18be,0x4be0230b,0x4beb29bc,0x4beb30bd,0x4beb38be,0x4be0434b,0x4bcd632c,0x4a2b52a8,0x4bcc632a,0x4b000343,0x4a2a52aa,0x4b0c69bc,0x4b0c68bd,
         0x4b0a68ff,0x4b0c6b0a,0xf8cc0000};
     const auto at=std::find(std::begin(block),std::end(block),pc);
@@ -1026,7 +1026,7 @@ bool nativeFlareProjection(R5900Context *c,Runtime *rt,uint32_t pc){
 // 0(rC): program 0 (program0Projection). R+10/18/1c/28 are CPU code (pointer moves, nops).
 FlareProjection &battleCameraProjection(const Runtime *rt,uint32_t site){static std::map<std::pair<const Runtime *,uint32_t>,FlareProjection> m;return m[{rt,site}];}
 bool nativeBattleCameraProjection(R5900Context *c,Runtime *rt,uint32_t pc){
-    constexpr uint32_t sites[]={0x384b0c,0x384b74,0x387330,0x4c8670};
+    static constexpr uint32_t sites[]={0x384b0c,0x384b74,0x387330,0x4c8670};
     if((pc&3) || !rt)return false;
     const auto site=std::find_if(std::begin(sites),std::end(sites),[&](uint32_t r){return pc>=r && pc<=r+0x2c;});
     if(site==std::end(sites))return false;
@@ -1055,7 +1055,7 @@ bool nativeBattleCameraProjection(R5900Context *c,Runtime *rt,uint32_t pc){
 // virtual +28 getter and 42db50 (no COP2), so the rows are captured once and kept.
 FlareProjection &battleUnitProjection(const Runtime *rt){static std::map<const Runtime *,FlareProjection> states;return states[rt];}
 bool nativeBattleUnitProjection(R5900Context *c,Runtime *rt,uint32_t pc){
-    constexpr std::pair<uint32_t,uint32_t> sites[]={{0x4d1140,0xd8410000},{0x4d1144,0xd8420010},{0x4d1148,0xd8430020},{0x4d114c,0xd8440030},
+    static constexpr std::pair<uint32_t,uint32_t> sites[]={{0x4d1140,0xd8410000},{0x4d1144,0xd8420010},{0x4d1148,0xd8430020},{0x4d114c,0xd8440030},
         {0x4d11e0,0xd8850000},{0x4d11ec,0x4a000038},{0x4d11f0,0x48490001},{0x4d11f8,0xf8460000}};
     if((pc&3) || !rt || pc<0x4d1140 || pc>0x4d11f8)return false;
     const auto site=std::find_if(std::begin(sites),std::end(sites),[&](auto &x){return x.first==pc;});
@@ -1084,7 +1084,7 @@ struct BattleLabelRows{FlareProjection rows;uint32_t frame=0;};
 BattleLabelRows &battleLabelRows(const Runtime *rt){static std::map<const Runtime *,BattleLabelRows> states;return states[rt];}
 bool nativeBattleLabelProjection(R5900Context *c,Runtime *rt,uint32_t pc){
     struct Block{uint32_t at,frameOffset;};
-    constexpr Block blocks[]={{0x4fcd14,0},{0x4fce04,0},{0x4fceec,0},{0x4fcfdc,0},{0x4fc884,0x70}};
+    static constexpr Block blocks[]={{0x4fcd14,0},{0x4fce04,0},{0x4fceec,0},{0x4fcfdc,0},{0x4fc884,0x70}};
     if((pc&3) || !rt || pc<0x4fc884 || pc>0x4fcff4)return false;
     const bool row=pc>=0x4fcb3c && pc<=0x4fcb48;
     const Block *block=nullptr;unsigned slot=0;
@@ -1750,7 +1750,7 @@ constexpr DistanceSite distanceSites[]={{0x3fd3f8,5,3,4},{0x382154,12,10,11},{0x
     // mod068 (a battle overlay; 527cac's caller chain): three copies, A = a0, B = v0, OUT = v1.
     {0x5272e4,4,2,3},{0x527974,4,2,3},{0x527cdc,4,2,3}};
 bool nativeBattlePointDistance(R5900Context *c,Runtime *rt,uint32_t pc){
-    constexpr uint32_t middle[]={0x4bd9c62c,0x4bd8c62a,0x4bc00643,0x4b18c03d,0x4b18ce0a,0x4a1803bd,0x4a0003bf,0x4b000620};
+    static constexpr uint32_t middle[]={0x4bd9c62c,0x4bd8c62a,0x4bc00643,0x4b18c03d,0x4b18ce0a,0x4a1803bd,0x4a0003bf,0x4b000620};
     if((pc&3) || !rt)return false;
     const auto site=std::find_if(std::begin(distanceSites),std::end(distanceSites),[&](auto &s){return pc>=s.lo && pc<=s.lo+(s.b?40u:32u);});
     if(site==std::end(distanceSites))return false;
@@ -1773,7 +1773,7 @@ bool nativeBattlePointDistance(R5900Context *c,Runtime *rt,uint32_t pc){
 //   3827e4..382804: t1.xyz *= 1/sqrt((x^2+y^2) + 1*z^2) (RSQRT), w kept, in place.
 //   3829b8..382a10: s0 = rows(t1) . s0 in place (the height query's row-point block).
 bool nativeBattleTrackBlocks(R5900Context *c,Runtime *rt,uint32_t pc){
-    constexpr std::pair<uint32_t,uint32_t> sites[]={{0x3827e4,0xd9390000},{0x3827e8,0x4bc007c3},{0x3827ec,0x4bd9ceaa},{0x3827f0,0x4b1ad03d},{0x3827f4,0x4b1afe8a},{0x3827f8,0x4a7a03be},{0x3827fc,0x4a0003bf},{0x382800,0x4bc0ce5c},{0x382804,0xf9390000},
+    static constexpr std::pair<uint32_t,uint32_t> sites[]={{0x3827e4,0xd9390000},{0x3827e8,0x4bc007c3},{0x3827ec,0x4bd9ceaa},{0x3827f0,0x4b1ad03d},{0x3827f4,0x4b1afe8a},{0x3827f8,0x4a7a03be},{0x3827fc,0x4a0003bf},{0x382800,0x4bc0ce5c},{0x382804,0xf9390000},
         {0x3829b8,0xda0f0000},{0x3829bc,0xd92b0000},{0x3829c0,0xd92c0010},{0x3829c4,0xd92d0020},{0x3829c8,0xd92e0030},{0x3829cc,0x4bc007c3},{0x3829d0,0x4bef5aea},{0x3829d4,0x4bef632a},{0x3829d8,0x4bef6b6a},{0x3829dc,0x4bef73aa},{0x3829e0,0x4b0b583d},{0x3829e4,0x4b0bf8be},{0x3829e8,0x4b0bf94b},{0x3829ec,0x4a8c603c},{0x3829f0,0x4a8cf8be},{0x3829f4,0x4a8cf94b},{0x3829f8,0x4a4d683d},{0x3829fc,0x4a4df8bc},{0x382a00,0x4a4df94b},{0x382a04,0x4a2e703d},{0x382a08,0x4a2e00be},{0x382a0c,0x4a2e0148},{0x382a10,0xfa050000}};
     if(pc<0x3827e4 || pc>0x382a10 || (pc&3) || !rt)return false;
     const auto site=std::find_if(std::begin(sites),std::end(sites),[&](auto &x){return x.first==pc;});
@@ -1795,7 +1795,7 @@ bool nativeBattleTrackBlocks(R5900Context *c,Runtime *rt,uint32_t pc){
 // Battle segment direction, mod028 4f58f0 (4f5b28..4f5b54): sp+d0 = (s0 - s3).xyz *
 // 1/sqrt((x^2+y^2) + 1*z^2) (RSQRT), w = s3.w; the same block as 4f44f0's direction.
 bool nativeBattleSegmentDirection(R5900Context *c,Runtime *rt,uint32_t pc){
-    constexpr std::pair<uint32_t,uint32_t> sites[]={{0x4f5b28,0xda7a0000},{0x4f5b2c,0xda1b0000},{0x4f5b30,0x4bc007c3},{0x4f5b38,0x4bdadeac},{0x4f5b3c,0x4bdad6ea},{0x4f5b40,0x4b1bd83d},{0x4f5b44,0x4b1bfeca},{0x4f5b48,0x4a7b03be},{0x4f5b4c,0x4a0003bf},{0x4f5b50,0x4bc0d69c},{0x4f5b54,0xf85a0000}};
+    static constexpr std::pair<uint32_t,uint32_t> sites[]={{0x4f5b28,0xda7a0000},{0x4f5b2c,0xda1b0000},{0x4f5b30,0x4bc007c3},{0x4f5b38,0x4bdadeac},{0x4f5b3c,0x4bdad6ea},{0x4f5b40,0x4b1bd83d},{0x4f5b44,0x4b1bfeca},{0x4f5b48,0x4a7b03be},{0x4f5b4c,0x4a0003bf},{0x4f5b50,0x4bc0d69c},{0x4f5b54,0xf85a0000}};
     if((pc&3) || !rt || pc<0x4f5b28 || pc>0x4f5b54)return false;
     const auto site=std::find_if(std::begin(sites),std::end(sites),[&](auto &x){return x.first==pc;});
     if(site==std::end(sites))return false;
@@ -1814,7 +1814,7 @@ bool nativeBattleSegmentDirection(R5900Context *c,Runtime *rt,uint32_t pc){
 //   4f4514..4f4540: sp+80 = (s4 - s1).xyz * 1/sqrt((x^2+y^2) + 1*z^2) (RSQRT), w = s1.w.
 //   4f4550..4f456c: s1.xyz = s1*1 + v1 * t0 (QMTC2 vf3 = t0; v1 = sp+80, t0 = 50), in place.
 bool nativeBattleApproach(R5900Context *c,Runtime *rt,uint32_t pc){
-    constexpr std::pair<uint32_t,uint32_t> sites[]={{0x4f4514,0xda3a0000},{0x4f4518,0xda9b0000},{0x4f451c,0x4bc007c3},{0x4f4524,0x4bdadeac},{0x4f4528,0x4bdad6ea},{0x4f452c,0x4b1bd83d},{0x4f4530,0x4b1bfeca},{0x4f4534,0x4a7b03be},{0x4f4538,0x4a0003bf},{0x4f453c,0x4bc0d69c},{0x4f4540,0xf85a0000},
+    static constexpr std::pair<uint32_t,uint32_t> sites[]={{0x4f4514,0xda3a0000},{0x4f4518,0xda9b0000},{0x4f451c,0x4bc007c3},{0x4f4524,0x4bdadeac},{0x4f4528,0x4bdad6ea},{0x4f452c,0x4b1bd83d},{0x4f4530,0x4b1bfeca},{0x4f4534,0x4a7b03be},{0x4f4538,0x4a0003bf},{0x4f453c,0x4bc0d69c},{0x4f4540,0xf85a0000},
         {0x4f4550,0xda210000},{0x4f4554,0xd8620000},{0x4f4560,0x48a81800},{0x4f4564,0x4bc009bf},{0x4f4568,0x4bc31048},{0x4f456c,0xfa210000}};
     if((pc&3) || !rt || pc<0x4f4514 || pc>0x4f456c+0x108)return false;
     const uint32_t listed=pc>0x4f456c?pc-0x108:pc;
@@ -1849,7 +1849,7 @@ struct NormaliseSite{uint32_t lo;unsigned load,store;};
 constexpr NormaliseSite normaliseSites[]={{0x3e8a34,2,2},{0x491d4c,3,2},{0x4938a0,5,4}};
 std::map<std::pair<const Runtime *,uint32_t>,std::array<uint32_t,4>> &battleNormalise(){static std::map<std::pair<const Runtime *,uint32_t>,std::array<uint32_t,4>> m;return m;}
 bool nativeBattleNormalise(R5900Context *c,Runtime *rt,uint32_t pc){
-    constexpr uint32_t body[]={0,0x4bc007c3,0,0x4bf9ceaa,0x4b1ad03d,0x4b1af8be,0x4b1afe8b,0x4828d000,0,0,0x4a7a03be,0x4a0003bf,0x4be0ce5c,0};
+    static constexpr uint32_t body[]={0,0x4bc007c3,0,0x4bf9ceaa,0x4b1ad03d,0x4b1af8be,0x4b1afe8b,0x4828d000,0,0,0x4a7a03be,0x4a0003bf,0x4be0ce5c,0};
     if((pc&3) || !rt)return false;
     const auto site=std::find_if(std::begin(normaliseSites),std::end(normaliseSites),[&](auto &s){return pc>=s.lo && pc<=s.lo+52;});
     if(site==std::end(normaliseSites))return false;
@@ -1888,7 +1888,7 @@ std::map<std::pair<const Runtime *,uint32_t>,BattleSideAxes> &battleSideAxes(){s
 // 3fe0 / 3ff0 (xyz only, like 3e9764's stores; the CPU reads their y).
 bool nativeBattleSideAxes(R5900Context *c,Runtime *rt,uint32_t pc){
     struct Site{uint32_t pc,word;char role;};   // a/b axes, o base, p point, 1/2 stores, - folded
-    constexpr Site sites[]={{0x3e9764,0xd8410000,'a'},{0x3e9768,0xd8420010,'b'},{0x3e977c,0xd87c0000,'o'},{0x3e9780,0xd85b0000,'p'},
+    static constexpr Site sites[]={{0x3e9764,0xd8410000,'a'},{0x3e9768,0xd8420010,'b'},{0x3e977c,0xd87c0000,'o'},{0x3e9780,0xd85b0000,'p'},
         {0x3e9784,0x4bc00643,'-'},{0x3e9788,0x4bdcdeac,'-'},{0x3e978c,0x4bdad6ea,'-'},{0x3e9790,0x4b1bd83d,'-'},{0x3e9794,0x4b1bceca,'-'},{0x3e9798,0x4a7b03be,'-'},
         {0x3e97a0,0x4a0003bf,'-'},{0x3e97a4,0x4bc0d69c,'-'},{0x3e97a8,0x4bda0afe,'-'},{0x3e97ac,0x4bc1d2ae,'-'},{0x3e97b0,0x4bda12fe,'-'},{0x3e97b4,0x4bc2d2ee,'-'},
         {0x3e97b8,0xf84a0000,'1'},{0x3e97bc,0xf84b0010,'2'},
@@ -1945,7 +1945,7 @@ struct BattleGroundPlane{VuWords p0{},p1{},p2{},n{};unsigned loaded=0;bool plane
 std::map<std::pair<const Runtime *,uint32_t>,BattleGroundPlane> &battleGroundPlanes(){static std::map<std::pair<const Runtime *,uint32_t>,BattleGroundPlane> m;return m;}
 bool nativeBattleGroundPlane(R5900Context *c,Runtime *rt,uint32_t pc){
     struct Site{uint32_t pc,word;};
-    constexpr Site sites[]={{0x4981f0,0xda410000},{0x498228,0xda220000},{0x498260,0xda030000},
+    static constexpr Site sites[]={{0x4981f0,0xda410000},{0x498228,0xda220000},{0x498260,0xda030000},
         {0x498264,0x4bc112ac},{0x498268,0x4bc007c3},{0x49826c,0x4bc11aec},{0x498270,0x4bca552a},{0x498274,0x4b14a03d},{0x498278,0x4b14fd0a},{0x49827c,0x4a7403be},
         {0x498280,0x4bcb5d6a},{0x498284,0x4b15a83d},{0x498288,0x4b15fd4a},{0x49828c,0x4a0003bf},{0x498290,0x4bc0529c},{0x498294,0x4a7503be},{0x498298,0x4b000787},
         {0x49829c,0x4a800781},{0x4982a8,0x4a0003bf},{0x4982ac,0x4bc05adc},{0x4982b0,0x4a3e0798},{0x4982b4,0x4bcb52fe},{0x4982b8,0x4bca5d2e},{0x4982bc,0x4bc1a66a},
@@ -2022,7 +2022,7 @@ struct BattlePointScale{uint32_t k=0;bool scale=false;VuWords point{};uint32_t a
 std::map<std::pair<const Runtime *,uint32_t>,BattlePointScale> &battlePointScales(){static std::map<std::pair<const Runtime *,uint32_t>,BattlePointScale> m;return m;}
 bool nativeBattlePointScale(R5900Context *c,Runtime *rt,uint32_t pc){
     struct Site{uint32_t pc,word;char role;};
-    constexpr Site sites[]={{0x47ec2c,0x48a8f000,'k'},
+    static constexpr Site sites[]={{0x47ec2c,0x48a8f000,'k'},
         {0x47ecc4,0xd8410000,'l'},{0x47ecd8,0x4bde0858,'-'},{0x47ece8,0xf8410000,'s'},
         {0x47ed9c,0xd8410000,'l'},{0x47edb0,0x4bde0858,'-'},{0x47edc0,0xf8410000,'s'},
         {0x47ef64,0xd8410000,'l'},{0x47ef78,0x4bde0858,'-'},{0x47ef98,0xf8410000,'s'},
@@ -2053,7 +2053,7 @@ struct BattleHalfVectors{uint32_t k=0;VuWords a{},b{};unsigned loaded=0;};
 std::map<std::pair<const Runtime *,uint32_t>,BattleHalfVectors> &battleHalfVectors(){static std::map<std::pair<const Runtime *,uint32_t>,BattleHalfVectors> m;return m;}
 bool nativeBattleHalfVectors(R5900Context *c,Runtime *rt,uint32_t pc){
     struct Site{uint32_t pc,word;char role;};
-    constexpr Site sites[]={{0x49f418,0x48a81800,'k'},{0x49f41c,0xda810000,'a'},{0x49f420,0xda620000,'b'},{0x49f428,0x4bc30858,'-'},{0x49f42c,0x4bc31098,'-'},
+    static constexpr Site sites[]={{0x49f418,0x48a81800,'k'},{0x49f41c,0xda810000,'a'},{0x49f420,0xda620000,'b'},{0x49f428,0x4bc30858,'-'},{0x49f42c,0x4bc31098,'-'},
         {0x49f430,0xf8a10000,'1'},{0x49f434,0xf8420000,'2'},
         {0x49f4e0,0x48a81800,'k'},{0x49f4e4,0xda810000,'a'},{0x49f4e8,0xda620000,'b'},{0x49f4f0,0x4bc30858,'-'},{0x49f4f4,0x4bc31098,'-'},
         {0x49f4f8,0xfa210000,'1'},{0x49f4fc,0xf8420000,'2'}};
@@ -2085,7 +2085,7 @@ struct BattleSegmentPoints{VuWords a{},b{};uint32_t t=0,u=0;unsigned loaded=0;};
 std::map<std::pair<const Runtime *,uint32_t>,BattleSegmentPoints> &battleSegmentPoints(){static std::map<std::pair<const Runtime *,uint32_t>,BattleSegmentPoints> m;return m;}
 bool nativeBattleSegmentPoints(R5900Context *c,Runtime *rt,uint32_t pc){
     struct Site{uint32_t pc,word;char role;};
-    constexpr Site sites[]={{0x48b280,0xd8e10000,'a'},{0x48b284,0xd8c20000,'b'},{0x48b2d0,0x48a81800,'t'},{0x48b2d4,0x48a92000,'u'},
+    static constexpr Site sites[]={{0x48b280,0xd8e10000,'a'},{0x48b284,0xd8c20000,'b'},{0x48b2d0,0x48a81800,'t'},{0x48b2d4,0x48a92000,'u'},
         {0x48b30c,0x4be309bc,'-'},{0x48b310,0x4be410c8,'-'},{0x48b314,0xf8a30000,'s'}};
     if((pc&3) || !rt || pc<0x48b280 || pc>0x48b314)return false;
     const auto site=std::find_if(std::begin(sites),std::end(sites),[&](const Site &x){return x.pc==pc;});
@@ -2133,7 +2133,7 @@ struct BattleAdvance{uint32_t k=0;VuWords a{},b{},c{};unsigned loaded=0;bool sto
 std::map<std::pair<const Runtime *,uint32_t>,BattleAdvance> &battleAdvances(){static std::map<std::pair<const Runtime *,uint32_t>,BattleAdvance> m;return m;}
 bool nativeBattleAdvance(R5900Context *c,Runtime *rt,uint32_t pc){
     struct Site{uint32_t pc,word;char role;};
-    constexpr Site sites[]={{0x49c7a4,0x48a82000,'k'},{0x49c7a8,0xdaa10000,'1'},{0x49c7ac,0xda420000,'2'},{0x49c7b0,0xda230000,'3'},
+    static constexpr Site sites[]={{0x49c7a4,0x48a82000,'k'},{0x49c7a8,0xdaa10000,'1'},{0x49c7ac,0xda420000,'2'},{0x49c7b0,0xda230000,'3'},
         {0x49c7d0,0x4bc40958,'-'},{0x49c7d4,0x4bc011bf,'-'},{0x49c7d8,0x4bc51888,'-'},{0x49c7dc,0x4b050841,'-'},{0x49c7e0,0xfa420000,'b'},{0x49c7e8,0xfaa10000,'a'}};
     if((pc&3) || !rt || pc<0x49c7a4 || pc>0x49c7e8)return false;
     const auto site=std::find_if(std::begin(sites),std::end(sites),[&](const Site &x){return x.pc==pc;});
@@ -2171,7 +2171,7 @@ struct BattleNearestPoint{std::array<VuWords,4> rows{};VuWords reference{},point
 std::map<std::pair<const Runtime *,uint32_t>,BattleNearestPoint> &battleNearestPoints(){static std::map<std::pair<const Runtime *,uint32_t>,BattleNearestPoint> m;return m;}
 bool nativeBattleNearestPoint(R5900Context *c,Runtime *rt,uint32_t pc){
     struct Site{uint32_t pc,word;char role;};
-    constexpr Site sites[]={{0x4a52f4,0xd86b0000,'0'},{0x4a52f8,0xd86c0010,'1'},{0x4a52fc,0xd86d0020,'2'},{0x4a5300,0xd86e0030,'3'},{0x4a5304,0xd84f0000,'r'},{0x4a5308,0x4bc007c3,'-'},
+    static constexpr Site sites[]={{0x4a52f4,0xd86b0000,'0'},{0x4a52f8,0xd86c0010,'1'},{0x4a52fc,0xd86d0020,'2'},{0x4a5300,0xd86e0030,'3'},{0x4a5304,0xd84f0000,'r'},{0x4a5308,0x4bc007c3,'-'},
         {0x4a5354,0xd84a0000,'p'},{0x4a5358,0x4bea59bc,'-'},{0x4a535c,0x4bea60bd,'-'},{0x4a5360,0x4bea68be,'-'},{0x4a5364,0x4be0728b,'t'},
         {0x4a5370,0x4bcf562c,'-'},{0x4a5374,0x4bd8c62a,'-'},{0x4a5378,0x4b18c03d,'-'},{0x4a537c,0x4b18fe0a,'-'},{0x4a5380,0x4a1803bd,'q'},{0x4a53ac,0x4a0003bf,'-'},{0x4a53b0,0x4b000620,'-'},
         {0x4a53b4,0x4827c000,'m'},{0x4a5488,0xfa8a0000,'s'}};
@@ -2215,7 +2215,7 @@ std::map<std::pair<const Runtime *,uint32_t>,ContactPoint> &contactPoints(){stat
 bool nativeContactPoint(R5900Context *c,Runtime *rt,uint32_t pc){
     // Loads: register number; stores: -1 - output index; 0: folded arithmetic.
     struct Site{uint32_t pc,word;int role;};
-    constexpr Site sites[]={{0x1f7f20,0xd8cb0000,11},{0x1f7f24,0xd8ac0000,12},{0x1f7f28,0xd9090000,9},{0x1f7f2c,0xd8810000,1},{0x1f7f30,0xd8820010,2},{0x1f7f34,0xd8830020,3},{0x1f7f38,0xd8840030,4},
+    static constexpr Site sites[]={{0x1f7f20,0xd8cb0000,11},{0x1f7f24,0xd8ac0000,12},{0x1f7f28,0xd9090000,9},{0x1f7f2c,0xd8810000,1},{0x1f7f30,0xd8820010,2},{0x1f7f34,0xd8830020,3},{0x1f7f38,0xd8840030,4},
         {0x1f7f3c,0xd84a0000,10},{0x1f7f40,0xd8650000,5},{0x1f7f44,0xd8660010,6},{0x1f7f48,0xd8670020,7},{0x1f7f4c,0xd8680030,8},
         {0x1f7f50,0x4beb09bc,0},{0x1f7f54,0x4beb10bd,0},{0x1f7f58,0x4beb1aca,0},{0x1f7f5c,0x4bec29bc,0},{0x1f7f60,0x4bec30bd,0},{0x1f7f64,0x4bec3b0a,0},{0x1f7f68,0x4bcb59fd,0},
         {0x1f7f6c,0x4be909bc,0},{0x1f7f70,0x4be910bd,0},{0x1f7f74,0x4bcc61fd,0},{0x1f7f78,0x4be918be,0},{0x1f7f7c,0x4be0224b,0},{0x1f7f80,0x4bea29bc,0},{0x1f7f84,0x4bea30bd,0},
@@ -2249,7 +2249,7 @@ struct NearestOfPoints{VuWords centre{},point{};bool centred=false,loaded=false;
 std::map<std::pair<const Runtime *,uint32_t>,NearestOfPoints> &nearestOfPoints(){static std::map<std::pair<const Runtime *,uint32_t>,NearestOfPoints> m;return m;}
 bool nativeNearestOfPoints(R5900Context *c,Runtime *rt,uint32_t pc){
     struct Site{uint32_t pc,word;char role;};
-    constexpr Site sites[]={{0x4ab698,0xd89e0000,'c'},{0x4ab69c,0x4bc00643,'-'},{0x4ab6b8,0xd8bf0000,'p'},{0x4ab6bc,0x4bdeffec,'-'},{0x4ab6c4,0x4bdfffea,'-'},{0x4ab6c8,0x4b1ff83d,'-'},
+    static constexpr Site sites[]={{0x4ab698,0xd89e0000,'c'},{0x4ab69c,0x4bc00643,'-'},{0x4ab6b8,0xd8bf0000,'p'},{0x4ab6bc,0x4bdeffec,'-'},{0x4ab6c4,0x4bdfffea,'-'},{0x4ab6c8,0x4b1ff83d,'-'},
         {0x4ab6cc,0x4b1fcfca,'-'},{0x4ab6d0,0x4a1f03bd,'q'},{0x4ab6d4,0x4a0003bf,'-'},{0x4ab6d8,0x4b0007e0,'-'},{0x4ab6dc,0x4823f800,'m'}};
     if((pc&3) || !rt || pc<0x4ab698 || pc>0x4ab6dc)return false;
     const auto site=std::find_if(std::begin(sites),std::end(sites),[&](const Site &x){return x.pc==pc;});
@@ -2279,7 +2279,7 @@ struct BattleColourPair{uint32_t first[4]{},second[4]{},half=0;unsigned loaded=0
 std::map<std::pair<const Runtime *,uint32_t>,BattleColourPair> &battleColourPairs(){static std::map<std::pair<const Runtime *,uint32_t>,BattleColourPair> m;return m;}
 bool nativeBattleColourPair(R5900Context *c,Runtime *rt,uint32_t pc){
     struct Site{uint32_t pc,word;};
-    constexpr Site sites[]={{0x47ae78,0x48a80800},{0x47ae7c,0x48a91000},{0x47ae80,0x48aa1800},{0x47ae84,0x4be1093c},{0x47ae88,0x4be2113c},
+    static constexpr Site sites[]={{0x47ae78,0x48a80800},{0x47ae7c,0x48a91000},{0x47ae80,0x48aa1800},{0x47ae84,0x4be1093c},{0x47ae88,0x4be2113c},
         {0x47ae90,0x4bc30858},{0x47ae94,0x4bc31098},{0x47ae98,0xf8610000},{0x47ae9c,0xf8620010}};
     if((pc&3) || !rt || pc<0x47ae78 || pc>0x47ae9c)return false;
     const auto site=std::find_if(std::begin(sites),std::end(sites),[&](const Site &x){return x.pc==pc;});
@@ -2312,7 +2312,7 @@ bool nativeBattleColourPair(R5900Context *c,Runtime *rt,uint32_t pc){
 std::map<std::pair<const Runtime *,uint32_t>,std::array<std::array<uint32_t,4>,2>> &battleSegmentEnds(){
     static std::map<std::pair<const Runtime *,uint32_t>,std::array<std::array<uint32_t,4>,2>> m;return m;}
 bool nativeBattleSegmentEnds(R5900Context *c,Runtime *rt,uint32_t pc){
-    constexpr std::pair<uint32_t,uint32_t> sites[]={{0x3e48bc,0xdaa10000},{0x3e48c0,0xd8820000},{0x3e48c4,0x4bc1112c},{0x3e48c8,0xd8630000},{0x3e48cc,0x4bc321bc},{0x3e48d0,0x4bc32119},{0x3e48d4,0x4bc0084b},{0x3e48d8,0x4bc410ac},
+    static constexpr std::pair<uint32_t,uint32_t> sites[]={{0x3e48bc,0xdaa10000},{0x3e48c0,0xd8820000},{0x3e48c4,0x4bc1112c},{0x3e48c8,0xd8630000},{0x3e48cc,0x4bc321bc},{0x3e48d0,0x4bc32119},{0x3e48d4,0x4bc0084b},{0x3e48d8,0x4bc410ac},
         {0x3e48f0,0xd84f0000},{0x3e48f4,0xd86b0000},{0x3e48f8,0xd86c0010},{0x3e48fc,0xd86d0020},{0x3e4900,0xd86e0030},{0x3e4904,0x4bc007c3},{0x3e4908,0x4bef5aea},{0x3e490c,0x4bef632a},{0x3e4910,0x4bef6b6a},{0x3e4914,0x4bef73aa},{0x3e4918,0x4b0b583d},{0x3e491c,0x4b0bf8be},{0x3e4920,0x4b0bf94b},{0x3e4924,0x4a8c603c},{0x3e4928,0x4a8cf8be},{0x3e492c,0x4a8cf94b},{0x3e4930,0x4a4d683d},{0x3e4934,0x4a4df8bc},{0x3e4938,0x4a4df94b},{0x3e493c,0x4a2e703d},{0x3e4940,0x4a2e00be},{0x3e4944,0x4a2e00bc},{0x3e4948,0x4bc0084b},{0x3e494c,0x4bc0108b},{0x3e4954,0xfaa10000},{0x3e4958,0xf8420000}};
     if((pc&3) || !rt || pc<0x3e48bc || pc>0x3e4958)return false;
     const auto site=std::find_if(std::begin(sites),std::end(sites),[&](auto &x){return x.first==pc;});
@@ -2349,7 +2349,7 @@ bool nativeBattleSegmentEnds(R5900Context *c,Runtime *rt,uint32_t pc){
 // ACC.w = 1*x, +1*y, vf29.w = +1*z; RSQRT Q = 1/sqrt(vf29.w); vf31.w = vf29.w*Q; SQC2 vf31 to
 // a3 = a0+20: (centre, radius). ps2f, nearest; the scalar code around it is compiled.
 bool nativeBattleBoxSphere(R5900Context *c,Runtime *rt,uint32_t pc){
-    constexpr uint32_t words[]={0xd93b0000,0xd89c0000,0xd91d0000,0x4bdcefe8,0x4bdcefac,0x4bdbffd8,0x4bdbf798,0x4bdef72a,
+    static constexpr uint32_t words[]={0xd93b0000,0xd89c0000,0xd91d0000,0x4bdcefe8,0x4bdcefac,0x4bdbffd8,0x4bdbf798,0x4bdef72a,
         0x4a3c01bc,0x4a3c00bd,0x4a3c074a,0x4bfd03be,0x4a0003bf,0x4a20efdc,0xf8ff0000};
     if(pc<0x3fd660 || pc>0x3fd698 || (pc&3) || !rt)return false;
     uint32_t word=0;if(const auto *p=rt->memory.hostPointer(pc,4))std::memcpy(&word,p,4);
@@ -2445,7 +2445,7 @@ bool nativeSphereTreeWalk(R5900Context *c,Runtime *rt,uint32_t pc){
     const auto restoreBase=[](uint32_t at)->uint32_t{for(uint32_t b:{0x1f76f4u,0x1f77dcu,0x1f785cu})if(at>=b && at<=b+0x20)return b;return 0;};
     const bool spill=pc<=0x1f7514;const uint32_t rb=restoreBase(pc);
     constexpr uint32_t first=0x1f7660;
-    constexpr uint32_t words[]={0xd8490000,0xd86a0000,0xda4b0000,0xd8810000,0xd8820010,0x4a295298,0x4a295ad9,0xd8830020,0xd8840030,0xda250000,0xda260010,0xda270020,0xda280030,
+    static constexpr uint32_t words[]={0xd8490000,0xd86a0000,0xda4b0000,0xd8810000,0xd8820010,0x4a295298,0x4a295ad9,0xd8830020,0xd8840030,0xda250000,0xda260010,0xda270020,0xda280030,
         0x4bea09bc,0x4bea10bd,0x4bea18be,0x4be0230b,0x4beb29bc,0x4beb30bd,0x4beb38be,0x4be0434b,0x4bcd632c,0x4a2b52a8,0x4bcc632a,0x4b000343,0x4a2a52aa,0x4b0c69bc,0x4b0c68bd,
         0x4b0a68ff,0x4b0c6b0a,0,0xf84c0000};   // 0: the addiu v0, sp, 70 between (runs as compiled)
     const bool block=pc>=first && pc<=0x1f76dc;
@@ -2641,7 +2641,7 @@ bool nativeBattleShapeTree(R5900Context *c,Runtime *rt,uint32_t pc){
 //   m = -1 * (1/(2a)); s = sqrt(disc); sp+0.x = m*b + m*s; sp+10.x = m*b - m*s.
 // Only the x lanes are defined (the rest are register leftovers no reader takes).
 bool nativeSegmentSphere(R5900Context *c,Runtime *rt,uint32_t pc){
-    constexpr std::pair<uint32_t,uint32_t> sites[]={{0x1f59c4,0xd8860000},{0x1f59c8,0xd8a90000},{0x1f59cc,0xd8ca0000},{0x1f59d0,0x4bc00747},{0x1f59d4,0x4be609bc},{0x1f59d8,0x4be610bd},{0x1f59dc,0x4be618be},{0x1f59e0,0x4be021cb},{0x1f59e4,0x4a2531bc},{0x1f59e8,0x4a2501c9},{0x1f59ec,0x4bc9522c},{0x1f59f0,0x4bc74d2c},{0x1f59f4,0x4bc74daa},{0x1f59f8,0x4bc007c3},{0x1f59fc,0x4bc73dea},{0x1f5a00,0x4a2739ea},{0x1f5a04,0x4bc842ea},{0x1f5a08,0x4bd4456a},{0x1f5a0c,0x4b16b03d},{0x1f5a10,0x4b16fd8a},{0x1f5a14,0x4b0b583d},{0x1f5a18,0x4bd5ad68},{0x1f5a1c,0x4b0bfaca},{0x1f5a20,0x4b16b5a8},{0x1f5a24,0x4bc94e2a},{0x1f5a28,0x4b15a83d},{0x1f5a2c,0x4b0b5be8},{0x1f5a30,0x4b15fb0a},{0x1f5a34,0x4b17b83d},{0x1f5a38,0x4b17f8be},{0x1f5a3c,0x4a6f03bc},{0x1f5a40,0x4b18f8bc},{0x1f5a44,0x4b18f8bd},{0x1f5a48,0x4b18f8be},{0x1f5a4c,0x4b16f8fc},{0x1f5a50,0x4b07fb4f},{0x1f5a54,0x4b0c62be},{0x1f5a58,0x4b0d5afd},{0x1f5a5c,0x4b0d5afd},{0x1f5a60,0x4b0d5afd},{0x1f5a64,0x4b0b6bad},{0x1f5a68,0x4b00ebdc},{0x1f5a70,0x4a0e03bd},{0x1f5a74,0xf84e0000},
+    static constexpr std::pair<uint32_t,uint32_t> sites[]={{0x1f59c4,0xd8860000},{0x1f59c8,0xd8a90000},{0x1f59cc,0xd8ca0000},{0x1f59d0,0x4bc00747},{0x1f59d4,0x4be609bc},{0x1f59d8,0x4be610bd},{0x1f59dc,0x4be618be},{0x1f59e0,0x4be021cb},{0x1f59e4,0x4a2531bc},{0x1f59e8,0x4a2501c9},{0x1f59ec,0x4bc9522c},{0x1f59f0,0x4bc74d2c},{0x1f59f4,0x4bc74daa},{0x1f59f8,0x4bc007c3},{0x1f59fc,0x4bc73dea},{0x1f5a00,0x4a2739ea},{0x1f5a04,0x4bc842ea},{0x1f5a08,0x4bd4456a},{0x1f5a0c,0x4b16b03d},{0x1f5a10,0x4b16fd8a},{0x1f5a14,0x4b0b583d},{0x1f5a18,0x4bd5ad68},{0x1f5a1c,0x4b0bfaca},{0x1f5a20,0x4b16b5a8},{0x1f5a24,0x4bc94e2a},{0x1f5a28,0x4b15a83d},{0x1f5a2c,0x4b0b5be8},{0x1f5a30,0x4b15fb0a},{0x1f5a34,0x4b17b83d},{0x1f5a38,0x4b17f8be},{0x1f5a3c,0x4a6f03bc},{0x1f5a40,0x4b18f8bc},{0x1f5a44,0x4b18f8bd},{0x1f5a48,0x4b18f8be},{0x1f5a4c,0x4b16f8fc},{0x1f5a50,0x4b07fb4f},{0x1f5a54,0x4b0c62be},{0x1f5a58,0x4b0d5afd},{0x1f5a5c,0x4b0d5afd},{0x1f5a60,0x4b0d5afd},{0x1f5a64,0x4b0b6bad},{0x1f5a68,0x4b00ebdc},{0x1f5a70,0x4a0e03bd},{0x1f5a74,0xf84e0000},
         {0x1f5ae0,0x4b0c7abe},{0x1f5ae4,0x4b007c61},{0x1f5ae8,0x4b0c7abe},{0x1f5aec,0x4b007ca5},{0x1f5af0,0xf8710000},{0x1f5af4,0xf8520000},
         {0x4f5ab8,0xd8850000},{0x4f5abc,0xd8610000},{0x4f5ac0,0xd8620010},{0x4f5ac4,0xd8630020},{0x4f5ac8,0xd8640030},
         {0x4a562c,0xd8610000},{0x4a5630,0xd8620010},{0x4a5634,0xd8630020},{0x4a5638,0xd8640030},{0x4a563c,0x48a82800}};
@@ -2700,7 +2700,7 @@ bool nativeSegmentSphere(R5900Context *c,Runtime *rt,uint32_t pc){
 // Only xyz of sp+70 / sp+60 are defined (w: register leftovers, not read). The slab
 // tests after it are scalar (1f6670).
 bool nativeBattleSegmentBox(R5900Context *c,Runtime *rt,uint32_t pc){
-    constexpr std::pair<uint32_t,uint32_t> sites[]={{0x1f565c,0xd88f0000},{0x1f5660,0xd8cc0000},{0x1f5664,0xd8eb0000},{0x1f5668,0xd8b10000},{0x1f566c,0x4bef09bc},{0x1f5670,0x4bef10bd},{0x1f5674,0x4bef18be},{0x1f5678,0x4be023cb},{0x1f567c,0x4bcf62ac},{0x1f5680,0x4bc58c41},{0x1f56ac,0xf8510000},{0x1f56b0,0x4bcc5aec},{0x1f56b4,0x4bc1552a},{0x1f56b8,0x4bc2556a},{0x1f56bc,0x4bc355aa},{0x1f56c0,0x4bc007c3},{0x1f56c4,0x4b14a03d},{0x1f56c8,0x4b14fb8a},{0x1f56cc,0x4a95a83c},{0x1f56d0,0x4a95fb8a},{0x1f56d4,0x4bc15d2a},{0x1f56d8,0x4a56b03c},{0x1f56dc,0x4a56fb89},{0x1f56e0,0x4bc25d6a},{0x1f56e4,0x4bc35daa},{0x1f56e8,0x4b14a03d},{0x1f56ec,0x4b14fb4a},{0x1f56f0,0x4a95a83c},{0x1f56f4,0x4a95fb4a},{0x1f56f8,0x4a56b03c},{0x1f56fc,0x4a56fb49},{0x1f5708,0xf86e0000},{0x1f570c,0xf84d0000}};
+    static constexpr std::pair<uint32_t,uint32_t> sites[]={{0x1f565c,0xd88f0000},{0x1f5660,0xd8cc0000},{0x1f5664,0xd8eb0000},{0x1f5668,0xd8b10000},{0x1f566c,0x4bef09bc},{0x1f5670,0x4bef10bd},{0x1f5674,0x4bef18be},{0x1f5678,0x4be023cb},{0x1f567c,0x4bcf62ac},{0x1f5680,0x4bc58c41},{0x1f56ac,0xf8510000},{0x1f56b0,0x4bcc5aec},{0x1f56b4,0x4bc1552a},{0x1f56b8,0x4bc2556a},{0x1f56bc,0x4bc355aa},{0x1f56c0,0x4bc007c3},{0x1f56c4,0x4b14a03d},{0x1f56c8,0x4b14fb8a},{0x1f56cc,0x4a95a83c},{0x1f56d0,0x4a95fb8a},{0x1f56d4,0x4bc15d2a},{0x1f56d8,0x4a56b03c},{0x1f56dc,0x4a56fb89},{0x1f56e0,0x4bc25d6a},{0x1f56e4,0x4bc35daa},{0x1f56e8,0x4b14a03d},{0x1f56ec,0x4b14fb4a},{0x1f56f0,0x4a95a83c},{0x1f56f4,0x4a95fb4a},{0x1f56f8,0x4a56b03c},{0x1f56fc,0x4a56fb49},{0x1f5708,0xf86e0000},{0x1f570c,0xf84d0000}};
     if((pc&3) || !rt || pc<0x1f565c || pc>0x1f570c)return false;
     const auto site=std::find_if(std::begin(sites),std::end(sites),[&](auto &x){return x.first==pc;});
     if(site==std::end(sites))return false;
@@ -2981,7 +2981,7 @@ struct ChainAim{Ps2Lanes cross{};uint32_t frame=0;bool aimed=false;};
 std::map<const Runtime *,ChainAim> &chainAims(){static std::map<const Runtime *,ChainAim> m;return m;}
 bool nativeChainAim(R5900Context *c,Runtime *rt,uint32_t pc){
     struct Site{uint32_t pc,word;};
-    constexpr Site sites[]={{0x248b84,0xd8610000},{0x248b88,0xd8620010},{0x248b8c,0xd8630020},{0x248b90,0xd8640030},{0x248b94,0xd8450000},{0x248b98,0xda860000},{0x248b9c,0x4be007d3},{0x248ba0,0x4be509bc},{0x248ba4,0x4be510bd},{0x248ba8,0x4be518be},{0x248bac,0x4be0228b},{0x248bb0,0x4be609bc},{0x248bb4,0x4be610bd},{0x248bb8,0x4be618be},{0x248bbc,0x4bca532a},{0x248bc0,0x4be022cb},{0x248bc4,0x4b0c603d},{0x248bc8,0x4b0cfb4a},{0x248bcc,0x4bcb5baa},{0x248bd0,0x4a6d03be},{0x248bd4,0x4b0e703d},{0x248bd8,0x4b0efbca},{0x248be8,0x4a0003bf},{0x248bec,0x4bc0541c},{0x248bf0,0x4a0002ff},{0x248bf4,0x4a0002ff},{0x248bf8,0x4a6f03be},{0x248bfc,0x4bd2833d},{0x248c00,0x4bd3933d},{0x248c04,0x4a0003bf},{0x248c08,0x4bc05c5c},{0x248c0c,0x4b1182be},{0x248c10,0x4b1190bd},{0x248c14,0x4b119cca},{0x248c18,0x4bd08afe},{0x248c1c,0x4bd1852e},{0x248c24,0xf8530000},
+    static constexpr Site sites[]={{0x248b84,0xd8610000},{0x248b88,0xd8620010},{0x248b8c,0xd8630020},{0x248b90,0xd8640030},{0x248b94,0xd8450000},{0x248b98,0xda860000},{0x248b9c,0x4be007d3},{0x248ba0,0x4be509bc},{0x248ba4,0x4be510bd},{0x248ba8,0x4be518be},{0x248bac,0x4be0228b},{0x248bb0,0x4be609bc},{0x248bb4,0x4be610bd},{0x248bb8,0x4be618be},{0x248bbc,0x4bca532a},{0x248bc0,0x4be022cb},{0x248bc4,0x4b0c603d},{0x248bc8,0x4b0cfb4a},{0x248bcc,0x4bcb5baa},{0x248bd0,0x4a6d03be},{0x248bd4,0x4b0e703d},{0x248bd8,0x4b0efbca},{0x248be8,0x4a0003bf},{0x248bec,0x4bc0541c},{0x248bf0,0x4a0002ff},{0x248bf4,0x4a0002ff},{0x248bf8,0x4a6f03be},{0x248bfc,0x4bd2833d},{0x248c00,0x4bd3933d},{0x248c04,0x4a0003bf},{0x248c08,0x4bc05c5c},{0x248c0c,0x4b1182be},{0x248c10,0x4b1190bd},{0x248c14,0x4b119cca},{0x248c18,0x4bd08afe},{0x248c1c,0x4bd1852e},{0x248c24,0xf8530000},
         {0x248c38,0x4bd4a2aa},{0x248c3c,0x4b0a503d},{0x248c40,0x4b0afaca},{0x248c44,0x4a6b03be},{0x248c48,0x4a0003bf},{0x248c4c,0x4bc0a31c},{0x248c50,0xf84c0000},
         {0x248c78,0xd8410000},{0x248c7c,0xd8620000},{0x248c80,0x4be00153},{0x248c88,0x4bc20afe},{0x248c8c,0x4bc110ee},{0x248c90,0x4be2092a},{0x248c94,0x4bc111bf},{0x248c98,0x4bc208bf},{0x248c9c,0x4bc0184b},{0x248ca0,0x4a24207e},{0x248ca4,0x4a2428fd},{0x248ca8,0x4a24284c},{0x248cac,0xf8410000}};
     if((pc&3) || !rt || pc<0x248b84 || pc>0x248cac)return false;
@@ -3023,7 +3023,7 @@ struct VectorTurn{Ps2Lanes n{};uint32_t frame=0;bool aimed=false;};
 std::map<const Runtime *,VectorTurn> &vectorTurns(){static std::map<const Runtime *,VectorTurn> m;return m;}
 bool nativeVectorTurn(R5900Context *c,Runtime *rt,uint32_t pc){
     struct Site{uint32_t pc,word;};
-    constexpr Site sites[]={{0x4ab9c0,0xd8ac0000},{0x4ab9c4,0xd88d0000},{0x4ab9c8,0x4bc007c3},{0x4ab9dc,0x4bcd632c},{0x4ab9e0,0x4bcc636a},{0x4ab9e4,0x4b0d683d},{0x4ab9e8,0x4b0dfb4a},{0x4ab9ec,0x4a6d03be},{0x4ab9f0,0x4a0003bf},{0x4ab9f4,0x4bc0631c},{0x4ab9fc,0xfa0c0000},
+    static constexpr Site sites[]={{0x4ab9c0,0xd8ac0000},{0x4ab9c4,0xd88d0000},{0x4ab9c8,0x4bc007c3},{0x4ab9dc,0x4bcd632c},{0x4ab9e0,0x4bcc636a},{0x4ab9e4,0x4b0d683d},{0x4ab9e8,0x4b0dfb4a},{0x4ab9ec,0x4a6d03be},{0x4ab9f0,0x4a0003bf},{0x4ab9f4,0x4bc0631c},{0x4ab9fc,0xfa0c0000},
         {0x4aba00,0xda300000},{0x4aba04,0x4bcc842a},{0x4aba08,0x4b10803d},{0x4aba0c,0x4b10fc0a},{0x4aba10,0x48228000},
         {0x4aba5c,0xda0e0000},{0x4aba60,0xda300000},{0x4aba64,0x4a20032b},{0x4aba68,0x4bce82fe},{0x4aba6c,0x4bd073ae},{0x4aba70,0x4bc007c3},{0x4aba74,0x4bd073ea},{0x4aba78,0x4bce82fe},{0x4aba7c,0x4bd0732e},{0x4aba80,0x4b0f783d},{0x4aba84,0x4b0ffbca},{0x4aba88,0x4bcd631b},{0x4aba8c,0x4bcf7398},{0x4aba90,0x4bce842c},{0x4aba94,0x4bce62bc},{0x4aba98,0x4bcd830a},{0x4aba9c,0x4bcc636a},{0x4abaa0,0x4b0d683d},{0x4abaa4,0x4b0dfb4a},{0x4abaa8,0x4a6d03be},{0x4abaac,0x4a0003bf},{0x4abab0,0x4bc0631c},{0x4abab4,0xfa4c0000}};
     if((pc&3) || !rt || pc<0x4ab9c0 || pc>0x4abab4)return false;
@@ -3065,7 +3065,7 @@ struct EffectScatter{Ps2Lanes direction{},position{};Ps2Word length{};unsigned s
 std::map<const Runtime *,EffectScatter> &effectScatters(){static std::map<const Runtime *,EffectScatter> m;return m;}
 bool nativeEffectScatter(R5900Context *c,Runtime *rt,uint32_t pc){
     struct Site{uint32_t pc,word;unsigned role;};
-    constexpr Site sites[]={{0x4a43d8,0xd8590000,0},{0x4a43dc,0xdab80000,1},{0x4a43e0,0x4bc007c3,2},{0x4a43e4,0x4bd9ceaa,2},{0x4a43e8,0x4b1ad03d,2},{0x4a43ec,0x4b1afe8a,2},{0x4a43f0,0x4a7a03be,2},
+    static constexpr Site sites[]={{0x4a43d8,0xd8590000,0},{0x4a43dc,0xdab80000,1},{0x4a43e0,0x4bc007c3,2},{0x4a43e4,0x4bd9ceaa,2},{0x4a43e8,0x4b1ad03d,2},{0x4a43ec,0x4b1afe8a,2},{0x4a43f0,0x4a7a03be,2},
         {0x4a4424,0x48a8d800,3},{0x4a442c,0x4a0003bf,4},{0x4a4430,0x4bc0ce5c,4},{0x4a4434,0x4bc0c1bf,4},{0x4a4438,0x4bdbce08,4},{0x4a443c,0xf8580000,5}};
     if((pc&3) || !rt || pc<0x4a43d8 || pc>0x4a443c)return false;
     const auto site=std::find_if(std::begin(sites),std::end(sites),[&](const Site &x){return x.pc==pc;});
@@ -3094,7 +3094,7 @@ struct PaletteFade{VuWords fade{},weights{};bool loaded=false;uint32_t a[4]{},b[
 std::map<std::pair<const Runtime *,uint32_t>,PaletteFade> &paletteFades(){static std::map<std::pair<const Runtime *,uint32_t>,PaletteFade> m;return m;}
 bool nativePaletteFade(R5900Context *c,Runtime *rt,uint32_t pc){
     struct Site{uint32_t pc,word;char role;};
-    constexpr Site sites[]={{0x500ec0,0xd8610000,'f'},{0x500ec4,0xd8820000,'w'},{0x500ee8,0x48a81800,'a'},{0x500eec,0x48a92000,'b'},{0x500ef0,0x4be3193c,'-'},{0x500ef4,0x4be4213c,'-'},
+    static constexpr Site sites[]={{0x500ec0,0xd8610000,'f'},{0x500ec4,0xd8820000,'w'},{0x500ee8,0x48a81800,'a'},{0x500eec,0x48a92000,'b'},{0x500ef0,0x4be3193c,'-'},{0x500ef4,0x4be4213c,'-'},
         {0x500ef8,0x4be119bc,'-'},{0x500efc,0x4be2212a,'-'},{0x500f00,0x4be12116,'-'},{0x500f04,0x4be120c9,'-'},{0x500f08,0x4be118d6,'-'},{0x500f0c,0x4be3197c,'-'},{0x500f10,0x48281800,'m'}};
     if((pc&3) || !rt || pc<0x500ec0 || pc>0x500f10)return false;
     const auto site=std::find_if(std::begin(sites),std::end(sites),[&](const Site &x){return x.pc==pc;});
@@ -4122,13 +4122,13 @@ struct ParticleState{uint32_t dt=0;bool step=false;VuWords position{},velocity{}
 ParticleState &particleState(const Runtime *rt){static std::map<const Runtime *,ParticleState> states;return states[rt];}
 bool nativeParticleStep(R5900Context *c,Runtime *rt,uint32_t pc){
     // Byte-identical copies of 3652d0: 38d900 (+28630) and the forest emitter 44b8f0 (+e6620).
-    constexpr uint32_t kCopies[]={0,0x38d900-0x3652d0,0x44b8f0-0x3652d0};
+    static constexpr uint32_t kCopies[]={0,0x38d900-0x3652d0,0x44b8f0-0x3652d0};
     if(!rt)return false;
     const ParticleSite *site=nullptr;
     // mod001 holds byte-identical copies (only module-local jal targets differ) of both,
     // run by the battle's emitters: 284050 = 409700 - 1856b0, 28a8a0 = 409fb0 - 17f710.
     struct Table{const ParticleSite *begin,*end;uint32_t lo,hi,offset;};
-    constexpr Table tables[]={{std::begin(particleSites409700),std::end(particleSites409700),0x409780,0x409e34,0},
+    static constexpr Table tables[]={{std::begin(particleSites409700),std::end(particleSites409700),0x409780,0x409e34,0},
         {std::begin(particleSites409fb0),std::end(particleSites409fb0),0x40a030,0x40a6a4,0},
         {std::begin(particleSites409700),std::end(particleSites409700),0x409780,0x409e34,0x1856b0},
         {std::begin(particleSites409fb0),std::end(particleSites409fb0),0x40a030,0x40a6a4,0x17f710}};
@@ -4180,7 +4180,7 @@ bool nativeParticleBox(R5900Context *c,Runtime *rt,uint32_t pc){
     // particles of two or more points; frame 0x240, emitter in s5): its trail-history shifts
     // copy whole qwords on the EE, and every VU0 site is one of 48 triplets, the point loaded
     // from the output just written (r3, r4, r6 or r7).
-    constexpr Box boxes[]={{0x364a84,0x364ac4,0x364ac8,0x40,0xd8c10000,6,4},{0x38cfec,0x38d010,0x38d018,0,0xd8c10000,6,4},
+    static constexpr Box boxes[]={{0x364a84,0x364ac4,0x364ac8,0x40,0xd8c10000,6,4},{0x38cfec,0x38d010,0x38d018,0,0xd8c10000,6,4},
         {0x44af7c,0x44afa4,0x44afa8,0x40,0xd8c10000,6,4},{0x48a9cc,0x48aa10,0x48aa14,0xf0,0xd8410000,2,22},
         {0x284934,0x28498c,0x284990,0x240,0xd8610000,3,21},{0x2849f0,0x284a4c,0x284a50,0x240,0xd8610000,3,21},{0x284b18,0x284b74,0x284b78,0x240,0xd8810000,4,21},{0x284bd4,0x284c30,0x284c34,0x240,0xd8610000,3,21},{0x284cf0,0x284d1c,0x284d20,0x240,0xd8610000,3,21},
         {0x284d80,0x284db8,0x284dbc,0x240,0xd8610000,3,21},{0x284e78,0x284eb0,0x284eb4,0x240,0xd8610000,3,21},{0x284f14,0x284f58,0x284f5c,0x240,0xd8610000,3,21},{0x285050,0x2850a8,0x2850ac,0x240,0xd8810000,4,21},{0x28510c,0x285150,0x285154,0x240,0xd8610000,3,21},
@@ -4713,7 +4713,7 @@ bool nativeProgramEmitter(R5900Context *c,Runtime *rt,uint32_t pc){
 // scalar frame index then overwrites the output's +2c.
 bool nativeEmitterClock(R5900Context *c,Runtime *rt,uint32_t pc){
     struct Site{uint32_t pc,word;unsigned role;};
-    constexpr Site sites[]={{0x23f47c,0x48b01800,0},
+    static constexpr Site sites[]={{0x23f47c,0x48b01800,0},
         {0x23f528,0xda810000,1},{0x23f530,0xda020000,2},{0x23f644,0x4bc00abc,3},{0x23f648,0x4bc31048,4},{0x23f654,0xfa010000,5},{0x23f65c,0xfa810000,6},
         {0x23f730,0xda810000,1},{0x23f734,0xda020000,2},{0x23f854,0x4bc00abc,3},{0x23f858,0x4bc31048,4},{0x23f864,0xfa010000,5},{0x23f86c,0xfa810000,6}};
     if(!rt || pc<0x23f47c || pc>0x23f86c)return false;
@@ -5197,7 +5197,7 @@ bool nativeMathInstruction(uint8_t *,R5900Context *c,Runtime *rt,uint32_t pc){
     // after the allocator call (block-5c) or at the null check it branches to
     // (block-1c); no branch lies inside. Every block's bytes are guarded.
     struct EffectBlock{uint32_t at;unsigned object;};
-    constexpr EffectBlock effectBlocks[]={{0x412bcc,16},{0x412ddc,16},{0x41861c,18},{0x418814,18},{0x419884,19},
+    static constexpr EffectBlock effectBlocks[]={{0x412bcc,16},{0x412ddc,16},{0x41861c,18},{0x418814,18},{0x419884,19},
                                           {0x43128c,16},{0x4314d4,16},{0x433614,16},{0x433904,16}};
     const EffectBlock *effect=nullptr;for(const auto &b:effectBlocks)if(pc>=b.at && pc<=b.at+0x54)effect=&b;
     if(const uint32_t block=effect?effect->at:0;
@@ -5368,13 +5368,13 @@ bool nativeMathInstruction(uint8_t *,R5900Context *c,Runtime *rt,uint32_t pc){
         const auto cursor=c->r[24].uw[0];if((!loading && !cursor) || (loading?cursor:cursor-1)>=count)throw std::runtime_error("native particle source index outside owner");
         const auto index=loading?cursor:cursor-1,source=pool+index*0x90+0x60;
         record(rt,pool,count*0x90);auto *input=record(rt,source,32);
-        constexpr unsigned sourceRegisters[]={10,3,22,21};
+        static constexpr unsigned sourceRegisters[]={10,3,22,21};
         if(c->r[sourceRegisters[path]].uw[0]!=source)throw std::runtime_error("native particle position source mismatch");
         const bool publish=mpc==0x408fb8 || mpc==0x40909c || mpc==0x40932c || mpc==0x40957c;
         const bool feedback=mpc==0x408fbc || mpc==0x4090a0 || mpc==0x409334 || mpc==0x409584;
         if(publish || feedback){
             const auto output=c->r[6].uw[0]+0x20,destination=publish?output:source;
-            constexpr unsigned outputRegisters[]={3,9,16,16};
+            static constexpr unsigned outputRegisters[]={3,9,16,16};
             if(publish && c->r[outputRegisters[path]].uw[0]!=output)throw std::runtime_error("native particle output pointer mismatch");
             auto *out=record(rt,output,16),*frame=record(rt,stack,0x80);
             const auto a=reinterpret_cast<uintptr_t>(input),b=reinterpret_cast<uintptr_t>(out),f=reinterpret_cast<uintptr_t>(frame),o=reinterpret_cast<uintptr_t>(owner),t=reinterpret_cast<uintptr_t>(timeRecord);

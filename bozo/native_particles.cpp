@@ -69,7 +69,7 @@ void NativeParticles::retire(Runtime *rt,R5900Context *c,uint32_t pc){
         }else if(!build.boundsReady)throw std::runtime_error("native particle bounds source order mismatch");
         return;
     }
-    constexpr uint32_t sites[]={0x22ee94,0x22ee9c,0x22eea4,0x22eebc};
+    static constexpr uint32_t sites[]={0x22ee94,0x22ee9c,0x22eea4,0x22eebc};
     if(!build.pending || build.pending>4 || sites[build.pending-1]!=pc || c->r[21].uw[0]!=build.object || c->r[19].uw[0]!=build.chunks)
         throw std::runtime_error("native particle publication retirement is out of order");
     if(pc==0x22eebc && word(record(rt,c->r[29].uw[0],0x160),0xe0)!=build.next)throw std::runtime_error("native particle cursor was not committed");

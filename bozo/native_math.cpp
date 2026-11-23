@@ -655,9 +655,10 @@ struct BasisLengthSite{uint32_t load,call,store;unsigned object,base,output;uint
 //   mod001 1f5d90: shape tree 1f5c30, object s0 (base a1), output sp+50.
 //   mod028 4a52a8: nearest-point walk 4a50b0's node path, object s1 (base a1), output sp+70.
 //   mod001 1f7608: sphere-tree walk 1f7490, node object s0 (base a1), output sp+60 (cached in +204).
+//   mod028 493cb0 / 493d28: battle shape test 493a20 (the victory), objects s1 / s0 (base a2), outputs sp+110 / sp+100.
 constexpr BasisLengthSite basisLengthSites[]={{0x43c120,0x43c130,0x43c13c,16,4,3,0x70},{0x239b54,0x239b64,0x239b70,4,2,2,0},{0x4f56f8,0x4f5708,0x4f5714,20,6,3,0x60},{0x4f5a68,0x4f5a78,0x4f5a84,18,6,3,0xc0},
     {0x4a6e10,0x4a6e20,0x4a6e2c,19,5,2,0xb0},{0x4a6f40,0x4a6f50,0x4a6f5c,18,5,2,0xa0},{0x1f5d90,0x1f5da0,0x1f5dac,16,5,2,0x50},{0x4a52a8,0x4a52b8,0x4a52c4,17,5,2,0x70},
-    {0x1f7608,0x1f7618,0x1f7624,16,5,2,0x60}};
+    {0x1f7608,0x1f7618,0x1f7624,16,5,2,0x60},{0x493cb0,0x493cc0,0x493ccc,17,6,3,0x110},{0x493d28,0x493d38,0x493d44,16,6,3,0x100}};
 bool nativeBattleBasisLengths(R5900Context *c,Runtime *rt,uint32_t pc){
     if(!rt || (pc&3))return false;
     const auto site=std::find_if(std::begin(basisLengthSites),std::end(basisLengthSites),[&](auto &s){return pc>=s.load && pc<=s.store;});
@@ -2256,7 +2257,7 @@ bool nativeBattleTurnMatrix(R5900Context *c,Runtime *rt,uint32_t pc){
     for(unsigned i=0;i<4;++i)out[i]=vuAdd(vuAdd(vuAdd(vuMul(st.b[0][i],a[0]),vuMul(st.b[1][i],a[1])),vuMul(st.b[2][i],a[2])),vuMul(st.b[3][i],a[3]));
     std::memcpy(record(rt,reg(word),16),out.data(),16);if(index==23)st.loaded=0;return true;
 }
-// Battle row point, mod028 497100 at 497508, 4967a0 at 496810 and 48da30 at 48e118 (the victory's scatter, battle frame 75420): the
+// Battle row point, mod028 497100 at 497508, 4967a0 at 496810, 48da30 at 48e118 and 48f600 at seven places (the victory's scatter, battle frame 75420): the
 // "rowpoint" formula in other registers. LQC2 vf15 (point p), vf1..vf4 (rows at 0/16/32/48 of one base); ADDw.xyz
 // vf6 = 1; MUL.xyzw vf11..vf14 = row_k * p; per lane x ((x+y)+1z)+1w, y ((y+x)+1z)+1w, z ((z+y)+1x)+1w,
 // w ((w+y)+1z)+1x; SQC2 vf15. At 497508 it is stored to v0 (497560) and, when the CPU then finds *s3 == 0, again
@@ -2267,7 +2268,7 @@ bool nativeBattleRowPoint(R5900Context *c,Runtime *rt,uint32_t pc){
     static constexpr uint32_t arithmetic[]={0x4bc00183,
         0x4bef0aea,0x4bef132a,0x4bef1b6a,0x4bef23aa,0x4b0b583d,0x4b0b30be,0x4b0b33cb,0x4a8c603c,0x4a8c30be,0x4a8c33cb,
         0x4a4d683d,0x4a4d30bc,0x4a4d33cb,0x4a2e703d,0x4a2e00be,0x4a2e03c8};
-    static constexpr uint32_t blocks[]={0x497508,0x496810,0x48e118};
+    static constexpr uint32_t blocks[]={0x497508,0x496810,0x48e118,0x48f6a8,0x48f7dc,0x48f894,0x48fadc,0x48fd24,0x48ff68,0x490270,0x49438c};
     if((pc&3) || !rt)return false;
     const bool again=pc==0x49757c;
     const uint32_t *block=nullptr;for(const auto &b:blocks)if(pc>=b && pc<=b+22*4)block=&b;
@@ -2395,6 +2396,349 @@ bool nativeBattleScatter(R5900Context *c,Runtime *rt,uint32_t pc){
         std::memcpy(record(rt,reg(word),16),out.data(),16);st.loaded=0;return true;}
     default:return true;   // arithmetic: folded into the stores
     }
+}
+// Battle body integrator, mod028 48f600(a0 = s1, a scattered body) (the victory's scatter, battle frame 75460). Its
+// row point, compose and quaternion blocks are the shared idioms; its own blocks share VU registers (vf20, vf29..vf31)
+// across them. ps2f, in listing order:
+//   A 48f644..48f680: a = +5b0, b = +5d0, k = +870 (QMTC2 t0), m = 30 dt (QMTC2 t1): a' = a*1 - (a k) m, b' likewise
+//     (xyz; SQC2 back; the w lanes stay as loaded).
+//   B 48f694/48f698, 48f708/48f70c: vf20 = +5b0, k = +870; (row point 48f6a8); vf20.xyz *= k; SQC2 to +5c0.
+//   C 48f724..48f740: p = vt+28's position, dt (QMTC2 t0): vf20.xyz = p*1 + vf20 dt; SQC2 vf20 to sp+340.
+//   E 48f87c..48f884: vf31 = sp+2a0 (0.5 x4), vf30 = q (sp+320), vf29.x = 0.5 dt.
+//   Four quaternion steps (48f910, 48fb58, 48fda0, 48ffe4): LQC2 vf1 = p (a1), vf2 = w (a0); vf1 = p w: xyz =
+//     (w p.w + p w.w) + (p x w)*1, w = ((pw ww - pz wz) - 1 py wy) - 1 px wx; SQC2 vf1; then vf1 *= vf29.x (xyzw)
+//     and, by copy: SQC2 vf1, SQC2 q*1 + vf31 vf1 (48f910, 48fb58); SQC2 vf1, SQC2 q + vf1 (48fda0); SQC2 vf1 (48ffe4).
+//   I 490074..4900c8: k2 = 2 (sp+280), k1 = sp+290, k3 = 2 (sp+270), k4 = sp+260, s = sp+250 (1/6 x4):
+//     vf1 = q - (((k1 + k2) + k3) + k4) s (xyzw); vf31.x = 1; SQC2 vf1 * RSQRT(((x2+y2) + 1z2) + 1w2) to sp+320.
+//   J 4902d4..49034c: vf15 = the row point just stored (490270); a = sp+2d0, p = sp+340: vf2.xyz = p + (a - vf15);
+//     d = (vf2 - p).xyz; vf3.x = 0 + SQRT((d.x^2 + d.y^2) + 1 d.z^2), y, z the squares, w as I left it; SQC2 vf3 to
+//     sp+240; when the CPU finds it under its limit, SQC2 vf2 to sp+340.
+// A's and C's stores carry vf20.w, which A never sets (the native result keeps the loaded w); C's is B's load.
+struct BattleIntegrator{VuWords a{},b{},vf20{},vf29{},vf30{},vf31{},p{},w{},prod{},scaled{},pos{},vf2{},vf3{};uint32_t k=0,m=0,dt=0;
+    std::array<VuWords,5> rk{};unsigned loaded=0,rkLoaded=0;bool e=false,b20=false,stepped=false,jLoaded=false;uint32_t vf3w=0;};
+std::map<const Runtime *,BattleIntegrator> &battleIntegrators(){static std::map<const Runtime *,BattleIntegrator> m;return m;}
+std::map<const Runtime *,BattleRowPoint> &battleRowPoints();
+bool nativeBattleIntegrator(R5900Context *c,Runtime *rt,uint32_t pc){
+    struct Site{uint32_t pc,word;const char *role;};
+    static const std::vector<Site> sites=[]{
+        std::vector<Site> s={{0x48f644,0xd86a0000,"A1"},{0x48f650,0x48a86000,"Ak"},{0x48f654,0xda0b0000,"A2"},{0x48f660,0x48a96800,"Am"},
+            {0x48f664,0x4bcc5518,"-"},{0x48f668,0x4bcc5d58,"-"},{0x48f66c,0x4bc051bf,"-"},{0x48f670,0x4bcda50c,"-"},{0x48f674,0xf8740000,"As1"},
+            {0x48f678,0x4bc059bf,"-"},{0x48f67c,0x4bcdad4c,"-"},{0x48f680,0xfa150000,"As2"},
+            {0x48f694,0xd8540000,"Bv"},{0x48f698,0x48a8a800,"Bk"},{0x48f708,0x4bd5a518,"-"},{0x48f70c,0xf8540000,"Bs"},
+            {0x48f724,0xd8420000,"Cp"},{0x48f730,0x48a81800,"Ct"},{0x48f738,0x4bc011bf,"-"},{0x48f73c,0x4bc3a508,"-"},{0x48f740,0xf8540000,"Cs"},
+            {0x48f87c,0xd8bf0000,"E31"},{0x48f880,0xd87e0000,"E30"},{0x48f884,0x48a8e800,"E29"},
+            {0x490074,0xd8a20000,"I2"},{0x490078,0x4be210a8,"-"},{0x49007c,0xd8c10000,"I1"},{0x490080,0xd8830000,"I3"},{0x490084,0x4be318e8,"-"},
+            {0x490088,0xd8640000,"I4"},{0x49008c,0xd8450000,"I5"},{0x490090,0x4be20868,"-"},{0x490094,0x4be30868,"-"},{0x490098,0x4be40868,"-"},
+            {0x49009c,0x4be5086a,"-"},{0x4900a0,0x4be1f06c,"-"},{0x4900a8,0x4b0007c3,"-"},{0x4900ac,0x4be109aa,"-"},{0x4900b0,0x4b06303d,"-"},
+            {0x4900b4,0x4b06f8be,"-"},{0x4900b8,0x4b06f98b,"-"},{0x4900bc,0x4a6603be,"-"},{0x4900c0,0x4a0003bf,"-"},{0x4900c4,0x4be0099c,"-"},
+            {0x4900c8,0xf8460000,"Is"},
+            {0x4902d4,0xd8620000,"J2"},{0x4902d8,0xd8410000,"J1"},{0x4902dc,0x4bcf10ec,"-"},{0x4902e0,0x4bc308a8,"-"},{0x4902e4,0x4bc110ec,"-"},
+            {0x4902e8,0x4bc318ea,"-"},{0x4902ec,0x4bc007c3,"-"},{0x4902f0,0x4b03183d,"-"},{0x4902f4,0x4b03f8ca,"-"},{0x4902f8,0x4a0303bd,"-"},
+            {0x490330,0x4a0003bf,"-"},{0x490334,0x4b0000e0,"-"},{0x490338,0xf8430000,"Js"},{0x49034c,0xf8420000,"Jv"}};
+        static constexpr uint32_t product[]={0xd8a10000,0xd8820000,0x4be00153,0,0x4bc20afe,0x4bc110ee,0x4be2092a,0x4bc111bf,0x4bc208bf,
+            0x4bc0184b,0x4a24207e,0x4a2428fd,0x4a24284c,0xf8410000};
+        static const char *roles[]={"P1","P2","-","","-","-","-","-","-","-","-","-","-","Px"};
+        for(const uint32_t base:{0x48f910u,0x48fb58u,0x48fda0u,0x48ffe4u})for(unsigned i=0;i<14;++i)if(product[i])s.push_back({base+4*i,product[i],roles[i]});
+        for(const uint32_t base:{0x48f910u,0x48fb58u}){s.push_back({base+0x40,0x4bfd0858,"-"});s.push_back({base+0x44,0x4be0f1bf,"-"});
+            s.push_back({base+0x48,0x4be1f8e9,"-"});s.push_back({base+0x4c,0xf8610000,"Ty"});s.push_back({base+0x50,0xf8430000,"Tz"});}
+        s.push_back({0x48fde0,0x4bfd0858,"-"});s.push_back({0x48fde4,0x4be1f0a8,"-"});s.push_back({0x48fde8,0xf8610000,"Ty"});s.push_back({0x48fdec,0xf8420000,"Tv"});
+        s.push_back({0x490020,0x4bfd0858,"-"});s.push_back({0x490024,0xf8410000,"Ty"});
+        return s;}();
+    if((pc&3) || !rt || pc<0x48f644 || pc>0x49034c)return false;
+    const auto site=std::find_if(sites.begin(),sites.end(),[&](const Site &x){return x.pc==pc;});
+    if(site==sites.end())return false;
+    uint32_t word=0;if(const auto *p=rt->memory.hostPointer(pc,4))std::memcpy(&word,p,4);
+    if(word!=site->word)return false;   // another overlay at these addresses
+    if(!c)throw std::runtime_error("native battle integrator has no CPU record");
+    auto &st=battleIntegrators()[rt];
+    const auto reg=[&](uint32_t w){return c->r[(w>>21)&31].uw[0]+(w&0xffff);};
+    const auto gpr=[&](uint32_t w){return c->r[(w>>16)&31].uw[0];};
+    const auto fail=[&](const char *why){return std::runtime_error(std::format("native battle integrator at {:x}: {}",pc,why));};
+    const auto store=[&](const VuWords &v){std::memcpy(record(rt,reg(word),16),v.data(),16);};
+    const uint32_t one=0x3f800000u;const std::string_view role=site->role;
+    if(role=="-")return true;   // arithmetic: folded into the stores
+    if(role=="A1"){st.a=vuWords(rt,reg(word));st.loaded=1;return true;}
+    if(role=="Ak"){if(st.loaded!=1)throw fail("out of order");st.k=gpr(word);st.loaded|=2;return true;}
+    if(role=="A2"){if(st.loaded!=3)throw fail("out of order");st.b=vuWords(rt,reg(word));st.loaded|=4;return true;}
+    if(role=="Am"){if(st.loaded!=7)throw fail("out of order");st.m=gpr(word);st.loaded|=8;return true;}
+    if(role=="As1" || role=="As2"){if(st.loaded!=15)throw fail("decay stored without its inputs");
+        const auto &v=role=="As1"?st.a:st.b;VuWords out=v;for(unsigned i=0;i<3;++i)out[i]=vuSub(vuMul(v[i],one),vuMul(vuMul(v[i],st.k),st.m));
+        store(out);if(role=="As2")st.loaded=0;return true;}
+    if(role=="Bv"){st.vf20=vuWords(rt,reg(word));st.b20=false;return true;}
+    if(role=="Bk"){st.k=gpr(word);for(unsigned i=0;i<3;++i)st.vf20[i]=vuMul(st.vf20[i],st.k);st.b20=true;return true;}
+    if(role=="Bs"){if(!st.b20)throw fail("scale stored without its inputs");store(st.vf20);return true;}
+    if(role=="Cp"){if(!st.b20)throw fail("step without its velocity");st.pos=vuWords(rt,reg(word));return true;}
+    if(role=="Ct"){st.dt=gpr(word);return true;}
+    if(role=="Cs"){VuWords out=st.vf20;for(unsigned i=0;i<3;++i)out[i]=vuAdd(vuMul(st.pos[i],one),vuMul(st.vf20[i],st.dt));st.vf20=out;store(out);return true;}
+    if(role=="E31"){st.vf31=vuWords(rt,reg(word));st.e=false;return true;}
+    if(role=="E30"){st.vf30=vuWords(rt,reg(word));return true;}
+    if(role=="E29"){st.vf29[0]=gpr(word);st.e=true;return true;}
+    if(role=="P1"){if(!st.e)throw fail("quaternion step without its setup");st.p=vuWords(rt,reg(word));st.stepped=false;return true;}
+    if(role=="P2"){st.w=vuWords(rt,reg(word));
+        const auto &p=st.p,&w=st.w;
+        const uint32_t cross[3]={vuSub(vuMul(p[1],w[2]),vuMul(w[1],p[2])),vuSub(vuMul(p[2],w[0]),vuMul(w[2],p[0])),vuSub(vuMul(p[0],w[1]),vuMul(w[0],p[1]))};
+        for(unsigned i=0;i<3;++i)st.prod[i]=vuAdd(vuAdd(vuMul(w[i],p[3]),vuMul(p[i],w[3])),vuMul(cross[i],one));
+        st.prod[3]=vuSub(vuSub(vuSub(vuMul(p[3],w[3]),vuMul(p[2],w[2])),vuMul(one,vuMul(p[1],w[1]))),vuMul(one,vuMul(p[0],w[0])));
+        for(unsigned i=0;i<4;++i)st.scaled[i]=vuMul(st.prod[i],st.vf29[0]);st.stepped=true;return true;}
+    if(role=="Px"){if(!st.stepped)throw fail("product stored without its loads");store(st.prod);return true;}
+    if(role=="Ty"){if(!st.stepped)throw fail("step stored without its product");store(st.scaled);return true;}
+    if(role=="Tz"){VuWords out{};for(unsigned i=0;i<4;++i)out[i]=vuAdd(vuMul(st.vf30[i],one),vuMul(st.vf31[i],st.scaled[i]));store(out);return true;}
+    if(role=="Tv"){VuWords out{};for(unsigned i=0;i<4;++i)out[i]=vuAdd(st.vf30[i],st.scaled[i]);store(out);return true;}
+    if(role[0]=='I' && role!="Is"){const unsigned n=unsigned(role[1]-'1');st.rk[n]=vuWords(rt,reg(word));st.rkLoaded|=1u<<n;return true;}
+    if(role=="Is"){if(st.rkLoaded!=31 || !st.e)throw fail("RK4 sum without its loads");
+        VuWords k2{},k3{},v{},s{};for(unsigned i=0;i<4;++i){k2[i]=vuAdd(st.rk[1][i],st.rk[1][i]);k3[i]=vuAdd(st.rk[2][i],st.rk[2][i]);}
+        for(unsigned i=0;i<4;++i)v[i]=vuSub(st.vf30[i],vuMul(vuAdd(vuAdd(vuAdd(st.rk[0][i],k2[i]),k3[i]),st.rk[3][i]),st.rk[4][i]));
+        for(unsigned i=0;i<4;++i)s[i]=vuMul(v[i],v[i]);
+        const uint32_t saved=_mm_getcsr();uint32_t f=0;const auto q=bozo::ps2f::rsqrt(one,vuAdd(vuAdd(vuAdd(s[0],s[1]),vuMul(one,s[2])),vuMul(one,s[3])),f);_mm_setcsr(saved);
+        VuWords out{};for(unsigned i=0;i<4;++i)out[i]=vuMul(v[i],q);st.vf3w=k3[3];st.rkLoaded=0;store(out);return true;}
+    if(role=="J2"){st.vf2=vuWords(rt,reg(word));st.jLoaded=false;return true;}
+    if(role=="J1"){const auto p=vuWords(rt,reg(word));auto rows=battleRowPoints().find(rt);
+        if(rows==battleRowPoints().end())throw fail("distance without its row point");const auto &v15=rows->second.out;
+        uint32_t d[3],sq[3];for(unsigned i=0;i<3;++i){st.vf2[i]=vuAdd(p[i],vuSub(st.vf2[i],v15[i]));d[i]=vuSub(st.vf2[i],p[i]);sq[i]=vuMul(d[i],d[i]);}
+        const uint32_t saved=_mm_getcsr();uint32_t f=0;const auto root=bozo::ps2f::sqrt(vuAdd(vuAdd(sq[0],sq[1]),vuMul(one,sq[2])),f);_mm_setcsr(saved);
+        st.vf3={vuAdd(0,root),sq[1],sq[2],st.vf3w};st.jLoaded=true;return true;}
+    if(role=="Js"){if(!st.jLoaded)throw fail("distance stored without its loads");store(st.vf3);return true;}
+    if(role=="Jv"){if(!st.jLoaded)throw fail("position stored without its loads");store(st.vf2);st.jLoaded=false;return true;}
+    throw fail("unknown role");
+}
+// Battle contact average, mod028 494320 at 49444c (the victory's scatter): MOVE vf1 = vf0 (0, 0, 0, 1); for each of 4
+// contacts with +25 set, LQC2 vf2 = +10 (49446c) and ADD.xyz vf1 += vf2 (494474); with n of them, QMTC2 t0 = 1/n ->
+// vf2 (4944b4), MULx.xyz vf1 *= 1/n, SQC2 vf1 to s0 (s1+770, 4944c4). ps2f, in listing order.
+struct BattleAverage{VuWords sum{};bool open=false;uint32_t k=0;};
+std::map<const Runtime *,BattleAverage> &battleAverages(){static std::map<const Runtime *,BattleAverage> m;return m;}
+bool nativeBattleAverage(R5900Context *c,Runtime *rt,uint32_t pc){
+    static constexpr std::pair<uint32_t,uint32_t> sites[]={{0x49444c,0x4be1033c},{0x49446c,0xd8620000},{0x494474,0x4bc20868},
+        {0x4944b4,0x48a81000},{0x4944c0,0x4bc20858},{0x4944c4,0xfa010000}};
+    if((pc&3) || !rt || pc<0x49444c || pc>0x4944c4)return false;
+    const auto site=std::find_if(std::begin(sites),std::end(sites),[&](const auto &x){return x.first==pc;});
+    if(site==std::end(sites))return false;
+    uint32_t word=0;if(const auto *p=rt->memory.hostPointer(pc,4))std::memcpy(&word,p,4);
+    if(word!=site->second)return false;   // another overlay at these addresses
+    if(!c)throw std::runtime_error("native battle contact average has no CPU record");
+    auto &st=battleAverages()[rt];
+    const auto reg=[&](uint32_t w){return c->r[(w>>21)&31].uw[0]+(w&0xffff);};
+    if(pc==0x49444c){st.sum={0,0,0,0x3f800000u};st.open=true;return true;}
+    if(!st.open)throw std::runtime_error("native battle contact average without its start");
+    if(pc==0x49446c){const auto v=vuWords(rt,reg(word));for(unsigned i=0;i<3;++i)st.sum[i]=vuAdd(st.sum[i],v[i]);return true;}
+    if(pc==0x4944b4){st.k=c->r[(word>>16)&31].uw[0];return true;}
+    if(pc==0x4944c4){VuWords out=st.sum;for(unsigned i=0;i<3;++i)out[i]=vuMul(st.sum[i],st.k);
+        std::memcpy(record(rt,reg(word),16),out.data(),16);st.open=false;return true;}
+    return true;   // arithmetic: folded
+}
+// Battle contact push, mod028 496400 at 496424 (the victory's scatter): MUL.w vf31 = vf0 * vf0.w (0, 0, 0, 1); for each
+// of 4 contacts with +25 set, LQC2 vf30 = +10 (496450) and ADD.xyz vf31 += vf30 (496464); with n of them, LQC2 vf2 =
+// the position (vt+28, 4964d0), QMTC2 v1 = 1/n -> vf3 (4964dc), MULAw.xyz ACC = vf2*1, MADDx.xyz vf1 = ACC + vf31/n,
+// SQC2 vf1 (vt+28 again, 4964e8). ps2f. Its w lane is vf1's, which this function never sets: the native store keeps
+// the position's w.
+struct BattlePush{VuWords sum{},p{};bool open=false;uint32_t k=0;};
+std::map<const Runtime *,BattlePush> &battlePushes(){static std::map<const Runtime *,BattlePush> m;return m;}
+bool nativeBattlePush(R5900Context *c,Runtime *rt,uint32_t pc){
+    static constexpr std::pair<uint32_t,uint32_t> sites[]={{0x496424,0x4be007db},{0x496450,0xd87e0000},{0x496464,0x4bdeffe8},
+        {0x4964d0,0xda620000},{0x4964dc,0x48a31800},{0x4964e0,0x4bc011bf},{0x4964e4,0x4bc3f848},{0x4964e8,0xf8410000}};
+    if((pc&3) || !rt || pc<0x496424 || pc>0x4964e8)return false;
+    const auto site=std::find_if(std::begin(sites),std::end(sites),[&](const auto &x){return x.first==pc;});
+    if(site==std::end(sites))return false;
+    uint32_t word=0;if(const auto *p=rt->memory.hostPointer(pc,4))std::memcpy(&word,p,4);
+    if(word!=site->second)return false;   // another overlay at these addresses
+    if(!c)throw std::runtime_error("native battle contact push has no CPU record");
+    auto &st=battlePushes()[rt];
+    const auto reg=[&](uint32_t w){return c->r[(w>>21)&31].uw[0]+(w&0xffff);};
+    const uint32_t one=0x3f800000u;
+    if(pc==0x496424){st.sum={0,0,0,one};st.open=true;return true;}
+    if(!st.open)throw std::runtime_error("native battle contact push without its start");
+    if(pc==0x496450){const auto v=vuWords(rt,reg(word));for(unsigned i=0;i<3;++i)st.sum[i]=vuAdd(st.sum[i],v[i]);return true;}
+    if(pc==0x4964d0){st.p=vuWords(rt,reg(word));return true;}
+    if(pc==0x4964dc){st.k=c->r[(word>>16)&31].uw[0];return true;}
+    if(pc==0x4964e8){VuWords out=st.p;for(unsigned i=0;i<3;++i)out[i]=vuAdd(vuMul(st.p[i],one),vuMul(st.sum[i],st.k));
+        std::memcpy(record(rt,reg(word),16),out.data(),16);st.open=false;return true;}
+    return true;   // arithmetic: folded
+}
+// Battle shape test spill, mod028 493a20: it saves the caller's vf1..vf9 to the stack on entry (493adc.., to v1) and
+// before its recursion (493f10.., to v0) and restores them at its exits (493e20.., 4940ec.., 4941f4..). Those registers
+// are the object-pair registers (rows of both objects, the radius scales) the shape test 1f88d0 reads: the spill writes
+// their words, the restore takes them back, as the original (a spill with none set writes zeros).
+bool nativeBattleShapeSpill(R5900Context *c,Runtime *rt,uint32_t pc){
+    static constexpr std::pair<uint32_t,uint32_t> runs[]={{0x493adc,0xf8600000},{0x493f10,0xf8400000},{0x493e20,0xd8600000},{0x4940ec,0xd8600000},{0x4941f4,0xd8600000}};
+    if((pc&3) || !rt || pc<0x493adc || pc>0x494214)return false;
+    for(const auto &[start,base]:runs){
+        if(pc<start || pc>start+9*4)continue;
+        unsigned index=(pc-start)/4;if(start==0x493f10 && pc==0x493f34)index=8;else if(index>8)continue;
+        uint32_t word=0;if(const auto *p=rt->memory.hostPointer(pc,4))std::memcpy(&word,p,4);
+        if(word!=(base|((index+1)<<16)|(index*0x10)))continue;
+        if(!c)throw std::runtime_error("native battle shape spill has no CPU record");
+        auto &pair=objectPairRegisters(rt);auto &row=index<8?pair.rows[index]:pair.scale;
+        const auto at=c->r[(word>>21)&31].uw[0]+(word&0xffff);
+        if(base>>26==0x3e){if(pair.valid)std::memcpy(record(rt,at,16),row.data(),16);else std::memset(record(rt,at,16),0,16);}
+        else{std::memcpy(row.data(),record(rt,at,16),16);if(index==8)pair.valid=true;}
+        return true;
+    }
+    return false;
+}
+// Battle burst, mod028 48c380 (the victory's scatter), ps2f:
+//   48c570..48c58c: QMTC2 t0 (0.5) -> vf3; LQC2 vf1 = sp+140, vf2 = sp+130; MULx.xyz both by 0.5; SQC2 vf1 to a1, vf2
+//     to a1+10 (w as loaded).
+//   48c9bc..48ca80: LQC2 vf5 = the quaternion (sp+e0); VCALLMS 0x720 leaves its rotation rows in vf8..vf10 (no stores);
+//     the CPU writes vf0 = (0, 0, 0, 1) to sp+c0; the object's rows A = [*(s1+208) + d0] (LQC2 vf1..vf4) are composed with
+//     B = (vf8, vf9, vf10, vf11) to sp+90..: A_k = ((B0 A_k.x + B1 A_k.y) + B2 A_k.z) + B3 A_k.w. vf11 is a register this
+//     function never writes; the native B3 is the row the CPU wrote for it at sp+c0.
+struct BattleBurst{VuWords half[2]{};uint32_t k=0;unsigned loaded=0;VuWords q{};bool turned=false;std::array<VuWords,4> a{},b{};unsigned rows=0;};
+std::map<const Runtime *,BattleBurst> &battleBursts(){static std::map<const Runtime *,BattleBurst> m;return m;}
+bool nativeBattleBurst(R5900Context *c,Runtime *rt,uint32_t pc){
+    static constexpr uint32_t productWords[]={0xd8610000,0xd8620010,0xd8630020,0xd8640030,
+        0x4be141bc,0x4be148bd,0x4be150be,0x4be1584b,0x4be241bc,0x4be248bd,0x4be250be,0x4be2588b,
+        0x4be341bc,0x4be348bd,0x4be350be,0x4be358cb,0x4be441bc,0x4be448bd,0x4be450be,0x4be4590b,
+        0xf8410000,0xf8420010,0xf8430020,0xf8440030};
+    static constexpr std::pair<uint32_t,uint32_t> halfWords[]={{0x48c570,0x48a81800},{0x48c574,0xd8810000},{0x48c578,0xd8620000},
+        {0x48c580,0x4bc30858},{0x48c584,0x4bc31098},{0x48c588,0xf8a10000},{0x48c58c,0xf8420000}};
+    if((pc&3) || !rt || pc<0x48c570 || pc>0x48ca80)return false;
+    uint32_t word=0;if(const auto *p=rt->memory.hostPointer(pc,4))std::memcpy(&word,p,4);
+    auto &st=battleBursts()[rt];
+    const auto reg=[&](uint32_t w){return c->r[(w>>21)&31].uw[0]+(w&0xffff);};
+    if(pc<=0x48c58c){
+        const auto site=std::find_if(std::begin(halfWords),std::end(halfWords),[&](const auto &x){return x.first==pc;});
+        if(site==std::end(halfWords) || word!=site->second)return false;   // another overlay at these addresses
+        if(!c)throw std::runtime_error("native battle burst has no CPU record");
+        if(pc==0x48c570){st.k=c->r[8].uw[0];st.loaded=1;return true;}
+        if(pc==0x48c574 || pc==0x48c578){if(!(st.loaded&1))throw std::runtime_error("native battle burst halves without their scale");
+            st.half[pc==0x48c578]=vuWords(rt,reg(word));st.loaded|=pc==0x48c574?2:4;return true;}
+        if(pc==0x48c588 || pc==0x48c58c){if(st.loaded!=7)throw std::runtime_error("native battle burst halves stored without their loads");
+            VuWords out=st.half[pc==0x48c58c];for(unsigned i=0;i<3;++i)out[i]=vuMul(out[i],st.k);
+            std::memcpy(record(rt,reg(word),16),out.data(),16);if(pc==0x48c58c)st.loaded=0;return true;}
+        return true;
+    }
+    if(pc==0x48c9bc || pc==0x48c9c4 || pc==0x48c9d0){
+        if(word!=(pc==0x48c9bc?0xd8450000u:pc==0x48c9c4?0x4a003938u:0x48490001u))return false;
+        if(!c)throw std::runtime_error("native battle burst has no CPU record");
+        if(pc==0x48c9bc){st.q=vuWords(rt,reg(word));st.turned=true;return true;}
+        if(pc==0x48c9d0)c->r[9].ud[0]=0;   // VI0 is the constant zero
+        return true;
+    }
+    if(pc<0x48ca24)return false;
+    const unsigned index=(pc-0x48ca24)/4;
+    if(index>=24 || word!=productWords[index])return false;
+    if(!c)throw std::runtime_error("native battle burst has no CPU record");
+    if(index<4){
+        if(index==0){if(!st.turned)throw std::runtime_error("native battle burst turn without its quaternion");
+            float values[4];std::memcpy(values,st.q.data(),16);
+            for(float f:values){const auto m=std::bit_cast<uint32_t>(f)&0x7fffffff;if(m>=0x7f800000 || m>std::bit_cast<uint32_t>(1.e8f))throw std::runtime_error("unqualified 0x720 quaternion");}
+            __m128 input;std::memcpy(&input,values,16);const auto rotation=math::quaternionMatrix(input);
+            for(unsigned r=0;r<3;++r)std::memcpy(st.b[r].data(),&rotation[r],16);
+            st.b[3]=vuWords(rt,c->r[29].uw[0]+0xc0);st.rows=0;}
+        else if(st.rows!=(1u<<index)-1)throw std::runtime_error("native battle burst rows loaded out of order");
+        st.a[index]=vuWords(rt,reg(word));st.rows|=1u<<index;return true;}
+    if(index<20)return true;   // arithmetic: folded into the stores
+    if(st.rows!=15)throw std::runtime_error("native battle burst turn stored without its rows");
+    const auto &a=st.a[index-20];VuWords out{};
+    for(unsigned i=0;i<4;++i)out[i]=vuAdd(vuAdd(vuAdd(vuMul(st.b[0][i],a[0]),vuMul(st.b[1][i],a[1])),vuMul(st.b[2][i],a[2])),vuMul(st.b[3][i],a[3]));
+    std::memcpy(record(rt,reg(word),16),out.data(),16);if(index==23){st.rows=0;st.turned=false;}return true;
+}
+// Battle contact grab, mod028 4947a0 and its helpers (the victory's scatter), ps2f in listing order:
+//   4946b0 (nearest contact): LQC2 vf30 = the point (a1, 4946c0); ADDw.xyz vf25 = 1; per contact with +25 set, LQC2 vf31 =
+//     its position (a2, 4946ec); SQC2 vf24 = {|c - p|, dy2, dz2, c.w} to sp+0 (49470c; the CPU reads x).
+//   4944e0 (ray against plane; the result stays in vf8): P = a1, n = a0 (plane, w = d), D = a2: s = ((P n).x-y + 1 z) +
+//     1 n.w... in the listing's order: ((P.x n.x + P.y n.y) + 1 P.z n.z) + 1 n.w; e = (n.x D.x + n.y D.y) + 1 n.z D.z;
+//     vf8 = {P*1 + (0 - D) (s / e), 1}; 4947a0 stores it at 4948cc.
+//   4948d4..49492c: vf25 = {X - P, 1} (X = sp+90, P = s3+1c0); vf26.x = (((x2 + y2) + 1 z2) + 1 w2) read back by QMFC2 t0
+//     (4948f8); when t0 != 0 the CPU lets MULq.xyzw vf25 by RSQRT(1, that) run (49490c); r = s3+1d0 (QMTC2 v0):
+//     SQC2 {P*1 + vf25 r, vf25.w} to sp+a0.
+//   494934..494994: vf10 = {plane (sp+70).xyz, 1}; SQC2 vf1 = {X - vf25, X.w} to sp+90 (494944); vf26 from vf10 the same
+//     way (QMFC2 494958, MULq.xyzw 49496c when t0 != 0); then |vf1| = SQRT((x2 + y2) + 1 z2); SQC2 {vf10.xyz |vf1|, 1}
+//     to sp+80.
+struct BattleGrab{VuWords point{},x{},p{},v25{},v10{},v1{},vf8{};uint32_t sum=0;bool ray=false,first=false,second=false;};
+std::map<const Runtime *,BattleGrab> &battleGrabs(){static std::map<const Runtime *,BattleGrab> m;return m;}
+bool nativeBattleGrab(R5900Context *c,Runtime *rt,uint32_t pc){
+    struct Site{uint32_t pc,word;char role;};
+    static constexpr Site sites[]={
+        {0x4944e0,0xd8a10000,'P'},{0x4944e4,0xd8820000,'n'},{0x4944e8,0xd8c30000,'D'},{0x4944ec,0x4bc2092a,'-'},{0x4944f0,0x4bc00203,'-'},
+        {0x4944f4,0x4bc3116a,'-'},{0x4944f8,0x4b04203d,'-'},{0x4944fc,0x4b0440be,'-'},{0x494500,0x4b02418b,'-'},{0x494504,0x4b05283d,'-'},
+        {0x494508,0x4b0541ca,'-'},{0x49450c,0x4a0733bc,'-'},{0x494510,0x4a28033c,'-'},{0x494514,0x4bc300ec,'-'},{0x494518,0x4bc009bf,'-'},
+        {0x49451c,0x4a0003bf,'-'},{0x494524,0x4bc01a21,'-'},
+        {0x4946c0,0xd8be0000,'c'},{0x4946c4,0x4bc00643,'-'},{0x4946ec,0xd8df0000,'k'},{0x4946f0,0x4bdefe2c,'-'},{0x4946f4,0x4bd8c62a,'-'},
+        {0x4946f8,0x4b18c03d,'-'},{0x4946fc,0x4b18ce0a,'-'},{0x494700,0x4a1803bd,'-'},{0x494704,0x4a0003bf,'-'},{0x494708,0x4b000620,'-'},
+        {0x49470c,0xf8980000,'d'},
+        {0x4948cc,0xf8480000,'8'},
+        {0x4948d4,0x4a20065b,'-'},{0x4948d8,0xd8410000,'X'},{0x4948dc,0xda420000,'Q'},{0x4948e0,0x4bc20e6c,'-'},{0x4948e4,0x4bc007c3,'-'},
+        {0x4948e8,0x4bf9ceaa,'-'},{0x4948ec,0x4b1ad03d,'-'},{0x4948f0,0x4b1af8be,'-'},{0x4948f4,0x4b1afe8b,'-'},{0x4948f8,0x4828d000,'1'},
+        {0x494904,0x4a7a03be,'-'},{0x494908,0x4a0003bf,'-'},{0x49490c,0x4be0ce5c,'u'},{0x49491c,0x48a21800,'r'},{0x494924,0x4bc011bf,'-'},
+        {0x494928,0x4bc3ce48,'-'},{0x49492c,0xf8590000,'A'},
+        {0x494934,0xd84a0000,'L'},{0x49493c,0x4bd9086c,'-'},{0x494940,0x4a20029b,'-'},{0x494944,0xf8410000,'B'},{0x494948,0x4bea56aa,'-'},
+        {0x49494c,0x4b1ad03d,'-'},{0x494950,0x4b1af8be,'-'},{0x494954,0x4b1afe8b,'-'},{0x494958,0x4828d000,'2'},{0x494964,0x4a7a03be,'-'},
+        {0x494968,0x4a0003bf,'-'},{0x49496c,0x4be0529c,'v'},{0x494970,0x4bc1086a,'-'},{0x494974,0x4bc00643,'-'},{0x494978,0x4b01083d,'-'},
+        {0x49497c,0x4b01c84a,'-'},{0x494980,0x4a0103bd,'-'},{0x494984,0x4a20029b,'-'},{0x494988,0x4a0003bf,'-'},{0x494990,0x4bc0529c,'-'},
+        {0x494994,0xf84a0000,'C'}};
+    if((pc&3) || !rt || pc<0x4944e0 || pc>0x494994)return false;
+    const auto site=std::find_if(std::begin(sites),std::end(sites),[&](const Site &x){return x.pc==pc;});
+    if(site==std::end(sites))return false;
+    uint32_t word=0;if(const auto *p=rt->memory.hostPointer(pc,4))std::memcpy(&word,p,4);
+    if(word!=site->word)return false;   // another overlay at these addresses
+    if(!c)throw std::runtime_error("native battle contact grab has no CPU record");
+    auto &st=battleGrabs()[rt];
+    const auto reg=[&](uint32_t w){return c->r[(w>>21)&31].uw[0]+(w&0xffff);};
+    const auto store=[&](const VuWords &v){std::memcpy(record(rt,reg(word),16),v.data(),16);};
+    const auto fail=[&](const char *why){return std::runtime_error(std::format("native battle contact grab at {:x}: {}",pc,why));};
+    const uint32_t one=0x3f800000u;
+    const auto squares4=[&](const VuWords &v){uint32_t s[4];for(unsigned i=0;i<4;++i)s[i]=vuMul(v[i],v[i]);
+        return std::array<uint32_t,4>{vuAdd(vuAdd(vuAdd(s[0],s[1]),vuMul(one,s[2])),vuMul(one,s[3])),s[1],s[2],s[3]};};
+    const auto unit4=[&](VuWords &v,uint32_t sum){const uint32_t saved=_mm_getcsr();uint32_t f=0;const auto q=bozo::ps2f::rsqrt(one,sum,f);_mm_setcsr(saved);
+        for(auto &x:v)x=vuMul(x,q);};
+    switch(site->role){
+    case 'c':st.point=vuWords(rt,reg(word));return true;
+    case 'k':{const auto k=vuWords(rt,reg(word));uint32_t sq[3];for(unsigned i=0;i<3;++i){const auto d=vuSub(k[i],st.point[i]);sq[i]=vuMul(d,d);}
+        const uint32_t saved=_mm_getcsr();uint32_t f=0;const auto root=bozo::ps2f::sqrt(vuAdd(vuAdd(sq[0],sq[1]),vuMul(one,sq[2])),f);_mm_setcsr(saved);
+        st.v1={vuAdd(0,root),sq[1],sq[2],k[3]};return true;}
+    case 'd':store(st.v1);return true;
+    case 'P':st.p=vuWords(rt,reg(word));st.ray=false;return true;
+    case 'n':st.v10=vuWords(rt,reg(word));return true;
+    case 'D':{const auto d=vuWords(rt,reg(word));const auto &P=st.p,&n=st.v10;
+        const auto s=vuAdd(vuAdd(vuAdd(vuMul(P[0],n[0]),vuMul(P[1],n[1])),vuMul(one,vuMul(P[2],n[2]))),vuMul(one,n[3]));
+        const auto e=vuAdd(vuAdd(vuMul(n[0],d[0]),vuMul(n[1],d[1])),vuMul(one,vuMul(n[2],d[2])));
+        const uint32_t saved=_mm_getcsr();uint32_t f=0;const auto t=bozo::ps2f::div(s,e,f);_mm_setcsr(saved);
+        for(unsigned i=0;i<3;++i)st.vf8[i]=vuAdd(vuMul(P[i],one),vuMul(vuSub(0,d[i]),t));st.vf8[3]=one;st.ray=true;return true;}
+    case '8':if(!st.ray)throw fail("vf8 stored without its ray");store(st.vf8);return true;
+    case 'X':st.x=vuWords(rt,reg(word));st.first=false;return true;
+    case 'Q':{st.p=vuWords(rt,reg(word));for(unsigned i=0;i<3;++i)st.v25[i]=vuSub(st.x[i],st.p[i]);st.v25[3]=one;st.first=true;return true;}
+    case '1':case '2':{if(site->role=='1'?!st.first:!st.second)throw fail("length read without its vector");
+        const auto r=squares4(site->role=='1'?st.v25:st.v10);st.sum=r[0];auto &g=c->r[(word>>16)&31];for(unsigned i=0;i<4;++i)g.uw[i]=r[i];return true;}
+    case 'u':unit4(st.v25,st.sum);return true;
+    case 'r':{if(!st.first)throw fail("offset without its vector");const auto r=c->r[(word>>16)&31].uw[0];VuWords out=st.v25;
+        for(unsigned i=0;i<3;++i)out[i]=vuAdd(vuMul(st.p[i],one),vuMul(st.v25[i],r));st.v25=out;return true;}
+    case 'A':if(!st.first)throw fail("offset stored without its vector");store(st.v25);return true;
+    case 'L':{if(!st.first)throw fail("second block without the first");st.v10=vuWords(rt,reg(word));st.v10[3]=one;
+        st.v1=st.x;for(unsigned i=0;i<3;++i)st.v1[i]=vuSub(st.x[i],st.v25[i]);st.second=true;return true;}
+    case 'B':if(!st.second)throw fail("difference stored without its loads");store(st.v1);return true;
+    case 'v':unit4(st.v10,st.sum);return true;
+    case 'C':{if(!st.second)throw fail("direction stored without its loads");uint32_t sq[3];for(unsigned i=0;i<3;++i)sq[i]=vuMul(st.v1[i],st.v1[i]);
+        const uint32_t saved=_mm_getcsr();uint32_t f=0;const auto len=bozo::ps2f::sqrt(vuAdd(vuAdd(sq[0],sq[1]),vuMul(one,sq[2])),f);_mm_setcsr(saved);
+        VuWords out=st.v10;for(unsigned i=0;i<3;++i)out[i]=vuMul(st.v10[i],len);out[3]=one;store(out);st.first=st.second=false;return true;}
+    default:return true;   // arithmetic: folded
+    }
+}
+// Battle grab direction, mod028 494a40 at 494b30 (the victory's scatter): LQC2 vf25 = sp+70; MULw.w vf25 = 1; ADDw.xyz
+// vf31 = 1; vf26.x = (((x2 + y2) + 1 z2) + 1 w2) read back by QMFC2 t0 (494b4c); when t0 != 0: RSQRT, QMTC2 t0 = k
+// (494b6c), MULx.xyz vf25 *= k, MULq.xyz vf25 *= Q, SQC2 to sp+60 (494b84) -> {xyz k Q, 1}. ps2f.
+struct BattleGrabDirection{VuWords v{};uint32_t sum=0,k=0;bool loaded=false;};
+std::map<const Runtime *,BattleGrabDirection> &battleGrabDirections(){static std::map<const Runtime *,BattleGrabDirection> m;return m;}
+bool nativeBattleGrabDirection(R5900Context *c,Runtime *rt,uint32_t pc){
+    static constexpr std::pair<uint32_t,uint32_t> sites[]={{0x494b30,0xd8590000},{0x494b34,0x4a20065b},{0x494b38,0x4bc007c3},{0x494b3c,0x4bf9ceaa},
+        {0x494b40,0x4b1ad03d},{0x494b44,0x4b1af8be},{0x494b48,0x4b1afe8b},{0x494b4c,0x4828d000},{0x494b58,0x4a7a03be},{0x494b6c,0x48a81000},
+        {0x494b74,0x4a20065b},{0x494b78,0x4bc2ce58},{0x494b7c,0x4a0003bf},{0x494b80,0x4bc0ce5c},{0x494b84,0xf8590000}};
+    if((pc&3) || !rt || pc<0x494b30 || pc>0x494b84)return false;
+    const auto site=std::find_if(std::begin(sites),std::end(sites),[&](const auto &x){return x.first==pc;});
+    if(site==std::end(sites))return false;
+    uint32_t word=0;if(const auto *p=rt->memory.hostPointer(pc,4))std::memcpy(&word,p,4);
+    if(word!=site->second)return false;   // another overlay at these addresses
+    if(!c)throw std::runtime_error("native battle grab direction has no CPU record");
+    auto &st=battleGrabDirections()[rt];const uint32_t one=0x3f800000u;
+    const auto reg=[&](uint32_t w){return c->r[(w>>21)&31].uw[0]+(w&0xffff);};
+    if(pc==0x494b30){st.v=vuWords(rt,reg(word));st.v[3]=one;st.loaded=true;return true;}
+    if(!st.loaded)throw std::runtime_error("native battle grab direction without its load");
+    if(pc==0x494b4c){uint32_t q[4];for(unsigned i=0;i<4;++i)q[i]=vuMul(st.v[i],st.v[i]);
+        st.sum=vuAdd(vuAdd(vuAdd(q[0],q[1]),vuMul(one,q[2])),vuMul(one,q[3]));auto &g=c->r[(word>>16)&31];g.uw[0]=st.sum;g.uw[1]=q[1];g.uw[2]=q[2];g.uw[3]=q[3];return true;}
+    if(pc==0x494b6c){st.k=c->r[(word>>16)&31].uw[0];return true;}
+    if(pc==0x494b84){const uint32_t saved=_mm_getcsr();uint32_t f=0;const auto q=bozo::ps2f::rsqrt(one,st.sum,f);_mm_setcsr(saved);
+        VuWords out=st.v;for(unsigned i=0;i<3;++i)out[i]=vuMul(vuMul(st.v[i],st.k),q);out[3]=one;
+        std::memcpy(record(rt,reg(word),16),out.data(),16);st.loaded=false;return true;}
+    return true;   // arithmetic: folded
 }
 // Battle ground plane, mod028 4981b4 (one copy; ps2f, nearest). The object's three ground
 // points P0 = +8f0 (s2), P1 = +900 (s1), P2 = +910 (s0): LQC2 vf1 = P0 (4981f0) before the
@@ -4363,7 +4707,7 @@ void morphMesh(Runtime *rt,uint32_t element,unsigned vertices,uint8_t *positions
 // load's base register as the store's, so each load captures its quadword at
 // its own PC; the store computes the fixed formula. Recognised only from the
 // exact COP2 words of a straight block (no branch in between).
-struct MacroIdiom{const char *name;std::array<int32_t,28> words;unsigned size;};
+struct MacroIdiom{const char *name;std::array<int32_t,32> words;unsigned size;};
 // >=0: exact word; -1-n: LQC2 into vf n; -100-n: SQC2 from vf n; -200: QMFC2 from vf24 to any GPR.
 constexpr MacroIdiom macroIdioms[]={
     {"negate",{-2,0x4bc1006c,-101},3},
@@ -4420,6 +4764,30 @@ constexpr MacroIdiom macroIdioms[]={
     // SQC2 vf3 -> {a.y b.z - b.y a.z, a.z b.x - b.z a.x, a.x b.y - b.x a.y, 1}. (Its caller then normalizes it with
     // the normalize25 words.)
     {"cross",{-2,-3,0x4a2000eb,0x4bc20afe,0x4bc110ee,-103},6},
+    // three copies (mod028 494590 at 4945a4): LQC2 vf1; SQC2 vf1 at 0, 16, 32 of v0.
+    {"copy3",{-2,-101,-101,-101},4},
+    // plane through three points, second form (mod028 494530; its store the jr ra's delay slot): LQC2 vf1..vf3; ADDw.xyz vf31
+    // = 1; SUB.xyz e1 = p1 - p2, e2 = p2 - p3; SUBw.w vf31 = 1 - 1; n = e1 x e2; RSQRT((x2 + y2) + 1 z2); n *= Q;
+    // d = (n p1).x-y + 1 z; SUBx.w vf12.w = 0 - d; SQC2 vf12 -> {n, 0 - d}.
+    {"plane3b",{-2,-3,-4,0x4bc007c3,0x4bc2092c,0x4bc3116c,0x4a2007c7,0x4bc522fe,0x4bc42aae,0x4bca532a,0x4b0c603d,0x4b0cfaca,0x4a6b03be,0x4a0003bf,
+        0x4bc0531c,0x4bc1636a,0x4b0d683d,0x4b0dfb8a,0x4a2efb04,-112},20},
+    // pair sum (mod028 4947a0 at 49480c): LQC2 vf1 (a), vf2 (b); ADD.xyz vf1 += vf2; SQC2 vf1 -> {a + b, a.w}.
+    {"addpair",{-2,-3,0x4bc20868,-101},4},
+    // negation with w = 1 (mod028 4947a0 at 4948a8): MULw.w vf2 = 1; LQC2 vf1; SUB.xyz vf2 = 0 - vf1; SQC2 vf2 -> {-v, 1}.
+    {"negone",{0x4a20009b,-2,0x4bc100ac,-103},4},
+    // scale (mod028 48c380 at 48cb1c; its store in a b's delay slot): LQC2 vf1; QMTC2 t0 -> vf2 (k in .x); MULx.xyz vf1 *= k;
+    // SQC2 vf1 -> {xyz*k, w}.
+    {"scale1",{-2,0x48a81000,0x4bc20858,-101},4},
+    // sphere gap (mod028 493a20 at 493d8c, the victory's scatter): LQC2 vf9 = (s0, s1) radius scales, vf10, vf11 two shape
+    // centres with radii in w, vf1..vf4 and vf5..vf8 their objects' rows; MULx.w vf10.w *= s0, MULy.w vf11.w *= s1;
+    // t1 = ((A0 c1.x + A1 c1.y) + A2 c1.z) + A3*1, t2 likewise with B (xyzw); d = (t1 - t2).xyz; R = r1 + r2; d^2, R^2;
+    // ADDw.x vf13 = 1; x = ((1 dx2 + 1 dy2) - 1 R2) + 1 dz2; SQC2 vf12 -> {x, dy2, dz2, t1.w}.
+    {"spheregap",{-10,-11,-12,-2,-3,0x4a295298,0x4a295ad9,-4,-5,-6,-7,-8,-9,0x4bea09bc,0x4bea10bd,0x4bea18be,0x4be0230b,0x4beb29bc,0x4beb30bd,
+        0x4beb38be,0x4be0434b,0x4bcd632c,0x4a2b52a8,0x4bcc632a,0x4b000343,0x4a2a52aa,0x4b0c69bc,0x4b0c68bd,0x4b0a68ff,0x4b0c6b0a,-112},31},
+    // 3D distance (mod028 496400 at 4965e4, the victory's scatter): LQC2 vf1 (a), vf2 (b); SUB.xyz vf24 = a - b; MUL.xyz
+    // squares; ADDw.xyz vf25 = 1; ADDAy/MADDz.x; SQRT; WAITQ; ADDq.x vf24.x = 0 + Q; SQC2 vf24 -> {|a - b|, dy^2, dz^2, w}
+    // to a stack temporary whose x the CPU reads (w is vf24's earlier value there; the native store writes a.w).
+    {"distance3",{-2,-3,0x4bc20e2c,0x4bd8c62a,0x4bc00643,0x4b18c03d,0x4b18ce0a,0x4a1803bd,0x4a0003bf,0x4b000620,-124},11},
     // doubled square (mod028 4967a0 at 4968a8, battle frame 75420): LQC2 vf1; ADDw.w vf2 = 1 + 1; MULw.xyzw vf1 =
     // vf1 * 2; MUL.xyzw vf1 = vf1 * vf1; SQC2 vf1 -> {(2v)^2 per lane}.
     {"doublesquare",{-2,0x4a200083,0x4be2085b,0x4be1086a,-101},5},
@@ -4496,7 +4864,7 @@ bool nativeMacroIdiom(R5900Context *c,Runtime *rt,uint32_t pc){
         for(unsigned k=0;k<idiom.size;++k){
             if(!matches(idiom.words[k],self))continue;
             // Walk back k COP2 words (at most 6 plain EE words between them), then forward.
-            uint32_t at=pc,addresses[28];bool ok=true;addresses[k]=pc;
+            uint32_t at=pc,addresses[32];bool ok=true;addresses[k]=pc;
             for(unsigned b=k;b>0 && ok;--b){unsigned gap=0;uint32_t w;
                 do{at-=4;if(!word(at,w) || (control(w) && !(gap==0 && b==k && returnSlot(idiom,k,at,w))) || ++gap>7){ok=false;break;}}while(!cop2(w));
                 if(ok && !matches(idiom.words[b-1],w))ok=false;else addresses[b-1]=at;}
@@ -4548,6 +4916,28 @@ bool nativeMacroIdiom(R5900Context *c,Runtime *rt,uint32_t pc){
             else if(kind=="selfdiff"){const auto a=need(12),b=need(13);for(unsigned i=0;i<3;++i)out[i]=vuSub(a[i],b[i]);out[3]=a[3];
                 if(k==5)for(unsigned i=0;i<4;++i)out[i]=vuMul(out[i],out[i]);
                 _mm_setcsr(savedCsr);std::memcpy(record(rt,address(self),16),out.data(),16);if(k==5)capture.valid=0;return true;}
+            else if(kind=="distance3"){const auto a=need(1),b=need(2);uint32_t sq[3];for(unsigned i=0;i<3;++i){const auto d=vuSub(a[i],b[i]);sq[i]=vuMul(d,d);}
+                uint32_t f=0;const auto root=bozo::ps2f::sqrt(vuAdd(vuAdd(sq[0],sq[1]),vuMul(one,sq[2])),f);_mm_setcsr(savedCsr);
+                out={vuAdd(0,root),sq[1],sq[2],a[3]};}
+            else if(kind=="spheregap"){const auto sc=need(9),c1=need(10),c2=need(11);uint32_t t1[4],t2[4],sq[3];
+                for(unsigned i=0;i<4;++i){t1[i]=vuAdd(vuAdd(vuAdd(vuMul(need(1)[i],c1[0]),vuMul(need(2)[i],c1[1])),vuMul(need(3)[i],c1[2])),vuMul(need(4)[i],one));
+                    t2[i]=vuAdd(vuAdd(vuAdd(vuMul(need(5)[i],c2[0]),vuMul(need(6)[i],c2[1])),vuMul(need(7)[i],c2[2])),vuMul(need(8)[i],one));}
+                for(unsigned i=0;i<3;++i){const auto d=vuSub(t1[i],t2[i]);sq[i]=vuMul(d,d);}
+                const auto r=vuAdd(vuMul(c1[3],sc[0]),vuMul(c2[3],sc[1])),r2=vuMul(r,r);
+                out={vuAdd(vuSub(vuAdd(vuMul(one,sq[0]),vuMul(one,sq[1])),vuMul(one,r2)),vuMul(one,sq[2])),sq[1],sq[2],t1[3]};
+                // vf1..vf9 stay as loaded for the shape test 1f88d0 the CPU calls next: the object-pair registers.
+                auto &pair=objectPairRegisters(rt);for(unsigned r=0;r<8;++r)pair.rows[r]=need(1+r);pair.scale=sc;pair.valid=true;}
+            else if(kind=="scale1"){const auto v=need(1),k=need(2);for(unsigned i=0;i<3;++i)out[i]=vuMul(v[i],k[0]);out[3]=v[3];}
+            else if(kind=="addpair"){const auto a=need(1),b=need(2);for(unsigned i=0;i<3;++i)out[i]=vuAdd(a[i],b[i]);out[3]=a[3];}
+            else if(kind=="negone"){const auto v=need(1);for(unsigned i=0;i<3;++i)out[i]=vuSub(0,v[i]);out[3]=one;}
+            else if(kind=="copy3"){out=need(1);_mm_setcsr(savedCsr);std::memcpy(record(rt,address(self),16),out.data(),16);if(k==3)capture.valid=0;return true;}
+            else if(kind=="plane3b"){const auto p1=need(1),p2=need(2),p3=need(3);uint32_t e1[3],e2[3],sq[3],m[3];
+                for(unsigned i=0;i<3;++i){e1[i]=vuSub(p1[i],p2[i]);e2[i]=vuSub(p2[i],p3[i]);}
+                out[0]=vuSub(vuMul(e1[1],e2[2]),vuMul(e2[1],e1[2]));out[1]=vuSub(vuMul(e1[2],e2[0]),vuMul(e2[2],e1[0]));out[2]=vuSub(vuMul(e1[0],e2[1]),vuMul(e2[0],e1[1]));
+                for(unsigned i=0;i<3;++i)sq[i]=vuMul(out[i],out[i]);
+                uint32_t f=0;const auto q=bozo::ps2f::rsqrt(one,vuAdd(vuAdd(sq[0],sq[1]),vuMul(one,sq[2])),f);_mm_setcsr(savedCsr);
+                for(unsigned i=0;i<3;++i){out[i]=vuMul(out[i],q);m[i]=vuMul(out[i],p1[i]);}
+                out[3]=vuSub(vuSub(one,one),vuAdd(vuAdd(m[0],m[1]),vuMul(one,m[2])));}
             else if(kind=="cross"){const auto a=need(1),b=need(2);
                 out={vuSub(vuMul(a[1],b[2]),vuMul(b[1],a[2])),vuSub(vuMul(a[2],b[0]),vuMul(b[2],a[0])),vuSub(vuMul(a[0],b[1]),vuMul(b[0],a[1])),one};}
             else if(kind=="direction26"){const auto a=need(26),b=need(27);uint32_t d[3],sq[3];for(unsigned i=0;i<3;++i){d[i]=vuSub(b[i],a[i]);sq[i]=vuMul(d[i],d[i]);}
@@ -6898,6 +7288,13 @@ bool nativeMathInstruction(uint8_t *,R5900Context *c,Runtime *rt,uint32_t pc){
     if(CLAIM(nativeBattleExtent))return true;
     if(CLAIM(nativeBattleScale3))return true;
     if(CLAIM(nativeBattleScatter))return true;
+    if(CLAIM(nativeBattleIntegrator))return true;
+    if(CLAIM(nativeBattleAverage))return true;
+    if(CLAIM(nativeBattlePush))return true;
+    if(CLAIM(nativeBattleShapeSpill))return true;
+    if(CLAIM(nativeBattleBurst))return true;
+    if(CLAIM(nativeBattleGrab))return true;
+    if(CLAIM(nativeBattleGrabDirection))return true;
     if(CLAIM(nativeBattleColourPair))return true;
     if(CLAIM(nativeBattleShapeTree))return true;
     if(CLAIM(nativeBattleObjectOverlap))return true;

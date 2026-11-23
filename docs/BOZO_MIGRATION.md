@@ -12,6 +12,37 @@ The earlier VP2S face/shading and general brightness comparisons remain open.
 
 ## Build and evidence
 
+### Battle victory: the scattered bodies' integrator and contact helpers (2026-11-23)
+
+The victory run continues inside the scatter's rigid-body code (still frame 75460):
+- **Integrator 48f600**, one stateful handler:
+  - the decay and scale blocks;
+  - the position step;
+  - four quaternion-step copies, sharing vf29..vf31 loaded once;
+  - the RK4 sum (k1 + 2k2 + 2k3 + k4) / 6;
+  - the moved position's distance (reads the row point's vf15).
+- **Row-point copies:** seven of them, plus 49438c.
+- **Contact averages:** 494320 and 496400 (their stored w is a VU lane the functions never set; the native store
+  keeps the position's w).
+- **Burst 48c380:** the half pair, and a turn whose 0x720 rows stay in VU registers.
+- **Shape test 493a20:**
+  - its vf1..vf9 spill and restore around its recursion are the object-pair registers 1f88d0 reads, carried faithfully;
+  - the new sphere-gap formula publishes them;
+  - two more 0x7f0 basis-length sites.
+- **Contact grab 4947a0 and helpers:**
+  - nearest contact;
+  - ray against plane (its vf8 result stored by the caller);
+  - normalise-and-offset blocks with QMFC2-tested branches;
+  - the grab direction.
+- **New formulas:** `distance3`, `scale1`, `addpair`, `negone`, `copy3`, `plane3b`, `spheregap` (the formula table now
+  holds 32 words).
+- **Random draw:** one more (48c5d8).
+
+**Evidence:**
+- **End RAM unchanged:** battle 64100 54ed654e0383, forest walk 64000 912f01332dbe, game over 77000 fce9a8b43db4.
+- **ctest:** 96/96 pass.
+- **Next boundary:** 494ea0, the contact impulse solver (angular terms through OPMULA/OPMSUB, about 500 instructions).
+
 ### Battle: the victory (scenario, screen lens 16e9e0, the scatter's VU0 blocks) (2026-11-23)
 
 **Scenario.** The attack5 pad from the 74000 state, with two cheats as test switches:

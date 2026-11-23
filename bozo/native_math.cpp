@@ -3292,6 +3292,54 @@ bool nativeContactPoint(R5900Context *c,Runtime *rt,uint32_t pc){
     if(index==3)st=ContactPoint{};
     return true;
 }
+// Segment clip, mod001 1f7b80(out a3)'s case 5 (battle 0x1b, called from mod028 49deec): LQC2 vf14 = the two
+// parameters at 358d70 (t0, t1), vf12 = P0 (*358d5c), vf13 = P1 (*358d60); SUB.xyz vf15 = P1 - P0. The scalar
+// code tests t0 and t1 against [0, 1); each one kept stores MULAw.xyz ACC = P0 1, MADDx (t0) / MADDy (t1).xyz
+// vf16 = ACC + vf15 t to out + 16 n. Only xyz are written (w: a register leftover; the nearest-point pick
+// 4ab680 reads x..z). ps2f, nearest, per call frame.
+struct SegmentClip{VuWords t{},p0{},p1{};unsigned loaded=0;VuWords out{};bool ready=false;};
+std::map<std::pair<const Runtime *,uint32_t>,SegmentClip> &segmentClips(){static std::map<std::pair<const Runtime *,uint32_t>,SegmentClip> m;return m;}
+bool nativeSegmentClip(R5900Context *c,Runtime *rt,uint32_t pc){
+    struct Site{uint32_t pc,word;char role;};
+    static constexpr Site sites[]={{0x1f7c5c,0xd8ae0000,'t'},{0x1f7c60,0xd88c0000,'a'},{0x1f7c64,0xd86d0000,'b'},{0x1f7c68,0x4bcc6bec,'-'},
+        {0x1f7d10,0x4bc061bf,'-'},{0x1f7d14,0x4bce7c08,'x'},{0x1f7d20,0xf8700000,'s'},{0x1f7dc8,0x4bc061bf,'-'},{0x1f7dcc,0x4bce7c09,'y'},{0x1f7dd8,0xf8700000,'s'}};
+    if((pc&3) || !rt || pc<0x1f7c5c || pc>0x1f7dd8)return false;
+    const auto site=std::find_if(std::begin(sites),std::end(sites),[&](const Site &x){return x.pc==pc;});
+    if(site==std::end(sites))return false;
+    uint32_t word=0;if(const auto *p=rt->memory.hostPointer(pc,4))std::memcpy(&word,p,4);
+    if(word!=site->word)return false;   // another overlay at these addresses
+    if(!c)throw std::runtime_error("native segment clip has no CPU record");
+    auto &st=segmentClips()[{rt,c->r[29].uw[0]}];
+    const auto at=[&]{return c->r[(word>>21)&31].uw[0]+(word&0xffff);};
+    switch(site->role){
+    case 't':st=SegmentClip{};st.t=vuWords(rt,at());st.loaded=1;return true;
+    case 'a':if(st.loaded!=1)throw std::runtime_error("native segment clip loads out of order");st.p0=vuWords(rt,at());st.loaded|=2;return true;
+    case 'b':if(st.loaded!=3)throw std::runtime_error("native segment clip loads out of order");st.p1=vuWords(rt,at());st.loaded|=4;return true;
+    case 'x':case 'y':{if(st.loaded!=7)throw std::runtime_error("native segment clip point without its loads");
+        constexpr uint32_t one=0x3f800000u;const auto t=st.t[site->role=='x'?0:1];
+        for(unsigned i=0;i<3;++i)st.out[i]=vuAdd(vuMul(st.p0[i],one),vuMul(vuSub(st.p1[i],st.p0[i]),t));st.ready=true;return true;}
+    case 's':if(!st.ready)throw std::runtime_error("native segment clip store without its point");
+        std::memcpy(record(rt,at(),16),st.out.data(),12);st.ready=false;return true;
+    default:return true;   // SUB / MULAw: folded into the point
+    }
+}
+// Battle body class 16f5e0's constructor (mod028 38cd00): base 22cab0 (via 2494c0) sets the flags at +4a8..+4ab,
+// bit 0x10 of +4ab included, and then 38cd8c stores the vtable (sw v1, 0(s0)). Nothing on the way writes the
+// acceleration +450..+458, yet the update 2284ec adds it times +3fc while that bit is set: battle 0x1b's
+// fresh body (frame 68771) read the freed scratchpad writer's packet bytes there. User decision 2026-11-23:
+// no acceleration until set. The vtable store also defines +450..+458 = 0 (the game's own default: 2e6fb0
+// zeroes the same field); any later setter overrides it.
+bool nativeBodyAccelerationDefault(R5900Context *c,Runtime *rt,uint32_t pc){
+    if(pc!=0x38cd8c || !rt)return false;
+    uint32_t word=0;if(const auto *p=rt->memory.hostPointer(pc,4))std::memcpy(&word,p,4);
+    if(word!=0xae030000u)return false;   // another overlay at this address
+    if(!c)throw std::runtime_error("native body constructor has no CPU record");
+    const auto object=c->r[16].uw[0],vtable=c->r[3].uw[0];
+    if(vtable!=0x16f5e0u || object<0x100000)throw std::runtime_error("native body constructor escaped class 16f5e0");
+    auto *self=rt->memory.hostPointer(object,0x460);if(!self)throw std::runtime_error("native body constructor object unmapped");
+    std::memcpy(self,&vtable,4);std::memset(self+0x450,0,12);
+    return true;
+}
 // Nearest of points, mod028 4ab680(point a0, points a1, count a2, out a3): LQC2 vf30 = (a0)
 // (4ab698), ADDw.xyz vf25 = 1; per point LQC2 vf31 = (a1) (4ab6b8), SUB.xyz / MUL.xyz, vf31.x =
 // (x + y) + 1 * z, SQRT, ADDq.x; QMFC2 v1 (4ab6dc): x the distance, y and z the squares, w the
@@ -5021,6 +5069,10 @@ constexpr MacroIdiom macroIdioms[]={
     // offsetpair (mod028 3e4e3c, battle 0x19): LQC2 vf1 = P, vf2 = D; QMTC2 t0 -> vf3, t1 -> vf4; MULAw.xyz ACC = P 1;
     // MSUBx.xyz vf1 = ACC - D vf3.x, SQC2 vf1; MSUBx.xyz vf1 = ACC - D vf4.x, SQC2 vf1 -> {P - D s, P.w} twice.
     {"offsetpair",{-2,-3,0x48a81800,0x48a92000,0x4bc009bf,0x4bc3104c,-101,0x4bc4104c,-101},9},
+    // span (mod028 49dde8, battle 0x1b): LQC2 vf2 = D; QMTC2 t0 -> vf3 (k: 50.0); LQC2 vf1 = P; MULx.xyz vf2 = D k;
+    // SUB.xyz vf4 = P - D k; ADD.xyz vf5 = P + D k; SQC2 vf4, vf5 -> the segment 1f6010 walks. Only xyz are
+    // written (w: register leftovers the segment tests never read).
+    {"span",{-3,0x48a81800,-2,0x4bc31098,0x4bc2092c,0x4bc20968,-104,-105},8},
     // three copies (mod028 494590 at 4945a4): LQC2 vf1; SQC2 vf1 at 0, 16, 32 of v0.
     {"copy3",{-2,-101,-101,-101},4},
     // plane through three points, second form (mod028 494530; its store the jr ra's delay slot): LQC2 vf1..vf3; ADDw.xyz vf31
@@ -5201,6 +5253,9 @@ bool nativeMacroIdiom(R5900Context *c,Runtime *rt,uint32_t pc){
             else if(kind=="offsetpair"){const auto p=need(1),d=need(2),s=need(k==6?3:4);
                 for(unsigned i=0;i<3;++i)out[i]=vuSub(vuMul(p[i],one),vuMul(d[i],s[0]));out[3]=p[3];
                 _mm_setcsr(savedCsr);std::memcpy(record(rt,address(self),16),out.data(),16);if(k==8)capture.valid=0;return true;}
+            else if(kind=="span"){const auto p=need(1),d=need(2),s=need(3);
+                for(unsigned i=0;i<3;++i){const auto m=vuMul(d[i],s[0]);out[i]=want==-104?vuSub(p[i],m):vuAdd(p[i],m);}
+                _mm_setcsr(savedCsr);std::memcpy(record(rt,address(self),16),out.data(),12);if(want==-105)capture.valid=0;return true;}
             else if(kind=="negpair"){const auto v=need(want==-101?1:2);const auto m=vuSub(0,one);for(unsigned i=0;i<3;++i)out[i]=vuMul(v[i],m);out[3]=want==-101?v[3]:one;
                 _mm_setcsr(savedCsr);std::memcpy(record(rt,address(self),16),out.data(),16);if(want==-102)capture.valid=0;return true;}
             else if(kind=="cross"){const auto a=need(1),b=need(2);
@@ -7749,6 +7804,8 @@ bool nativeMathInstruction(uint8_t *,R5900Context *c,Runtime *rt,uint32_t pc){
     if(CLAIM(nativeBattleHalfVectors))return true;
     if(CLAIM(nativeBattleNearestPoint))return true;
     if(CLAIM(nativeContactPoint))return true;
+    if(CLAIM(nativeSegmentClip))return true;
+    if(CLAIM(nativeBodyAccelerationDefault))return true;
     if(CLAIM(nativeNearestOfPoints))return true;
     if(CLAIM(nativeBattleLabelProjection))return true;
     if(CLAIM(nativeChainAim))return true;

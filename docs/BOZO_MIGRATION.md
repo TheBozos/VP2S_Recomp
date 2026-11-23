@@ -12,7 +12,7 @@ The earlier VP2S face/shading and general brightness comparisons remain open.
 
 ## Build and evidence
 
-### Battles 0x19, 0x1a, 0x1b: new modules, particle routines, force field (2026-11-23, in progress)
+### Battles 0x19, 0x1a, 0x1b: new modules, particle routines, force field (2026-11-23)
 
 Launched from the forest state with `--battle 0x19/0x1a/0x1b` and the attack4 pad.
 - **Captured modules:** 129, 144 (0x532200), 169, 191 (0x53a380) and 271 (0x542a80), each taken from RAM at its first
@@ -34,12 +34,27 @@ Launched from the forest state with `--battle 0x19/0x1a/0x1b` and the attack4 pa
   (classes 16e3c0 and 172b40 keep other data at +7f0).
 - **Models:** sphere map 20 after skinning 2/4 (battle 0x1a: routines 8 2 20) uses the skinned normal.
 - **Runner icon:** `bozo/vp2s_bozo.rc` gives vp2s-bozo.exe the VP2S icon and version information.
+- **Battle 0x1b's segment test:**
+  - mod028 49dde8 `span` formula: P - D 50 and P + D 50 (xyz only) for the segment walk 1f6010;
+  - mod001 1f7b80 case 5, the segment clip: P0 + (P1 - P0) t for t0 and t1 in [0, 1), xyz only, for the
+    nearest-point pick 4ab680.
+- **Acceleration of a new battle body:** class 16f5e0 (constructor mod028 38cd00) gets flag +4ab bit 0x10 from base
+  22cab0, but nothing writes its acceleration +450..+458 before the update 2284ec adds it.
+  - In battle 0x1b (frame 68771) a fresh body sat in the scratchpad writer's freed packet buffer. It read packet
+    bytes as (1e-33, -6e33, NaN), and the velocity and particle bounds broke.
+  - User decision: no acceleration until set. The vtable store 38cd8c is a native site that also writes zero there,
+    the default the game's own init 2e6fb0 uses. Later setters override it.
 
-**Evidence so far:**
+**Evidence:**
 - **0x19 and 0x1a:** both run boundary-free to 67000 (a Goblin and a Skeleton Soldier fight).
-- **0x1b:** reached its grouped particle chunk; not rerun after that fix.
-- **Tests:** math, particle, particle-draw, graphics and model tests pass.
-- **Not yet run:** the full ctest and the reference hashes.
+- **0x1b:** runs boundary-free to 72000 (Over Attack, an item drop, the next enemy wave).
+- **Tests:** the math test covers the span, the clip and the body default (including a wrong class and another
+  overlay's word at 38cd8c). Full ctest 97/97 before the body default; math test after it.
+- **End RAM:**
+  - forest walk 64000 912f01332dbe and boot route 12000 a3f2c8f4395d are unchanged.
+  - battle 64100 is now 0c9960c8d9f6 and game over 77000 is 9df948c13063. Without the body default they are exactly
+    dbb930255f27 and fce9a8b43db4. The differences are only bodies' +450..+458 (21 words and 3 words), which held heap
+    leftovers and are now zero. Nothing in those runs reads them (flag bit 0x10 is clear there).
 
 ### Battle victory: contact impulses, results screen, return to the field (2026-11-23)
 

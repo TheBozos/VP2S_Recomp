@@ -950,6 +950,48 @@ int main(int argc,char **argv){try{
             {const auto x=getv(stack+0x140),y=getv(stack+0x130);
              check(x[0]==1 && x[1]==-3 && x[2]==-7 && x[3]==1 && y[0]==1 && y[1]==3 && y[2]==5 && y[3]==1);}
         }
+        {   // mod028 49dde8 span (battle 0x1b): P - D 50 to sp+260, P + D 50 to sp+250 (xyz only; w untouched).
+            constexpr uint32_t block[]={0x3c024248,0x26a30030,0x44820000,0xd8620000,0x44080000,0x00000000,0x48a81800,0xda410000,0x24030001,
+                0x3c010031,0x24020001,0x27b10260,0x27a60250,0xa0234020,0x3c010031,0xa0224028,0x4bc31098,0x4bc2092c,0x4bc20968,0xfa240000,0xf8c50000};
+            constexpr uint32_t at=0x49dddc,stack=0x1fff000,owner=0x1b0000,point=0x1b0100;
+            std::memcpy(rt.memory.hostPointer(at,sizeof(block)),block,sizeof(block));
+            const auto putv=[&](uint32_t a,std::array<float,4> v){std::memcpy(rt.memory.hostPointer(a,16),v.data(),16);};
+            const auto getv=[&](uint32_t a){std::array<float,4> v;std::memcpy(v.data(),rt.memory.hostPointer(a,16),16);return v;};
+            putv(owner+0x30,{1,2,-1,7});putv(point,{10,20,30,5});putv(stack+0x250,{0,0,0,9});putv(stack+0x260,{0,0,0,9});
+            R5900Context c{};c.r[29].uw[0]=stack;c.r[21].uw[0]=owner;c.r[18].uw[0]=point;const float k=50;
+            for(unsigned i=0;i<std::size(block);++i){const uint32_t pc=at+4*i,w=block[i];
+                if(w==0x26a30030)c.r[3].uw[0]=owner+0x30;if(w==0x24030001)c.r[3].uw[0]=1;   // v1 is reused after its load
+                if(w==0x44080000)std::memcpy(&c.r[8].uw[0],&k,4);
+                if(w==0x27b10260)c.r[17].uw[0]=stack+0x260;if(w==0x27a60250)c.r[6].uw[0]=stack+0x250;
+                const auto op=w>>26;check(vp2s::nativeMathInstruction(rt.memory.flat(),&c,&rt,pc)==(op==0x12 || op==0x36 || op==0x3e));}
+            {const auto lo=getv(stack+0x260),hi=getv(stack+0x250);
+             check(lo[0]==-40 && lo[1]==-80 && lo[2]==80 && lo[3]==9 && hi[0]==60 && hi[1]==120 && hi[2]==-20 && hi[3]==9);}
+        }
+        {   // mod001 1f7b80 case 5 segment clip (battle 0x1b): P0 + (P1 - P0) t0 and t1 to out, out + 16 (xyz only).
+            constexpr std::pair<uint32_t,uint32_t> words[]={{0x1f7c5c,0xd8ae0000},{0x1f7c60,0xd88c0000},{0x1f7c64,0xd86d0000},{0x1f7c68,0x4bcc6bec},
+                {0x1f7d10,0x4bc061bf},{0x1f7d14,0x4bce7c08},{0x1f7d20,0xf8700000},{0x1f7dc8,0x4bc061bf},{0x1f7dcc,0x4bce7c09},{0x1f7dd8,0xf8700000}};
+            for(const auto &[a,w]:words)std::memcpy(rt.memory.hostPointer(a,4),&w,4);
+            constexpr uint32_t stack=0x1fff000,ts=0x1b0000,p0=0x1b0010,p1=0x1b0020,out=0x1b0100;
+            const auto putv=[&](uint32_t a,std::array<float,4> v){std::memcpy(rt.memory.hostPointer(a,16),v.data(),16);};
+            const auto getv=[&](uint32_t a){std::array<float,4> v;std::memcpy(v.data(),rt.memory.hostPointer(a,16),16);return v;};
+            putv(ts,{0.25f,0.75f,0,0});putv(p0,{0,0,0,9});putv(p1,{4,8,-4,9});putv(out,{7,7,7,7});putv(out+16,{7,7,7,7});
+            R5900Context c{};c.r[29].uw[0]=stack;c.r[5].uw[0]=ts;c.r[4].uw[0]=p0;c.r[3].uw[0]=p1;
+            for(const auto &[a,w]:words){if(a==0x1f7d20)c.r[3].uw[0]=out;if(a==0x1f7dd8)c.r[3].uw[0]=out+16;
+                check(vp2s::nativeMathInstruction(rt.memory.flat(),&c,&rt,a));}
+            {const auto x=getv(out),y=getv(out+16);
+             check(x[0]==1 && x[1]==2 && x[2]==-1 && x[3]==7 && y[0]==3 && y[1]==6 && y[2]==-3 && y[3]==7);}
+            {bool rejected=false;try{vp2s::nativeMathInstruction(rt.memory.flat(),&c,&rt,0x1f7c60);}catch(const std::runtime_error &){rejected=true;}check(rejected);}   // a load out of order
+        }
+        {   // mod028 38cd8c battle body 16f5e0's vtable store: also defines the acceleration +450..+458 as zero (until set).
+            constexpr uint32_t object=0x1b0200,store=0xae030000;std::memcpy(rt.memory.hostPointer(0x38cd8c,4),&store,4);
+            const uint32_t garbage[4]={0x08c7f7a1,0xf78cff96,0xff93091c,0x0933f815};std::memcpy(rt.memory.hostPointer(object+0x450,16),garbage,16);
+            R5900Context c{};c.r[16].uw[0]=object;c.r[3].uw[0]=0x16f5e0;
+            check(vp2s::nativeMathInstruction(rt.memory.flat(),&c,&rt,0x38cd8c));
+            uint32_t got[4],vt;std::memcpy(got,rt.memory.hostPointer(object+0x450,16),16);std::memcpy(&vt,rt.memory.hostPointer(object,4),4);
+            check(vt==0x16f5e0 && !got[0] && !got[1] && !got[2] && got[3]==garbage[3]);
+            c.r[3].uw[0]=0x16f600;bool rejected=false;try{vp2s::nativeMathInstruction(rt.memory.flat(),&c,&rt,0x38cd8c);}catch(const std::runtime_error &){rejected=true;}check(rejected);
+            const uint32_t other=0;std::memcpy(rt.memory.hostPointer(0x38cd8c,4),&other,4);check(!vp2s::nativeMathInstruction(rt.memory.flat(),&c,&rt,0x38cd8c));
+        }
         {   // mod028 49e1b0 battle target direction (frame 74880): normalize(*s0 - *s7).xyz, w of *s7, to v1.
             constexpr uint32_t block[]={0xdae10000,0xda020000,0x4bc007c3,0x4bc1106c,0x4bc10aaa,0x4b0a503d,0x4b0afa8a,0x4a6a03be,0x4a0003bf,0x4bc0085c,0x27a300c0,0xf8610000};
             std::memcpy(rt.memory.hostPointer(0x49e3a0,sizeof(block)),block,sizeof(block));

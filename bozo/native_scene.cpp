@@ -237,6 +237,14 @@ void NativeScene::visibilityView(Runtime *rt,uint32_t stack,uint32_t camera){
     if(next.camera!=camera || next.viewReady)throw std::runtime_error("native visibility view has no matching clip or repeats");
     std::memcpy(next.view.data(),record(rt,camera,0x330)+0x2f0,64);next.viewReady=true;visibilityInputs.at(stack)=std::move(next);
 }
+void NativeScene::visibilityCamera(Runtime *rt,uint32_t stack,uint32_t camera){
+    auto next=visibility(stack);
+    if(!next.viewReady || !activeFrustum || activeFrustum->object!=camera)
+        throw std::runtime_error("native visibility camera switch has no matching frustum");
+    const auto *record_=record(rt,camera,0x430);
+    std::memcpy(next.view.data(),record_+0x2f0,64);std::memcpy(next.clip.data(),record_+0x3f0,64);
+    next.camera=camera;next.frustum=activeFrustum;visibilityInputs.at(stack)=std::move(next);
+}
 void NativeScene::visibilitySphere(Runtime *rt,uint32_t stack,uint32_t object,uint32_t source){
     const auto &inputs=visibility(stack);
     if(!inputs.viewReady || !inputs.frustum || inputs.frustum->object!=inputs.camera)
@@ -298,7 +306,13 @@ std::optional<bool> nativeVisibilityInstruction(R5900Context *c,Runtime *rt,uint
                     pc==0x2206d0 || pc==0x2206d4 || pc==0x2206d8 || pc==0x2206dc || pc==0x2206e0;
     const bool sphere=pc==0x220b74 || pc==0x220b80 || pc==0x220ba4 || pc==0x220ba8 || pc==0x220bb4 || pc==0x220bdc || pc==0x220ca0 || pc==0x220c30 || pc==0x220c74;
     const bool facing=pc==0x220a20 || pc==0x220a24 || pc==0x220a28 || pc==0x220a2c || pc==0x220a38 || pc==0x220a60 || pc==0x220a68 || pc==0x220a74 || pc==0x220a8c || pc==0x220a94;
-    if(pc!=0x2205c0 && pc!=0x220ce0 && !clip && !view && !sphere && !facing)return std::nullopt;
+    // An object with its own camera (object+80 -> +94, frame 75120 of battle 0x18): 220918 switches the pass to
+    // it (s6) after 207cc0 published its frustum, 220978 back to the scene's (s4): LQC2 vf5..vf8 = camera+2f0,
+    // VCALLMS 1f0, vf1..vf4 = vf20..vf23 (the view), LQC2 vf24..vf27 = camera+3f0 (the clip). The two words
+    // after each fourth load are nops; the native state takes the view and clip as the main block does.
+    const bool cameraSwitch=!(pc&3) && ((pc>=0x220918 && pc<=0x220950) || (pc>=0x220978 && pc<=0x2209b0)) &&
+                            pc!=0x220928 && pc!=0x22092c && pc!=0x220988 && pc!=0x22098c;
+    if(pc!=0x2205c0 && pc!=0x220ce0 && !clip && !view && !sphere && !facing && !cameraSwitch)return std::nullopt;
     auto *d=rt?dynamic_cast<bozo::ee::Dispatcher *>(rt->services):nullptr;
     auto *owner=d?dynamic_cast<SceneOwner *>(&d->host()):nullptr;
     if(!owner || !c)throw std::runtime_error("native visibility requires a scene owner");
@@ -309,6 +323,13 @@ std::optional<bool> nativeVisibilityInstruction(R5900Context *c,Runtime *rt,uint
     }
     if(pc==0x220ce0){scene.finishVisibility(sp,c->r[21].uw[0]);return false;}
     if(scene.visibility(sp).scene!=c->r[21].uw[0])throw std::runtime_error("native visibility scene changed before capture");
+    if(cameraSwitch){
+        const unsigned at=(pc-(pc<0x220978?0x220918:0x220978))/4;const auto camera=c->r[pc<0x220978?22:20].uw[0];
+        const auto base=at<4?c->r[2].uw[0]:at>=11?c->r[3].uw[0]:0u;
+        if((at<4 && base!=camera+0x2f0) || (at>=11 && base!=camera+0x3f0))throw std::runtime_error("native visibility camera switch lost its camera record");
+        if(at==0)scene.visibilityCamera(rt,sp,camera);
+        return true;
+    }
     if(facing){
         const auto object=c->r[17].uw[0];if(pc==0x220a20)scene.beginFacing(rt,sp,object,c->r[2].uw[0]);
         const auto &state=scene.facing(sp,object);

@@ -4,6 +4,8 @@
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
+#include <filesystem>
+#include <fstream>
 #include <format>
 #include <limits>
 #include <stdexcept>
@@ -46,6 +48,7 @@ void NativeAssets::assign(uint32_t at,uint32_t bytes,std::optional<AssetOrigin> 
         if(r.end>end)next.push_back({end,r.end,advance(r.origin,end-r.begin)});
     }
     if(value)next.push_back({at,end,*value});
+    if(value && value->kind==AssetOrigin::Kind::Part && !value->offset)decoded.push_back({at,end,*value});
     std::sort(next.begin(),next.end(),[](const Range &a,const Range &b){return a.begin<b.begin;});
     ranges=std::move(next);
 }
@@ -120,6 +123,9 @@ void NativeAssets::finish(uint32_t stack,bool success,uint32_t size){
         overwrite(call.destination,size);jobs.emplace(call.job,Decode{call.destination,size,result});
     }else {checkWrite(call.destination,size);assign(call.destination,size,result);}
 }
+std::vector<std::tuple<uint32_t,uint32_t,AssetOrigin>> NativeAssets::takeDecoded(){
+    std::vector<std::tuple<uint32_t,uint32_t,AssetOrigin>> out;for(const auto &r:decoded)out.emplace_back(r.begin,r.end,r.origin);decoded.clear();return out;
+}
 void NativeAssets::beginStep(uint32_t stack,uint32_t job){
     if(!steps.emplace(stack,job).second)throw std::runtime_error("active asset worker stack reused");
 }
@@ -164,6 +170,22 @@ std::optional<bool> nativeAssetInstruction(uint8_t *,R5900Context *c,Runtime *rt
                 at,bytes,word(rt,at-0x1c),word(rt,at-0x10),word(rt,at-4),caller,buffer,bufferCaller,bufferFlags));
         }
         assets.overwrite(at,bytes-0x20);
+    }
+    // Development only (VP2S_BOZO_CAPTURE_ASSETS=<folder>, e.g. build_usa/extract/assets): each decoded part whose
+    // disc file the offline extractors cannot open (battle file 1722, frame 75120: not an SLZ chain, not a p@Ck
+    // pack) is written the first time the game decodes it, under their naming (<nibble>/<disc:010x>_<part:03>,
+    // .pack or .bin), for the next mesh and texture conversions. Existing files are never replaced.
+    static const char *captureAssets=std::getenv("VP2S_BOZO_CAPTURE_ASSETS");
+    for(const auto &[begin,end,origin]:assets.takeDecoded()){
+        if(!captureAssets || (origin.disc>>63))continue;
+        const auto *bytes=rt->memory.hostPointer(begin,end-begin);if(!bytes || end-begin<4)continue;
+        const auto folder=std::filesystem::path(captureAssets)/std::format("{:x}",origin.disc>>28);
+        const auto stem=std::format("{:010x}_{:03}",origin.disc,origin.part);
+        if(std::filesystem::exists(folder/(stem+".pack")) || std::filesystem::exists(folder/(stem+".bin")))continue;
+        std::filesystem::create_directories(folder);
+        const auto path=folder/(stem+(std::memcmp(bytes,"p@Ck",4)?".bin":".pack"));
+        std::ofstream(path,std::ios::binary).write(reinterpret_cast<const char *>(bytes),end-begin);
+        std::fprintf(stderr,"[vp2s:asset] captured %s (%u bytes)\n",path.string().c_str(),end-begin);
     }
     return false; // All CPU instructions, including the load at each return, remain compiled game code.
 }

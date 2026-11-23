@@ -73,6 +73,8 @@ public:
     void beginVisibility(uint32_t stack,uint32_t object);
     void visibilityClip(Runtime *,uint32_t stack,uint32_t camera);
     void visibilityView(Runtime *,uint32_t stack,uint32_t camera);
+    // The pass's switch to another camera (an object's own, then back): its frustum just published, its view and clip.
+    void visibilityCamera(Runtime *,uint32_t stack,uint32_t camera);
     void visibilitySphere(Runtime *,uint32_t stack,uint32_t object,uint32_t source);
     void visibilityAngle(uint32_t stack,uint32_t object,uint32_t source);
     void beginFacing(Runtime *,uint32_t stack,uint32_t object,uint32_t source);

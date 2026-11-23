@@ -3,6 +3,7 @@
 #include "native_state.h"
 #include <map>
 #include <optional>
+#include <tuple>
 #include <vector>
 namespace vp2s {
 // Byte provenance in RAM/scratch storage from actual game I/O and CPU producers. This is not a
@@ -22,6 +23,7 @@ class NativeAssets {
     std::map<uint32_t,Invocation> calls;
     std::map<uint32_t,Decode> jobs;
     std::map<uint32_t,uint32_t> steps;
+    std::vector<Range> decoded; // Parts published since the last takeDecoded (not saved: drained at once).
     void checkWrite(uint32_t at,uint32_t bytes,uint32_t worker=0)const;
     void assign(uint32_t at,uint32_t bytes,std::optional<AssetOrigin>);
 public:
@@ -36,6 +38,8 @@ public:
     void beginStep(uint32_t stack,uint32_t job);
     void finishStep(uint32_t stack,bool complete);
     size_t pendingCount()const{return calls.size()+steps.size();}
+    // The decoded parts published since the last call: (address, end, origin) of each whole part.
+    std::vector<std::tuple<uint32_t,uint32_t,AssetOrigin>> takeDecoded();
     size_t jobCount()const{return jobs.size();}
     // Save states: every range, call, job and step (native_state.h).
     void serialize(bozo::state::Archive &);

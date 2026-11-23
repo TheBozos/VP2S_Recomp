@@ -12,6 +12,26 @@ The earlier VP2S face/shading and general brightness comparisons remain open.
 
 ## Build and evidence
 
+### Battle: the visibility pass's own-camera switch, and parts no extractor opens (2026-11-23)
+
+- **Frame 75120, mod001 220918 / 220978 (visibility).** An object whose +80 → +94 names a camera of its own
+  (a game-over close-up) makes the pass switch cameras:
+  - 207cc0 publishes that camera's frustum (native already);
+  - then 220918 loads its view (+2f0, `VCALLMS 1f0`, vf1..vf4) and clip (+3f0, vf24..vf27);
+  - 220978 does the same for the scene's camera (s4) on the way back.
+  - **Native:** `NativeScene::visibilityCamera` swaps camera, view, clip and frustum in the pass's state. It refuses
+    when the published frustum is another camera's, or when a load leaves the camera record. The nops at
+    +10 / +14 are not sites.
+  - **Test:** `vp2s-bozo-facing` covers: refused before the frustum, a wrong record, the switch, and the way back.
+- **Frame 75120, mesh pack `00eafa2800_000`.** Disc file 1722 is neither an SLZ chain nor a `p@Ck` pack with any
+  key, so neither `extract.py` nor `vp2_archives.py` writes its part. `VP2S_BOZO_CAPTURE_ASSETS=<folder>` (development)
+  writes each decoded part the first time the game decodes it, under the extractors' naming, and never replaces a
+  file.
+  - The captured part went into `build_usa/extract/assets/e/`. The texture, mesh and manifest conversions were then
+    rerun; they added the mesh pack and texture `vp18` 2de.
+  - Game data stays in the build tree. The offline route to file 1722's format is still to find.
+- **Evidence:** the run goes on to the next boundary, mod001 224360.
+
 ### Battle: textures with differing disc copies, and the target direction 49e1b0 (2026-11-23)
 
 New scenario: `attack5` is `attack4` to frame 74000, then walk up to the rhino and attack every 180 frames. It

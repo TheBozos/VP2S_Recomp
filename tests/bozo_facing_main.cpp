@@ -100,5 +100,22 @@ int main(){try{
         c.r[3].uw[0]=stack+0xe0;reject([&]{invoke(0x220a94);});c.r[3].uw[0]=stack+0xd0;invoke(0x220a94);reject([&]{invoke(0x220a94);});now.scene.finishVisibility(stack,0x180000);reject([&]{invoke(0x220a94);});
         for(uint32_t bad:{1u,0x7fa01234u,0x71800000u}){auto invalid=identity;invalid[2]=std::bit_cast<float>(bad);reject([&]{vp2s::objectFacing(identity,invalid,{0,0,4,1},{0,0,1,1});});}
     }
+    {   // 220918 / 220978: the pass switches to an object's own camera (s6) once 207cc0 published its frustum, and back (s4).
+        auto &rt=b.runtime();constexpr uint32_t stack=0x1ffe000,own=0x1b0000;
+        Matrix ownView{},ownClip{};for(unsigned i=0;i<16;++i){ownView[i]=float(i+1);ownClip[i]=-float(i+1);}write(rt,own+0x2f0,ownView);write(rt,own+0x3f0,ownClip);
+        prepare(now,rt,stack);const auto mainView=now.scene.visibility(stack).view,mainClip=now.scene.visibility(stack).clip;
+        R5900Context c{};c.r[29].uw[0]=stack;c.r[21].uw[0]=0x180000;c.r[22].uw[0]=own;c.r[20].uw[0]=0x190000;c.r[2].uw[0]=own+0x2f0;
+        const auto refused=[&](uint32_t pc){bool bad=false;try{vp2s::nativeVisibilityInstruction(&c,&rt,pc);}catch(const std::runtime_error &){bad=true;}return bad;};
+        check(refused(0x220918) && now.scene.visibility(stack).camera==0x190000);   // its frustum is not published yet
+        check(!vp2s::nativeVisibilityInstruction(&c,&rt,0x220928));                 // the nops are not sites
+        now.scene.publishFrustum(&rt,own);c.r[2].uw[0]+=16;check(refused(0x220918));c.r[2].uw[0]-=16;
+        check(*vp2s::nativeVisibilityInstruction(&c,&rt,0x220918));
+        {const auto &v=now.scene.visibility(stack);check(v.camera==own && v.frustum->object==own && !std::memcmp(v.view.data(),ownView.data(),64) && !std::memcmp(v.clip.data(),ownClip.data(),64));}
+        c.r[3].uw[0]=own+0x3f0;check(*vp2s::nativeVisibilityInstruction(&c,&rt,0x220950));c.r[3].uw[0]=own+0x2f0;check(refused(0x220944));
+        now.scene.publishFrustum(&rt,0x190000);c.r[2].uw[0]=0x1902f0;check(*vp2s::nativeVisibilityInstruction(&c,&rt,0x220978));
+        {const auto &v=now.scene.visibility(stack);check(v.camera==0x190000 && v.view==mainView && v.clip==mainClip);}
+        c.r[3].uw[0]=0x1903f0;check(*vp2s::nativeVisibilityInstruction(&c,&rt,0x2209a8) && !vp2s::nativeVisibilityInstruction(&c,&rt,0x220988));
+        now.scene.finishVisibility(stack,0x180000);
+    }
     std::printf("%u bounded facing callers,%u known axis results,10 sites; integer sum/product/quotient and binary-search root oracle, full CPU/RAM/FP, snapshot mutation/aliases/opaque unused W/four modes passed\n",callers,known);return 0;
 }catch(const std::exception &e){std::fprintf(stderr,"%s\n",e.what());return 1;}}

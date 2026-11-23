@@ -1870,6 +1870,57 @@ bool nativeBattleNormalise(R5900Context *c,Runtime *rt,uint32_t pc){
     uint32_t f=0;const auto q=bozo::ps2f::rsqrt(one,sum,f);uint32_t out[4];for(unsigned i=0;i<4;++i)out[i]=vuMul(v[i],q);
     std::memcpy(record(rt,c->r[site->store].uw[0],16),out,16);states.erase(it);return true;
 }
+// Row normalise in place, mod001 (battle frame 75120; ps2f, nearest; five copies of the same words, at 224360 in
+// 2241b0, 224920, 224f18, 225168 and 2254e0 in 225330): LQC2 vf1..vf3 = the rows of
+// M (a0 = sp+60); vf31.xyz = 1 (ADDw); squares vf6..vf8; s0 = (x + y) + 1*z (ADDAy.x, MADDz.x), s1 = (y + x)
+// + 1*z (ADDAx.y, MADDz.y), s2 = (z + y) + 1*x (ADDAy.z, MADDx.z); row i.xyz *= RSQRT(1, si); SQC2 the
+// three rows back (w as loaded). The 25 words are contiguous COP2 code with nothing else in between, and the
+// function has no other COP2 code: the rows are made and stored at the first store, the rest are no-ops.
+bool nativeRowNormalise(R5900Context *c,Runtime *rt,uint32_t pc){
+    static constexpr uint32_t words[]={0xd8810000,0xd8820010,0xd8830020,0x4bc109aa,0x4bc007c3,0x4bc211ea,0x4bc31a2a,0x4b06303d,0x4b06fa4a,
+        0x4a87383c,0x4a87fa4a,0x4a48403d,0x4a6903be,0x4a48fa48,0x4a0003bf,0x4ae903be,0x4bc0085c,0x4a0003bf,0x4b6903be,0x4bc0109c,0x4a0003bf,
+        0x4bc018dc,0xf8810000,0xf8820010,0xf8830020};
+    static constexpr uint32_t starts[]={0x224360,0x224920,0x224f18,0x225168,0x2254e0};
+    if((pc&3) || !rt)return false;
+    const auto start=std::find_if(std::begin(starts),std::end(starts),[&](uint32_t s){return pc>=s && pc<s+4*std::size(words);});
+    if(start==std::end(starts))return false;
+    uint32_t word=0;if(const auto *p=rt->memory.hostPointer(pc,4))std::memcpy(&word,p,4);
+    if(word!=words[(pc-*start)/4])return false;   // another overlay at these addresses
+    if(!c)throw std::runtime_error("native row normalise has no CPU record");
+    if(pc!=*start+0x58)return true;
+    const uint32_t at=c->r[4].uw[0]&~15u;uint32_t m[3][4];std::memcpy(m,record(rt,at,48),48);
+    constexpr uint32_t one=0x3f800000u;uint32_t sq[3][3];
+    for(unsigned r=0;r<3;++r)for(unsigned i=0;i<3;++i)sq[r][i]=vuMul(m[r][i],m[r][i]);
+    const uint32_t sums[3]={vuAdd(vuAdd(sq[0][0],sq[0][1]),vuMul(one,sq[0][2])),vuAdd(vuAdd(sq[1][1],sq[1][0]),vuMul(one,sq[1][2])),
+                            vuAdd(vuAdd(sq[2][2],sq[2][1]),vuMul(one,sq[2][0]))};
+    for(unsigned r=0;r<3;++r){uint32_t f=0;const auto q=bozo::ps2f::rsqrt(one,sums[r],f);for(unsigned i=0;i<3;++i)m[r][i]=vuMul(m[r][i],q);}
+    std::memcpy(record(rt,at,48),m,48);return true;
+}
+// Spaced normalise, mod001 224868 (battle frame 75120; ps2f, nearest): LQC2 vf1 = obj+240 (224a90); ten CPU
+// words that touch only obj+22c and +280..+288; MUL.xyz vf2 = vf1^2; vf31.xyz = 1; ACC.x = x + y; vf2.x =
+// ACC + 1*z; Q = RSQRT(1, vf2.x); vf1.xyz *= Q; SQC2 vf1 to obj+250 (224b08), w as loaded. The gap is longer
+// than the macro idioms allow, so the load is held per call frame to the store.
+std::map<std::pair<const Runtime *,uint32_t>,std::array<uint32_t,4>> &spacedNormalise(){static std::map<std::pair<const Runtime *,uint32_t>,std::array<uint32_t,4>> m;return m;}
+bool nativeSpacedNormalise(R5900Context *c,Runtime *rt,uint32_t pc){
+    struct Site{uint32_t pc,word;};
+    static constexpr Site sites[]={{0x224a90,0xd8610000},{0x224ad8,0x4bc108aa},{0x224adc,0x4bc007c3},{0x224ae0,0x4b02103d},{0x224ae4,0x4b02f88a},
+        {0x224ae8,0x4a6203be},{0x224b00,0x4a0003bf},{0x224b04,0x4bc0085c},{0x224b08,0xf8610000}};
+    if((pc&3) || !rt || pc<0x224a90 || pc>0x224b08)return false;
+    const auto site=std::find_if(std::begin(sites),std::end(sites),[&](const Site &s){return s.pc==pc;});
+    if(site==std::end(sites))return false;
+    uint32_t word=0;if(const auto *p=rt->memory.hostPointer(pc,4))std::memcpy(&word,p,4);
+    if(word!=site->word)return false;   // another overlay at these addresses
+    if(!c)throw std::runtime_error("native spaced normalise has no CPU record");
+    auto &states=spacedNormalise();const auto key=std::make_pair(static_cast<const Runtime *>(rt),c->r[29].uw[0]);
+    if(pc==0x224a90){std::array<uint32_t,4> v;std::memcpy(v.data(),record(rt,c->r[3].uw[0]&~15u,16),16);states[key]=v;return true;}
+    if(pc!=0x224b08)return true;
+    auto it=states.find(key);if(it==states.end())throw std::runtime_error("native spaced normalise has no load");
+    const auto v=it->second;states.erase(it);constexpr uint32_t one=0x3f800000u;uint32_t sq[3];
+    for(unsigned i=0;i<3;++i)sq[i]=vuMul(v[i],v[i]);
+    uint32_t f=0;const auto q=bozo::ps2f::rsqrt(one,vuAdd(vuAdd(sq[0],sq[1]),vuMul(one,sq[2])),f);
+    const uint32_t out[4]={vuMul(v[0],q),vuMul(v[1],q),vuMul(v[2],q),v[3]};
+    std::memcpy(record(rt,c->r[3].uw[0]&~15u,16),out,16);return true;
+}
 // Battle target direction, mod028 49e1b0 (frame 74880; ps2f, nearest): LQC2 vf1 = A (*s7),
 // vf2 = B (*s0); vf31.xyz = 1 (ADDw); vf1.xyz = B - A; vf10.xyz = vf1 * vf1; ACC.x = x + y;
 // vf10.x = ACC.x + 1*z; Q = RSQRT(1, vf10.x); vf1.xyz *= Q; SQC2 vf1 to v1 (sp+c0, set by the
@@ -3982,6 +4033,9 @@ constexpr MacroIdiom macroIdioms[]={
     // its four-row form (mod001 22b734): LQC2 vf5 (point), vf1..vf4 (rows); MULAx/MADDAy/MADDAz/
     // MADDw.xyzw vf5 = ((r1*x + r2*y) + r3*z) + r4*w (w from the point); SQC2 vf5.
     {"rows4",{-6,-2,-3,-4,-5,0x4be509bc,0x4be510bd,0x4be518be,0x4be5214b,-105},10},
+    // its affine form (mod001 2234a0 at 2234f8, battle frame 75120): the same, MADDw with vf0.w (1), not the
+    // point's w: ((r1*x + r2*y) + r3*z) + r4*1.
+    {"rows4one",{-6,-2,-3,-4,-5,0x4be509bc,0x4be510bd,0x4be518be,0x4be0214b,-105},10},
     // mod028 xz length to a GPR (4e657c): LQC2 vf24; MUL.xyz; ADDz.x x = x2 + z2; SQRT;
     // WAITQ; ADDq.x x = 0 + Q; QMFC2 rN = {|xz|, y2, z2, w} (v0, v1, a0 or a1). Ends in the QMFC2, not a store.
     {"xzlength",{-25,0x4bd8c62a,0x4b18c602,0x4a1803bd,0x4a0003bf,0x4b000620,-200},7},
@@ -4074,6 +4128,8 @@ bool nativeMacroIdiom(R5900Context *c,Runtime *rt,uint32_t pc){
                 out={vuMul(dx,q),vuMul(0,q),vuMul(dz,q),one};}
             else if(kind=="rows4"){const auto v=need(5),r1=need(1),r2=need(2),r3=need(3),r4=need(4);
                 for(unsigned i=0;i<4;++i)out[i]=vuAdd(vuAdd(vuAdd(vuMul(r1[i],v[0]),vuMul(r2[i],v[1])),vuMul(r3[i],v[2])),vuMul(r4[i],v[3]));}
+            else if(kind=="rows4one"){const auto v=need(5),r1=need(1),r2=need(2),r3=need(3),r4=need(4);
+                for(unsigned i=0;i<4;++i)out[i]=vuAdd(vuAdd(vuAdd(vuMul(r1[i],v[0]),vuMul(r2[i],v[1])),vuMul(r3[i],v[2])),vuMul(r4[i],one));}
             else if(kind=="rows3"){const auto v=need(4),r1=need(1),r2=need(2),r3=need(3);
                 for(unsigned i=0;i<4;++i)out[i]=vuAdd(vuAdd(vuMul(r1[i],v[0]),vuMul(r2[i],v[1])),vuMul(r3[i],v[2]));}
             else if(kind=="squared"){const auto v=need(24);for(unsigned i=0;i<3;++i)out[i]=vuMul(v[i],v[i]);
@@ -5120,6 +5176,8 @@ bool nativeMathInstruction(uint8_t *,R5900Context *c,Runtime *rt,uint32_t pc){
     if(nativeBattleSegmentEnds(c,rt,pc))return true;
     if(nativeBattleNormalise(c,rt,pc))return true;
     if(nativeTargetDirection(c,rt,pc))return true;
+    if(nativeRowNormalise(c,rt,pc))return true;
+    if(nativeSpacedNormalise(c,rt,pc))return true;
     if(nativeBattleSideAxes(c,rt,pc))return true;
     if(nativeBattleGroundPlane(c,rt,pc))return true;
     if(nativeBattleColourPair(c,rt,pc))return true;

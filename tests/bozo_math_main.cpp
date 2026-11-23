@@ -926,6 +926,36 @@ int main(int argc,char **argv){try{
             const auto saved=getv(stack+0xc0);std::memcpy(rt.memory.hostPointer(0x49e3cc,4),"\0\0\0\0",4);   // another overlay there
             check(!vp2s::nativeMathInstruction(rt.memory.flat(),&c,&rt,0x49e3cc) && getv(stack+0xc0)==saved);
         }
+        {   // mod001 2241b0 row normalise in place (battle frame 75120): each row's xyz / its length, w kept.
+            constexpr uint32_t words[]={0xd8810000,0xd8820010,0xd8830020,0x4bc109aa,0x4bc007c3,0x4bc211ea,0x4bc31a2a,0x4b06303d,0x4b06fa4a,
+                0x4a87383c,0x4a87fa4a,0x4a48403d,0x4a6903be,0x4a48fa48,0x4a0003bf,0x4ae903be,0x4bc0085c,0x4a0003bf,0x4b6903be,0x4bc0109c,0x4a0003bf,
+                0x4bc018dc,0xf8810000,0xf8820010,0xf8830020};
+            std::memcpy(rt.memory.hostPointer(0x224360,sizeof(words)),words,sizeof(words));
+            constexpr uint32_t m=0x1fff060;const float in[12]={3,0,4,7, 0,2,0,8, 0,0,-5,9};std::memcpy(rt.memory.hostPointer(m,48),in,48);
+            R5900Context c{};c.r[4].uw[0]=m;c.r[29].uw[0]=0x1fff000;
+            for(unsigned i=0;i<std::size(words);++i){const uint32_t pc=0x224360+4*i;check(vp2s::nativeMathInstruction(rt.memory.flat(),&c,&rt,pc));
+                if(pc<0x2243b8){float now[12];std::memcpy(now,rt.memory.hostPointer(m,48),48);check(!std::memcmp(now,in,48));}}   // nothing before the store
+            float out[12];std::memcpy(out,rt.memory.hostPointer(m,48),48);
+            check(out[0]==0.6f && out[1]==0 && out[2]==0.8f && out[3]==7 && out[4]==0 && out[5]==1 && out[6]==0 && out[7]==8 && out[8]==0 && out[9]==0 && out[10]==-1 && out[11]==9);
+            std::memcpy(rt.memory.hostPointer(0x2243b8,4),"\0\0\0\0",4);check(!vp2s::nativeMathInstruction(rt.memory.flat(),&c,&rt,0x2243b8));   // another overlay
+            std::memcpy(rt.memory.hostPointer(0x2254e0,sizeof(words)),words,sizeof(words));std::memcpy(rt.memory.hostPointer(m,48),in,48);   // its copy in 225330
+            for(unsigned i=0;i<std::size(words);++i)check(vp2s::nativeMathInstruction(rt.memory.flat(),&c,&rt,0x2254e0+4*i));
+            std::memcpy(out,rt.memory.hostPointer(m,48),48);check(out[0]==0.6f && out[2]==0.8f && out[5]==1 && out[10]==-1 && out[11]==9);
+        }
+        {   // mod001 224868 spaced normalise (battle frame 75120): obj+240 loaded, CPU words between, xyz/len stored to obj+250.
+            constexpr uint32_t sites[][2]={{0x224a90,0xd8610000},{0x224ad8,0x4bc108aa},{0x224adc,0x4bc007c3},{0x224ae0,0x4b02103d},{0x224ae4,0x4b02f88a},
+                {0x224ae8,0x4a6203be},{0x224b00,0x4a0003bf},{0x224b04,0x4bc0085c},{0x224b08,0xf8610000}};
+            for(const auto &s:sites)std::memcpy(rt.memory.hostPointer(s[0],4),&s[1],4);
+            constexpr uint32_t obj=0x1b0000;const float v[4]={0,-3,4,7},stale[4]={9,9,9,9};
+            std::memcpy(rt.memory.hostPointer(obj+0x240,16),v,16);std::memcpy(rt.memory.hostPointer(obj+0x250,16),stale,16);
+            R5900Context c{};c.r[29].uw[0]=0x1fff000;
+            {R5900Context fresh=c;fresh.r[3].uw[0]=obj+0x250;bool failed=false;try{vp2s::nativeMathInstruction(rt.memory.flat(),&fresh,&rt,0x224b08);}catch(const std::runtime_error &){failed=true;}check(failed);}
+            c.r[3].uw[0]=obj+0x240;check(vp2s::nativeMathInstruction(rt.memory.flat(),&c,&rt,0x224a90));
+            std::memcpy(rt.memory.hostPointer(obj+0x240,16),stale,16);   // the load is what counts
+            check(!vp2s::nativeMathInstruction(rt.memory.flat(),&c,&rt,0x224a94));   // a CPU word between
+            c.r[3].uw[0]=obj+0x250;for(const auto &s:sites)if(s[0]!=0x224a90)check(vp2s::nativeMathInstruction(rt.memory.flat(),&c,&rt,s[0]));
+            float o[4];std::memcpy(o,rt.memory.hostPointer(obj+0x250,16),16);check(o[0]==0 && o[1]==-0.6f && o[2]==0.8f && o[3]==7);
+        }
         {   // mod028 481260 corner crosses: axes from the object once, per corner n = normalize(P - sp+50); a x n, b x n to scratchpad (xyz only).
             constexpr uint32_t axes[]={0xd8410000,0xd8420010};
             constexpr uint32_t corner[]={0xd89a0000,0xd91b0000,0x4bc007c3,0x4bdadeac,0x4bdad6ea,0x4b1bd83d,0x4b1bfeca,0x4a7b03be,0x4a0003bf,0x4bc0d69c,
@@ -1289,6 +1319,16 @@ int main(int argc,char **argv){try{
             R5900Context c{};c.r[29].uw[0]=0x1fff000;c.r[3].uw[0]=pt;c.r[18].uw[0]=rows;c.r[2].uw[0]=out;
             for(unsigned i=0;i<std::size(words);++i)check(vp2s::nativeMathInstruction(rt.memory.flat(),&c,&rt,0x22b734+4*i));
             float o[4];std::memcpy(o,rt.memory.hostPointer(out,16),16);check(o[0]==6 && o[1]==14 && o[2]==27 && o[3]==1);   // (1+5, 4+10, 12+15, 0+1)
+        }
+        {   // mod001 2234a0 rows4one idiom (battle frame 75120): the same with r4 * 1 (vf0.w), not the point's w.
+            constexpr uint32_t words[]={0xd8a50000,0xda210000,0xda220010,0xda230020,0xda240030,0x4be509bc,0x4be510bd,0x4be518be,0x4be0214b,0xf8850000};
+            std::memcpy(rt.memory.hostPointer(0x2234f8,sizeof(words)),words,sizeof(words));
+            constexpr uint32_t pt=0x1b0000,rows=0x1b1000,out=0x1b2000;
+            const float p[4]={1,2,3,0.5f},m[16]={1,0,0,0, 0,2,0,0, 0,0,4,0, 10,20,30,2};
+            std::memcpy(rt.memory.hostPointer(pt,16),p,16);std::memcpy(rt.memory.hostPointer(rows,64),m,64);
+            R5900Context c{};c.r[29].uw[0]=0x1fff000;c.r[5].uw[0]=pt;c.r[17].uw[0]=rows;c.r[4].uw[0]=out;
+            for(unsigned i=0;i<std::size(words);++i)check(vp2s::nativeMathInstruction(rt.memory.flat(),&c,&rt,0x2234f8+4*i));
+            float o[4];std::memcpy(o,rt.memory.hostPointer(out,16),16);check(o[0]==11 && o[1]==24 && o[2]==42 && o[3]==2);   // (1+10, 4+20, 12+30, 0+2)
         }
         {   // mod028 47ae40 battle colour pair: (128, 64, 255, 128) and (0, 1, 2, 3) widened by the CPU.
             constexpr uint32_t words[]={0x48a80800,0x48a91000,0x48aa1800,0x4be1093c,0x4be2113c,0x248309a0,0x4bc30858,0x4bc31098,0xf8610000,0xf8620010};

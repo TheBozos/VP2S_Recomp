@@ -12,6 +12,23 @@ The earlier VP2S face/shading and general brightness comparisons remain open.
 
 ## Build and evidence
 
+### Battle game-over object: row normalise, affine rows, spaced normalise (2026-11-23)
+
+Three more VU0 forms in mod001, met at frame 75120 while the party falls:
+- **Row normalise in place (5 copies: 224360, 224920, 224f18, 225168, 2254e0).** Each row of the 3x3 at a0 is scaled
+  by RSQRT of its own squared length, and w is kept.
+  - The sums follow the code's accumulator order: (x+y)+z for rows 0 and 1, (z+y)+x for row 2.
+  - The 25 words are contiguous, so the rows are made at the first store. `nativeRowNormalise`.
+- **`rows4one` macro idiom (2234f8, 2249bc).** `rows4` with MADDw taking vf0.w (1), not the point's w.
+- **Spaced normalise (224a90..224b08).** obj+240 is normalised to obj+250. Ten CPU words that do not touch it stand
+  between the load and the squares (more than the idioms allow), so the load is held per call frame.
+  `nativeSpacedNormalise`.
+- **Tests:** `vp2s-bozo-math-records` covers exact values, no write before the store, the copy at 2254e0, a store
+  without its load, and the overlay refusal.
+- **Evidence:** the run reaches mod001 295f90. That is the +c prepare `295f20` of a second particle emitter class
+  (vtables 1563f0 / 156500), the sibling of 154810's prepare 2451d0. Its step, 295580 (+18), has about 450 COP2
+  words.
+
 ### Battle: the visibility pass's own-camera switch, and parts no extractor opens (2026-11-23)
 
 - **Frame 75120, mod001 220918 / 220978 (visibility).** An object whose +80 → +94 names a camera of its own

@@ -5,14 +5,14 @@
 # VP2S_Recomp
 
 **A native Windows port of *Valkyrie Profile 2: Silmeria*, made by statically recompiling the game's PlayStation 2 code to C++.**<br>
-The game's own MIPS R5900 code, rebuilt as a Windows program, drawing and playing sound natively: no GS, no VU1 and no SPU2 emulation on the default path.
+The game's own MIPS R5900 and IOP code, rebuilt as a Windows program, drawing natively: no GS, no VU0 or VU1 microcode, and no SPU2 emulation.
 
 ![Platform](https://img.shields.io/badge/platform-Windows-1b8cff)
-![Compiler](https://img.shields.io/badge/compiler-MSVC-1b8cff)
+![Engine](https://img.shields.io/badge/engine-BozoEngine-17a35b)
 ![Based on](https://img.shields.io/badge/based%20on-PS2Recomp-17a35b)
 ![Disc](https://img.shields.io/badge/disc-SLUS--21452%20(USA)-8a2be2)
-![Renderer](https://img.shields.io/badge/renderer-native%20OpenGL-17a35b)
-![Status](https://img.shields.io/badge/status-playable%20%28chapter%201%29-e3a21a)
+![Renderer](https://img.shields.io/badge/renderer-native-17a35b)
+![Status](https://img.shields.io/badge/status-in%20development-e3a21a)
 
 </div>
 
@@ -23,100 +23,116 @@ The game's own MIPS R5900 code, rebuilt as a Windows program, drawing and playin
 > | Release | File | SHA-1 |
 > |---|---|---|
 > | USA (target) | `SLUS_214.52` | `0534bfe1a7e6877b4430f2221ea7ce614fea4afd` |
-> | PAL (former target, being dropped) | `SLES_546.45` | `541fa8d563b2834350fd0a635a4d3631574ad778` |
->
-> The European build tree still exists (`build/`), but new work is done and checked on the USA disc only.
+> | PAL (former target, dropped) | `SLES_546.45` | `541fa8d563b2834350fd0a635a4d3631574ad778` |
 
 ## Screenshots
 
-Captured from `vp2s.exe` (USA disc), native renderer.
+Captured from the BozoEngine runner (`vp2s-bozo-headless`, USA disc) at the game's own 576 × 416 frame, shown at 4:3.
 
 | | |
 |:---:|:---:|
 | ![Title screen](docs/screenshots/title.jpg) | ![Logun](docs/screenshots/logun.jpg) |
-| Title screen (animated sky, matched against PCSX2) | The port town of Logun |
-| ![Camp menu](docs/screenshots/camp_menu.jpg) | ![Settings](docs/screenshots/settings.jpg) |
-| Camp menu | Settings |
-| ![Data menu](docs/screenshots/data_menu.jpg) | |
-| Load game (data menu) | |
+| Title screen | The port town of Logun |
+| ![Event scene](docs/screenshots/event.jpg) | ![Solde](docs/screenshots/solde.jpg) |
+| An event scene: Alicia | The town of Solde |
+| ![Camp menu](docs/screenshots/camp_menu.jpg) | ![Lost Forest](docs/screenshots/lost_forest.jpg) |
+| Camp menu | The Lost Forest: photons and the minimap |
+
+### Battle
+
+| | |
+|:---:|:---:|
+| ![Battle intro](docs/screenshots/battle_intro.jpg) | ![Battle](docs/screenshots/battle.jpg) |
+| The Ballistic Rhino appears | Movement mode: party HUD, target and minimap |
+| ![Attack](docs/screenshots/battle_attack.jpg) | ![Guard break](docs/screenshots/guard_break.jpg) |
+| An attack turn's hit effects | GUARD BREAK |
 
 ## Goal: a PC port, not an emulator
 
 The end state has **zero PS2 hardware emulation**. Only the game's own code runs: the recompiled EE code and its
 recompiled IOP modules. Everything that code produces goes to native PC paths: a renderer with its own targets and
 textures built from the game's data, an audio mixer on the PC's clock, and frames paced by the host with the real frame
-time. No GS (VRAM, swizzling, CLUTs), no VU1 microcode, no VIF/GIF packets, no SPU2.
+time. No GS (VRAM, swizzling, CLUTs), no VU microcode, no VIF/GIF packets, no SPU2.
 
-Emulated code is never the default: where a native path is still wrong, the native path gets fixed. The old GS path
-stays only behind a comparison switch (`VP2S_GS=1`). The reference for how things should look and sound is the real
-game on [PCSX2](https://pcsx2.net/), compared screen by screen (zone averages, and PCSX2 GS dumps to read the exact draw
-order when a screen differs).
+Emulation is never the fix: where a native path is wrong, the native path gets fixed. Every VU0 instruction the game
+runs is ported as the algorithm it computes (with the VU's own rounding), and an instruction that is not ported yet
+stops the run with its address instead of being emulated. The reference for how things should look and sound is the
+real game on [PCSX2](https://pcsx2.net/), compared screen by screen (and PCSX2 GS dumps to read the exact draw order
+when a screen differs).
 
 ## Status
 
-**Playable through the start of chapter 1** (the opening, the town of Logun, the battle tutorial and the first battles,
-menus, saving). The menus and the town are being compared against PCSX2 one screen at a time.
+The port has two runners. Work now goes into the second.
+
+| Runner | Base | State |
+|---|---|---|
+| `vp2s.exe` | [PS2Recomp](https://github.com/TheBozos/PS2Recomp) fork | Playable through the start of chapter 1. Frozen since early November 2026. |
+| `vp2s-bozo-headless` | [BozoEngine](https://github.com/TheBozos/BozoEngine) | Fully native, with no emulation fallback at all. It runs hidden from pad scripts and saved states, saving frames as PNG files; there is no game window or sound output yet. |
+
+**BozoEngine runner:**
 
 | | |
 |---|:---:|
-| Main ELF and the overlay modules recompiled to C++ (the battle modules from the game's encrypted archives too) | ✅ |
-| The game's ten IOP modules recompiled to C++ (none interpreted) | ✅ |
-| **No GS by default** (`PS2X_GS_RENDERER=none`): GIF packets are neither drawn nor kept | ✅ |
-| **No VU1 and no VIF1 processing**: the game's VIF1 chains end unprocessed, nothing runs on VU1 | ✅ |
-| Models drawn natively from the game's model records (bones, lighting, materials, texture scrolling) | ✅ |
-| Textures from the game's texture keys and an offline conversion of your disc | ✅ |
-| Interface (menus, text, sprites, panels) drawn natively from the game's layout objects | ✅ |
-| Post effects natively from the game's parameters: depth of field, the brightness pass, aerial perspective | ✅ |
-| Movies decoded natively (FFmpeg), their sound streamed straight to the mixer | ✅ |
-| **Native audio**: the game's sound library taken over at its API, mixed on the PC's clock (no SPU2) | ✅ |
-| Frame loop on the PC's clock, real frame time | ✅ |
-| Title screen, load / data menu, settings: matched against PCSX2 | ✅ |
-| Logun: town and camp menu match; the pause screen loses the town (being fixed) | 🔧 |
-| Battle HUD on the USA disc (one battle module, mod027, still to capture) | 🔧 |
+| Main ELF and 23 overlay modules recompiled, including the battle modules (from the game's encrypted archives, or captured at load) | ✅ |
+| The game's IOP modules (DBC manager, controller, sound device library, CSM, CSD, CSI) recompiled from their `.irx` files | ✅ |
+| No GS, VIF or VU1: models, interface, particles, shadows and post effects drawn natively from the game's records | ✅ |
+| VU0 code replaced by native algorithms; an unported site stops the run with its address | ✅ |
+| Movies decoded natively; music decoded natively from the game's own buffers | ✅ |
+| Boot, opening movies, title screen | ✅ |
+| Logun's harbour, the town of Solde: streets, houses, camp menu | ✅ |
+| Leaving town, the world map, the Lost Forest (haze, particles, minimap) | ✅ |
+| First battle (Ballistic Rhino, started with the `--battle` debug launcher): HUD, attack turns, effects, 16 000+ frames with no unported site | 🔧 |
+| Game window, live input and sound output | ⏳ |
 | Rest of the game | ⏳ |
-| Widescreen, higher internal resolution, frame rate options | ⏳ |
 
 ✅ works · 🔧 in progress · ⏳ not reached yet
 
-[docs/RECOMPILER.md](docs/RECOMPILER.md) records every fix and how it was found; [docs/vp2_models.md](docs/vp2_models.md)
-and [docs/vp2_dof.md](docs/vp2_dof.md) document the model format and the post effects as the port reads them;
-[docs/AUDIT.md](docs/AUDIT.md) is the initial feasibility audit (disc layout, modules, compression and encryption).
+These documents record the work:
+- [docs/BOZO_MIGRATION.md](docs/BOZO_MIGRATION.md) is the BozoEngine port's log, newest first: every native algorithm with its evidence.
+- [docs/RECOMPILER.md](docs/RECOMPILER.md) is the PS2Recomp-era log.
+- [docs/vp2_models.md](docs/vp2_models.md) and [docs/vp2_dof.md](docs/vp2_dof.md) document the model format and the post effects.
+- [docs/AUDIT.md](docs/AUDIT.md) is the initial feasibility audit: disc layout, modules, compression and encryption.
 
 ## How it works
 
 ```
-your disc ──► tools/extract.py ──► main ELF + overlay modules (decrypted, decompressed) + the game's asset files
+your disc ──► tools/extract.py ──► main ELF + overlay modules (decrypted, decompressed) + IOP modules + asset files
                     │                          │
-                    │   Ghidra (EE) + find_entry_points.py ──► function maps ──► ps2_recomp ──► C++
-                    │                                                                         │
-                    └─► offline conversions (textures, meshes, archives) ──┐                  │
-                                                                           ▼                  ▼
-                         PS2Recomp runtime (EE kernel HLE, DMAC, IOP) + native renderer / mixer ──► vp2s.exe
+                    │                          ├─► BozoEngine's bozo-recomp (EE) and native_irx (IOP) ──► C++ ──┐
+                    │                          │                                                               │
+                    │                          └─► Ghidra + ps2_recomp (PS2Recomp, the older runner) ──► C++    │
+                    │                                                                                          ▼
+                    └─► offline conversions (textures, meshes, glyphs, music tables) ──► BozoEngine runtime + bozo/ ──► vp2s-bozo-headless
 ```
 
 - Most of the game's code is loaded at run time as overlay modules, stored encrypted (SLE) and compressed (SLZ).
   `tools/extract.py` unpacks them; `tools/vp2_archives.py` opens the encrypted `p@Ck` archives, where the battle modules
-  live. Modules met at run time that no archive holds are saved the first time the game loads them
-  (`<build>/captured_modules/`, never committed) and recompiled by the next build.
-- Ghidra (with the Emotion Engine extension) maps the functions; PS2Recomp turns each one into C++. Overlay calls are
-  dispatched by slot, so a module's code runs only while it is resident.
-- `port/` links the generated code with the runtime into `vp2s.exe` and hooks the game where it builds its draws: the
-  model, interface and post-effect objects are read from the game's own memory and drawn natively.
+  live. Modules that no archive holds are saved the first time the game loads them (`<build>/captured_modules/`, never
+  committed) and recompiled by the next build.
+- `tools/vp2_bozo.py` prepares the images, has BozoEngine recompile each module to C++, and builds the runner. Each
+  remaining COP2 (VU0) instruction is compiled as a guarded native site. `bozo/` holds the port's native side:
+  - the VU0 algorithms (`native_math.cpp`, `native_random.cpp`, ...);
+  - the kernel bindings;
+  - the readers that turn the game's model, interface, particle and effect records into native draws.
 - The game's textures and meshes are converted once, offline, from your disc (`tools/vp2_textures.py`,
-  `tools/vp2_meshes.py`); the running game is matched to them by the keys it passes its own loaders.
+  `tools/vp2_meshes.py`, then `tools/vp2_bozo_meshes.py`). The running game is matched to them by the keys it passes its
+  own loaders.
 
-The PS2Recomp fork lives in `external/PS2Recomp` (git submodule, [TheBozos/PS2Recomp](https://github.com/TheBozos/PS2Recomp),
-branch `native/gs-backend`): the native renderer, the native mixer and most runtime fixes land there and are shared
-with the team's other ports.
+The engine lives in `external/BozoEngine` (git submodule, [TheBozos/BozoEngine](https://github.com/TheBozos/BozoEngine)),
+shared with the team's other ports. The older runner's PS2Recomp fork is still in `external/PS2Recomp`.
 
 ## Requirements
 
 - Windows 10 or 11, Python 3.10 or later
-- Visual Studio 2022 Build Tools ("Desktop development with C++": MSVC, CMake, Ninja), found with `vswhere` or `VP2S_VS_DIR`
-- Ghidra (`GHIDRA_INSTALL_DIR`) and the Emotion Engine extension zip for that Ghidra version (`VP2S_GHIDRA_EE_ZIP`)
 - Your own disc image of `SLUS-21452` (check the hash above)
 - The 16-byte SLE key, in `VP2S_SLE_KEY` or `<build>/sle_key.txt` (32 hex digits). It is not distributed: the game
   computes it at boot; see `load_sle_key` in `tools/slz.py`.
+- For the BozoEngine runner:
+  - MSYS2 UCRT64 (`C:\msys64\ucrt64`: g++, CMake, Ninja);
+  - an FFmpeg development tree (`BOZO_FFMPEG_ROOT` or `--ffmpeg`).
+- For the extraction pipeline and the older runner:
+  - Visual Studio 2022 Build Tools ("Desktop development with C++": MSVC, CMake, Ninja);
+  - Ghidra (`GHIDRA_INSTALL_DIR`) with the Emotion Engine extension zip (`VP2S_GHIDRA_EE_ZIP`).
 
 ## Build
 
@@ -127,12 +143,13 @@ $env:VP2S_BUILD = "build_usa"; $env:VP2S_ISO = "Valkyrie Profile 2 - Silmeria (U
 python tools/pipeline.py
 ```
 
-`VP2S_BUILD` picks the build tree (`build` by default, the European one), `VP2S_ISO` the disc image (else the first
-`.iso` in the project root). The pipeline runs `extract`, `wrap`, `ghidra`, `tool`, `sdk`, `entries`, `recomp`, `vu`,
-`report`, `port`, `test`; each stage skips work whose outputs are up to date (`--only <stage>`, `--from <stage>`,
-`--force`, `--inputs main,mod003`). The first full build takes a while: the recompiled code is several hundred MB of C++.
+The pipeline extracts the disc and builds the older runner:
+- `VP2S_BUILD` picks the build tree;
+- `VP2S_ISO` picks the disc image (else the first `.iso` in the project root);
+- the stages are `extract`, `wrap`, `ghidra`, `tool`, `sdk`, `entries`, `recomp`, `vu`, `report`, `port`, `test`;
+- each stage skips work whose outputs are up to date (`--only <stage>`, `--from <stage>`, `--force`).
 
-Then the offline conversions, once (they read the asset files `extract.py --assets` wrote):
+Then run the offline conversions, once (they read the asset files `extract.py --assets` wrote):
 
 ```powershell
 python tools/vp2_archives.py "<disc image>" --out build_usa/extract/assets
@@ -141,22 +158,47 @@ python tools/vp2_textures.py --assets build_usa/extract/assets --index build_usa
 python tools/vp2_meshes.py --assets build_usa/extract/assets --out build_usa/vp2_meshes
 ```
 
-The current mesh format is VPM3. Regenerate older VPM2 packs with the mesh command
-above: editable vertex offsets are now converted offline, and the runtime no
-longer interprets VIF commands to locate animated vertices.
+Then the BozoEngine runner:
 
-The port build also runs `tools/vp2_music.py` to compile the streamed-music DSP and
-convert its tables offline from the USA ELF. Its default decoder reads the game's
-coefficient/history buffers directly; it does not process music VIF1 chains.
-The IOP service and other hardware dependencies remain; see [music](docs/vp2_music.md).
+```powershell
+python tools/vp2_bozo.py --stage build --jobs 4
+```
 
-Startup key derivation also uses the game's seed directly, with constants
-converted offline by `tools/vp2_bootstrap.py`; its default path skips the VIF0
-upload and VU0 execution. Other VU0/IOP work remains; see [VU0](docs/vp2_vu0.md).
+This builds the engine's tools and generates the C++ for main and the 23 overlay modules (`--inputs`). It also
+converts particle materials, meshes, glyphs and music tables into `build_usa/bozo`, then builds
+`build_usa/bozo_port/vp2s-bozo-headless.exe` and runs its 95 unit checks (`ctest`). `--stage generate` stops after the
+generated code. After changing only `bozo/` sources, `cmake --build build_usa/bozo_port` is enough.
 
 [tools/README.md](tools/README.md) documents every stage and tool.
 
 ## Run
+
+### BozoEngine runner
+
+```powershell
+build_usa\bozo_port\vp2s-bozo-headless.exe --iso "Valkyrie Profile 2 - Silmeria (USA).iso" --frames 40000 `
+    --pad-script tools\pad_scripts\bozo_logun_armory.txt --capture shots\c.png
+```
+
+The runner has no window or live input yet. It plays the game for `--frames` frames from a pad script and saves the
+frames it draws. A site the port has not made native yet ends the run with its address, the function it is in, and
+the CPU registers.
+
+| Option | Effect |
+|---|---|
+| `--iso <file>` | Your USA disc image (required) |
+| `--frames <n>` | Frames to run |
+| `--pad-script <file>` | Button presses as `frame:BUTTON/frames,…`; `tools/pad_scripts/` has the boot-to-Logun-to-forest route and a battle |
+| `--capture <file.png>` | Save frames as `<file>_<frame>.png`; `VP2S_BOZO_CAPTURE_FROM` and `VP2S_BOZO_CAPTURE_EVERY` choose which ones |
+| `--save-state <file> --save-state-at <frame>`, `--load-state <file>` | Save the whole machine at a frame, and start from it later |
+| `--card-dir <dir>` | Memory cards in a folder. Without it, the cards are fresh, formatted and kept in memory, so your saves are never opened |
+| `--warp <map>[,x,y,z[,facing[,entry]]]` | Debug: the next event-script step changes to that map |
+| `--battle <id>[,stage[,flags]]` | Debug: the next event-script step starts that battle (event op 0x38) |
+
+`VP2S_BOZO_SEED` fixes the game's random seed, so runs repeat frame for frame. `VP2S_BOZO_BOUNDARY_RAM=<file>` saves
+EE memory when a run stops at an unported site.
+
+### Older runner (`vp2s.exe`)
 
 ```powershell
 build_usa\port\vp2s.exe build_usa\extract\iso\SLUS_214.52
@@ -165,7 +207,7 @@ build_usa\port\vp2s.exe build_usa\extract\iso\SLUS_214.52
 or set `[game] elf` in `vp2s.ini` and start `vp2s.exe` alone. The disc image is found through `VP2S_ISO`, or by
 searching upward from the ELF's folder (an image named `(USA)` first).
 
-### Settings: `vp2s.ini`
+#### Settings: `vp2s.ini`
 
 Written next to `vp2s.exe`, with comments, the first time it starts. An environment variable with the same meaning wins
 over the file, so test scripts and diagnostics keep working.
@@ -180,7 +222,7 @@ over the file, so test scripts and diagnostics keep working.
 | `[input]` | `start_analog` | The pad starts in analog mode (the party moves with the left stick in battles) |
 | `[env]` | `NAME = value` | Any other runtime variable (testing, diagnostics) |
 
-### Controls
+#### Controls
 
 A controller is used when one is connected; otherwise the keyboard (US key positions):
 
@@ -223,22 +265,25 @@ In the field, Start pauses and Select opens the camp menu.
 
 ## Known issues
 
-- **Pause screen in the field:** the town disappears behind the pause title (the game re-sends the town's prebuilt
-  packets while paused, which the native path does not see yet); its blur and the PAUSE title are missing too.
-- **Town look:** compared with PCSX2, the far distance is not blurred and the picture is a little brighter.
-- **Battle HUD:** one battle module (mod027) is in no archive on the USA disc and has to be captured at the first battle.
-- **European build:** kept for reference; its converted meshes need converting again after the USA-era format change.
+- **BozoEngine runner:** no game window, live input or sound output yet. Battles are reached only with the `--battle`
+  debug launcher, not by playing into one. A scene the route has not visited may stop at a site that is not native yet.
+- **Field pause (BozoEngine runner):** the PAUSE screen's background is black; the game shows the frozen scene behind it.
+- **Older runner:** frozen in early November 2026. Its field pause screen loses the town, and Logun's far distance
+  is less blurred and a little brighter than on PCSX2.
 
 ## Repository layout
 
 | Path | Contents |
 |---|---|
-| `tools/` | Pipeline, disc extractor, ELF wrapper, SLZ/SLE library, entry-point finder, archive / texture / mesh converters, `region_map.py` (EU to USA addresses) |
-| `port/` | Native front end: entry point, settings, game overrides, native models / interface / textures, diagnostics; `port/app/` the window's icon |
+| `tools/` | Pipelines (`pipeline.py`, `vp2_bozo.py`), disc extractor, SLZ/SLE library, archive / texture / mesh / glyph converters, pad scripts |
+| `bozo/` | The BozoEngine runner: entry point, kernel bindings, native VU0 algorithms, native models / interface / particles / effects |
+| `tests/` | The runner's unit checks (`vp2s-bozo-*-check`): each native algorithm against a VU0 reference or recorded game values |
+| `port/` | The older runner's front end (PS2Recomp): entry point, settings, game overrides, native models / interface / textures; `port/app/` the window's icon |
 | `ghidra_scripts/` | Headless Ghidra scripts |
 | `scripts/` | One-off analysis and check scripts |
-| `docs/` | Recompilation log, model and post-effect notes, feasibility audit; `docs/branding/` the logo and banner |
-| `external/PS2Recomp` | PS2Recomp fork (submodule) |
+| `docs/` | BozoEngine port log, recompilation log, model and post-effect notes, feasibility audit; `docs/branding/` the logo and banner |
+| `external/BozoEngine` | BozoEngine (submodule): recompiler, IOP recompiler, runtime, renderer |
+| `external/PS2Recomp` | PS2Recomp fork (submodule), for the older runner |
 
 Everything derived from the game (`build*/`, `extracted/`, `out/`, `work/`, `ghidra/`, disc images) is git-ignored.
 Never commit or redistribute it.
@@ -250,7 +295,8 @@ vp2s` (the generator comes from TMB_Recomp). No game art.
 ## Credits
 
 - [The Bozos](https://github.com/TheBozos) (boubou666, Arzaroth): this port, and the team's other PS2 recompilations it shares its fork with.
-- [PS2Recomp](https://github.com/ran-j/PS2Recomp) by ran-j and contributors (GPL), the recompiler and runtime this port is built on.
-- The Drakengard recompilation and the team's other ports (TMB, JC2, TTA), developed alongside this port on the same PS2Recomp fork; many runtime fixes are shared.
+- [BozoEngine](https://github.com/TheBozos/BozoEngine), The Bozos' recompiler and native runtime, which the port now runs on.
+- [PS2Recomp](https://github.com/ran-j/PS2Recomp) by ran-j and contributors (GPL), the recompiler and runtime the port was first built on.
+- The Drakengard recompilation and the team's other ports (TMB, JC2, TTA), developed alongside this port on the same engines; many runtime fixes are shared.
 - [PCSX2](https://pcsx2.net/), the reference every screen is compared against.
 - *Valkyrie Profile 2: Silmeria* © tri-Ace / Square Enix. This is an unofficial fan project, not affiliated with or endorsed by them.

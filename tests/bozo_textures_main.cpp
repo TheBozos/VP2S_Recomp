@@ -102,6 +102,19 @@ int main(int argc,char **argv){try{
         check(refused([&]{t.resolve(vp2s::TextureKey{0x31304d42,2},at(0xed10d830,0x12dd00));}));                    // another key's copy there
         check(refused([&]{vp2s::NativeTextures bad(dir,manifest("31304d42 1 c_00000000000000aa.tex\n31304d42 1 c_00000000000000bb.tex 00ed10d830_000 12dd00\n"));}));
         check(refused([&]{vp2s::NativeTextures bad(dir,manifest("31304d42 1 c_00000000000000bb.tex 00ed10d830_00 12dd00\n"));}));
+        // A model's texture (the manager's key and TEX0): a plain key loads as itself; a key whose copies
+        // differ is the copy published at TEX0's pixel block, with the palette at its CBP.
+        check(t.modelImage(plain,0)->key==plain);
+        const uint64_t tex0=0x3a40|uint64_t(0x3a80)<<37;
+        check(refused([&]{t.modelImage(bm,tex0);}));                                       // nothing at block 3a40
+        check(t.modelImage(bm,tex0,std::pair{uint64_t(0xed1f0030),0u})->key==b);           // the copy in the mesh's own part
+        check(t.modelImage(bm,tex0,std::pair{uint64_t(0xed10d830),0u})->key==a);
+        check(refused([&]{t.modelImage(bm,tex0,std::pair{uint64_t(0xed10d831),0u});}));    // no copy there, nothing at the block
+        t.publishBlock(0x3a40,false,b);t.publishBlock(0x3a80,true,a);
+        check(refused([&]{t.modelImage(bm,0x3a40|uint64_t(0x3b00)<<37);}));               // no palette at its CBP
+        check(refused([&]{t.modelImage(vp2s::TextureKey{0x31304d42,2},tex0);}));          // another key's copy there
+        const auto image=t.modelImage(bm,tex0);
+        check(image->key==b && image->texels[0]==3 && image->palette==t.load(a)->palette && t.modelImage(bm,tex0)==image);
         fs::remove_all(dir);
     }
     Host oldHost(argv[1]),newHost(argv[1]);oldHost.original=true;

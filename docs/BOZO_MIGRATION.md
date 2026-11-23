@@ -12,6 +12,26 @@ The earlier VP2S face/shading and general brightness comparisons remain open.
 
 ## Build and evidence
 
+### Battle: textures with differing disc copies, and the target direction 49e1b0 (2026-11-23)
+
+New scenario: `attack5` is `attack4` to frame 74000, then walk up to the rhino and attack every 180 frames. It
+starts from a state saved at 74000, so each retry skips 10 600 frames.
+
+- **Frame 74880, model texture 'vp18' 1a5.** The texture manager named it plainly, but the disc has 58 copies:
+  57 field `.lctp` copies convert alike, and one battle `.pack` copy differs. So the key has no plain conversion.
+  - **Native:** `NativeTextures::modelImage` resolves such a key in two steps: first the copy in the drawn mesh's
+    own decoded part (the pack the model came from); else the image the battle loader published at the entry's
+    TEX0 pixel block, with its CBP palette, when that image is this key's copy.
+  - **Test:** `vp2s-bozo-texture-publication` checks the plain key, the copy in the mesh's part, the block fallback,
+    a missing palette, and another key's copy.
+- **Frame 74880, mod028 49e1b0 (battle target direction).** The block computes `normalize(*s0 - *s7)`.xyz with the
+  usual ADDA/MADD squares and RSQRT. It keeps w from `*s7` and stores to sp+c0 (v1).
+  - Nothing in the block writes memory or s0/s7, so the result is made at the store.
+  - The function has no other COP2 code.
+  - **Test:** `vp2s-bozo-math-records` checks (0,3,4) → (0, 0.6, 0.8), that nothing is written before the store,
+    and the overlay refusal.
+- **Evidence:** the run passes both and reaches frame 75120. The next boundary is main 220918.
+
 ### A window to play in: `vp2s-bozo --window` (2026-11-23)
 
 The runner was a test harness only. `vp2s-bozo` is the same program built with the engine's real-time layer

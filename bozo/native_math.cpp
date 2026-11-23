@@ -1870,6 +1870,29 @@ bool nativeBattleNormalise(R5900Context *c,Runtime *rt,uint32_t pc){
     uint32_t f=0;const auto q=bozo::ps2f::rsqrt(one,sum,f);uint32_t out[4];for(unsigned i=0;i<4;++i)out[i]=vuMul(v[i],q);
     std::memcpy(record(rt,c->r[site->store].uw[0],16),out,16);states.erase(it);return true;
 }
+// Battle target direction, mod028 49e1b0 (frame 74880; ps2f, nearest): LQC2 vf1 = A (*s7),
+// vf2 = B (*s0); vf31.xyz = 1 (ADDw); vf1.xyz = B - A; vf10.xyz = vf1 * vf1; ACC.x = x + y;
+// vf10.x = ACC.x + 1*z; Q = RSQRT(1, vf10.x); vf1.xyz *= Q; SQC2 vf1 to v1 (sp+c0, set by the
+// compiled addiu at 49e3c8). The w lane stays A's. Nothing in between writes memory or s0/s7, so
+// the result is made at the store; the function has no other COP2 code and its callers read
+// only sp+c0's vector, so the VU registers it leaves are not kept.
+bool nativeTargetDirection(R5900Context *c,Runtime *rt,uint32_t pc){
+    static constexpr uint32_t words[]={0xdae10000,0xda020000,0x4bc007c3,0x4bc1106c,0x4bc10aaa,0x4b0a503d,0x4b0afa8a,0x4a6a03be,0x4a0003bf,0x4bc0085c,0,0xf8610000};
+    if(pc<0x49e3a0 || pc>0x49e3cc || (pc&3) || !rt)return false;
+    const auto expected=words[(pc-0x49e3a0)/4];
+    if(!expected)return false;   // the addiu: compiled
+    uint32_t word=0;if(const auto *p=rt->memory.hostPointer(pc,4))std::memcpy(&word,p,4);
+    if(word!=expected)return false;   // another overlay at these addresses
+    if(!c)throw std::runtime_error("native battle target direction has no CPU record");
+    if(pc!=0x49e3cc)return true;
+    uint32_t a[4],b[4];std::memcpy(a,record(rt,c->r[23].uw[0]&~15u,16),16);std::memcpy(b,record(rt,c->r[16].uw[0]&~15u,16),16);
+    constexpr uint32_t one=0x3f800000u;uint32_t d[4],sq[3];
+    for(unsigned i=0;i<3;++i){d[i]=vuSub(b[i],a[i]);sq[i]=vuMul(d[i],d[i]);}
+    const auto sum=vuAdd(vuAdd(sq[0],sq[1]),vuMul(one,sq[2]));
+    uint32_t f=0;const auto q=bozo::ps2f::rsqrt(one,sum,f);
+    uint32_t out[4]={vuMul(d[0],q),vuMul(d[1],q),vuMul(d[2],q),a[3]};
+    std::memcpy(record(rt,c->r[3].uw[0]&~15u,16),out,16);return true;
+}
 // Battle side axes, mod028 3e9470 (two blocks; ps2f, nearest). Block 1 (3e9764..3e97bc):
 // LQC2 vf1 = a (sp+170), vf2 = b (sp+180), vf28 = P0 (sp+1a0), vf27 = P (sp+160);
 // vf25.xyz = 1 (ADDw vf0); d = P - P0 (xyz); ACC.x = d.x^2 + d.y^2; s = ACC + 1*d.z^2;
@@ -5096,6 +5119,7 @@ bool nativeMathInstruction(uint8_t *,R5900Context *c,Runtime *rt,uint32_t pc){
     if(nativeBattleApproach(c,rt,pc))return true;
     if(nativeBattleSegmentEnds(c,rt,pc))return true;
     if(nativeBattleNormalise(c,rt,pc))return true;
+    if(nativeTargetDirection(c,rt,pc))return true;
     if(nativeBattleSideAxes(c,rt,pc))return true;
     if(nativeBattleGroundPlane(c,rt,pc))return true;
     if(nativeBattleColourPair(c,rt,pc))return true;

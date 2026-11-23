@@ -460,7 +460,12 @@ NativeModelSubmission NativeModels::capture(Runtime *rt,NativeAssets &assets,Nat
                 if(!image || image->mode!=1 || image->width!=512 || image->height!=512 || ((lo>>26)&15)!=9 || ((lo>>30)|(hi&3)<<2)!=9 || word(block+0x9c))
                     throw std::runtime_error("native mesh samples the screen feedback picture without its current 512 x 512 image");
                 mat.fromFrame=1;mat.source=5;feedbackTexture=true;}
-            else batch.texture=textures.load(key)->picture(word(block+0x9c));}
+            else{
+                // A texture whose disc copies differ ('vp18' 1a5, battle frame 74880): the copy in the mesh's
+                // own pack, else the one the battle loader published at the entry's TEX0 blocks.
+                const uint64_t tex0=word(manager+0x1010+16*index)|uint64_t(word(manager+0x1014+16*index))<<32;
+                const auto meshPart=origin && origin->kind==AssetOrigin::Kind::Part?std::optional(std::pair{origin->disc,origin->part}):std::nullopt;
+                batch.texture=textures.modelImage(key,tex0,meshPart)->picture(word(block+0x9c));}}
         mat.textured=bool(batch.texture);
         // The GS draws an untextured vertex colour as it is (0..255), not as 0x80 = 1
         // modulation: the inn's save-point light column (3e/3f/61) was twice as bright.

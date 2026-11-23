@@ -910,6 +910,22 @@ int main(int argc,char **argv){try{
             {const auto x=getv(stack+0xc0),y=getv(stack+0xd0);   // (1,0,0) x (1,0,0) = 0; (0,1,0) x (1,0,0) = (0,0,-1)
              check(x[0]==0 && x[1]==0 && x[2]==0 && x[3]==5 && y[0]==0 && y[1]==0 && y[2]==-1 && y[3]==6);}
         }
+        {   // mod028 49e1b0 battle target direction (frame 74880): normalize(*s0 - *s7).xyz, w of *s7, to v1.
+            constexpr uint32_t block[]={0xdae10000,0xda020000,0x4bc007c3,0x4bc1106c,0x4bc10aaa,0x4b0a503d,0x4b0afa8a,0x4a6a03be,0x4a0003bf,0x4bc0085c,0x27a300c0,0xf8610000};
+            std::memcpy(rt.memory.hostPointer(0x49e3a0,sizeof(block)),block,sizeof(block));
+            constexpr uint32_t stack=0x1fff000,a=0x1b0000,b=0x1b0010;
+            const auto putv=[&](uint32_t at,std::array<float,4> v){std::memcpy(rt.memory.hostPointer(at,16),v.data(),16);};
+            const auto getv=[&](uint32_t at){std::array<float,4> v;std::memcpy(v.data(),rt.memory.hostPointer(at,16),16);return v;};
+            putv(a,{1,2,3,9});putv(b,{1,5,7,4});putv(stack+0xc0,{8,8,8,8});   // B - A = (0,3,4): length 5
+            R5900Context c{};c.r[29].uw[0]=stack;c.r[23].uw[0]=a;c.r[16].uw[0]=b;
+            for(unsigned i=0;i<std::size(block);++i){const uint32_t pc=0x49e3a0+4*i;
+                if(pc==0x49e3cc)c.r[3].uw[0]=stack+0xc0;
+                check(vp2s::nativeMathInstruction(rt.memory.flat(),&c,&rt,pc)==(pc!=0x49e3c8));
+                if(pc<0x49e3cc){const auto v=getv(stack+0xc0);check(v[0]==8 && v[3]==8);}}   // nothing before the store
+            {const auto v=getv(stack+0xc0);check(v[0]==0 && v[1]==0.6f && v[2]==0.8f && v[3]==9);}
+            const auto saved=getv(stack+0xc0);std::memcpy(rt.memory.hostPointer(0x49e3cc,4),"\0\0\0\0",4);   // another overlay there
+            check(!vp2s::nativeMathInstruction(rt.memory.flat(),&c,&rt,0x49e3cc) && getv(stack+0xc0)==saved);
+        }
         {   // mod028 481260 corner crosses: axes from the object once, per corner n = normalize(P - sp+50); a x n, b x n to scratchpad (xyz only).
             constexpr uint32_t axes[]={0xd8410000,0xd8420010};
             constexpr uint32_t corner[]={0xd89a0000,0xd91b0000,0x4bc007c3,0x4bdadeac,0x4bdad6ea,0x4b1bd83d,0x4b1bfeca,0x4a7b03be,0x4a0003bf,0x4bc0d69c,

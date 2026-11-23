@@ -79,6 +79,11 @@ public:
     // palette published under the palette block. When the palette comes from another file (a
     // palette-only colour variant), the pixels' indices with that palette (built once).
     std::shared_ptr<const NativeTextureAsset> blockImage(uint32_t pixels,uint32_t palette);
+    // A model's texture, named by the texture manager's key and TEX0. A key converted alike in
+    // every disc copy loads as itself. A key with differing copies is the copy in the drawn mesh's
+    // own decoded part (`meshPart`: disc, part), when that part holds one; else the battle image the
+    // game published at TEX0's pixel block (TBP0), with the palette at its CBP, when it is this key's.
+    std::shared_ptr<const NativeTextureAsset> modelImage(TextureKey key,uint64_t tex0,std::optional<std::pair<uint64_t,uint32_t>> meshPart={});
     // Saved apart, at the end of VP2S's section: states older than these records end before them.
     void serializeBlocks(bozo::state::Archive &);
     void finish(uint32_t stack);

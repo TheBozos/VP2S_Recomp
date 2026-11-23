@@ -147,6 +147,25 @@ std::shared_ptr<const NativeTextureAsset> NativeTextures::blockImage(uint32_t pi
         slot=std::move(derived);}
     return slot;
 }
+std::shared_ptr<const NativeTextureAsset> NativeTextures::modelImage(TextureKey key,uint64_t tex0,std::optional<std::pair<uint64_t,uint32_t>> meshPart){
+    if(files.contains(key))return load(key);
+    if(meshPart){
+        std::optional<TextureKey> found;
+        for(auto it=provenance.lower_bound({meshPart->first,meshPart->second,0u});it!=provenance.end() && std::get<0>(it->first)==meshPart->first && std::get<1>(it->first)==meshPart->second;++it){
+            if(it->second.tag!=key.tag || (it->second.index&0xffff)!=key.index)continue;
+            if(found && *found!=it->second)throw std::runtime_error(std::format("native texture {:08x}:{:x} has differing copies in mesh part {:010x}_{:03}",key.tag,key.index,meshPart->first,meshPart->second));
+            found=it->second;}
+        if(found)return load(*found);
+    }
+    const uint32_t pixelBlock=uint32_t(tex0)&0x3fff,paletteBlock=uint32_t(tex0>>37)&0x3fff;
+    const auto pixels=blockAsset(pixelBlock,false);
+    if(!pixels || pixels->key.tag!=key.tag || (pixels->key.index&0xffff)!=key.index)
+        throw std::runtime_error(std::format("native texture {:08x}:{:x} requires offline conversion/load provenance (no copy of it published at block {:x})",key.tag,key.index,pixelBlock));
+    if(pixels->format!=0x13 && pixels->format!=0x14)return pixels;
+    const auto colours=blockAsset(paletteBlock,true);
+    if(!colours)throw std::runtime_error(std::format("native texture {:08x}:{:x} at block {:x} has no palette published at {:x}",key.tag,key.index,pixelBlock,paletteBlock));
+    return blockImage(pixelBlock,paletteBlock);
+}
 std::shared_ptr<const NativeTextureAsset> NativeTextures::imageAsset(uint32_t object)const{
     auto it=images.find(object);return it==images.end()?nullptr:it->second;
 }

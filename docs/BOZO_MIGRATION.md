@@ -12,6 +12,31 @@ The earlier VP2S face/shading and general brightness comparisons remain open.
 
 ## Build and evidence
 
+### Battle HUD portraits: the party sheet the game composes in RAM (2026-11-23)
+
+In the attack HUD the party's portraits stand beside their buttons (Alicia by □, Rufus by ×). The port showed Alicia
+almost invisible and a garbled, stretched picture where Rufus should be.
+- **What the game does:** the battle composes one 256 x 64 8-bit sheet in RAM (FIS e37600 in battle 0x18). It copies
+  one portrait file's header (so the sheet carries Alicia's key 30327076:1e3), sets the pixel descriptor to 256 x 64
+  and writes each member's 64 x 64 indices into its own column. It uploads the sheet to block 2600 through the image
+  loader 36b4a0. Each member's palette is published apart (3fc0 Alicia, 3fc4 Rufus). The HUD draws each portrait as
+  a textured quad: TEX0 2600, PSMT8H, the member's CBP, ST over the member's column.
+- **What went wrong:** the publication at 36b5d8 resolved the file by its key alone, so block 2600 held Alicia's
+  offline 64 x 64 picture. Column 0 of that picture is mostly background (Alicia hidden), and column 1 is part of
+  her face through Rufus's palette (the garbled picture).
+- **Fix:** when the pixel descriptor's size differs from the keyed file's, the publication takes the game's own
+  indices from RAM (`NativeTextures::publishDerivedBlock`, 8-bit only). Save states keep such an image with its
+  texels (key tag `DERV`). The enemy target portrait at block 2700 (key 33337076:951) is composed the same way.
+
+**Evidence:**
+- **PCSX2:** I loaded the user's battle state (slot 2) with the virtual DS4, attacked, and took a GS dump. The
+  portrait quads and ours match exactly: (401.4, 288.8)-(444.6, 348.2) and (456.3, 317.1)-(499.4, 376.5), with the
+  same ST and CBPs.
+- **Port:** both portraits now show at their buttons, as in the user's reference screenshot.
+- **Tests:** full ctest 97/97; end RAM unchanged (battle 64100 0c9960c8d9f6, game over 77000 9df948c13063). The texture
+  test covers the composed sheet (wrong format, wrong size, null block), repaletting with
+  another block's palette, and the save-state round trip.
+
 ### Battles 0x19, 0x1a, 0x1b: new modules, particle routines, force field (2026-11-23)
 
 Launched from the forest state with `--battle 0x19/0x1a/0x1b` and the attack4 pad.

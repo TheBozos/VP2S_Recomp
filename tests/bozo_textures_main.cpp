@@ -219,6 +219,21 @@ int main(int argc,char **argv){try{
                 check(mixed && mixed!=pixels && mixed->texels==pixels->texels && mixed->palette==colours->palette && mixed->identity!=pixels->identity &&
                       t.blockImage(0x3a00,0x3a00)==mixed);}
             else rejects([&]{t.blockImage(0x3a00,0x3a00);}); }
+        // A sheet the game composes in RAM (the party portraits at 2600): its own 8-bit indices, a member's palette from
+        // another block, and saved with its texels (a key cannot load it back).
+        {   std::vector<uint8_t> sheet(256*64);for(size_t i=0;i<sheet.size();++i)sheet[i]=uint8_t(i*7);
+            rejects([&]{t.publishDerivedBlock(0,256,64,0x13,sheet);});rejects([&]{t.publishDerivedBlock(0x3c00,256,64,0x14,sheet);});
+            rejects([&]{t.publishDerivedBlock(0x3c00,128,64,0x13,sheet);});
+            t.publishDerivedBlock(0x3c00,256,64,0x13,sheet);const auto held=t.blockAsset(0x3c00,false);
+            check(held && held->key.tag==vp2s::NativeTextures::kDerivedTag && held->width==256 && held->height==64 && held->texels==sheet);
+            if(t.blockAsset(0x3a00,true)->format==0x13 || t.blockAsset(0x3a00,false)->format==0x13){
+                const auto mixed=t.blockImage(0x3c00,0x3a00);check(mixed && mixed->texels==sheet && mixed->palette==t.blockAsset(0x3a00,true)->palette);}
+            bozo::state::Archive out;t.serializeBlocks(out);
+            vp2s::NativeTextures &u=oldHost.textures;bozo::state::Archive in(out.data());u.serializeBlocks(in);
+            const auto back=u.blockAsset(0x3c00,false);
+            check(in.atEnd() && back && back!=held && back->key.tag==vp2s::NativeTextures::kDerivedTag && back->width==256 && back->height==64 && back->texels==sheet &&
+                  u.blockAsset(0x3a00,true)->key.index==2);
+        }
         // The game's deferred free (1205b0): ring of 0x400 pointers, write index +0, read index +4.
         auto &b=now.runtime();constexpr uint32_t list=0x1d3710;std::memset(b.memory.hostPointer(list,0x1008),0,0x1008);
         const auto word=[&](uint32_t at){uint32_t v;std::memcpy(&v,b.memory.hostPointer(at,4),4);return v;};

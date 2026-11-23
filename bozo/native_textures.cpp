@@ -134,6 +134,16 @@ void NativeTextures::publishBlock(uint32_t block,bool palette,TextureKey key){
     if(!block || block>=0x4000)throw std::runtime_error("native battle image block outside graphics memory");
     auto asset=load(key);(palette?blockPalettes:blockPixels)[block]=std::move(asset);++publications;
 }
+std::shared_ptr<const NativeTextureAsset> derivedAsset(uint32_t width,uint32_t height,uint32_t format,std::vector<uint8_t> texels){
+    if(!width || !height || width>1024 || height>1024 || format!=0x13 || texels.size()!=size_t(width)*height)
+        throw std::runtime_error("native derived battle image outside its admitted form");
+    auto asset=std::make_shared<NativeTextureAsset>();asset->key={NativeTextures::kDerivedTag,0};asset->identity=assetSerial.fetch_add(1);
+    asset->width=width;asset->height=height;asset->format=format;asset->texels=std::move(texels);return asset;
+}
+void NativeTextures::publishDerivedBlock(uint32_t block,uint32_t width,uint32_t height,uint32_t format,std::vector<uint8_t> texels){
+    if(!block || block>=0x4000)throw std::runtime_error("native battle image block outside graphics memory");
+    blockPixels[block]=derivedAsset(width,height,format,std::move(texels));++publications;
+}
 std::shared_ptr<const NativeTextureAsset> NativeTextures::blockAsset(uint32_t block,bool palette)const{
     const auto &m=palette?blockPalettes:blockPixels;auto it=m.find(block);return it==m.end()?nullptr:it->second;
 }
@@ -286,10 +296,26 @@ std::optional<bool> nativeBattleImageInstruction(R5900Context *c,Runtime *rt,uin
             throw std::runtime_error(std::format("native battle image {:x} is not a decoded FIS file (a derived image is unported)",fis));
         const auto key=fileKey(rt,assets->nativeAssets(),textures->nativeTextures(),fis);
         const auto pixels=c->r[20].uw[0]&0xffff,palette=c->r[19].uw[0]&0xffff;
-        if(pixels)textures->nativeTextures().publishBlock(pixels,false,key);
+        // The pixel descriptor D = FIS+10 + *(FIS+1c): width +0, height +2, format +c, section +8 (data
+        // after its 0x80-byte head). The party portrait sheet (battle frame ~63400) is composed in RAM:
+        // the battle copies one portrait file's header, sets D to 256 x 64 and writes each member's
+        // 64 x 64 indices into its own column (members' palettes are published apart, one per file).
+        // A descriptor that differs from the keyed file's size is such a sheet: its indices are the game's.
+        bool derived=false;
+        if(pixels){
+            const auto desc=fis+0x10+read<uint32_t>(rt,fis+0x1c);
+            const uint32_t width=read<uint16_t>(rt,desc),height=read<uint16_t>(rt,desc+2),format=read<uint8_t>(rt,desc+0xc);
+            const auto offline=textures->nativeTextures().load(key);
+            if(width!=offline->width || height!=offline->height){
+                if(format!=0x13 || offline->format!=0x13)throw std::runtime_error(std::format("native battle image {:x}: a composed {}x{} image of format {:x} is unported",fis,width,height,format));
+                const auto data=fis+0x10+read<uint32_t>(rt,desc+8)+0x80;const auto bytes=width*height;
+                std::vector<uint8_t> texels(bytes);std::memcpy(texels.data(),record(rt,data,bytes),bytes);
+                textures->nativeTextures().publishDerivedBlock(pixels,width,height,format,std::move(texels));derived=true;
+            }else textures->nativeTextures().publishBlock(pixels,false,key);
+        }
         if(palette)textures->nativeTextures().publishBlock(palette,true,key);
         if(std::getenv("VP2S_BOZO_TRACE_QUEUES"))
-            std::fprintf(stderr,"[vp2s:texture] battle image %x key=%08x:%x pixels=%x palette=%x\n",fis,key.tag,key.index,pixels,palette);
+            std::fprintf(stderr,"[vp2s:texture] battle image %x key=%08x:%x pixels=%x%s palette=%x\n",fis,key.tag,key.index,pixels,derived?" (composed in RAM)":"",palette);
         return false;
     }
     // A former enqueue: (queue, 1, 1, packet, 0, owner).
@@ -463,6 +489,12 @@ bool nativeTextureInstruction(uint8_t *,R5900Context *c,Runtime *rt,uint32_t pc)
 void stateAsset(bozo::state::Archive &a,NativeTextures &textures,std::shared_ptr<const NativeTextureAsset> &asset){
     bool has=asset!=nullptr;TextureKey key=has?asset->key:TextureKey{};   // before `has` is read back
     bozo::state::io(a,has);io(a,key);
+    if(has && key.tag==NativeTextures::kDerivedTag){   // composed in RAM by the game: saved with its texels
+        uint32_t width=has && !a.loading()?asset->width:0,height=!a.loading()?asset->height:0,format=!a.loading()?asset->format:0;
+        std::vector<uint8_t> texels;if(!a.loading())texels=asset->texels;
+        bozo::state::fields(a,width,height,format);bozo::state::io(a,texels);
+        if(a.loading())asset=derivedAsset(width,height,format,std::move(texels));
+        return;}
     if(a.loading())asset=has?textures.load(key):nullptr;
 }
 void NativeTextures::serialize(bozo::state::Archive &a){

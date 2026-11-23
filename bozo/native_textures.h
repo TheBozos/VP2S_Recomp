@@ -74,6 +74,11 @@ public:
     void publishMenuPage(uint16_t page,uint8_t format,uint16_t palette,TextureKey);
     std::shared_ptr<const NativeTextureAsset> menuPage(uint16_t page,uint8_t format,uint16_t palette)const;
     void publishBlock(uint32_t block,bool palette,TextureKey);
+    // A battle image the game composes in RAM (its FIS header copied from one file, its descriptor
+    // and pixels its own, e.g. the party portrait sheet): the indices as the game wrote them.
+    // Saved with its texels (key tag kDerivedTag); its palette is published apart.
+    static constexpr uint32_t kDerivedTag=0x56524544u;   // "DERV"
+    void publishDerivedBlock(uint32_t block,uint32_t width,uint32_t height,uint32_t format,std::vector<uint8_t> texels);
     std::shared_ptr<const NativeTextureAsset> blockAsset(uint32_t block,bool palette)const;
     // The image a TEX0 names by its blocks: the file published under the pixel block with the
     // palette published under the palette block. When the palette comes from another file (a

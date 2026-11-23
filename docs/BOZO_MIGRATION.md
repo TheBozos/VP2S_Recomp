@@ -12,6 +12,48 @@ The earlier VP2S face/shading and general brightness comparisons remain open.
 
 ## Build and evidence
 
+### Cheats (F2 > Cheats), and how VP2's anti-cheat guards the party (2026-11-23)
+
+**The anti-cheat.** The game stores protected values XOR'd with fixed keys, each under a checksum. A mismatch is
+treated as tampering: the code that reads the value marks the character fallen (flag 0x20), shows 0, or returns
+the 0x120 sentinel.
+- The checks are inlined in dozens of places (54 copies of the HP code in mod028 alone), not in one function.
+- So the cheats write values the way the game does, checksums included, rather than patching every check.
+
+**Party records.**
+- **Where:** persistent records at `[1d3694] + i*0x140` (`1d3688` is the game-data manager); battle copies at
+  `[*1d366c + cbcc]`, 4 slots, -1 outside battle.
+- **Encoded fields:**
+  - +08 base max HP `^ 358ff46b`, +0c max HP `^ 7db9fc97`, +10 HP `^ 1c6f7603`;
+  - +62 flags `^ a9c3`; +5a kind `^ 65` (party 1, enemy 2); +12e level `^ b9`.
+- **Checksums:**
+  - +18 = +1c ^ ((+10 + 0x1d9) ^ (+08 + +0c)), the HP setter mod028 3b6040;
+  - +14 = +1c ^ (+04 ^ (+62 + +30)), the flags setters 3a1f00 / 3b62a0;
+  - +34 = +30 ^ (+12e ^ (+60 + +1c)), the level.
+- **Check:** verified on both party records at frames 66000 and 67900.
+
+**Money.** OTH is at +6c of the general record `[1d3690]` (0x130 bytes), `^ 37ce67a3`, at most 99 999 999. Its hash at +18 is
+seeded with +04 over bytes +24..+d5: h = (byte << 8) + ((h * 0x343fd + 0x269ec3) >> 1) (mod003 3d7a40). Verified on
+three dumps.
+
+**Cheats** (`bozo/native_cheats.cpp`; applied between frames on the game's thread; window build, F2 > Cheats):
+- **Infinite health:** each live party member in battle goes back to max HP, with the +18 checksum rewritten.
+  Fallen members are not revived.
+- **Set money.**
+- **Test switches:** `VP2S_CHEAT_INFINITE_HEALTH=1` and `VP2S_CHEAT_MONEY=<n>`.
+
+**Evidence** (attack5 from the 74000 state):
+- **Cheats off:** end RAM identical to before (f6dd9f75de4b).
+- **Infinite health:** Alicia holds 100/100 with a valid checksum to 75400, where without it she falls at about 75000.
+  The battle goes on past the game-over boundary.
+- **Money:** 123 456 with a valid hash.
+- 95/95 unit checks pass.
+
+**Not done yet.**
+- **EXP multiplier:** it needs the victory flow, which the port does not reach yet.
+- **Item spawning:** the inventory is not located yet.
+- **In-game menu entries:** not started.
+
 ### Speed: battles at 60 frames a second (2026-11-23)
 
 There are about 100 000 native site calls per battle frame. Each one paid about 1 900 cycles walking handler chains

@@ -22,6 +22,7 @@
 #include "native_controller.h"
 #include "native_frame.h"
 #include "native_conditional_sites.h"
+#include "native_cheats.h"
 #include "native_bootstrap.h"
 #ifdef VP2S_BOZO_WINDOW
 #include "bozo/app/app.h"
@@ -29,6 +30,8 @@
 #include "bozo/app/device_pad.h"
 #include "bozo/app/frame_pacer.h"
 #include "bozo/app/window.h"
+#include "bozo/app/settings_tabs.h"
+#include <imgui.h>
 #include <sstream>
 #endif
 #include "native_random.h"
@@ -1150,6 +1153,9 @@ int main(int argc,char **argv) {
         vp2sBozoRegisterImages(dispatcher.runtime(),VP2S_BOZO_IMAGES,[&](uint32_t pc){host.overlayExternals.insert(pc);dispatcher.bindLibrary(pc);});
         vp2s::installNativeMusic(dispatcher.runtime());
         vp2s::installNativeEntryCapture(dispatcher.runtime());
+        // Cheats (F2 > Cheats; VP2S_CHEAT_* for tests): applied between frames on the game's thread.
+        {auto previous=host.native.onFrame;Runtime *rt=&dispatcher.runtime();
+            host.native.onFrame=[previous,rt](uint64_t frame,const R5900Context *ctx){if(previous)previous(frame,ctx);vp2s::applyNativeCheats(rt);};}
         // Save states (--save-state FILE --save-state-at N, --load-state FILE [--load-state-at N]):
         // VP2S's own part. The engine saves EE memory, the dispatcher, the kernel, its libraries
         // and its host; VP2S adds the IOP modules' host, the SDK clock and the native owners that
@@ -1234,6 +1240,18 @@ int main(int argc,char **argv) {
             // Frames held to 60 a second at most; a slower frame is not held.
             bozo::app::FramePacer pacer;
             {auto previous=host.native.onFrame;host.native.onFrame=[previous,&pacer](uint64_t frame,const R5900Context *ctx){if(previous)previous(frame,ctx);pacer.frameEnd();};}
+            // F2 > Cheats: applied on the game's thread by the native sites (bozo/native_cheats.cpp).
+            bozo::app::ui::registerTab("Cheats",[]{
+                auto &cheats=vp2s::nativeCheats();
+                bool health=cheats.infiniteHealth;
+                if(ImGui::Checkbox("Infinite health (party, in battle)",&health))cheats.infiniteHealth=health;
+                ImGui::TextDisabled("Live party members return to full HP every frame; the records' anti-cheat checksums are rewritten as the game does.");
+                ImGui::Separator();
+                static int wanted=99999999;const auto money=cheats.money.load();
+                if(money>=0)ImGui::Text("Money (OTH): %lld",(long long)money);else ImGui::TextDisabled("Money (OTH): not loaded yet");
+                ImGui::SetNextItemWidth(160);ImGui::InputInt("##money",&wanted,1000,100000);wanted=std::clamp(wanted,0,99999999);
+                ImGui::SameLine();if(ImGui::Button("Set money"))cheats.setMoney=wanted;
+            });
             bozo::app::WindowOptions window;
             window.title="Valkyrie Profile 2: Silmeria";window.aspect=4.0f/3.0f;window.stats=std::getenv("VP2S_WINDOW_STATS")!=nullptr;
             window.hidden=hiddenWindow;window.captureScene=hiddenWindow;

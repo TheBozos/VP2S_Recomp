@@ -1,3 +1,4 @@
+#include "native_cast.h"
 #include "native_media_buffer.h"
 #include "bozo/ee/dispatcher.h"
 #include "bozo/port.h"
@@ -281,8 +282,8 @@ std::shared_ptr<const NativeMediaBuffer> NativeMediaBuffers::buffer(uint32_t obj
 }
 std::optional<bool> nativeMediaBufferInstruction(R5900Context *c,Runtime *rt,uint32_t pc){
     if(pc!=0x2bbfc0 && pc!=0x2bc1d0 && pc!=0x2bc1e0 && pc!=0x2ba670 && pc!=0x1ef6f8 && pc!=0x1ef914 && pc!=0x1f0438 && pc!=0x1f04a0 && pc!=0x1efa30 && pc!=0x1f4590 && pc!=0x1f4940 && pc!=0x2bdac0 && pc!=0x2bd9b0 && pc!=0x2bd5d8 && pc!=0x2be3d0 && pc!=0x2bea60)return std::nullopt;
-    auto *d=rt?dynamic_cast<bozo::ee::Dispatcher *>(rt->services):nullptr;
-    auto *owner=d?dynamic_cast<MediaBufferOwner *>(&d->host()):nullptr;
+    auto *d=rt?vp2s::nativeCast<bozo::ee::Dispatcher>(rt->services):nullptr;
+    auto *owner=d?vp2s::nativeCast<MediaBufferOwner>(&d->host()):nullptr;
     if(!owner || !c)throw std::runtime_error("native movie input requires a media-buffer owner");
     const auto sp=c->r[29].uw[0];
     if(pc==0x2be3d0 || pc==0x2bea60){
@@ -337,8 +338,8 @@ std::optional<bool> nativeMediaBufferInstruction(R5900Context *c,Runtime *rt,uin
 }
 bool nativeMediaLibrary(R5900Context *c,Runtime *rt,uint32_t target){
     if(target!=0x1f02a0 && target!=0x1ef6f8 && target!=0x1f0510 && target!=0x1f4990 && target!=0x1f0438 && target!=0x1f4590 && target!=0x2b90a0 && target!=0x2b9560 && target!=0x1f04c8)return false;
-    auto *d=rt?dynamic_cast<bozo::ee::Dispatcher *>(rt->services):nullptr;
-    auto *owner=d?dynamic_cast<MediaBufferOwner *>(&d->host()):nullptr;
+    auto *d=rt?vp2s::nativeCast<bozo::ee::Dispatcher>(rt->services):nullptr;
+    auto *owner=d?vp2s::nativeCast<MediaBufferOwner>(&d->host()):nullptr;
     if(!owner || !c || c->pc!=target)throw std::runtime_error("native MPEG requires its declared API entry");
     if(target==0x1f04c8){
         if(c->r[31].uw[0]!=0x2be12c)throw std::runtime_error("unported native movie reference-query caller");

@@ -1,5 +1,6 @@
 // Native mesh assets, game object records and scalar rendering mathematics.
 // No runtime packet decoding, transport replay or vector-machine state.
+#include "native_cast.h"
 #include "native_models.h"
 #include "native_math.h"
 #include "bozo/ee/dispatcher.h"
@@ -489,7 +490,9 @@ NativeModelSubmission NativeModels::capture(Runtime *rt,NativeAssets &assets,Nat
                 for(auto [address,weight]:{std::pair{b.a,b.wa},std::pair{b.b,b.wb}}){finite(weight);if(weight!=0){const auto q=transform(address);for(unsigned c=0;c<3;++c)result[c]+=q[c]*weight;any=true;}}
                 if(any)return result;}
             return p;};
-        std::vector<bozo::render::Vertex> vertices(m.vertices.size());std::vector<std::array<float,4>> projected;std::vector<bool> outside;
+        // Per-mesh scratch kept between calls (the draw runs on the game's thread only): no allocation per mesh.
+        thread_local std::vector<bozo::render::Vertex> vertices;thread_local std::vector<std::array<float,4>> projected;thread_local std::vector<uint8_t> outside;
+        vertices.assign(m.vertices.size(),bozo::render::Vertex{});projected.clear();projected.reserve(m.vertices.size());outside.clear();outside.reserve(m.vertices.size());
         for(size_t k=0;k<m.vertices.size();++k){const auto &v=m.vertices[k];std::array<float,3> p{v.p[0],v.p[1],v.p[2]},n{v.n[0],v.n[1],v.n[2]};
             if(editable){if(m.sources[k].position!=UINT32_MAX)for(unsigned c=0;c<3;++c)p[c]=real(source+m.sources[k].position+4*c);
                 if(m.sources[k].normal!=UINT32_MAX)for(unsigned c=0;c<3;++c)n[c]=real(source+m.sources[k].normal+4*c);}
@@ -593,6 +596,7 @@ NativeModelSubmission NativeModels::capture(Runtime *rt,NativeAssets &assets,Nat
             std::vector<std::array<float,3>> positions(vertices.size());for(size_t k=0;k<vertices.size();++k)positions[k]={vertices[k].x,vertices[k].y,vertices[k].z};
             nativeShadowPrisms(positions,m.strips,shadowLight,matrix,shadowFlat,out.shadowIncrement,out.shadowDecrement);continue;}
         const bool cull=(block?word(block+0x90)==0:bool(material[5])) && !byte(object+0x210);size_t first=0;unsigned guarded=0,culled=0;
+        batch.vertices.reserve(m.vertices.size()*3);
         if(material[6]&6){
             // The GS's LINE STRIP (each vertex continues the line) or LINE (pairs), one pixel wide.
             mat.lines=true;const bool strip=material[6]&2;
@@ -636,14 +640,14 @@ NativeModelSubmission NativeModels::capture(Runtime *rt,NativeAssets &assets,Nat
 }
 std::optional<bool> nativeModelInstruction(R5900Context *c,Runtime *rt,uint32_t pc){
     if(pc!=0x239ff0)return std::nullopt;
-    auto *d=rt?dynamic_cast<bozo::ee::Dispatcher *>(rt->services):nullptr;
-    auto *owner=d?dynamic_cast<ModelOwner *>(&d->host()):nullptr;auto *scene=d?dynamic_cast<SceneOwner *>(&d->host()):nullptr;
-    auto *assets=d?dynamic_cast<AssetOwner *>(&d->host()):nullptr;auto *textures=d?dynamic_cast<TextureOwner *>(&d->host()):nullptr;
+    auto *d=rt?vp2s::nativeCast<bozo::ee::Dispatcher>(rt->services):nullptr;
+    auto *owner=d?vp2s::nativeCast<ModelOwner>(&d->host()):nullptr;auto *scene=d?vp2s::nativeCast<SceneOwner>(&d->host()):nullptr;
+    auto *assets=d?vp2s::nativeCast<AssetOwner>(&d->host()):nullptr;auto *textures=d?vp2s::nativeCast<TextureOwner>(&d->host()):nullptr;
     if(!c || !owner || !scene || !assets || !textures || c->pc!=0x239fd0 || c->r[5].uw[0]<0x100650)
         throw std::runtime_error("native model submission requires its complete scene producer");
     const auto object=c->r[5].uw[0]-0x650;
     NativeModelSubmission submission;
-    auto *feedback=dynamic_cast<FeedbackOwner *>(&d->host());
+    auto *feedback=vp2s::nativeCast<FeedbackOwner>(&d->host());
     try{submission=owner->nativeModels().capture(rt,assets->nativeAssets(),textures->nativeTextures(),scene->nativeScene(),object,feedback?&feedback->nativeFeedbackCopies():nullptr);}
     catch(const std::runtime_error &e){throw std::runtime_error(std::format("native model object={:08x}: {}",object,e.what()));}
     owner->drawNativeModel(submission);c->r[4].sd[0]=int32_t(object);

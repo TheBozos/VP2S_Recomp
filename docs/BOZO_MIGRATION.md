@@ -12,6 +12,38 @@ The earlier VP2S face/shading and general brightness comparisons remain open.
 
 ## Build and evidence
 
+### Speed: battles at 60 frames a second (2026-11-23)
+
+There are about 100 000 native site calls per battle frame. Each one paid about 1 900 cycles walking handler chains
+(the top-level chain, then the math cascade's ~120 sub-handlers). Real work was a small share. The changes:
+- **Fast path per site.** Keyed by (address, instruction word), so another overlay's code at the address is another
+  site. It is held in a lazily made page table. A site goes straight to the handler that claimed it, and a math
+  site straight to the math sub-handler that did (`CLAIM` in `nativeMathInstruction` records it).
+  - A handler that later declines a site it claimed ends the run with a message.
+- **72 inline blocks of the math cascade** became named sub-handlers, same order and code. The retired-word no-op
+  lists (215298.., 2371e8.., 239cfc..) are among them.
+- **Conditional handlers.** Only 11 handlers decide on more than the site and its word. ScreenRect, ScreenZoom,
+  ColumnCapture, BattleSprite and StateSetup depend on state; ProceduralDraw observes 247ec0 and passes it on;
+  UiWindow, UiSprite, SprWriter, BattleImage and BattleTextureSet read words elsewhere.
+  - Each now checks its own site predicate first (`native_conditional_sites.cpp`).
+  - A cached site is first offered only to the conditional handlers before its owner whose predicate accepts it.
+- **`vp2s::nativeCast`.** `dynamic_cast` is cached per dynamic type (the vtable pointer), with the same results.
+  The 201 per-call owner casts were 14% of the attack turn.
+- **Model draw.** Per-mesh scratch vectors are kept between draws, and batch vertices are reserved: no heap
+  allocation per mesh.
+- **Profiler:** samples outside the executable are now listed by module. `VP2S_BOZO_SITE_COUNTS=<file>` gives calls
+  per site.
+- **Checks.** End-of-run EE RAM is identical with and without the cache, and with `VP2S_BOZO_SITE_VERIFY=1` (every
+  site through the whole chains, claimant checked). Runs checked:
+  - battle 750 frames;
+  - forest walk;
+  - boot route 12000 frames (now 136 s, was 824 s);
+  - the game-over stretch 74000..75100.
+  - 95/95 unit checks pass.
+- **Result** (window, hidden, frame cap 60): the battle's attack turn (63351..67500) holds 59.5..60 in every
+  2-second slice, and its sound keeps real time (70.4 s over 69.3 s). Uncapped it averages 92, worst slice 76.
+  The forest field runs at 168 uncapped.
+
 ### Battle: the second particle emitter class, prepare 295f20 and step 295580 (2026-11-23)
 
 The party's fall (frame 75120) uses an emitter of another class (vtables `1563f0` / `156500`). Its +c prepare

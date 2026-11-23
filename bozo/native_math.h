@@ -59,6 +59,10 @@ public:
 // Game record algorithms shared with the existing native port, through Bozo's
 // memory/CPU ABI. No vector bank, microprogram or transport is provided.
 bool nativeMathInstruction(uint8_t *,R5900Context *,Runtime *,uint32_t pc);
+// The sub-handler that claimed the site of the last nativeMathInstruction call that returned true (null when
+// an inline block of nativeMathInstruction did): the dispatcher's per-site fast path calls it directly.
+using NativeMathSite=bool(*)(R5900Context *,Runtime *,uint32_t);
+NativeMathSite nativeMathClaimer();
 // Native math state that lives between guest instructions (save states).
 void serializeMathState(bozo::state::Archive &,const Runtime *);
 // Box pair separating-axis test mod001 1f82c0 (stubbed): served at its call from

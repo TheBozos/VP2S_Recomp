@@ -1,3 +1,4 @@
+#include "native_cast.h"
 #include "native_math.h"
 #include "native_object_math.h"
 #include "native_trig.h"
@@ -367,8 +368,8 @@ void publishMagnitude(Runtime *rt,uint32_t source,uint32_t destination){
 }
 }
 void qualifySquadSines(Runtime *rt,R5900Context *c,uint32_t leafFrame){
-    auto *dispatcher=rt?dynamic_cast<bozo::ee::Dispatcher *>(rt->services):nullptr;
-    auto *owner=dispatcher?dynamic_cast<SquadOwner *>(&dispatcher->host()):nullptr;
+    auto *dispatcher=rt?vp2s::nativeCast<bozo::ee::Dispatcher>(rt->services):nullptr;
+    auto *owner=dispatcher?vp2s::nativeCast<SquadOwner>(&dispatcher->host()):nullptr;
     if(!owner || !c)throw std::runtime_error("native squad has no publication owner");
     record(rt,leafFrame,0xc0);auto &calls=owner->nativeSquads().calls;
     const auto it=calls.find(leafFrame+0x50);
@@ -382,8 +383,8 @@ void qualifySquadSines(Runtime *rt,R5900Context *c,uint32_t leafFrame){
         throw std::runtime_error("native squad helper argument/return mismatch");
 }
 bool nativeSquadInstruction(R5900Context *c,Runtime *rt,uint32_t pc){
-    auto *dispatcher=rt?dynamic_cast<bozo::ee::Dispatcher *>(rt->services):nullptr;
-    auto *owner=dispatcher?dynamic_cast<SquadOwner *>(&dispatcher->host()):nullptr;
+    auto *dispatcher=rt?vp2s::nativeCast<bozo::ee::Dispatcher>(rt->services):nullptr;
+    auto *owner=dispatcher?vp2s::nativeCast<SquadOwner>(&dispatcher->host()):nullptr;
     if(!c || !owner)throw std::runtime_error("native squad has no publication owner");
     auto &calls=owner->nativeSquads().calls;const auto stack=c->r[29].uw[0];
     if(pc==0x214c40){
@@ -440,8 +441,8 @@ bool nativeParticleCallbackInstruction(R5900Context *c,Runtime *rt,uint32_t pc){
     const bool copy=pc>=sites[0]-kCallbackCopyShift && pc<=sites[6]-kCallbackCopyShift;
     const uint32_t shift=copy?kCallbackCopyShift:0,physicsShift=copy?kPhysicsCopyShift:0;pc+=shift;
     const auto site=std::find(std::begin(sites),std::end(sites),pc);if(site==std::end(sites))return false;
-    auto *d=rt?dynamic_cast<bozo::ee::Dispatcher *>(rt->services):nullptr;
-    auto *updates=d?dynamic_cast<ParticleUpdateOwner *>(&d->host()):nullptr;auto *particles=d?dynamic_cast<ParticleOwner *>(&d->host()):nullptr;
+    auto *d=rt?vp2s::nativeCast<bozo::ee::Dispatcher>(rt->services):nullptr;
+    auto *updates=d?vp2s::nativeCast<ParticleUpdateOwner>(&d->host()):nullptr;auto *particles=d?vp2s::nativeCast<ParticleOwner>(&d->host()):nullptr;
     if(!c || !updates || !particles)throw std::runtime_error("native particle callback requires explicit integration owner");
     const auto stack=c->r[29].uw[0],parent=stack+0x80;auto &state=updates->nativeParticleUpdates();
     auto *frame=record(rt,stack,0x80);const auto word=[](const uint8_t *p){uint32_t value;std::memcpy(&value,p,4);return value;};
@@ -483,8 +484,8 @@ bool nativeParticlePhysicsInstruction(R5900Context *c,Runtime *rt,uint32_t pc){
     const bool transformedPoint=(pc>=0x40acbc && pc<=0x40acd8 && !(pc&3)) || pc==0x40acec;
     if(!recordStore && !calculation && pc!=0x40a950 && pc!=0x40a958 && pc!=0x40aa30 && pc!=0x40aa38 && pc!=0x40aa40 && pc!=0x40aa48 &&
        pc!=0x40aad8 && pc!=0x40aae4 && pc!=0x40aae8 && pc!=0x40aaec && pc!=0x40ab5c && pc!=0x40b040 && !squaredAttribute && !transformedPoint)return false;
-    auto *d=rt?dynamic_cast<bozo::ee::Dispatcher *>(rt->services):nullptr;
-    auto *updates=d?dynamic_cast<ParticleUpdateOwner *>(&d->host()):nullptr;auto *particles=d?dynamic_cast<ParticleOwner *>(&d->host()):nullptr;
+    auto *d=rt?vp2s::nativeCast<bozo::ee::Dispatcher>(rt->services):nullptr;
+    auto *updates=d?vp2s::nativeCast<ParticleUpdateOwner>(&d->host()):nullptr;auto *particles=d?vp2s::nativeCast<ParticleOwner>(&d->host()):nullptr;
     if(!c || !updates || !particles)throw std::runtime_error("native particle integration requires game update/bounds owners");
     const auto stack=c->r[29].uw[0],emitter=c->r[21].uw[0];auto *owner=record(rt,emitter,0xe0),*frame=record(rt,stack,0x150);
     const auto word=[](const uint8_t *p,unsigned at){uint32_t v;std::memcpy(&v,p+at,4);return v;};
@@ -4280,7 +4281,7 @@ bool nativeParticleBox(R5900Context *c,Runtime *rt,uint32_t pc){
     if(!rt || !box)return false;
     uint32_t word=0;if(const auto *p=rt->memory.hostPointer(pc,4))std::memcpy(&word,p,4);
     if(word!=(role==0?box->loadWord:role==1?0x4bc1d6afu:0x4bc1deebu))return false;   // another overlay at these addresses
-    auto *d=dynamic_cast<bozo::ee::Dispatcher *>(rt->services);auto *particles=d?dynamic_cast<ParticleOwner *>(&d->host()):nullptr;
+    auto *d=vp2s::nativeCast<bozo::ee::Dispatcher>(rt->services);auto *particles=d?vp2s::nativeCast<ParticleOwner>(&d->host()):nullptr;
     if(!c || !particles)throw std::runtime_error("native particle box requires its bounds owner");
     auto &st=particleBoxState(rt);const auto frame=c->r[29].uw[0]+box->frameOffset,emitter=c->r[box->emitter].uw[0];
     if(role==0){
@@ -4425,7 +4426,7 @@ bool nativeTrailEmitter(R5900Context *c,Runtime *rt,uint32_t pc){
     if(!site)return false;
     uint32_t word=0;if(const auto *p=rt->memory.hostPointer(pc,4))std::memcpy(&word,p,4);
     if(word!=site->word)return false;   // another overlay at these addresses
-    auto *d=dynamic_cast<bozo::ee::Dispatcher *>(rt->services);auto *particles=d?dynamic_cast<ParticleOwner *>(&d->host()):nullptr;
+    auto *d=vp2s::nativeCast<bozo::ee::Dispatcher>(rt->services);auto *particles=d?vp2s::nativeCast<ParticleOwner>(&d->host()):nullptr;
     if(!c || !particles)throw std::runtime_error("native trail emitter requires its bounds owner");
     struct ArithmeticScope{unsigned saved=_mm_getcsr();~ArithmeticScope(){_mm_setcsr(saved);}} arithmetic;
     auto &st=trailState(rt);
@@ -4631,7 +4632,7 @@ bool nativeProgramEmitter(R5900Context *c,Runtime *rt,uint32_t pc){
     if(!site)return false;
     uint32_t word=0;if(const auto *p=rt->memory.hostPointer(pc,4))std::memcpy(&word,p,4);
     if(word!=site->word)return false;   // another overlay at these addresses
-    auto *d=dynamic_cast<bozo::ee::Dispatcher *>(rt->services);auto *particles=d?dynamic_cast<ParticleOwner *>(&d->host()):nullptr;
+    auto *d=vp2s::nativeCast<bozo::ee::Dispatcher>(rt->services);auto *particles=d?vp2s::nativeCast<ParticleOwner>(&d->host()):nullptr;
     if(!c || !particles)throw std::runtime_error("native program emitter requires its bounds owner");
     struct ArithmeticScope{unsigned saved=_mm_getcsr();~ArithmeticScope(){_mm_setcsr(saved);}} arithmetic;
     auto &st=programState(rt);
@@ -4860,7 +4861,7 @@ bool nativeSimpleEmitter(R5900Context *c,Runtime *rt,uint32_t pc){
     if(!site)return false;
     uint32_t word=0;if(const auto *p=rt->memory.hostPointer(pc,4))std::memcpy(&word,p,4);
     if(word!=site->word)return false;   // another overlay at these addresses
-    auto *d=dynamic_cast<bozo::ee::Dispatcher *>(rt->services);auto *particles=d?dynamic_cast<ParticleOwner *>(&d->host()):nullptr;
+    auto *d=vp2s::nativeCast<bozo::ee::Dispatcher>(rt->services);auto *particles=d?vp2s::nativeCast<ParticleOwner>(&d->host()):nullptr;
     if(!c || !particles)throw std::runtime_error("native simple emitter requires its bounds owner");
     struct ArithmeticScope{unsigned saved=_mm_getcsr();~ArithmeticScope(){_mm_setcsr(saved);}} arithmetic;
     auto &st=simpleState(rt);
@@ -5367,64 +5368,45 @@ std::optional<bool> nativeModelLightVariant(const Runtime *rt,uint32_t model){
     const auto &map=modelLightVariants();const auto it=map.find({rt,model});return it==map.end()?std::nullopt:std::optional(it->second);}
 BoxFrustumStores boxFrustumStores(const std::array<std::array<uint32_t,4>,5> &box,const std::array<std::array<uint32_t,4>,5> &frustum){
     const auto vu=boxFrustumProgram(box,frustum);BoxFrustumStores out;out.words=vu.stored;out.defined=vu.storedDef;return out;}
-bool nativeMathInstruction(uint8_t *,R5900Context *c,Runtime *rt,uint32_t pc){
-    if(nativeSkinUpload(c,rt,pc) || nativeSoftSkin(c,rt,pc))return true;
-    if(nativeFacingPath(c,rt,pc) || nativeRotationBlocks(c,rt,pc))return true;
-    if(nativeProjectionBlocks(c,rt,pc) || nativeBoneAim(c,rt,pc) || nativeChainBlocks(c,rt,pc) || nativeCapsulePair(c,rt,pc) || nativePlaneContact(c,rt,pc) || nativeRangeTest(c,rt,pc) || nativeMatrixBuild(c,rt,pc) || nativeCullTransform(c,rt,pc) || nativeBoxFrustum(c,rt,pc) || nativeListBoxQuery(c,rt,pc) || nativeHitFrame(c,rt,pc) || nativePlaneDistance(c,rt,pc) || nativeSphereSweep(c,rt,pc) || nativeSegmentApproach(c,rt,pc) || nativeWorldPosition(c,rt,pc) || nativeCameraTarget(c,rt,pc) || nativeRootLength(c,rt,pc) || nativeVisibilityLoop(c,rt,pc) || nativeMarkerProjection(c,rt,pc) || nativeQuaternionLeaf(c,rt,pc) || nativeBonePalette(c,rt,pc))return true;
-    if(nativeLeafSphere(c,rt,pc) || nativeLeafBox(c,rt,pc) || nativeSegmentBox(c,rt,pc) || nativeHitPointTransform(c,rt,pc))return true;
-    if(nativeLengthSite(c,rt,pc) || nativeRecordDot(c,rt,pc) || nativePackedQuaternion(c,rt,pc))return true;
-    if(nativeObjectOverlap(c,rt,pc))return true;
-    if(nativeObjectPairSetup(c,rt,pc))return true;
-    if(nativeObjectPairSpill(c,rt,pc))return true;
-    if(nativeBattleBasisLengths(c,rt,pc))return true;
-    if(nativeBattleShapeOrigin(c,rt,pc))return true;
-    if(nativeBattleVertexPack(c,rt,pc))return true;
-    if(nativeBattleBoxSphere(c,rt,pc))return true;
-    if(nativeBattlePointDistance(c,rt,pc))return true;
-    if(nativeBattleShapes(c,rt,pc))return true;
-    if(nativeBattleTrackBlocks(c,rt,pc))return true;
-    if(nativeBattleApproach(c,rt,pc))return true;
-    if(nativeBattleSegmentEnds(c,rt,pc))return true;
-    if(nativeBattleNormalise(c,rt,pc))return true;
-    if(nativeTargetDirection(c,rt,pc))return true;
-    if(nativeRowNormalise(c,rt,pc))return true;
-    if(nativeSpacedNormalise(c,rt,pc))return true;
-    if(nativeBattleSideAxes(c,rt,pc))return true;
-    if(nativeBattleGroundPlane(c,rt,pc))return true;
-    if(nativeBattleColourPair(c,rt,pc))return true;
-    if(nativeBattleShapeTree(c,rt,pc))return true;
-    if(nativeBattleObjectOverlap(c,rt,pc))return true;
-    if(nativeSphereTreeWalk(c,rt,pc))return true;
-    if(nativeBattleAdvance(c,rt,pc))return true;
-    if(nativeBattleRecordShift(c,rt,pc))return true;
-    if(nativeBattleSegmentPoints(c,rt,pc))return true;
-    if(nativeBattleHalfVectors(c,rt,pc))return true;
-    if(nativeBattleNearestPoint(c,rt,pc))return true;
-    if(nativeContactPoint(c,rt,pc))return true;
-    if(nativeNearestOfPoints(c,rt,pc))return true;
-    if(nativeBattleLabelProjection(c,rt,pc))return true;
-    if(nativeChainAim(c,rt,pc))return true;
-    if(nativeVectorTurn(c,rt,pc))return true;
-    if(nativePaletteFade(c,rt,pc))return true;
-    if(nativeEffectScatter(c,rt,pc))return true;
-    if(nativeBattlePointScale(c,rt,pc))return true;
-    if(nativeBattleTaskColours(c,rt,pc))return true;
-    if(nativeBattleUnitProjection(c,rt,pc))return true;
-    if(nativeBattleCameraProjection(c,rt,pc))return true;
-    if(nativeBattleSegmentDirection(c,rt,pc))return true;
-    if(nativeSegmentSphere(c,rt,pc))return true;
-    if(nativeBattleSegmentBox(c,rt,pc))return true;
-    if(nativeBattleShapePoint(c,rt,pc))return true;
-    if(nativeBattleBoxCorners(c,rt,pc))return true;
-    if(nativeBattleBoxWorld(c,rt,pc))return true;
-    if(nativeUvAnimation(c,rt,pc))return true;
-    if(nativeSegmentContact(c,rt,pc))return true;
-    if(nativeObjectCompose(c,rt,pc))return true;
-    if(nativeCameraProjection(c,rt,pc))return true;
-    if(nativeFlareProjection(c,rt,pc))return true;
-    if(nativePairProjection(c,rt,pc))return true;
-    if(nativeExponentialRamp(c,rt,pc))return true;
-    if(nativeGridPoint(c,rt,pc))return true;
+// The math sub-handler that claimed the last site (null: an inline block, or none). The native site
+// dispatcher keeps it per (site, instruction word) and calls it directly the next time (bozo/main.cpp).
+NativeMathSite mathClaimer=nullptr;
+// Sub-handlers whose declines depend on more than the site and its word (recorded calls, loaded state,
+// code words around the site) are not called directly: their sites go through the whole cascade.
+NativeMathSite nativeMathClaimer(){
+    if(mathClaimer==&nativeMarkerProjection || mathClaimer==&nativeBattleCameraProjection)return nullptr;
+    return mathClaimer;}
+bool trigSite(R5900Context *c,Runtime *rt,uint32_t pc){return nativeTrigInstruction(nullptr,c,rt,pc);}
+bool objectMathSite(R5900Context *c,Runtime *rt,uint32_t pc){return nativeObjectMathInstruction(nullptr,c,rt,pc);}
+// Retired words of the cascade (the original instruction's work is done elsewhere or not needed), as named
+// sub-handlers so the dispatcher can claim their sites directly: the pair blend (215298..21536c), the bone
+// list (2371e8..2372c8) and the scale leaf (239cfc..239de8).
+bool retiredPairWords(R5900Context *,Runtime *,uint32_t pc){
+    return (pc>=0x215298 && pc<=0x2152a4 && !(pc&3)) || pc==0x2152ac || (pc>=0x2152b4 && pc<=0x2152c0 && !(pc&3)) || pc==0x2152c8 ||
+           (pc>=0x215348 && pc<=0x21535c && !(pc&3)) || pc==0x215364 || pc==0x215368 ||
+           (pc>=0x2152ec && pc<=0x215304 && !(pc&3)) || pc==0x21530c || (pc>=0x215324 && pc<=0x215340 && !(pc&3));
+}
+bool retiredBoneWords(R5900Context *,Runtime *,uint32_t pc){
+    switch(pc){
+    case 0x2371e8:case 0x2371ec:case 0x2371f0:case 0x2371f4:
+    case 0x2371fc:case 0x237200:case 0x237204:case 0x237208:
+    case 0x23720c:case 0x237210:case 0x237214:case 0x237218:case 0x237224:
+    case 0x237260:case 0x237264:case 0x237268:case 0x23726c:
+    case 0x237270:case 0x237274:case 0x237278:case 0x23727c:case 0x237280:
+    case 0x237288:case 0x23728c:case 0x237290:case 0x23729c:
+    case 0x2372b8:case 0x2372c0:case 0x2372c4:case 0x2372c8:return true;
+    default:return false;}
+}
+bool retiredScaleWords(R5900Context *,Runtime *,uint32_t pc){
+    switch(pc){
+    case 0x239cfc:case 0x239d00:case 0x239d04:case 0x239d0c:
+    case 0x239dc8:case 0x239dcc:case 0x239dd0:case 0x239dd4:case 0x239dd8:
+    case 0x239ddc:case 0x239de0:case 0x239de4:case 0x239de8:return true;
+    default:return false;}
+}
+// Inline blocks of the cascade, as named sub-handlers (same order, same code) so the dispatcher can claim
+// their sites directly.
+bool mathBlock1(R5900Context *c,Runtime *rt,uint32_t pc){
     if(pc==0x38011c || pc==0x380124 || pc==0x380154 || pc==0x38015c || pc==0x380160 || pc==0x380164){
         if(!c || c->pc!=0x380118 || c->r[31].uw[0]!=0x380118)throw std::runtime_error("native movement rotation escaped scalar quaternion builder");
         const auto stack=c->r[29].uw[0];
@@ -5437,6 +5419,9 @@ bool nativeMathInstruction(uint8_t *,R5900Context *c,Runtime *rt,uint32_t pc){
             const auto result=math::quaternionMatrix(input);const auto row=(pc-0x38015c)/4;std::memcpy(record(rt,stack+0x2a0+16*row,16),&result[row],16);
         }return true;
     }
+    return false;
+}
+bool mathBlock2(R5900Context *c,Runtime *rt,uint32_t pc){
     if(pc==0x39f31c || pc==0x39f324 || pc==0x39f360 || pc==0x39f368 || pc==0x39f36c || pc==0x39f370){
         // Object rotation from the quaternion its getter wrote at SP+20; the
         // rows land at s0+250, the scalar code builds the identity fourth row.
@@ -5451,6 +5436,9 @@ bool nativeMathInstruction(uint8_t *,R5900Context *c,Runtime *rt,uint32_t pc){
             const auto result=math::quaternionMatrix(input);const auto row=(pc-0x39f368)/4;std::memcpy(record(rt,object+0x250+16*row,16),&result[row],16);
         }return true;
     }
+    return false;
+}
+bool mathBlock3(R5900Context *c,Runtime *rt,uint32_t pc){
     if(pc==0x396c24 || pc==0x396c2c || pc==0x396c5c || pc==0x396c64 || pc==0x396c68 || pc==0x396c6c){
         // mod003 396c00: the quaternion its caller passed is stored at s0+250;
         // program 0x720 turns it into three rows at SP+40, which the scalar
@@ -5466,6 +5454,9 @@ bool nativeMathInstruction(uint8_t *,R5900Context *c,Runtime *rt,uint32_t pc){
             const auto result=math::quaternionMatrix(input);const auto row=(pc-0x396c64)/4;std::memcpy(record(rt,stack+0x40+16*row,16),&result[row],16);
         }return true;
     }
+    return false;
+}
+bool mathBlock4(R5900Context *c,Runtime *rt,uint32_t pc){
     if(pc==0x396a8c || pc==0x396a94 || pc==0x396ac4 || pc==0x396acc || pc==0x396ad0 || pc==0x396ad4){
         // mod003 396a80 (yaw from an object's quaternion): LQC2 vf5 from a0+b0,
         // program 0x720, rows to SP+20, which the scalar code hands to 410df0
@@ -5481,32 +5472,9 @@ bool nativeMathInstruction(uint8_t *,R5900Context *c,Runtime *rt,uint32_t pc){
             const auto result=math::quaternionMatrix(input);const auto row=(pc-0x396acc)/4;std::memcpy(record(rt,stack+0x20+16*row,16),&result[row],16);
         }return true;
     }
-    // Effect 15e870 rotation blocks: nine identical program-0x720 blocks in
-    // mod003 (417f50 twice with s2, 412870 twice and 431000/4335xx with s0,
-    // 4197xx with s3). Each builds a 15e870 object from its owner: owner
-    // +a0/+b0 copied to obj+70/+80, LQC2 vf5 from obj+80, program 0x720,
-    // CFC2.I t1/vi0, rows SQC2 vf8..vf10 to obj+30. Between the load and the
-    // stores the EE code writes only obj+60..6c. The recompiled block starts
-    // after the allocator call (block-5c) or at the null check it branches to
-    // (block-1c); no branch lies inside. Every block's bytes are guarded.
-    struct EffectBlock{uint32_t at;unsigned object;};
-    static constexpr EffectBlock effectBlocks[]={{0x412bcc,16},{0x412ddc,16},{0x41861c,18},{0x418814,18},{0x419884,19},
-                                          {0x43128c,16},{0x4314d4,16},{0x433614,16},{0x433904,16}};
-    const EffectBlock *effect=nullptr;for(const auto &b:effectBlocks)if(pc>=b.at && pc<=b.at+0x54)effect=&b;
-    if(const uint32_t block=effect?effect->at:0;
-       block && (pc==block || pc==block+8 || pc==block+0x44 || pc==block+0x4c || pc==block+0x50 || pc==block+0x54)){
-        if(!c || (c->pc!=block-0x5c && c->pc!=block-0x1c))throw std::runtime_error("native effect rotation escaped its routine");
-        const auto object=c->r[effect->object].uw[0];
-        if(pc==block){if(c->r[3].uw[0]!=object+0x80)throw std::runtime_error("effect rotation quaternion source mismatch");}
-        else if(pc==block+0x44)c->r[9].ud[0]=0;
-        else if(pc>=block+0x4c){
-            if(c->r[2].uw[0]!=object+0x30)throw std::runtime_error("effect rotation destination mismatch");
-            __m128 input;std::memcpy(&input,record(rt,object+0x80,16),16);float values[4];std::memcpy(values,&input,16);
-            for(float v:values){const auto magnitude=std::bit_cast<uint32_t>(v)&0x7fffffff;if(magnitude>=0x7f800000 || magnitude>std::bit_cast<uint32_t>(1.e8f))throw std::runtime_error("unqualified effect rotation quaternion");}
-            const auto result=math::quaternionMatrix(input);const auto row=(pc-block-0x4c)/4;std::memcpy(record(rt,object+0x30+16*row,16),&result[row],16);
-        }return true;
-    }
-    if(nativeParticleCallbackInstruction(c,rt,pc))return true;
+    return false;
+}
+bool mathBlock5(R5900Context *c,Runtime *rt,uint32_t pc){
     if(pc==0x22f300 || pc==0x22f304 || pc==0x22f308 || pc==0x22f30c){
         if(!c || c->pc<0x22f170 || c->pc>0x22f2f8 || !c->r[18].uw[0] || c->r[3].uw[0]!=c->r[20].uw[0]+0x580 || c->r[4].uw[0]!=c->r[18].uw[0]+0x340 || c->r[2].uw[0]!=c->r[29].uw[0]+0xb0)
             throw std::runtime_error("native particle colour product escaped its scalar records");
@@ -5517,26 +5485,9 @@ bool nativeMathInstruction(uint8_t *,R5900Context *c,Runtime *rt,uint32_t pc){
             auto *output=record(rt,c->r[2].uw[0],16);for(unsigned i=0;i<4;++i)result[i]=pairProduct(colour[i],light[i]);std::memcpy(output,result.data(),16);
         }return true;
     }
-    const bool particleSphere=pc>=0x22f9e0 && pc<=0x22fa38 && !(pc&3),originSphere=pc>=0x2482b4 && pc<=0x24830c && !(pc&3);
-    if(particleSphere || originSphere){
-        const unsigned pointReg=particleSphere?6:3,basisReg=particleSphere?7:5,outputReg=particleSphere?5:2;
-        if(!c || c->pc!=(particleSphere?0x22f9c0:0x248290) || c->r[pointReg].uw[0]!=c->r[29].uw[0] || c->r[basisReg].uw[0]!=c->r[4].uw[0]+0x90 || c->r[outputReg].uw[0]!=c->r[4].uw[0]+(particleSphere?0xa70:0x220))
-            throw std::runtime_error("native sphere getter escaped its scalar records");
-        if(pc==0x22fa38 || pc==0x24830c){
-            float rows[3][4],point[4];std::memcpy(rows,record(rt,c->r[basisReg].uw[0],48),48);std::memcpy(point,record(rt,c->r[pointReg].uw[0],16),16);
-            for(auto &row:rows)for(float value:row){pairQualified(value);if(std::abs(value)>1.e8f)throw std::runtime_error("unqualified particle sphere basis");}
-            for(unsigned i=0;i<3;++i){pairQualified(point[i]);if(std::abs(point[i])>1.e8f)throw std::runtime_error("unqualified particle sphere centre");}
-            if(std::bit_cast<uint32_t>(point[3])!=0x3f800000)throw std::runtime_error("particle sphere getter lacks scalar homogeneous component");
-            if(originSphere)for(unsigned i=0;i<3;++i)if(std::bit_cast<uint32_t>(point[i]))throw std::runtime_error("origin sphere getter lacks original scalar zero centre");
-            auto *output=record(rt,c->r[outputReg].uw[0],16);music::CodecRounding rounding;std::array<float,3> result;
-            constexpr unsigned order[3][4]={{0,1,2,3},{1,0,2,3},{2,1,0,3}};
-            for(unsigned row=0;row<3;++row){float terms[4];for(unsigned i=0;i<4;++i)terms[i]=pairProduct(rows[row][i],point[i]);
-                result[row]=pairSum(pairSum(pairSum(terms[order[row][0]],terms[order[row][1]]),pairProduct(1.f,terms[order[row][2]])),pairProduct(1.f,terms[order[row][3]]));}
-            // The original following scalar store supplies the radius. The
-            // fourth basis row's temporary dot product has no consumer.
-            std::memcpy(output,result.data(),12);
-        }return true;
-    }
+    return false;
+}
+bool mathBlock6(R5900Context *c,Runtime *rt,uint32_t pc){
     if(pc>=0x377d8c && pc<=0x377dac && !(pc&3)){
         if(!c || c->pc!=0x377d20 || c->r[7].uw[0]!=c->r[29].uw[0]+0x20 || c->r[6].uw[0]!=c->r[29].uw[0])
             throw std::runtime_error("automatic camera distance escaped its scalar frame");
@@ -5549,27 +5500,9 @@ bool nativeMathInstruction(uint8_t *,R5900Context *c,Runtime *rt,uint32_t pc){
             std::memcpy(record(rt,c->r[6].uw[0],16),result.data(),16);
         }return true;
     }
-    const bool callbackPoint=pc>=0x410660 && pc<=0x410684 && !(pc&3);
-    const bool callbackSecond=pc>=0x4106b0 && pc<=0x4106cc && !(pc&3);
-    const bool callbackThird=pc>=0x4106f8 && pc<=0x410714 && !(pc&3);
-    if(callbackPoint || callbackSecond || callbackThird){
-        if(!c || c->pc!=0x410640)throw std::runtime_error("native particle callback transform lacks scalar owner");
-        const auto stack=c->r[29].uw[0],emitter=c->r[4].uw[0],destination=stack+(callbackPoint?0x70:callbackSecond?0x60:0x50);
-        auto *owner=record(rt,emitter,0xe0);record(rt,stack,0x80);
-        const unsigned flag=callbackPoint?1:callbackSecond?2:4;
-        if(!(owner[0xd2]&flag) || c->r[2].uw[0]!=destination || c->r[3].uw[0]!=emitter+0x80)
-            throw std::runtime_error("native particle callback transform argument mismatch");
-        if(pc==0x410684 || pc==0x4106cc || pc==0x410714){
-            const auto input=c->r[callbackPoint?5:callbackSecond?6:7].uw[0];
-            if(callbackPoint){
-                struct ArithmeticScope{unsigned saved=_mm_getcsr();~ArithmeticScope(){_mm_setcsr(saved);}} arithmetic;
-                math::Matrix basis;std::array<float,4> position;std::memcpy(basis.data(),owner+0x80,64);std::memcpy(position.data(),record(rt,input,16),16);position[3]=1.f;
-                float values[16];std::memcpy(values,basis.data(),64);for(float value:values){pairQualified(value);if(std::abs(value)>1.e8f)throw std::runtime_error("unqualified particle callback basis");}
-                for(unsigned i=0;i<3;++i){pairQualified(position[i]);if(std::abs(position[i])>1.e8f)throw std::runtime_error("unqualified particle callback position");}
-                __m128 point;std::memcpy(&point,position.data(),16);const auto result=math::matrixVectorProduct(basis,point);std::memcpy(record(rt,destination,16),&result,16);
-            }else publishLinearVector(rt,emitter+0x80,input,destination);
-        }return true;
-    }
+    return false;
+}
+bool mathBlock7(R5900Context *c,Runtime *rt,uint32_t pc){
     if(pc==0x216f54){
         if(!c || c->pc!=0x216f50)throw std::runtime_error("inverse pivot weights require complete scalar owner");
         auto *input=record(rt,c->r[4].uw[0],64),*output=record(rt,c->r[5].uw[0],64),*frame=record(rt,c->r[29].uw[0],0x90);
@@ -5595,14 +5528,9 @@ bool nativeMathInstruction(uint8_t *,R5900Context *c,Runtime *rt,uint32_t pc){
         }
         std::memcpy(frame,weights,64);return true;
     }
-    switch(pc){
-    case 0x216f58:case 0x216f5c:case 0x216f60:case 0x216f64:case 0x216f68:case 0x216f6c:case 0x216f70:case 0x216f74:
-    case 0x216f78:case 0x216f80:case 0x216f8c:case 0x216f98:case 0x216fa4:case 0x216fb0:case 0x216fb4:case 0x216fb8:
-    case 0x216fbc:case 0x216fc0:case 0x216fd0:case 0x216fd4:case 0x216fd8:case 0x216fdc:case 0x216fe0:case 0x216fe8:
-    case 0x216ff8:case 0x216ffc:case 0x217000:case 0x217004:case 0x217008:case 0x217010:case 0x217020:case 0x217024:
-    case 0x21702c:case 0x217030:return true;
-    default:break;
-    }
+    return false;
+}
+bool mathBlock8(R5900Context *c,Runtime *rt,uint32_t pc){
     if((pc>=0x227d78 && pc<=0x227d9c && !(pc&3)) || (pc>=0x227de8 && pc<=0x227e0c && !(pc&3)) ||
        (pc>=0x227f08 && pc<=0x227f2c && !(pc&3))){
         const bool offset=pc<0x227de0,query=pc>=0x227f08;const auto stack=c->r[29].uw[0];
@@ -5615,6 +5543,9 @@ bool nativeMathInstruction(uint8_t *,R5900Context *c,Runtime *rt,uint32_t pc){
         if(pc==0x227d9c || pc==0x227e0c || pc==0x227f2c)publishFullPoint(rt,matrix,point,destination,!query);
         return true;
     }
+    return false;
+}
+bool mathBlock9(R5900Context *c,Runtime *rt,uint32_t pc){
     if((pc>=0x229164 && pc<=0x229180 && !(pc&3)) || (pc>=0x229228 && pc<=0x229240 && !(pc&3)) || pc==0x229248 ||
        (pc>=0x2292f8 && pc<=0x229314 && !(pc&3)) || (pc>=0x2295d4 && pc<=0x2295f0 && !(pc&3)) ||
        (pc>=0x2295fc && pc<=0x229614 && !(pc&3)) || pc==0x22961c || (pc>=0x229628 && pc<=0x229644 && !(pc&3))){
@@ -5632,62 +5563,9 @@ bool nativeMathInstruction(uint8_t *,R5900Context *c,Runtime *rt,uint32_t pc){
             publishLinearVector(rt,matrix,vector,destination);
         return true;
     }
-    if(pc==0x40b040 || pc==0x40b040-kPhysicsCopyShift){nativeParticlePhysicsInstruction(c,rt,pc);return false;}
-    if(((pc>=0x40a950 && pc<=0x40adf8) || (pc>=0x40a950-kPhysicsCopyShift && pc<=0x40adf8-kPhysicsCopyShift)) && nativeParticlePhysicsInstruction(c,rt,pc))return true;
-    // 408e90 (mod003) and its byte-identical copy mod001 27da10 (18b480 lower; only module-local
-    // jal targets differ), run by the battle's emitters: both map onto the listed sites.
-    const uint32_t motionShift=pc>=0x408f10-0x18b480 && pc<=0x409584-0x18b480?0x18b480u:0u,mpc=pc+motionShift,mentry=c?c->pc+motionShift:0;
-    static constexpr std::array<uint32_t,26> particleSites{0x408f10,0x408f84,0x408f88,0x408fa8,0x408fac,0x408fb8,0x408fbc,
-        0x409064,0x409068,0x40908c,0x409090,0x40909c,0x4090a0,0x409118,0x4091c0,0x4091c8,0x40931c,0x409320,0x40932c,0x409334,
-        0x409400,0x409404,0x40956c,0x409570,0x40957c,0x409584};
-    if(mpc>=particleSites.front() && mpc<=particleSites.back() && std::binary_search(particleSites.begin(),particleSites.end(),mpc)){
-        const auto object=c->r[4].uw[0],stack=c->r[29].uw[0];auto *owner=record(rt,object,0xf0);record(rt,stack,0x80);
-        const auto readWord=[](const uint8_t *p,unsigned at){uint32_t v;std::memcpy(&v,p+at,4);return v;};
-        const auto group=readWord(owner,0x10),pool=readWord(owner,0x14),count=readWord(owner,0xc);
-        if(!group || group>16 || group!=c->r[25].uw[0] || !count || count>65536 ||
-           (mentry!=0x408e90 && mentry!=0x408f30 && mentry!=0x408fe8 && mentry!=0x409148 && mentry!=0x409360 && mentry!=0x4091d0 && mentry!=0x409418))
-            throw std::runtime_error("native particle motion owner/continuation mismatch");
-        auto *timeRecord=record(rt,0x35dee0,16);float time;std::memcpy(&time,timeRecord+8,4);
-        if(mpc==0x408f10 || mpc==0x409118){
-            const bool simple=owner[0xd8]&1;
-            if(simple!=(mpc==0x408f10) || c->r[mpc==0x408f10?3:16].uw[0]!=std::bit_cast<uint32_t>(time))
-                throw std::runtime_error("native particle timestep source mismatch");
-            return true;
-        }
-        const unsigned path=mpc<=0x408fbc?0:mpc<=0x4090a0?1:mpc<=0x409334?2:3;
-        const bool simple=owner[0xd8]&1;
-        if(simple!=(path<2) || (group==1)!=(path%2==0))throw std::runtime_error("native particle motion branch mismatch");
-        const bool loading=mpc==0x408f84 || mpc==0x408f88 || mpc==0x409064 || mpc==0x409068 || mpc==0x4091c0 || mpc==0x4091c8 || mpc==0x409400 || mpc==0x409404;
-        const auto cursor=c->r[24].uw[0];if((!loading && !cursor) || (loading?cursor:cursor-1)>=count)throw std::runtime_error("native particle source index outside owner");
-        const auto index=loading?cursor:cursor-1,source=pool+index*0x90+0x60;
-        record(rt,pool,count*0x90);auto *input=record(rt,source,32);
-        static constexpr unsigned sourceRegisters[]={10,3,22,21};
-        if(c->r[sourceRegisters[path]].uw[0]!=source)throw std::runtime_error("native particle position source mismatch");
-        const bool publish=mpc==0x408fb8 || mpc==0x40909c || mpc==0x40932c || mpc==0x40957c;
-        const bool feedback=mpc==0x408fbc || mpc==0x4090a0 || mpc==0x409334 || mpc==0x409584;
-        if(publish || feedback){
-            const auto output=c->r[6].uw[0]+0x20,destination=publish?output:source;
-            static constexpr unsigned outputRegisters[]={3,9,16,16};
-            if(publish && c->r[outputRegisters[path]].uw[0]!=output)throw std::runtime_error("native particle output pointer mismatch");
-            auto *out=record(rt,output,16),*frame=record(rt,stack,0x80);
-            const auto a=reinterpret_cast<uintptr_t>(input),b=reinterpret_cast<uintptr_t>(out),f=reinterpret_cast<uintptr_t>(frame),o=reinterpret_cast<uintptr_t>(owner),t=reinterpret_cast<uintptr_t>(timeRecord);
-            if((a<b+16 && b<a+32) || (b<f+0x80 && f<b+16) || (b<o+0xf0 && o<b+16) || (b<t+16 && t<b+16) || (a<t+16 && t<a+32))
-                throw std::runtime_error("native particle position aliases its live operands/frame");
-            std::array<float,4> position,velocity;std::memcpy(position.data(),input,16);std::memcpy(velocity.data(),input+16,16);
-            pairQualified(time);if(std::abs(time)>1.e8f)throw std::runtime_error("unqualified native particle timestep");
-            for(unsigned i=0;i<3;++i){pairQualified(position[i]);pairQualified(velocity[i]);if(std::abs(position[i])>1.e8f || std::abs(velocity[i])>1.e8f)
-                throw std::runtime_error("unqualified native particle position/velocity");}
-            struct ArithmeticScope {unsigned saved=_mm_getcsr();~ArithmeticScope(){_mm_setcsr(saved);}} arithmetic;
-            for(unsigned i=0;i<3;++i)position[i]=pairSum(pairSum(position[i],0.f),pairProduct(velocity[i],time));
-            std::memcpy(record(rt,destination,16),position.data(),16);
-        }return true;
-    }
-    if(pc==0x214c40 || pc==0x214ce8 ||
-       (pc>=0x214c98 && pc<=0x214ca0 && !(pc&3)) || (pc>=0x214cbc && pc<=0x214cc4 && !(pc&3)) ||
-       (pc>=0x214cdc && pc<=0x214ce4 && !(pc&3)) ||
-       (pc>=0x214db8 && pc<=0x214dd0 && !(pc&3)) || pc==0x214dd8 ||
-       (pc>=0x214df0 && pc<=0x214e00 && !(pc&3)) || (pc>=0x214e08 && pc<=0x214e1c && !(pc&3)))
-        return nativeSquadInstruction(c,rt,pc);
+    return false;
+}
+bool mathBlock10(R5900Context *c,Runtime *rt,uint32_t pc){
     if((pc>=0x2a68d4 && pc<=0x2a68f4 && !(pc&3)) || pc==0x2a68fc){
         const auto stack=c->r[29].uw[0];
         if(c->pc!=0x2a68c8 || c->r[4].uw[0]!=0x35dfd0)throw std::runtime_error("native Hermite vector setup mismatch");
@@ -5701,6 +5579,9 @@ bool nativeMathInstruction(uint8_t *,R5900Context *c,Runtime *rt,uint32_t pc){
             const auto result=math::matrixVectorProduct(controls,weights);std::memcpy(record(rt,stack+0x30,16),&result,16);
         }return true;
     }
+    return false;
+}
+bool mathBlock11(R5900Context *c,Runtime *rt,uint32_t pc){
     if((pc>=0x2d7c04 && pc<=0x2d7c70 && !(pc&3)) ||
        (pc>=0x2d7c80 && pc<=0x2d7cec && !(pc&3)) ||
        (pc>=0x2d7cfc && pc<=0x2d7d68 && !(pc&3))){
@@ -5716,6 +5597,9 @@ bool nativeMathInstruction(uint8_t *,R5900Context *c,Runtime *rt,uint32_t pc){
             const auto result=math::projectionProduct(first,parent);std::memcpy(record(rt,stack+0x100,64),result.data(),64);
         }return true;
     }
+    return false;
+}
+bool mathBlock12(R5900Context *c,Runtime *rt,uint32_t pc){
     if(pc==0x215a8c || pc==0x215a94 || pc==0x215a98 || pc==0x215aa0 ||
        pc==0x215af0 || pc==0x215af8 || pc==0x215afc || pc==0x215b04 ||
        pc==0x215b54 || pc==0x215b5c || pc==0x215b60 || pc==0x215b68 ||
@@ -5731,6 +5615,9 @@ bool nativeMathInstruction(uint8_t *,R5900Context *c,Runtime *rt,uint32_t pc){
             publishUnitQuaternion(rt,at);
         }return true;
     }
+    return false;
+}
+bool mathBlock13(R5900Context *c,Runtime *rt,uint32_t pc){
     if(pc>=0x41278c && pc<=0x4127ac && !(pc&3)){
         const auto stack=c->r[29].uw[0],object=c->r[16].uw[0];
         if(c->pc!=0x4126a0 || c->r[3].uw[0]!=object+0x220 || c->r[2].uw[0]!=stack+0x20)
@@ -5741,6 +5628,9 @@ bool nativeMathInstruction(uint8_t *,R5900Context *c,Runtime *rt,uint32_t pc){
         if(pc==0x4127ac)publishMagnitude(rt,object+0x220,stack+0x20);
         return true;
     }
+    return false;
+}
+bool mathBlock14(R5900Context *c,Runtime *rt,uint32_t pc){
     if(pc>=0x446724 && pc<=0x446744 && !(pc&3)){
         const auto stack=c->r[29].uw[0],object=c->r[18].uw[0];
         if((c->pc!=0x44665c && c->pc!=0x4466c0) || c->r[4].uw[0]!=stack+0xb0 || c->r[3].uw[0]!=stack+0x50)
@@ -5750,6 +5640,9 @@ bool nativeMathInstruction(uint8_t *,R5900Context *c,Runtime *rt,uint32_t pc){
         if(pc==0x446744)publishMagnitude(rt,stack+0xb0,stack+0x50);
         return true;
     }
+    return false;
+}
+bool mathBlock15(R5900Context *c,Runtime *rt,uint32_t pc){
     if(pc==0x216390 || pc==0x216398 || pc==0x21639c || pc==0x2163a4 ||
        pc==0x2163f4 || pc==0x2163fc || pc==0x216400 || pc==0x216408 ||
        pc==0x216458 || pc==0x216460 || pc==0x216464 || pc==0x21646c ||
@@ -5764,6 +5657,9 @@ bool nativeMathInstruction(uint8_t *,R5900Context *c,Runtime *rt,uint32_t pc){
             publishUnitQuaternion(rt,at);
         }return true;
     }
+    return false;
+}
+bool mathBlock16(R5900Context *c,Runtime *rt,uint32_t pc){
     if((pc>=0x1f6f94 && pc<=0x1f6fa4 && !(pc&3)) ||
        (pc>=0x1f7194 && pc<=0x1f71a4 && !(pc&3)) ||
        (pc>=0x1f72cc && pc<=0x1f72dc && !(pc&3)) ||
@@ -5772,16 +5668,25 @@ bool nativeMathInstruction(uint8_t *,R5900Context *c,Runtime *rt,uint32_t pc){
         // only by the matching old intermediate restores, never scalar code.
         leaflessQuery(rt,c,pc==0x1f6f94);return true;
     }
+    return false;
+}
+bool mathBlock17(R5900Context *c,Runtime *rt,uint32_t pc){
     if(pc==0x1f7098 || pc==0x1f709c || pc==0x1f70a0 || pc==0x1f70a8 || pc==0x1f70ac || pc==0x1f70b4){
         const auto data=leaflessQuery(rt,c);
         if(pc==0x1f70b4){if(c->r[2].uw[0]!=c->r[29].uw[0]+0x40)throw std::runtime_error("native query scale destination mismatch");
             const auto scales=queryBasisScales(data.object+0x90);std::memcpy(data.frame+0x40,scales.data(),12);}return true;
     }
+    return false;
+}
+bool mathBlock18(R5900Context *c,Runtime *rt,uint32_t pc){
     if(pc>=0x1f70f0 && pc<=0x1f717c && !(pc&3)){
         const auto data=leaflessQuery(rt,c);
         if(pc==0x1f717c){if(c->r[2].uw[0]!=c->r[29].uw[0]+0x50)throw std::runtime_error("native query distance destination mismatch");
             const auto result=leaflessDistance(data);std::memcpy(data.frame+0x50,result.data(),16);}return true;
     }
+    return false;
+}
+bool mathBlock19(R5900Context *c,Runtime *rt,uint32_t pc){
     if(pc>=0x252ec8 && pc<=0x252f20 && !(pc&3)){
         if(pc==0x252f20){const auto destination=c->r[29].uw[0]+0xd0;
             if(c->r[2].uw[0]!=destination || c->r[3].uw[0]!=c->r[16].uw[0]+0x210)
@@ -5789,6 +5694,9 @@ bool nativeMathInstruction(uint8_t *,R5900Context *c,Runtime *rt,uint32_t pc){
             const auto result=rowPoint(rt,c->r[3].uw[0],c->r[17].uw[0]);std::memcpy(record(rt,destination,16),result.data(),16);}
         return true;
     }
+    return false;
+}
+bool mathBlock20(R5900Context *c,Runtime *rt,uint32_t pc){
     if(pc==0x252fdc || pc==0x252fe0 || pc==0x252fe4 || pc==0x252fec || pc==0x252ff0 || pc==0x252ff8){
         if(pc==0x252ff8){const auto object=c->r[16].uw[0],stack=c->r[29].uw[0];
             if(c->r[2].uw[0]!=stack+0xb0)throw std::runtime_error("native height-query scale destination mismatch");
@@ -5804,6 +5712,9 @@ bool nativeMathInstruction(uint8_t *,R5900Context *c,Runtime *rt,uint32_t pc){
             const auto scale=basisYScale(owner+0x90);std::memcpy(temporary+4,&scale,4);}
         return true;
     }
+    return false;
+}
+bool mathBlock21(R5900Context *c,Runtime *rt,uint32_t pc){
     if(((pc>=0x3e7edc && pc<=0x3e7f34) || (pc>=0x3e7fa0 && pc<=0x3e7ff8)) && !(pc&3)){
         if(pc==0x3e7f34 || pc==0x3e7ff8){
             const auto destination=c->r[29].uw[0]+0x70;
@@ -5813,6 +5724,9 @@ bool nativeMathInstruction(uint8_t *,R5900Context *c,Runtime *rt,uint32_t pc){
         }
         return true;
     }
+    return false;
+}
+bool mathBlock22(R5900Context *c,Runtime *rt,uint32_t pc){
     if(pc==0x3e5ca4 || pc==0x3e5ca8 || pc==0x3e5cac || pc==0x3e5cb4 || pc==0x3e5cb8 || pc==0x3e5cc0){
         const auto object=c->r[18].uw[0],stack=c->r[29].uw[0],output=c->r[19].uw[0];
         if(c->r[4].uw[0]!=object+0x90 || (pc==0x3e5cc0 && c->r[3].uw[0]!=stack+0x50))
@@ -5828,9 +5742,9 @@ bool nativeMathInstruction(uint8_t *,R5900Context *c,Runtime *rt,uint32_t pc){
         if(pc==0x3e5cc0)std::memcpy(temporary+4,&scale,4);
         return true;
     }
-    if(nativeTrigInstruction(nullptr,c,rt,pc))return true;
-    if(nativeObjectMathInstruction(nullptr,c,rt,pc))return true;
-    if(nativeFrustumInstruction(c,rt,pc))return true;
+    return false;
+}
+bool mathBlock23(R5900Context *c,Runtime *rt,uint32_t pc){
     if(pc==0x1fbff0 || pc==0x1fc010){
         // Class 163c40 (mod003 3ad540/3f4930) joins the collider table when it is
         // built but writes its plane (+220, +230) only when its spawn timer +240
@@ -5852,7 +5766,13 @@ bool nativeMathInstruction(uint8_t *,R5900Context *c,Runtime *rt,uint32_t pc){
             std::memcpy(record(rt,c->r[6].uw[0],16),contact.point.data(),16);
         }return true;
     }
+    return false;
+}
+bool mathBlock24(R5900Context *c,Runtime *rt,uint32_t pc){
     if(pc==0x1fbfbc || pc==0x1fbfc0 || pc==0x1fbfc4 || pc==0x1fbfd0 || pc==0x1fbfd8 || pc==0x1fbfdc || pc==0x1fbfe0 || pc==0x1fbfe4 || pc==0x1fbfe8 || pc==0x1fbfec || pc==0x1fc008 || pc==0x1fc00c)return true;
+    return false;
+}
+bool mathBlock25(R5900Context *c,Runtime *rt,uint32_t pc){
     if(pc==0x211fe8 || pc==0x212020 || pc==0x212064 || pc==0x212084){
         const auto terms=pointSegmentTerms(rt,c);const auto stack=c->r[29].uw[0];Ps2Word value;
         if(c->r[2].uw[0]!=(pc==0x212020?stack:stack+0x10))throw std::runtime_error("point/segment temporary destination mismatch");
@@ -5873,29 +5793,34 @@ bool nativeMathInstruction(uint8_t *,R5900Context *c,Runtime *rt,uint32_t pc){
         // retirement of the other three temporary words.
         value.store(record(rt,c->r[2].uw[0],16));return true;
     }
-    switch(pc){
-    case 0x211fb8:case 0x211fbc:case 0x211fc0:case 0x211fc4:case 0x211fc8:case 0x211fcc:case 0x211fd0:case 0x211fd4:
-    case 0x211fd8:case 0x211fe0:case 0x211fe4:case 0x212010:case 0x21201c:case 0x212048:case 0x212054:case 0x212058:
-    case 0x21205c:case 0x212060:case 0x212068:case 0x21207c:case 0x212080:return true;
-    default:break;
-    }
+    return false;
+}
+bool mathBlock26(R5900Context *c,Runtime *rt,uint32_t pc){
     if(pc==0x1fc038 || pc==0x1fc0c4 || pc==0x1fc128 || pc==0x1fc174){collisionPositionResponse(rt,c,pc);return true;}
-    switch(pc){
-    case 0x1fc044:case 0x1fc050:case 0x1fc054:case 0x1fc05c:case 0x1fc080:case 0x1fc084:case 0x1fc0ac:case 0x1fc0b0:
-    case 0x1fc0b4:case 0x1fc0b8:case 0x1fc0bc:case 0x1fc0c0:case 0x1fc0cc:case 0x1fc0e0:case 0x1fc100:case 0x1fc108:
-    case 0x1fc110:case 0x1fc114:case 0x1fc118:case 0x1fc11c:case 0x1fc134:case 0x1fc154:case 0x1fc15c:case 0x1fc160:
-    case 0x1fc164:case 0x1fc168:case 0x1fc16c:return true;
-    default:break;
-    }
+    return false;
+}
+bool mathBlock27(R5900Context *c,Runtime *rt,uint32_t pc){
     if(pc==0x1fc628){collisionNormal(rt,c,pc);return true;}
+    return false;
+}
+bool mathBlock28(R5900Context *c,Runtime *rt,uint32_t pc){
     if(pc==0x1fc690){const auto normal=collisionNormal(rt,c,pc);
         // Both audited physics continuations feed this record to 1fc030,
         // which consumes XYZ only. No stale normal W is synthesized.
         auto *out=record(rt,c->r[18].uw[0],16);for(unsigned i=0;i<3;++i)normal[i].store(out+4*i);return true;}
+    return false;
+}
+bool mathBlock29(R5900Context *c,Runtime *rt,uint32_t pc){
     if(pc==0x1fc62c || pc==0x1fc638 || pc==0x1fc63c || pc==0x1fc640 || pc==0x1fc64c ||
        (pc>=0x1fc650 && pc<=0x1fc670 && !(pc&3)) || pc==0x1fc688 || pc==0x1fc68c)return true;
+    return false;
+}
+bool mathBlock30(R5900Context *c,Runtime *rt,uint32_t pc){
     if((pc>=0x2120ac && pc<=0x212110 && !(pc&3)) || pc==0x212118 || pc==0x212138 ||
        (pc>=0x212170 && pc<=0x212184 && !(pc&3)))return true;
+    return false;
+}
+bool mathBlock31(R5900Context *c,Runtime *rt,uint32_t pc){
     if(pc==0x21211c || pc==0x212120 || pc==0x212128 || pc==0x212130 || pc==0x21213c || pc==0x212144 || pc==0x21214c || pc==0x212188 || pc==0x212190 || pc==0x212198){
         const auto terms=segmentTerms(rt,c);
         if(pc==0x21211c){if(c->r[2].uw[0]!=c->r[29].uw[0])throw std::runtime_error("segment-distance temporary mismatch");
@@ -5912,7 +5837,13 @@ bool nativeMathInstruction(uint8_t *,R5900Context *c,Runtime *rt,uint32_t pc){
         // these integer temporaries before using a packed or upper component.
         c->r[pc==0x21214c?3:2].uw[0]=value;return true;
     }
+    return false;
+}
+bool mathBlock32(R5900Context *c,Runtime *rt,uint32_t pc){
     if(pc==0x1fde1c || pc==0x1fde20 || (pc>=0x1fde40 && pc<=0x1fde60 && !(pc&3)) || pc==0x1fde70 || pc==0x1fde78)return true;
+    return false;
+}
+bool mathBlock33(R5900Context *c,Runtime *rt,uint32_t pc){
     if(pc==0x1fde6c){
         const auto stack=c->r[29].uw[0];auto *origin=record(rt,stack+0x460,16),*direction=record(rt,stack+0x220,16);
         if(c->r[2].uw[0]!=stack+0x460)throw std::runtime_error("collision query origin destination mismatch");
@@ -5932,7 +5863,13 @@ bool nativeMathInstruction(uint8_t *,R5900Context *c,Runtime *rt,uint32_t pc){
         // Both results precede the first original store; snapshot all aliases first.
         std::memcpy(origin,b.data(),16);std::memcpy(direction,a.data(),16);return true;
     }
+    return false;
+}
+bool mathBlock34(R5900Context *c,Runtime *rt,uint32_t pc){
     if(pc==0x1fe8b0 || pc==0x1fe8f0 || pc==0x1fe8f4 || pc==0x1fe8f8 || pc==0x1fe8fc || pc==0x1fe924 || pc==0x1fe928)return true;
+    return false;
+}
+bool mathBlock35(R5900Context *c,Runtime *rt,uint32_t pc){
     if(pc==0x1fe934){
         const auto object=c->r[5].uw[0];auto *source=record(rt,object,0x70);
         if(c->r[3].uw[0]!=object+0x50 || c->r[4].uw[0]!=object+0x30)throw std::runtime_error("velocity update record mismatch");
@@ -5943,10 +5880,9 @@ bool nativeMathInstruction(uint8_t *,R5900Context *c,Runtime *rt,uint32_t pc){
             if(damped)value=value*factor;value.store(result.data()+4*i);}
         std::memcpy(source+0x50,result.data(),16);return true;
     }
-    if((pc>=0x215298 && pc<=0x2152a4 && !(pc&3)) || pc==0x2152ac ||
-       (pc>=0x2152b4 && pc<=0x2152c0 && !(pc&3)) || pc==0x2152c8 ||
-       (pc>=0x215348 && pc<=0x21535c && !(pc&3)) || pc==0x215364 || pc==0x215368)return true;
-    if((pc>=0x2152ec && pc<=0x215304 && !(pc&3)) || pc==0x21530c || (pc>=0x215324 && pc<=0x215340 && !(pc&3)))return true;
+    return false;
+}
+bool mathBlock36(R5900Context *c,Runtime *rt,uint32_t pc){
     if(pc==0x21536c){
         const bool nonlinear=c->pc==0x2152ec || c->pc==0x215324;
         if((!nonlinear && c->pc!=0x215260 && c->pc!=0x215274) || c->r[19].ud[0]>1 ||
@@ -5966,11 +5902,17 @@ bool nativeMathInstruction(uint8_t *,R5900Context *c,Runtime *rt,uint32_t pc){
         const auto result=linearQuaternionBlend(a,b,weights[0],weights[1],c->r[19].ud[0]!=0,scale);
         std::memcpy(record(rt,c->r[18].uw[0],16),result.data(),16);return true;
     }
-    // The angular-constraint algorithm owns a literal half coefficient. Its
-    // obsolete vector-register initialization publishes no game data. Remaining
-    // unported consumers still fail at their own explicit native boundaries.
+    return false;
+}
+bool mathBlock37(R5900Context *c,Runtime *rt,uint32_t pc){
     if(pc==0x1fcb7c)return true;
+    return false;
+}
+bool mathBlock38(R5900Context *c,Runtime *rt,uint32_t pc){
     if(pc==0x1fcdfc || pc==0x1fce00 || pc==0x1fce04 || (pc>=0x1fce0c && pc<=0x1fce2c && !(pc&3)))return true;
+    return false;
+}
+bool mathBlock39(R5900Context *c,Runtime *rt,uint32_t pc){
     if(pc==0x1fce30){
         const auto destination=c->r[29].uw[0]+0x130,source=c->r[17].uw[0]+0x30;
         if(c->r[2].uw[0]!=destination || c->r[3].uw[0]!=source)throw std::runtime_error("joint quaternion composition record mismatch");
@@ -5978,14 +5920,26 @@ bool nativeMathInstruction(uint8_t *,R5900Context *c,Runtime *rt,uint32_t pc){
         for(unsigned i=0;i<4;++i){a[i]=Ps2Word::load(out+4*i);b[i]=Ps2Word::load(in+4*i);}
         const auto result=composeConstraintQuaternions(a,b);for(unsigned i=0;i<4;++i)result[i].store(out+4*i);return true;
     }
+    return false;
+}
+bool mathBlock40(R5900Context *c,Runtime *rt,uint32_t pc){
     if((pc>=0x1fcd08 && pc<=0x1fcd5c && !(pc&3)) ||
        (pc>=0x1fcd6c && pc<=0x1fcda4 && !(pc&3)))return true;
+    return false;
+}
+bool mathBlock41(R5900Context *c,Runtime *rt,uint32_t pc){
     if(pc==0x1fcdac){
         const auto stack=c->r[29].uw[0];if(c->r[3].uw[0]!=stack+0x140)throw std::runtime_error("angular-constraint cosine destination mismatch");
         const auto directions=angularDirections(rt,c);directions.cosine.store(record(rt,stack+0x140,16));return true;
     }
+    return false;
+}
+bool mathBlock42(R5900Context *c,Runtime *rt,uint32_t pc){
     if(pc==0x1fcdb0 || pc==0x1fcdb4 || pc==0x1fcdc8 || pc==0x1fcdd0 || pc==0x1fcdd4 || pc==0x1fcdd8 ||
        pc==0x1fcddc || pc==0x1fcde0 || pc==0x1fcde4 || pc==0x1fcde8 || pc==0x1fcdec)return true;
+    return false;
+}
+bool mathBlock43(R5900Context *c,Runtime *rt,uint32_t pc){
     if(pc==0x1fcdf0){
         const auto stack=c->r[29].uw[0];auto *result=record(rt,stack+0x130,16);
         if(c->r[2].uw[0]!=stack+0x130 || c->r[3].uw[0]!=stack+0x140 || std::bit_cast<uint32_t>(c->f[1])!=0x3f7ffffe)
@@ -6001,7 +5955,13 @@ bool nativeMathInstruction(uint8_t *,R5900Context *c,Runtime *rt,uint32_t pc){
         Ps2Word quaternion[4];for(unsigned i=0;i<3;++i){const auto j=(i+1)%3,k=(i+2)%3;quaternion[i]=(b[j]*a[k]-a[j]*b[k])*reciprocal;}
         quaternion[3]=(kPs2One*root)*half;for(unsigned i=0;i<4;++i)quaternion[i].store(result+4*i);return true;
     }
+    return false;
+}
+bool mathBlock44(R5900Context *c,Runtime *rt,uint32_t pc){
     if(pc>=0x216da4 && pc<=0x216dbc && !(pc&3))return true;
+    return false;
+}
+bool mathBlock45(R5900Context *c,Runtime *rt,uint32_t pc){
     if(pc==0x216e04){
         const auto matrixAddress=c->r[5].uw[0],frame=c->r[29].uw[0];
         auto *matrixRecord=record(rt,matrixAddress,64),*translationRecord=record(rt,frame,16);
@@ -6018,17 +5978,9 @@ bool nativeMathInstruction(uint8_t *,R5900Context *c,Runtime *rt,uint32_t pc){
         for(unsigned lane=0;lane<3;++lane)((rows.rows[lane][0]*point[0]+rows.rows[lane][1]*point[1])+rows.rows[lane][2]*point[2]).store(translationRecord+4*lane);
         return true;
     }
-    switch(pc){
-    case 0x1fc6dc:case 0x1fc6e0:case 0x1fc708:case 0x1fc70c:case 0x1fc714:case 0x1fc71c:case 0x1fc720:case 0x1fc760:
-    case 0x1fc78c:case 0x1fc790:case 0x1fc794:case 0x1fc7a0:case 0x1fc7bc:case 0x1fc7c4:case 0x1fc7e4:case 0x1fc7e8:
-    case 0x1fc7ec:case 0x1fc7f0:case 0x1fc7f4:case 0x1fc800:case 0x1fc824:case 0x1fc830:case 0x1fc834:case 0x1fc838:
-    case 0x1fc83c:case 0x1fc840:case 0x1fc848:return true;
-    case 0x1fc86c:case 0x1fc870:case 0x1fc898:case 0x1fc8a0:case 0x1fc8a4:case 0x1fc8a8:case 0x1fc8ac:case 0x1fc8b4:
-    case 0x1fc8f8:case 0x1fc8fc:case 0x1fc900:case 0x1fc90c:case 0x1fc948:case 0x1fc950:case 0x1fc970:case 0x1fc974:
-    case 0x1fc978:case 0x1fc97c:case 0x1fc980:case 0x1fc98c:case 0x1fc9ac:case 0x1fc9b8:case 0x1fc9bc:case 0x1fc9c0:
-    case 0x1fc9c4:case 0x1fc9c8:case 0x1fc9d0:return true;
-    default:break;
-    }
+    return false;
+}
+bool mathBlock46(R5900Context *c,Runtime *rt,uint32_t pc){
     if(pc==0x1fc908 || pc==0x1fc79c){
         const auto frame=c->r[29].uw[0];auto *stack=record(rt,frame,16);
         if(c->r[3].uw[0]!=frame)throw std::runtime_error("constrained-position distance destination mismatch");
@@ -6039,6 +5991,9 @@ bool nativeMathInstruction(uint8_t *,R5900Context *c,Runtime *rt,uint32_t pc){
         // aliases that could make those retired stores observable reject above.
         geometry.distance.store(stack);return true;
     }
+    return false;
+}
+bool mathBlock47(R5900Context *c,Runtime *rt,uint32_t pc){
     if(pc==0x1fc984 || pc==0x1fc9cc || pc==0x1fc7f8 || pc==0x1fc844){
         auto *first=record(rt,c->r[5].uw[0],16),*second=record(rt,c->r[4].uw[0],16),*frame=record(rt,c->r[29].uw[0],16);
         if(c->r[4].uw[0]!=c->r[6].uw[0]+0x30)throw std::runtime_error("constrained-position output record mismatch");
@@ -6054,11 +6009,17 @@ bool nativeMathInstruction(uint8_t *,R5900Context *c,Runtime *rt,uint32_t pc){
         // the symmetric branch's delay slot. Capture both before either write.
         std::memcpy(first,outA.data(),16);std::memcpy(second,outB.data(),16);return true;
     }
+    return false;
+}
+bool mathBlock48(R5900Context *c,Runtime *rt,uint32_t pc){
     if(pc==0x1fca90 || pc==0x1fca9c || pc==0x1fcaa0 || pc==0x1fcaa4 || pc==0x1fcaa8 || pc==0x1fcaac ||
        pc==0x1fcac4 || pc==0x1fcad8 || pc==0x1fcadc || pc==0x1fcafc || pc==0x1fcb00 || pc==0x1fcb04)return true;
+    return false;
+}
+bool mathBlock49(R5900Context *c,Runtime *rt,uint32_t pc){
     if(pc==0x1fcb08 || pc==0x1fcb24){
-        auto *dispatcher=rt?dynamic_cast<bozo::ee::Dispatcher *>(rt->services):nullptr;
-        auto *owner=dispatcher?dynamic_cast<MotionOwner *>(&dispatcher->host()):nullptr;
+        auto *dispatcher=rt?vp2s::nativeCast<bozo::ee::Dispatcher>(rt->services):nullptr;
+        auto *owner=dispatcher?vp2s::nativeCast<MotionOwner>(&dispatcher->host()):nullptr;
         if(!owner)throw std::runtime_error("native motion requires an update owner");
         const auto object=c->r[16].uw[0],frame=c->r[29].uw[0];auto *source=record(rt,object,0x70);
         if(pc==0x1fcb24){
@@ -6084,10 +6045,16 @@ bool nativeMathInstruction(uint8_t *,R5900Context *c,Runtime *rt,uint32_t pc){
             out[i]=(value+velocity*dt).bits;}
         owner->nativeMotion().prepare(frame,object,out);return true;
     }
+    return false;
+}
+bool mathBlock50(R5900Context *c,Runtime *rt,uint32_t pc){
     if((pc>=0x1fb1e4 && pc<0x1fb200 && !(pc&3)) ||
        (pc>=0x1fb2fc && pc<0x1fb318 && !(pc&3)) ||
        (pc>=0x1fb42c && pc<0x1fb448 && !(pc&3)) ||
        (pc>=0x1fb624 && pc<0x1fb640 && !(pc&3)))return true;
+    return false;
+}
+bool mathBlock51(R5900Context *c,Runtime *rt,uint32_t pc){
     if(pc==0x1fb200 || pc==0x1fb318 || pc==0x1fb448 || pc==0x1fb640){
         math::RigidBasis basis;__m128 vector;
         std::memcpy(basis.data(),record(rt,c->r[5].uw[0],48),48);std::memcpy(&vector,record(rt,c->r[4].uw[0],16),16);
@@ -6101,12 +6068,18 @@ bool nativeMathInstruction(uint8_t *,R5900Context *c,Runtime *rt,uint32_t pc){
         const auto result=math::linearVectorProduct(basis,vector);
         std::memcpy(record(rt,c->r[3].uw[0],16),&result,16);return true;
     }
+    return false;
+}
+bool mathBlock52(R5900Context *c,Runtime *rt,uint32_t pc){
     if((pc>=0x1fb3f4 && pc<0x1fb418 && !(pc&3)) ||
        (pc>=0x1fb5ec && pc<0x1fb610 && !(pc&3)) ||
        (pc>=0x1fb87c && pc<0x1fb8a0 && !(pc&3)) ||
        (pc>=0x1fbdcc && pc<0x1fbdf0 && !(pc&3)) ||
        (pc>=0x1fbe6c && pc<0x1fbe90 && !(pc&3)) ||
        (pc>=0x1fbf78 && pc<0x1fbf9c && !(pc&3)))return true;
+    return false;
+}
+bool mathBlock53(R5900Context *c,Runtime *rt,uint32_t pc){
     if(pc==0x1fb418 || pc==0x1fb610 || pc==0x1fb8a0 || pc==0x1fbdf0 || pc==0x1fbe90 || pc==0x1fbf9c){
         const bool local=pc==0x1fbdf0 || pc==0x1fbe90,world=pc==0x1fbf9c;
         const unsigned matrixRegister=local || world?3:5,vectorRegister=local?5:world?6:4,destinationRegister=local?2:world?6:3;
@@ -6122,7 +6095,13 @@ bool nativeMathInstruction(uint8_t *,R5900Context *c,Runtime *rt,uint32_t pc){
         const auto result=math::matrixVectorProduct(matrix,vector);
         std::memcpy(record(rt,c->r[destinationRegister].uw[0],16),&result,16);return true;
     }
+    return false;
+}
+bool mathBlock54(R5900Context *c,Runtime *rt,uint32_t pc){
     if((pc>=0x1fb768 && pc<=0x1fb798 && !(pc&3)) || pc==0x1fb7a0)return true;
+    return false;
+}
+bool mathBlock55(R5900Context *c,Runtime *rt,uint32_t pc){
     if(pc==0x1fb79c){
         math::Matrix matrix;math::PointDirection vectors;
         std::memcpy(matrix.data(),record(rt,c->r[6].uw[0],64),64);
@@ -6140,7 +6119,13 @@ bool nativeMathInstruction(uint8_t *,R5900Context *c,Runtime *rt,uint32_t pc){
         std::memcpy(record(rt,c->r[5].uw[0],16),&result[0],16);
         std::memcpy(record(rt,c->r[4].uw[0],16),&result[1],16);return true;
     }
+    return false;
+}
+bool mathBlock56(R5900Context *c,Runtime *rt,uint32_t pc){
     if(pc>=0x216d34 && pc<=0x216d54 && !(pc&3))return true;
+    return false;
+}
+bool mathBlock57(R5900Context *c,Runtime *rt,uint32_t pc){
     if(pc==0x216d5c){
         math::RigidBasis basis;__m128 translation;
         std::memcpy(basis.data(),record(rt,c->r[5].uw[0],48),48);
@@ -6157,7 +6142,13 @@ bool nativeMathInstruction(uint8_t *,R5900Context *c,Runtime *rt,uint32_t pc){
         const auto result=math::rigidInverseColumnTranslation(basis,translation);
         std::memcpy(record(rt,c->r[5].uw[0]+0x30,16),&result,16);return true;
     }
+    return false;
+}
+bool mathBlock58(R5900Context *c,Runtime *rt,uint32_t pc){
     if(pc==0x248570 || pc==0x248574 || pc==0x248578 || pc==0x248580 || pc==0x2485a4 || pc==0x2485a8 || pc==0x2485ac)return true;
+    return false;
+}
+bool mathBlock59(R5900Context *c,Runtime *rt,uint32_t pc){
     if(pc==0x2485b4){
         const auto object=c->r[5].uw[0],stack=c->r[29].uw[0];
         auto *owner=record(rt,object,0x210),*frame=record(rt,stack,0x20);
@@ -6184,6 +6175,9 @@ bool nativeMathInstruction(uint8_t *,R5900Context *c,Runtime *rt,uint32_t pc){
         // and unused control read are retired, without constructing VU state.
         std::memcpy(frame+0x10,result,12);return true;
     }
+    return false;
+}
+bool mathBlock60(R5900Context *c,Runtime *rt,uint32_t pc){
     if(pc==0x23c270 || pc==0x23c2a8 || pc==0x23c2c8){
         const auto global=c->r[18].uw[0],model=c->r[19].uw[0],destination=c->r[29].uw[0]+0x50;
         record(rt,global,0x520);record(rt,model,0x7f0);
@@ -6206,11 +6200,9 @@ bool nativeMathInstruction(uint8_t *,R5900Context *c,Runtime *rt,uint32_t pc){
                 result[i]=normal(music::codecSum(result[i],offset[i]));}}
         std::memcpy(record(rt,destination,16),result,16);return true;
     }
-    switch(pc){
-    case 0x23c258:case 0x23c25c:case 0x23c260:case 0x23c264:case 0x23c268:
-    case 0x23c290:case 0x23c294:case 0x23c298:case 0x23c29c:case 0x23c2a0:
-    case 0x23c2bc:case 0x23c2c0:case 0x23c2c4:return true;
-    }
+    return false;
+}
+bool mathBlock61(R5900Context *c,Runtime *rt,uint32_t pc){
     if(pc==0x20f26c || pc==0x20f2ac){
         const auto object=c->r[21].uw[0],source=object+(pc==0x20f26c?0xd0:0x150),destination=object+0x1d0;
         record(rt,object,0x210);
@@ -6227,15 +6219,13 @@ bool nativeMathInstruction(uint8_t *,R5900Context *c,Runtime *rt,uint32_t pc){
             const auto b=std::bit_cast<uint32_t>(float(value));result[row][lane]=std::bit_cast<float>((b&0x7f800000)?b:(b&0x80000000));}
         std::memcpy(record(rt,destination,64),result,64);return true;
     }
-    switch(pc){
-    case 0x20f248:case 0x20f24c:case 0x20f250:case 0x20f254:case 0x20f258:
-    case 0x20f25c:case 0x20f260:case 0x20f264:case 0x20f268:
-    case 0x20f270:case 0x20f274:case 0x20f27c:
-    case 0x20f288:case 0x20f28c:case 0x20f290:case 0x20f294:case 0x20f298:
-    case 0x20f29c:case 0x20f2a0:case 0x20f2a4:case 0x20f2a8:
-    case 0x20f2b0:case 0x20f2b4:case 0x20f2b8:return true;
-    }
+    return false;
+}
+bool mathBlock62(R5900Context *c,Runtime *rt,uint32_t pc){
     if(pc==0x43d2a0 || pc==0x43d2a4 || pc==0x43d2a8)return true;
+    return false;
+}
+bool mathBlock63(R5900Context *c,Runtime *rt,uint32_t pc){
     if(pc==0x43d2ac){
         const auto object=c->r[16].uw[0];
         if(c->r[6].uw[0]!=object+0xd0 || c->r[4].uw[0]!=object+0xe0 || c->r[3].uw[0]!=c->r[29].uw[0]+0x30)
@@ -6250,7 +6240,13 @@ bool nativeMathInstruction(uint8_t *,R5900Context *c,Runtime *rt,uint32_t pc){
             result[i]=std::bit_cast<float>((b&0x7f800000)?b:(b&0x80000000));}
         std::memcpy(record(rt,c->r[3].uw[0],16),result,16);return true;
     }
+    return false;
+}
+bool mathBlock64(R5900Context *c,Runtime *rt,uint32_t pc){
     if(pc>=0x37faa0 && pc<=0x37fad4 && !(pc&3))return true;
+    return false;
+}
+bool mathBlock65(R5900Context *c,Runtime *rt,uint32_t pc){
     if(pc==0x37fad8){
         const auto box=c->r[4].uw[0];
         if(c->r[8].uw[0]!=box+0x10 || c->r[7].uw[0]!=box+0x20)
@@ -6284,7 +6280,13 @@ bool nativeMathInstruction(uint8_t *,R5900Context *c,Runtime *rt,uint32_t pc){
         for(float value:result)if(!std::isfinite(value))throw std::runtime_error("native box sphere result overflow");
         std::memcpy(record(rt,c->r[7].uw[0],16),result,16);return true;
     }
+    return false;
+}
+bool mathBlock66(R5900Context *c,Runtime *rt,uint32_t pc){
     if(pc>=0x1fedd4 && pc<=0x1fedf8 && !(pc&3))return true;
+    return false;
+}
+bool mathBlock67(R5900Context *c,Runtime *rt,uint32_t pc){
     if(pc==0x1fedfc){
         float first[4],second[4],result[4];
         std::memcpy(first,record(rt,c->r[5].uw[0],16),16);
@@ -6303,6 +6305,9 @@ bool nativeMathInstruction(uint8_t *,R5900Context *c,Runtime *rt,uint32_t pc){
         volatile float length=std::sqrt(squared);volatile float output=0.f+length;result[0]=output;
         std::memcpy(record(rt,c->r[4].uw[0],16),result,16);return true;
     }
+    return false;
+}
+bool mathBlock68(R5900Context *c,Runtime *rt,uint32_t pc){
     if(pc==0x237284 || pc==0x2372bc){
         const auto word=[&](uint32_t at){uint32_t v;std::memcpy(&v,record(rt,at&~15u,16)+(at&15),4);return v;};
         const auto owner=c->r[20].uw[0],list=word(owner+0x3c),bind=word(owner+0x40);
@@ -6361,15 +6366,9 @@ bool nativeMathInstruction(uint8_t *,R5900Context *c,Runtime *rt,uint32_t pc){
             throw std::runtime_error("native bone matrix overflow");
         std::memcpy(record(rt,destination,64),result.data(),64);return true;
     }
-    switch(pc){
-    case 0x2371e8:case 0x2371ec:case 0x2371f0:case 0x2371f4:
-    case 0x2371fc:case 0x237200:case 0x237204:case 0x237208:
-    case 0x23720c:case 0x237210:case 0x237214:case 0x237218:case 0x237224:
-    case 0x237260:case 0x237264:case 0x237268:case 0x23726c:
-    case 0x237270:case 0x237274:case 0x237278:case 0x23727c:case 0x237280:
-    case 0x237288:case 0x23728c:case 0x237290:case 0x23729c:
-    case 0x2372b8:case 0x2372c0:case 0x2372c4:case 0x2372c8:return true;
-    }
+    return false;
+}
+bool mathBlock69(R5900Context *c,Runtime *rt,uint32_t pc){
     if(pc==0x207720 || pc==0x207724 || pc==0x207728 || pc==0x20772c || pc==0x207738){
         const auto object=c->r[17].uw[0];uint32_t type,child;
         std::memcpy(&type,record(rt,object,16),4);
@@ -6381,7 +6380,13 @@ bool nativeMathInstruction(uint8_t *,R5900Context *c,Runtime *rt,uint32_t pc){
         // No inherited math state is constructed for later unported consumers.
         return true;
     }
+    return false;
+}
+bool mathBlock70(R5900Context *c,Runtime *rt,uint32_t pc){
     if(!(pc&3) && pc>=0x410df0 && pc<=0x410e44)return true;
+    return false;
+}
+bool mathBlock71(R5900Context *c,Runtime *rt,uint32_t pc){
     if(pc==0x410e4c){
         // Four row dot products. The original reduction order differs per
         // output component, including W; no inherited basis/vector state.
@@ -6404,6 +6409,9 @@ bool nativeMathInstruction(uint8_t *,R5900Context *c,Runtime *rt,uint32_t pc){
         }
         std::memcpy(record(rt,c->r[6].uw[0],16),result,16);return true;
     }
+    return false;
+}
+bool mathBlock72(R5900Context *c,Runtime *rt,uint32_t pc){
     if(pc==0x29e1a0 || pc==0x29e160){
         // The default math code installation has no execution or game-data
         // result. Its algorithms are compiled native record operations. Retire
@@ -6418,6 +6426,317 @@ bool nativeMathInstruction(uint8_t *,R5900Context *c,Runtime *rt,uint32_t pc){
             throw std::runtime_error("unported math program selection or outstanding legacy job");
         return true;
     }
+    return false;
+}
+#define CLAIM(f) (f(c,rt,pc) && (mathClaimer=&f,true))
+bool nativeMathInstruction(uint8_t *,R5900Context *c,Runtime *rt,uint32_t pc){
+    mathClaimer=nullptr;
+    if(CLAIM(nativeSkinUpload) || CLAIM(nativeSoftSkin))return true;
+    if(CLAIM(nativeFacingPath) || CLAIM(nativeRotationBlocks))return true;
+    if(CLAIM(nativeProjectionBlocks) || CLAIM(nativeBoneAim) || CLAIM(nativeChainBlocks) || CLAIM(nativeCapsulePair) || CLAIM(nativePlaneContact) || CLAIM(nativeRangeTest) || CLAIM(nativeMatrixBuild) || CLAIM(nativeCullTransform) || CLAIM(nativeBoxFrustum) || CLAIM(nativeListBoxQuery) || CLAIM(nativeHitFrame) || CLAIM(nativePlaneDistance) || CLAIM(nativeSphereSweep) || CLAIM(nativeSegmentApproach) || CLAIM(nativeWorldPosition) || CLAIM(nativeCameraTarget) || CLAIM(nativeRootLength) || CLAIM(nativeVisibilityLoop) || CLAIM(nativeMarkerProjection) || CLAIM(nativeQuaternionLeaf) || CLAIM(nativeBonePalette))return true;
+    if(CLAIM(nativeLeafSphere) || CLAIM(nativeLeafBox) || CLAIM(nativeSegmentBox) || CLAIM(nativeHitPointTransform))return true;
+    if(CLAIM(nativeLengthSite) || CLAIM(nativeRecordDot) || CLAIM(nativePackedQuaternion))return true;
+    if(CLAIM(nativeObjectOverlap))return true;
+    if(CLAIM(nativeObjectPairSetup))return true;
+    if(CLAIM(nativeObjectPairSpill))return true;
+    if(CLAIM(nativeBattleBasisLengths))return true;
+    if(CLAIM(nativeBattleShapeOrigin))return true;
+    if(CLAIM(nativeBattleVertexPack))return true;
+    if(CLAIM(nativeBattleBoxSphere))return true;
+    if(CLAIM(nativeBattlePointDistance))return true;
+    if(CLAIM(nativeBattleShapes))return true;
+    if(CLAIM(nativeBattleTrackBlocks))return true;
+    if(CLAIM(nativeBattleApproach))return true;
+    if(CLAIM(nativeBattleSegmentEnds))return true;
+    if(CLAIM(nativeBattleNormalise))return true;
+    if(CLAIM(nativeTargetDirection))return true;
+    if(CLAIM(nativeRowNormalise))return true;
+    if(CLAIM(nativeSpacedNormalise))return true;
+    if(CLAIM(nativeBattleSideAxes))return true;
+    if(CLAIM(nativeBattleGroundPlane))return true;
+    if(CLAIM(nativeBattleColourPair))return true;
+    if(CLAIM(nativeBattleShapeTree))return true;
+    if(CLAIM(nativeBattleObjectOverlap))return true;
+    if(CLAIM(nativeSphereTreeWalk))return true;
+    if(CLAIM(nativeBattleAdvance))return true;
+    if(CLAIM(nativeBattleRecordShift))return true;
+    if(CLAIM(nativeBattleSegmentPoints))return true;
+    if(CLAIM(nativeBattleHalfVectors))return true;
+    if(CLAIM(nativeBattleNearestPoint))return true;
+    if(CLAIM(nativeContactPoint))return true;
+    if(CLAIM(nativeNearestOfPoints))return true;
+    if(CLAIM(nativeBattleLabelProjection))return true;
+    if(CLAIM(nativeChainAim))return true;
+    if(CLAIM(nativeVectorTurn))return true;
+    if(CLAIM(nativePaletteFade))return true;
+    if(CLAIM(nativeEffectScatter))return true;
+    if(CLAIM(nativeBattlePointScale))return true;
+    if(CLAIM(nativeBattleTaskColours))return true;
+    if(CLAIM(nativeBattleUnitProjection))return true;
+    if(CLAIM(nativeBattleCameraProjection))return true;
+    if(CLAIM(nativeBattleSegmentDirection))return true;
+    if(CLAIM(nativeSegmentSphere))return true;
+    if(CLAIM(nativeBattleSegmentBox))return true;
+    if(CLAIM(nativeBattleShapePoint))return true;
+    if(CLAIM(nativeBattleBoxCorners))return true;
+    if(CLAIM(nativeBattleBoxWorld))return true;
+    if(CLAIM(nativeUvAnimation))return true;
+    if(CLAIM(nativeSegmentContact))return true;
+    if(CLAIM(nativeObjectCompose))return true;
+    if(CLAIM(nativeCameraProjection))return true;
+    if(CLAIM(nativeFlareProjection))return true;
+    if(CLAIM(nativePairProjection))return true;
+    if(CLAIM(nativeExponentialRamp))return true;
+    if(CLAIM(nativeGridPoint))return true;
+    if(CLAIM(mathBlock1))return true;
+    if(CLAIM(mathBlock2))return true;
+    if(CLAIM(mathBlock3))return true;
+    if(CLAIM(mathBlock4))return true;
+    // Effect 15e870 rotation blocks: nine identical program-0x720 blocks in
+    // mod003 (417f50 twice with s2, 412870 twice and 431000/4335xx with s0,
+    // 4197xx with s3). Each builds a 15e870 object from its owner: owner
+    // +a0/+b0 copied to obj+70/+80, LQC2 vf5 from obj+80, program 0x720,
+    // CFC2.I t1/vi0, rows SQC2 vf8..vf10 to obj+30. Between the load and the
+    // stores the EE code writes only obj+60..6c. The recompiled block starts
+    // after the allocator call (block-5c) or at the null check it branches to
+    // (block-1c); no branch lies inside. Every block's bytes are guarded.
+    struct EffectBlock{uint32_t at;unsigned object;};
+    static constexpr EffectBlock effectBlocks[]={{0x412bcc,16},{0x412ddc,16},{0x41861c,18},{0x418814,18},{0x419884,19},
+                                          {0x43128c,16},{0x4314d4,16},{0x433614,16},{0x433904,16}};
+    const EffectBlock *effect=nullptr;for(const auto &b:effectBlocks)if(pc>=b.at && pc<=b.at+0x54)effect=&b;
+    if(const uint32_t block=effect?effect->at:0;
+       block && (pc==block || pc==block+8 || pc==block+0x44 || pc==block+0x4c || pc==block+0x50 || pc==block+0x54)){
+        if(!c || (c->pc!=block-0x5c && c->pc!=block-0x1c))throw std::runtime_error("native effect rotation escaped its routine");
+        const auto object=c->r[effect->object].uw[0];
+        if(pc==block){if(c->r[3].uw[0]!=object+0x80)throw std::runtime_error("effect rotation quaternion source mismatch");}
+        else if(pc==block+0x44)c->r[9].ud[0]=0;
+        else if(pc>=block+0x4c){
+            if(c->r[2].uw[0]!=object+0x30)throw std::runtime_error("effect rotation destination mismatch");
+            __m128 input;std::memcpy(&input,record(rt,object+0x80,16),16);float values[4];std::memcpy(values,&input,16);
+            for(float v:values){const auto magnitude=std::bit_cast<uint32_t>(v)&0x7fffffff;if(magnitude>=0x7f800000 || magnitude>std::bit_cast<uint32_t>(1.e8f))throw std::runtime_error("unqualified effect rotation quaternion");}
+            const auto result=math::quaternionMatrix(input);const auto row=(pc-block-0x4c)/4;std::memcpy(record(rt,object+0x30+16*row,16),&result[row],16);
+        }return true;
+    }
+    if(CLAIM(nativeParticleCallbackInstruction))return true;
+    if(CLAIM(mathBlock5))return true;
+    const bool particleSphere=pc>=0x22f9e0 && pc<=0x22fa38 && !(pc&3),originSphere=pc>=0x2482b4 && pc<=0x24830c && !(pc&3);
+    if(particleSphere || originSphere){
+        const unsigned pointReg=particleSphere?6:3,basisReg=particleSphere?7:5,outputReg=particleSphere?5:2;
+        if(!c || c->pc!=(particleSphere?0x22f9c0:0x248290) || c->r[pointReg].uw[0]!=c->r[29].uw[0] || c->r[basisReg].uw[0]!=c->r[4].uw[0]+0x90 || c->r[outputReg].uw[0]!=c->r[4].uw[0]+(particleSphere?0xa70:0x220))
+            throw std::runtime_error("native sphere getter escaped its scalar records");
+        if(pc==0x22fa38 || pc==0x24830c){
+            float rows[3][4],point[4];std::memcpy(rows,record(rt,c->r[basisReg].uw[0],48),48);std::memcpy(point,record(rt,c->r[pointReg].uw[0],16),16);
+            for(auto &row:rows)for(float value:row){pairQualified(value);if(std::abs(value)>1.e8f)throw std::runtime_error("unqualified particle sphere basis");}
+            for(unsigned i=0;i<3;++i){pairQualified(point[i]);if(std::abs(point[i])>1.e8f)throw std::runtime_error("unqualified particle sphere centre");}
+            if(std::bit_cast<uint32_t>(point[3])!=0x3f800000)throw std::runtime_error("particle sphere getter lacks scalar homogeneous component");
+            if(originSphere)for(unsigned i=0;i<3;++i)if(std::bit_cast<uint32_t>(point[i]))throw std::runtime_error("origin sphere getter lacks original scalar zero centre");
+            auto *output=record(rt,c->r[outputReg].uw[0],16);music::CodecRounding rounding;std::array<float,3> result;
+            constexpr unsigned order[3][4]={{0,1,2,3},{1,0,2,3},{2,1,0,3}};
+            for(unsigned row=0;row<3;++row){float terms[4];for(unsigned i=0;i<4;++i)terms[i]=pairProduct(rows[row][i],point[i]);
+                result[row]=pairSum(pairSum(pairSum(terms[order[row][0]],terms[order[row][1]]),pairProduct(1.f,terms[order[row][2]])),pairProduct(1.f,terms[order[row][3]]));}
+            // The original following scalar store supplies the radius. The
+            // fourth basis row's temporary dot product has no consumer.
+            std::memcpy(output,result.data(),12);
+        }return true;
+    }
+    if(CLAIM(mathBlock6))return true;
+    const bool callbackPoint=pc>=0x410660 && pc<=0x410684 && !(pc&3);
+    const bool callbackSecond=pc>=0x4106b0 && pc<=0x4106cc && !(pc&3);
+    const bool callbackThird=pc>=0x4106f8 && pc<=0x410714 && !(pc&3);
+    if(callbackPoint || callbackSecond || callbackThird){
+        if(!c || c->pc!=0x410640)throw std::runtime_error("native particle callback transform lacks scalar owner");
+        const auto stack=c->r[29].uw[0],emitter=c->r[4].uw[0],destination=stack+(callbackPoint?0x70:callbackSecond?0x60:0x50);
+        auto *owner=record(rt,emitter,0xe0);record(rt,stack,0x80);
+        const unsigned flag=callbackPoint?1:callbackSecond?2:4;
+        if(!(owner[0xd2]&flag) || c->r[2].uw[0]!=destination || c->r[3].uw[0]!=emitter+0x80)
+            throw std::runtime_error("native particle callback transform argument mismatch");
+        if(pc==0x410684 || pc==0x4106cc || pc==0x410714){
+            const auto input=c->r[callbackPoint?5:callbackSecond?6:7].uw[0];
+            if(callbackPoint){
+                struct ArithmeticScope{unsigned saved=_mm_getcsr();~ArithmeticScope(){_mm_setcsr(saved);}} arithmetic;
+                math::Matrix basis;std::array<float,4> position;std::memcpy(basis.data(),owner+0x80,64);std::memcpy(position.data(),record(rt,input,16),16);position[3]=1.f;
+                float values[16];std::memcpy(values,basis.data(),64);for(float value:values){pairQualified(value);if(std::abs(value)>1.e8f)throw std::runtime_error("unqualified particle callback basis");}
+                for(unsigned i=0;i<3;++i){pairQualified(position[i]);if(std::abs(position[i])>1.e8f)throw std::runtime_error("unqualified particle callback position");}
+                __m128 point;std::memcpy(&point,position.data(),16);const auto result=math::matrixVectorProduct(basis,point);std::memcpy(record(rt,destination,16),&result,16);
+            }else publishLinearVector(rt,emitter+0x80,input,destination);
+        }return true;
+    }
+    if(CLAIM(mathBlock7))return true;
+    switch(pc){
+    case 0x216f58:case 0x216f5c:case 0x216f60:case 0x216f64:case 0x216f68:case 0x216f6c:case 0x216f70:case 0x216f74:
+    case 0x216f78:case 0x216f80:case 0x216f8c:case 0x216f98:case 0x216fa4:case 0x216fb0:case 0x216fb4:case 0x216fb8:
+    case 0x216fbc:case 0x216fc0:case 0x216fd0:case 0x216fd4:case 0x216fd8:case 0x216fdc:case 0x216fe0:case 0x216fe8:
+    case 0x216ff8:case 0x216ffc:case 0x217000:case 0x217004:case 0x217008:case 0x217010:case 0x217020:case 0x217024:
+    case 0x21702c:case 0x217030:return true;
+    default:break;
+    }
+    if(CLAIM(mathBlock8))return true;
+    if(CLAIM(mathBlock9))return true;
+    if(pc==0x40b040 || pc==0x40b040-kPhysicsCopyShift){nativeParticlePhysicsInstruction(c,rt,pc);return false;}
+    if(((pc>=0x40a950 && pc<=0x40adf8) || (pc>=0x40a950-kPhysicsCopyShift && pc<=0x40adf8-kPhysicsCopyShift)) && CLAIM(nativeParticlePhysicsInstruction))return true;
+    // 408e90 (mod003) and its byte-identical copy mod001 27da10 (18b480 lower; only module-local
+    // jal targets differ), run by the battle's emitters: both map onto the listed sites.
+    const uint32_t motionShift=pc>=0x408f10-0x18b480 && pc<=0x409584-0x18b480?0x18b480u:0u,mpc=pc+motionShift,mentry=c?c->pc+motionShift:0;
+    static constexpr std::array<uint32_t,26> particleSites{0x408f10,0x408f84,0x408f88,0x408fa8,0x408fac,0x408fb8,0x408fbc,
+        0x409064,0x409068,0x40908c,0x409090,0x40909c,0x4090a0,0x409118,0x4091c0,0x4091c8,0x40931c,0x409320,0x40932c,0x409334,
+        0x409400,0x409404,0x40956c,0x409570,0x40957c,0x409584};
+    if(mpc>=particleSites.front() && mpc<=particleSites.back() && std::binary_search(particleSites.begin(),particleSites.end(),mpc)){
+        const auto object=c->r[4].uw[0],stack=c->r[29].uw[0];auto *owner=record(rt,object,0xf0);record(rt,stack,0x80);
+        const auto readWord=[](const uint8_t *p,unsigned at){uint32_t v;std::memcpy(&v,p+at,4);return v;};
+        const auto group=readWord(owner,0x10),pool=readWord(owner,0x14),count=readWord(owner,0xc);
+        if(!group || group>16 || group!=c->r[25].uw[0] || !count || count>65536 ||
+           (mentry!=0x408e90 && mentry!=0x408f30 && mentry!=0x408fe8 && mentry!=0x409148 && mentry!=0x409360 && mentry!=0x4091d0 && mentry!=0x409418))
+            throw std::runtime_error("native particle motion owner/continuation mismatch");
+        auto *timeRecord=record(rt,0x35dee0,16);float time;std::memcpy(&time,timeRecord+8,4);
+        if(mpc==0x408f10 || mpc==0x409118){
+            const bool simple=owner[0xd8]&1;
+            if(simple!=(mpc==0x408f10) || c->r[mpc==0x408f10?3:16].uw[0]!=std::bit_cast<uint32_t>(time))
+                throw std::runtime_error("native particle timestep source mismatch");
+            return true;
+        }
+        const unsigned path=mpc<=0x408fbc?0:mpc<=0x4090a0?1:mpc<=0x409334?2:3;
+        const bool simple=owner[0xd8]&1;
+        if(simple!=(path<2) || (group==1)!=(path%2==0))throw std::runtime_error("native particle motion branch mismatch");
+        const bool loading=mpc==0x408f84 || mpc==0x408f88 || mpc==0x409064 || mpc==0x409068 || mpc==0x4091c0 || mpc==0x4091c8 || mpc==0x409400 || mpc==0x409404;
+        const auto cursor=c->r[24].uw[0];if((!loading && !cursor) || (loading?cursor:cursor-1)>=count)throw std::runtime_error("native particle source index outside owner");
+        const auto index=loading?cursor:cursor-1,source=pool+index*0x90+0x60;
+        record(rt,pool,count*0x90);auto *input=record(rt,source,32);
+        static constexpr unsigned sourceRegisters[]={10,3,22,21};
+        if(c->r[sourceRegisters[path]].uw[0]!=source)throw std::runtime_error("native particle position source mismatch");
+        const bool publish=mpc==0x408fb8 || mpc==0x40909c || mpc==0x40932c || mpc==0x40957c;
+        const bool feedback=mpc==0x408fbc || mpc==0x4090a0 || mpc==0x409334 || mpc==0x409584;
+        if(publish || feedback){
+            const auto output=c->r[6].uw[0]+0x20,destination=publish?output:source;
+            static constexpr unsigned outputRegisters[]={3,9,16,16};
+            if(publish && c->r[outputRegisters[path]].uw[0]!=output)throw std::runtime_error("native particle output pointer mismatch");
+            auto *out=record(rt,output,16),*frame=record(rt,stack,0x80);
+            const auto a=reinterpret_cast<uintptr_t>(input),b=reinterpret_cast<uintptr_t>(out),f=reinterpret_cast<uintptr_t>(frame),o=reinterpret_cast<uintptr_t>(owner),t=reinterpret_cast<uintptr_t>(timeRecord);
+            if((a<b+16 && b<a+32) || (b<f+0x80 && f<b+16) || (b<o+0xf0 && o<b+16) || (b<t+16 && t<b+16) || (a<t+16 && t<a+32))
+                throw std::runtime_error("native particle position aliases its live operands/frame");
+            std::array<float,4> position,velocity;std::memcpy(position.data(),input,16);std::memcpy(velocity.data(),input+16,16);
+            pairQualified(time);if(std::abs(time)>1.e8f)throw std::runtime_error("unqualified native particle timestep");
+            for(unsigned i=0;i<3;++i){pairQualified(position[i]);pairQualified(velocity[i]);if(std::abs(position[i])>1.e8f || std::abs(velocity[i])>1.e8f)
+                throw std::runtime_error("unqualified native particle position/velocity");}
+            struct ArithmeticScope {unsigned saved=_mm_getcsr();~ArithmeticScope(){_mm_setcsr(saved);}} arithmetic;
+            for(unsigned i=0;i<3;++i)position[i]=pairSum(pairSum(position[i],0.f),pairProduct(velocity[i],time));
+            std::memcpy(record(rt,destination,16),position.data(),16);
+        }return true;
+    }
+    if(pc==0x214c40 || pc==0x214ce8 ||
+       (pc>=0x214c98 && pc<=0x214ca0 && !(pc&3)) || (pc>=0x214cbc && pc<=0x214cc4 && !(pc&3)) ||
+       (pc>=0x214cdc && pc<=0x214ce4 && !(pc&3)) ||
+       (pc>=0x214db8 && pc<=0x214dd0 && !(pc&3)) || pc==0x214dd8 ||
+       (pc>=0x214df0 && pc<=0x214e00 && !(pc&3)) || (pc>=0x214e08 && pc<=0x214e1c && !(pc&3)))
+        return CLAIM(nativeSquadInstruction);   // its declines (214c40, 214ce8) come through the MathSpecial step
+    if(CLAIM(mathBlock10))return true;
+    if(CLAIM(mathBlock11))return true;
+    if(CLAIM(mathBlock12))return true;
+    if(CLAIM(mathBlock13))return true;
+    if(CLAIM(mathBlock14))return true;
+    if(CLAIM(mathBlock15))return true;
+    if(CLAIM(mathBlock16))return true;
+    if(CLAIM(mathBlock17))return true;
+    if(CLAIM(mathBlock18))return true;
+    if(CLAIM(mathBlock19))return true;
+    if(CLAIM(mathBlock20))return true;
+    if(CLAIM(mathBlock21))return true;
+    if(CLAIM(mathBlock22))return true;
+    if(CLAIM(trigSite))return true;
+    if(CLAIM(objectMathSite))return true;
+    if(CLAIM(nativeFrustumInstruction))return true;
+    if(CLAIM(mathBlock23))return true;
+    if(CLAIM(mathBlock24))return true;
+    if(CLAIM(mathBlock25))return true;
+    switch(pc){
+    case 0x211fb8:case 0x211fbc:case 0x211fc0:case 0x211fc4:case 0x211fc8:case 0x211fcc:case 0x211fd0:case 0x211fd4:
+    case 0x211fd8:case 0x211fe0:case 0x211fe4:case 0x212010:case 0x21201c:case 0x212048:case 0x212054:case 0x212058:
+    case 0x21205c:case 0x212060:case 0x212068:case 0x21207c:case 0x212080:return true;
+    default:break;
+    }
+    if(CLAIM(mathBlock26))return true;
+    switch(pc){
+    case 0x1fc044:case 0x1fc050:case 0x1fc054:case 0x1fc05c:case 0x1fc080:case 0x1fc084:case 0x1fc0ac:case 0x1fc0b0:
+    case 0x1fc0b4:case 0x1fc0b8:case 0x1fc0bc:case 0x1fc0c0:case 0x1fc0cc:case 0x1fc0e0:case 0x1fc100:case 0x1fc108:
+    case 0x1fc110:case 0x1fc114:case 0x1fc118:case 0x1fc11c:case 0x1fc134:case 0x1fc154:case 0x1fc15c:case 0x1fc160:
+    case 0x1fc164:case 0x1fc168:case 0x1fc16c:return true;
+    default:break;
+    }
+    if(CLAIM(mathBlock27))return true;
+    if(CLAIM(mathBlock28))return true;
+    if(CLAIM(mathBlock29))return true;
+    if(CLAIM(mathBlock30))return true;
+    if(CLAIM(mathBlock31))return true;
+    if(CLAIM(mathBlock32))return true;
+    if(CLAIM(mathBlock33))return true;
+    if(CLAIM(mathBlock34))return true;
+    if(CLAIM(mathBlock35))return true;
+    if(CLAIM(retiredPairWords))return true;
+    if(CLAIM(mathBlock36))return true;
+    // The angular-constraint algorithm owns a literal half coefficient. Its
+    // obsolete vector-register initialization publishes no game data. Remaining
+    // unported consumers still fail at their own explicit native boundaries.
+    if(CLAIM(mathBlock37))return true;
+    if(CLAIM(mathBlock38))return true;
+    if(CLAIM(mathBlock39))return true;
+    if(CLAIM(mathBlock40))return true;
+    if(CLAIM(mathBlock41))return true;
+    if(CLAIM(mathBlock42))return true;
+    if(CLAIM(mathBlock43))return true;
+    if(CLAIM(mathBlock44))return true;
+    if(CLAIM(mathBlock45))return true;
+    switch(pc){
+    case 0x1fc6dc:case 0x1fc6e0:case 0x1fc708:case 0x1fc70c:case 0x1fc714:case 0x1fc71c:case 0x1fc720:case 0x1fc760:
+    case 0x1fc78c:case 0x1fc790:case 0x1fc794:case 0x1fc7a0:case 0x1fc7bc:case 0x1fc7c4:case 0x1fc7e4:case 0x1fc7e8:
+    case 0x1fc7ec:case 0x1fc7f0:case 0x1fc7f4:case 0x1fc800:case 0x1fc824:case 0x1fc830:case 0x1fc834:case 0x1fc838:
+    case 0x1fc83c:case 0x1fc840:case 0x1fc848:return true;
+    case 0x1fc86c:case 0x1fc870:case 0x1fc898:case 0x1fc8a0:case 0x1fc8a4:case 0x1fc8a8:case 0x1fc8ac:case 0x1fc8b4:
+    case 0x1fc8f8:case 0x1fc8fc:case 0x1fc900:case 0x1fc90c:case 0x1fc948:case 0x1fc950:case 0x1fc970:case 0x1fc974:
+    case 0x1fc978:case 0x1fc97c:case 0x1fc980:case 0x1fc98c:case 0x1fc9ac:case 0x1fc9b8:case 0x1fc9bc:case 0x1fc9c0:
+    case 0x1fc9c4:case 0x1fc9c8:case 0x1fc9d0:return true;
+    default:break;
+    }
+    if(CLAIM(mathBlock46))return true;
+    if(CLAIM(mathBlock47))return true;
+    if(CLAIM(mathBlock48))return true;
+    if(CLAIM(mathBlock49))return true;
+    if(CLAIM(mathBlock50))return true;
+    if(CLAIM(mathBlock51))return true;
+    if(CLAIM(mathBlock52))return true;
+    if(CLAIM(mathBlock53))return true;
+    if(CLAIM(mathBlock54))return true;
+    if(CLAIM(mathBlock55))return true;
+    if(CLAIM(mathBlock56))return true;
+    if(CLAIM(mathBlock57))return true;
+    if(CLAIM(mathBlock58))return true;
+    if(CLAIM(mathBlock59))return true;
+    if(CLAIM(mathBlock60))return true;
+    switch(pc){
+    case 0x23c258:case 0x23c25c:case 0x23c260:case 0x23c264:case 0x23c268:
+    case 0x23c290:case 0x23c294:case 0x23c298:case 0x23c29c:case 0x23c2a0:
+    case 0x23c2bc:case 0x23c2c0:case 0x23c2c4:return true;
+    }
+    if(CLAIM(mathBlock61))return true;
+    switch(pc){
+    case 0x20f248:case 0x20f24c:case 0x20f250:case 0x20f254:case 0x20f258:
+    case 0x20f25c:case 0x20f260:case 0x20f264:case 0x20f268:
+    case 0x20f270:case 0x20f274:case 0x20f27c:
+    case 0x20f288:case 0x20f28c:case 0x20f290:case 0x20f294:case 0x20f298:
+    case 0x20f29c:case 0x20f2a0:case 0x20f2a4:case 0x20f2a8:
+    case 0x20f2b0:case 0x20f2b4:case 0x20f2b8:return true;
+    }
+    if(CLAIM(mathBlock62))return true;
+    if(CLAIM(mathBlock63))return true;
+    if(CLAIM(mathBlock64))return true;
+    if(CLAIM(mathBlock65))return true;
+    if(CLAIM(mathBlock66))return true;
+    if(CLAIM(mathBlock67))return true;
+    if(CLAIM(mathBlock68))return true;
+    if(CLAIM(retiredBoneWords))return true;
+    if(CLAIM(mathBlock69))return true;
+    if(CLAIM(mathBlock70))return true;
+    if(CLAIM(mathBlock71))return true;
+    if(CLAIM(mathBlock72))return true;
+    if(CLAIM(retiredScaleWords))return true;   // its cases, before the switch they were in (disjoint labels)
     switch(pc){
     case 0x37b548:case 0x37b54c:case 0x37b550:case 0x37b554:
     case 0x37b558:case 0x37b55c:case 0x37b560:case 0x37b564:return true;
@@ -6454,9 +6773,6 @@ bool nativeMathInstruction(uint8_t *,R5900Context *c,Runtime *rt,uint32_t pc){
         volatile float length=std::sqrt(squared);volatile float output=0.f+length;result[0]=output;
         std::memcpy(record(rt,destination,16),result,16);return true;
     }
-    case 0x239cfc:case 0x239d00:case 0x239d04:case 0x239d0c:
-    case 0x239dc8:case 0x239dcc:case 0x239dd0:case 0x239dd4:case 0x239dd8:
-    case 0x239ddc:case 0x239de0:case 0x239de4:case 0x239de8:return true;
     case 0x239d90:c->r[9].ud[0]=0;return true;
     case 0x239d98:{
         math::RigidBasis basis;std::memcpy(basis.data(),record(rt,c->r[4].uw[0]+0x90,48),48);
@@ -6667,9 +6983,10 @@ bool nativeMathInstruction(uint8_t *,R5900Context *c,Runtime *rt,uint32_t pc){
     default:
         // Inlined-block recognisers last: they read code around the PC, so
         // only sites no specific handler claimed pay for that scan.
-        return nativeParticleStep(c,rt,pc) || nativeParticleBox(c,rt,pc) || nativeTrailEmitter(c,rt,pc) || nativeProgramEmitter(c,rt,pc) || nativeSimpleEmitter(c,rt,pc) || nativeEmitterClock(c,rt,pc) || nativeConstantStore(c,rt,pc) || nativeLengthIdiom(c,rt,pc) || nativeMacroIdiom(c,rt,pc) || nativeInverseIdiom(c,rt,pc) || nativeQuaternionIdiom(c,rt,pc);
+        return CLAIM(nativeParticleStep) || CLAIM(nativeParticleBox) || CLAIM(nativeTrailEmitter) || CLAIM(nativeProgramEmitter) || CLAIM(nativeSimpleEmitter) || CLAIM(nativeEmitterClock) || CLAIM(nativeConstantStore) || CLAIM(nativeLengthIdiom) || CLAIM(nativeMacroIdiom) || CLAIM(nativeInverseIdiom) || nativeQuaternionIdiom(c,rt,pc);
     }
 }
+#undef CLAIM
 // Save states: the marker projection rows kept between their loads and the
 // projections (a dispatcher safe point can fall in between).
 void serializeMathState(bozo::state::Archive &a,const Runtime *rt){

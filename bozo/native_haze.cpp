@@ -1,4 +1,5 @@
 // The Lost Forest haze as one native depth-colour pass (see native_haze.h).
+#include "native_cast.h"
 #include "native_haze.h"
 #include "bozo/ee/dispatcher.h"
 #include <cmath>
@@ -124,8 +125,8 @@ void drawHaze(const NativeHaze &haze){
 }
 std::optional<bool> nativeHazeInstruction(R5900Context *c,Runtime *rt,uint32_t pc){
     if(pc!=0x2e0b90)return std::nullopt;
-    auto *d=rt?dynamic_cast<bozo::ee::Dispatcher *>(rt->services):nullptr;
-    auto *owner=d?dynamic_cast<HazeOwner *>(&d->host()):nullptr;auto *scene=d?dynamic_cast<SceneOwner *>(&d->host()):nullptr;
+    auto *d=rt?vp2s::nativeCast<bozo::ee::Dispatcher>(rt->services):nullptr;
+    auto *owner=d?vp2s::nativeCast<HazeOwner>(&d->host()):nullptr;auto *scene=d?vp2s::nativeCast<SceneOwner>(&d->host()):nullptr;
     if(!c || !owner || !scene)throw std::runtime_error("native haze requires its scene/renderer owner");
     // The enqueue 2e0b70: a1 = a0 + 0x90 (the queue node); its call becomes the
     // class completion 2e0b50(object), so no transfer is ever queued.

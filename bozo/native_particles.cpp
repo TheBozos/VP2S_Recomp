@@ -1,3 +1,4 @@
+#include "native_cast.h"
 #include "native_particles.h"
 #include "bozo/ee/dispatcher.h"
 #include <cstring>
@@ -126,8 +127,8 @@ void NativeParticles::finish(Runtime *rt,R5900Context *c){
 std::optional<bool> nativeParticleInstruction(R5900Context *c,Runtime *rt,uint32_t pc){
     const bool sphere=std::find(std::begin(particleSphereSites),std::end(particleSphereSites),pc)!=std::end(particleSphereSites);
     if(!sphere && pc!=0x22eae0 && pc!=0x22ec9c && pc!=0x22eca0 && pc!=0x22ee88 && pc!=0x22ee94 && pc!=0x22ee9c && pc!=0x22eea4 && pc!=0x22eebc && pc!=0x22f0a0)return std::nullopt;
-    auto *d=rt?dynamic_cast<bozo::ee::Dispatcher *>(rt->services):nullptr;auto *owner=d?dynamic_cast<ParticleOwner *>(&d->host()):nullptr;
-    auto *assets=d?dynamic_cast<AssetOwner *>(&d->host()):nullptr;
+    auto *d=rt?vp2s::nativeCast<bozo::ee::Dispatcher>(rt->services):nullptr;auto *owner=d?vp2s::nativeCast<ParticleOwner>(&d->host()):nullptr;
+    auto *assets=d?vp2s::nativeCast<AssetOwner>(&d->host()):nullptr;
     if(!c || !owner || !assets)throw std::runtime_error("native particles require explicit publication/provenance owners");
     auto &particles=owner->nativeParticles();
     if(sphere){if(pc==0x22f018)particles.publishSphere(rt,c);}

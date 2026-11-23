@@ -1,3 +1,4 @@
+#include "native_cast.h"
 #include "native_entry_capture.h"
 #include "bozo/ee/dispatcher.h"
 #include "bozo/ops_fpu.h"
@@ -19,8 +20,8 @@ namespace F=bozo::ps2f;
 // cvt.w.s, or (x - 2^31) | 0x80000000 at or above 2^31, as the listing converts.
 uint32_t toUnsigned(uint32_t x){uint32_t f=0;return F::le(kTwo31,x)?(F::toInt(F::sub(x,kTwo31,f))|0x80000000u):F::toInt(x);}
 EntryCaptureOwner &owner(Runtime *rt){
-    auto *d=rt?dynamic_cast<bozo::ee::Dispatcher *>(rt->services):nullptr;
-    auto *o=d?dynamic_cast<EntryCaptureOwner *>(&d->host()):nullptr;
+    auto *d=rt?vp2s::nativeCast<bozo::ee::Dispatcher>(rt->services):nullptr;
+    auto *o=d?vp2s::nativeCast<EntryCaptureOwner>(&d->host()):nullptr;
     if(!o)throw std::runtime_error("native entry capture requires its renderer owner");
     return *o;
 }
@@ -78,8 +79,8 @@ NativeEntryCaptureDraw nativeEntryCaptureDraw(Runtime *rt,uint32_t object,int32_
 namespace {
 void readbackEnqueue(uint8_t *ram,R5900Context *c,Runtime *rt){
     const auto node=c->r[4].uw[0];
-    auto *d=rt?dynamic_cast<bozo::ee::Dispatcher *>(rt->services):nullptr;
-    auto *probes=d?dynamic_cast<DepthProbeOwner *>(&d->host()):nullptr;
+    auto *d=rt?vp2s::nativeCast<bozo::ee::Dispatcher>(rt->services):nullptr;
+    auto *probes=d?vp2s::nativeCast<DepthProbeOwner>(&d->host()):nullptr;
     std::optional<NativeDepthProbeRequest> colour;
     if(probes && node && value<uint32_t>(rt,node)==0x159010 && value<uint32_t>(rt,node+0x90)==0x15908c && value<uint8_t>(rt,node+0x96)<2)
         colour=probes->nativeDepthProbes().takeColour(node+0xe0+0x70*value<uint8_t>(rt,node+0x96));

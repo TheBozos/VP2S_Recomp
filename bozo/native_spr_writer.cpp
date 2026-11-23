@@ -1,3 +1,5 @@
+#include "native_cast.h"
+#include "native_conditional_sites.h"
 #include "native_spr_writer.h"
 #include "native_models.h"
 #include "bozo/ee/dispatcher.h"
@@ -50,6 +52,7 @@ std::vector<SprWriterSection> nativeSprWriterSections(Runtime *rt,uint32_t spr,u
     }
 }
 std::optional<bool> nativeSprWriterInstruction(R5900Context *c,Runtime *rt,uint32_t pc){
+    if(!nativeSprWriterSite(pc))return std::nullopt;   // its sites: native_conditional_sites.h
     // mod028 4d75f0 (the subclass's kick when +d0 is set) ends with mod001 201488..2014d0's
     // poll and fromSPR start 2d6a20 higher, word for word: map it onto those sites.
     if(pc>=0x20148c+0x2d6a20 && pc<=0x2014d0+0x2d6a20 && rt){
@@ -61,8 +64,8 @@ std::optional<bool> nativeSprWriterInstruction(R5900Context *c,Runtime *rt,uint3
     const bool kick=pc==0x20148c || pc==0x2014b8 || pc==0x2014c0 || pc==0x2014c8 || pc==0x2014d0;
     const bool table=pc==0x200954 || pc==0x20099c || pc==0x2009a8 || pc==0x2009c4 || pc==0x2009cc || pc==0x2009d4;
     if(!kick && !table)return std::nullopt;
-    auto *d=rt?dynamic_cast<bozo::ee::Dispatcher *>(rt->services):nullptr;
-    auto *owner=d?dynamic_cast<AssetOwner *>(&d->host()):nullptr;
+    auto *d=rt?vp2s::nativeCast<bozo::ee::Dispatcher>(rt->services):nullptr;
+    auto *owner=d?vp2s::nativeCast<AssetOwner>(&d->host()):nullptr;
     if(!c || !owner)throw std::runtime_error("native scratchpad writer requires its asset owner");
     const auto object=writer(rt,c->r[kick?4:17].uw[0]);
     // The poll waits for the previous fromSPR transfer: natively it completed
@@ -74,7 +77,7 @@ std::optional<bool> nativeSprWriterInstruction(R5900Context *c,Runtime *rt,uint3
         const auto high=uint64_t(low)+16ull*value<uint32_t>(rt,object+0xb8);
         if(c->r[3].uw[0]!=0x105 || c->r[6].uw[0]!=spr || high>0xffffffffull || cursor>high)
             throw std::runtime_error("native scratchpad writer kick escaped its chunk");
-        auto *models=dynamic_cast<ModelOwner *>(&d->host());
+        auto *models=vp2s::nativeCast<ModelOwner>(&d->host());
         if(!models)throw std::runtime_error("native scratchpad writer requires its model owner");
         const auto sections=nativeSprWriterSections(rt,spr,low,uint32_t(high),cursor);
         std::vector<std::pair<uint32_t,uint32_t>> mesh;

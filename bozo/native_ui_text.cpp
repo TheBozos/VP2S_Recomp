@@ -1,3 +1,4 @@
+#include "native_cast.h"
 #include "native_ui_text.h"
 #include "native_ui_windows.h"
 #include "bozo/ee/dispatcher.h"
@@ -337,7 +338,7 @@ NativeUiLayer NativeUiTexts::layer(Runtime *rt,uint32_t layer)const{
            value<uint32_t>(rt,element)==0x168410 || value<uint32_t>(rt,element)==0x168440 || value<uint32_t>(rt,element)==0x15a420 ||
            value<uint32_t>(rt,element)==0x15a4e0 || (value<uint32_t>(rt,element)==0x16edd0 && value<uint32_t>(rt,0x16edf0)==0x2f1230) ||
            (value<uint32_t>(rt,element)==0x16ee00 && value<uint32_t>(rt,0x16ee20)==0x2e9640)){   // the battle window (base builder 2e9640)
-            auto *d=dynamic_cast<bozo::ee::Dispatcher *>(rt->services);auto *o=d?dynamic_cast<UiWindowOwner *>(&d->host()):nullptr;
+            auto *d=vp2s::nativeCast<bozo::ee::Dispatcher>(rt->services);auto *o=d?vp2s::nativeCast<UiWindowOwner>(&d->host()):nullptr;
             const auto captured=o?o->nativeUiWindows().window(element):nullptr;
             if(!captured)throw std::runtime_error("native window has no finished scalar snapshot");
             auto item=std::make_shared<NativeUiText>();item->element=element;item->window=captured;result.texts.push_back(std::move(item));continue;
@@ -562,8 +563,8 @@ NativeUiText nativePauseBar(const NativePauseBarInputs &in){
 }
 std::optional<bool> nativeNamePlateInstruction(R5900Context *c,Runtime *rt,uint32_t pc){
     if(pc==0x448d70){
-        auto *d=rt?dynamic_cast<bozo::ee::Dispatcher *>(rt->services):nullptr;
-        auto *owner=d?dynamic_cast<UiTextOwner *>(&d->host()):nullptr;auto *textures=d?dynamic_cast<TextureOwner *>(&d->host()):nullptr;
+        auto *d=rt?vp2s::nativeCast<bozo::ee::Dispatcher>(rt->services):nullptr;
+        auto *owner=d?vp2s::nativeCast<UiTextOwner>(&d->host()):nullptr;auto *textures=d?vp2s::nativeCast<TextureOwner>(&d->host()):nullptr;
         if(!c || !owner || !textures || c->r[21].uw[0]<0x100000)throw std::runtime_error("native prompt bar requires its builder");
         const auto element=c->r[21].uw[0],resource=c->r[17].uw[0];record(rt,element,0x60);
         const auto layer=value<uint32_t>(rt,element+0x54);record(rt,layer,0xe0);record(rt,resource,0x240);
@@ -584,8 +585,8 @@ std::optional<bool> nativeNamePlateInstruction(R5900Context *c,Runtime *rt,uint3
         return false; // The original builder continues; its packet is never sent.
     }
     if(pc==0x449790){
-        auto *d=rt?dynamic_cast<bozo::ee::Dispatcher *>(rt->services):nullptr;
-        auto *owner=d?dynamic_cast<UiTextOwner *>(&d->host()):nullptr;auto *textures=d?dynamic_cast<TextureOwner *>(&d->host()):nullptr;
+        auto *d=rt?vp2s::nativeCast<bozo::ee::Dispatcher>(rt->services):nullptr;
+        auto *owner=d?vp2s::nativeCast<UiTextOwner>(&d->host()):nullptr;auto *textures=d?vp2s::nativeCast<TextureOwner>(&d->host()):nullptr;
         if(!c || !owner || !textures || c->r[20].uw[0]<0x100040)throw std::runtime_error("native ornament requires its builder");
         const auto layer=c->r[21].uw[0],element=c->r[20].uw[0]-0x40,resource=c->r[17].uw[0];
         record(rt,element,0x60);record(rt,layer,0x290);record(rt,resource,0x240);
@@ -605,8 +606,8 @@ std::optional<bool> nativeNamePlateInstruction(R5900Context *c,Runtime *rt,uint3
         return false; // The original builder continues; its packet is never sent.
     }
     if(pc==0x4516f0 || pc==0x451b64){
-        auto *d=rt?dynamic_cast<bozo::ee::Dispatcher *>(rt->services):nullptr;
-        auto *owner=d?dynamic_cast<UiTextOwner *>(&d->host()):nullptr;auto *textures=d?dynamic_cast<TextureOwner *>(&d->host()):nullptr;
+        auto *d=rt?vp2s::nativeCast<bozo::ee::Dispatcher>(rt->services):nullptr;
+        auto *owner=d?vp2s::nativeCast<UiTextOwner>(&d->host()):nullptr;auto *textures=d?vp2s::nativeCast<TextureOwner>(&d->host()):nullptr;
         if(!c || !owner || !textures)throw std::runtime_error("native pause element requires its builder");
         if(pc==0x4516f0){
             // Logo 166ef0 (4514f0) after its ALPHA/TEX0 writes: x f21, y f20,
@@ -645,7 +646,7 @@ std::optional<bool> nativeNamePlateInstruction(R5900Context *c,Runtime *rt,uint3
     if(pc!=0x4653e8 && pc!=0x465b38 && pc!=0x465f08)return std::nullopt;
     if(pc==0x465f08){
         // The tail is reached exactly when the capture at 4653e8 decided it is.
-        auto *dd=rt?dynamic_cast<bozo::ee::Dispatcher *>(rt->services):nullptr;auto *o=dd?dynamic_cast<UiTextOwner *>(&dd->host()):nullptr;
+        auto *dd=rt?vp2s::nativeCast<bozo::ee::Dispatcher>(rt->services):nullptr;auto *o=dd?vp2s::nativeCast<UiTextOwner>(&dd->host()):nullptr;
         if(!c || !o || c->r[17].uw[0]<0x100040)throw std::runtime_error("native name plate tail requires its builder");
         const auto captured=o->nativeUiTexts().plate(c->r[17].uw[0]-0x40);
         if(!captured || captured->lateIcons.size()!=1){
@@ -654,8 +655,8 @@ std::optional<bool> nativeNamePlateInstruction(R5900Context *c,Runtime *rt,uint3
                 bool(captured),captured?captured->lateIcons.size():0,layer,layer>=0x100000?value<uint32_t>(rt,layer+0x270):0u,uploader,uploader?value<uint8_t>(rt,uploader+0x12ac)&1:0));}
         return false;
     }
-    auto *d=rt?dynamic_cast<bozo::ee::Dispatcher *>(rt->services):nullptr;
-    auto *owner=d?dynamic_cast<UiTextOwner *>(&d->host()):nullptr;auto *textures=d?dynamic_cast<TextureOwner *>(&d->host()):nullptr;
+    auto *d=rt?vp2s::nativeCast<bozo::ee::Dispatcher>(rt->services):nullptr;
+    auto *owner=d?vp2s::nativeCast<UiTextOwner>(&d->host()):nullptr;auto *textures=d?vp2s::nativeCast<TextureOwner>(&d->host()):nullptr;
     if(!c || !owner || !textures || c->r[17].uw[0]<0x100040)throw std::runtime_error("native name plate requires its builder");
     const auto layer=c->r[18].uw[0],element=c->r[17].uw[0]-0x40,resource=c->r[21].uw[0];
     record(rt,element,0x60);record(rt,layer,0x2b0);record(rt,resource,0x240);
@@ -702,9 +703,9 @@ std::optional<bool> nativeUiTextInstruction(R5900Context *c,Runtime *rt,uint32_t
     if(pc!=0x2e74f0 && pc!=0x2e7520 && pc!=0x2e7550 && pc!=0x2e757c && pc!=0x2e75a0 && pc!=0x2f0de0 && pc!=0x2eeb80 && pc!=0x2e83e4 && pc!=0x2ec9e4 && pc!=0x4c9f78)return std::nullopt;
     // mod028 4c9f78 (sw s1, 0x60(s5)): the battle text item callback 4c8fb0 commits its sprite cursor.
     if(pc==0x4c9f78 && (!rt || !rt->memory.hostPointer(pc,4) || value<uint32_t>(rt,pc)!=0xaeb10060u))return std::nullopt;
-    auto *d=rt?dynamic_cast<bozo::ee::Dispatcher *>(rt->services):nullptr;
-    auto *owner=d?dynamic_cast<UiTextOwner *>(&d->host()):nullptr;
-    auto *assets=d?dynamic_cast<AssetOwner *>(&d->host()):nullptr;
+    auto *d=rt?vp2s::nativeCast<bozo::ee::Dispatcher>(rt->services):nullptr;
+    auto *owner=d?vp2s::nativeCast<UiTextOwner>(&d->host()):nullptr;
+    auto *assets=d?vp2s::nativeCast<AssetOwner>(&d->host()):nullptr;
     if(!c || !owner || !assets)throw std::runtime_error("native UI text requires glyph/provenance owners");
     auto &texts=owner->nativeUiTexts();const auto sp=c->r[29].uw[0];
     if(pc==0x2ec9e4){
@@ -727,7 +728,7 @@ std::optional<bool> nativeUiTextInstruction(R5900Context *c,Runtime *rt,uint32_t
             // calling this base destructor. Admit only that proven teardown;
             // it does not qualify the derived class's rendering callbacks.
             if(value<uint32_t>(rt,element)!=0x15bd70 || c->r[31].uw[0]!=0x373ee0)type(rt,element);
-            auto *sprites=dynamic_cast<UiSpriteOwner *>(&d->host());
+            auto *sprites=vp2s::nativeCast<UiSpriteOwner>(&d->host());
             if(sprites && sprites->nativeUiSprites().buildingText(element))throw std::runtime_error("native text destroyed during icon capture");
             texts.release(element);
         }

@@ -1,3 +1,4 @@
+#include "native_cast.h"
 #include "native_assets.h"
 #include "bozo/ee/dispatcher.h"
 #include <algorithm>
@@ -138,8 +139,8 @@ void NativeAssets::finishStep(uint32_t stack,bool complete){
 }
 std::optional<bool> nativeAssetInstruction(uint8_t *,R5900Context *c,Runtime *rt,uint32_t pc){
     if(pc!=0x102650 && pc!=0x102998 && pc!=0x105a30 && pc!=0x105b58 && pc!=0x105940 && pc!=0x105a10 && pc!=0x118230)return std::nullopt;
-    auto *dispatcher=rt?dynamic_cast<bozo::ee::Dispatcher *>(rt->services):nullptr;
-    auto *owner=dispatcher?dynamic_cast<AssetOwner *>(&dispatcher->host()):nullptr;
+    auto *dispatcher=rt?vp2s::nativeCast<bozo::ee::Dispatcher>(rt->services):nullptr;
+    auto *owner=dispatcher?vp2s::nativeCast<AssetOwner>(&dispatcher->host()):nullptr;
     if(!owner || !c)throw std::runtime_error("native asset publication requires an owner");
     auto &assets=owner->nativeAssets();const uint32_t sp=c->r[29].uw[0];
     // Diagnostic only (VP2S_BOZO_TRACE_ASSETS): who asks for each part load, from which chain.

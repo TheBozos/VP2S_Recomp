@@ -1,3 +1,4 @@
+#include "native_cast.h"
 #include "native_kernel.h"
 #include "native_assets.h"
 #include "bozo/ee/dispatcher.h"
@@ -15,7 +16,7 @@ std::optional<NativeWorkStackSite> nativeWorkStackSite(uint32_t pc){
     return std::nullopt;
 }
 void nativeWorkStack(R5900Context *c,Runtime *rt,uint32_t pc){
-    auto *d=rt?dynamic_cast<bozo::ee::Dispatcher *>(rt->services):nullptr;
+    auto *d=rt?vp2s::nativeCast<bozo::ee::Dispatcher>(rt->services):nullptr;
     auto *t=d?d->kernel().thread(d->kernel().running()):nullptr;
     if(!c || !t || t->pseudo || &t->top().ctx!=c)
         throw std::runtime_error("native work-stack handoff requires the running game frame");
@@ -43,8 +44,8 @@ void nativeWorkStack(R5900Context *c,Runtime *rt,uint32_t pc){
 // their asset provenance moves with them, as memcpy's (132c88) does. The battle copies a
 // FIS file with it before uploading it (mod028 4f2f70).
 void nativeMemmove(uint8_t *,R5900Context *ctx,Runtime *rt){
-    auto *d=rt?dynamic_cast<bozo::ee::Dispatcher *>(rt->services):nullptr;
-    auto *assets=d?dynamic_cast<AssetOwner *>(&d->host()):nullptr;
+    auto *d=rt?vp2s::nativeCast<bozo::ee::Dispatcher>(rt->services):nullptr;
+    auto *assets=d?vp2s::nativeCast<AssetOwner>(&d->host()):nullptr;
     if(!ctx || !assets || ctx->pc!=0x132d38u)throw std::runtime_error("native memmove requires its asset owner");
     const uint32_t to=ctx->r[4].uw[0],from=ctx->r[5].uw[0],bytes=ctx->r[6].uw[0];
     if(bytes){
@@ -61,7 +62,7 @@ void validateNativeKernelCall(const R5900Context *ctx,uint32_t kind){
         throw std::runtime_error("unqualified raw VP2S syscall requires a native owner");
 }
 void nativeCacheSync(uint8_t *,R5900Context *ctx,Runtime *rt){
-    auto *d=rt?dynamic_cast<bozo::ee::Dispatcher *>(rt->services):nullptr;
+    auto *d=rt?vp2s::nativeCast<bozo::ee::Dispatcher>(rt->services):nullptr;
     if(!ctx || ctx->pc!=0x137a30 || !d || d->kernel().running()<=0)
         throw std::runtime_error("native cache visibility requires a running native context");
     // _sceSDC only scans physical PS2 cache tags and drains cache lines. Game
@@ -78,7 +79,7 @@ void rejectFirmwareEntry(uint8_t *,R5900Context *ctx,Runtime *rt) {
 }
 }
 void initNativeSyscallServices(uint8_t *,R5900Context *ctx,Runtime *rt) {
-    auto *dispatcher=rt ? dynamic_cast<bozo::ee::Dispatcher *>(rt->services) : nullptr;
+    auto *dispatcher=rt ? vp2s::nativeCast<bozo::ee::Dispatcher>(rt->services) : nullptr;
     if(!dispatcher || !ctx || ctx->pc!=0x141448u ||
        dispatcher->kernel().running()<=0 ||
        !dispatcher->isKernelCall(0x1370d0u) || // GetThreadId
@@ -92,7 +93,7 @@ void initNativeSyscallServices(uint8_t *,R5900Context *ctx,Runtime *rt) {
     ctx->pc=ctx->r[31].uw[0];
 }
 void retireAlarmFirmwareInstaller(uint8_t *,R5900Context *ctx,Runtime *rt) {
-    auto *dispatcher=rt ? dynamic_cast<bozo::ee::Dispatcher *>(rt->services) : nullptr;
+    auto *dispatcher=rt ? vp2s::nativeCast<bozo::ee::Dispatcher>(rt->services) : nullptr;
     if(!dispatcher || !ctx || ctx->pc!=0x141a38u ||
        dispatcher->kernel().running()<=0 || !dispatcher->kernel().field() ||
        !dispatcher->isKernelCall(0x137460u))
@@ -155,7 +156,7 @@ void installNativeKernelBindings(bozo::port::Registry &registry) {
     registry.registerFunction(0x13a3f0u,&sendNativeCommand);
 }
 void retireEventFirmwareInstaller(uint8_t *,R5900Context *ctx,Runtime *rt) {
-    auto *d=rt ? dynamic_cast<bozo::ee::Dispatcher *>(rt->services) : nullptr;
+    auto *d=rt ? vp2s::nativeCast<bozo::ee::Dispatcher>(rt->services) : nullptr;
     if(!d || !ctx || ctx->pc!=0x140b70 || d->kernel().running()<=0)
         throw std::runtime_error("event SDK firmware retirement requires a booted native kernel");
     // The installer copies kernel code, replaces private syscall slots and

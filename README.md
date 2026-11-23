@@ -83,7 +83,7 @@ The port has two runners. Work now goes into the second.
 | Leaving town, the world map, the Lost Forest (haze, particles, minimap) | ✅ |
 | First battle (Ballistic Rhino, started with the `--battle` debug launcher): HUD, attack turns, effects, 16 000+ frames with no unported site | 🔧 |
 | Game window, controllers and keyboard, sound, memory cards, save states (`vp2s-bozo --window`) | ✅ |
-| Full speed everywhere: boot, movies and menus run at 60 frames a second; the field and battles not yet | 🔧 |
+| Full speed: boot, movies, menus, the field and the first battle at 60 frames a second | ✅ |
 | Rest of the game | ⏳ |
 
 ✅ works · 🔧 in progress · ⏳ not reached yet
@@ -291,8 +291,7 @@ In the field, Start pauses and Select opens the camp menu.
 
 ## Known issues
 
-- **BozoEngine runner:** the field runs at about 20 to 35 frames a second and battles at about 22, so their music and
-  sound slow down with them. Battles are reached only with the `--battle` debug launcher, not by playing into one. A
+- **BozoEngine runner:** battles are reached only with the `--battle` debug launcher, not by playing into one. A
   scene the route has not visited may stop at a site that is not native yet.
 - **Field pause (BozoEngine runner):** the PAUSE screen's background is black; the game shows the frozen scene behind it.
 - **Older runner:** frozen in early November 2026. Its field pause screen loses the town, and Logun's far distance

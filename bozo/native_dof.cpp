@@ -1,3 +1,4 @@
+#include "native_cast.h"
 #include "native_dof.h"
 #include "bozo/ee/dispatcher.h"
 #include "bozo/render/renderer.h"
@@ -343,9 +344,9 @@ void drawDof(const NativeDof &effect){
 }
 std::optional<bool> nativeDofInstruction(R5900Context *c,Runtime *rt,uint32_t pc){
     if(pc!=0x2d9360 && pc!=0x2cd020 && pc!=0x2d18a0 && pc!=0x2da980 && pc!=0x2d9350 && pc!=0x2da9b0)return std::nullopt;
-    auto *d=rt?dynamic_cast<bozo::ee::Dispatcher *>(rt->services):nullptr;
-    auto *dof=d?dynamic_cast<DofOwner *>(&d->host()):nullptr;auto *scene=d?dynamic_cast<SceneOwner *>(&d->host()):nullptr;
-    auto *copies=d?dynamic_cast<FrameCopyOwner *>(&d->host()):nullptr;
+    auto *d=rt?vp2s::nativeCast<bozo::ee::Dispatcher>(rt->services):nullptr;
+    auto *dof=d?vp2s::nativeCast<DofOwner>(&d->host()):nullptr;auto *scene=d?vp2s::nativeCast<SceneOwner>(&d->host()):nullptr;
+    auto *copies=d?vp2s::nativeCast<FrameCopyOwner>(&d->host()):nullptr;
     if(!c || !dof || !scene || !copies)throw std::runtime_error("native DOF requires scene/image owner");
     auto &manager=dof->nativeDofs();const auto stack=c->r[29].uw[0];
     if(pc==0x2da9b0)manager.release(c->r[4].uw[0]);

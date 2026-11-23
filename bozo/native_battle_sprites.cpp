@@ -1,3 +1,5 @@
+#include "native_cast.h"
+#include "native_conditional_sites.h"
 #include "native_battle_sprites.h"
 #include "bozo/ee/dispatcher.h"
 #include "bozo/hash.h"
@@ -311,11 +313,12 @@ void NativeBattleSprites::serializeBlends(bozo::state::Archive &a){
     for(auto &[writer,b]:builds){bozo::state::fields(a,b.blendWrites,b.additive);for(auto &s:b.sprites)bozo::state::io(a,s.additive);}
 }
 std::optional<bool> nativeBattleSpriteInstruction(R5900Context *c,Runtime *rt,uint32_t pc){
+    if(!nativeBattleSpriteSite(pc))return std::nullopt;   // its sites: native_conditional_sites.h
     static constexpr uint32_t pairSites[]={0x4bcd40,0x4bde08,0x4d0c34,0x4d1734,0x4d99ac,0x4ecf0c,0x4ef498,0x4f0f20,0x4f268c,0x4f2874,0x4fa19c,0x4fdcc0,0x503d50};
     const bool pairSite=std::find(std::begin(pairSites),std::end(pairSites),pc)!=std::end(pairSites);
     if(pc!=0x120860 && pc!=0x120c30 && !pairSite && pc!=0x3cd468 && pc!=0x3cd3c8 && pc!=0x3cd4a0 && pc!=0x42ddd8 && pc!=0x42e144 && pc!=0x42ebd8 && pc!=0x42efe0 && pc!=0x3843a0 && pc!=0x42d4f0 && pc!=0x42d4f4 && pc!=0x120f4c && pc!=0x120f58)return std::nullopt;
-    auto *d=rt?dynamic_cast<bozo::ee::Dispatcher *>(rt->services):nullptr;
-    auto *owner=d?dynamic_cast<BattleSpriteOwner *>(&d->host()):nullptr;
+    auto *d=rt?vp2s::nativeCast<bozo::ee::Dispatcher>(rt->services):nullptr;
+    auto *owner=d?vp2s::nativeCast<BattleSpriteOwner>(&d->host()):nullptr;
     if(!owner || !c){if(pc==0x120860 || pc==0x120c30 || pc==0x120f4c || pc==0x120f58)return std::nullopt;throw std::runtime_error("native battle sprites require an owner");}
     auto &sprites=owner->nativeBattleSprites();const auto sp=c->r[29].uw[0];
     if(pc==0x120f4c || pc==0x120f58){
@@ -403,7 +406,7 @@ std::optional<bool> nativeBattleSpriteInstruction(R5900Context *c,Runtime *rt,ui
         if(value<uint32_t>(rt,pc-4)!=0x0c0483ac || value<uint32_t>(rt,pc)!=0x8c440090 || c->r[2].uw[0]!=object+4u*value<uint8_t>(rt,object+0xbc) || c->r[5].uw[0]!=object+0xc0 ||
            (pc==0x42d4f0 && !code(rt,0x42d4c0,0x42d500,0xd1f5f3664cbc85a7ull)))
             throw std::runtime_error("native battle sprite flush differs from the USA submit");
-        auto *textures=dynamic_cast<TextureOwner *>(&d->host());if(!textures)throw std::runtime_error("native battle sprites require a texture owner");
+        auto *textures=vp2s::nativeCast<TextureOwner>(&d->host());if(!textures)throw std::runtime_error("native battle sprites require a texture owner");
         const auto build=sprites.flush(rt,sp,object,value<uint32_t>(rt,c->r[2].uw[0]+0x90),
             [&](uint32_t pixels,uint32_t palette){return textures->nativeTextures().blockImage(pixels,palette);});
         try{owner->drawNativeBattleSprites(build);}catch(...){sprites.cancel(sp);throw;}

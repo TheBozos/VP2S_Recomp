@@ -1,3 +1,4 @@
+#include "native_cast.h"
 #include "native_frame_copy.h"
 #include "bozo/ee/dispatcher.h"
 #include "bozo/render/renderer.h"
@@ -90,8 +91,8 @@ void drawFrameCopy(const NativeFrameCopy &copy){
 }
 std::optional<bool> nativeFrameCopyInstruction(R5900Context *c,Runtime *rt,uint32_t pc){
     if(pc!=0x2dbde0 && pc!=0x2dbeb4 && pc!=0x2dc6c8 && pc!=0x2dbdd0 && pc!=0x2dc700)return std::nullopt;
-    auto *d=rt?dynamic_cast<bozo::ee::Dispatcher *>(rt->services):nullptr;
-    auto *copies=d?dynamic_cast<FrameCopyOwner *>(&d->host()):nullptr;auto *scene=d?dynamic_cast<SceneOwner *>(&d->host()):nullptr;
+    auto *d=rt?vp2s::nativeCast<bozo::ee::Dispatcher>(rt->services):nullptr;
+    auto *copies=d?vp2s::nativeCast<FrameCopyOwner>(&d->host()):nullptr;auto *scene=d?vp2s::nativeCast<SceneOwner>(&d->host()):nullptr;
     if(!c || !copies || !scene)throw std::runtime_error("native field frame copy requires scene/renderer owner");
     const auto stack=c->r[29].uw[0];auto &manager=copies->nativeFrameCopies();
     if(pc==0x2dbde0){if(c->pc!=pc)throw std::runtime_error("frame copy requires full builder");manager.begin(rt,stack-0xc0,c->r[4].uw[0]);}

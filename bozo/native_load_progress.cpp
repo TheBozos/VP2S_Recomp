@@ -1,3 +1,4 @@
+#include "native_cast.h"
 #include "native_load_progress.h"
 #include "native_seed.h"
 #include "bozo/ee/dispatcher.h"
@@ -33,9 +34,9 @@ void NativeLoadProgress::finish(uint32_t stack,uint32_t worker,uint32_t destinat
 }
 std::optional<bool> nativeLoadProgressInstruction(R5900Context *c,Runtime *rt,uint32_t pc){
     if(pc!=0x306a10 && pc!=0x306b84 && pc!=0x306bc4 && pc!=0x306c58 && pc!=0x30ce84)return std::nullopt;
-    auto *d=rt?dynamic_cast<bozo::ee::Dispatcher *>(rt->services):nullptr;
-    auto *owner=d?dynamic_cast<LoadProgressOwner *>(&d->host()):nullptr;
-    auto *seed=d?dynamic_cast<SeedOwner *>(&d->host()):nullptr;
+    auto *d=rt?vp2s::nativeCast<bozo::ee::Dispatcher>(rt->services):nullptr;
+    auto *owner=d?vp2s::nativeCast<LoadProgressOwner>(&d->host()):nullptr;
+    auto *seed=d?vp2s::nativeCast<SeedOwner>(&d->host()):nullptr;
     if(!c || !owner || !seed)throw std::runtime_error("native loading requires per-run request/entropy owners");
     if(pc==0x306a10){
         if(word(rt,0x35da00)!=c->r[16].uw[0])throw std::runtime_error("native allocation entropy escaped original scalar generator");

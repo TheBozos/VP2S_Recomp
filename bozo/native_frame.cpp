@@ -1,3 +1,4 @@
+#include "native_cast.h"
 #include "native_frame.h"
 #include "bozo/ee/dispatcher.h"
 #include "bozo/port.h"
@@ -14,7 +15,7 @@ bool nativeFrameInput(uint8_t *,R5900Context *ctx,Runtime *rt,uint32_t pc){
         bozo::port::frameEnd(rt,ctx);return true;
     }
     if(pc!=0x11fb50)return false;
-    auto *d=rt?dynamic_cast<bozo::ee::Dispatcher *>(rt->services):nullptr;
+    auto *d=rt?vp2s::nativeCast<bozo::ee::Dispatcher>(rt->services):nullptr;
     if(!ctx || !d || !d->kernel().field())throw std::runtime_error("native frame phase requires a booted clock");
     if(std::getenv("VP2S_BOZO_TRACE_FRAME")){
         static unsigned traced=0;

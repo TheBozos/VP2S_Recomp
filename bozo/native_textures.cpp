@@ -1,3 +1,5 @@
+#include "native_cast.h"
+#include "native_conditional_sites.h"
 #include "native_textures.h"
 #include "native_picture_source.h"
 #include "native_scene.h"
@@ -182,8 +184,8 @@ std::shared_ptr<const NativeTextureAsset> NativeTextures::imageAsset(uint32_t ob
 // cleared).
 std::optional<bool> nativeTextureUploaderInstruction(R5900Context *c,Runtime *rt,uint32_t pc){
     if(pc!=0x443238)return std::nullopt;
-    auto *d=rt?dynamic_cast<bozo::ee::Dispatcher *>(rt->services):nullptr;
-    auto *textures=d?dynamic_cast<TextureOwner *>(&d->host()):nullptr;auto *assets=d?dynamic_cast<AssetOwner *>(&d->host()):nullptr;
+    auto *d=rt?vp2s::nativeCast<bozo::ee::Dispatcher>(rt->services):nullptr;
+    auto *textures=d?vp2s::nativeCast<TextureOwner>(&d->host()):nullptr;auto *assets=d?vp2s::nativeCast<AssetOwner>(&d->host()):nullptr;
     // Block entries: the draw method (first chain) or the loop label after the previous call.
     if(!textures || !assets || !c || (c->pc!=0x4431c0 && c->pc!=0x44323c))throw std::runtime_error("native texture uploader requires its draw method");
     const auto object=c->r[18].uw[0],slot=c->r[16].uw[0];
@@ -221,8 +223,8 @@ std::optional<bool> nativeTextureUploaderInstruction(R5900Context *c,Runtime *rt
 // picture width before 45ea18), and cross-checked against s2/s3 there.
 std::optional<bool> nativeMenuImageInstruction(R5900Context *c,Runtime *rt,uint32_t pc){
     if(pc!=0x45ea18 && pc!=0x45e870)return std::nullopt;
-    auto *d=rt?dynamic_cast<bozo::ee::Dispatcher *>(rt->services):nullptr;
-    auto *textures=d?dynamic_cast<TextureOwner *>(&d->host()):nullptr;auto *assets=d?dynamic_cast<AssetOwner *>(&d->host()):nullptr;
+    auto *d=rt?vp2s::nativeCast<bozo::ee::Dispatcher>(rt->services):nullptr;
+    auto *textures=d?vp2s::nativeCast<TextureOwner>(&d->host()):nullptr;auto *assets=d?vp2s::nativeCast<AssetOwner>(&d->host()):nullptr;
     if(!textures || !assets || !c)throw std::runtime_error("native menu image has no texture owner");
     if(pc==0x45e870){
         if(c->pc!=pc)throw std::runtime_error("native menu image load requires its entry");
@@ -270,12 +272,13 @@ TextureKey fileKey(Runtime *rt,const NativeAssets &assets,const NativeTextures &
     return textures.resolve(key,*origin);
 }
 std::optional<bool> nativeBattleImageInstruction(R5900Context *c,Runtime *rt,uint32_t pc){
+    if(!nativeBattleImageSite(pc))return std::nullopt;   // its sites: native_conditional_sites.h
     constexpr struct {uint32_t pc,word;} sites[]={{0x36b5d4,0x0000402d},{0x36b5d8,0x8e43000c},{0x36b6b4,0x0000402d}};
     const auto site=std::find_if(std::begin(sites),std::end(sites),[&](auto &s){return s.pc==pc;});
     if(site==std::end(sites))return std::nullopt;
     if(!rt || read<uint32_t>(rt,pc)!=site->word || read<uint32_t>(rt,0x36b4a0)!=0x27bdff50u)return std::nullopt; // another overlay here
-    auto *d=dynamic_cast<bozo::ee::Dispatcher *>(rt->services);
-    auto *textures=d?dynamic_cast<TextureOwner *>(&d->host()):nullptr;auto *assets=d?dynamic_cast<AssetOwner *>(&d->host()):nullptr;
+    auto *d=vp2s::nativeCast<bozo::ee::Dispatcher>(rt->services);
+    auto *textures=d?vp2s::nativeCast<TextureOwner>(&d->host()):nullptr;auto *assets=d?vp2s::nativeCast<AssetOwner>(&d->host()):nullptr;
     if(!c || !textures || !assets)throw std::runtime_error("native battle image has no texture owner");
     if(pc==0x36b5d8){
         const auto fis=c->r[18].uw[0]-0x10;record(rt,fis,0x30);
@@ -316,12 +319,13 @@ std::optional<bool> nativeBattleImageInstruction(R5900Context *c,Runtime *rt,uin
 // second is gone; their delay slots (3cd174, 3cd1b0) publish the file under the blocks,
 // the way the battle's draws name its images (see nativeBattleImageInstruction).
 std::optional<bool> nativeBattleTextureSetInstruction(R5900Context *c,Runtime *rt,uint32_t pc){
+    if(!nativeBattleTextureSetSite(pc))return std::nullopt;   // its sites: native_conditional_sites.h
     constexpr struct {uint32_t pc,word;} sites[]={{0x3cd174,0x0000402d},{0x3cd1b0,0x0000482d}};
     const auto site=std::find_if(std::begin(sites),std::end(sites),[&](auto &s){return s.pc==pc;});
     if(site==std::end(sites))return std::nullopt;
     if(!rt || read<uint32_t>(rt,pc)!=site->word || read<uint32_t>(rt,0x3cd0c0)!=0x27bdff90u)return std::nullopt; // another overlay here
-    auto *d=dynamic_cast<bozo::ee::Dispatcher *>(rt->services);
-    auto *textures=d?dynamic_cast<TextureOwner *>(&d->host()):nullptr;auto *assets=d?dynamic_cast<AssetOwner *>(&d->host()):nullptr;
+    auto *d=vp2s::nativeCast<bozo::ee::Dispatcher>(rt->services);
+    auto *textures=d?vp2s::nativeCast<TextureOwner>(&d->host()):nullptr;auto *assets=d?vp2s::nativeCast<AssetOwner>(&d->host()):nullptr;
     if(!c || !textures || !assets)throw std::runtime_error("native battle texture set has no texture owner");
     const auto object=c->r[21].uw[0],chain=c->r[7].uw[0];record(rt,object,0x110);
     // Any class running this method (174e30, 175450, ...): its vtable's +18 is 3cd0c0; the
@@ -373,8 +377,8 @@ std::optional<bool> nativeBattleTextureSetInstruction(R5900Context *c,Runtime *r
 std::optional<bool> nativeFixedImageInstruction(R5900Context *c,Runtime *rt,uint32_t pc){
     const bool resource=pc==0x447af0 || pc==0x447b84 || pc==0x447d60 || pc==0x447a48 || pc==0x447f50;
     if(!resource && pc!=0x2f3714 && pc!=0x2ea9a0)return std::nullopt;
-    auto *d=rt?dynamic_cast<bozo::ee::Dispatcher *>(rt->services):nullptr;
-    auto *textures=d?dynamic_cast<TextureOwner *>(&d->host()):nullptr;
+    auto *d=rt?vp2s::nativeCast<bozo::ee::Dispatcher>(rt->services):nullptr;
+    auto *textures=d?vp2s::nativeCast<TextureOwner>(&d->host()):nullptr;
     if(!textures || !c)throw std::runtime_error("native fixed image has no texture owner");
     if(resource){
         const bool lifecycle=pc==0x447af0 || pc==0x447f50;
@@ -384,7 +388,7 @@ std::optional<bool> nativeFixedImageInstruction(R5900Context *c,Runtime *rt,uint
             throw std::runtime_error("unowned native FIS resource object");
         if(lifecycle){textures->nativeTextures().releaseImage(object);return false;}
         const auto source=read<uint32_t>(rt,object+0x228);record(rt,source,0x1c);
-        auto *assets=dynamic_cast<AssetOwner *>(&d->host());const auto origin=assets?assets->nativeAssets().origin(source):std::nullopt;
+        auto *assets=vp2s::nativeCast<AssetOwner>(&d->host());const auto origin=assets?assets->nativeAssets().origin(source):std::nullopt;
         if(!origin || origin->kind!=AssetOrigin::Kind::Part || origin->part || origin->offset || read<uint32_t>(rt,source)!=0x534946)
             throw std::runtime_error("native FIS resource has no completed decoded file owner");
         const TextureKey key{read<uint32_t>(rt,source+0x14),read<uint32_t>(rt,source+0x18)};
@@ -410,7 +414,7 @@ std::optional<bool> nativeFixedImageInstruction(R5900Context *c,Runtime *rt,uint
         if(c->pc!=pc)throw std::runtime_error("native image release requires its destructor entry");
         textures->nativeTextures().releaseImage(object);return false;
     }
-    auto *scene=dynamic_cast<SceneOwner *>(&d->host());
+    auto *scene=vp2s::nativeCast<SceneOwner>(&d->host());
     if(!scene || c->pc!=0x2f36f0 || c->r[5].uw[0]!=object+0x90)
         throw std::runtime_error("native fixed image requires its complete producer");
     const auto current=read<uint32_t>(rt,0x35ddf8);
@@ -430,8 +434,8 @@ std::shared_ptr<const NativeTextureAsset> NativeTextures::paletteAsset(uint16_t 
 }
 bool nativeTextureInstruction(uint8_t *,R5900Context *c,Runtime *rt,uint32_t pc){
     if(pc!=0x29cc00 && pc!=0x29cc30 && pc!=0x29cd7c && pc!=0x29cf14 && pc!=0x29cf30)return false;
-    auto *dispatcher=rt?dynamic_cast<bozo::ee::Dispatcher *>(rt->services):nullptr;
-    auto *owner=dispatcher?dynamic_cast<TextureOwner *>(&dispatcher->host()):nullptr;
+    auto *dispatcher=rt?vp2s::nativeCast<bozo::ee::Dispatcher>(rt->services):nullptr;
+    auto *owner=dispatcher?vp2s::nativeCast<TextureOwner>(&dispatcher->host()):nullptr;
     if(!owner || !c)throw std::runtime_error("native image publication requires a texture owner");
     auto &textures=owner->nativeTextures();const uint32_t stack=c->r[29].uw[0];
     if(pc==0x29cc00){

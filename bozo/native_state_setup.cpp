@@ -1,3 +1,5 @@
+#include "native_cast.h"
+#include "native_conditional_sites.h"
 #include "native_state_setup.h"
 #include "native_assets.h"
 #include "bozo/ee/dispatcher.h"
@@ -70,9 +72,10 @@ void NativeStateSetups::finish(uint32_t stack){
     invocations.erase(it);
 }
 std::optional<bool> nativeStateSetupInstruction(uint8_t *,R5900Context *c,Runtime *rt,uint32_t pc){
+    if(!nativeStateSetupSite(pc))return std::nullopt;   // its sites: native_conditional_sites.h
     if(pc!=0x29caf8 && pc!=0x2075bc && pc!=0x2075cc && pc!=0x120f4c && pc!=0x120f58)return std::nullopt;
-    auto *d=rt?dynamic_cast<bozo::ee::Dispatcher *>(rt->services):nullptr;
-    auto *owner=d?dynamic_cast<StateSetupOwner *>(&d->host()):nullptr;
+    auto *d=rt?vp2s::nativeCast<bozo::ee::Dispatcher>(rt->services):nullptr;
+    auto *owner=d?vp2s::nativeCast<StateSetupOwner>(&d->host()):nullptr;
     if(!owner || !c){if(pc==0x120f4c || pc==0x120f58)return std::nullopt;throw std::runtime_error("native state publication requires an owner");}
     auto &setups=owner->nativeStateSetups();const uint32_t sp=c->r[29].uw[0];
     if(pc==0x29caf8)setups.beginDefaults(rt,sp-0x30);

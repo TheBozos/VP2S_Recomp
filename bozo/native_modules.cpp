@@ -1,3 +1,4 @@
+#include "native_cast.h"
 #include "native_kernel.h"
 #include "native_modules.h"
 #include "bozo/ee/dispatcher.h"
@@ -108,15 +109,15 @@ void ModuleBuffers::reset(){buffers.clear();next=0x40000000;transferId=0;}
 
 namespace {
 ModuleOwner &ownerFor(Runtime *rt,R5900Context *ctx) {
-    auto *d=rt?dynamic_cast<bozo::ee::Dispatcher *>(rt->services):nullptr;
-    auto *o=d?dynamic_cast<ModuleOwner *>(&d->host()):nullptr;
+    auto *d=rt?vp2s::nativeCast<bozo::ee::Dispatcher>(rt->services):nullptr;
+    auto *o=d?vp2s::nativeCast<ModuleOwner>(&d->host()):nullptr;
     if(!ctx || !o)throw std::runtime_error("native module service requires per-run ownership");
     return *o;
 }
 }
 void loadNativeModule(uint8_t *,R5900Context *ctx,Runtime *rt) {
-    auto *d=rt ? dynamic_cast<bozo::ee::Dispatcher *>(rt->services) : nullptr;
-    auto *owner=d ? dynamic_cast<ModuleOwner *>(&d->host()) : nullptr;
+    auto *d=rt ? vp2s::nativeCast<bozo::ee::Dispatcher>(rt->services) : nullptr;
+    auto *owner=d ? vp2s::nativeCast<ModuleOwner>(&d->host()) : nullptr;
     if(!ctx || !owner || (ctx->pc!=0x1401b8 && ctx->pc!=0x13fba8))
         throw std::runtime_error("native SDK module loading requires a per-run service owner");
     const bool buffer=ctx->pc==0x13fba8;

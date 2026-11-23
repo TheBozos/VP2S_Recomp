@@ -1,3 +1,4 @@
+#include "native_cast.h"
 #include "native_music.h"
 #include "bozo/ee/dispatcher.h"
 #include "bozo/port.h"
@@ -22,8 +23,8 @@ void validate(Runtime *rt,uint32_t player,uint32_t job){
         throw std::runtime_error("native music lost typed player/job ownership");
 }
 NativeMusic &owner(Runtime *rt){
-    auto *d=rt?dynamic_cast<bozo::ee::Dispatcher *>(rt->services):nullptr;
-    auto *o=d?dynamic_cast<MusicOwner *>(&d->host()):nullptr;
+    auto *d=rt?vp2s::nativeCast<bozo::ee::Dispatcher>(rt->services):nullptr;
+    auto *o=d?vp2s::nativeCast<MusicOwner>(&d->host()):nullptr;
     if(!o)throw std::runtime_error("native music requires its per-run owner");
     return o->nativeMusic();
 }

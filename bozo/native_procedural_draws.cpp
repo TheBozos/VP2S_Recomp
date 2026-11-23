@@ -1,3 +1,5 @@
+#include "native_cast.h"
+#include "native_conditional_sites.h"
 #include "native_procedural_draws.h"
 #include "bozo/ee/dispatcher.h"
 #include "../port/vp2s_music_math.h"
@@ -77,17 +79,18 @@ NativeModelSubmission NativeProceduralDraws::submission(Runtime *rt,const Native
 }
 void NativeProceduralDraws::consumed(uint32_t object){if(!ready.erase(object))throw std::runtime_error("procedural draw consumed twice");}
 std::optional<bool> nativeProceduralDrawInstruction(R5900Context *c,Runtime *rt,uint32_t pc){
+    if(!nativeProceduralDrawSite(pc))return std::nullopt;   // its sites: native_conditional_sites.h
     if(pc!=0x247700 && pc!=0x247a90 && pc!=0x247ac0 && pc!=0x247ec0 && pc!=0x24769c)return std::nullopt;
-    auto *d=rt?dynamic_cast<bozo::ee::Dispatcher *>(rt->services):nullptr;auto *owner=d?dynamic_cast<ProceduralDrawOwner *>(&d->host()):nullptr;
+    auto *d=rt?vp2s::nativeCast<bozo::ee::Dispatcher>(rt->services):nullptr;auto *owner=d?vp2s::nativeCast<ProceduralDrawOwner>(&d->host()):nullptr;
     if(pc==0x247ec0 && !owner)return std::nullopt;
-    auto *projections=d?dynamic_cast<ProceduralOwner *>(&d->host()):nullptr;auto *scene=d?dynamic_cast<SceneOwner *>(&d->host()):nullptr;
+    auto *projections=d?vp2s::nativeCast<ProceduralOwner>(&d->host()):nullptr;auto *scene=d?vp2s::nativeCast<SceneOwner>(&d->host()):nullptr;
     if(!c || !owner || !projections || !scene)throw std::runtime_error("procedural draw lacks native owners");auto &draws=owner->nativeProceduralDraws();
     if(pc==0x247700)draws.beginMesh(rt,c,scene->nativeScene(),projections->nativeProceduralTransforms());
     else if(pc==0x247a90)draws.vertex(rt,c);
     else if(pc==0x247ac0)draws.endMesh(c);
     else if(pc==0x247ec0){draws.finish(c,projections->nativeProceduralTransforms());return std::nullopt;}
     else{
-        auto *models=dynamic_cast<ModelOwner *>(&d->host());auto *feedback=dynamic_cast<FeedbackOwner *>(&d->host());
+        auto *models=vp2s::nativeCast<ModelOwner>(&d->host());auto *feedback=vp2s::nativeCast<FeedbackOwner>(&d->host());
         if(!models || !feedback || (c->pc!=0x247650 && c->pc!=0x247668 && c->pc!=0x247690) || c->r[31].uw[0]!=0x2476a0 || c->r[16].uw[0]<0x100210)throw std::runtime_error("procedural draw escaped original pre-enqueue");
         const auto object=c->r[16].uw[0]-0x210;const auto batch=draws.submission(rt,scene->nativeScene(),feedback->nativeFeedbackCopies(),object);models->drawNativeModel(batch);draws.consumed(object);c->r[4].sd[0]=int32_t(object);
     }

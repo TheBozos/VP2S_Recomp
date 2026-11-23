@@ -1,3 +1,5 @@
+#include "native_cast.h"
+#include "native_conditional_sites.h"
 #include "native_screen_zoom.h"
 #include "bozo/ee/dispatcher.h"
 #include "bozo/ops_fpu.h"
@@ -121,9 +123,10 @@ void NativeScreenZooms::complete(uint32_t stack){
     calls.erase(it);
 }
 std::optional<bool> nativeScreenZoomInstruction(R5900Context *c,Runtime *rt,uint32_t pc){
+    if(!nativeScreenZoomSite(pc))return std::nullopt;   // its sites: native_conditional_sites.h
     if(pc!=0x374c04 && pc!=0x374c10 && pc!=0x120f4c && pc!=0x120f58)return std::nullopt;
-    auto *d=rt?dynamic_cast<bozo::ee::Dispatcher *>(rt->services):nullptr;
-    auto *owner=d?dynamic_cast<ScreenZoomOwner *>(&d->host()):nullptr;
+    auto *d=rt?vp2s::nativeCast<bozo::ee::Dispatcher>(rt->services):nullptr;
+    auto *owner=d?vp2s::nativeCast<ScreenZoomOwner>(&d->host()):nullptr;
     if(!owner || !c){if(pc==0x120f4c || pc==0x120f58)return std::nullopt;throw std::runtime_error("native screen zoom requires an owner");}
     auto &zooms=owner->nativeScreenZooms();const auto sp=c->r[29].uw[0];
     if(pc==0x374c04){

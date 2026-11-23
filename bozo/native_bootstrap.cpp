@@ -1,3 +1,4 @@
+#include "native_cast.h"
 #include "native_bootstrap.h"
 #include "bozo/ee/dispatcher.h"
 #include <cstring>
@@ -5,8 +6,8 @@
 namespace vp2s {
 bool nativeBootstrapKey(uint8_t *,R5900Context *ctx,Runtime *rt,uint32_t pc){
     if(pc!=0x10090c)return false;
-    auto *d=rt?dynamic_cast<bozo::ee::Dispatcher *>(rt->services):nullptr;
-    auto *owner=d?dynamic_cast<BootstrapOwner *>(&d->host()):nullptr;
+    auto *d=rt?vp2s::nativeCast<bozo::ee::Dispatcher>(rt->services):nullptr;
+    auto *owner=d?vp2s::nativeCast<BootstrapOwner>(&d->host()):nullptr;
     if(!ctx || !owner)throw std::runtime_error("native startup derivation requires its per-run tables");
     const auto address=ctx->r[16].uw[0];
     auto *record=rt->memory.hostPointer(address,16);

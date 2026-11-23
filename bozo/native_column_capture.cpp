@@ -1,3 +1,5 @@
+#include "native_cast.h"
+#include "native_conditional_sites.h"
 #include "native_column_capture.h"
 #include "bozo/ee/dispatcher.h"
 #include "bozo/hash.h"
@@ -121,9 +123,10 @@ uint32_t NativeColumnCaptures::completion(uint32_t stack){
     const auto object=it->second;finished.erase(it);return object;
 }
 std::optional<bool> nativeColumnCaptureInstruction(R5900Context *c,Runtime *rt,uint32_t pc){
+    if(!nativeColumnCaptureSite(pc))return std::nullopt;   // its sites: native_conditional_sites.h
     if(pc!=kCapture && pc!=kSprite && pc!=kBuilt && pc!=kFlushLast && pc!=kFlush && pc!=kReturn && pc!=kEnd && pc!=0x120f4c && pc!=0x120f58)return std::nullopt;
-    auto *d=rt?dynamic_cast<bozo::ee::Dispatcher *>(rt->services):nullptr;
-    auto *owner=d?dynamic_cast<ColumnCaptureOwner *>(&d->host()):nullptr;
+    auto *d=rt?vp2s::nativeCast<bozo::ee::Dispatcher>(rt->services):nullptr;
+    auto *owner=d?vp2s::nativeCast<ColumnCaptureOwner>(&d->host()):nullptr;
     if(pc==0x120f4c || pc==0x120f58){
         if(!owner || !c || !owner->nativeColumnCaptures().active(c->r[29].uw[0]+0x30))return std::nullopt;
         auto &columns=owner->nativeColumnCaptures();

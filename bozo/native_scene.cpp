@@ -1,3 +1,4 @@
+#include "native_cast.h"
 #include "native_scene.h"
 #include "native_frustum.h"
 #include "bozo/ee/dispatcher.h"
@@ -67,8 +68,8 @@ void NativeScene::finishComposition(uint32_t stack){
 }
 std::optional<bool> nativeCompositionInstruction(uint8_t *,R5900Context *c,Runtime *rt,uint32_t pc){
     if(pc!=0x114550 && pc!=0x1145bc && pc!=0x114da0 && pc!=0x1145f8 && pc!=0x114634 && pc!=0x114714 && pc!=0x114a78 && pc!=0x114774 && pc!=0x1147ac)return std::nullopt;
-    auto *d=rt?dynamic_cast<bozo::ee::Dispatcher *>(rt->services):nullptr;
-    auto *owner=d?dynamic_cast<SceneOwner *>(&d->host()):nullptr;
+    auto *d=rt?vp2s::nativeCast<bozo::ee::Dispatcher>(rt->services):nullptr;
+    auto *owner=d?vp2s::nativeCast<SceneOwner>(&d->host()):nullptr;
     if(!owner || !c)throw std::runtime_error("native composition requires a scene owner");
     auto &scene=owner->nativeScene();const uint32_t sp=c->r[29].uw[0];
     if(pc==0x114550){scene.beginComposition(rt,sp-0xa0,c->r[4].uw[0]);return false;}
@@ -114,8 +115,8 @@ void NativeScene::selectCamera(Runtime *rt,uint32_t object){
 }
 bool nativeSceneInstruction(uint8_t *,R5900Context *c,Runtime *rt,uint32_t pc){
     if(pc==0x2cb490){
-        auto *d=rt?dynamic_cast<bozo::ee::Dispatcher *>(rt->services):nullptr;
-        auto *owner=d?dynamic_cast<SceneOwner *>(&d->host()):nullptr;
+        auto *d=rt?vp2s::nativeCast<bozo::ee::Dispatcher>(rt->services):nullptr;
+        auto *owner=d?vp2s::nativeCast<SceneOwner>(&d->host()):nullptr;
         if(!owner || !c || c->pc!=0x2cb470 || c->r[5].uw[0]<0x90)
             throw std::runtime_error("native brightness requires its complete draw producer");
         const auto object=c->r[5].uw[0]-0x90,scene=word(rt,0x35ddf8);
@@ -131,8 +132,8 @@ bool nativeSceneInstruction(uint8_t *,R5900Context *c,Runtime *rt,uint32_t pc){
     const bool profileFirst=pc==0x21c9dc || pc==0x21c9e0 || pc==0x21c9e8 || pc==0x21c9ec;
     const bool profileSecond=pc==0x21ca1c || pc==0x21ca20 || pc==0x21ca24 || pc==0x21ca28;
     if(profileStart || profileFirst || profileSecond){
-        auto *d=rt?dynamic_cast<bozo::ee::Dispatcher *>(rt->services):nullptr;
-        auto *owner=d?dynamic_cast<SceneOwner *>(&d->host()):nullptr;
+        auto *d=rt?vp2s::nativeCast<bozo::ee::Dispatcher>(rt->services):nullptr;
+        auto *owner=d?vp2s::nativeCast<SceneOwner>(&d->host()):nullptr;
         if(!owner || !c)throw std::runtime_error("native scene profiling has no owner");
         const auto scene=c->r[profileSecond?6:16].uw[0];record(rt,scene,0x40ec);
         if(profileStart){
@@ -163,8 +164,8 @@ bool nativeSceneInstruction(uint8_t *,R5900Context *c,Runtime *rt,uint32_t pc){
     }
     const bool frustumSite=(!(pc&3) && pc>=0x207cc8 && pc<=0x207d64) || pc==0x207d6c;
     if(pc!=0x208a94 && pc!=0x2088f0 && pc!=0x2085c4 && !frustumSite)return false;
-    auto *dispatcher=rt?dynamic_cast<bozo::ee::Dispatcher *>(rt->services):nullptr;
-    auto *owner=dispatcher?dynamic_cast<SceneOwner *>(&dispatcher->host()):nullptr;
+    auto *dispatcher=rt?vp2s::nativeCast<bozo::ee::Dispatcher>(rt->services):nullptr;
+    auto *owner=dispatcher?vp2s::nativeCast<SceneOwner>(&dispatcher->host()):nullptr;
     if(!owner || !c)throw std::runtime_error("native camera publication requires a scene owner");
     if(pc==0x2085c4){
         // 2085a0 copies the clear colour (+5a0) into the job's record and queues the
@@ -313,8 +314,8 @@ std::optional<bool> nativeVisibilityInstruction(R5900Context *c,Runtime *rt,uint
     const bool cameraSwitch=!(pc&3) && ((pc>=0x220918 && pc<=0x220950) || (pc>=0x220978 && pc<=0x2209b0)) &&
                             pc!=0x220928 && pc!=0x22092c && pc!=0x220988 && pc!=0x22098c;
     if(pc!=0x2205c0 && pc!=0x220ce0 && !clip && !view && !sphere && !facing && !cameraSwitch)return std::nullopt;
-    auto *d=rt?dynamic_cast<bozo::ee::Dispatcher *>(rt->services):nullptr;
-    auto *owner=d?dynamic_cast<SceneOwner *>(&d->host()):nullptr;
+    auto *d=rt?vp2s::nativeCast<bozo::ee::Dispatcher>(rt->services):nullptr;
+    auto *owner=d?vp2s::nativeCast<SceneOwner>(&d->host()):nullptr;
     if(!owner || !c)throw std::runtime_error("native visibility requires a scene owner");
     auto &scene=owner->nativeScene();const auto sp=c->r[29].uw[0];
     if(pc==0x2205c0){
@@ -395,8 +396,8 @@ void NativeScene::finishTextureManagerFrame(Runtime *rt,uint32_t stack,uint32_t 
 }
 std::optional<bool> nativeTextureManagerInstruction(R5900Context *c,Runtime *rt,uint32_t pc){
     if(pc!=0x221294 && pc!=0x221308 && pc!=0x221540 && pc!=0x221704 && pc!=0x221718 && pc!=0x221748)return std::nullopt;
-    auto *d=rt?dynamic_cast<bozo::ee::Dispatcher *>(rt->services):nullptr;
-    auto *owner=d?dynamic_cast<SceneOwner *>(&d->host()):nullptr;
+    auto *d=rt?vp2s::nativeCast<bozo::ee::Dispatcher>(rt->services):nullptr;
+    auto *owner=d?vp2s::nativeCast<SceneOwner>(&d->host()):nullptr;
     if(!owner || !c)throw std::runtime_error("native texture-manager frame requires a scene owner");
     auto &scene=owner->nativeScene();const auto stack=c->r[30].uw[0];
     if(pc==0x221294){

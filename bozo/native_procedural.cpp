@@ -1,3 +1,4 @@
+#include "native_cast.h"
 #include "native_procedural.h"
 #include "native_assets.h"
 #include "bozo/ee/dispatcher.h"
@@ -85,7 +86,7 @@ std::optional<bool> nativeProceduralInstruction(R5900Context *c,Runtime *rt,uint
     const bool publish=pc>=0x248260 && pc<=0x24826c && !(pc&3);
     const bool point=pc==0x2478c8 || pc==0x2478cc || pc==0x2478d0 || pc==0x2478d4 || pc==0x2478d8 || pc==0x247918 || pc==0x24795c || pc==0x247968 || pc==0x24796c || pc==0x247974 || pc==0x247a18 || pc==0x247a1c;
     if(!publish && !point && pc!=0x247ec0)return std::nullopt;
-    auto *d=rt?dynamic_cast<bozo::ee::Dispatcher *>(rt->services):nullptr;auto *owner=d?dynamic_cast<ProceduralOwner *>(&d->host()):nullptr;auto *scene=d?dynamic_cast<SceneOwner *>(&d->host()):nullptr;
+    auto *d=rt?vp2s::nativeCast<bozo::ee::Dispatcher>(rt->services):nullptr;auto *owner=d?vp2s::nativeCast<ProceduralOwner>(&d->host()):nullptr;auto *scene=d?vp2s::nativeCast<SceneOwner>(&d->host()):nullptr;
     if(!c || !owner || !scene)throw std::runtime_error("procedural projection lacks semantic owner");
     if(point){owner->nativeProceduralTransforms().point(rt,c,pc);return true;}
     if(publish){producer(c);if(pc==0x24826c)owner->nativeProceduralTransforms().publish(rt,c,scene->nativeScene());return true;}

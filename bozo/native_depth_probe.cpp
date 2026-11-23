@@ -1,3 +1,4 @@
+#include "native_cast.h"
 #include "native_depth_probe.h"
 #include "bozo/ee/dispatcher.h"
 #include <algorithm>
@@ -75,8 +76,8 @@ uint32_t NativeDepthProbes::complete(Runtime *rt,const R5900Context *c,const Nat
 }
 std::optional<bool> nativeDepthProbeInstruction(R5900Context *c,Runtime *rt,uint32_t pc){
     if(pc!=kSite)return std::nullopt;
-    auto *d=rt?dynamic_cast<bozo::ee::Dispatcher *>(rt->services):nullptr;
-    auto *owner=d?dynamic_cast<DepthProbeOwner *>(&d->host()):nullptr;
+    auto *d=rt?vp2s::nativeCast<bozo::ee::Dispatcher>(rt->services):nullptr;
+    auto *owner=d?vp2s::nativeCast<DepthProbeOwner>(&d->host()):nullptr;
     if(!c || !owner)throw std::runtime_error("native depth probe requires its renderer owner");
     const auto object=owner->nativeDepthProbes().complete(rt,c,owner->nativeDepthProbeFrame(),
         [owner](float x,float y,uint32_t &z){return owner->nativeDepthSample(x,y,z);},

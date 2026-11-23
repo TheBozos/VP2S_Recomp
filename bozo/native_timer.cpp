@@ -1,4 +1,5 @@
 // SDK timer records/lifecycle from the USA initializer. No device state or polling.
+#include "native_cast.h"
 #include "native_kernel.h"
 #include "native_timer.h"
 #include "bozo/ee/dispatcher.h"
@@ -9,7 +10,7 @@
 
 namespace vp2s {
 void initNativeTimer(uint8_t *,R5900Context *ctx,Runtime *rt) {
-    auto *d=rt ? dynamic_cast<bozo::ee::Dispatcher *>(rt->services) : nullptr;
+    auto *d=rt ? vp2s::nativeCast<bozo::ee::Dispatcher>(rt->services) : nullptr;
     if(!d || !ctx || ctx->pc!=0x141bb0 || d->kernel().running()<=0)
         throw std::runtime_error("native timer initialization requires a booted kernel");
     auto *ram=rt->memory.ram();
@@ -33,7 +34,7 @@ void initNativeTimer(uint8_t *,R5900Context *ctx,Runtime *rt) {
     if(id<0) { result(0x80009021); return; }
     put(state+8,static_cast<uint32_t>(id));
     kernel.causeEnable(false,11,true);
-    if(auto *owner=dynamic_cast<TimerOwner *>(&d->host())) {
+    if(auto *owner=vp2s::nativeCast<TimerOwner>(&d->host())) {
         owner->timerClock()=TimerClock{};
         owner->timerClock().initialized=true;
     }
@@ -44,8 +45,8 @@ void initNativeTimer(uint8_t *,R5900Context *ctx,Runtime *rt) {
 }
 namespace {
 TimerClock &clockFor(Runtime *rt,R5900Context *ctx,bozo::ee::Dispatcher *&d) {
-    d=rt ? dynamic_cast<bozo::ee::Dispatcher *>(rt->services) : nullptr;
-    auto *owner=d ? dynamic_cast<TimerOwner *>(&d->host()) : nullptr;
+    d=rt ? vp2s::nativeCast<bozo::ee::Dispatcher>(rt->services) : nullptr;
+    auto *owner=d ? vp2s::nativeCast<TimerOwner>(&d->host()) : nullptr;
     if(!ctx || !owner || d->kernel().running()==0 || !owner->timerClock().initialized)
         throw std::runtime_error("native SDK time requires a booted per-run clock owner");
     return owner->timerClock();

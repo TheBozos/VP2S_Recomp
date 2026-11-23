@@ -1,4 +1,5 @@
 // Scene scissor element 1597e0 as a native renderer clip (see native_scene_clip.h).
+#include "native_cast.h"
 #include "native_scene_clip.h"
 #include "bozo/ee/dispatcher.h"
 #include <cstring>
@@ -30,8 +31,8 @@ NativeSceneClip nativeSceneClip(Runtime *rt,const NativeScene &scene,uint32_t ob
 }
 std::optional<bool> nativeSceneClipInstruction(R5900Context *c,Runtime *rt,uint32_t pc){
     if(pc!=0x2b5b50)return std::nullopt;
-    auto *d=rt?dynamic_cast<bozo::ee::Dispatcher *>(rt->services):nullptr;
-    auto *owner=d?dynamic_cast<SceneClipOwner *>(&d->host()):nullptr;auto *scene=d?dynamic_cast<SceneOwner *>(&d->host()):nullptr;
+    auto *d=rt?vp2s::nativeCast<bozo::ee::Dispatcher>(rt->services):nullptr;
+    auto *owner=d?vp2s::nativeCast<SceneClipOwner>(&d->host()):nullptr;auto *scene=d?vp2s::nativeCast<SceneOwner>(&d->host()):nullptr;
     if(!c || !owner || !scene)throw std::runtime_error("native scene clip requires its scene/renderer owner");
     // The enqueue 2b5b30 (a1 = a0 + 0x90): its call becomes the completion 2b5b10.
     if(c->pc!=0x2b5b30 || c->r[5].uw[0]<0x100090 || c->r[4].uw[0]!=c->r[5].uw[0]-0x90)

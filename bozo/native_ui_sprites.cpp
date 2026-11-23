@@ -1,3 +1,5 @@
+#include "native_cast.h"
+#include "native_conditional_sites.h"
 #include "native_ui_sprites.h"
 #include "native_ui_text.h"
 #include "native_ui_windows.h"
@@ -94,14 +96,15 @@ bool nativeButtonElementClass(Runtime *rt,uint32_t type){
     return type==0x15a4e0 || (type==0x16edd0 && value<uint32_t>(rt,0x16edf0)==0x2f1230);
 }
 std::optional<bool> nativeUiSpriteInstruction(R5900Context *c,Runtime *rt,uint32_t pc){
+    if(!nativeUiSpriteSite(pc))return std::nullopt;   // its sites: native_conditional_sites.h
     if(pc!=0x2eab28 && pc!=0x2eaa20 && pc!=0x462a60 && pc!=0x2f1050 && pc!=0x2f12cc && pc!=0x2f11c0 && pc!=0x3835e0 && pc!=0x47a1c0 && pc!=0x2ec308 && pc!=0x2ec320 && pc!=0x2efe40 && pc!=0x2effe8 && pc!=0x2eb3a0 && pc!=0x2eb5c4 && pc!=0x2ebac4 && pc!=0x2ebb0c && pc!=0x2ebb58 && pc!=0x2ebb9c && pc!=0x2ebba8 && pc!=0x2f2df0 && pc!=0x2f2fb8 && pc!=0x2f2d70)return std::nullopt;
-    auto *d=rt?dynamic_cast<bozo::ee::Dispatcher *>(rt->services):nullptr;
-    auto *owner=d?dynamic_cast<UiSpriteOwner *>(&d->host()):nullptr;
-    auto *textures=d?dynamic_cast<TextureOwner *>(&d->host()):nullptr;
+    auto *d=rt?vp2s::nativeCast<bozo::ee::Dispatcher>(rt->services):nullptr;
+    auto *owner=d?vp2s::nativeCast<UiSpriteOwner>(&d->host()):nullptr;
+    auto *textures=d?vp2s::nativeCast<TextureOwner>(&d->host()):nullptr;
     if(!c || !owner || !textures)throw std::runtime_error("native button sheet requires image/sprite owners");
     auto &sprites=owner->nativeUiSprites();const auto sp=c->r[29].uw[0];
     if(pc==0x2f2df0 || pc==0x2f2fb8 || pc==0x2f2d70){
-        auto *texts=dynamic_cast<UiTextOwner *>(&d->host());if(!texts)throw std::runtime_error("native image element has no layer owner");
+        auto *texts=vp2s::nativeCast<UiTextOwner>(&d->host());if(!texts)throw std::runtime_error("native image element has no layer owner");
         const auto element=c->r[pc==0x2f2fb8?18:4].uw[0];
         if(pc==0x2f2d70 && !element)return false;
         if(value<uint32_t>(rt,element)!=0x15a690)throw std::runtime_error("unported native image element class");
@@ -114,7 +117,7 @@ std::optional<bool> nativeUiSpriteInstruction(R5900Context *c,Runtime *rt,uint32
             sprites.reset(element+0x50);sprites.reset(element+0xb8);texts->nativeUiTexts().release(element);
         }
     }else if(pc==0x2efe40 || pc==0x2effe8){
-        auto *texts=dynamic_cast<UiTextOwner *>(&d->host());if(!texts)throw std::runtime_error("native button capture has no text owner");
+        auto *texts=vp2s::nativeCast<UiTextOwner>(&d->host());if(!texts)throw std::runtime_error("native button capture has no text owner");
         const auto element=c->r[pc==0x2efe40?4:21].uw[0];
         const auto textClass=value<uint32_t>(rt,element);   // 15a450 and its subclasses (see native_ui_text.cpp)
         if(textClass==0x15a350 || !nativeUiTextClass(textClass) || !texts->nativeUiTexts().text(element))throw std::runtime_error("unported native button text class/lifetime");
@@ -126,7 +129,7 @@ std::optional<bool> nativeUiSpriteInstruction(R5900Context *c,Runtime *rt,uint32
         if(pc==0x3835e0 && (value<uint32_t>(rt,0x3835e0)!=0x27bdffd0u || value<uint32_t>(rt,0x38361c)!=0x0c0bbd34u))return std::nullopt;
         // Sprite element 15a200 (build 2eaa90 calls the sprite writer 2eb3a0
         // once with its sprite +50 and returns to 2eab28; destructor 2eaa20).
-        auto *windows=dynamic_cast<UiWindowOwner *>(&d->host());if(!windows)throw std::runtime_error("native sprite element has no window owner");
+        auto *windows=vp2s::nativeCast<UiWindowOwner>(&d->host());if(!windows)throw std::runtime_error("native sprite element has no window owner");
         // Its mod003 subclass 168410 (destructor 462a60 inlines the base one),
         // and the FIS sprite element 168440 (base 15a4b0: build 2f0fa0 returns
         // from the writer to 2f1050; destructor 47a1c0).
@@ -157,7 +160,7 @@ std::optional<bool> nativeUiSpriteInstruction(R5900Context *c,Runtime *rt,uint32
             if(c->pc!=pc || value<uint32_t>(rt,element)!=0x168440 || sprite!=element+0x50 || value<uint32_t>(rt,sprite)!=fis || value<uint32_t>(rt,fis)!=0x534946 ||
                value<uint32_t>(rt,sprite+4)!=dtt || value<uint32_t>(rt,dtt)!=0x545444 || parts!=dtt+0x14 || !entries || entries!=value<uint16_t>(rt,dtt+0x10))
                 throw std::runtime_error("native FIS sprite element lost its file/DTT binding");
-            auto *assets=dynamic_cast<AssetOwner *>(&d->host());
+            auto *assets=vp2s::nativeCast<AssetOwner>(&d->host());
             if(!assets || !assets->nativeAssets().origin(fis))throw std::runtime_error("native FIS sprite element has no decoded file owner");
             auto asset=textures->nativeTextures().load({value<uint32_t>(rt,fis+0x14),value<uint32_t>(rt,fis+0x18)});
             const auto tw=value<uint8_t>(rt,sprite+0x60),th=value<uint8_t>(rt,sprite+0x61);

@@ -1,0 +1,43 @@
+// The conditional handlers' sites (native_conditional_sites.h): each list is the handler's own first filter.
+#include "native_conditional_sites.h"
+#include <algorithm>
+#include <iterator>
+namespace vp2s {
+namespace {
+template<std::size_t N>bool listed(const uint32_t (&sites)[N],uint32_t pc){return std::find(std::begin(sites),std::end(sites),pc)!=std::end(sites);}
+}
+bool nativeUiWindowSite(uint32_t pc){
+    static constexpr uint32_t sites[]={0x2e9640,0x2e970c,0x2e95d0,0x2e9e90,0x2ea154,0x2ea338,0x2ead10,
+        0x383660,0x2eae90,0x2eb07c,0x2eb284,0x2eb2ec,0x2eb300,0x2eb320,0x2eb340,0x2eb378,
+        0x30ee00,0x30ef20,0x30ef2c,0x30ef44,0x30ef78,0x30efb8,0x30eff4,0x30f028,0x30f070,0x30ed90,0x30c530,0x460f24,0x460050,0x2ef780,0x2ef540,0x45e594};
+    return listed(sites,pc);
+}
+bool nativeProceduralDrawSite(uint32_t pc){return pc==0x247700 || pc==0x247a90 || pc==0x247ac0 || pc==0x247ec0 || pc==0x24769c;}
+bool nativeUiSpriteSite(uint32_t pc){
+    static constexpr uint32_t sites[]={0x2eab28,0x2eaa20,0x462a60,0x2f1050,0x2f12cc,0x2f11c0,0x3835e0,0x47a1c0,0x2ec308,0x2ec320,0x2efe40,0x2effe8,
+        0x2eb3a0,0x2eb5c4,0x2ebac4,0x2ebb0c,0x2ebb58,0x2ebb9c,0x2ebba8,0x2f2df0,0x2f2fb8,0x2f2d70};
+    return listed(sites,pc);
+}
+bool nativeScreenRectSite(uint32_t pc){
+    static constexpr uint32_t sites[]={0x3721a4,0x3721b0,0x3d38d4,0x3d363c,0x3d364c,0x3d49b0,0x120f4c,0x120f58};
+    return listed(sites,pc);
+}
+bool nativeSprWriterSite(uint32_t pc){
+    if(pc>=0x20148c+0x2d6a20 && pc<=0x2014d0+0x2d6a20)return true;   // mod028's copy of the kick
+    static constexpr uint32_t sites[]={0x20148c,0x2014b8,0x2014c0,0x2014c8,0x2014d0,0x200954,0x20099c,0x2009a8,0x2009c4,0x2009cc,0x2009d4};
+    return listed(sites,pc);
+}
+bool nativeScreenZoomSite(uint32_t pc){return pc==0x374c04 || pc==0x374c10 || pc==0x120f4c || pc==0x120f58;}
+bool nativeColumnCaptureSite(uint32_t pc){
+    static constexpr uint32_t sites[]={0x4de910,0x4de718,0x4de888,0x4dded0,0x4ddef4,0x4ddef8,0x4ddf24,0x120f4c,0x120f58};
+    return listed(sites,pc);
+}
+bool nativeBattleImageSite(uint32_t pc){return pc==0x36b5d4 || pc==0x36b5d8 || pc==0x36b6b4;}
+bool nativeBattleTextureSetSite(uint32_t pc){return pc==0x3cd174 || pc==0x3cd1b0;}
+bool nativeBattleSpriteSite(uint32_t pc){
+    static constexpr uint32_t sites[]={0x4bcd40,0x4bde08,0x4d0c34,0x4d1734,0x4d99ac,0x4ecf0c,0x4ef498,0x4f0f20,0x4f268c,0x4f2874,0x4fa19c,0x4fdcc0,0x503d50,
+        0x120860,0x120c30,0x3cd468,0x3cd3c8,0x3cd4a0,0x42ddd8,0x42e144,0x42ebd8,0x42efe0,0x3843a0,0x42d4f0,0x42d4f4,0x120f4c,0x120f58};
+    return listed(sites,pc);
+}
+bool nativeStateSetupSite(uint32_t pc){return pc==0x29caf8 || pc==0x2075bc || pc==0x2075cc || pc==0x120f4c || pc==0x120f58;}
+}

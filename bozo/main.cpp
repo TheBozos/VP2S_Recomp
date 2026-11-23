@@ -1,7 +1,9 @@
 // Initial BozoEngine bring-up. Unsupported boundaries fail explicitly.
+#include "native_cast.h"
 #include "bozo/ee/dispatcher.h"
 #include <bit>
 #include <unordered_map>
+#include <x86intrin.h>
 #include "bozo/host/free_host.h"
 #include "bozo/port.h"
 #include "vp2_bozo_images.h"
@@ -19,6 +21,7 @@
 #include "vp2_csi_image.h"
 #include "native_controller.h"
 #include "native_frame.h"
+#include "native_conditional_sites.h"
 #include "native_bootstrap.h"
 #ifdef VP2S_BOZO_WINDOW
 #include "bozo/app/app.h"
@@ -795,7 +798,7 @@ std::optional<bool> nativeObservedSites(uint8_t *ram,R5900Context *ctx,Runtime *
             if(at<0x100000 || uint64_t(at)+4>0x2000000 || !p)throw std::runtime_error("native mesh metadata outside EE RAM");
             std::memcpy(&value,p,4);return value;};
         const auto model=word(object+0x7bc);
-        auto *d=dynamic_cast<bozo::ee::Dispatcher *>(rt->services);auto *owner=d?dynamic_cast<vp2s::AssetOwner *>(&d->host()):nullptr;
+        auto *d=vp2s::nativeCast<bozo::ee::Dispatcher>(rt->services);auto *owner=d?vp2s::nativeCast<vp2s::AssetOwner>(&d->host()):nullptr;
         const auto origin=owner?owner->nativeAssets().origin(model+0x60):std::nullopt;
         throw std::runtime_error(std::format("native mesh producer required: object={:x} type={:x} job={:x} model={:x} count={} list={:x} asset={:x}/{}+{:x}",
             object,word(object),word(object+0x650),model,word(model+0x34),word(object+0x77c),origin?origin->disc:0,origin?origin->part:0,origin?origin->offset:0));
@@ -811,7 +814,7 @@ std::optional<bool> nativeObservedSites(uint8_t *ram,R5900Context *ctx,Runtime *
                     if(at<0x100000 || at>0x2000000-4 || !p)throw std::runtime_error("resource metadata diagnostic outside EE RAM");
                     std::memcpy(&value,p,4);return value;};
                 const auto object=ctx->r[9].uw[0]-0x90,buffer=word(object+0x228);
-                auto *d=dynamic_cast<bozo::ee::Dispatcher *>(rt->services);auto *owner=d?dynamic_cast<vp2s::AssetOwner *>(&d->host()):nullptr;
+                auto *d=vp2s::nativeCast<bozo::ee::Dispatcher>(rt->services);auto *owner=d?vp2s::nativeCast<vp2s::AssetOwner>(&d->host()):nullptr;
                 const auto origin=owner?owner->nativeAssets().origin(buffer):std::nullopt;
                 std::fprintf(stderr,"[vp2s:resource] object=%x type=%x buffer=%x origin=%u/%llx/%u+%x\n",object,word(object),buffer,origin?unsigned(origin->kind):999,origin?(unsigned long long)origin->disc:0,origin?origin->part:0,origin?origin->offset:0);
             }
@@ -842,7 +845,7 @@ std::optional<bool> nativeObservedSites(uint8_t *ram,R5900Context *ctx,Runtime *
                             if(font>=0x100000 && font<0x2000000-0x30){
                                 const auto pixels=word(font+0x10);
                                 std::fprintf(stderr,"[vp2s:UI] font pixels=%x bytes=%u size=%ux%u border=%u\n",pixels,word(font+0x20),word(font+0x24),word(font+0x28),word(font+0x2c));
-                                auto *d=dynamic_cast<bozo::ee::Dispatcher *>(rt->services);auto *owner=d?dynamic_cast<vp2s::AssetOwner *>(&d->host()):nullptr;
+                                auto *d=vp2s::nativeCast<bozo::ee::Dispatcher>(rt->services);auto *owner=d?vp2s::nativeCast<vp2s::AssetOwner>(&d->host()):nullptr;
                                 if(owner)if(auto origin=owner->nativeAssets().origin(pixels))std::fprintf(stderr,"[vp2s:UI] font origin kind=%u disc=%llu part=%u offset=%u\n",unsigned(origin->kind),(unsigned long long)origin->disc,origin->part,origin->offset);
                             }
                         }
@@ -913,21 +916,78 @@ constexpr NativeStep nativeSteps[]={
     [](uint8_t *,R5900Context *ctx,Runtime *rt,uint32_t pc)->std::optional<bool>{if(vp2s::nativeWorkStackSite(pc)){vp2s::nativeWorkStack(ctx,rt,pc);return false;}return std::nullopt;},
     [](uint8_t *ram,R5900Context *ctx,Runtime *rt,uint32_t pc)->std::optional<bool>{return vp2s::nativeFrameInput(ram,ctx,rt,pc)?std::optional(true):std::nullopt;},
 };
-// The handlers that may decline a site they claimed before (another overlay at the address, a
-// shared site whose owner is absent, a site observed then passed on): always offered the site.
-// Every other handler decides by the site's address alone, so once a site has been claimed by
-// handler i, the handlers before i that are not in this set decline it for the whole run.
-constexpr uint64_t kConditionalSteps=0x22524fff68026ull;
+// The handlers whose decision on a site they list depends on more than the site and its instruction word:
+// state (ScreenRect, ScreenZoom, ColumnCapture, BattleSprite, StateSetup: an active build; ProceduralDraw:
+// 247ec0 observed, then passed on), or words elsewhere (UiWindow, UiSprite, SprWriter, BattleImage,
+// BattleTextureSet: which overlay is loaded). They are offered every site the steps after them own.
+// Every other handler declines by the site's address and word alone (filters, overlay word checks), so
+// once a (site, word) has been claimed by handler i, the others before i decline it for the whole run.
+constexpr uint64_t kConditionalSteps=0x470b28022ull;
+constexpr size_t kMathStep=47;
+// Which conditional handlers may act on a site: their own site predicates (native_conditional_sites.h).
+uint64_t conditionalStepsFor(uint32_t pc){
+    using Site=bool(*)(uint32_t);
+    static constexpr std::pair<unsigned,Site> sites[]={{1,vp2s::nativeUiWindowSite},{5,vp2s::nativeProceduralDrawSite},{15,vp2s::nativeUiSpriteSite},
+        {17,vp2s::nativeScreenRectSite},{20,vp2s::nativeSprWriterSite},{21,vp2s::nativeScreenZoomSite},{23,vp2s::nativeColumnCaptureSite},
+        {28,vp2s::nativeBattleImageSite},{29,vp2s::nativeBattleTextureSetSite},{30,vp2s::nativeBattleSpriteSite},{34,vp2s::nativeStateSetupSite}};
+    uint64_t mask=0;for(const auto &[step,site]:sites)if(site(pc))mask|=uint64_t(1)<<step;
+    if(mask&~kConditionalSteps)throw std::runtime_error("conditional site predicates disagree with the conditional steps");
+    return mask;
+}
 constexpr size_t kNativeSteps=std::size(nativeSteps);
 static_assert(kNativeSteps<=64);
+bool dispatchNativeInstructionTimed(uint8_t *ram,R5900Context *ctx,Runtime *rt,uint32_t pc);
+// Verify mode: each site whose claimant changed, once (stderr), for the shared-site list.
+void verifyMismatch(uint32_t pc,unsigned before,unsigned now){
+    static std::set<uint32_t> seen;if(seen.insert(pc).second)std::fprintf(stderr,"[vp2s:site-verify] site %x claimed by step %u, then step %u\n",pc,before,now);}
+// Diagnostic only (VP2S_BOZO_SITE_COUNTS=<file>): calls and host cycles per native site, written at exit,
+// to see which sites and handlers the frame time goes to.
+struct SiteCounts{
+    const char *path=std::getenv("VP2S_BOZO_SITE_COUNTS");std::unordered_map<uint32_t,std::pair<uint64_t,uint64_t>> sites;std::unordered_map<uint32_t,uint64_t> slow;   // math sites with no direct sub-handler
+    ~SiteCounts(){if(!path)return;FILE *f=std::fopen(path,"w");if(!f)return;
+        std::vector<std::pair<uint32_t,std::pair<uint64_t,uint64_t>>> v(sites.begin(),sites.end());
+        std::sort(v.begin(),v.end(),[](auto &a,auto &b){return a.second.second>b.second.second;});
+        for(auto &[pc,s]:v)std::fprintf(f,"%x %llu %llu\n",pc,(unsigned long long)s.first,(unsigned long long)s.second);
+        for(auto &[pc,n]:slow)std::fprintf(f,"slow %x %llu\n",pc,(unsigned long long)n);std::fclose(f);}
+};
+SiteCounts siteCounts;
 bool dispatchNativeInstruction(uint8_t *ram,R5900Context *ctx,Runtime *rt,uint32_t pc) {
+    if(!siteCounts.path)return dispatchNativeInstructionTimed(ram,ctx,rt,pc);
+    const auto start=__rdtsc();const bool handled=dispatchNativeInstructionTimed(ram,ctx,rt,pc);
+    auto &s=siteCounts.sites[pc];++s.first;s.second+=__rdtsc()-start;return handled;
+}
+bool dispatchNativeInstructionTimed(uint8_t *ram,R5900Context *ctx,Runtime *rt,uint32_t pc) {
     try {
-    // The handler that first claimed each site (VP2S_BOZO_NO_SITE_CACHE=1: every site through the
-    // whole chain, as before the cache).
-    static const bool cached=!std::getenv("VP2S_BOZO_NO_SITE_CACHE");
+    // The fast path: a site (keyed with its instruction word, so another overlay's code at the address
+    // is another site) goes straight to the handler that claimed it, and a math site to the math
+    // sub-handler that did (vp2s::nativeMathClaimer). A handler that declines a site it claimed
+    // before ends the run. VP2S_BOZO_SITE_VERIFY=1 runs every site through the whole chains and
+    // checks the claimant against the fast path's; VP2S_BOZO_NO_SITE_CACHE=1: whole chains, no check.
+    static const bool cached=!std::getenv("VP2S_BOZO_NO_SITE_CACHE"),verify=std::getenv("VP2S_BOZO_SITE_VERIFY")!=nullptr;
+    // Per site: a page of 1024 entries per 4 KB of code, made on first use; each entry holds the word it
+    // was claimed with (another overlay's word at the address finds the entry empty for it).
+    struct FastSite{uint32_t word=0;uint8_t step=0xff;vp2s::NativeMathSite math=nullptr;uint64_t before=0;};   // before: conditional steps to offer first
+    static std::unordered_map<uint32_t,std::unique_ptr<std::array<FastSite,1024>>> pages;
+    static uint32_t lastPage=~0u;static std::array<FastSite,1024> *lastEntries=nullptr;
+    uint32_t word=0;if(const auto *p=rt?rt->memory.hostPointer(pc,4):nullptr)std::memcpy(&word,p,4);
+    const auto entries=[&]()->std::array<FastSite,1024> &{
+        if(pc>>12!=lastPage){auto &page=pages[pc>>12];if(!page)page=std::make_unique<std::array<FastSite,1024>>();lastPage=pc>>12;lastEntries=page.get();}
+        return *lastEntries;};
+    auto &entry=entries()[(pc>>2)&1023];
+    if(cached && !verify && entry.step!=0xff && entry.word==word){
+        const auto site=entry;
+        if(siteCounts.path && site.step==kMathStep && !site.math)++siteCounts.slow[pc];
+        // The conditional handlers before the owner still see the site (one may observe it and pass it on).
+        for(uint64_t m=site.before;m;m&=m-1)
+            if(auto handled=nativeSteps[std::countr_zero(m)](ram,ctx,rt,pc))return *handled;
+        if(site.math){if(site.math(ctx,rt,pc))return true;}
+        else if(auto handled=nativeSteps[site.step](ram,ctx,rt,pc))return *handled;
+        throw std::runtime_error(std::format("native site {:x} declined by the handler that claimed it before",pc));
+    }
+    // Sites of the conditional handlers: the handlers before them in the conditional set first.
     static std::unordered_map<uint32_t,uint8_t> claimant;
     size_t from=0;
-    if(cached)if(const auto it=claimant.find(pc);it!=claimant.end()){
+    if(cached && !verify)if(const auto it=claimant.find(pc);it!=claimant.end()){
         const size_t owner=it->second;
         for(uint64_t m=kConditionalSteps&((uint64_t(1)<<owner)-1);m;m&=m-1)
             if(auto handled=nativeSteps[std::countr_zero(m)](ram,ctx,rt,pc))return *handled;
@@ -937,7 +997,15 @@ bool dispatchNativeInstruction(uint8_t *ram,R5900Context *ctx,Runtime *rt,uint32
         throw std::runtime_error(std::format("unported native VP2S algorithm at pc={:x}",pc));
     }
     for(size_t i=0;i<kNativeSteps;++i)if(auto handled=nativeSteps[i](ram,ctx,rt,pc)){
-        if(cached)claimant.emplace(pc,uint8_t(i));
+        if(cached){
+            const FastSite site{word,uint8_t(i),i==kMathStep?vp2s::nativeMathClaimer():nullptr,conditionalStepsFor(pc)&((uint64_t(1)<<i)-1)};
+            const bool known=entry.step!=0xff && entry.word==word;
+            if((kConditionalSteps>>i)&1){
+                if(verify && known && !((entry.before>>i)&1))verifyMismatch(pc,entry.step,i);   // offered first on the fast path: not a change
+                claimant.emplace(pc,uint8_t(i));}
+            else if(known && (entry.step!=site.step || entry.math!=site.math))verifyMismatch(pc,entry.step,i);
+            else if(!known && (entry.step==0xff || verify))entry=site;   // a second overlay's word at a known site keeps the first
+        }
         return *handled;
     }
     throw std::runtime_error(std::format("unported native VP2S algorithm at pc={:x}",pc));
@@ -984,14 +1052,14 @@ namespace {
 std::atomic<const R5900Context *> profileContext{nullptr};std::atomic<uint64_t> profileFrame{0};
 struct SamplingProfiler{
     HANDLE target=nullptr;std::atomic<bool> stop{false};std::thread worker;std::string path;uint64_t from=0;
-    std::map<uint64_t,uint64_t> host;std::map<uint32_t,uint64_t> guest,caller;uint64_t samples=0;
+    std::map<uint64_t,uint64_t> host;std::map<uint32_t,uint64_t> guest,caller,outside;uint64_t samples=0;
     void start(const char *out,uint64_t first){path=out;from=first;
         DuplicateHandle(GetCurrentProcess(),GetCurrentThread(),GetCurrentProcess(),&target,0,FALSE,DUPLICATE_SAME_ACCESS);
         timeBeginPeriod(1);
         worker=std::thread([this]{const auto base=uint64_t(GetModuleHandleW(nullptr));
             while(!stop){Sleep(1);if(profileFrame<from)continue;
                 if(SuspendThread(target)==DWORD(-1))continue;CONTEXT ctx{};ctx.ContextFlags=CONTEXT_CONTROL;
-                if(GetThreadContext(target,&ctx)){++host[ctx.Rip-base];if(const auto *c=profileContext.load()){++guest[c->pc];++caller[c->r[31].uw[0]];}++samples;}
+                if(GetThreadContext(target,&ctx)){++host[ctx.Rip-base];if(const auto *c=profileContext.load()){++guest[c->pc];++caller[c->r[31].uw[0]];if(ctx.Rip-base>=0x10000000)++outside[c->pc];}++samples;}
                 ResumeThread(target);}});}
     ~SamplingProfiler(){if(!worker.joinable())return;stop=true;worker.join();timeEndPeriod(1);
         FILE *f=std::fopen(path.c_str(),"w");if(!f)return;
@@ -999,7 +1067,14 @@ struct SamplingProfiler{
             std::sort(v.begin(),v.end(),[](auto a,auto b){return a.second>b.second;});
             std::fprintf(f,"## %s (%llu samples)\n",name,(unsigned long long)samples);
             for(size_t i=0;i<v.size() && i<100000;++i)std::fprintf(f,"%llx %llu\n",(unsigned long long)v[i].first,(unsigned long long)v[i].second);};
-        dump("host rva",host);dump("guest pc",guest);dump("guest ra",caller);std::fclose(f);}
+        dump("host rva",host);dump("guest pc",guest);dump("guest ra",caller);dump("outside guest pc",outside);
+        // Samples outside the executable, by module (the module bases move every run).
+        std::map<std::string,uint64_t> modules;const auto base=uint64_t(GetModuleHandleW(nullptr));
+        for(const auto &[rva,n]:host){if(rva<0x10000000)continue;HMODULE m=nullptr;char name[MAX_PATH]="?";
+            if(GetModuleHandleExA(GET_MODULE_HANDLE_EX_FLAG_FROM_ADDRESS|GET_MODULE_HANDLE_EX_FLAG_UNCHANGED_REFCOUNT,reinterpret_cast<LPCSTR>(base+rva),&m))GetModuleFileNameA(m,name,MAX_PATH);
+            modules[name]+=n;}
+        std::fprintf(f,"## modules\n");for(const auto &[name,n]:modules)std::fprintf(f,"%s %llu\n",name.c_str(),(unsigned long long)n);
+        std::fclose(f);}
 };
 }
 #endif

@@ -1,3 +1,4 @@
+#include "native_cast.h"
 #include "native_capture_fade.h"
 #include "bozo/ee/dispatcher.h"
 #include <bit>
@@ -86,8 +87,8 @@ std::vector<bozo::render::Vertex> nativeCaptureFadeTrail(const NativeCaptureFade
 }
 std::optional<bool> nativeCaptureFadeInstruction(R5900Context *c,Runtime *rt,uint32_t pc){
     if(pc!=0x3d2d7c && pc!=0x3d2630 && pc!=0x3d2698 && pc!=0x3d2520)return std::nullopt;
-    auto *d=rt?dynamic_cast<bozo::ee::Dispatcher *>(rt->services):nullptr;
-    auto *owner=d?dynamic_cast<CaptureFadeOwner *>(&d->host()):nullptr;
+    auto *d=rt?vp2s::nativeCast<bozo::ee::Dispatcher>(rt->services):nullptr;
+    auto *owner=d?vp2s::nativeCast<CaptureFadeOwner>(&d->host()):nullptr;
     if(!c || !owner)throw std::runtime_error("native capture fade requires an owner");
     auto &fades=owner->nativeCaptureFades();
     if(pc==0x3d2d7c){

@@ -1,3 +1,4 @@
+#include "native_cast.h"
 #include "native_depth_blur.h"
 #include "bozo/ee/dispatcher.h"
 #include <cstring>
@@ -129,8 +130,8 @@ void NativeDepthBlurs::retire(Runtime *rt,uint32_t context){
 }
 std::optional<bool> nativeDepthBlurInstruction(R5900Context *c,Runtime *rt,uint32_t pc){
     if(pc!=0x116070 && pc!=0x115830 && pc!=0x1ffe88)return std::nullopt;
-    auto *d=rt?dynamic_cast<bozo::ee::Dispatcher *>(rt->services):nullptr;
-    auto *owner=d?dynamic_cast<DepthBlurOwner *>(&d->host()):nullptr;
+    auto *d=rt?vp2s::nativeCast<bozo::ee::Dispatcher>(rt->services):nullptr;
+    auto *owner=d?vp2s::nativeCast<DepthBlurOwner>(&d->host()):nullptr;
     if(!owner || !c)throw std::runtime_error("native depth blur requires an owner");
     auto &blurs=owner->nativeDepthBlurs();
     if(pc==0x116070)blurs.plane(rt,c);

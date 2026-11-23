@@ -1,3 +1,4 @@
+#include "native_cast.h"
 #include "native_frame_filter.h"
 #include "bozo/ee/dispatcher.h"
 #include <cstring>
@@ -57,9 +58,9 @@ NativeFrameFilter NativeFrameFilters::submit(Runtime *rt,uint32_t object)const{
 }
 std::optional<bool> nativeFrameFilterInstruction(R5900Context *c,Runtime *rt,uint32_t pc){
     if(pc!=0x25aa40 && pc!=0x25adbc && pc!=0x25bad0 && pc!=0x25bdcc && pc!=0x25aa30)return std::nullopt;
-    auto *d=rt?dynamic_cast<bozo::ee::Dispatcher *>(rt->services):nullptr;
-    auto *owner=d?dynamic_cast<FrameFilterOwner *>(&d->host()):nullptr;
-    auto *scene=d?dynamic_cast<SceneOwner *>(&d->host()):nullptr;
+    auto *d=rt?vp2s::nativeCast<bozo::ee::Dispatcher>(rt->services):nullptr;
+    auto *owner=d?vp2s::nativeCast<FrameFilterOwner>(&d->host()):nullptr;
+    auto *scene=d?vp2s::nativeCast<SceneOwner>(&d->host()):nullptr;
     if(!owner || !scene || !c)throw std::runtime_error("native frame filter requires renderer/scene ownership");
     auto &filters=owner->nativeFrameFilters();const auto sp=c->r[29].uw[0];
     if(pc==0x25aa40){if(c->pc!=pc)throw std::runtime_error("native frame filter requires complete original builder");filters.begin(rt,sp-0x170,c->r[4].uw[0]);}

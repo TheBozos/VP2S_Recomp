@@ -1,5 +1,6 @@
 // Explicit point/kind records to native PC quads. No live command/header
 // decoding: immutable material semantics are converted offline from the disc.
+#include "native_cast.h"
 #include "native_particle_draws.h"
 #include "bozo/ee/dispatcher.h"
 #include "../port/vp2s_music_math.h"
@@ -210,9 +211,9 @@ NativeModelSubmission NativeParticleDraws::capture(Runtime *rt,NativeAssets &ass
     return submission;
 }
 std::optional<bool> nativeParticleDrawInstruction(R5900Context *c,Runtime *rt,uint32_t pc){
-    if(pc!=0x22f160)return std::nullopt;auto *d=rt?dynamic_cast<bozo::ee::Dispatcher *>(rt->services):nullptr;
-    auto *draw=d?dynamic_cast<ParticleDrawOwner *>(&d->host()):nullptr;auto *models=d?dynamic_cast<ModelOwner *>(&d->host()):nullptr;auto *scene=d?dynamic_cast<SceneOwner *>(&d->host()):nullptr;
-    auto *assets=d?dynamic_cast<AssetOwner *>(&d->host()):nullptr;auto *textures=d?dynamic_cast<TextureOwner *>(&d->host()):nullptr;auto *particles=d?dynamic_cast<ParticleOwner *>(&d->host()):nullptr;
+    if(pc!=0x22f160)return std::nullopt;auto *d=rt?vp2s::nativeCast<bozo::ee::Dispatcher>(rt->services):nullptr;
+    auto *draw=d?vp2s::nativeCast<ParticleDrawOwner>(&d->host()):nullptr;auto *models=d?vp2s::nativeCast<ModelOwner>(&d->host()):nullptr;auto *scene=d?vp2s::nativeCast<SceneOwner>(&d->host()):nullptr;
+    auto *assets=d?vp2s::nativeCast<AssetOwner>(&d->host()):nullptr;auto *textures=d?vp2s::nativeCast<TextureOwner>(&d->host()):nullptr;auto *particles=d?vp2s::nativeCast<ParticleOwner>(&d->host()):nullptr;
     if(!c || !draw || !models || !scene || !assets || !textures || !particles || (c->pc!=0x22f140 && c->pc!=0x22f158) || c->r[31].uw[0]!=0x22f164 || c->r[5].uw[0]<0x1005b0)throw std::runtime_error("native particle draw lacks original pre-enqueue producer");
     const auto object=c->r[5].uw[0]-0x5b0;if(c->r[4].uw[0]!=object)throw std::runtime_error("native particle draw object changed before publication");
     const auto submission=draw->nativeParticleDraws().capture(rt,assets->nativeAssets(),textures->nativeTextures(),scene->nativeScene(),particles->nativeParticles(),object);

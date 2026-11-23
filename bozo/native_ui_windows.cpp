@@ -1,3 +1,5 @@
+#include "native_cast.h"
+#include "native_conditional_sites.h"
 #include "native_ui_windows.h"
 #include "native_picture_source.h"
 #include "bozo/ee/dispatcher.h"
@@ -254,11 +256,12 @@ bozo::render::Material nativeUiFlatMaterial(bozo::render::Material::Blend blend)
     return material;
 }
 std::optional<bool> nativeUiWindowInstruction(R5900Context *c,Runtime *rt,uint32_t pc){
+    if(!nativeUiWindowSite(pc))return std::nullopt;   // its sites: native_conditional_sites.h
     switch(pc){case 0x2e9640:case 0x2e970c:case 0x2e95d0:case 0x2e9e90:case 0x2ea154:case 0x2ea338:case 0x2ead10:
         case 0x383660:case 0x2eae90:case 0x2eb07c:case 0x2eb284:case 0x2eb2ec:case 0x2eb300:case 0x2eb320:case 0x2eb340:case 0x2eb378:
         case 0x30ee00:case 0x30ef20:case 0x30ef2c:case 0x30ef44:case 0x30ef78:case 0x30efb8:case 0x30eff4:case 0x30f028:case 0x30f070:case 0x30ed90:case 0x30c530:case 0x460f24:case 0x460050:case 0x2ef780:case 0x2ef540:case 0x45e594:break;default:return std::nullopt;}
-    auto *d=rt?dynamic_cast<bozo::ee::Dispatcher *>(rt->services):nullptr;auto *o=d?dynamic_cast<UiWindowOwner *>(&d->host()):nullptr;
-    auto *s=d?dynamic_cast<UiSpriteOwner *>(&d->host()):nullptr;if(!c || !o || !s)throw std::runtime_error("native window requires per-run owners");
+    auto *d=rt?vp2s::nativeCast<bozo::ee::Dispatcher>(rt->services):nullptr;auto *o=d?vp2s::nativeCast<UiWindowOwner>(&d->host()):nullptr;
+    auto *s=d?vp2s::nativeCast<UiSpriteOwner>(&d->host()):nullptr;if(!c || !o || !s)throw std::runtime_error("native window requires per-run owners");
     auto &w=o->nativeUiWindows();const auto sp=c->r[29].uw[0];
     if(pc==0x30ee00){if(c->pc!=pc)throw std::runtime_error("native selection requires complete original builder");w.beginSelection(rt,sp-0x90,c->r[4].uw[0]);}
     else if(pc==0x30ed90){if(c->r[4].uw[0])w.release(c->r[4].uw[0]);}
@@ -283,12 +286,12 @@ std::optional<bool> nativeUiWindowInstruction(R5900Context *c,Runtime *rt,uint32
     else if(pc==0x2ea338)w.endBackground(sp);
     else if(pc==0x2ead10){
         if(c->r[31].uw[0]==0x30c628){
-            auto *t=dynamic_cast<TextureOwner *>(&d->host());if(!t)throw std::runtime_error("native camp menu image list has no texture owner");
+            auto *t=vp2s::nativeCast<TextureOwner>(&d->host());if(!t)throw std::runtime_error("native camp menu image list has no texture owner");
             w.beginImageQuads(rt,t->nativeTextures(),sp-0x60,c->r[4].uw[0],c->r[16].uw[0]);
         }else w.beginQuads(rt,s->nativeUiSprites(),sp-0x60,c->r[4].uw[0],c->r[31].uw[0]);
     }
     else if(pc==0x45e594){
-        auto *textures=dynamic_cast<TextureOwner *>(&d->host());auto *texts=dynamic_cast<UiTextOwner *>(&d->host());
+        auto *textures=vp2s::nativeCast<TextureOwner>(&d->host());auto *texts=vp2s::nativeCast<UiTextOwner>(&d->host());
         if(!textures || !texts)throw std::runtime_error("native camp menu backdrop has no texture/draw owner");
         if(c->pc!=0x45e570)throw std::runtime_error("native camp menu backdrop requires its complete submit");
         texts->drawNativeUiLayer(nativeMenuBackdrop(rt,textures->nativeTextures(),c->r[4].uw[0]));

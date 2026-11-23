@@ -1,3 +1,4 @@
+#include "native_cast.h"
 #include "native_debug_font.h"
 #include "native_assets.h"
 #include "bozo/ee/dispatcher.h"
@@ -84,12 +85,12 @@ void NativeDebugFonts::returnFromFlush(uint32_t stack){
 }
 std::optional<bool> nativeDebugFontInstruction(uint8_t *,R5900Context *c,Runtime *rt,uint32_t pc){
     if(pc!=0x29af80 && pc!=0x29b2a8 && pc!=0x362328 && pc!=0x3d93f4 && pc!=0x120f4c && pc!=0x120f58)return std::nullopt;
-    auto *d=rt?dynamic_cast<bozo::ee::Dispatcher *>(rt->services):nullptr;
-    auto *owner=d?dynamic_cast<DebugFontOwner *>(&d->host()):nullptr;
+    auto *d=rt?vp2s::nativeCast<bozo::ee::Dispatcher>(rt->services):nullptr;
+    auto *owner=d?vp2s::nativeCast<DebugFontOwner>(&d->host()):nullptr;
     if(!c || !owner)throw std::runtime_error("native debug font requires an owner");
     auto &fonts=owner->nativeDebugFonts();const uint32_t sp=c->r[29].uw[0];
     if(pc==0x29af80){
-        auto *textures=dynamic_cast<TextureOwner *>(&d->host());if(!textures)throw std::runtime_error("native debug font requires offline textures");
+        auto *textures=vp2s::nativeCast<TextureOwner>(&d->host());if(!textures)throw std::runtime_error("native debug font requires offline textures");
         fonts.begin(rt,textures->nativeTextures(),sp-0x60,c->r[4].uw[0],c->r[7].uw[0]);
     }else if(pc==0x29b2a8)fonts.finish(rt,sp);
     else if(pc==0x362328)fonts.publish(rt,sp-0x30,c->r[17].uw[0]);

@@ -1,4 +1,5 @@
 // Field map panel 167200 as native triangles (see native_map_panel.h).
+#include "native_cast.h"
 #include "native_map_panel.h"
 #include "bozo/ee/dispatcher.h"
 #include <bit>
@@ -64,8 +65,8 @@ void drawMapPanel(const NativeMapPanel &panel){
 }
 std::optional<bool> nativeMapPanelInstruction(R5900Context *c,Runtime *rt,uint32_t pc){
     if(pc!=0x4541b8)return std::nullopt;
-    auto *d=rt?dynamic_cast<bozo::ee::Dispatcher *>(rt->services):nullptr;
-    auto *owner=d?dynamic_cast<MapPanelOwner *>(&d->host()):nullptr;
+    auto *d=rt?vp2s::nativeCast<bozo::ee::Dispatcher>(rt->services):nullptr;
+    auto *owner=d?vp2s::nativeCast<MapPanelOwner>(&d->host()):nullptr;
     if(!c || !owner)throw std::runtime_error("native map panel requires its renderer owner");
     // The enqueue 454190 (a1 = a0 + 0x90): its call becomes the completion 454170.
     if(c->pc!=0x454190 || c->r[5].uw[0]<0x100090 || c->r[4].uw[0]!=c->r[5].uw[0]-0x90)

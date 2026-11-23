@@ -1,3 +1,5 @@
+#include "native_cast.h"
+#include "native_conditional_sites.h"
 #include "native_screen_rect.h"
 #include "bozo/ee/dispatcher.h"
 #include "bozo/ops_fpu.h"
@@ -197,9 +199,10 @@ uint32_t NativeScreenRects::complete(uint32_t stack){
     calls.erase(stack);return lease.rect.object;
 }
 std::optional<bool> nativeScreenRectInstruction(R5900Context *c,Runtime *rt,uint32_t pc){
+    if(!nativeScreenRectSite(pc))return std::nullopt;   // its sites: native_conditional_sites.h
     if(pc!=0x3721a4 && pc!=0x3721b0 && pc!=0x3d38d4 && pc!=0x3d363c && pc!=0x3d364c && pc!=0x3d49b0 && pc!=0x120f4c && pc!=0x120f58)return std::nullopt;
-    auto *d=rt?dynamic_cast<bozo::ee::Dispatcher *>(rt->services):nullptr;
-    auto *owner=d?dynamic_cast<ScreenRectOwner *>(&d->host()):nullptr;
+    auto *d=rt?vp2s::nativeCast<bozo::ee::Dispatcher>(rt->services):nullptr;
+    auto *owner=d?vp2s::nativeCast<ScreenRectOwner>(&d->host()):nullptr;
     if(!owner || !c){if(pc==0x120f4c || pc==0x120f58)return std::nullopt;throw std::runtime_error("native screen rectangle requires an owner");}
     auto &rects=owner->nativeScreenRects();const auto sp=c->r[29].uw[0];
     if(pc==0x3d38d4)rects.captureFade(rt,c);

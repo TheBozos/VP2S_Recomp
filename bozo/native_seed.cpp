@@ -1,3 +1,4 @@
+#include "native_cast.h"
 #include "native_seed.h"
 #include "bozo/ee/dispatcher.h"
 #include <cstring>
@@ -33,16 +34,16 @@ bool nativeBootSeed(uint8_t *,R5900Context *ctx,Runtime *rt,uint32_t pc) {
         if(site.pc!=pc)continue;
         uint32_t word=0;if(const auto *at=rt?rt->memory.hostPointer(pc,4):nullptr)std::memcpy(&word,at,4);
         if(word!=site.word)return false;   // another overlay at this address
-        auto *d=rt?dynamic_cast<bozo::ee::Dispatcher *>(rt->services):nullptr;
-        auto *owner=d?dynamic_cast<SeedOwner *>(&d->host()):nullptr;
+        auto *d=rt?vp2s::nativeCast<bozo::ee::Dispatcher>(rt->services):nullptr;
+        auto *owner=d?vp2s::nativeCast<SeedOwner>(&d->host()):nullptr;
         if(!ctx || !owner)throw std::runtime_error("native battle timer entropy requires a per-run seed owner");
         if(site.kind=='r')ctx->r[(word>>16)&31].ud[0]=owner->initializationJitter();   // a count, 0..0xffff
         else if(site.kind=='c')ctx->r[(word>>16)&31].ud[0]=0;                           // the frame's first line
         return true;   // 'w': no timer to program
     }
     if(pc!=0x1003c4 && pc!=0x2c3cb4) return false;
-    auto *d=rt ? dynamic_cast<bozo::ee::Dispatcher *>(rt->services) : nullptr;
-    auto *owner=d ? dynamic_cast<SeedOwner *>(&d->host()) : nullptr;
+    auto *d=rt ? vp2s::nativeCast<bozo::ee::Dispatcher>(rt->services) : nullptr;
+    auto *owner=d ? vp2s::nativeCast<SeedOwner>(&d->host()) : nullptr;
     if(!ctx || !owner)throw std::runtime_error("native boot seed requires a per-run seed owner");
     if(pc==0x2c3cb4){
         // Retire the hardware-dependent timer-jitter warmup loop. The retained game

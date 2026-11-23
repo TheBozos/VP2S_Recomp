@@ -1,3 +1,4 @@
+#include "native_cast.h"
 #include "native_feedback.h"
 #include "bozo/ee/dispatcher.h"
 #include "bozo/render/renderer.h"
@@ -80,8 +81,8 @@ void drawFeedbackCopy(const NativeFeedbackCopy &copy){
 }
 std::optional<bool> nativeFeedbackInstruction(R5900Context *c,Runtime *rt,uint32_t pc){
     if(pc!=0x205ab0 && pc!=0x206808 && pc!=0x205aa0 && pc!=0x206830)return std::nullopt;
-    auto *d=rt?dynamic_cast<bozo::ee::Dispatcher *>(rt->services):nullptr;
-    auto *owner=d?dynamic_cast<FeedbackOwner *>(&d->host()):nullptr;auto *scene=d?dynamic_cast<SceneOwner *>(&d->host()):nullptr;
+    auto *d=rt?vp2s::nativeCast<bozo::ee::Dispatcher>(rt->services):nullptr;
+    auto *owner=d?vp2s::nativeCast<FeedbackOwner>(&d->host()):nullptr;auto *scene=d?vp2s::nativeCast<SceneOwner>(&d->host()):nullptr;
     if(!c || !owner || !scene)throw std::runtime_error("screen feedback requires native scene/image owner");
     auto &copies=owner->nativeFeedbackCopies();const auto stack=c->r[29].uw[0];
     if(pc==0x206830)copies.release(c->r[4].uw[0]);

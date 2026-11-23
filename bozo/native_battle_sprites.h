@@ -1,6 +1,7 @@
 #pragma once
 #include "native_ui_sprites.h"
 #include <functional>
+#include <set>
 namespace vp2s {
 // Battle 2D sprites (mod028). The battle UI classes (174e30, 175450, 174300, ...) build a draw list in one of two
 // writers (+90/+94, chosen by +bb) in their build method (174e30: 4d4770): ALPHA_2 = 0x44 (120860), then
@@ -31,9 +32,15 @@ struct NativeBattleSpriteBuild {
 // from the image record's four halfwords (u0, v0, u1, v1), EE single-precision multiply.
 std::array<float,4> nativeBattleSpriteTexels(const std::array<uint16_t,4> &texels);
 class NativeBattleSprites {
+public:
+    using ImageLookup=std::function<std::shared_ptr<const NativeTextureAsset>(uint32_t,uint32_t)>;
+private:
     struct Lease {uint32_t object,writer,begin,end;bool retired=false,flushed=false;};
     std::map<uint32_t,NativeBattleSpriteBuild> builds;   // by writer
     std::map<uint32_t,Lease> leases;                     // by the flushing caller's stack
+    std::map<uint32_t,std::pair<uint32_t,std::vector<NativeUiSprite>>> shadeChecks;   // VP2S_BOZO_VERIFY_SHADE: packet start, strips
+    std::set<uint32_t> directHeaders;   // writers whose VIF DIRECT quadword was just reserved (within one build call)
+    NativeBattleSpriteBuild resolve(const NativeBattleSpriteBuild &,const ImageLookup &)const;
 public:
     // 120860 with ALPHA_2 = 0x44 on a reset writer: a build opens (false: not a reset writer).
     // With 0x148 (Cs As + Cd, e.g. the gauge bars of class 16f0a0) the build starts additive.
@@ -57,10 +64,19 @@ public:
     void flatQuad(Runtime *,uint32_t writer,uint32_t end);
     // Rectangle writer 42ed50 where its unrotated paths join (42efe0): the same strip forms.
     void rectangle(Runtime *,const R5900Context *);
+    // Corner shade, class 175600 (build 4f7a80): vt+a0 4f7a40 opens the build over its static
+    // register block, vt+a8 4f72d0 draws (false: its mode draws nothing), vt+a4 4f7a00 closes it.
+    void cornerShadeOpen(Runtime *,uint32_t object,uint32_t writer);
+    bool cornerShade(Runtime *,uint32_t object,uint32_t writer);
+    void cornerShadeClose(Runtime *,uint32_t object,uint32_t writer);
+    // VIF1-direct battle UI, class 174530: its header vt+7c 42d3e0 reserves one quadword for a VIF
+    // DIRECT code on the reset writer, so the ALPHA_2 that follows opens the build one quadword in.
+    // Its enqueue 42d340 (patched to complete the job at once) draws the +bc writer's build.
+    void directHeader(Runtime *,uint32_t object,uint32_t writer);
+    NativeBattleSpriteBuild submitDirect(Runtime *,uint32_t object,const ImageLookup &image);
     struct Strip {uint32_t object=0,desc=0,mode=0,data=0,z=0,colours=0,st=0,image=0;std::array<std::array<int32_t,2>,4> corners{};bool triangle=false;};
     void strip(Runtime *,const Strip &);
     // `image(pixels, palette)`: the image a TEX0 names by its blocks (NativeTextures::blockImage).
-    using ImageLookup=std::function<std::shared_ptr<const NativeTextureAsset>(uint32_t,uint32_t)>;
     NativeBattleSpriteBuild flush(Runtime *,uint32_t stack,uint32_t object,uint32_t writer,const ImageLookup &image);
     bool active(uint32_t stack)const{return leases.contains(stack);}
     void retire(Runtime *,const R5900Context *);

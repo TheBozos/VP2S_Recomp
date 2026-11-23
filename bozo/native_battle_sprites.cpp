@@ -42,8 +42,14 @@ bool NativeBattleSprites::begin(Runtime *rt,uint32_t writer,uint64_t alpha){
     if((seg!=0 && seg!=2 && seg!=3) || at<0x100000 || at>0x1fffff0)return false;
     for(const auto &[stack,lease]:leases)if(lease.writer==writer)throw std::runtime_error("native battle sprite writer rebuilt during its flush");
     const auto base=value<uint32_t>(rt,writer);
-    if(value<uint32_t>(rt,writer+8)!=base+0x40 || value<uint32_t>(rt,writer+12)!=base+0x40)return false;   // not a reset writer
-    builds[writer]=NativeBattleSpriteBuild{.begin=base+0x40};builds[writer].additive=alpha==0x148;lastBuild=writer;return true;
+    // A VIF1-direct build (174530) opens one quadword in, after the DIRECT code its header reserved.
+    const bool direct=directHeaders.contains(writer) && value<uint32_t>(rt,writer+8)==base+0x50;
+    if(!direct && value<uint32_t>(rt,writer+8)!=base+0x40)return false;   // not a reset writer
+    if(value<uint32_t>(rt,writer+12)!=base+0x40)return false;
+    directHeaders.erase(writer);
+    builds[writer]=NativeBattleSpriteBuild{.begin=base+0x40};builds[writer].additive=alpha==0x148;
+    if(direct)builds[writer].polygonBytes=16;
+    lastBuild=writer;return true;
 }
 bool NativeBattleSprites::blend(Runtime *rt,uint32_t writer,uint64_t alpha){
     const auto it=builds.find(writer);if(it==builds.end())return false;
@@ -256,6 +262,101 @@ void NativeBattleSprites::rectangle(Runtime *rt,const R5900Context *c){
     p.corners={std::array<int32_t,2>{x0,y0},{x1,y0},{x0,y1},{x1,y1}};
     strip(rt,p);
 }
+// Corner shade, class 175600 (mod028). Its build 4f7a80 resets the +bb writer and calls three methods:
+// - vt+a0 4f7a40 reserves the writer's first four quadwords without writing them: the constructor's
+//   A+D block, ALPHA_2 = 0x44 (normal blending), TEST_2 3000c (depth always), ZBUF_2 101000000 (no depth
+//   write). The build opens there, as at an opening ALPHA_2.
+// - vt+a8 4f72d0 draws by its mode +e0 (1 or 2; otherwise nothing, and the build stops there).
+// - vt+a4 4f7a00 reserves the constructor's three closing quadwords: A+D TEST_2 5000d, ZBUF_2 1000000.
+// Native: the strips 4f72d0 computes, from the object's own fields.
+void NativeBattleSprites::cornerShadeOpen(Runtime *rt,uint32_t object,uint32_t writer){
+    if(value<uint32_t>(rt,object)!=0x175600 || writer!=buildWriter(rt,object))throw std::runtime_error(std::format("native corner shade writer is not its object's (object {:x})",object));
+    const auto at=value<uint32_t>(rt,writer+8);
+    static constexpr uint64_t block[8]={0x1000000000000003ull,0xe,0x44,0x43,0x3000c,0x48,0x101000000ull,0x4f};
+    for(unsigned i=0;i<8;++i)if(value<uint64_t>(rt,at+8*i)!=block[i])throw std::runtime_error(std::format("native corner shade register block differs (object {:x})",object));
+    if(!begin(rt,writer,0x44))throw std::runtime_error(std::format("native corner shade build on a writer that is not reset (object {:x})",object));
+    auto &build=bind(rt,object,writer);build.polygonBytes+=32;   // its block is 64 bytes, an ALPHA_2 32
+}
+// 4f72d0(object a0, writer a1). Inputs: +b0, +b4 (floats), +98 x and +9c y (integers), +d0 the colour,
+// +d8 / +dc the shown fraction (1 when +dc <= +d8), mode +e0; two tables of 9 floats, positions
+// 50c450 (0 .. 1) and alphas 50c480 (1 .. 0, times 128; the first quad starts at 0x80). EE float
+// operations throughout; coordinates are truncated, then 12.4 (<< 4).
+// Mode 1, around the corner (X0, Y0) = (x - 0x128, y - 0x128): offset o = -296.985 + (593.97 + b0 + b4)
+// * (1 - fraction); p(i) = trunc(o + 593.97 * pos[i]). Quad i: (p(i) + x, Y0), (X0, p(i) + y), then the
+// same for i + 1; colours +d0 with alpha(i), alpha(i + 1). Then a solid triangle (X0, Y0),
+// (trunc(o) + x, Y0), (X0, trunc(o) + y), alpha 0x80.
+// Mode 2, the opposite corner (XA, YA) = (trunc(296.985 + b0) + x, trunc(296.985 + b4) + y): with
+// s = (593.97 + b0 + b4) * fraction, quad i: (XA, trunc(296.985 + b4 - s - 593.97 * pos[i]) + y),
+// (trunc(296.985 + b0 - s - 593.97 * pos[i]) + x, YA); the triangle (XA, YA), (XA, trunc(b4 term - s) + y),
+// (trunc(b0 term - s) + x, YA). Each block is one reservation: 0x23 quadwords for the eight quads (two tags,
+// PRIM 24c, 32 vertices), 5 for the triangle (PRIM 24b).
+bool NativeBattleSprites::cornerShade(Runtime *rt,uint32_t object,uint32_t writer){
+    const auto mode=value<uint8_t>(rt,object+0xe0);if(mode!=1 && mode!=2)return false;
+    if(value<uint32_t>(rt,object)!=0x175600 || writer!=buildWriter(rt,object))throw std::runtime_error(std::format("native corner shade writer is not its object's (object {:x})",object));
+    auto &build=bind(rt,object,writer);
+    const auto start=value<uint32_t>(rt,writer+8);
+    if(uint64_t(start)+0x280>uint64_t(value<uint32_t>(rt,writer))+uint64_t(value<uint32_t>(rt,writer+16))*8)
+        throw std::runtime_error(std::format("native corner shade does not fit its writer (object {:x})",object));
+    uint32_t flags=0;namespace f=bozo::ps2f;
+    const auto add=[&](uint32_t a,uint32_t b){return f::add(a,b,flags);};const auto sub=[&](uint32_t a,uint32_t b){return f::sub(a,b,flags);};
+    const auto mul=[&](uint32_t a,uint32_t b){return f::mul(a,b,flags);};const auto trunc=[](uint32_t v){return int32_t(f::toInt(v));};
+    static constexpr uint32_t pos[9]={0,0x3e4ccccd,0x3ecccccd,0x3f000000,0x3f19999a,0x3f333333,0x3f4ccccd,0x3f666666,0x3f800000};
+    static constexpr uint32_t fade[9]={0x3f800000,0x3f4ccccd,0x3f19999a,0x3ee66666,0x3eb33333,0x3e800000,0x3e19999a,0x3d4ccccd,0};
+    constexpr uint32_t kOne=0x3f800000,kSpan=0x44147e14,kStep=0x44147e0b,kHalf=0x43947e14,kAlpha=0x43000000;
+    const auto b0=value<uint32_t>(rt,object+0xb0),b4=value<uint32_t>(rt,object+0xb4),d8=value<uint32_t>(rt,object+0xd8),dc=value<uint32_t>(rt,object+0xdc);
+    const auto x=value<int32_t>(rt,object+0x98),y=value<int32_t>(rt,object+0x9c);const auto colour=value<uint32_t>(rt,object+0xd0);
+    const auto span=add(kSpan,add(b0,b4));const auto fraction=f::le(dc,d8)?kOne:f::div(d8,dc,flags);
+    std::array<uint32_t,9> alpha{};alpha[0]=0x80;for(unsigned i=1;i<9;++i)alpha[i]=uint32_t(trunc(mul(kAlpha,fade[i])));
+    std::vector<std::array<std::array<int32_t,2>,4>> quads;std::array<std::array<int32_t,2>,3> triangle{};
+    if(mode==1){
+        const auto offset=add(0xc3947e14u,mul(span,sub(kOne,fraction)));
+        const int32_t x0=(x-0x128)<<4,y0=(y-0x128)<<4;
+        const auto p=[&](unsigned i){return trunc(add(offset,mul(kStep,pos[i])));};
+        for(unsigned i=0;i<8;++i)quads.push_back({{{(p(i)+x)<<4,y0},{x0,(p(i)+y)<<4},{(p(i+1)+x)<<4,y0},{x0,(p(i+1)+y)<<4}}});
+        triangle={{{x0,y0},{(trunc(offset)+x)<<4,y0},{x0,(trunc(offset)+y)<<4}}};
+    }else{
+        const auto shown=mul(span,fraction),across=add(kHalf,b0),down=add(kHalf,b4);
+        const int32_t xa=(trunc(across)+x)<<4,ya=(trunc(down)+y)<<4;const auto across2=sub(across,shown),down2=sub(down,shown);
+        const auto py=[&](unsigned i){return (trunc(sub(down2,mul(kStep,pos[i])))+y)<<4;};
+        const auto px=[&](unsigned i){return (trunc(sub(across2,mul(kStep,pos[i])))+x)<<4;};
+        for(unsigned i=0;i<8;++i)quads.push_back({{{xa,py(i)},{px(i),ya},{xa,py(i+1)},{px(i+1),ya}}});
+        triangle={{{xa,ya},{xa,(trunc(down2)+y)<<4},{(trunc(across2)+x)<<4,ya}}};
+    }
+    const auto inRange=[](const std::array<int32_t,2> &c){return c[0]>=0 && c[0]<=0xffff && c[1]>=0 && c[1]<=0xffff;};
+    std::vector<NativeUiSprite> strips;
+    for(unsigned i=0;i<8;++i){NativeUiSprite s{.sprite=object,.colour=colour|alpha[i]<<24,.gouraud=true};s.fixedCorners=quads[i];
+        s.cornerColours={colour|alpha[i]<<24,colour|alpha[i]<<24,colour|alpha[i+1]<<24,colour|alpha[i+1]<<24};strips.push_back(std::move(s));}
+    NativeUiSprite t{.sprite=object,.colour=colour|0x80000000u,.gouraud=true};
+    t.fixedCorners={triangle[0],triangle[1],triangle[2],triangle[2]};t.cornerColours.fill(colour|0x80000000u);strips.push_back(std::move(t));
+    for(const auto &s:strips)for(const auto &c:s.fixedCorners)if(!inRange(c))throw std::runtime_error(std::format("native corner shade outside the 12.4 range (object {:x})",object));
+    if(build.sprites.size()+strips.size()>4096)throw std::runtime_error("native battle sprite count outside admitted range");
+    if(std::getenv("VP2S_BOZO_VERIFY_SHADE"))shadeChecks[writer]={start,strips};
+    for(auto &s:strips){s.additive=build.additive;build.sprites.push_back(std::move(s));build.spriteTextures.push_back(NativeBattleSpriteBuild::kUntextured);++build.polygons;}
+    build.polygonBytes+=0x230+0x50;
+    return true;
+}
+void NativeBattleSprites::cornerShadeClose(Runtime *rt,uint32_t object,uint32_t writer){
+    if(value<uint32_t>(rt,object)!=0x175600 || writer!=buildWriter(rt,object))throw std::runtime_error(std::format("native corner shade writer is not its object's (object {:x})",object));
+    auto &build=bind(rt,object,writer);const auto at=value<uint32_t>(rt,writer+8);
+    if(uint64_t(at)!=build.begin+build.accountedBytes())throw std::runtime_error(std::format("native corner shade closes over unowned content (object {:x})",object));
+    if(auto it=shadeChecks.find(writer);it!=shadeChecks.end()){
+        // Test only: the strips against the vertices the original just wrote (RGBA word, XYZ2 doubleword).
+        const auto &[start,strips]=it->second;
+        const auto vertex=[&](uint32_t q){const auto xyz=value<uint64_t>(rt,q+8);
+            return std::tuple{value<uint32_t>(rt,q),int32_t(xyz&0xffff),int32_t((xyz>>16)&0xffff),uint32_t(xyz>>32)};};
+        for(unsigned i=0;i<8;++i)for(unsigned j=0;j<4;++j){const auto [rgba,vx,vy,vz]=vertex(start+0x30+0x40*i+0x10*j);const auto &s=strips[i];
+            if(rgba!=s.cornerColours[j] || vx!=s.fixedCorners[j][0] || vy!=s.fixedCorners[j][1] || vz)
+                throw std::runtime_error(std::format("corner shade verify: quad {} vertex {} wrote {:x} ({:x}, {:x}), native {:x} ({:x}, {:x})",i,j,rgba,vx,vy,s.cornerColours[j],s.fixedCorners[j][0],s.fixedCorners[j][1]));}
+        for(unsigned j=0;j<3;++j){const auto q=start+0x230+0x18+0x10*j;const auto xyz=value<uint64_t>(rt,q+8);const auto &s=strips[8];
+            if(value<uint32_t>(rt,q)!=s.cornerColours[j] || int32_t(xyz&0xffff)!=s.fixedCorners[j][0] || int32_t((xyz>>16)&0xffff)!=s.fixedCorners[j][1] || (xyz>>32))
+                throw std::runtime_error(std::format("corner shade verify: triangle vertex {} differs",j));}
+        static unsigned verified=0;if(++verified<=4)std::fprintf(stderr,"[vp2s:battle] corner shade verified against the original packet (mode %u)\n",value<uint8_t>(rt,object+0xe0));
+        shadeChecks.erase(it);
+    }
+    static constexpr uint64_t block[6]={0x1000000000000002ull,0xe,0x5000d,0x48,0x1000000,0x4f};
+    for(unsigned i=0;i<6;++i)if(value<uint64_t>(rt,at+8*i)!=block[i])throw std::runtime_error(std::format("native corner shade closing block differs (object {:x})",object));
+    build.polygonBytes+=48;
+}
 NativeBattleSpriteBuild NativeBattleSprites::flush(Runtime *rt,uint32_t stack,uint32_t object,uint32_t writer,const ImageLookup &image){
     if(leases.contains(stack))throw std::runtime_error("native battle sprite flush stack reused");
     if(!builds.contains(writer))throw std::runtime_error(std::format("native battle sprite flush has no build (object {:x} writer {:x})",object,writer));
@@ -267,6 +368,10 @@ NativeBattleSpriteBuild NativeBattleSprites::flush(Runtime *rt,uint32_t stack,ui
     if(begin!=build.begin || end<begin || end-begin!=expected || uint64_t(end)+16>uint64_t(base)+uint64_t(value<uint32_t>(rt,writer+16))*8)
         throw std::runtime_error(std::format("native battle sprite writer has unowned content (writer {:x}: {} bytes, {} textures and {} sprites recorded)",
             writer,int64_t(end)-int64_t(begin),build.textures.size(),build.sprites.size()));
+    auto resolved=resolve(build,image);
+    leases.emplace(stack,Lease{object,writer,begin,end});return resolved;
+}
+NativeBattleSpriteBuild NativeBattleSprites::resolve(const NativeBattleSpriteBuild &build,const ImageLookup &image)const{
     // Each selection's image, as published by then (the texture set's upload).
     NativeBattleSpriteBuild resolved=build;std::vector<std::shared_ptr<const bozo::render::Texture>> pictures;
     for(const auto &t:build.textures){auto asset=image(t.pixels,t.palette);
@@ -275,7 +380,36 @@ NativeBattleSpriteBuild NativeBattleSprites::flush(Runtime *rt,uint32_t stack,ui
         pictures.push_back(asset->picture(t.csa));}
     for(size_t i=0;i<resolved.sprites.size();++i)if(const auto t=resolved.spriteTextures.at(i);t!=NativeBattleSpriteBuild::kUntextured)
         resolved.sprites[i].picture=pictures.at(t);
-    leases.emplace(stack,Lease{object,writer,begin,end});return resolved;
+    return resolved;
+}
+// Class 174530 (mod028), drawn on VIF1 by its job instead of the GIF list:
+// - header vt+7c 42d3e0 (object a0, writer a1) reserves one quadword on the reset writer and keeps
+//   the address of its fourth word in +d4;
+// - the content follows (ALPHA_2 0x44 from 120860, then engine flat rectangles 120a80);
+// - trailer vt+80 42d370 writes DIRECT (qwc - 2) there and stores qwc in +c4[bb] and the content's
+//   start in +cc[bb], qwc being the content's quadwords + 2 (120d80);
+// - enqueue vt+18 42d340 queued the job whose start 42d2c0 kicks VIF1 with +cc[bc] / +c4[bc].
+// Native: the kernel makes the enqueue complete the job at once (42d320 -> 21c9a0); this draws the
+// +bc writer's build.
+void NativeBattleSprites::directHeader(Runtime *rt,uint32_t object,uint32_t writer){
+    if(value<uint32_t>(rt,object)!=0x174530 || writer!=buildWriter(rt,object))throw std::runtime_error(std::format("native VIF1-direct UI writer is not its object's (object {:x})",object));
+    const auto base=value<uint32_t>(rt,writer);
+    if(value<uint32_t>(rt,writer+8)!=base+0x40 || value<uint32_t>(rt,writer+12)!=base+0x40)throw std::runtime_error("native VIF1-direct UI header on a writer that is not reset");
+    for(const auto &[stack,lease]:leases)if(lease.writer==writer)throw std::runtime_error("native battle sprite writer rebuilt during its flush");
+    directHeaders.insert(writer);builds.erase(writer);
+}
+NativeBattleSpriteBuild NativeBattleSprites::submitDirect(Runtime *rt,uint32_t object,const ImageLookup &image){
+    if(value<uint32_t>(rt,object)!=0x174530)throw std::runtime_error("native VIF1-direct UI submit has another class");
+    const auto slot=value<uint8_t>(rt,object+0xbc);const auto writer=value<uint32_t>(rt,object+0x90+4u*slot);
+    auto it=builds.find(writer);
+    if(it==builds.end())throw std::runtime_error(std::format("native VIF1-direct UI submit has no build (object {:x} writer {:x})",object,writer));
+    auto &build=it->second;
+    const auto begin=value<uint32_t>(rt,writer+12),end=value<uint32_t>(rt,writer+8),qwc=value<uint32_t>(rt,object+0xc4+4u*slot);
+    if(begin!=build.begin || end<begin || end-begin!=build.accountedBytes() || ((end-begin)&15) || qwc!=(end-begin)/16+2 ||
+       (value<uint32_t>(rt,object+0xcc+4u*slot)&0x1ffffff)!=(begin&0x1ffffff) || value<uint64_t>(rt,begin)!=0 || value<uint32_t>(rt,begin+8)!=0 ||
+       value<uint32_t>(rt,begin+12)!=(0x51000000u|(qwc-2)))
+        throw std::runtime_error(std::format("native VIF1-direct UI writer has unowned content (object {:x}: {} bytes, {} sprites recorded)",object,int64_t(end)-int64_t(begin),build.sprites.size()));
+    build.object=object;return resolve(build,image);
 }
 void NativeBattleSprites::retire(Runtime *rt,const R5900Context *c){
     auto &lease=leases.at(c->r[29].uw[0]+0x30);
@@ -316,7 +450,7 @@ std::optional<bool> nativeBattleSpriteInstruction(R5900Context *c,Runtime *rt,ui
     if(!nativeBattleSpriteSite(pc))return std::nullopt;   // its sites: native_conditional_sites.h
     static constexpr uint32_t pairSites[]={0x4bcd40,0x4bde08,0x4d0c34,0x4d1734,0x4d99ac,0x4ecf0c,0x4ef498,0x4f0f20,0x4f268c,0x4f2874,0x4fa19c,0x4fdcc0,0x503d50};
     const bool pairSite=std::find(std::begin(pairSites),std::end(pairSites),pc)!=std::end(pairSites);
-    if(pc!=0x120860 && pc!=0x120c30 && !pairSite && pc!=0x3cd468 && pc!=0x3cd3c8 && pc!=0x3cd4a0 && pc!=0x42ddd8 && pc!=0x42e144 && pc!=0x42ebd8 && pc!=0x42efe0 && pc!=0x3843a0 && pc!=0x42d4f0 && pc!=0x42d4f4 && pc!=0x120f4c && pc!=0x120f58)return std::nullopt;
+    if(pc!=0x120860 && pc!=0x120c30 && !pairSite && pc!=0x3cd468 && pc!=0x3cd3c8 && pc!=0x3cd4a0 && pc!=0x42ddd8 && pc!=0x42e144 && pc!=0x42ebd8 && pc!=0x42efe0 && pc!=0x3843a0 && pc!=0x42d4f0 && pc!=0x42d4f4 && pc!=0x120f4c && pc!=0x120f58 && pc!=0x4f7a40 && pc!=0x4f72d0 && pc!=0x4f7a00 && pc!=0x42d3e0 && pc!=0x42d340)return std::nullopt;
     auto *d=rt?vp2s::nativeCast<bozo::ee::Dispatcher>(rt->services):nullptr;
     auto *owner=d?vp2s::nativeCast<BattleSpriteOwner>(&d->host()):nullptr;
     if(!owner || !c){if(pc==0x120860 || pc==0x120c30 || pc==0x120f4c || pc==0x120f58)return std::nullopt;throw std::runtime_error("native battle sprites require an owner");}
@@ -395,6 +529,24 @@ std::optional<bool> nativeBattleSpriteInstruction(R5900Context *c,Runtime *rt,ui
            value<uint64_t>(rt,0x50d480)!=0xe400000000000001ull || value<uint64_t>(rt,0x50d488)!=0xf5215215215210ull)
             throw std::runtime_error("native battle polygon writer differs from the USA one");
         if(pc==0x42e144)sprites.polygon(rt,c);else if(pc==0x42ebd8)sprites.rotatedPolygon(rt,c);else sprites.rectangle(rt,c);
+    }else if(pc==0x42d3e0 || pc==0x42d340){
+        // VIF1-direct battle UI 174530 (mod028; another overlay's code there is not it).
+        // (RAM keeps the original words; the kernel's patch of 42d35c is in the generated code.)
+        if(!code(rt,0x42d2c0,0x42d440,0x13b6cb0fe5fc816bull))return std::nullopt;
+        if(c->pc!=pc)throw std::runtime_error("native VIF1-direct UI requires its methods' entries");
+        if(pc==0x42d3e0)sprites.directHeader(rt,c->r[4].uw[0],c->r[5].uw[0]);
+        else if(const auto object=c->r[4].uw[0]){
+            auto *textures=vp2s::nativeCast<TextureOwner>(&d->host());if(!textures)throw std::runtime_error("native battle sprites require a texture owner");
+            owner->drawNativeBattleSprites(sprites.submitDirect(rt,object,[&](uint32_t pixels,uint32_t palette){return textures->nativeTextures().blockImage(pixels,palette);}));
+        }
+    }else if(pc==0x4f7a40 || pc==0x4f72d0 || pc==0x4f7a00){
+        // Corner shade 175600's methods (mod028; another overlay's code there is not them).
+        if(!code(rt,0x4f72d0,0x4f7a00,0xedf10c7a60c19912ull) || !code(rt,0x4f7a00,0x4f7a80,0x7a05de57d88a386aull))return std::nullopt;
+        if(!code(rt,0x50c450,0x50c4a4,0x9396786f2b551bcaull))throw std::runtime_error("native corner shade tables differ from the USA ones");
+        if(c->pc!=pc)throw std::runtime_error("native corner shade requires its methods' entries");
+        if(pc==0x4f7a40)sprites.cornerShadeOpen(rt,c->r[4].uw[0],c->r[5].uw[0]);
+        else if(pc==0x4f72d0)sprites.cornerShade(rt,c->r[4].uw[0],c->r[5].uw[0]);
+        else sprites.cornerShadeClose(rt,c->r[4].uw[0],c->r[5].uw[0]);
     }else if(pc==0x3843a0){
         if(!code(rt,0x383cb0,0x3843f8,0x23a73ec964306dc5ull))throw std::runtime_error("native battle band writer differs from the USA one");
         sprites.band(rt,c);

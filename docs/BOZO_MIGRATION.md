@@ -12,6 +12,49 @@ The earlier VP2S face/shading and general brightness comparisons remain open.
 
 ## Build and evidence
 
+### Battle: game over to the Load screen (corner shade 175600, VIF1-direct UI 174530) (2026-11-23)
+
+The attack5 scenario (party falls around 75000) now runs from the 74000 state to 77000 with no boundary. The run
+covers the fall, the fade, the memory card check and the Data / Load menu.
+
+**Corner shade, class 175600** (mod028; the frame-75160 boundary: a battle sprite flush with no build).
+- **Its build 4f7a80** resets the +bb writer and calls three methods:
+  - vt+a0 4f7a40 reserves four quadwords without writing them: the constructor's A+D block (ALPHA_2 0x44, TEST_2
+    depth always, ZBUF_2 no depth write).
+  - vt+a8 4f72d0 draws, by mode +e0.
+  - vt+a4 4f7a00 reserves the constructor's closing block (TEST_2 5000d, ZBUF_2 1000000).
+- **The drawing.** Eight Gouraud quads, then one solid triangle, in colour +d0:
+  - two 9-float tables give the positions (50c450: 0..1) and the alphas (50c480: 1..0, times 128; the first quad
+    starts at 0x80);
+  - the fraction is +d8 / +dc;
+  - mode 1 shades from the corner (+98 - 0x128, +9c - 0x128); mode 2 the opposite corner, from +b0 / +b4.
+- **Native:** `NativeBattleSprites::cornerShade*`. The open checks the static block, then the strips are computed
+  from the fields with EE float operations, and the close checks the closing block. Every byte of the writer is
+  accounted for at the flush.
+- **Check:** `VP2S_BOZO_VERIFY_SHADE=1` compares each shade with the vertices the original just wrote. Every shade
+  of the game over (mode 2) matched to the bit.
+
+**VIF1-direct UI, class 174530** (the next boundary: 42d2c0 writing VIF1 QWC/MADR/CHCR).
+- **The build:**
+  - header vt+7c 42d3e0 reserves one quadword for a VIF DIRECT code;
+  - then ALPHA_2 and engine flat rectangles (120a80) follow;
+  - trailer vt+80 42d370 writes DIRECT (qwc - 2) and stores qwc and the start in +c4/+cc[bb].
+- **Its enqueue 42d340** queued a job whose start 42d2c0 kicks VIF1 directly.
+- **Native, after the 15a850 pattern:**
+  - the kernel makes the enqueue call the job's completion 42d320(object) at once;
+  - site 42d340 draws the +bc writer's build;
+  - the build opens one quadword in when 42d3e0 marked the writer;
+  - the submit checks the DIRECT code against qwc and qwc against the content.
+
+**Evidence:**
+- **attack5:** 74000 to 77000, no boundary; end RAM fce9a8b43db4.
+- **End RAM unchanged:** battle 64100 54ed654e0383, forest walk 64000 912f01332dbe, game over 75100 f6dd9f75de4b,
+  boot route 12000 a3f2c8f4395d.
+- **`vp2s-bozo-battle-sprites`:** corner shade modes 1 and 2 (corners at full fraction, the alpha ramp, one
+  continuous band, 0x2f0 bytes accounted, a wrong block rejected) and the VIF1-direct open, submit and qwc/DIRECT
+  checks.
+- **ctest:** 96/96 pass.
+
 ### Cheats: items and EXP; the camp menu's Items page runs native (2026-11-23)
 
 **The inventory.** `[35ec18]` points at one u32 per item id: `(1 << 24) | (count << 16) | id`. It is not encoded and

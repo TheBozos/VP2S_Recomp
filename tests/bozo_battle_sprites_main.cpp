@@ -275,6 +275,60 @@ int main(){try{
       flat.flatQuad(&rt,w5,B5+0x40+64);
       const auto *fb=flat.build(w5);check(fb && fb->sprites.size()==1 && fb->polygons==1 && fb->polygonBytes==64 && !fb->sprites[0].gouraud && fb->sprites[0].colour==0x00ffffffu && fb->sprites[0].depth==0xffee6b &&
           fb->sprites[0].fixedCorners[3]==std::array<int32_t,2>{0x7000,0x8d00} && fb->spriteTextures[0]==vp2s::NativeBattleSpriteBuild::kUntextured); }
-    std::puts("native battle sprites: build, texture, both ST paths, flat, Gouraud and textured polygons, flat and Gouraud triangles, engine flat rectangles, bands, rectangles, flush checks");
+    // Corner shade 175600 (mod028 4f7a40 / 4f72d0 / 4f7a00): the static register block opens the
+    // build; at full fraction (+d8 >= +dc) mode 1's offset is -296.985 and mode 2's reach 593.97, so
+    // p(i) runs from trunc(-296.985) = -296 to trunc(296.985) = 296 (mode 1) and the alphas are the
+    // game's 0x80 66 4c 39 2c 20 13 06 00 (seen in its packets at the game-over boundary).
+    for(const uint8_t mode:{uint8_t(1),uint8_t(2)}){
+        constexpr uint32_t shade=0x2d0000,writer8=0x1a8000,base8=0x2f0000,B8=base8|0x30000000u;const uint32_t w8=writer8|0x30000000u;
+        put(rt,0x175600+0x18,0x42d4c0u);put(rt,shade,0x175600u);put(rt,shade+0x90,w8);put(rt,shade+0xbb,uint8_t(0));
+        put(rt,writer8,B8);put(rt,writer8+8,B8+0x40);put(rt,writer8+12,B8+0x40);put(rt,writer8+16,0x200u);
+        put(rt,shade+0xb0,0.0f);put(rt,shade+0xb4,0.0f);put(rt,shade+0x98,2048);put(rt,shade+0x9c,2048);put(rt,shade+0xd0,0x102030u);
+        put(rt,shade+0xd8,1.0f);put(rt,shade+0xdc,1.0f);put(rt,shade+0xe0,mode);
+        const uint64_t open[8]={0x1000000000000003ull,0xe,0x44,0x43,0x3000c,0x48,0x101000000ull,0x4f},close[6]={0x1000000000000002ull,0xe,0x5000d,0x48,0x1000000,0x4f};
+        for(unsigned i=0;i<8;++i)put(rt,base8+0x40+8*i,i==2?0x48ull:open[i]);
+        vp2s::NativeBattleSprites shades;rejects([&]{shades.cornerShadeOpen(&rt,shade,w8);});   // another blend in the block
+        put(rt,base8+0x50,0x44ull);shades.cornerShadeOpen(&rt,shade,w8);put(rt,writer8+8,B8+0x80);
+        put(rt,shade+0xe0,uint8_t(0));check(!shades.cornerShade(&rt,shade,w8));put(rt,shade+0xe0,mode);   // other modes draw nothing
+        check(shades.cornerShade(&rt,shade,w8));put(rt,writer8+8,B8+0x300);
+        for(unsigned i=0;i<6;++i)put(rt,base8+0x300+8*i,close[i]);
+        shades.cornerShadeClose(&rt,shade,w8);
+        const auto *sb=shades.build(w8);check(sb && sb->sprites.size()==9 && sb->polygons==9 && sb->accountedBytes()==0x2f0);
+        const uint32_t alphas[9]={0x80,0x66,0x4c,0x39,0x2c,0x20,0x13,0x06,0};
+        for(unsigned i=0;i<8;++i){const auto &q=sb->sprites[i];
+            check(q.gouraud && q.cornerColours[0]==(0x102030u|alphas[i]<<24) && q.cornerColours[2]==(0x102030u|alphas[i+1]<<24));
+            if(i)check(q.fixedCorners[0]==sb->sprites[i-1].fixedCorners[2] && q.fixedCorners[1]==sb->sprites[i-1].fixedCorners[3]);}   // one continuous band
+        const auto &first=sb->sprites[0].fixedCorners,&last=sb->sprites[7].fixedCorners,&tri=sb->sprites[8].fixedCorners;
+        if(mode==1){
+            check(first[0]==std::array<int32_t,2>{(2048-296)<<4,(2048-0x128)<<4} && first[1]==std::array<int32_t,2>{(2048-0x128)<<4,(2048-296)<<4});
+            check(last[2]==std::array<int32_t,2>{(2048+296)<<4,(2048-0x128)<<4});
+            check(tri[0]==std::array<int32_t,2>{(2048-0x128)<<4,(2048-0x128)<<4} && tri[1]==std::array<int32_t,2>{(2048-296)<<4,(2048-0x128)<<4});
+        }else{
+            check(first[0]==std::array<int32_t,2>{(2048+296)<<4,(2048-296)<<4} && first[1]==std::array<int32_t,2>{(2048-296)<<4,(2048+296)<<4});
+            check(last[2]==std::array<int32_t,2>{(2048+296)<<4,(2048-890)<<4});
+            check(tri[0]==std::array<int32_t,2>{(2048+296)<<4,(2048+296)<<4} && tri[1]==std::array<int32_t,2>{(2048+296)<<4,(2048-296)<<4});
+        }
+        check(sb->sprites[8].cornerColours[0]==(0x102030u|0x80000000u));
+        put(rt,writer8+8,B8+0x330);rejects([&]{shades.cornerShadeClose(&rt,shade,w8);});   // a second close: content it does not own
+    }
+    // VIF1-direct UI 174530 (42d3e0 header, 42d340 submit): the build opens one quadword in, after the
+    // DIRECT code; the submit checks DIRECT = qwc - 2 and qwc = content + 2 quadwords.
+    { constexpr uint32_t direct=0x2d8000,writer9=0x1a9000,base9=0x2f8000,B9=base9|0x30000000u;const uint32_t w9=writer9|0x30000000u;
+      put(rt,direct,0x174530u);put(rt,direct+0x90,w9);put(rt,direct+0xbb,uint8_t(0));put(rt,direct+0xbc,uint8_t(0));
+      put(rt,writer9,B9);put(rt,writer9+8,B9+0x40);put(rt,writer9+12,B9+0x40);put(rt,writer9+16,0x200u);
+      vp2s::NativeBattleSprites ui;
+      put(rt,writer9+8,B9+0x50);check(!ui.begin(&rt,w9));                       // one quadword in, without the header: not a build
+      put(rt,writer9+8,B9+0x40);ui.directHeader(&rt,direct,w9);put(rt,writer9+8,B9+0x50);check(ui.begin(&rt,w9));
+      put(rt,writer9+8,B9+0x70);const uint32_t at=base9+0x70;
+      put(rt,at,0x6400000000000001ull);put(rt,at+8,0x555510ull);put(rt,at+16,0x244ull);put(rt,at+24,uint64_t(0x80000000u));
+      for(unsigned i=0;i<4;++i)put(rt,at+32+8*i,uint64_t(0x7300+0x1a00*(i&1))|uint64_t(0x6e00+0x200*(i>>1))<<16|0xfffa23ull<<32);
+      ui.flatQuad(&rt,w9,B9+0x70+64);put(rt,writer9+8,B9+0xb0);
+      const uint32_t qwc=(0xb0-0x40)/16+2;put(rt,direct+0xc4,qwc);put(rt,direct+0xcc,base9+0x40);put(rt,base9+0x40,0ull);put(rt,base9+0x48,0u);
+      put(rt,base9+0x4c,0x51000000u|(qwc-1));rejects([&]{ui.submitDirect(&rt,direct,[](uint32_t,uint32_t){return nullptr;});});
+      put(rt,base9+0x4c,0x51000000u|(qwc-2));
+      const auto drawn=ui.submitDirect(&rt,direct,[](uint32_t,uint32_t){return nullptr;});
+      check(drawn.sprites.size()==1 && drawn.sprites[0].colour==0x80000000u && drawn.accountedBytes()==0x70);
+      put(rt,direct+0xc4,qwc+1);rejects([&]{ui.submitDirect(&rt,direct,[](uint32_t,uint32_t){return nullptr;});}); }
+    std::puts("native battle sprites: build, texture, both ST paths, flat, Gouraud and textured polygons, flat and Gouraud triangles, engine flat rectangles, bands, rectangles, corner shades, VIF1-direct UI, flush checks");
     return 0;
 }catch(const std::exception &e){std::fprintf(stderr,"%s\n",e.what());return 1;}}

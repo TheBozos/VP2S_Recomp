@@ -177,7 +177,12 @@ std::optional<bool> nativeAssetInstruction(uint8_t *,R5900Context *c,Runtime *rt
     // pack) is written the first time the game decodes it, under their naming (<nibble>/<disc:010x>_<part:03>,
     // .pack or .bin), for the next mesh and texture conversions. Existing files are never replaced.
     static const char *captureAssets=std::getenv("VP2S_BOZO_CAPTURE_ASSETS");
-    for(const auto &[begin,end,origin]:assets.takeDecoded()){
+    // Parts held since before a loaded state (their decode was never seen) are written too, once each: with
+    // VP2S_BOZO_CAPTURE_HELD=1, every tracked part not yet on disk (e.g. a battle file whose decrypt key the offline
+    // extractor lacks, held since the battle started).
+    auto parts=assets.takeDecoded();
+    if(captureAssets && std::getenv("VP2S_BOZO_CAPTURE_HELD")){static bool once=false;if(!once){once=true;for(auto &h:assets.held())parts.push_back(h);}}
+    for(const auto &[begin,end,origin]:parts){
         if(!captureAssets || (origin.disc>>63))continue;
         const auto *bytes=rt->memory.hostPointer(begin,end-begin);if(!bytes || end-begin<4)continue;
         const auto folder=std::filesystem::path(captureAssets)/std::format("{:x}",origin.disc>>28);

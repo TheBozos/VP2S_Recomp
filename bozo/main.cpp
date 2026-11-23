@@ -744,7 +744,11 @@ public:
     }
     void ioRead(bozo::ee::Dispatcher &d,R5900Context *c,uint32_t address,uint32_t,uint64_t[2]) override {
         boundaryHash(d);
-        throw std::runtime_error(std::format("unported device read {:x} at pc={:x}",address,c->pc));
+        // Diagnostic: the code addresses on the first 0x200 stack bytes (saved return addresses) name the path.
+        std::string stack;
+        for(uint32_t k=0;k<0x200;k+=4)if(const auto *p=d.runtime().memory.hostPointer(c->r[29].uw[0]+k,4)){uint32_t v;std::memcpy(&v,p,4);
+            if(v>=0x100000 && v<0x600000 && !(v&3))stack+=std::format(" sp+{:x}={:x}",k,v);}
+        throw std::runtime_error(std::format("unported device read {:x} at pc={:x} (ra {:x}, a0 {:x}, t9 {:x}, sp {:x}) stack:{}",address,c->pc,c->r[31].uw[0],c->r[4].uw[0],c->r[25].uw[0],c->r[29].uw[0],stack));
     }
     void ioWrite(bozo::ee::Dispatcher &d,R5900Context *c,uint32_t address,uint32_t,const uint64_t[2]) override {
         if(address==0x1000b420 && std::getenv("VP2S_BOZO_TRACE_CALLS")){

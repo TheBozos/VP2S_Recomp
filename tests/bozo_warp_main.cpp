@@ -46,8 +46,9 @@ int main(){
         const uint32_t injectedPc=get(object+0x18);
         check(c.r[5].uw[0]==0x80000 && get(0x80000)==0x3802 && get(0x80004)==0x12 && get(0x80008)==0x01000100 && get(object+0x604)==0x80004,"snippet and argument pointer");
         check(blob+0x20+4*injectedPc==0x80000,"pc points at the snippet through the blob (the handler's count read)");
+        check(get(0x8000c)==0x42325056 && get(0x80010)==pc,"resume tag and pc in guest RAM (save states keep them)");
         put(object+0x18,injectedPc+3);c.r[5].uw[0]=blob+0x20+4*(injectedPc+3);put(object+0x604,c.r[5].uw[0]+4);   // the handler advanced and yielded
-        R5900Context other=c;other.r[16].uw[0]=object+0x1000;const auto untouched=other;vp2s::nativeWarpInstruction(&other,&rt,0x3ee288);
+        R5900Context other=c;other.r[16].uw[0]=object+0x1000;other.r[5].uw[0]=0x310000;const auto untouched=other;vp2s::nativeWarpInstruction(&other,&rt,0x3ee288);
         check(!std::memcmp(&other,&untouched,sizeof(other)),"another interpreter's fetch is untouched");
         vp2s::nativeWarpInstruction(&c,&rt,0x3ee288);
         check(get(object+0x18)==pc && c.r[5].uw[0]==at && get(object+0x604)==at+4,"the next fetch resumes the script's own pc");

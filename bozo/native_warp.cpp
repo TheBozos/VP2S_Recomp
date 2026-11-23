@@ -14,9 +14,9 @@ namespace vp2s {
 namespace {
 std::optional<WarpRequest> pending;
 std::optional<BattleRequest> battlePending;
-// The interpreter running an injected battle: its own pc, restored at its next fetch.
-struct Injected {uint32_t object=0,resumePc=0,afterPc=0;};
-std::optional<Injected> injected;
+// After the battle words the snippet holds kResumeTag and the interpreter's own pc: the handler
+// leaves the pc on kSnippet + 12, whose fetch restores it. Guest RAM, so save states keep it.
+constexpr uint32_t kResumeTag=0x42325056u;   // "VP2B"
 // Below the game's image (0x100000): the PS2 kernel's RAM, unused by the native kernel.
 constexpr uint32_t kSnippet=0x80000;
 }
@@ -75,28 +75,28 @@ std::optional<bool> nativeWarpInstruction(R5900Context *c,Runtime *rt,uint32_t p
             std::fprintf(stderr,"[vp2s:script] interpreter %x (class %x) op %x at %x:%s\n",c->r[16].uw[0],type,traced,c->r[5].uw[0],args.c_str());
         }
     }
-    if(injected && c->r[16].uw[0]==injected->object){
-        // The battle handler advanced the injected pc and yielded; resume the script.
-        auto *fields=rt->memory.hostPointer(injected->object,0x608);if(!fields)throw std::runtime_error("native battle outside owned RAM");
-        uint32_t scriptPc,blob;std::memcpy(&scriptPc,fields+0x18,4);std::memcpy(&blob,fields+0x600,4);
-        if(scriptPc==injected->afterPc){
-            const uint32_t at=blob+0x20+4*injected->resumePc,args=at+4;
-            std::memcpy(fields+0x18,&injected->resumePc,4);std::memcpy(fields+0x604,&args,4);c->r[5].uw[0]=at;
+    if(c->r[5].uw[0]==kSnippet+12)if(auto *resume=rt->memory.hostPointer(kSnippet+12,8)){
+        uint32_t tag,resumePc;std::memcpy(&tag,resume,4);std::memcpy(&resumePc,resume+4,4);
+        if(tag==kResumeTag){
+            // The battle handler advanced the injected pc and yielded; resume the script.
+            auto *fields=rt->memory.hostPointer(c->r[16].uw[0],0x608);if(!fields)throw std::runtime_error("native battle outside owned RAM");
+            uint32_t blob;std::memcpy(&blob,fields+0x600,4);
+            const uint32_t at=blob+0x20+4*resumePc,args=at+4,cleared=0;
+            std::memcpy(fields+0x18,&resumePc,4);std::memcpy(fields+0x604,&args,4);c->r[5].uw[0]=at;std::memcpy(resume,&cleared,4);
         }
-        injected.reset();
     }
     if(battlePending){
         const uint32_t object=c->r[16].uw[0],at=c->r[5].uw[0];
-        auto *snippet=rt->memory.hostPointer(kSnippet,12);auto *fields=rt->memory.hostPointer(object,0x608);
+        auto *snippet=rt->memory.hostPointer(kSnippet,20);auto *fields=rt->memory.hostPointer(object,0x608);
         if(!snippet || !fields)throw std::runtime_error("native battle outside owned RAM");
         uint32_t args,scriptPc,blob;std::memcpy(&args,fields+0x604,4);std::memcpy(&scriptPc,fields+0x18,4);std::memcpy(&blob,fields+0x600,4);
         if(args!=at+4 || at!=blob+0x20+4*scriptPc)throw std::runtime_error("native battle: interpreter fetch escaped step 3ee150's layout");
         const auto words=battleInstruction(*battlePending);std::memcpy(snippet,words.data(),12);
+        std::memcpy(snippet+12,&kResumeTag,4);std::memcpy(snippet+16,&scriptPc,4);
         // pc such that blob + 0x20 + 4*pc = the snippet (32-bit wrap, as the handler's addu).
         const uint32_t snippetPc=(kSnippet-blob-0x20)/4,newArgs=kSnippet+4;
         if(blob+0x20+4*snippetPc!=kSnippet)throw std::runtime_error("native battle: blob not word aligned");
         std::memcpy(fields+0x18,&snippetPc,4);std::memcpy(fields+0x604,&newArgs,4);c->r[5].uw[0]=kSnippet;
-        injected=Injected{object,scriptPc,snippetPc+3};
         std::fprintf(stderr,"[vp2s:battle] interpreter %x (script pc %x) starts battle %u stage %u flags %08x\n",
             object,scriptPc,battlePending->battle,battlePending->stage,battlePending->flags);
         battlePending.reset();

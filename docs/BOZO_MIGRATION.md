@@ -12,6 +12,43 @@ The earlier VP2S face/shading and general brightness comparisons remain open.
 
 ## Build and evidence
 
+### Battle victory: contact impulses, results screen, return to the field (2026-11-23)
+
+The victory run (attack5 from the 74000 state, weak enemies and infinite health) now goes through the whole victory:
+scatter, results screen (Purification Complete, LV up), then back to the Lost Forest, with no boundary to 78000.
+- **Contact impulse 494ea0:** contact velocities (spin x arm + velocity) of one or two bodies, the relative normal
+  velocity, and the inverse-inertia terms (rows +650 applied to r x N, then x r, . N). One stateful handler.
+- **Impulse application 4956a0 and its friction term 495b60:** an RK4 step over force and torque. Each stage adds
+  the friction force 495b60 returns to the impulse. The momentum (+5f0/+5b0) and angular momentum (+600/+5d0) sums
+  use (k1 + 2k2 + 2k3 + k4) / 6. The velocity is then the momentum times +870.
+- **Contact basis 48cd94:** normal from the contact triangle, then two tangents. The first tangent crosses with vf0
+  (zero xyz), so it is zero, as on the original.
+- **Smaller 494ea0 blocks as formulas:** `impulse`, `negate1`, `dot26`, `negpair`.
+- **More copies:**
+  - a row-point copy at 495ad4;
+  - the 0x7f0 basis length at 1f7b20 (mod001).
+- **Formula matcher:** up to 12 plain words between COP2 words (was 7).
+- **UI:** class 15a660 (an animated 15a200 frame chosen by +d0, built by 2eaa90) on the results screen. Its destructor
+  2f2c20 joins the element paths.
+- **Assets:** the results screen's texture pack `00eaf9d800_000` is encrypted with a key the extractor did not know.
+  - `VP2S_BOZO_CAPTURE_HELD=1` writes every part the port tracks in RAM once.
+  - That capture filled the extract; the texture keys and manifest were regenerated.
+- **Battle launcher resume, in guest RAM:** `--battle` now writes a tag and the script's own pc after the op-0x38
+  words (0x8000c, 0x80010). The interpreter's fetch there restores the pc.
+  - Before, the pc was kept in host memory, which save states do not carry.
+  - So a run loaded from a mid-battle state fetched garbage at 0x8000c when the field came back, and faulted at
+    145870 (dispatch table + a garbage index).
+  - States saved before this change lack the tag; `bt6/f74000r.state` was re-saved for the victory run.
+- **Device-read boundary message:** it now names ra, a0, t9, sp and the code addresses on the stack.
+
+**Evidence:**
+- **EXP cheat on the real victory:** the first party record's persistent EXP is 0 before the battle and 5562 after it without the
+  cheat. With `VP2S_CHEAT_EXP=3` it is 16686, exactly three times the gain.
+- **End RAM:**
+  - forest walk 64000 912f01332dbe, game over 77000 fce9a8b43db4 and boot route 12000 a3f2c8f4395d are unchanged.
+  - battle 64100 is now dbb930255f27. It differs from 54ed654e0383 only at 0x8000c..0x80010, the resume tag and pc.
+- **ctest:** 96/96 pass.
+
 ### Battle victory: the scattered bodies' integrator and contact helpers (2026-11-23)
 
 The victory run continues inside the scatter's rigid-body code (still frame 75460):

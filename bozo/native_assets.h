@@ -40,6 +40,8 @@ public:
     size_t pendingCount()const{return calls.size()+steps.size();}
     // The decoded parts published since the last call: (address, end, origin) of each whole part.
     std::vector<std::tuple<uint32_t,uint32_t,AssetOrigin>> takeDecoded();
+    // Every part the port tracks in RAM now (development capture only).
+    std::vector<std::tuple<uint32_t,uint32_t,AssetOrigin>> held()const{std::vector<std::tuple<uint32_t,uint32_t,AssetOrigin>> out;for(const auto &r:ranges)out.emplace_back(r.begin,r.end,r.origin);return out;}
     size_t jobCount()const{return jobs.size();}
     // Save states: every range, call, job and step (native_state.h).
     void serialize(bozo::state::Archive &);

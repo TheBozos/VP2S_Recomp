@@ -12,6 +12,62 @@ The earlier VP2S face/shading and general brightness comparisons remain open.
 
 ## Build and evidence
 
+### Cheats: items and EXP; the camp menu's Items page runs native (2026-11-23)
+
+**The inventory.** `[35ec18]` points at one u32 per item id: `(1 << 24) | (count << 16) | id`. It is not encoded and
+has no checksum. Empty slots hold just the id.
+- **Item table:** `[35ec08]`, 0x38 bytes per item; +30 is the stack limit (99 for most items), +00 the price.
+- **Ids:** 0x2ef (751) of them.
+
+**Item names** come from your own disc. `tools/vp2_item_names.py` (run by `tools/vp2_bozo.py`) finds the list
+"Long Sword", "Rapier", … in the mcps message files and writes `build_usa/bozo/item_names.txt`, a game-data file that
+is never committed.
+- **Format:** NUL-separated, in id order.
+- **Encoding:** byte + 0x1f; 0x0b '-', 0x0e ' ', 0x0f/0x14 apostrophe, 0x10 '"'.
+- **Check:** id 0xe7 must read "Union Plume".
+
+**Cheats added** (`bozo/native_cheats.cpp`; F2 > Cheats):
+- **Item search and give:**
+  - a search box over the names, a list showing "name ×count", an amount, and Give / Remove;
+  - the count is clamped to the item's own stack limit.
+- **EXP multiplier ×1..×10:** a rise of a persistent record's EXP (+04 `^ 6cdf397e`) is multiplied, with +04 and the
+  flags checksum +14 rewritten.
+- **Test switches:** `VP2S_CHEAT_GIVE=id:count` and `VP2S_CHEAT_EXP=n`.
+
+**The camp menu's Items page**, needed to see the items in game (SELECT, then CROSS on Items). Four gaps, each found by running it:
+- **Empty methods after another function's return.** mod001 30c230 is a `jr ra` right after the previous function's
+  delay slot, not after zero padding. `empty_stub_entries` now takes both.
+- **Overlays mod014–mod025 at 0x495500** (the camp menu's pages; mod020 is `CampItem.ovl`) are now generated.
+- **Calls into the overlay slot.** mod003 calls fixed addresses in whatever overlay sits at 0x495500 (461138 calls
+  496110, which mod020's export omits).
+  - `slot_call_entries` gives each overlay the common images' call targets that are a clean function start in it:
+    16-byte aligned, after zero padding or a `jr ra` pair, and not inside a listed function.
+  - A target meant for another overlay lands mid-code and is not taken.
+- **Window scroll bar.** 2e9640 calls 2e9720 for +f3/+f4; 2e9720 draws only for +f3.
+  - **Parts:** a track (2e9b90, a translucent black sprite), then a thumb and two end caps (2e9920: a 54768a sprite
+    under afbbc4/363840 bevel line strips).
+  - **The port:** their arithmetic from the element, the rectangle and the display record `[35e170]`. The lines
+    become one-pixel strips in the window's background list, so the save-state layout is unchanged.
+- **Two-sprite element 15ac60** (the page's item icons):
+  - build 310480 draws sprites +50 and +b8 (each if +66 is set) and returns from the writer to 310548;
+  - it is marked built at 310584; the destructor is 3102f0;
+  - each sprite has its own one-part DTT and a menu page.
+
+**Evidence:**
+- **Items page:** `VP2S_CHEAT_GIVE=0xe7:50`, Lost Forest state 63350, pad `63400:SELECT/6,63520:CROSS/6`.
+  - It renders Warrior's Arcanum 4, Dwarf Tincture 1 and **Union Plume 50**, with icons and quantities.
+  - It runs to 63640 with no boundary.
+- **The gift persists:** in RAM over 650 frames.
+- **Unit checks:** `vp2s-bozo-cheats` covers health, money, items (give, remove, the stack limit) and EXP, all under the
+  game's checksums, and that nothing is written with every cheat off.
+- **End RAM unchanged:** battle 64100 54ed654e0383, forest walk 64000 912f01332dbe, game over 75100 f6dd9f75de4b,
+  boot route 12000 a3f2c8f4395d.
+- **ctest:** 96/96 pass.
+
+**Not done yet:**
+- **EXP in a real victory:** the multiplier is checked only on synthetic records, since the victory flow is not ported.
+- **In-game menu entries for the cheats:** not started.
+
 ### Cheats (F2 > Cheats), and how VP2's anti-cheat guards the party (2026-11-23)
 
 **The anti-cheat.** The game stores protected values XOR'd with fixed keys, each under a checksum. A mismatch is

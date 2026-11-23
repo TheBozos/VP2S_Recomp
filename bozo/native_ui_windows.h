@@ -32,6 +32,7 @@ class NativeUiWindows {
     unsigned captures=0;
 public:
     void begin(Runtime *,uint32_t stack,uint32_t element);
+    void scrollBar(Runtime *,uint32_t sp,uint32_t element,uint32_t rect,bool track);
     void beginBackground(uint32_t stack,uint32_t element);
     void background(Runtime *,uint32_t stack,const std::array<uint32_t,3> &colours,uint32_t edge,uint32_t depth);
     void endBackground(uint32_t stack);
@@ -51,6 +52,7 @@ public:
     void finishSelection(uint32_t stack,uint32_t element);
     void panel(Runtime *,uint32_t element,uint64_t lowerRight,uint64_t upperLeft,uint32_t alpha);
     void spriteElement(uint32_t element,std::vector<NativeUiSprite> sprites);
+    void spriteElements(uint32_t element,std::vector<NativeUiSprite> sprites);   // 0..2 sprites (class 15ac60)
     void scissor(Runtime *,uint32_t element,uint64_t registerValue);
     // Save states (native_state_ui.cpp): the finished windows; captures in flight make a save wait.
     void serialize(bozo::state::Archive &,const PictureContext &);

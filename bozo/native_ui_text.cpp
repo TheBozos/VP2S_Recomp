@@ -336,7 +336,7 @@ NativeUiLayer NativeUiTexts::layer(Runtime *rt,uint32_t layer)const{
         if(value<uint32_t>(rt,element)==0x15a1b0 || value<uint32_t>(rt,element)==0x15ac30 ||
            value<uint32_t>(rt,element)==0x15aa20 || value<uint32_t>(rt,element)==0x167560 || value<uint32_t>(rt,element)==0x15a200 ||
            value<uint32_t>(rt,element)==0x168410 || value<uint32_t>(rt,element)==0x168440 || value<uint32_t>(rt,element)==0x15a420 ||
-           value<uint32_t>(rt,element)==0x15a4e0 || (value<uint32_t>(rt,element)==0x16edd0 && value<uint32_t>(rt,0x16edf0)==0x2f1230) ||
+           value<uint32_t>(rt,element)==0x15a4e0 || value<uint32_t>(rt,element)==0x15ac60 || (value<uint32_t>(rt,element)==0x16edd0 && value<uint32_t>(rt,0x16edf0)==0x2f1230) ||
            (value<uint32_t>(rt,element)==0x16ee00 && value<uint32_t>(rt,0x16ee20)==0x2e9640)){   // the battle window (base builder 2e9640)
             auto *d=vp2s::nativeCast<bozo::ee::Dispatcher>(rt->services);auto *o=d?vp2s::nativeCast<UiWindowOwner>(&d->host()):nullptr;
             const auto captured=o?o->nativeUiWindows().window(element):nullptr;

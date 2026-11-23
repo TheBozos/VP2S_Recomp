@@ -9,6 +9,9 @@ NativeCheats &nativeCheats(){
         // Headless tests: VP2S_CHEAT_INFINITE_HEALTH=1.
         if(const char *v=std::getenv("VP2S_CHEAT_INFINITE_HEALTH"))cheats.infiniteHealth=v[0]=='1';
         if(const char *v=std::getenv("VP2S_CHEAT_MONEY"))cheats.setMoney=std::strtoll(v,nullptr,10);
+        if(const char *v=std::getenv("VP2S_CHEAT_EXP"))cheats.expMultiplier=std::atoi(v);
+        if(const char *v=std::getenv("VP2S_CHEAT_GIVE")){char *end=nullptr;cheats.giveItem=int(std::strtol(v,&end,0));
+            cheats.giveCount=end && *end==':'?int(std::strtol(end+1,nullptr,0)):99;}
         return true;}();
     (void)fromEnvironment;return cheats;
 }
@@ -45,9 +48,45 @@ static void applyMoney(Runtime *rt){
     if(wanted>=0){value=uint32_t(std::min<int64_t>(wanted,party::kMoneyMax))^party::kMoneyKey;writeWord(rt,record+0x6c,value);writeWord(rt,record+0x18,generalHash(rt,record));}
     cheats.money=value^party::kMoneyKey;
 }
+// Items: a requested count written into the item's inventory slot (0 empties it), at most the item's own stack
+// limit; then the counts read back for the panel. The slots are checked to be the identity layout first.
+static void applyItems(Runtime *rt){
+    auto &cheats=nativeCheats();uint32_t inventory,table,first,second;
+    if(!readWord(rt,party::kInventory,inventory) || !readWord(rt,party::kItemTable,table) || !readWord(rt,inventory,first) ||
+       !readWord(rt,inventory+4,second) || (first&0xffff)!=0 || (second&0xffff)!=1){cheats.inventoryKnown=false;return;}
+    const int id=cheats.giveItem.exchange(-1);
+    if(id>=0 && unsigned(id)<NativeCheats::kItems){
+        const auto *limit=rt->memory.hostPointer(table+uint32_t(id)*0x38+0x30,1);
+        const int count=std::clamp(cheats.giveCount.load(),0,limit && *limit?int(*limit):99);
+        writeWord(rt,inventory+4u*uint32_t(id),count?(1u<<24)|(uint32_t(count)<<16)|uint32_t(id):uint32_t(id));}
+    for(unsigned i=0;i<NativeCheats::kItems;++i){uint32_t slot=0;readWord(rt,inventory+4*i,slot);cheats.counts[i]=(slot&0xffff)==i?uint8_t(slot>>16):0;}
+    cheats.inventoryKnown=true;
+}
+// EXP: the persistent party records ([1d3694] + i*0x140, party kind, valid flags checksum +14 = +1c ^ (+04 ^ (+62 +
+// +30))). A rise since the last frame is multiplied; +04 and +14 are rewritten as the game rewrites them.
+static void applyExp(Runtime *rt){
+    static std::array<int64_t,32> last{};static bool primed=false;
+    auto &cheats=nativeCheats();uint32_t first;if(!readWord(rt,0x1d3694,first)){primed=false;return;}
+    const int multiplier=std::clamp(cheats.expMultiplier.load(),1,100);
+    for(unsigned i=0;i<last.size();++i){
+        const uint32_t record=first+i*0x140;uint32_t exp,check,salt,extra;
+        const auto *kind=rt->memory.hostPointer(record+0x5a,1);const auto *flags=rt->memory.hostPointer(record+0x62,2);
+        if(!kind || !flags || ((*kind^party::kKindKey)&3)!=1 || !readWord(rt,record+4,exp) || !readWord(rt,record+0x14,check) ||
+           !readWord(rt,record+0x1c,salt) || !readWord(rt,record+0x30,extra)){last[i]=-1;continue;}
+        uint16_t f;std::memcpy(&f,flags,2);
+        const auto flagsCheck=[&](uint32_t e){return salt^(e^(uint32_t(f)+extra));};
+        if(flagsCheck(exp)!=check){last[i]=-1;continue;}
+        int64_t value=exp^party::kExpKey;
+        if(primed && last[i]>=0 && value>last[i] && multiplier>1){
+            value=std::min<int64_t>(last[i]+(value-last[i])*multiplier,99999999);
+            const uint32_t encoded=uint32_t(value)^party::kExpKey;writeWord(rt,record+4,encoded);writeWord(rt,record+0x14,flagsCheck(encoded));}
+        last[i]=value;
+    }
+    primed=true;
+}
 void applyNativeCheats(Runtime *rt){
     if(!rt)return;
-    applyMoney(rt);
+    applyMoney(rt);applyItems(rt);applyExp(rt);
     if(!nativeCheats().infiniteHealth)return;
     // Battle: the party's battle records, [*1d366c + cbcc] (4 slots, -1 or empty outside battle).
     uint32_t battle;

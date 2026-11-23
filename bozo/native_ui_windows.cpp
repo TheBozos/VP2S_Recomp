@@ -26,8 +26,38 @@ void NativeUiWindows::begin(Runtime *rt,uint32_t stack,uint32_t element){
     windowType(rt,element);
     if(builds.contains(stack))throw std::runtime_error("native window capture stack reused");
     if(!value<uint8_t>(rt,element+0xf6) || value<uint8_t>(rt,element+0x3b))return;
-    if(value<uint8_t>(rt,element+0xf3) || value<uint8_t>(rt,element+0xf4))throw std::runtime_error("native window scroll controls require capture");
     ready.erase(element);builds.emplace(stack,Build{NativeUiWindow{element}});
+}
+// Scroll bar (2e9640 calls 2e9720 when +f3 or +f4 is set; 2e9720 draws only for +f3): its track 2e9b90 and its
+// thumb and two end caps 2e9920, each given the element (a0) and a rectangle x, y, w, h (a2, 2e9720's sp+60) in
+// the layer's units. Both writers place it the same way: layer origin (+40, +44) added, then the frame mapping
+// of the display record [35e170] (+840/+844 scale, +848/+84c offset), truncated; depth layer +c4 + element +2c;
+// alpha (layer +e0 times element +28 over 128, truncated) in the top byte. The track is one untextured sprite in
+// black; a thumb or cap is a sprite in 54768a under two three-vertex line strips, afbbc4 along its left and top
+// edges and 363840 one unit inside its right and bottom edges. The lines become one-pixel strips. They join the
+// window's background list (its save-state layout unchanged); the bar sits outside the window's right edge.
+void NativeUiWindows::scrollBar(Runtime *rt,uint32_t sp,uint32_t element,uint32_t rect,bool track){
+    windowType(rt,element);auto it=builds.find(sp+0x70);   // 2e9720's 0x70-byte frame under 2e9640's capture key
+    if(it==builds.end() || it->second.window.element!=element || rect!=sp+0x60 || !value<uint8_t>(rt,element+0xf3))
+        throw std::runtime_error("native window scroll bar escaped its builder");
+    const auto f=[&](uint32_t at){return value<float>(rt,at);};
+    const auto display=value<uint32_t>(rt,0x35e170),layer=value<uint32_t>(rt,element+0x14);
+    const float sx=f(display+0x840),sy=f(display+0x844),ox=f(display+0x848),oy=f(display+0x84c);
+    const float left=f(layer+0x40)+f(rect),top=f(layer+0x44)+f(rect+4),right=left+f(rect+8),bottom=top+f(rect+12);
+    const auto depth=uint32_t(value<int32_t>(rt,layer+0xc4)+value<int32_t>(rt,element+0x2c));
+    const auto alpha=uint32_t(int32_t(f(layer+0xe0)*f(element+0x28)/128.0f))<<24;
+    const auto X=[&](float x){return int32_t(x*sx+ox);};const auto Y=[&](float y){return int32_t(y*sy+oy);};
+    const int32_t x0=X(left),y0=Y(top),x1=X(right),y1=Y(bottom);
+    for(const int32_t v:{x0,y0,x1,y1})if(v<0 || v>65535)throw std::runtime_error("native window scroll bar outside fixed-point range");
+    if(depth>0xffffff)throw std::runtime_error("native window scroll bar depth outside range");
+    auto &strips=it->second.window.background;
+    const auto box=[&](int32_t a,int32_t b,int32_t c,int32_t d,uint32_t colour){
+        NativeUiStrip s;s.depth=depth;s.corners={{{a,b},{c,b},{a,d},{c,d}}};s.colours.fill(colour|alpha);strips.push_back(s);};
+    if(track){box(x0,y0,x1,y1,0);return;}
+    const int32_t x1m=X(right-1.0f),y1m=Y(bottom-1.0f),pixel=16;
+    box(x0,y0,x1,y1,0x54768a);
+    box(x0,y0,x0+pixel,y1,0xafbbc4);box(x0,y0,x1,y0+pixel,0xafbbc4);
+    box(x1m,y0,x1m+pixel,y1m,0x363840);box(x0,y1m,x1m+pixel,y1m+pixel,0x363840);
 }
 void NativeUiWindows::beginBackground(uint32_t stack,uint32_t element){
     const auto parent=stack+0x40;auto it=builds.find(parent);
@@ -189,6 +219,10 @@ void NativeUiWindows::scissor(Runtime *rt,uint32_t element,uint64_t registerValu
     if(registerValue&0xf800f800f800f800ull)throw std::runtime_error("native scissor outside the register's 11-bit fields");
     auto result=std::make_shared<NativeUiWindow>();result->element=element;result->scissor=rect;ready[element]=std::move(result);
 }
+void NativeUiWindows::spriteElements(uint32_t element,std::vector<NativeUiSprite> sprites){
+    if(sprites.size()>2)throw std::runtime_error("native two-sprite element drew more than two sprites");
+    auto result=std::make_shared<NativeUiWindow>();result->element=element;result->border=std::move(sprites);ready[element]=std::move(result);
+}
 void NativeUiWindows::spriteElement(uint32_t element,std::vector<NativeUiSprite> sprites){
     if(sprites.size()!=1)throw std::runtime_error("native sprite element build drew another sprite count");
     auto result=std::make_shared<NativeUiWindow>();result->element=element;result->border=std::move(sprites);ready[element]=std::move(result);
@@ -257,7 +291,7 @@ bozo::render::Material nativeUiFlatMaterial(bozo::render::Material::Blend blend)
 }
 std::optional<bool> nativeUiWindowInstruction(R5900Context *c,Runtime *rt,uint32_t pc){
     if(!nativeUiWindowSite(pc))return std::nullopt;   // its sites: native_conditional_sites.h
-    switch(pc){case 0x2e9640:case 0x2e970c:case 0x2e95d0:case 0x2e9e90:case 0x2ea154:case 0x2ea338:case 0x2ead10:
+    switch(pc){case 0x2e9640:case 0x2e970c:case 0x2e9b90:case 0x2e9920:case 0x2e95d0:case 0x2e9e90:case 0x2ea154:case 0x2ea338:case 0x2ead10:
         case 0x383660:case 0x2eae90:case 0x2eb07c:case 0x2eb284:case 0x2eb2ec:case 0x2eb300:case 0x2eb320:case 0x2eb340:case 0x2eb378:
         case 0x30ee00:case 0x30ef20:case 0x30ef2c:case 0x30ef44:case 0x30ef78:case 0x30efb8:case 0x30eff4:case 0x30f028:case 0x30f070:case 0x30ed90:case 0x30c530:case 0x460f24:case 0x460050:case 0x2ef780:case 0x2ef540:case 0x45e594:break;default:return std::nullopt;}
     auto *d=rt?vp2s::nativeCast<bozo::ee::Dispatcher>(rt->services):nullptr;auto *o=d?vp2s::nativeCast<UiWindowOwner>(&d->host()):nullptr;
@@ -275,6 +309,7 @@ std::optional<bool> nativeUiWindowInstruction(R5900Context *c,Runtime *rt,uint32
     else if(pc==0x30f070)w.finishSelection(sp,c->r[16].uw[0]);
     else if(pc==0x2e9640){if(c->pc!=pc)throw std::runtime_error("native window requires complete builder");w.begin(rt,sp-0x30,c->r[4].uw[0]);}
     else if(pc==0x2e970c)w.finish(rt,sp,c->r[16].uw[0]);
+    else if(pc==0x2e9b90 || pc==0x2e9920)w.scrollBar(rt,sp,c->r[4].uw[0],c->r[6].uw[0],pc==0x2e9b90);
     else if(pc==0x2e95d0){if(c->r[4].uw[0]){w.release(c->r[4].uw[0]);s->nativeUiSprites().reset(c->r[4].uw[0]+0x50);}}
     else if(pc==0x383660){
         // Battle window 16ee00's destructor (mod028): the same release as 2e95d0, whose body it inlines.

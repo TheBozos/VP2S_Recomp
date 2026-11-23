@@ -38,6 +38,39 @@ def load_identity(data):
     return [(s[2], s[5], s[6], data[s[1]:s[1] + s[4]]) for s in segments if s[0] == 1]
 
 
+def empty_stub_entries(data,rows):
+    """Empty methods (jr ra plus its delay slot) on a 16-byte boundary after zero padding or another function's return that no listed function
+    covers: the export omits them, and vtables built at run time reach them (the camp menu's Items page calls
+    mod001 30c470). Original bytes, exposed to static compilation."""
+    _,segments,_=elf_parts(data)
+    spans=[(int(r['Start'],16),int(r['End'],16)) for r in rows if r.get('Start') and r.get('End')]
+    covered=lambda pc:any(lo<=pc<hi for lo,hi in spans)
+    entries=[]
+    for kind,offset,vaddr,_,size,*_ in segments:
+        if kind!=1:continue
+        for at in range(16,size-8,16):
+            word,=struct.unpack_from('<I',data,offset+at);before,=struct.unpack_from('<I',data,offset+at-4)
+            ended,=struct.unpack_from('<I',data,offset+at-8)   # the previous function's jr ra + delay slot (30c230)
+            if word==0x03e00008 and (before==0 or ended==0x03e00008) and not covered(vaddr+at):
+                entries.append(dict(Name=f'empty_method_{vaddr+at:08x}',Start=hex(vaddr+at),End=hex(vaddr+at+8)))
+    return entries
+
+def slot_call_entries(data,rows,targets):
+    """Calls the common images make to fixed addresses in an overlay slot (mod003 461138 calls 496110, the camp
+    menu's Items overlay mod020, whose export omits that function): each overlay that has a clean function start
+    there (16-byte aligned, after zero padding or another function's jr ra pair, no listed function covering it)
+    takes the call. A target meant for another overlay of the same slot lands mid-code here and is not taken."""
+    _,segments,_=elf_parts(data)
+    spans=[(int(r['Start'],16),int(r['End'],16)) for r in rows if r.get('Start') and r.get('End')]
+    entries=[]
+    for target in sorted(targets):
+        if target&15 or any(lo<=target<hi for lo,hi in spans):continue
+        segment=next((s for s in segments if s[0]==1 and s[2]+16<=target<s[2]+s[4]),None)
+        if segment is None:continue
+        at=segment[1]+target-segment[2];word,before,ended=(struct.unpack_from('<I',data,at-k)[0] for k in (0,4,8))
+        if word and (before==0 or ended==0x03e00008):entries.append(target)
+    return entries
+
 def overlay_entries(name,data):
     if not re.fullmatch(r'mod\d{3}',name):return []
     header,segments,sections=elf_parts(data)
@@ -461,12 +494,20 @@ def main():
         with (args.build/'ghidra/export'/f'{name}_functions.csv').open(newline='') as stream:
             rows=list(csv.DictReader(stream))
         rows+=overlay_entries(name,data)
+        rows+=empty_stub_entries(data,rows)
         if name in CAPTURED_BATTLE_MODULES:rows+=gap_entries(args.build/'entries'/f'{name}.txt',rows,data)
         if name=='main':
             from vp2_bozo_kernel import game_entries,bootstrap_tables
             rows+=game_entries(data)
             (args.out/'bootstrap.bin').write_bytes(bootstrap_tables(data))
         inputs[name]=(data,rows)
+    common_calls=set().union(*(static_call_targets(data,rows) for key,(data,rows) in inputs.items() if key in ('main','mod001','mod003','mod027')))
+    for name,(data,rows) in inputs.items():
+        if name in ('main','mod001','mod003','mod027'):continue
+        slot=slot_call_entries(data,rows,common_calls)
+        if slot:
+            rows+=linked_call_entries(data,rows,slot,sdk_names(args.build/'sdk'/f'{name}.toml'))
+            print(f'{name}: {len(slot)} slot call entries exposed')
     vtable_references={}
     for name,(data,rows) in inputs.items():
         # Only this image's constructor stores nominate its virtual methods.

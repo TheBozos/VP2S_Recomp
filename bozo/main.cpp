@@ -1246,11 +1246,39 @@ int main(int argc,char **argv) {
                 bool health=cheats.infiniteHealth;
                 if(ImGui::Checkbox("Infinite health (party, in battle)",&health))cheats.infiniteHealth=health;
                 ImGui::TextDisabled("Live party members return to full HP every frame; the records' anti-cheat checksums are rewritten as the game does.");
+                int multiplier=cheats.expMultiplier;ImGui::SetNextItemWidth(160);
+                if(ImGui::SliderInt("EXP multiplier",&multiplier,1,10,"x%d"))cheats.expMultiplier=multiplier;
                 ImGui::Separator();
                 static int wanted=99999999;const auto money=cheats.money.load();
                 if(money>=0)ImGui::Text("Money (OTH): %lld",(long long)money);else ImGui::TextDisabled("Money (OTH): not loaded yet");
                 ImGui::SetNextItemWidth(160);ImGui::InputInt("##money",&wanted,1000,100000);wanted=std::clamp(wanted,0,99999999);
                 ImGui::SameLine();if(ImGui::Button("Set money"))cheats.setMoney=wanted;
+                ImGui::Separator();
+                // Items: names from tools/vp2_item_names.py (build_usa/bozo/item_names.txt, from your disc).
+                static const std::vector<std::string> names=[]{std::vector<std::string> v;
+                    std::ifstream in(std::filesystem::path(VP2S_BOZO_IMAGES).parent_path()/"item_names.txt");
+                    for(std::string line;std::getline(in,line);)v.push_back(line);return v;}();
+                if(names.empty()){ImGui::TextDisabled("Items: no item_names.txt (run tools/vp2_item_names.py)");return;}
+                if(!cheats.inventoryKnown){ImGui::TextDisabled("Items: the inventory is not loaded yet");return;}
+                static char search[64]="";static int selected=-1,amount=99;
+                ImGui::SetNextItemWidth(240);ImGui::InputTextWithHint("##search","Search items",search,sizeof search);
+                std::string needle=search;std::transform(needle.begin(),needle.end(),needle.begin(),[](unsigned char c){return char(std::tolower(c));});
+                if(ImGui::BeginChild("items",ImVec2(0,220),ImGuiChildFlags_Borders)){
+                    for(unsigned id=0;id<names.size() && id<vp2s::NativeCheats::kItems;++id){
+                        if(names[id].empty())continue;
+                        std::string lower=names[id];std::transform(lower.begin(),lower.end(),lower.begin(),[](unsigned char c){return char(std::tolower(c));});
+                        if(!needle.empty() && lower.find(needle)==std::string::npos)continue;
+                        const auto held=cheats.counts[id].load();
+                        const std::string label=held?std::format("{}  x{}##{}",names[id],held,id):std::format("{}##{}",names[id],id);
+                        if(ImGui::Selectable(label.c_str(),selected==int(id)))selected=int(id);}
+                }
+                ImGui::EndChild();
+                ImGui::SetNextItemWidth(120);ImGui::InputInt("Amount",&amount,1,10);amount=std::clamp(amount,0,99);
+                ImGui::BeginDisabled(selected<0);
+                ImGui::SameLine();if(ImGui::Button("Give")){cheats.giveCount=amount;cheats.giveItem=selected;}
+                ImGui::SameLine();if(ImGui::Button("Remove")){cheats.giveCount=0;cheats.giveItem=selected;}
+                ImGui::EndDisabled();
+                if(selected>=0)ImGui::TextDisabled("Selected: %s (id %d), held %d",names[selected].c_str(),selected,int(cheats.counts[selected].load()));
             });
             bozo::app::WindowOptions window;
             window.title="Valkyrie Profile 2: Silmeria";window.aspect=4.0f/3.0f;window.stats=std::getenv("VP2S_WINDOW_STATS")!=nullptr;

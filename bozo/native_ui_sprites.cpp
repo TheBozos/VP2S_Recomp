@@ -97,7 +97,7 @@ bool nativeButtonElementClass(Runtime *rt,uint32_t type){
 }
 std::optional<bool> nativeUiSpriteInstruction(R5900Context *c,Runtime *rt,uint32_t pc){
     if(!nativeUiSpriteSite(pc))return std::nullopt;   // its sites: native_conditional_sites.h
-    if(pc!=0x2eab28 && pc!=0x2eaa20 && pc!=0x462a60 && pc!=0x2f1050 && pc!=0x2f12cc && pc!=0x2f11c0 && pc!=0x3835e0 && pc!=0x47a1c0 && pc!=0x2ec308 && pc!=0x2ec320 && pc!=0x2efe40 && pc!=0x2effe8 && pc!=0x2eb3a0 && pc!=0x2eb5c4 && pc!=0x2ebac4 && pc!=0x2ebb0c && pc!=0x2ebb58 && pc!=0x2ebb9c && pc!=0x2ebba8 && pc!=0x2f2df0 && pc!=0x2f2fb8 && pc!=0x2f2d70)return std::nullopt;
+    if(pc!=0x2eab28 && pc!=0x2eaa20 && pc!=0x462a60 && pc!=0x2f1050 && pc!=0x2f12cc && pc!=0x2f11c0 && pc!=0x3835e0 && pc!=0x47a1c0 && pc!=0x2ec308 && pc!=0x2ec320 && pc!=0x2efe40 && pc!=0x2effe8 && pc!=0x2eb3a0 && pc!=0x2eb5c4 && pc!=0x2ebac4 && pc!=0x2ebb0c && pc!=0x2ebb58 && pc!=0x2ebb9c && pc!=0x2ebba8 && pc!=0x2f2df0 && pc!=0x2f2fb8 && pc!=0x2f2d70 && pc!=0x310480 && pc!=0x310584 && pc!=0x3102f0)return std::nullopt;
     auto *d=rt?vp2s::nativeCast<bozo::ee::Dispatcher>(rt->services):nullptr;
     auto *owner=d?vp2s::nativeCast<UiSpriteOwner>(&d->host()):nullptr;
     auto *textures=d?vp2s::nativeCast<TextureOwner>(&d->host()):nullptr;
@@ -147,8 +147,43 @@ std::optional<bool> nativeUiSpriteInstruction(R5900Context *c,Runtime *rt,uint32
         if(!done){if(c->pc!=pc || sprites.buildingText(element))throw std::runtime_error("native sprite element destroyed during capture");
             windows->nativeUiWindows().release(element);sprites.reset(element+0x50);}
         else windows->nativeUiWindows().spriteElement(element,sprites.finishText(sp,element));
+    }else if(pc==0x310480 || pc==0x310584 || pc==0x3102f0){
+        // Two-sprite element 15ac60 (the camp menu Items page's icons): build 310480 draws each of its sprites +50
+        // and +b8 whose +66 is set, returning from the writer to 310548, when +11e or +b6 is set and it is not
+        // built (+3b); it marks itself built at 310584. Destructor 3102f0 (its sprite array resets through 2ec320).
+        auto *windows=vp2s::nativeCast<UiWindowOwner>(&d->host());if(!windows)throw std::runtime_error("native two-sprite element has no window owner");
+        const auto element=c->r[pc==0x310584?20:4].uw[0];
+        if(pc==0x3102f0 && !element)return false;
+        if(value<uint32_t>(rt,element)!=0x15ac60)throw std::runtime_error("native two-sprite element has another class");
+        if(pc==0x310480){
+            if(c->pc!=pc || sp<0x80 || (sp&15))throw std::runtime_error("native two-sprite element requires complete original builder");
+            if((value<uint8_t>(rt,element+0x11e) || value<uint8_t>(rt,element+0xb6)) && !value<uint8_t>(rt,element+0x3b))sprites.beginText(sp-0x80,element);
+        }else if(pc==0x310584)windows->nativeUiWindows().spriteElements(element,sprites.finishText(sp,element));
+        else{
+            if(c->pc!=pc || sprites.buildingText(element))throw std::runtime_error("native two-sprite element destroyed during capture");
+            windows->nativeUiWindows().release(element);
+        }
     }else if(pc==0x2eb3a0){
         const auto caller=c->r[31].uw[0];const bool image=caller==0x2f2efc || caller==0x2f2f8c;
+        if(caller==0x310548){
+            // 15ac60's sprites (above): bound by 2ec200 to their own one-part DTT (+4) and texture record (+5a page,
+            // +5c palette page, +5f format, +60/+61 log2 size); the picture is the camp menu image under that handle.
+            const auto element=c->r[20].uw[0],sprite=c->r[4].uw[0],layer=value<uint32_t>(rt,element+0x14);
+            if(c->pc!=pc || value<uint32_t>(rt,element)!=0x15ac60 || (sprite!=element+0x50 && sprite!=element+0xb8) ||
+               value<uint32_t>(rt,layer)!=0x152060 || !sprites.buildingText(element))
+                throw std::runtime_error("native two-sprite element's sprite escaped its builder");
+            if(!sprites.button(sprite)){
+                const auto dtt=value<uint32_t>(rt,sprite+4),parts=value<uint32_t>(rt,sprite+8),entries=uint32_t(value<uint16_t>(rt,sprite+0x56));
+                if(value<uint32_t>(rt,dtt)!=0x545444 || parts!=dtt+0x14 || !entries || entries!=value<uint16_t>(rt,dtt+0x10))
+                    throw std::runtime_error("native two-sprite element lost its DTT binding");
+                const auto page=value<uint16_t>(rt,sprite+0x5a),palette=value<uint16_t>(rt,sprite+0x5c);
+                const auto format=value<uint8_t>(rt,sprite+0x5f),tw=value<uint8_t>(rt,sprite+0x60),th=value<uint8_t>(rt,sprite+0x61);
+                auto asset=textures->nativeTextures().menuPage(page,format,palette);
+                if(!asset)throw std::runtime_error(std::format("native two-sprite element names no published menu image (page {:x} format {:x} palette {:x})",page,format,palette));
+                if(tw>10 || th>10 || asset->width!=1u<<tw || asset->height!=1u<<th)throw std::runtime_error("native two-sprite element image size differs from its record");
+                sprites.bindSheet(std::make_shared<NativeButtonSheet>(NativeButtonSheet{sprite,dtt,parts,entries,0,std::move(asset)}));
+            }
+        }
         if(caller==0x2f1050){
             // FIS sprite element 168440: 2ebbe0 bound its sprite to the element's
             // own FIS file (+b8, read through the tracked loader into +cc), with
@@ -201,7 +236,7 @@ std::optional<bool> nativeUiSpriteInstruction(R5900Context *c,Runtime *rt,uint32
             if(!sprites.button(sprite))throw std::runtime_error("native button sprite element has no bound sheet");
             sprites.beginText(sp,element);
         }
-        if(c->pc!=pc || (caller!=0x2eff74 && caller!=0x2eab28 && caller!=0x2f1050 && caller!=0x2f12cc && !image) || c->r[8].uw[0])throw std::runtime_error(std::format("unported native sprite caller/colour multiplier: caller={:x} sprite={:x} colour={:x} x={:x} y={:x} depth={:x}",caller,c->r[4].uw[0],c->r[8].uw[0],c->r[5].uw[0],c->r[6].uw[0],c->r[7].uw[0]));
+        if(c->pc!=pc || (caller!=0x2eff74 && caller!=0x2eab28 && caller!=0x2f1050 && caller!=0x2f12cc && caller!=0x310548 && !image) || c->r[8].uw[0])throw std::runtime_error(std::format("unported native sprite caller/colour multiplier: caller={:x} sprite={:x} colour={:x} x={:x} y={:x} depth={:x}",caller,c->r[4].uw[0],c->r[8].uw[0],c->r[5].uw[0],c->r[6].uw[0],c->r[7].uw[0]));
         if(image){const auto element=c->r[18].uw[0];
             if(value<uint32_t>(rt,element)!=0x15a690 || c->r[4].uw[0]!=element+(caller==0x2f2efc?0xb8:0x50) || !sprites.buildingText(element))
                 throw std::runtime_error("native image sprite escaped its original element builder");

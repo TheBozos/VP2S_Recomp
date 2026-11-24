@@ -1086,6 +1086,33 @@ bool nativeBattleUnitProjection(R5900Context *c,Runtime *rt,uint32_t pc){
     if(state.loaded!=15 || !state.point)throw std::runtime_error("native battle unit projection stored without its rows and point");
     const auto result=program0Projection(state,"battle unit");std::memcpy(record(rt,stack+0x70,16),result.data(),16);state.point=false;return true;
 }
+// Battle projection leaf at 36bc00 (battle overlay; called by the screen shockwave 1746d0's update 4c61d0 at 4c62bc for
+// its target, battles 0x2c / 0x2d / 0x2f / 0x38): v1 = *(*(*36d880+80)+18) the camera rows, LQC2 vf1..vf4 = 0..30(v1)
+// (36bc10..36bc1c), LQC2 vf5 = 0(a0) (36bc20), VCALLMS 0 (36bc2c), CFC2.I t1/vi0 (36bc30), jr ra with SQC2 vf6 to 0(a1)
+// in its delay slot (36bc38): program 0 (program0Projection), one call per projection.
+FlareProjection &battleLeafProjection(const Runtime *rt){static std::map<const Runtime *,FlareProjection> states;return states[rt];}
+bool nativeBattleLeafProjection(R5900Context *c,Runtime *rt,uint32_t pc){
+    static constexpr std::pair<uint32_t,uint32_t> sites[]={{0x36bc10,0xd8610000},{0x36bc14,0xd8620010},{0x36bc18,0xd8630020},{0x36bc1c,0xd8640030},
+        {0x36bc20,0xd8850000},{0x36bc2c,0x4a000038},{0x36bc30,0x48490001},{0x36bc38,0xf8a60000}};
+    if((pc&3) || !rt || pc<0x36bc10 || pc>0x36bc38)return false;
+    const auto site=std::find_if(std::begin(sites),std::end(sites),[&](auto &x){return x.first==pc;});
+    if(site==std::end(sites))return false;
+    const auto word=[&](uint32_t at){uint32_t w=0;if(const auto *p=rt->memory.hostPointer(at,4))std::memcpy(&w,p,4);return w;};
+    for(const auto &s:sites)if(word(s.first)!=s.second)return false;   // another overlay at these addresses
+    if(word(0x36bc34)!=0x03e00008u)return false;
+    if(!c)throw std::runtime_error("native battle leaf projection has no CPU record");
+    auto &state=battleLeafProjection(rt);
+    if(pc<=0x36bc1c){const unsigned k=(pc-0x36bc10)/4;if(k==0){state.loaded=0;state.point=false;}
+        else if(state.loaded!=(1u<<k)-1)throw std::runtime_error("native battle leaf projection rows out of order");
+        std::memcpy(state.rows[k],record(rt,c->r[3].uw[0]+16*k,16),16);for(float &x:state.rows[k])x=vu0Input(x);state.loaded|=1u<<k;return true;}
+    if(pc==0x36bc20){if(state.loaded!=15)throw std::runtime_error("native battle leaf projection point before its rows");
+        std::memcpy(state.v,record(rt,c->r[4].uw[0],16),16);for(float &x:state.v)x=vu0Input(x);state.point=true;return true;}
+    if(pc==0x36bc2c)return true;
+    if(pc==0x36bc30){c->r[9].ud[0]=0;return true;}
+    if(state.loaded!=15 || !state.point)throw std::runtime_error("native battle leaf projection stored without its rows and point");
+    const auto result=program0Projection(state,"battle leaf");std::memcpy(record(rt,c->r[5].uw[0],16),result.data(),16);
+    state.loaded=0;state.point=false;return true;
+}
 // Battle label projection, mod028 4fcae0 (what the projected points label is not identified): LQC2 vf1..vf4 = the camera rows at
 // *(*(*36d880+80)+18) once (4fcb3c..4fcb48), then program-0 blocks (LQC2 vf5 = (v0), VCALLMS
 // 0, CFC2.I t1/vi0, SQC2 vf6 to (v0)) at 4fcd14, 4fce04, 4fceec, 4fcfdc (to sp+e0) and in its
@@ -8242,6 +8269,7 @@ bool nativeMathInstruction(uint8_t *,R5900Context *c,Runtime *rt,uint32_t pc){
     if(CLAIM(nativeBattleTaskColours))return true;
     if(CLAIM(nativeBattleUnitProjection))return true;
     if(CLAIM(nativeBattleCameraProjection))return true;
+    if(CLAIM(nativeBattleLeafProjection))return true;
     if(CLAIM(nativeBattleSegmentDirection))return true;
     if(CLAIM(nativeSegmentSphere))return true;
     if(CLAIM(nativeBattleSegmentBox))return true;

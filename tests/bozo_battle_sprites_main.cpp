@@ -362,6 +362,37 @@ int main(){try{
       ad(restore,{{1,0x3f},{4,0x1c},{0x61,0x15},{0x44,0x43},{0x5000d,0x48},{0x8000008080ull,0x3b},{0x1000000,0x4f}});
       lenses.lensRestore(&rt,wl,stripEnd+0x80);
       check(lb->accountedBytes()==0x20+0x20+0x3c0+0xe0+0x80); }   // two ALPHA_2 writes, fans, strips, restore
+    // Screen shockwave 1746d0 (builder 4c28d0's shape): setup CNT 9, a fan of 4 (UV, XYZ2), one ring strip of 5 (RGBAQ, UV,
+    // XYZ2), the END restore; the display record (as the lens's) gives TEX0_2, [35de60] + 170 the ZBUF_2.
+    { constexpr uint32_t object=0x2e0000,writer=0x2e1000,chain=0x2e2000,ctx=0x2e3000;
+      put(rt,0x35de60,ctx);put(rt,ctx+0x170,0x1000000u);
+      put(rt,object,0x1746d0u);put(rt,object+0xc0,0x174754u);put(rt,object+0xbc,uint8_t(0));put(rt,object+0x90,writer);
+      uint32_t at=chain;const auto q2=[&](uint64_t a,uint64_t b){put(rt,at,a);put(rt,at+8,b);at+=16;};
+      q2(0x10000009,0);q2(0x11aac00000008008ull,0xe);
+      for(const auto &[d,r]:std::initializer_list<std::pair<uint64_t,uint64_t>>{{0x668128ea0ull,7},{0x61,0x15},{0x30000,0x48},{0x8000000080ull,0x3b},{0x44,0x43},{0x1000000,0x4f},{0x40808080,1},{0,0x3f}})q2(d,r);
+      const auto xyz=[](uint32_t x,uint32_t y,uint32_t z){return uint64_t(x)|uint64_t(y)<<16|uint64_t(z)<<32;};
+      q2(0x10000005,0);q2(0x2400000000000004ull,0x53);
+      const uint32_t fu[4]={0x740,0x87c,0x869,0x832},fv[4]={0x5a0,0x5a0,0x5e1,0x61b};
+      for(unsigned v=0;v<4;++v)q2(fu[v]|uint64_t(fv[v])<<16,xyz(0x7486+16*v,0x7d72,0xffec8b));
+      q2(0x1000000b,0);q2(0x11ae400000000001ull,0xe);q2(0x70000,0x48);q2(0x3400000000008005ull,0x531);
+      uint64_t regs[16]{};for(unsigned v=0;v<5;++v){regs[3*v]=0x3f80000000808080ull|uint64_t(0x10*v)<<24;regs[3*v+1]=uint64_t(0x700+16*v)|uint64_t(0x500)<<16;regs[3*v+2]=xyz(0x7400+32*v,0x7d00+16*(v&1),0xffec7c);}
+      for(unsigned k=0;k<8;++k)q2(regs[2*k],regs[2*k+1]);
+      q2(0x70000008,0);q2(0x1000000000008007ull,0xe);
+      for(const auto &[d,r]:std::initializer_list<std::pair<uint64_t,uint64_t>>{{0x61,0x15},{0,0x3f},{0x5000d,0x48},{0x8000008080ull,0x3b},{0x44,0x43},{0x1000000,0x4f},{0x19f023f0000ull,0x41}})q2(d,r);
+      put(rt,writer+12,chain);put(rt,writer+8,at);
+      const auto w=vp2s::nativeShockwave(&rt,object);
+      check(w.linear && w.fanDepthWrite && w.stripDepthWrite && w.fan.size()==2 && w.strips.size()==2);
+      const auto &f=w.fan[0];check(f.colour==0x40808080u && f.depth==0xffec8b && f.freeUv && f.fixedCorners[0]==std::array<int32_t,2>{0x7486,0x7d72});
+      check(f.cornerUv[0][0]==float(0x740)/16.f/640.f && f.cornerUv[0][1]==float(0x5a0)/16.f/224.f && f.fixedCorners[3]==f.fixedCorners[2]);
+      const auto &s0=w.strips[0],&s1=w.strips[1];check(s0.gouraud && s0.depth==0xffec7c && s0.cornerColours[3]==0x30808080u && s1.cornerColours[0]==0x20808080u);
+      check(s1.fixedCorners[2]==std::array<int32_t,2>{0x7480,0x7d00} && s1.fixedCorners[3]==s1.fixedCorners[2] && s0.cornerUv[1][0]==float(0x710)/16.f/640.f);
+      // Refusals: another texture, another blend, a strip tag, a chain longer than its blocks, another class.
+      put(rt,chain+0x20,0x668128ec0ull);rejects([&]{vp2s::nativeShockwave(&rt,object);});put(rt,chain+0x20,0x668128ea0ull);
+      put(rt,chain+0x60,uint64_t(0x48));rejects([&]{vp2s::nativeShockwave(&rt,object);});put(rt,chain+0x60,uint64_t(0x44));
+      put(rt,chain+0x130,0x3400000000008004ull);rejects([&]{vp2s::nativeShockwave(&rt,object);});put(rt,chain+0x130,0x3400000000008005ull);
+      put(rt,writer+8,at+16);rejects([&]{vp2s::nativeShockwave(&rt,object);});put(rt,writer+8,at);
+      put(rt,object,0x174530u);rejects([&]{vp2s::nativeShockwave(&rt,object);});put(rt,object,0x1746d0u);
+      check(vp2s::nativeShockwave(&rt,object).strips.size()==2); }
     std::puts("native battle sprites: build, texture, both ST paths, flat, Gouraud and textured polygons, flat and Gouraud triangles, engine flat rectangles, bands, rectangles, corner shades, VIF1-direct UI, screen lenses, flush checks");
     return 0;
 }catch(const std::exception &e){std::fprintf(stderr,"%s\n",e.what());return 1;}}

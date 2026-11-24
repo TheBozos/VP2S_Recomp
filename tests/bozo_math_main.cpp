@@ -882,6 +882,17 @@ int main(int argc,char **argv){try{
                 for(uint32_t pc:{0x4d11e0u,0x4d11ecu,0x4d11f0u,0x4d11f8u})check(vp2s::nativeMathInstruction(rt.memory.flat(),&c,&rt,pc));
                 float o[4];std::memcpy(o,rt.memory.hostPointer(stack+0x70,16),16);check(o[0]==2/w && o[1]==4/w && o[2]==6/w && o[3]==1/w && c.r[9].ud[0]==0);}
         }
+        {   // battle projection leaf 36bc00: rows from v1, the point from a0, program 0, the store to a1 in jr ra's delay slot.
+            constexpr uint32_t leaf[]={0xd8610000,0xd8620010,0xd8630020,0xd8640030,0xd8850000,0,0,0x4a000038,0x48490001,0x03e00008,0xf8a60000};
+            std::memcpy(rt.memory.hostPointer(0x36bc10,sizeof(leaf)),leaf,sizeof(leaf));
+            constexpr uint32_t rows=0x1a0100,point=0x1fff100,out=0x1fff200;const float m[16]={2,0,0,0, 0,2,0,0, 0,0,2,0, 0,0,0,1};std::memcpy(rt.memory.hostPointer(rows,64),m,64);
+            const float v[4]={1,2,3,2};std::memcpy(rt.memory.hostPointer(point,16),v,16);
+            R5900Context c{};c.r[3].uw[0]=rows;c.r[4].uw[0]=point;c.r[5].uw[0]=out;
+            {bool failed=false;try{vp2s::nativeMathInstruction(rt.memory.flat(),&c,&rt,0x36bc38);}catch(const std::runtime_error &){failed=true;}check(failed);}   // a store alone
+            for(uint32_t pc:{0x36bc10u,0x36bc14u,0x36bc18u,0x36bc1cu,0x36bc20u,0x36bc2cu,0x36bc30u,0x36bc38u})check(vp2s::nativeMathInstruction(rt.memory.flat(),&c,&rt,pc));
+            float o[4];std::memcpy(o,rt.memory.hostPointer(out,16),16);check(o[0]==1 && o[1]==2 && o[2]==3 && o[3]==.5f && c.r[9].ud[0]==0);
+            check(!vp2s::nativeMathInstruction(rt.memory.flat(),&c,&rt,0x36bc34));   // jr ra is CPU code
+        }
         {   // mod028 3e9470 battle side axes: n = normalize(P - P0); a x n, b x n (xyz only), twice.
             constexpr uint32_t b1[]={0xd8410000,0xd8420010,0xc7a001a4,0x27a301a0,0x27a20160,0xe7a00164,0xd87c0000,0xd85b0000,0x4bc00643,0x4bdcdeac,0x4bdad6ea,
                 0x4b1bd83d,0x4b1bceca,0x4a7b03be,0x27a20100,0x4a0003bf,0x4bc0d69c,0x4bda0afe,0x4bc1d2ae,0x4bda12fe,0x4bc2d2ee,0xf84a0000,0xf84b0010};

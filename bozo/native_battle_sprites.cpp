@@ -442,6 +442,70 @@ void NativeBattleSprites::lensRestore(Runtime *rt,uint32_t writer,uint32_t end){
     checkAd(rt,start,{{1,0x3f},{4,0x1c},{0x61,0x15},{0x44,0x43},{0x5000d,0x48},{0x8000008080ll,0x3b},{value<uint32_t>(rt,displayRecord(rt)+0x170),0x4f}},"restore");
     it->second.polygonBytes+=0x80;
 }
+// Screen shockwave 1746d0: the chain its builder 4c28d0 (+110 bit 3 set, bit 2 clear; via 4c5e00) and 4c0e90 left in the
+// +90[+bc] writer (begin +c, end +8). DMA CNT 9: an A+D GIF tag (NLOOP 8, EOP, PRE PRIM 355 / 35d: fan, TME, ABE, FST, context
+// 2) with TEX0_2 = the display buffer (as the screen lens), TEX1_2 61 / 1, TEST_2 30000 (depth always), TEXA 80/80 (so
+// texel alpha 0x80: the vertex alpha is the blend's As), ALPHA_2 44, ZBUF_2 (ZMSK by the +f8 range), RGBAQ (the fan's
+// colour), TEXFLUSH. CNT 1+k: a REGLIST fan of k (UV, XYZ2). CNT 2+9s: an A+D tag (PRE PRIM 35c: strip, Gouraud) with
+// TEST_2 70000 (GREATER), then s REGLIST strips of 5 (RGBAQ, UV, XYZ2). END 8: the restore block. The other builders
+// (4c0fb0, 4c4350, 4c50f0; the 'TONO' local-copy mode) write other shapes: they refuse here.
+NativeShockwave nativeShockwave(Runtime *rt,uint32_t object){
+    const auto fail=[&](std::string what){return std::runtime_error(std::format("native screen shockwave {} (object {:x})",what,object));};
+    if(value<uint32_t>(rt,object)!=0x1746d0 || value<uint32_t>(rt,object+0xc0)!=0x174754)throw fail("has another class");
+    const auto slot=value<uint8_t>(rt,object+0xbc);if(slot>1)throw fail("selects no writer");
+    const auto writer=value<uint32_t>(rt,object+0x90+4u*slot);
+    const auto begin=value<uint32_t>(rt,writer+12),end=value<uint32_t>(rt,writer+8);
+    if(end<=begin || end-begin>0x10000 || ((end-begin)&15))throw fail(std::format("chain is empty or unbounded ({:x}..{:x})",begin,end));
+    NativeShockwave out;out.object=object;const auto tex0=displayTex0(rt);const auto zbufBase=value<uint32_t>(rt,value<uint32_t>(rt,0x35de60)+0x170);
+    const auto q=[&](uint32_t at){return value<uint64_t>(rt,at);};
+    const auto tag=[&](uint32_t at,unsigned id){const auto t=q(at);if(((t>>28)&7)!=id || (t>>32))throw fail(std::format("chain tag at {:x} is not {}",at,id==1?"CNT":"END"));return uint32_t(t&0xffff);};
+    uint32_t at=begin;
+    // Setup: CNT 9.
+    if(tag(at,1)!=9)throw fail("setup is not CNT 9");
+    {const uint32_t g=at+16;const uint64_t t=q(g);if((t!=0x11aac00000008008ull && t!=0x11aec00000008008ull) || (q(g+8)&0xff)!=0xe)throw fail(std::format("setup GIF tag {:016x} differs",t));
+     const uint64_t regs[8]={7,0x15,0x48,0x3b,0x43,0x4f,1,0x3f};uint64_t data[8];
+     for(unsigned i=0;i<8;++i){data[i]=q(g+16+16*i);if(q(g+24+16*i)!=regs[i])throw fail(std::format("setup register {} is {:x}",i,q(g+24+16*i)));}
+     if(data[0]!=tex0)throw fail(std::format("samples {:x}, not the display buffer {:x}",data[0],tex0));
+     if(data[1]!=0x61 && data[1]!=1)throw fail(std::format("TEX1_2 {:x}",data[1]));out.linear=data[1]==0x61;
+     if(data[2]!=0x30000 || data[3]!=0x8000000080ull || data[4]!=0x44 || data[7]!=0)throw fail("setup TEST_2 / TEXA / ALPHA_2 / TEXFLUSH differ");
+     if(uint32_t(data[5])!=zbufBase || (data[5]>>33))throw fail(std::format("ZBUF_2 {:x}",data[5]));out.fanDepthWrite=!(data[5]>>32&1);
+     const uint32_t fanColour=uint32_t(data[6]);
+     at+=16+16*9;
+     // Fan: CNT 1+k.
+     const auto qwc=tag(at,1);const uint32_t f=at+16;const uint64_t ft=q(f);const auto k=uint32_t(ft&0x7fff);
+     if((ft&~0x7fffull)!=0x2400000000000000ull || (q(f+8)&0xff)!=0x53 || k<3 || k>64 || qwc!=1+k)throw fail(std::format("fan tag {:016x} (qwc {})",ft,qwc));
+     std::vector<std::array<float,2>> uv(k);std::vector<std::array<int32_t,2>> xy(k);std::vector<uint32_t> z(k);
+     const float height=displayHeight(rt);
+     for(uint32_t v=0;v<k;++v){const auto t=q(f+16+16*v),p=q(f+24+16*v);uv[v]={float(t&0x3fff)/16.f/640.f,float((t>>16)&0x3fff)/16.f/height};
+        xy[v]={int32_t(p&0xffff),int32_t((p>>16)&0xffff)};z[v]=uint32_t(p>>32);if(z[v]>0xffffff || z[v]!=z[0])throw fail("fan depth outside 24 bits or not shared");}
+     for(uint32_t i=1;i+1<k;++i){NativeUiSprite s{.sprite=object,.colour=fanColour,.depth=z[0]};s.freeUv=true;const uint32_t c[4]={0,i,i+1,i+1};
+        for(unsigned j=0;j<4;++j){s.fixedCorners[j]=xy[c[j]];s.cornerUv[j]=uv[c[j]];}out.fan.push_back(s);}
+     at+=16+16*qwc;}
+    // Ring: CNT 2+9s.
+    {const auto qwc=tag(at,1);const auto g=at+16;
+     if(q(g)!=0x11ae400000000001ull || (q(g+8)&0xff)!=0xe || q(g+16)!=0x70000 || q(g+24)!=0x48 || qwc<2 || (qwc-2)%9)throw fail(std::format("ring header differs (qwc {})",qwc));
+     const auto strips=(qwc-2)/9;const float height=displayHeight(rt);
+     for(uint32_t s=0;s<strips;++s){const auto t=g+32+16*9*s;
+        if(q(t)!=0x3400000000008005ull || (q(t+8)&0xfff)!=0x531)throw fail(std::format("ring strip {} tag {:016x}",s,q(t)));
+        std::array<float,2> uv[5];std::array<int32_t,2> xy[5];uint32_t colour[5],z[5];
+        for(unsigned v=0;v<5;++v){const auto r=t+16+24*v;colour[v]=uint32_t(q(r));const auto tc=q(r+8),p=q(r+16);
+            uv[v]={float(tc&0x3fff)/16.f/640.f,float((tc>>16)&0x3fff)/16.f/height};xy[v]={int32_t(p&0xffff),int32_t((p>>16)&0xffff)};z[v]=uint32_t(p>>32);
+            if(z[v]>0xffffff)throw fail("ring depth outside 24 bits");}
+        // One depth per sprite: the strips' vertices share it in the rings seen (0x2c, 0x2f, 0x38).
+        for(unsigned v=1;v<5;++v)if(z[v]!=z[0])throw fail("ring strip depths differ");
+        // Strip triangles (0,1,2), (1,2,3), (2,3,4): the quad 0..3 (drawn as (0,1,2), (1,3,2)) and (2,3,4) with its last corner twice.
+        for(const auto &c:{std::array<unsigned,4>{0,1,2,3},std::array<unsigned,4>{2,3,4,4}}){
+            NativeUiSprite sp{.sprite=object,.colour=colour[c[0]],.depth=z[0],.gouraud=true};sp.freeUv=true;
+            for(unsigned j=0;j<4;++j){sp.fixedCorners[j]=xy[c[j]];sp.cornerUv[j]=uv[c[j]];sp.cornerColours[j]=colour[c[j]];}
+            out.strips.push_back(sp);}
+     }
+     at+=16+16*qwc;}
+    // Restore: END 8.
+    if(tag(at,7)!=8 || (q(at+16)&0x7fff)!=7)throw fail("restore block differs");
+    if(at+16+16*8!=end)throw fail(std::format("chain ends at {:x}, writer at {:x}",at+16+16*8,end));
+    out.stripDepthWrite=out.fanDepthWrite;
+    return out;
+}
 void NativeBattleSprites::serializeUvs(bozo::state::Archive &a){
     // Added after the blends: each sprite's per-corner UVs (rotated polygons, screen lenses). Older states end
     // before it; their builds are redrawn within a frame.
@@ -540,7 +604,7 @@ std::optional<bool> nativeBattleSpriteInstruction(R5900Context *c,Runtime *rt,ui
     if(!nativeBattleSpriteSite(pc))return std::nullopt;   // its sites: native_conditional_sites.h
     static constexpr uint32_t pairSites[]={0x4bcd40,0x4bde08,0x4d0c34,0x4d1734,0x4d99ac,0x4ecf0c,0x4ef498,0x4f0f20,0x4f268c,0x4f2874,0x4fa19c,0x4fdcc0,0x503d50};
     const bool pairSite=std::find(std::begin(pairSites),std::end(pairSites),pc)!=std::end(pairSites);
-    if(pc!=0x120860 && pc!=0x120c30 && !pairSite && pc!=0x3cd468 && pc!=0x3cd3c8 && pc!=0x3cd4a0 && pc!=0x42ddd8 && pc!=0x42e144 && pc!=0x42ebd8 && pc!=0x42efe0 && pc!=0x3843a0 && pc!=0x42d4f0 && pc!=0x42d4f4 && pc!=0x120f4c && pc!=0x120f58 && pc!=0x4f7a40 && pc!=0x4f72d0 && pc!=0x4f7a00 && pc!=0x42d3e0 && pc!=0x42d340 && pc!=0x376f68 && pc!=0x376490 && pc!=0x375d88)return std::nullopt;
+    if(pc!=0x120860 && pc!=0x120c30 && !pairSite && pc!=0x3cd468 && pc!=0x3cd3c8 && pc!=0x3cd4a0 && pc!=0x42ddd8 && pc!=0x42e144 && pc!=0x42ebd8 && pc!=0x42efe0 && pc!=0x3843a0 && pc!=0x42d4f0 && pc!=0x42d4f4 && pc!=0x120f4c && pc!=0x120f58 && pc!=0x4f7a40 && pc!=0x4f72d0 && pc!=0x4f7a00 && pc!=0x42d3e0 && pc!=0x42d340 && pc!=0x376f68 && pc!=0x376490 && pc!=0x375d88 && pc!=0x4c0e80)return std::nullopt;
     auto *d=rt?vp2s::nativeCast<bozo::ee::Dispatcher>(rt->services):nullptr;
     auto *owner=d?vp2s::nativeCast<BattleSpriteOwner>(&d->host()):nullptr;
     if(!owner || !c){if(pc==0x120860 || pc==0x120c30 || pc==0x120f4c || pc==0x120f58)return std::nullopt;throw std::runtime_error("native battle sprites require an owner");}
@@ -649,6 +713,18 @@ std::optional<bool> nativeBattleSpriteInstruction(R5900Context *c,Runtime *rt,ui
     }else if(pc==0x3843a0){
         if(!code(rt,0x383cb0,0x3843f8,0x23a73ec964306dc5ull))throw std::runtime_error("native battle band writer differs from the USA one");
         sprites.band(rt,c);
+    }else if(pc==0x4c0e80){
+        // Screen shockwave 1746d0's draw 4c0e50 (mod028; another overlay's code there is not it): the delay slot of its
+        // enqueue 120c50, which the kernel turns into the completion 42d4a0(object) (this slot's writer load is gone, a0
+        // stays the object). The chain is read back from the +90[+bc] writer and drawn (nativeShockwave).
+        if(!code(rt,0x4c0e50,0x4c0e90,0x9e00cca7c246575full))return std::nullopt;
+        const auto object=c->r[4].uw[0];
+        if(!object || c->r[5].uw[0]!=object+0xc0 || c->r[2].uw[0]!=object+4u*value<uint8_t>(rt,object+0xbc))
+            throw std::runtime_error("native screen shockwave draw escaped its method");
+        const auto wave=nativeShockwave(rt,object);owner->drawNativeShockwave(wave);
+        static unsigned traced=0;
+        if(std::getenv("VP2S_BOZO_TRACE_QUEUES") && ++traced<=32)
+            std::fprintf(stderr,"[vp2s:battle] native shockwave object=%x fan=%zu strips=%zu\n",object,wave.fan.size(),wave.strips.size());
     }else if(pc==0x42d4f0){
         // Delay slot of the base flush's 120eb0 call (42d4c0 at 42d4ec, object a0): the writer +90 +
         // 4 * +bc (v0 = object + 4 * +bc) with owner +c0. 3cd0c0's own flush (3cd214, +e8 set) is

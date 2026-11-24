@@ -98,11 +98,23 @@ public:
     // sprites hold no pictures until the flush.
     void serialize(bozo::state::Archive &);
 };
+// Screen shockwave, class 1746d0 (mod028; battles 0x2c, 0x2d, 0x2f, 0x38): its draw 4c0e50 queued the chain of the
+// +90[+bc] writer as a type-3 job (120c50, owner +c0). The chain redraws the frame presented last (the display
+// buffer, as the screen lens) displaced: a fan around the target and a ring of 5-vertex strips. Native: the kernel
+// makes the enqueue complete at once (42d4a0 -> 21c9a0) and site 4c0e80 reads the chain back into these.
+struct NativeShockwave {
+    uint32_t object=0;
+    std::vector<NativeUiSprite> fan,strips;   // triangles as quads (the 4th corner repeats the 3rd); free UVs
+    bool linear=true;                         // TEX1_2 0x61 (else 1: nearest)
+    bool fanDepthWrite=false,stripDepthWrite=false;   // ZBUF_2 without ZMSK
+};
+NativeShockwave nativeShockwave(Runtime *,uint32_t object);
 class BattleSpriteOwner {
 public:
     virtual ~BattleSpriteOwner()=default;
     virtual NativeBattleSprites &nativeBattleSprites()=0;
     virtual void drawNativeBattleSprites(const NativeBattleSpriteBuild &)=0;
+    virtual void drawNativeShockwave(const NativeShockwave &){throw std::runtime_error("native screen shockwave has no renderer");}
 };
 std::optional<bool> nativeBattleSpriteInstruction(R5900Context *,Runtime *,uint32_t pc);
 }

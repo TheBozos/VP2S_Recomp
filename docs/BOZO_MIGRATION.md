@@ -12,6 +12,55 @@ The earlier VP2S face/shading and general brightness comparisons remain open.
 
 ## Build and evidence
 
+### Screen shockwave 1746d0 native; projection leaf 36bc00 (2026-11-24)
+
+- **Draw:** the kernel turns 1746d0's enqueue (4c0e7c, `jal 120c50`) into its completion `jal 42d4a0` (the owner +c0's
+  +10, as the base UI flush's: 21c9a0 with the object). It also nops the delay slot (the writer load into a0).
+- **Read-back:** site 4c0e80 reads the +90[+bc] writer's chain back, as the screen lens does (`nativeShockwave`):
+  - CNT 9 setup: TEX0_2 must be the display buffer; TEX1_2 61 / 1; TEST_2 30000; TEXA 80/80; ALPHA_2 44; ZBUF_2 from
+    [35de60]+170, whose ZMSK decides depth writes; RGBAQ; TEXFLUSH.
+  - The REGLIST fan (UV, XYZ2): triangles about its first vertex.
+  - The ring: the TEST_2 70000 header, then REGLIST strips of 5 (RGBAQ, UV, XYZ2) as triangles (0,1,2), (1,2,3), (2,3,4).
+  - The END restore.
+  - Any other shape refuses by name: builders 4c0fb0, 4c4350 and 4c50f0, and the 'TONO' local-copy mode.
+- **Host draw:** `drawNativeShockwave` samples the previous presentation, bilinear for TEX1 61, with vertex alpha as the
+  blend's As (TEXA's 0x80 on a PSMCT24 texture). The fan depth-tests always, the ring GREATER; depth is written unless
+  ZMSK.
+- **Projection leaf 36bc00** (its update's target projection, 4c62bc): rows from [[[36d880]+80]+18], the point, VCALLMS 0,
+  and the store in jr ra's delay slot. It uses program 0 (`nativeBattleLeafProjection`).
+- **Tests:**
+  - The battle sprite test builds a chain of 4c28d0's shape and checks fan and strip corners, UVs, colours, depths, the
+    depth-write flags, and five refusals.
+  - The math test runs the leaf: (1, 2, 3, 2) through diag(2, 2, 2, 1) gives (1, 2, 3, 0.5); a store alone refuses.
+- **Evidence:** 0x2c, 0x2d, 0x2f and 0x38 run boundary-free to 67000, drawing the shockwave natively. The look against
+  PCSX2 is not checked yet; the frames seen at its start have vertex alpha 0.
+
+### Battles 0x37 to 0x3c: modules, particle angle offsets, ambient and point lights (2026-11-24)
+
+- **Captured modules:** 130, 140, 142 (0x532200); 171, 170 (0x53a380); 236, 218 (0x53d800); 276, 289 (0x542a80; 289 has no
+  data and is saved to the header's end pointer).
+- **Mode 6 angle offsets (0x37, VU1 image 9):** image 9 adds row 37.xy to the point's two angles before its sin/cos
+  (0908 `ADD.xy vf27, vf27, vf16`). The draw fills row 37 at 22f250..22f2ec: x = -camera +5d4 when the emitter's +afb is
+  set, y = -camera +5d0 when +afc, else 0. The camera is the draw's own; the native draw needs its +61 (updated) flag.
+- **Ambient step of images 6 and 7 (all their draws):** both call 1830 / 1aa0 first (0738). When VU row 97.y (low 16 bits)
+  is set, row 13.xyz = (((r5 s + r6 s) + r7 s) + r8 s) + r19 with s = row 100.y, and row 14.x (+310, "no lighting") is
+  cleared.
+  - Rows 96..110 come from the owner's GS block (+624), which the draw uploads itself (UNPACK 15 to 0x60, just before
+    MSCAL 6e0). Row 97 is that packet's ALPHA entry, so its y is ALPHA.FIX (emitter +afa, set by 22dac0 with row
+    100.y = +af0).
+  - The native colour applied neither before: particles with FIX set drew without the ambient tint. Images 6 and 7
+    now apply it; a draw without the block refuses. Image 9 has no such step.
+- **Row 14.w = 2 lighting (0x37, 0x38, image 7 pass 1a50):** a per-point buffer starts at row 13. With row 14.y set, pass 1b28
+  adds three point lights: L rows 20..22, colours 23..25, k = row 27.xyz, d = L - p, and
+  buf.xyz = ((c1 k1/|d1| + (c0 k0)/|d0|) + buf) + c2 k2/|d2|. The apply 18f0 then gives colour * buf clamped to [0, row 0].
+  Row 14.z (pass 1c78) still refuses.
+- **Tests:**
+  - The ribbon differential test now loads rows 96..110 and runs the real 1aa0 before the 0818 entry, through an E-bit
+    return stub at 3ff0. Its interpreter gained RSQRT and WAITQ.
+  - New cases: ambient on, one light, and three lights. All 112 captures equal image 7's words, colours included.
+  - The mode 3 test checks the ambient tint by hand and the refusal without a block.
+- **Evidence:** 0x39, 0x3a, 0x3b and 0x3c run boundary-free to 67000.
+
 ### Battles 0x31 to 0x36: modules, pull-back and distance, emitter 2847e0's box (2026-11-24)
 
 - **Captured modules:** 158, 136, 137, 111, 139 (0x532200); 201, 192 (0x53a380); 282 (0x542a80, loaded at frame

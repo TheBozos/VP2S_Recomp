@@ -289,6 +289,19 @@ public:
             material.textured=bool(sprite.picture);material.blend=blend;
             bozo::render::Renderer::instance().draw(material,identity,vertices.data(),vertices.size(),sprite.picture);}
     }
+    // Screen shockwave 1746d0: the frame presented last, redrawn displaced. TEX1_2 61 (bilinear) or 1; TEXA 80 with a
+    // PSMCT24 texture, so the vertex alpha is the blend's As (ALPHA_2 44); the fan depth-tests always, the ring GREATER;
+    // depth writes unless ZBUF_2 has ZMSK.
+    void drawNativeShockwave(const vp2s::NativeShockwave &wave)override{flushDeferredModels();
+        if(!scene.frameTarget())throw std::runtime_error("native screen shockwave has no active frame");
+        const float identity[16]={1,0,0,0,0,1,0,0,0,0,1,0,0,0,0,1};
+        bozo::render::Material m;m.textured=false;m.fromFrame=1;m.source=bozo::render::Material::kPreviousFrame;m.nearest=!wave.linear;
+        m.textureAlpha=false;m.blend=bozo::render::Material::Blend::Alpha;
+        const auto draw=[&](const std::vector<vp2s::NativeUiSprite> &sprites,bool greater,bool write){
+            m.depthTest=greater;m.depthGreater=greater;m.depthWrite=write;
+            for(const auto &s:sprites){const auto v=vp2s::nativeUiSpriteVertices(s);bozo::render::Renderer::instance().draw(m,identity,v.data(),v.size());}};
+        draw(wave.fan,false,wave.fanDepthWrite);draw(wave.strips,true,wave.stripDepthWrite);
+    }
     vp2s::NativeScreenRects screenRects;
     unsigned screenRectDraws=0;
     vp2s::NativeScreenRects &nativeScreenRects()override{return screenRects;}

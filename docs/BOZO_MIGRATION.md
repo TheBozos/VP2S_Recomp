@@ -32,8 +32,11 @@ The earlier VP2S face/shading and general brightness comparisons remain open.
   - **Each dispatch** sets vi12, and 0f58 redraws from 08b8, past table A, with the mesh's own material.
   - **Natively:** nativeShells gives each redraw's vertices. Each redraw is a batch re-lit with the vertex's lighting
     factor and re-guarded and re-culled.
-  - **Refused:** shells with another table-B pass, with position-dependent lighting (mode 3, point or spot lights),
-    with generated UVs (20 / 26 / 36 / 40), with lines, and with jitter without a seed.
+  - **Refused:** shells with another table-B pass, with generated UVs (20 / 26 / 36 / 40), with lines, and with
+    jitter without a seed.
+  - **Lighting:** shells are re-lit at their moved positions through the vertex loop's own lighting, now a lambda
+    shared with pass 1, as the VU's redraw runs the lighting again. Battle 0x18's skinned mode-3 meshes (routines
+    8 4 12) need this. Maps 1, 65 and 79 capture pixel-identical after the refactor.
 - **18 (1870):** its data's per-vertex UVs (12-bit), then the second pass.
 - **28 (1138 -> 26's 1178):** reflectionTexture with 28's own data row, and alpha when on, then the second pass.
   - Pass 1 over the feedback picture (maps 103, 445): pass 2 keeps that source when its slot is the same picture,
@@ -46,6 +49,8 @@ The earlier VP2S face/shading and general brightness comparisons remain open.
   - converter: the table-B data;
   - nativeShells: 12's 3 -> 1 -> 0 sequence (two redraws, pushed 2 and 3, alpha 120 -> 102 -> 93), the clamps, an
     empty counter, and 14's jitter from the seed (exact RNEXT).
+- **Regression:** the battle and over scenes run to their frame limit with their hashes. The regression script now
+  removes the RAM dumps first: a failed run had left the previous dump in place and printed its hash.
 - **Maps:** the 20 clean maps whose traced meshes use 12 / 14 / 18 / 28 still run 850 frames clean. Map 194's
   tanks and map 207's moss look layered. They are not yet compared with PCSX2.
 

@@ -12,6 +12,13 @@ The earlier VP2S face/shading and general brightness comparisons remain open.
 
 ## Build and evidence
 
+### Battles 0x49 to 0x4e: modules (2026-11-24)
+
+- **Captured modules:** 173 (0x53a380), 124 (0x532200), 280 (0x542a80, loaded at frame 63658 in 0x4d).
+- **Evidence:** 0x49, 0x4a, 0x4b, 0x4c and 0x4e run boundary-free to 67000.
+- **Open (0x4d):** a particle producer in mode 1 (object class 16f680, +aff 1), which selects VU1 image 4 (table 3141a0
+  entry mode + 3). Neither its producer nor its draw is ported yet.
+
 ### Battles 0x43 to 0x48: modules, palette scale and crossfade, a second sphere-tree walk, the emitters' hook helpers (2026-11-24)
 
 - **Captured modules:** 150, 131, 113, 114 (0x532200); 183 (0x53a380).

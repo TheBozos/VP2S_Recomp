@@ -993,6 +993,59 @@ int main(int argc,char **argv){try{
                 const auto op=w>>26;check(vp2s::nativeMathInstruction(rt.memory.flat(),&k,&rt,pc)==(op==0x12 || op==0x36 || op==0x3e));}
             const auto r=getv(v);check(r[0]==0 && r[1]==100 && r[2]==255 && r[3]==255);
         }
+        {   // Point-tree walk (battle 0x29): mod028 4a6840's overlap block and mod001 1f62b0's, the sphere point test 1f6150, the box
+            // point test 1f6040 and the spill / restore of vf1..vf5 (rows identity * 2 plus a translation, radius scale k).
+            const auto putv=[&](uint32_t a,std::array<float,4> x){std::memcpy(rt.memory.hostPointer(a,16),x.data(),16);};
+            const auto getv=[&](uint32_t a){std::array<float,4> x;std::memcpy(x.data(),rt.memory.hostPointer(a,16),16);return x;};
+            constexpr uint32_t stack=0x1ffe000,node=0x1b0700,object=0x1b0800,point=0x1b0900,shape=0x1b0a00,inverse=0x1b0b00;
+            putv(object+0x150,{2,0,0,0});putv(object+0x160,{0,2,0,0});putv(object+0x170,{0,0,2,0});putv(object+0x180,{1,1,1,1});
+            putv(node+0x10,{1,2,3,4});putv(point,{3,4,7,1});   // rows . centre = (3, 5, 7): d = (0, 1, 0)
+            const std::pair<uint32_t,uint32_t> walk[]={{0x4a6a08,0xd86a0000},{0x4a6a0c,0xd8410000},{0x4a6a10,0xd8420010},{0x4a6a14,0xd8430020},{0x4a6a18,0xd8440030},
+                {0x4a6a1c,0xda260000},{0x4a6a20,0x48a82800},{0x4a6a24,0x4bea09bc},{0x4a6a28,0x4bea10bd},{0x4a6a2c,0x4bea18be},{0x4a6a30,0x4be022cb},{0x4a6a34,0x4a255298},
+                {0x4a6a38,0x4bc65b2c},{0x4a6a3c,0x4a2a52aa},{0x4a6a40,0x4bcc632a},{0x4a6a44,0x4bc007c3},{0x4a6a48,0x4b0c603d},{0x4a6a4c,0x4b0cfb4a},{0x4a6a50,0x4a2d5284},
+                {0x4a6a58,0xf84a0000},{0x4a68ac,0xf8410000},{0x4a68b0,0xf8420010},{0x4a68b4,0xf8430020},{0x4a68b8,0xf8440030},{0x4a68bc,0xf8450040},
+                {0x4a6a70,0xd8410000},{0x4a6a74,0xd8420010},{0x4a6a78,0xd8430020},{0x4a6a7c,0xd8440030},{0x4a6a80,0xd8450040},
+                {0x1f6154,0xd88a0000},{0x1f6158,0xd8a60000},{0x1f6190,0xf84a0000},{0x1f6044,0xd8cc0000},{0x1f6048,0xd8f00000},{0x1f604c,0xd8f10010},{0x1f6050,0xd8f20020},
+                {0x1f6054,0xd8f30030},{0x1f6058,0xd8be0000},{0x1f6074,0xf84e0000},{0x1f607c,0xf85e0000},
+                {0x1f645c,0xd8450000},{0x1f6460,0xd86a0000},{0x1f6464,0xd8810000},{0x1f6468,0xd8820010},{0x1f646c,0xd8830020},{0x1f6470,0xd8840030},{0x1f6474,0xda260000},{0x1f64ac,0xf84a0000}};
+            for(const auto &[a,w]:walk)std::memcpy(rt.memory.hostPointer(a,4),&w,4);
+            const auto run=[&](R5900Context &k,uint32_t pc){check(vp2s::nativeMathInstruction(rt.memory.flat(),&k,&rt,pc));};
+            R5900Context k{};k.r[29].uw[0]=stack;k.r[18].uw[0]=node;k.r[20].uw[0]=object;k.r[17].uw[0]=point;const float radius=1.5f;std::memcpy(&k.r[8].uw[0],&radius,4);
+            k.r[3].uw[0]=node+0x10;run(k,0x4a6a08);k.r[2].uw[0]=object+0x150;for(uint32_t pc=0x4a6a0c;pc<=0x4a6a18;pc+=4)run(k,pc);run(k,0x4a6a1c);run(k,0x4a6a20);
+            for(uint32_t pc=0x4a6a24;pc<=0x4a6a50;pc+=4)run(k,pc);k.r[2].uw[0]=stack+0x70;run(k,0x4a6a58);
+            auto r=getv(stack+0x70);check(r[0]==1 && r[1]==2 && r[2]==3 && r[3]==35);   // (4 * 1.5)^2 - 1
+            // A spill, the child's own rows, the restore: the parent's rows come back.
+            k.r[2].uw[0]=stack+0x80;for(uint32_t pc=0x4a68ac;pc<=0x4a68bc;pc+=4)run(k,pc);
+            putv(object+0x150,{1,0,0,0});putv(object+0x160,{0,1,0,0});putv(object+0x170,{0,0,1,0});putv(object+0x180,{0,0,0,1});
+            k.r[3].uw[0]=node+0x10;run(k,0x4a6a08);k.r[2].uw[0]=object+0x150;for(uint32_t pc=0x4a6a0c;pc<=0x4a6a18;pc+=4)run(k,pc);run(k,0x4a6a1c);run(k,0x4a6a20);
+            k.r[2].uw[0]=stack+0x80;for(uint32_t pc=0x4a6a70;pc<=0x4a6a80;pc+=4)run(k,pc);
+            // 1f6150 on the restored registers: the same formula to sp+0 of its own frame.
+            R5900Context t{};t.r[29].uw[0]=stack-0x100;t.r[4].uw[0]=node+0x10;t.r[5].uw[0]=point;run(t,0x1f6154);run(t,0x1f6158);t.r[2].uw[0]=stack-0x100;run(t,0x1f6190);
+            r=getv(stack-0x100);check(r[3]==35);
+            // 1f6040: inverse . point (w by 1) to sp+10, extents * 1.5 to sp+0.
+            putv(inverse,{1,0,0,0});putv(inverse+0x10,{0,1,0,0});putv(inverse+0x20,{0,0,1,0});putv(inverse+0x30,{-1,-2,-3,1});putv(shape,{2,4,6,9});
+            t.r[6].uw[0]=point;t.r[7].uw[0]=inverse;t.r[5].uw[0]=shape;run(t,0x1f6044);for(uint32_t pc=0x1f6048;pc<=0x1f6054;pc+=4)run(t,pc);run(t,0x1f6058);
+            t.r[2].uw[0]=stack-0x100+0x10;run(t,0x1f6074);t.r[2].uw[0]=stack-0x100;run(t,0x1f607c);
+            r=getv(stack-0x100+0x10);check(r[0]==2 && r[1]==2 && r[2]==4 && r[3]==1);r=getv(stack-0x100);check(r[0]==3 && r[1]==6 && r[2]==9 && r[3]==9);
+            // mod001 1f62b0's block: the radius from sp+60 first, the result to sp+50.
+            R5900Context m{};m.r[29].uw[0]=stack;m.r[18].uw[0]=node;m.r[16].uw[0]=object;m.r[17].uw[0]=point;putv(stack+0x60,{1.5f,0,0,0});
+            m.r[2].uw[0]=stack+0x60;run(m,0x1f645c);m.r[3].uw[0]=node+0x10;run(m,0x1f6460);m.r[4].uw[0]=object+0x150;for(uint32_t pc=0x1f6464;pc<=0x1f6470;pc+=4)run(m,pc);
+            run(m,0x1f6474);for(uint32_t pc=0x1f6478;pc<=0x1f64a4;pc+=4){const uint32_t w=pc>=0x1f6478?walk[7+(pc-0x1f6478)/4].second:0;std::memcpy(rt.memory.hostPointer(pc,4),&w,4);run(m,pc);}
+            // The object's rows are now the identity: d = (1, 2, 3) - (3, 4, 7), 36 - 24.
+            m.r[2].uw[0]=stack+0x50;run(m,0x1f64ac);r=getv(stack+0x50);check(r[0]==1 && r[1]==2 && r[2]==3 && r[3]==12);
+            bool refused=false;try{run(k,0x4a6a80);}catch(const std::runtime_error &){refused=true;}check(refused);   // a restore without its spill
+        }
+        {   // mod180 53ad94 retreat (battle 0x29): {P - D k, P.w} to s3+1760.
+            constexpr uint32_t block[]={0xd8a10000,0xd8820000,0x44080000,0x00000000,0x48a81800,0x26621760,0x4bc009bf,0x4bc3104c,0xf8410000};
+            constexpr uint32_t at=0x53ad94,p=0x1b0600,dv=0x1b0610,s3=0x1b1000;std::memcpy(rt.memory.hostPointer(at,sizeof(block)),block,sizeof(block));
+            const auto putv=[&](uint32_t a,std::array<float,4> x){std::memcpy(rt.memory.hostPointer(a,16),x.data(),16);};
+            const auto getv=[&](uint32_t a){std::array<float,4> x;std::memcpy(x.data(),rt.memory.hostPointer(a,16),16);return x;};
+            putv(p,{100,50,0,3});putv(dv,{1,0.5f,-1,7});const float k=50;
+            R5900Context w{};w.r[5].uw[0]=p;w.r[4].uw[0]=dv;w.r[19].uw[0]=s3;
+            for(unsigned i=0;i<std::size(block);++i){const uint32_t pc=at+4*i,x=block[i];if(x==0x44080000)std::memcpy(&w.r[8].uw[0],&k,4);if(x==0x26621760)w.r[2].uw[0]=s3+0x1760;
+                const auto op=x>>26;check(vp2s::nativeMathInstruction(rt.memory.flat(),&w,&rt,pc)==(op==0x12 || op==0x36 || op==0x3e));}
+            const auto r=getv(s3+0x1760);check(r[0]==50 && r[1]==25 && r[2]==50 && r[3]==3);
+        }
         {   // mod180 53a6dc advance stored twice (battle 0x29): {P + D k, P.w} to sp+50 and back to P.
             constexpr uint32_t block[]={0xda210000,0xd8420000,0x4408a000,0x00000000,0x48a8a800,0x27a20050,0x4bc009bf,0x4bd51048,0xf8410000,0xfa210000};
             constexpr uint32_t at=0x53a6dc,stack=0x1fff000,p=0x1b0500,dv=0x1b0510;std::memcpy(rt.memory.hostPointer(at,sizeof(block)),block,sizeof(block));

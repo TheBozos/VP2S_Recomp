@@ -18,9 +18,16 @@ The earlier VP2S face/shading and general brightness comparisons remain open.
 - **Formula:** `advance2`, mod180 53a6dc (battle 0x29): P.xyz = P*1 + D*k (k from t0), w kept, stored to sp+50 and back to P.
 - **Evidence:** 0x28 and 0x2a run boundary-free to 67000; the math test covers `advance2`; full ctest 97/97; end RAM
   unchanged.
-- **Open (0x29):** mod028 4a6840, another recursive shape walk: it spills vf1..vf5 to sp+80, computes basis lengths (0x7f0
-  on s4+90 into vf6, to sp+60, cached in +204), then a sphere test (rows s4+150 times the centre s2+10, against the cached
-  radius from QMTC2 t0, to sp+70), calls 1f61c0 per child and recurses, restoring vf1..vf5 on its exits. Not ported yet.
+- **Point-tree walk (0x29):** mod028 4a6840 and its mod001 original 1f62b0, recursive over the node's children and over
+  the object's shapes (1f61c0). On the object-pair registers (rows 0..3 = vf1..vf4, row 4 = vf5, row 5 = vf6 the point):
+  - the spill of vf1..vf5 on entry (sp+80 / sp+70) and its three restores, as a per-frame snapshot;
+  - the 0x7f0 basis lengths (two basisLengthSites rows; the scalar code caches the largest in +204);
+  - the overlap block: {centre.xyz, (r k)^2 - ((dx^2 + dy^2) + 1 dz^2)}, d = rows . centre (w by 1) - point, k = +204
+    (QMTC2 in mod028, sp+60 in mod001), to sp+70 / sp+50;
+  - 1f61c0's vf6 / vf8 spill around 248560; the sphere point test 1f6150 (the same formula) and the box point test 1f6040
+    (inverse rows +190 . point to sp+10, half extents * k to sp+0).
+- **Formula:** `retreat`, mod180 53ad94: P.xyz = P*1 - D*k (k = 50), w kept.
+- **0x29** then stops at the procedural-mesh submission without a screen copy, as 0x1e and 0x24.
 
 ### Battles 0x22 to 0x27: modules (2026-11-24)
 

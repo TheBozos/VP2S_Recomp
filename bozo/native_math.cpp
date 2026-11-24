@@ -659,7 +659,8 @@ struct BasisLengthSite{uint32_t load,call,store;unsigned object,base,output;uint
 //   mod001 1f7b20: 1f7980 (cached radius in +204, the victory's scatter), object s2 (base a1), output sp+40.
 constexpr BasisLengthSite basisLengthSites[]={{0x43c120,0x43c130,0x43c13c,16,4,3,0x70},{0x239b54,0x239b64,0x239b70,4,2,2,0},{0x4f56f8,0x4f5708,0x4f5714,20,6,3,0x60},{0x4f5a68,0x4f5a78,0x4f5a84,18,6,3,0xc0},
     {0x4a6e10,0x4a6e20,0x4a6e2c,19,5,2,0xb0},{0x4a6f40,0x4a6f50,0x4a6f5c,18,5,2,0xa0},{0x1f5d90,0x1f5da0,0x1f5dac,16,5,2,0x50},{0x4a52a8,0x4a52b8,0x4a52c4,17,5,2,0x70},
-    {0x1f7608,0x1f7618,0x1f7624,16,5,2,0x60},{0x493cb0,0x493cc0,0x493ccc,17,6,3,0x110},{0x493d28,0x493d38,0x493d44,16,6,3,0x100},{0x1f7b20,0x1f7b30,0x1f7b3c,18,5,2,0x40}};
+    {0x1f7608,0x1f7618,0x1f7624,16,5,2,0x60},{0x493cb0,0x493cc0,0x493ccc,17,6,3,0x110},{0x493d28,0x493d38,0x493d44,16,6,3,0x100},{0x1f7b20,0x1f7b30,0x1f7b3c,18,5,2,0x40},
+    {0x4a69b8,0x4a69c8,0x4a69d4,20,5,2,0x60},{0x1f6408,0x1f6418,0x1f6424,16,5,2,0x40}};   // point-tree walks 4a6840 (object s4) / 1f62b0 (s0)
 bool nativeBattleBasisLengths(R5900Context *c,Runtime *rt,uint32_t pc){
     if(!rt || (pc&3))return false;
     const auto site=std::find_if(std::begin(basisLengthSites),std::end(basisLengthSites),[&](auto &s){return pc>=s.load && pc<=s.store;});
@@ -3528,6 +3529,130 @@ uint32_t nativeBoxPairTest(const std::array<std::array<uint32_t,4>,8> &rows,cons
 //   1f8104..1f81c0: sphere a2 through rows[4..7] (a3 set, scale y) or rows[0..3] (scale x),
 //     then through t0's rows into box space: sp+20 = (that, r^2 * sqrt(max column length^2
 //     of t0)); box a0 +- a1 * the other object's scale: sp+0 (max) and sp+10 (min).
+// Point-tree walk, mod028 4a6840(node a0 -> s2, point a1 -> s1), recursive over the node's children (+0, 0x20 apart,
+// 4a6b4c) and over the shape list of its object (mod001 1f61c0 per shape, 4a6ad4). Battle 0x29. The object-pair registers
+// hold its VU0 state: rows[0..3] = vf1..vf4, rows[4] = vf5, rows[5] = vf6 (the point), rows[7] = vf8.
+//   4a68ac..4a68bc: SQC2 vf1..vf5 to sp+80 on entry; LQC2 vf1..vf5 back on its exits (4a6a70.., 4a6b80.., 4a6bb0..): a
+//     snapshot per frame (sp+80 has no other EE reader).
+//   4a69b8..4a69d4: the 0x7f0 basis lengths of the object s4 (a basisLengthSites row); the scalar code caches the
+//     largest in +204.
+//   4a6a08..4a6a58: vf10 = node+10 (centre, radius in w), rows = object+150, vf6 = point, QMTC2 t0 -> vf5 (+204);
+//     sp+70 = {centre.xyz, (r * k)^2 - ((dx^2 + dy^2) + 1*dz^2)} with d = rows . centre (w by 1) - point.
+// mod001 1f61c0(shape a0, point a1) spills vf6 / vf8 to sp+30 / sp+40 around 248560 (1f622c / 1f6230, back at 1f6244 /
+// 1f6248), then by the shape's kind: the box point test 1f6040 (vf12 = point a2, vf16..vf19 = the object's inverse rows
+// +190 at a3, vf30 = half extents a1; sp+10 = inverse . point (w by 1), sp+0 = extents.xyz * vf5.x) or the sphere point
+// test 1f6150 (the same formula as 4a6a08 with vf10 = a0, vf6 = a1, to sp+0). ps2f, nearest.
+// mod001 1f62b0 is the same walk (the original; 4a6840 is the battle's compile, called from 1f6660 and itself at 1f65xx):
+// spill to sp+70 (1f6304..), basis lengths 1f6408 (object s0), vf5 = sp+60 (+204 in x, 1f645c) before the centre, rows
+// s0+150 through a0, the result to sp+50 (1f64ac), restores 1f64c4.., 1f6594.., 1f65fc...
+struct PointWalkSite{uint32_t pc,word;char role;unsigned param;unsigned instance=0;};
+constexpr unsigned pointWalkFrame[2]={0x80,0x70},pointWalkObject[2]={20,16};
+constexpr PointWalkSite pointWalkSites[]={
+    {0x1f6304,0xf8410000,'S',0,1},{0x1f6308,0xf8420010,'S',1,1},{0x1f630c,0xf8430020,'S',2,1},{0x1f6310,0xf8440030,'S',3,1},{0x1f6314,0xf8450040,'S',4,1},
+    {0x1f64c4,0xd8410000,'R',0,1},{0x1f64c8,0xd8420010,'R',1,1},{0x1f64cc,0xd8430020,'R',2,1},{0x1f64d0,0xd8440030,'R',3,1},{0x1f64d4,0xd8450040,'R',4,1},
+    {0x1f6594,0xd8410000,'R',0,1},{0x1f6598,0xd8420010,'R',1,1},{0x1f659c,0xd8430020,'R',2,1},{0x1f65a0,0xd8440030,'R',3,1},{0x1f65a4,0xd8450040,'R',4,1},
+    {0x1f65fc,0xd8410000,'R',0,1},{0x1f6600,0xd8420010,'R',1,1},{0x1f6604,0xd8430020,'R',2,1},{0x1f6608,0xd8440030,'R',3,1},{0x1f660c,0xd8450040,'R',4,1},
+    {0x1f645c,0xd8450000,'K',0,1},{0x1f6460,0xd86a0000,'c',0,1},{0x1f6464,0xd8810000,'r',0,1},{0x1f6468,0xd8820010,'r',1,1},{0x1f646c,0xd8830020,'r',2,1},
+    {0x1f6470,0xd8840030,'r',3,1},{0x1f6474,0xda260000,'p',0,1},
+    {0x1f6478,0x4bea09bc,'-',0},{0x1f647c,0x4bea10bd,'-',0},{0x1f6480,0x4bea18be,'-',0},{0x1f6484,0x4be022cb,'-',0},{0x1f6488,0x4a255298,'-',0},{0x1f648c,0x4bc65b2c,'-',0},
+    {0x1f6490,0x4a2a52aa,'-',0},{0x1f6494,0x4bcc632a,'-',0},{0x1f6498,0x4bc007c3,'-',0},{0x1f649c,0x4b0c603d,'-',0},{0x1f64a0,0x4b0cfb4a,'-',0},{0x1f64a4,0x4a2d5284,'-',0},
+    {0x1f64ac,0xf84a0000,'O',0x50,1},
+    {0x4a68ac,0xf8410000,'S',0},{0x4a68b0,0xf8420010,'S',1},{0x4a68b4,0xf8430020,'S',2},{0x4a68b8,0xf8440030,'S',3},{0x4a68bc,0xf8450040,'S',4},
+    {0x4a6a70,0xd8410000,'R',0},{0x4a6a74,0xd8420010,'R',1},{0x4a6a78,0xd8430020,'R',2},{0x4a6a7c,0xd8440030,'R',3},{0x4a6a80,0xd8450040,'R',4},
+    {0x4a6b80,0xd8410000,'R',0},{0x4a6b84,0xd8420010,'R',1},{0x4a6b88,0xd8430020,'R',2},{0x4a6b8c,0xd8440030,'R',3},{0x4a6b90,0xd8450040,'R',4},
+    {0x4a6bb0,0xd8410000,'R',0},{0x4a6bb4,0xd8420010,'R',1},{0x4a6bb8,0xd8430020,'R',2},{0x4a6bbc,0xd8440030,'R',3},{0x4a6bc0,0xd8450040,'R',4},
+    {0x4a6a08,0xd86a0000,'c',0},{0x4a6a0c,0xd8410000,'r',0},{0x4a6a10,0xd8420010,'r',1},{0x4a6a14,0xd8430020,'r',2},{0x4a6a18,0xd8440030,'r',3},
+    {0x4a6a1c,0xda260000,'p',0},{0x4a6a20,0x48a82800,'k',0},
+    {0x4a6a24,0x4bea09bc,'-',0},{0x4a6a28,0x4bea10bd,'-',0},{0x4a6a2c,0x4bea18be,'-',0},{0x4a6a30,0x4be022cb,'-',0},{0x4a6a34,0x4a255298,'-',0},{0x4a6a38,0x4bc65b2c,'-',0},
+    {0x4a6a3c,0x4a2a52aa,'-',0},{0x4a6a40,0x4bcc632a,'-',0},{0x4a6a44,0x4bc007c3,'-',0},{0x4a6a48,0x4b0c603d,'-',0},{0x4a6a4c,0x4b0cfb4a,'-',0},{0x4a6a50,0x4a2d5284,'-',0},
+    {0x4a6a58,0xf84a0000,'O',0x70},
+    {0x1f622c,0xf8460000,'v',0},{0x1f6230,0xf8480010,'v',1},{0x1f6244,0xd8460000,'V',0},{0x1f6248,0xd8480010,'V',1},
+    {0x1f6154,0xd88a0000,'C',0},{0x1f6158,0xd8a60000,'P',0},
+    {0x1f615c,0x4bea09bc,'-',0},{0x1f6160,0x4bea10bd,'-',0},{0x1f6164,0x4bea18be,'-',0},{0x1f6168,0x4be022cb,'-',0},{0x1f616c,0x4a255298,'-',0},{0x1f6170,0x4bc65b2c,'-',0},
+    {0x1f6174,0x4a2a52aa,'-',0},{0x1f6178,0x4bcc632a,'-',0},{0x1f617c,0x4bc007c3,'-',0},{0x1f6180,0x4b0c603d,'-',0},{0x1f6184,0x4b0cfb4a,'-',0},{0x1f6188,0x4a2d5284,'-',0},
+    {0x1f6190,0xf84a0000,'O',0},
+    {0x1f6044,0xd8cc0000,'b',0},{0x1f6048,0xd8f00000,'b',1},{0x1f604c,0xd8f10010,'b',2},{0x1f6050,0xd8f20020,'b',3},{0x1f6054,0xd8f30030,'b',4},{0x1f6058,0xd8be0000,'b',5},
+    {0x1f605c,0x4bec81bc,'-',0},{0x1f6060,0x4bec88bd,'-',0},{0x1f6064,0x4bec90be,'-',0},{0x1f6068,0x4be09b8b,'-',0},{0x1f606c,0x4bc5f798,'-',0},
+    {0x1f6074,0xf84e0000,'B',0x10},{0x1f607c,0xf85e0000,'B',0}};
+struct PointWalkState{VuWords centre{},point{};std::array<VuWords,4> box{};unsigned loaded=0;bool block=false;};
+bool nativePointTreeWalk(R5900Context *c,Runtime *rt,uint32_t pc){
+    if((pc&3) || !rt)return false;
+    const auto site=std::find_if(std::begin(pointWalkSites),std::end(pointWalkSites),[&](auto &s){return s.pc==pc;});
+    if(site==std::end(pointWalkSites))return false;
+    uint32_t word=0;if(const auto *p=rt->memory.hostPointer(pc,4))std::memcpy(&word,p,4);
+    if(word!=site->word)return false;   // another overlay at these addresses
+    if(!c)throw std::runtime_error("native point-tree walk has no CPU record");
+    static std::map<std::pair<const Runtime *,uint32_t>,ObjectPairRegisters> snapshots;static std::map<const Runtime *,PointWalkState> states;
+    auto &regs=objectPairRegisters(rt);auto &st=states[rt];const auto stack=c->r[29].uw[0];
+    const auto at=[&]{return c->r[(word>>21)&31].uw[0]+uint32_t(int32_t(int16_t(word&0xffff)));};
+    const auto load=[&](uint32_t a){return vuWords(rt,a);};
+    const auto put=[&](uint32_t a,const VuWords &v){std::memcpy(record(rt,a,16),v.data(),16);};
+    constexpr uint32_t one=0x3f800000u;
+    // (r * k)^2 - ((dx^2 + dy^2) + 1*dz^2), d = rows . centre (w by 1) - point; the centre's xyz kept.
+    const auto spherePoint=[&](const VuWords &centre,const VuWords &point){
+        VuWords out=centre;uint32_t d[3],sq[3];
+        for(unsigned i=0;i<3;++i){const auto t=vuAdd(vuAdd(vuAdd(vuMul(regs.rows[0][i],centre[0]),vuMul(regs.rows[1][i],centre[1])),vuMul(regs.rows[2][i],centre[2])),vuMul(regs.rows[3][i],one));
+            d[i]=vuSub(t,point[i]);sq[i]=vuMul(d[i],d[i]);}
+        auto r=vuMul(centre[3],regs.rows[4][0]);r=vuMul(r,r);
+        out[3]=vuSub(r,vuAdd(vuAdd(sq[0],sq[1]),vuMul(one,sq[2])));return out;};
+    const auto frame=pointWalkFrame[site->instance],object=c->r[pointWalkObject[site->instance]].uw[0];
+    switch(site->role){
+    case 'S':
+        if(c->r[2].uw[0]!=stack+frame)throw std::runtime_error("native point-tree spill escaped its frame");
+        if(site->param==0)snapshots[{rt,stack}]=regs;
+        return true;
+    case 'R':{
+        if(c->r[2].uw[0]!=stack+frame)throw std::runtime_error("native point-tree restore escaped its frame");
+        if(site->param<4)return true;
+        const auto it=snapshots.find({rt,stack});if(it==snapshots.end())throw std::runtime_error("native point-tree restore without its spill");
+        for(unsigned i=0;i<5;++i)regs.rows[i]=it->second.rows[i];regs.valid=it->second.valid;snapshots.erase(it);return true;}
+    // The overlap block's inputs as bits: centre 1, rows 2..16, point 32, radius 64 (mod028 loads the radius last by QMTC2,
+    // mod001 first from sp+60).
+    case 'K':
+        if(at()!=stack+0x60)throw std::runtime_error("native point-tree radius escaped its frame");
+        st=PointWalkState{};regs.rows[4]=load(at());st.loaded=64;return true;
+    case 'c':
+        if(at()!=c->r[18].uw[0]+0x10)throw std::runtime_error("native point-tree centre escaped its node");
+        if(site->instance==0)st=PointWalkState{};else if(st.loaded!=64)throw std::runtime_error("native point-tree centre out of order");
+        st.centre=load(at());st.loaded|=1;return true;
+    case 'r':
+        if(!(st.loaded&1) || (st.loaded>>(1+site->param))&1 || at()!=object+0x150+16*site->param)throw std::runtime_error("native point-tree rows out of order");
+        regs.rows[site->param]=load(at());st.loaded|=2u<<site->param;return true;
+    case 'p':
+        if((st.loaded&31)!=31)throw std::runtime_error("native point-tree point out of order");
+        regs.rows[5]=load(at());st.loaded|=32;if(st.loaded==127)regs.valid=true;return true;
+    case 'k':
+        if(st.loaded!=63)throw std::runtime_error("native point-tree radius out of order");
+        for(unsigned i=0;i<4;++i)regs.rows[4][i]=c->r[8].uw[i];regs.valid=true;st.loaded=127;return true;
+    case 'O':{
+        if(c->r[2].uw[0]!=stack+site->param)throw std::runtime_error("native point-tree result escaped its frame");
+        if((pc==0x4a6a58 || pc==0x1f64ac) && st.loaded!=127)throw std::runtime_error("native point-tree result without its loads");
+        if(pc==0x1f6190 && st.loaded!=9)throw std::runtime_error("native sphere point test without its loads");
+        if(!regs.valid)throw std::runtime_error("native point test has no registers");
+        struct ArithmeticScope{unsigned saved=_mm_getcsr();~ArithmeticScope(){_mm_setcsr(saved);}} arithmetic;
+        put(at(),spherePoint(st.centre,regs.rows[5]));st.loaded=0;return true;}
+    case 'v':
+        if(c->r[2].uw[0]!=stack+0x30)throw std::runtime_error("native point-tree shape spill escaped its frame");
+        put(at(),regs.rows[site->param?7:5]);return true;
+    case 'V':
+        if(c->r[2].uw[0]!=stack+0x30)throw std::runtime_error("native point-tree shape restore escaped its frame");
+        regs.rows[site->param?7:5]=load(at());return true;
+    case 'C':st=PointWalkState{};st.centre=load(at());st.loaded=8;return true;
+    case 'P':if(st.loaded!=8)throw std::runtime_error("native sphere point test out of order");regs.rows[5]=load(at());st.loaded=9;return true;
+    case 'b':
+        if(site->param==0)st=PointWalkState{};else if(st.loaded!=10u+site->param-1)throw std::runtime_error("native box point test out of order");
+        if(site->param==0)st.point=load(at());else if(site->param<5)st.box[site->param-1]=load(at());else st.centre=load(at());
+        st.loaded=10+site->param;return true;
+    case 'B':{
+        if(st.loaded!=15 || c->r[2].uw[0]!=stack+site->param)throw std::runtime_error("native box point test store out of order");
+        if(!regs.valid)throw std::runtime_error("native box point test has no registers");
+        struct ArithmeticScope{unsigned saved=_mm_getcsr();~ArithmeticScope(){_mm_setcsr(saved);}} arithmetic;
+        if(site->param){VuWords out;for(unsigned i=0;i<4;++i)out[i]=vuAdd(vuAdd(vuAdd(vuMul(st.box[0][i],st.point[0]),vuMul(st.box[1][i],st.point[1])),vuMul(st.box[2][i],st.point[2])),vuMul(st.box[3][i],one));put(at(),out);}
+        else{VuWords out=st.centre;for(unsigned i=0;i<3;++i)out[i]=vuMul(st.centre[i],regs.rows[4][0]);put(at(),out);st.loaded=0;}
+        return true;}
+    default:return true;   // arithmetic: computed at the stores
+    }
+}
 // Sphere-tree walk, mod001 1f7490(node a0, point a1, matrix a2, scale f12), recursive (its
 // children at node +0, 0x20 apart, via 1f7490 itself; entry 1f78b0). Node object s0 = a0+4.
 // SQC2 vf1..vf9 to sp+90 on entry (1f74f4..1f7514); a miss LQC2s them back (1f76f4..,
@@ -5079,6 +5204,9 @@ constexpr MacroIdiom macroIdioms[]={
     // advance stored twice (mod180 53a6a0 at 53a6dc, battle 0x29): LQC2 vf1 = P (s1), vf2 = D (+e0); QMTC2 t0 -> vf21 (k);
     // MULAw.xyz ACC = P*1; MADDx.xyz vf1 = ACC + D*k; SQC2 vf1 to sp+50 and to P -> {P + D k, P.w} twice.
     {"advance2",{-2,-3,0x48a8a800,0x4bc009bf,0x4bd51048,-101,-101},7},
+    // retreat (mod180 53ad94, battle 0x29): LQC2 vf1 = P (a1), vf2 = D (a0); QMTC2 t0 -> vf3 (k = 50); MULAw.xyz ACC = P*1;
+    // MSUBx.xyz vf1 = ACC - D*k; SQC2 vf1 -> {P - D k, P.w}.
+    {"retreat",{-2,-3,0x48a81800,0x4bc009bf,0x4bc3104c,-101},6},
     // direction with w = 1 (mod028 4ce370 at 4ce548, battle 0x20): LQC2 vf27 = a, vf28 = b; SUB.xyz vf25 = a - b; ADDw.xyz
     // vf31 = 1; MUL.xyz vf26 = vf25^2; ADDAy / MADDz.x vf26.x = (x^2 + y^2) + 1*z^2; RSQRT; MOVE.w vf25 = 1; WAITQ; MULq.xyz
     // vf25; SQC2 vf25 -> {(a - b) Q, 1}.
@@ -5273,6 +5401,7 @@ bool nativeMacroIdiom(R5900Context *c,Runtime *rt,uint32_t pc){
             else if(kind=="direction27"){const auto a=need(27),b=need(28);uint32_t d[3],sq[3];for(unsigned i=0;i<3;++i){d[i]=vuSub(a[i],b[i]);sq[i]=vuMul(d[i],d[i]);}
                 uint32_t f=0;const auto q=bozo::ps2f::rsqrt(one,vuAdd(vuAdd(sq[0],sq[1]),vuMul(one,sq[2])),f);_mm_setcsr(savedCsr);
                 for(unsigned i=0;i<3;++i)out[i]=vuMul(d[i],q);out[3]=one;}
+            else if(kind=="retreat"){const auto p=need(1),d=need(2),s=need(3);for(unsigned i=0;i<3;++i)out[i]=vuSub(vuMul(p[i],one),vuMul(d[i],s[0]));out[3]=p[3];}
             else if(kind=="advance2"){const auto p=need(1),d=need(2),s=need(21);
                 for(unsigned i=0;i<3;++i)out[i]=vuAdd(vuMul(p[i],one),vuMul(d[i],s[0]));out[3]=p[3];
                 _mm_setcsr(savedCsr);std::memcpy(record(rt,address(self),16),out.data(),16);if(k==6)capture.valid=0;return true;}
@@ -8059,6 +8188,7 @@ bool nativeMathInstruction(uint8_t *,R5900Context *c,Runtime *rt,uint32_t pc){
     if(CLAIM(nativeBattleShapeTree))return true;
     if(CLAIM(nativeBattleObjectOverlap))return true;
     if(CLAIM(nativeSphereTreeWalk))return true;
+    if(CLAIM(nativePointTreeWalk))return true;
     if(CLAIM(nativeBattleAdvance))return true;
     if(CLAIM(nativeBattleRecordShift))return true;
     if(CLAIM(nativeBattleSegmentPoints))return true;

@@ -73,7 +73,14 @@ NativeModelSubmission NativeParticleDraws::capture(Runtime *rt,NativeAssets &ass
     // A key whose disc copies differ resolves by the origin of the texture header the info
     // block names (info + *(info+c), as the offline index locates it).
     const auto header=fis+value<uint32_t>(descriptor,0xc);const auto headerOrigin=assets.origin(header,0x10);
-    const auto texture=textures.load(headerOrigin?textures.resolve(key,*headerOrigin):key);const auto palette=texture->format==0x14?kindData[2]:0;
+    const auto resolvedKey=headerOrigin?textures.resolve(key,*headerOrigin):key;
+    const auto texture=textures.load(resolvedKey);const auto palette=texture->format==0x14?kindData[2]:0;
+    // The draw uploads this copy to the slot's TEX0 blocks, and other draws name it there: battle 0x2f's model f1b800
+    // samples the manager slot the particle registered (key 36317076:3ac, whose disc copies differ, at block 3480).
+    {const uint64_t tex0=word(rt,manager+0x1010+16*slot)|uint64_t(word(rt,manager+0x1014+16*slot))<<32;
+     const auto pixelBlock=uint32_t(tex0)&0x3fff,paletteBlock=uint32_t(tex0>>37)&0x3fff;
+     if(pixelBlock)textures.publishBlock(pixelBlock,false,resolvedKey);
+     if(paletteBlock && (texture->format==0x13 || texture->format==0x14))textures.publishBlock(paletteBlock,true,resolvedKey);}
     NativeModelBatch batch;batch.texture=texture->picture(palette);auto &mat=batch.material;
     // The template carries no CLAMP: U clamps and V repeats as the earlier
     // single-pass draws did (the game's own CLAMP for these kicks is unverified).

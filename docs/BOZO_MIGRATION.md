@@ -12,6 +12,21 @@ The earlier VP2S face/shading and general brightness comparisons remain open.
 
 ## Build and evidence
 
+### Battles 0x2e to 0x30: modules, mod138 draws, a particle texture sampled by a model (2026-11-24)
+
+- **Captured modules:** 125 and 138 (0x532200).
+- **Random draws (0x30):** mod138 532e68 draws four times (v1 at 532e70 and 532ed8, a0 at 532f90 and 532fd8); each target
+  is read only by the mtc1 after it before it is written again, so they join the native random sites.
+- **Particle texture sampled by a model (0x2f):** model f1b800 samples manager slot 121, key 36317076:3ac (disc copies
+  differ), registered by the particle draw 22f140 at TEX0 block 3480.
+  - The particle draw now publishes its resolved copy at the slot's TEX0 pixel block (and at its CBP, when one is set).
+  - The manager's TEX0 for the slot has CBP 0 / CLD 0. Every model packet in EE RAM loads its CLUT from the shared block 3d90
+    (a TEX0 with CLD 2 before the texture's TEX0), where the asset's palette is uploaded for the draw. So `modelImage` now
+    takes the copy's own palette when TEX0 names no CBP, as for a plain key; a set CBP still needs a published palette.
+  - **Test:** `vp2s-bozo-texture-publication` checks the no-CBP case.
+- **Evidence:** 0x2e and 0x30 run boundary-free to 67000. 0x2f now stops at the type-3 VIF1 upload (112fe0 -> 123220),
+  as 0x2c and 0x2d.
+
 ### Battles 0x2b to 0x2d: modules, squad denormal lanes (2026-11-24)
 
 - **Captured modules:** 135 (0x532200), 182 and 189 (0x53a380), 217 and 225 (0x53d800), 272 (0x542a80, loaded later, frame

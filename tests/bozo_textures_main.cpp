@@ -112,6 +112,7 @@ int main(int argc,char **argv){try{
         check(refused([&]{t.modelImage(bm,tex0,std::pair{uint64_t(0xed10d831),0u});}));    // no copy there, nothing at the block
         t.publishBlock(0x3a40,false,b);t.publishBlock(0x3a80,true,a);
         check(refused([&]{t.modelImage(bm,0x3a40|uint64_t(0x3b00)<<37);}));               // no palette at its CBP
+        check(t.modelImage(bm,0x3a40)==t.load(b));                                          // no CBP: the copy's own palette
         check(refused([&]{t.modelImage(vp2s::TextureKey{0x31304d42,2},tex0);}));          // another key's copy there
         const auto image=t.modelImage(bm,tex0);
         check(image->key==b && image->texels[0]==3 && image->palette==t.load(a)->palette && t.modelImage(bm,tex0)==image);

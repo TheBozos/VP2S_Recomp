@@ -172,8 +172,13 @@ std::shared_ptr<const NativeTextureAsset> NativeTextures::modelImage(TextureKey 
     const uint32_t pixelBlock=uint32_t(tex0)&0x3fff,paletteBlock=uint32_t(tex0>>37)&0x3fff;
     const auto pixels=blockAsset(pixelBlock,false);
     if(!pixels || pixels->key.tag!=key.tag || (pixels->key.index&0xffff)!=key.index)
-        throw std::runtime_error(std::format("native texture {:08x}:{:x} requires offline conversion/load provenance (no copy of it published at block {:x})",key.tag,key.index,pixelBlock));
+        throw std::runtime_error(std::format("native texture {:08x}:{:x} requires offline conversion/load provenance (no copy of it published at block {:x}; mesh part {:010x}_{:03})",
+            key.tag,key.index,pixelBlock,meshPart?meshPart->first:0ull,meshPart?meshPart->second:0u));
     if(pixels->format!=0x13 && pixels->format!=0x14)return pixels;
+    // A manager entry whose TEX0 names no CLUT (CBP 0, CLD 0: battle 0x2f's 36317076:3ac at block 3480) is
+    // drawn with the asset's own palette: every model packet loads its CLUT from the shared block 3d90 (TEX0
+    // with CLD 2 before the texture's TEX0), to which the asset's palette is uploaded for the draw, as for a plain key.
+    if(!paletteBlock)return pixels;
     const auto colours=blockAsset(paletteBlock,true);
     if(!colours)throw std::runtime_error(std::format("native texture {:08x}:{:x} at block {:x} has no palette published at {:x}",key.tag,key.index,pixelBlock,paletteBlock));
     return blockImage(pixelBlock,paletteBlock);

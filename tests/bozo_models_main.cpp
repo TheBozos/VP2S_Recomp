@@ -17,7 +17,7 @@ using Mat=std::array<float,16>;
 const Mat identity{1,0,0,0,0,1,0,0,0,0,1,0,0,0,0,1};
 void fixture(const std::filesystem::path &dir,int algorithm,uint32_t mode=2,uint32_t textured=0){
     std::filesystem::create_directories(dir);std::ofstream f(dir/"0000004000_001.mesh",std::ios::binary);
-    for(uint32_t n:{0x314e5056,1,0x60,4,1,1})write(f,n);
+    for(uint32_t n:{0x324e5056,1,0x60,4,1,1})write(f,n);
     write(f,std::array<int32_t,4>{algorithm,48,0,0});write(f,uint32_t(1));
     write(f,std::array<uint32_t,11>{0,textured,0,0,mode,0,0,0,1,0,1});write(f,uint16_t(4));
     const float xy[4][2]={{-.5f,-.5f},{.5f,-.5f},{-.5f,.5f},{.5f,.5f}};
@@ -292,15 +292,18 @@ int main(int argc,char **argv){try{
         {vp2s::NativeMaterialRows rows{{{0x8004,0x10000000,0xeeeeeeee,0},{0,0,0x42,0},{0x01400000,6,6,0},{0x01400000,6,6,0xa35},
             {0x3f800000,0,0,1},{0x3f800000,0,0,0},{0x8000,0x300e4000,0x412,0},{0x8000,0x300ec000,0x412,0},{0,1,0,0},
             {0x48,0,0x42,1},{0x01400000,6,6,0},{0x01400000,6,6,0},{0x8000,0x302e4000,0x412,0},{0x8000,0x302ec000,0x412,0},{1,1,0,0},{0,0,0,0x6202c016}}};
-         const auto pass=vp2s::nativeSecondPass(rows);check(pass && pass->alpha==0x48 && pass->slot==0 && pass->part==0 && pass->tex0==0x01400000u);++shadowCases;
+         const auto pass=vp2s::nativeSecondPass(rows);check(pass && pass->alpha==0x48 && pass->slot==0 && pass->part==0 && pass->tex0==0x01400000u && pass->on);++shadowCases;
+         {auto off=rows;off[14][1]=0;const auto p0=vp2s::nativeSecondPass(off);check(p0 && !p0->on);++shadowCases;}   // row 21.y clear: no pass
          auto other=rows;
          {auto glow=rows;glow[2]={0x21300000,0x4007b406,6,0};glow[3]={0x65423380,0x0007b406,6,0xa35};glow[10]={0x21300000,0x4007b786,6,0};glow[11]={0x21413a40,0x0007b786,6,0};
           glow[14]={1,1,1,0};glow[9][0]=0x44;const auto p2=vp2s::nativeSecondPass(glow);check(p2 && p2->alpha==0x44 && p2->slot==1 && p2->part==0 && p2->tex0==0x21413a40u);++shadowCases;}
          other=rows;other[12][1]=0x30ae4000;check(!vp2s::nativeSecondPass(other));             // PRIM differs beyond ABE
-         other=rows;other[9][3]=0;check(!vp2s::nativeSecondPass(other));                       // row 65 selected
+         other=rows;other[9][3]=0;check(vp2s::nativeSecondPass(other).has_value());            // row 65 selected (map 124)
+         other=rows;other[9][3]=2;check(!vp2s::nativeSecondPass(other));                       // .w neither 0 nor 1
          other=rows;other[9][0]=0xc8;check(!vp2s::nativeSecondPass(other));                    // a reserved blend field (3)
          other=rows;other[11][2]=0x14;check(!vp2s::nativeSecondPass(other));                   // row 18 not a TEX0_1 write
-         other=rows;other[6][1]=0x302e4000;other[12][1]=0x302e4000;check(!vp2s::nativeSecondPass(other));shadowCases+=5;}   // pass 1 already blended
+         other=rows;other[6][1]=0x302e4000;other[12][1]=0x302e4000;check(vp2s::nativeSecondPass(other).has_value());   // pass 1 already blended (map 65)
+         other[12][1]=0x30ae4000;check(!vp2s::nativeSecondPass(other));shadowCases+=6;}   // ... and pass 2 changing another PRIM bit
         // A vertex at w <= 0 drops its triangle; strips that do not cover the vertices reject.
         {auto behind=top;behind[15]=-1;std::vector<V> inc,dec;vp2s::nativeShadowPrisms(quad,strip,{0,0,1},behind,flat,inc,dec);check(inc.empty() && dec.empty());
             bool bad=false;try{vp2s::nativeShadowPrisms(quad,std::vector<uint16_t>{3},{0,0,1},top,flat,inc,dec);}catch(const std::runtime_error &){bad=true;}check(bad);shadowCases+=2;}

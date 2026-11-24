@@ -14,7 +14,7 @@ applied here; the others (skinning 2 / 4, sphere map 20, fade 44, UV scroll 48) 
 
 Output (game data: build tree only, never committed): <out>/<asset part>.msh (the asset file's name without its
 extension), a list of meshes:
-  u32 magic 'VPM3', u32 mesh count, then per mesh:
+  u32 magic 'VPM4', u32 mesh count, then per mesh:
     u32 offset of the mesh in the asset file, u32 vertex count, u32 strip count, u32 flags (header 2.x),
     i32 group mask (header 6.y), i32 routines[4], i32 routine data offsets[4] (rows from the mesh's top),
     f32 bounding centre[3], u32 has material, u32 header rows 8..12[20] (8.y the lighting mode),
@@ -24,6 +24,7 @@ extension), a list of meshes:
     vertices: f32 position[4] (w: the bone's VU address for routine 2), f32 normal[3], f32 uv[2], u8 rgba[4],
     for routine 4: per vertex i32 bone a, f32 weight a, i32 bone b, f32 weight b.
     for routine 48 (texture scrolling): i32 the offset's row index (the UV offset is .zw of object row 38 + index).
+    for routine 50 (table B: a second pass with scrolled UVs): i32 its offset row index (data .x, as 48's).
     for routine 26 (eye-position reflection map): its data row: f32 alpha base (.x), i32 alpha on (.y), f32 alpha
       scale (.w); the native renderer computes the UV (and the alpha when on) per frame from the eye.
     for routine 40 (screen-projected texture): f32 offset x, y, push along the normal (data row .xyz), f32 scale x, y
@@ -212,6 +213,8 @@ def convert(data, at, size):
         out += struct.pack('<5f', vu.f(base, 0), vu.f(base, 1), vu.f(base, 2), vu.f(base + 1, 0), vu.f(base + 1, 1))
     if 48 in routines:
         out += struct.pack('<i', vu.i(top + bases[routines.index(48)], 0))
+    if 50 in routines:
+        out += struct.pack('<i', vu.i(top + bases[routines.index(50)], 0))
     out += struct.pack('<I', size)
     for k in range(count):
         v = vertices + 4 * k
@@ -261,7 +264,7 @@ def main():
                 found = data.find(b'FPS\x00', found + 4)
             if meshes:
                 with open(os.path.join(a.out, os.path.splitext(name)[0] + '.msh'), 'wb') as f:
-                    f.write(struct.pack('<4sI', b'VPM3', len(meshes)) + b''.join(meshes))
+                    f.write(struct.pack('<4sI', b'VPM4', len(meshes)) + b''.join(meshes))
             files += 1
             if a.limit and files >= a.limit:
                 break

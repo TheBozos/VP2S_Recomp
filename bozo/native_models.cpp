@@ -27,6 +27,7 @@ struct NativeModels::Mesh {
     std::array<uint32_t,11> material{};
     bool hasMaterial=false;
     int32_t scroll=-1;
+    int32_t secondScroll=-1;   // routine 50's offset row index (table B: the second pass's UV scroll)
     // Routine 26's data row: alpha base (.x), alpha on (.y), alpha scale (.w).
     struct Reflection {float base=0;int32_t on=0;float scale=0;} reflection;
     ScreenProjection screen; // routine 40's data rows
@@ -111,7 +112,7 @@ std::shared_ptr<const NativeModels::Pack> NativeModels::load(const AssetOrigin &
     const auto file=root/std::format("{:010x}_{:03}.mesh",origin.disc,origin.part);
     std::ifstream in(file,std::ios::binary);if(!in)throw std::runtime_error("missing semantic native mesh pack: "+file.string());
     Reader r{{std::istreambuf_iterator<char>(in),{}}};
-    if(r.take<uint32_t>()!=0x314e5056)throw std::runtime_error("semantic native mesh version mismatch");
+    if(r.take<uint32_t>()!=0x324e5056)throw std::runtime_error("semantic native mesh version mismatch (VPN2: rebuild the mesh packs)");
     const auto count=r.take<uint32_t>();if(count>65536)throw std::runtime_error("native mesh pack too large");
     auto pack=std::make_shared<Pack>();
     for(unsigned i=0;i<count;++i){auto m=std::make_shared<Mesh>();const auto offset=r.take<uint32_t>(),nv=r.take<uint32_t>(),ns=r.take<uint32_t>();
@@ -125,6 +126,7 @@ std::shared_ptr<const NativeModels::Pack> NativeModels::load(const AssetOrigin &
         if(m->has(26))m->reflection=r.take<Mesh::Reflection>();
         if(m->has(40)){m->screen=r.take<ScreenProjection>();for(auto f:{m->screen.offset[0],m->screen.offset[1],m->screen.push,m->screen.scale[0],m->screen.scale[1]})finite(f);}
         if(m->has(48))m->scroll=r.take<int32_t>();
+        if(m->has(50))m->secondScroll=r.take<int32_t>();
         m->sourceSize=r.take<uint32_t>();r.array(m->sources,nv);
         uint64_t total=0;for(auto n:m->strips)total+=n;if(total!=nv)throw std::runtime_error("native strip extent mismatch");
         for(const auto source:m->sources)for(auto at:{source.normal,source.position})if(at!=UINT32_MAX && uint64_t(at)+12>m->sourceSize)
@@ -288,12 +290,14 @@ std::optional<NativeSecondPass> nativeSecondPass(const NativeMaterialRows &rows)
     constexpr uint32_t primBits=0x7ffu<<15;
     for(unsigned r:{17u,18u})if((row(r,2)&0xff)!=6)return std::nullopt;   // TEX0_1 writes, as rows 9 / 10
     if(row(21,2)>=256 || row(21,3)>15)return std::nullopt;
-    for(unsigned r:{13u,14u})if(row(r+6,0)!=row(r,0) || row(r+6,2)!=row(r,2) || (row(r+6,1)&~primBits)!=(row(r,1)&~primBits) || prim(r)&0x40 || prim(r+6)!=(prim(r)|0x40))
-        return std::nullopt;   // the same tags, PRIM with ABE added
+    for(unsigned r:{13u,14u})if(row(r+6,0)!=row(r,0) || row(r+6,2)!=row(r,2) || (row(r+6,1)&~primBits)!=(row(r,1)&~primBits) || prim(r+6)!=(prim(r)|0x40))
+        return std::nullopt;   // the same tags, PRIM with ABE set (pass 1 may already blend: maps 65, 124)
     const auto alpha=row(16,0);
-    if((row(16,2)&0xff)!=0x42 || row(16,1) || row(16,3)!=1 || alpha>0xff)return std::nullopt;   // ALPHA_1, selecting row 66
+    // ALPHA_1; .w picks row 65 or 66 for the register between (pass 1's row 8.w does the same; both seen). Pass 2 redraws
+    // pass 1's triangles at the same depths, so that register's depth write changes nothing drawn.
+    if((row(16,2)&0xff)!=0x42 || row(16,1) || row(16,3)>1 || alpha>0xff)return std::nullopt;
     for(unsigned f=0;f<4;++f)if(((alpha>>(2*f))&3)==3)return std::nullopt;
-    return NativeSecondPass{alpha,row(21,2),row(21,3),row(18,0)};
+    return NativeSecondPass{alpha,row(21,2),row(21,3),row(18,0),row(21,1)!=0};
 }
 std::vector<NativeShadowDraw> nativeShadowPass(const NativeModelSubmission &s,float width,float height){
     std::vector<NativeShadowDraw> draws;
@@ -465,11 +469,29 @@ NativeModelSubmission NativeModels::capture(Runtime *rt,NativeAssets &assets,Nat
         // Its texture: row 21's slot and part (pass 1's are row 15's, block +98 / +9c); map 124's pass 2 samples another
         // image (manager slot 1, TBP 3a40) than pass 1 (slot 0, TBP 3380), map 107's the same one.
         std::optional<NativeSecondPass> secondPass;
-        if(m.has(16)){
+        // Diagnostic (VP2S_BOZO_TRACE_TABLE_B): each mesh whose algorithms have a table-B routine (run after the kick,
+        // each gated: 16/18/22/28/50 by row 21.y, 32/52/54 by row 17.w, 12/14 by their data's .y, 46 by mem[36].z), once.
+        if(static const bool traceB=std::getenv("VP2S_BOZO_TRACE_TABLE_B")!=nullptr;traceB){
+            static std::set<std::pair<uint32_t,uint32_t>> seen;bool any=false;for(auto a:m.algorithms)any|=a==12||a==14||a==18||a==22||a==28||a==32||a==46||a==50||a==52||a==54;
+            if(any && seen.insert({mesh,block}).second){
+                const bool live=block>=0x100000 && word(block+0x70)==0x8000 && word(block+0x78)==0x412;
+                std::fprintf(stderr,"[vp2s:table-b] object=%x class=%x mesh=%x block=%x algs=%d.%d.%d.%d live=%d row21y=%u row17w=%u row36z=%u\n",object,word(object),mesh,block,
+                    m.algorithms[0],m.algorithms[1],m.algorithms[2],m.algorithms[3],int(live),live?word(block+0xf4):0u,live?word(block+0xbc):0u,word(object+0x230+16*36+8));}}
+        // 22 (table B 0f90: routine 20's sphere map, bal 0fd0, then 1720) and 50 (2348: the UVs plus object row 38 + data.x
+        // .zw, bal 2398, then 1720) are the same pass with other UVs. Each tests and clears row 21.y, so the first of them in
+        // the mesh's routine order draws it.
+        int passRoutine=0;for(auto a:m.algorithms)if(a==16 || a==22 || a==50){passRoutine=a;break;}
+        std::array<float,2> passScroll{};
+        if(passRoutine==50){
+            if(m.has(20) || m.has(26) || m.has(36) || m.has(40))throw std::runtime_error("native second pass (routine 50) over UVs that are not the mesh's own");
+            if(m.secondScroll<0 || m.secondScroll>=16)throw std::runtime_error("native second-pass UV scroll index outside bounds");
+            const auto q=row(38+m.secondScroll);passScroll={q[2],q[3]};}
+        if(passRoutine){
             if(block<0x100000 || word(block+0x70)!=0x8000 || word(block+0x78)!=0x412)throw std::runtime_error("native mesh second pass without its live material rows");
             NativeMaterialRows rows;for(unsigned r=0;r<16;++r)for(unsigned c=0;c<4;++c)rows[r][c]=word(block+0x10+16*r+4*c);
             secondPass=nativeSecondPass(rows);
-            if(!secondPass)throw std::runtime_error(std::format("unported native mesh second pass (algorithm 16): mesh {:x} block {:x}",mesh,block));}
+            if(!secondPass)throw std::runtime_error(std::format("unported native mesh second pass (routine {}): mesh {:x} block {:x}",passRoutine,mesh,block));
+            if(!secondPass->on)secondPass.reset();}   // row 21.y clear: the routine skips its pass
         if(m.hasMaterial)material=m.material;
         else if(origin && block>=0x40 && block-0x40!=mesh){const auto owner=assets.origin(block-0x40);if(owner && owner->disc==origin->disc && owner->part==origin->part){
             const auto other=pack->find(owner->offset);if(other!=pack->end() && other->second->hasMaterial)material=other->second->material;}}
@@ -529,7 +551,8 @@ NativeModelSubmission NativeModels::capture(Runtime *rt,NativeAssets &assets,Nat
             return p;};
         // Per-mesh scratch kept between calls (the draw runs on the game's thread only): no allocation per mesh.
         thread_local std::vector<bozo::render::Vertex> vertices;thread_local std::vector<std::array<float,4>> projected;thread_local std::vector<uint8_t> outside;
-        vertices.assign(m.vertices.size(),bozo::render::Vertex{});projected.clear();projected.reserve(m.vertices.size());outside.clear();outside.reserve(m.vertices.size());
+        vertices.assign(m.vertices.size(),bozo::render::Vertex{});
+        thread_local std::vector<std::array<float,2>> passUv;thread_local std::vector<uint32_t> emitted;emitted.clear();if(secondPass)passUv.assign(m.vertices.size(),{});projected.clear();projected.reserve(m.vertices.size());outside.clear();outside.reserve(m.vertices.size());
         for(size_t k=0;k<m.vertices.size();++k){const auto &v=m.vertices[k];std::array<float,3> p{v.p[0],v.p[1],v.p[2]},n{v.n[0],v.n[1],v.n[2]};
             if(editable){if(m.sources[k].position!=UINT32_MAX)for(unsigned c=0;c<3;++c)p[c]=real(source+m.sources[k].position+4*c);
                 if(m.sources[k].normal!=UINT32_MAX)for(unsigned c=0;c<3;++c)n[c]=real(source+m.sources[k].normal+4*c);}
@@ -633,6 +656,10 @@ NativeModelSubmission NativeModels::capture(Runtime *rt,NativeAssets &assets,Nat
             }
             vout.rgba=0;for(unsigned c=0;c<4;++c){finite(factor[c]);const auto lit=uint32_t(std::clamp((c==3?alphaRow:float(v.colour[c]))*factor[c],0.0f,limit[c]>0?std::min(limit[c],255.0f):255.0f));vout.rgba|=lit<<(8*c);}
             for(auto f:{vout.x,vout.y,vout.z,vout.u,vout.v,vout.fog})finite(f);
+            if(secondPass){auto &uv=passUv[k];uv={vout.u,vout.v};
+                if(passRoutine==22){const auto stq=sphereMapTexture(n,eyeDirection,rotation);uv={stq[2]?float(stq[0])/float(stq[2]):.5f,stq[2]?float(stq[1])/float(stq[2]):.5f};}
+                else if(passRoutine==50){uv[0]+=passScroll[0];uv[1]+=passScroll[1];}
+                for(auto f:uv)finite(f);}
         }
         if(shadowClass){
             std::vector<std::array<float,3>> positions(vertices.size());for(size_t k=0;k<vertices.size();++k)positions[k]={vertices[k].x,vertices[k].y,vertices[k].z};
@@ -643,14 +670,16 @@ NativeModelSubmission NativeModels::capture(Runtime *rt,NativeAssets &assets,Nat
             // The GS's LINE STRIP (each vertex continues the line) or LINE (pairs), one pixel wide.
             mat.lines=true;const bool strip=material[6]&2;
             for(auto length:m.strips){for(unsigned k=1;k<length;k+=strip?1:2){const auto a=first+k-1,b=first+k;
-                if(outside[a] || outside[b]){++guarded;continue;}batch.vertices.push_back(vertices[a]);batch.vertices.push_back(vertices[b]);}first+=length;}
+                if(outside[a] || outside[b]){++guarded;continue;}batch.vertices.push_back(vertices[a]);batch.vertices.push_back(vertices[b]);
+                if(secondPass){emitted.push_back(uint32_t(a));emitted.push_back(uint32_t(b));}}first+=length;}
         }else
         for(auto length:m.strips){for(unsigned k=2;k<length;++k){const auto a=first+k-2,b=first+k-1,c=first+k;
             if(outside[a] || outside[b] || outside[c]){++guarded;continue;}
             if(cull && projected[a][3]>0 && projected[b][3]>0 && projected[c][3]>0){const auto &p=projected[a],&q=projected[b],&r=projected[c];
                 const float area=(p[0]/p[3]-q[0]/q[3])*(q[1]/q[3]-r[1]/r[3])-(p[1]/p[3]-q[1]/q[3])*(q[0]/q[3]-r[0]/r[3]);
                 if(!std::signbit(area*((k&1)?-1.0f:1.0f))){++culled;continue;}}
-            batch.vertices.push_back(vertices[a]);batch.vertices.push_back(vertices[(k&1)?c:b]);batch.vertices.push_back(vertices[(k&1)?b:c]);}first+=length;}
+            batch.vertices.push_back(vertices[a]);batch.vertices.push_back(vertices[(k&1)?c:b]);batch.vertices.push_back(vertices[(k&1)?b:c]);
+            if(secondPass){emitted.push_back(uint32_t(a));emitted.push_back(uint32_t((k&1)?c:b));emitted.push_back(uint32_t((k&1)?b:c));}}first+=length;}
         if(traceModels && batch.vertices.empty())
             std::fprintf(stderr,"[vp2s:model-empty] object=%x mesh=%u/%x vertices=%zu guarded=%u culled=%u textured=%u blend=%u/%u%u%u%u class=%x\n",
                 object,i,mesh,m.vertices.size(),guarded,culled,material[1],material[0],material[7],material[8],material[9],material[10],word(object));
@@ -670,8 +699,9 @@ NativeModelSubmission NativeModels::capture(Runtime *rt,NativeAssets &assets,Nat
             std::fprintf(stderr," obj=%.2f,%.2f,%.2f amb=%.2f,%.2f,%.2f class=%x o66=%u m3f=%u m57=%u blend=%u/%u%u%u%u\n",objectColour[0],objectColour[1],objectColour[2],ambient[0],ambient[1],ambient[2],
                 word(object),byte(object+0x66),byte(model+0x3f),byte(model+0x57),material[0],material[7],material[8],material[9],material[10]);}
         if(secondPass && !batch.vertices.empty()){
-            // Algorithm 16's second pass: the same triangles, with its own texture, blended with its ALPHA_1, after pass 1.
-            auto second=batch;auto &m2=second.material;m2.alphaBlend=true;m2.blend=bozo::render::Material::Blend::Alpha;m2.gsBlend=true;
+            // The second pass (routine 16, 22 or 50): the same triangles with its UVs and texture, blended with its ALPHA_1, after pass 1.
+            auto second=batch;if(emitted.size()!=second.vertices.size())throw std::runtime_error("native second pass lost its vertex order");
+            for(size_t e=0;e<emitted.size();++e){second.vertices[e].u=passUv[emitted[e]][0];second.vertices[e].v=passUv[emitted[e]][1];}auto &m2=second.material;m2.alphaBlend=true;m2.blend=bozo::render::Material::Blend::Alpha;m2.gsBlend=true;
             const auto a=secondPass->alpha;m2.blendA=a&3;m2.blendB=(a>>2)&3;m2.blendC=(a>>4)&3;m2.blendD=(a>>6)&3;m2.blendFix=0x80;
             if(material[1]){
                 if(feedbackTexture || !manager)throw std::runtime_error("native mesh second pass over the feedback picture");

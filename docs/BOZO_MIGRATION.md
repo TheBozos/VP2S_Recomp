@@ -12,6 +12,38 @@ The earlier VP2S face/shading and general brightness comparisons remain open.
 
 ## Build and evidence
 
+### Table B second passes: routines 22 and 50 (2026-11-24)
+
+- **The audit:** every routine's work sits in one table: A before the kick, or B after it. The native path admitted
+  12, 14, 18, 22, 28, 32, 46, 50, 52 and 54 on table A alone, where they are bare returns. Their table-B routines
+  rewrite the vertices, then redraw through 16's tail (1748 / 1720 -> 0918).
+- **The gates:**
+  - 16, 18, 22, 28, 50: row 21.y, tested and cleared, so the first of them in the routine order draws.
+  - 32, 52, 54: row 17.w.
+  - 46: mem[36].z and row 21.x.
+  - 12, 14: their data .y.
+- **Measured:** a trace (VP2S_BOZO_TRACE_TABLE_B, off by default) over the 362 clean maps found row 21.y set on every
+  traced mesh. Live: 50 on 66 maps (3701 meshes), 22 on 26, 28 on 6, 18 on 2. mem[36].z was set for 23507 of 46's
+  meshes (row 21.x not traced).
+- **Now:**
+  - 22 (0f90): routine 20's sphere map (bal 0fd0), then 1720. Pass 2 takes sphereMapTexture's S/Q, T/Q from the
+    vertex's (skinned) normal.
+  - 50 (2348): bal 2398 adds object row (38 + data.x).zw to the UVs, then 1720. Pass 2 takes pass 1's UVs plus that
+    offset; it is refused when pass 1's UVs are generated (20, 26, 36, 40).
+  - Pass 2 uses the 16 path: per-vertex UVs mapped through the emitted triangle order.
+- **Data:** the converters keep 50's offset row index (data .x). The formats moved to VPM4 / VPN2, so stale packs
+  refuse to load.
+- **Rules relaxed** (seen on maps 65 and 124): pass 1 may already blend (pass 2's PRIM = pass 1's | ABE), and row
+  16.w may be 0 (row 65, as pass 1's row 8.w). Pass 2 redraws the same depths, so that register's depth write
+  changes nothing drawn. Ad (C = 1, ALPHA 0x58 on map 65) is the renderer's GS blend.
+- **Still open:** 12, 14, 18, 28, 32, 46, 52 and 54's table-B passes are still not drawn; 46 has the widest reach.
+
+**Evidence:**
+- **Tests:** the converter keeps 48 then 50's index. The second-pass rules cover the row 21.y gate, row 65, pass 1
+  blended, and the refusals.
+- **Maps:** the 89 clean maps with a live 22 or 50 mesh still run 850 frames clean, now with their second passes.
+  They are not yet compared with PCSX2 frames; map 65's torch glow looks right.
+
 ### Mesh algorithm 16: the blended second pass (2026-11-24)
 
 - **The case:** 12 maps refused mesh algorithm 16.

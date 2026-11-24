@@ -8,7 +8,7 @@ from vp2_bozo_meshes import convert
 
 
 def pack(material=True,algorithms=(0,0,0,0)):
-    out=bytearray(struct.pack('<4sI4Ii8i3fI20I',b'VPM3',1,96,3,1,0,2,
+    out=bytearray(struct.pack('<4sI4Ii8i3fI20I',b'VPM4',1,96,3,1,0,2,
                              *algorithms,0,0,0,0,1,2,3,int(material),*([0]*20)))
     if material:out+=struct.pack('<16I',0x48,3,0,0x1c,0x70,0,*([0]*10))
     out+=struct.pack('<2H',3,0)
@@ -16,6 +16,7 @@ def pack(material=True,algorithms=(0,0,0,0)):
     if 4 in algorithms:out+=struct.pack('<12I',*range(12))
     if 40 in algorithms:out+=struct.pack('<5f',0,0,40,1.25,0.5)
     if 48 in algorithms:out+=struct.pack('<i',2)
+    if 50 in algorithms:out+=struct.pack('<i',5)
     out+=struct.pack('<I6I',256,0,12,24,36,0xffffffff,60)
     return out
 
@@ -23,7 +24,7 @@ def pack(material=True,algorithms=(0,0,0,0)):
 class MeshConversionTests(unittest.TestCase):
     def test_semantic_material(self):
         result=convert(pack());header=struct.unpack_from('<4sI4I4i12I',result)
-        self.assertEqual(header[:6],(b'VPN1',1,96,3,1,2))
+        self.assertEqual(header[:6],(b'VPN2',1,96,3,1,2))
         self.assertEqual(header[10:],(1,1,1,1,3,3,1,1,0,2,0,1))
         self.assertEqual(struct.unpack_from('<H',result,88),(3,))
 
@@ -35,9 +36,16 @@ class MeshConversionTests(unittest.TestCase):
     def test_screen_projection_data(self):
         result=convert(pack(algorithms=(6,40,0,0)))
         self.assertEqual(struct.unpack_from('<4i',result,24),(6,40,0,0))
-        at=88+2+30*4  # one strip length, no padding in VPN1
+        at=88+2+30*4  # one strip length, no padding in VPN2
         self.assertEqual(struct.unpack_from('<5f',result,at),(0,0,40,1.25,0.5))
         self.assertEqual(struct.unpack_from('<I',result,at+20),(256,))
+
+    def test_second_pass_scroll_index(self):
+        # Routine 50 (table B: a second pass with scrolled UVs) keeps its offset row index after 48's.
+        result=convert(pack(algorithms=(48,50,0,0)))
+        at=88+2+30*4
+        self.assertEqual(struct.unpack_from('<2i',result,at),(2,5))
+        self.assertEqual(struct.unpack_from('<I',result,at+8),(256,))
 
     def test_no_material(self):
         result=convert(pack(False));self.assertEqual(struct.unpack_from('<12I',result,40),(0,)*12)

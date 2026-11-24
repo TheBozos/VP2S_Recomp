@@ -428,6 +428,17 @@ int main(int argc,char **argv){try{
             check(s.fixedCorners[0][0]==int32_t(16*x) && s.fixedCorners[0][1]==int32_t(16*y) && s.fixedCorners[3][0]==int32_t(16*(x+40)) && s.fixedCorners[3][1]==int32_t(16*(y+20)));
             check(s.uv[0]==0x100/4096.f && s.uv[1]==0x200/4096.f && s.uv[2]==0x300/4096.f && s.uv[3]==0x400/4096.f && s.colour==0x40808080u && s.depth==0xffff10u);
         }
+        {   // Countdown timer HUD (168e10, mod008 48fea0): a REGLIST sprite from its stored words over a 256 x 64 texture
+            // (UV 10.4: U 0x400 = texel 64 = 0.25; XYZ2 12.4 with Z above), and its six-vertex Gouraud strip.
+            const uint64_t uv0=0x0100u|(uint64_t(0x0200u)<<16),uv1=0x0400u|(uint64_t(0x0300u)<<16);
+            const uint64_t xyz0=0x7100u|(uint64_t(0x7d00u)<<16)|(uint64_t(0xffff40u)<<32),xyz1=0x7300u|(uint64_t(0x7e00u)<<16)|(uint64_t(0xffff40u)<<32);
+            const auto s=vp2s::nativeTimerSprite(0x7f808080u,uv0,xyz0,uv1,xyz1,256,64);
+            check(s.fixedCorners[0][0]==0x7100 && s.fixedCorners[0][1]==0x7d00 && s.fixedCorners[1][0]==0x7300 && s.fixedCorners[2][1]==0x7e00 && s.fixedCorners[3][0]==0x7300 && s.fixedCorners[3][1]==0x7e00);
+            check(s.uv[0]==0x100/4096.f && s.uv[1]==0x200/1024.f && s.uv[2]==0x400/4096.f && s.uv[3]==0x300/1024.f && s.colour==0x7f808080u && s.depth==0xffff40u);
+            const auto strip=vp2s::nativeTimerStrip({0x7f2b1243u,0x7f2b51bdu,0x7f2b1243u},{0x7000u|(uint64_t(0x7f00u)<<16),0x7000u|(uint64_t(0x7f40u)<<16),0x7a00u|(uint64_t(0x7f00u)<<16),
+                0x7a00u|(uint64_t(0x7f40u)<<16),0x8400u|(uint64_t(0x7f00u)<<16),0x8400u|(uint64_t(0x7f40u)<<16)});
+            check(strip.size()==12 && strip[0].x==0x700 && strip[0].y==0x7f0 && strip[0].rgba==0x7f2b1243u && strip[2].rgba==0x7f2b51bdu && strip[11].x==0x840 && strip[11].rgba==0x7f2b1243u);
+        }
         {   // Field pause bar (451a60): x 0, y 384 (scaled), origin (1792, 1792).
             vp2s::NativePauseBarInputs b;b.x=W(0.f);b.y=W(384.f);b.depth=0xffff20u;b.originX=1792;b.originY=1792;
             const auto t=vp2s::nativePauseBar(b);check(t.icons.empty() && t.alphaTriangles.size()==6+12);

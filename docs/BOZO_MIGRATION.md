@@ -12,6 +12,30 @@ The earlier VP2S face/shading and general brightness comparisons remain open.
 
 ## Build and evidence
 
+### Countdown timer HUD (class 168e10) native; mod046 captured (2026-11-24)
+
+- **The case:** the 32 timer maps (289-321, Rufus's soul: "If the timer at the bottom left reaches zero...") stopped
+  at the UI layer on element class 168e10, mod008's timer, whose build 48fea0 writes its own GS packet. The build
+  runs once per +3b clear, in GS context 2 with ALPHA_2 0x44 (0x3140f0). It draws:
+  - REGLIST sprites A and B (PRIM 356, RGBAQ, UV, XYZ2, UV, XYZ2) over the field resource image (the frame);
+  - a Gouraud strip (PRIM 24c: three RGBAQ, two XYZ2 each);
+  - then up to five glyph sprites over the uploader entry its 4430c0 call names: minutes tens unless under 10,
+    minutes, the colon (hidden on its blink), seconds tens, seconds. Their colour is 0x404080 when time is low.
+- **Now:**
+  - mod008's site list (vp2_bozo_kernel, the builder's code hashed whole) observes each register the builder stores.
+    The store words are checked and the register is read from the word; the packet is never read.
+  - At 490640 it reads the uploader query (s2, s0).
+  - nativeTimerSprite / nativeTimerStrip decode the words. The plate (frame icons, strip, late glyph icons) is drawn
+    by the native UI layer, which now admits 168e10 with its captured plate.
+  - A native site may not sit on a jal: the uploader query site is the `move a0, s2` before it.
+- **mod046 (slot 0x514080)** was captured from map 290 (12 timer maps jumped to 0x515070).
+
+**Evidence:**
+- **Tests:** a sprite from stored words (12.4 corners, 10.4 UVs over 256 x 64, Z), and the strip's four triangles
+  and colours.
+- **Maps:** 31 of the 33 now run 850 frames clean; map 300 shows "7:52" at the bottom left with its bar. Map 304
+  reaches routine 32's live table-B pass (refused), and map 299 a negative particle colour.
+
 ### Field overlays get their pointer-only entries (2026-11-24)
 
 - **The case:** maps 289-321 (33 maps) stopped on "no code at 0x48f2b0", 27 frames after the warp. The module at

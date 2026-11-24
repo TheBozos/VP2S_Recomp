@@ -1088,7 +1088,19 @@ def overlay_adaptations(name,data):
             '002c3cb8 10000015 080b0f48\n')
 
 
+MOD008_TIMER_SITES=(0x490220,0x490228,0x490258,0x4902a4,0x4902e4,0x4902e8,0x49033c,0x490348,0x4903ac,0x4903b4,0x490404,0x490430,
+                    0x490580,0x490584,0x49058c,0x490590,0x490598,0x49059c,0x4905a4,0x4905a8,0x4905b0,0x4905b4,0x490640,
+                    0x4909e4,0x4909e8,0x490a14,0x490a4c,0x490a8c,0x490a90,0x490ad8)
+
+
 def overlay_native_sites(name,data):
+    if name=='mod008':
+        # Countdown timer HUD (element class 168e10, build 48fea0; maps 289-321): its GS stores and its uploader query are
+        # observed (bozo/native_ui_text.cpp nativeTimerInstruction); the builder's code is checked whole.
+        _,segments,_=elf_parts(data);lo,hi=0x48fea0,0x490b24
+        s=next(s for s in segments if s[0]==1 and s[2]<=lo<hi<=s[2]+s[4]);at=s[1]+lo-s[2]
+        if hashlib.sha256(data[at:at+hi-lo]).hexdigest()!='86a8628162c7efc4fb8db5c88daf1e8b80caca28b560794157c5faf1dc344df3':raise ValueError('USA timer HUD source mismatch')
+        return ''.join(f'native 0x{pc:x}\n' for pc in MOD008_TIMER_SITES)
     if name=='mod003':
         overlay_adaptations(name,data)
         # Screen zoom overlay (class 15d420): draw method 374be0 and its packet

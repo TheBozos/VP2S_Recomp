@@ -65,6 +65,11 @@ public:
 };
 std::array<bozo::render::Vertex,6> nativeUiGlyphVertices(const NativeUiGlyph &,bool shadow);
 std::array<bozo::render::Vertex,6> nativeUiSpriteVertices(const NativeUiSprite &);
+// Countdown timer HUD (class 168e10, mod008 build 48fea0): one REGLIST sprite from the words its builder stores (RGBAQ,
+// UV, XYZ2, UV, XYZ2) over a width x height texture, and its six-vertex Gouraud strip (three RGBAQ, two XYZ2 each).
+NativeUiSprite nativeTimerSprite(uint32_t colour,uint64_t uv0,uint64_t xyz0,uint64_t uv1,uint64_t xyz1,uint32_t width,uint32_t height);
+std::vector<bozo::render::Vertex> nativeTimerStrip(const std::array<uint32_t,3> &colours,const std::array<uint64_t,6> &xyz);
+std::optional<bool> nativeTimerInstruction(R5900Context *,Runtime *,uint32_t pc);
 class UiTextOwner {
 public:
     virtual ~UiTextOwner()=default;

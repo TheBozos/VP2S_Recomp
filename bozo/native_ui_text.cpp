@@ -347,7 +347,7 @@ NativeUiLayer NativeUiTexts::layer(Runtime *rt,uint32_t layer)const{
             auto item=std::make_shared<NativeUiText>();item->element=element;item->additiveTriangles=nativeChapterBar(rt,element);
             result.texts.push_back(std::move(item));continue;
         }
-        if(value<uint32_t>(rt,element)==0x167820 || value<uint32_t>(rt,element)==0x165e00 || value<uint32_t>(rt,element)==0x165c30 ||
+        if(value<uint32_t>(rt,element)==0x167820 || value<uint32_t>(rt,element)==0x165e00 || value<uint32_t>(rt,element)==0x165c30 || value<uint32_t>(rt,element)==0x168e10 ||
            value<uint32_t>(rt,element)==0x166ef0 || value<uint32_t>(rt,element)==0x1670a0){
             auto captured=plate(element);if(!captured)throw std::runtime_error("native name plate has no finished snapshot");
             result.texts.push_back(std::move(captured));continue;
@@ -561,7 +561,105 @@ NativeUiText nativePauseBar(const NativePauseBarInputs &in){
     for(unsigned i=0;i+2<6;++i)out.alphaTriangles.insert(out.alphaTriangles.end(),{strip[i],strip[i+1],strip[i+2]});
     return out;
 }
+// Countdown timer HUD (element class 168e10, mod008 build 48fea0; maps 289-321, Rufus's soul). Built once per +3b clear,
+// in GS context 2 with ALPHA_2 0x44: REGLIST sprites (PRIM 356, RGBAQ, UV, XYZ2, UV, XYZ2) A and B over the field
+// resource image (the frame), a Gouraud strip (PRIM 24c: RGBAQ, XYZ2 x2, three times), then up to five glyph sprites
+// (minutes tens unless under 10, minutes, the colon, seconds tens, seconds) over the uploader image the builder's
+// 4430c0 call names. The native side observes each register the builder stores (the store words checked, the register
+// read from the word) and the uploader query, never the packet; the plate is drawn by the native UI layer.
+NativeUiSprite nativeTimerSprite(uint32_t colour,uint64_t uv0,uint64_t xyz0,uint64_t uv1,uint64_t xyz1,uint32_t width,uint32_t height){
+    // REGLIST UV: U bits 0-13, V bits 16-29 (texels x16); XYZ2: X bits 0-15, Y bits 16-31 (12.4), Z bits 32-63.
+    NativeUiSprite s;s.colour=colour;s.depth=uint32_t(xyz1>>32);
+    const auto x0=int32_t(xyz0&0xffff),y0=int32_t((xyz0>>16)&0xffff),x1=int32_t(xyz1&0xffff),y1=int32_t((xyz1>>16)&0xffff);
+    s.fixedCorners={std::array<int32_t,2>{x0,y0},{x1,y0},{x0,y1},{x1,y1}};
+    s.uv={float(uv0&0x3fff)/float(16*width),float((uv0>>16)&0x3fff)/float(16*height),float(uv1&0x3fff)/float(16*width),float((uv1>>16)&0x3fff)/float(16*height)};
+    return s;
+}
+std::vector<bozo::render::Vertex> nativeTimerStrip(const std::array<uint32_t,3> &colours,const std::array<uint64_t,6> &xyz){
+    // Six XYZ2 after three RGBAQ (two each), drawn as a triangle strip: triangles (k, k+1, k+2).
+    std::array<bozo::render::Vertex,6> v{};
+    for(unsigned k=0;k<6;++k){v[k].x=float(xyz[k]&0xffff)/16;v[k].y=float((xyz[k]>>16)&0xffff)/16;v[k].z=float(uint32_t(xyz[k]>>32));v[k].rgba=colours[k/2];}
+    std::vector<bozo::render::Vertex> out;for(unsigned k=0;k+2<6;++k)out.insert(out.end(),{v[k],v[k+1],v[k+2]});
+    return out;
+}
+namespace {
+struct TimerCapture {
+    uint32_t element=0;bool open=false;NativeUiText text;
+    std::shared_ptr<const bozo::render::Texture> frame,digits;uint32_t frameW=0,frameH=0,digitsW=0,digitsH=0;
+    uint64_t words[5]{};unsigned spriteStage=0;bool late=false;
+    std::array<uint32_t,3> stripColours{};std::array<uint64_t,6> stripXyz{};unsigned colours=0,points=0;
+};
+std::map<const Runtime *,TimerCapture> &timerCaptures(){static std::map<const Runtime *,TimerCapture> m;return m;}
+constexpr std::pair<uint32_t,uint32_t> kTimerSites[]={{0x490220,0xfe020000},{0x490228,0xae170008},{0x490258,0xfe020000},{0x4902a4,0xfe020008},
+    {0x4902e4,0xfe030000},{0x4902e8,0xfe020008},{0x49033c,0xfe040000},{0x490348,0xae170008},{0x4903ac,0xfe020000},{0x4903b4,0xfe0f0008},
+    {0x490404,0xfe030000},{0x490430,0xfe030008},{0x490580,0xfe060000},{0x490584,0xae120008},{0x49058c,0xfe0a0000},{0x490590,0xfe050008},
+    {0x490598,0xae130000},{0x49059c,0xfe040008},{0x4905a4,0xfe030000},{0x4905a8,0xae020008},{0x4905b0,0xfe0e0000},{0x4905b4,0xfe0d0008},
+    {0x490640,0x0240202d},{0x4909e4,0xfe040000},{0x4909e8,0xae170008},{0x490a14,0xfe030000},{0x490a4c,0xfe030008},{0x490a8c,0xfe040000},
+    {0x490a90,0xfe030008},{0x490ad8,0xa2a3003b}};
+}
+std::optional<bool> nativeTimerInstruction(R5900Context *c,Runtime *rt,uint32_t pc){
+    if(pc<0x490220 || pc>0x490ad8)return std::nullopt;
+    const auto site=std::find_if(std::begin(kTimerSites),std::end(kTimerSites),[&](const auto &x){return x.first==pc;});
+    if(site==std::end(kTimerSites))return std::nullopt;
+    if(!rt || !rt->memory.hostPointer(pc,4) || value<uint32_t>(rt,pc)!=site->second)return std::nullopt;   // another overlay at these addresses
+    auto *d=vp2s::nativeCast<bozo::ee::Dispatcher>(rt->services);
+    auto *owner=d?vp2s::nativeCast<UiTextOwner>(&d->host()):nullptr;auto *textures=d?vp2s::nativeCast<TextureOwner>(&d->host()):nullptr;
+    if(!c || !owner || !textures)throw std::runtime_error("native timer HUD requires its builder");
+    auto &cap=timerCaptures()[rt];
+    const auto reg=[&](){return c->r[(site->second>>16)&31].ud[0];};   // the register the checked store word names
+    if(pc==0x490220){
+        // Sprite A's PRIM: the build has passed its gates (+3b clear, the uploader ready) and written ALPHA_2 / TEX0_2.
+        const auto element=c->r[21].uw[0];record(rt,element,0x60);
+        if(value<uint32_t>(rt,element)!=0x168e10 || reg()!=0x356)throw std::runtime_error("native timer HUD escaped its element");
+        const auto resource=value<uint32_t>(rt,value<uint32_t>(rt,0x48e048)+0x5c);record(rt,resource,0x240);
+        if(c->r[18].uw[0]!=resource || value<uint32_t>(rt,resource)!=0x165b40 || value<uint64_t>(rt,0x3140f0)!=0x44)
+            throw std::runtime_error("native timer HUD escaped its resource or blend");
+        const auto image=textures->nativeTextures().imageAsset(resource);
+        const unsigned tw=value<uint8_t>(rt,resource+0x238),th=value<uint8_t>(rt,resource+0x239);
+        if(!image || tw>10 || th>10 || image->width!=(1u<<tw) || image->height!=(1u<<th))throw std::runtime_error("native timer HUD has no published resource image");
+        cap=TimerCapture{};cap.element=element;cap.open=true;cap.frame=image->picture(0);cap.frameW=1u<<tw;cap.frameH=1u<<th;
+        cap.spriteStage=1;cap.late=false;return false;}
+    if(!cap.open)throw std::runtime_error("native timer HUD store outside its build");
+    const auto beginSprite=[&](bool late){if(reg()!=0x356)throw std::runtime_error("native timer HUD sprite PRIM differs");cap.spriteStage=1;cap.late=late;};
+    const auto spriteStore=[&](unsigned stage){   // 1 RGBAQ, 2 UV, 3 XYZ2, 4 UV, 5 XYZ2
+        if(cap.spriteStage!=stage)throw std::runtime_error("native timer HUD sprite stores out of order");
+        cap.words[stage-1]=stage==1?uint64_t(uint32_t(reg())):reg();
+        if(stage<5){++cap.spriteStage;return;}
+        const bool late=cap.late;auto sprite=nativeTimerSprite(uint32_t(cap.words[0]),cap.words[1],cap.words[2],cap.words[3],cap.words[4],late?cap.digitsW:cap.frameW,late?cap.digitsH:cap.frameH);
+        sprite.picture=late?cap.digits:cap.frame;(late?cap.text.lateIcons:cap.text.icons).push_back(std::move(sprite));cap.spriteStage=0;};
+    switch(pc){
+    case 0x490228:case 0x490348:case 0x4909e8:spriteStore(1);break;
+    case 0x490258:case 0x4903ac:case 0x490a14:spriteStore(2);break;
+    case 0x4902a4:case 0x4903b4:case 0x490a4c:spriteStore(3);break;
+    case 0x4902e4:case 0x490404:case 0x490a8c:spriteStore(4);break;
+    case 0x4902e8:case 0x490430:case 0x490a90:spriteStore(5);break;
+    case 0x49033c:beginSprite(false);break;
+    case 0x4909e4:if(!cap.digits)throw std::runtime_error("native timer HUD glyph before its uploader image");beginSprite(true);break;
+    case 0x490580:if(reg()!=0x24c || cap.colours || cap.points)throw std::runtime_error("native timer HUD strip PRIM differs");break;
+    case 0x490584:case 0x490598:case 0x4905a8:
+        if(cap.colours!=cap.points/2 || cap.points%2)throw std::runtime_error("native timer HUD strip stores out of order");
+        cap.stripColours[cap.colours++]=uint32_t(reg());break;
+    case 0x49058c:case 0x490590:case 0x49059c:case 0x4905a4:case 0x4905b0:case 0x4905b4:
+        if(cap.points>=6 || cap.colours!=cap.points/2+1)throw std::runtime_error("native timer HUD strip stores out of order");
+        cap.stripXyz[cap.points++]=reg();
+        if(pc==0x4905b4)cap.text.alphaTriangles=nativeTimerStrip(cap.stripColours,cap.stripXyz);
+        break;
+    case 0x490640:{   // before 4430c0(uploader = s2, index = s0, sp+150): the glyphs' TEX0 is this entry's (TEX0_2 at 49062c / 490638)
+        const auto uploader=c->r[18].uw[0],index=c->r[16].uw[0];record(rt,uploader,0x12b0);
+        if(value<uint32_t>(rt,uploader)!=0x165630 || !(value<uint8_t>(rt,uploader+0x12ac)&1) || index>=16)throw std::runtime_error("native timer HUD glyphs have no ready uploader entry");
+        const auto entry=uploader+0x10a8+0x18*index;const auto tex0=value<uint64_t>(rt,entry);const auto icon=textures->nativeTextures().imageAsset(entry);
+        const unsigned tw=unsigned(tex0>>26)&15,th=unsigned(tex0>>30)&15;
+        if(!icon || icon->width!=(1u<<tw) || icon->height!=(1u<<th) || ((tex0>>56)&0x1f))throw std::runtime_error("native timer HUD glyph image is not published");
+        cap.digits=icon->picture(0);cap.digitsW=1u<<tw;cap.digitsH=1u<<th;break;}
+    case 0x490ad8:{   // sb 1, +3b: the build is complete
+        if(cap.element!=c->r[21].uw[0] || cap.spriteStage)throw std::runtime_error("native timer HUD build ended inside a sprite");
+        auto plate=std::make_shared<NativeUiText>(std::move(cap.text));plate->element=cap.element;plate->iconsCaptured=true;
+        owner->nativeUiTexts().plates[cap.element]=std::move(plate);cap=TimerCapture{};break;}
+    }
+    return false;   // every original instruction stays compiled; its packet is never sent
+}
 std::optional<bool> nativeNamePlateInstruction(R5900Context *c,Runtime *rt,uint32_t pc){
+    if(auto timer=nativeTimerInstruction(c,rt,pc))return timer;
     if(pc==0x448d70){
         auto *d=rt?vp2s::nativeCast<bozo::ee::Dispatcher>(rt->services):nullptr;
         auto *owner=d?vp2s::nativeCast<UiTextOwner>(&d->host()):nullptr;auto *textures=d?vp2s::nativeCast<TextureOwner>(&d->host()):nullptr;

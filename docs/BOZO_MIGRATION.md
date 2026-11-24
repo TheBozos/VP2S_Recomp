@@ -12,6 +12,25 @@ The earlier VP2S face/shading and general brightness comparisons remain open.
 
 ## Build and evidence
 
+### Battles 0x31 to 0x36: modules, pull-back and distance, emitter 2847e0's box (2026-11-24)
+
+- **Captured modules:** 158, 136, 137, 111, 139 (0x532200); 201, 192 (0x53a380); 282 (0x542a80, loaded at frame
+  65482 in 0x35).
+- **Formulas:**
+  - `pullback`, mod137 534750 (0x34): n = normalize(b - a) (RSQRT of (x^2 + y^2) + 1*z^2) stored with a.w, then
+    {b*1 - n k, b.w} (k = +3e8 via t0).
+  - `distance24`, mod139 53272c (0x36): {sqrt((dx^2 + dy^2) + 1*dz^2), dy^2, dz^2, a.w} with d = a - b (SQRT Q, ADDq.x).
+    The block after it is the existing `advance`.
+- **Particle box (0x35):** mod001 2847e0 has 48 VU0 triplets (LQC2 point, MINI vf26, MAX vf27), like 23fa40; only the first
+  ten were listed. The other 38 are added (point from r3, r4, r6 or r7; emitter in s5, frame 0x240).
+- **Module 282's last function:** it runs 0x40 bytes past the header's text (0x4c0, no data, no bss) up to the
+  constructor table at +500. `wrap_elf.py` already extends text to the next `jr ra`, but clamped data to text + data,
+  which made `.data` negative once the capture held that code. Data now starts at the extended text end. Captures
+  are saved up to the header's end pointer (+18) when the module has no data; 271 and 272's tails are zero.
+- **Tests:** the math test runs both blocks with their real words (gaps included).
+- **Evidence:** 0x31, 0x33, 0x34, 0x35 and 0x36 run boundary-free to 67000.
+- **Open:** 0x32 stops at a mode-2 particle draw (+aff = 2), the ribbon draw already open from 0x1c.
+
 ### Battles 0x2e to 0x30: modules, mod138 draws, a particle texture sampled by a model (2026-11-24)
 
 - **Captured modules:** 125 and 138 (0x532200).

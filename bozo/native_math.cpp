@@ -5215,6 +5215,13 @@ constexpr MacroIdiom macroIdioms[]={
     // retreat (mod180 53ad94, battle 0x29): LQC2 vf1 = P (a1), vf2 = D (a0); QMTC2 t0 -> vf3 (k = 50); MULAw.xyz ACC = P*1;
     // MSUBx.xyz vf1 = ACC - D*k; SQC2 vf1 -> {P - D k, P.w}.
     {"retreat",{-2,-3,0x48a81800,0x4bc009bf,0x4bc3104c,-101},6},
+    // pull back (mod137 534750, battle 0x34): LQC2 vf1 = a (sp+e0), vf2 = b (sp+d0); ADDw.xyz vf31 = 1; SUB.xyz vf1 = b - a;
+    // MUL.xyz vf10 = vf1^2; ADDAy / MADDz.x vf10.x = (x^2 + y^2) + 1*z^2; RSQRT; WAITQ; QMTC2 t0 -> vf3 (k = +3e8); MULq.xyz vf1;
+    // SQC2 vf1 -> {(b - a) Q, a.w}; MULAw.xyz ACC = b*1; MSUBx.xyz vf2 = ACC - n*k; SQC2 vf2 -> {b - n k, b.w}.
+    {"pullback",{-2,-3,0x4bc007c3,0x4bc1106c,0x4bc10aaa,0x4b0a503d,0x4b0afa8a,0x4a6a03be,0x4a0003bf,0x48a81800,0x4bc0085c,-101,0x4bc011bf,0x4bc3088c,-102},15},
+    // distance (mod139 53272c, battle 0x36): LQC2 vf24 = a, vf25 = b; SUB.xyz vf24 = a - b; MUL.xyz vf24 = vf24^2; ADDw.xyz vf25 = 1;
+    // ADDAy / MADDz.x vf24.x = (x^2 + y^2) + 1*z^2; SQRT Q; WAITQ; ADDq.x vf24.x = 0 + Q; SQC2 vf24 -> {|a - b|, dy^2, dz^2, a.w}.
+    {"distance24",{-25,-26,0x4bd9c62c,0x4bd8c62a,0x4bc00643,0x4b18c03d,0x4b18ce0a,0x4a1803bd,0x4a0003bf,0x4b000620,-124},11},
     // direction with w = 1 (mod028 4ce370 at 4ce548, battle 0x20): LQC2 vf27 = a, vf28 = b; SUB.xyz vf25 = a - b; ADDw.xyz
     // vf31 = 1; MUL.xyz vf26 = vf25^2; ADDAy / MADDz.x vf26.x = (x^2 + y^2) + 1*z^2; RSQRT; MOVE.w vf25 = 1; WAITQ; MULq.xyz
     // vf25; SQC2 vf25 -> {(a - b) Q, 1}.
@@ -5410,6 +5417,16 @@ bool nativeMacroIdiom(R5900Context *c,Runtime *rt,uint32_t pc){
                 uint32_t f=0;const auto q=bozo::ps2f::rsqrt(one,vuAdd(vuAdd(sq[0],sq[1]),vuMul(one,sq[2])),f);_mm_setcsr(savedCsr);
                 for(unsigned i=0;i<3;++i)out[i]=vuMul(d[i],q);out[3]=one;}
             else if(kind=="retreat"){const auto p=need(1),d=need(2),s=need(3);for(unsigned i=0;i<3;++i)out[i]=vuSub(vuMul(p[i],one),vuMul(d[i],s[0]));out[3]=p[3];}
+            else if(kind=="pullback"){const auto a=need(1),b=need(2),s=need(3);uint32_t d[3],sq[3],n[3];
+                for(unsigned i=0;i<3;++i){d[i]=vuSub(b[i],a[i]);sq[i]=vuMul(d[i],d[i]);}
+                uint32_t f=0;const auto q=bozo::ps2f::rsqrt(one,vuAdd(vuAdd(sq[0],sq[1]),vuMul(one,sq[2])),f);_mm_setcsr(savedCsr);
+                for(unsigned i=0;i<3;++i)n[i]=vuMul(d[i],q);
+                if(want==-101)out={n[0],n[1],n[2],a[3]};
+                else{for(unsigned i=0;i<3;++i)out[i]=vuSub(vuMul(b[i],one),vuMul(n[i],s[0]));out[3]=b[3];}
+                std::memcpy(record(rt,address(self),16),out.data(),16);if(want==-102)capture.valid=0;return true;}
+            else if(kind=="distance24"){const auto a=need(24),b=need(25);uint32_t sq[3];for(unsigned i=0;i<3;++i){const auto d=vuSub(a[i],b[i]);sq[i]=vuMul(d,d);}
+                uint32_t f=0;const auto root=bozo::ps2f::sqrt(vuAdd(vuAdd(sq[0],sq[1]),vuMul(one,sq[2])),f);_mm_setcsr(savedCsr);
+                out={vuAdd(0,root),sq[1],sq[2],a[3]};}
             else if(kind=="advance2"){const auto p=need(1),d=need(2),s=need(21);
                 for(unsigned i=0;i<3;++i)out[i]=vuAdd(vuMul(p[i],one),vuMul(d[i],s[0]));out[3]=p[3];
                 _mm_setcsr(savedCsr);std::memcpy(record(rt,address(self),16),out.data(),16);if(k==6)capture.valid=0;return true;}
@@ -5554,7 +5571,7 @@ bool nativeParticleBox(R5900Context *c,Runtime *rt,uint32_t pc){
     // 48a820 (a battle emitter's +18, frame 0xf0): the point is the record's +10 at v0
     // (48a9cc), the emitter is kept in s6 (a0 is reused), MINI/MAX at 48aa10/48aa14.
     // mod001 2847e0 (an emitter method called from the driver at 22ed20, frame 0x240, the
-    // emitter kept in s5): ten copies of the triplet, one per point kind, the point loaded
+    // emitter kept in s5): 48 copies of the triplet (as 23fa40), one per point kind, the point loaded
     // from the output just written (r3) or from the record (r4).
     // mod001 23fa40 (the general emitter 154810's +14, called from the driver at 22ed18 for
     // particles of two or more points; frame 0x240, emitter in s5): its trail-history shifts
@@ -5564,6 +5581,16 @@ bool nativeParticleBox(R5900Context *c,Runtime *rt,uint32_t pc){
         {0x44af7c,0x44afa4,0x44afa8,0x40,0xd8c10000,6,4},{0x48a9cc,0x48aa10,0x48aa14,0xf0,0xd8410000,2,22},
         {0x284934,0x28498c,0x284990,0x240,0xd8610000,3,21},{0x2849f0,0x284a4c,0x284a50,0x240,0xd8610000,3,21},{0x284b18,0x284b74,0x284b78,0x240,0xd8810000,4,21},{0x284bd4,0x284c30,0x284c34,0x240,0xd8610000,3,21},{0x284cf0,0x284d1c,0x284d20,0x240,0xd8610000,3,21},
         {0x284d80,0x284db8,0x284dbc,0x240,0xd8610000,3,21},{0x284e78,0x284eb0,0x284eb4,0x240,0xd8610000,3,21},{0x284f14,0x284f58,0x284f5c,0x240,0xd8610000,3,21},{0x285050,0x2850a8,0x2850ac,0x240,0xd8810000,4,21},{0x28510c,0x285150,0x285154,0x240,0xd8610000,3,21},
+        {0x285218,0x285274,0x285278,0x240,0xd8810000,4,21},{0x2852d4,0x285318,0x28531c,0x240,0xd8610000,3,21},{0x2853d8,0x285404,0x285408,0x240,0xd8610000,3,21},{0x285468,0x285488,0x28548c,0x240,0xd8610000,3,21},
+        {0x285548,0x285580,0x285584,0x240,0xd8610000,3,21},{0x2855e8,0x285614,0x285618,0x240,0xd8610000,3,21},{0x285704,0x28575c,0x285760,0x240,0xd8610000,3,21},{0x2857b0,0x28580c,0x285810,0x240,0xd8610000,3,21},
+        {0x2858cc,0x285928,0x28592c,0x240,0xd8610000,3,21},{0x285980,0x2859dc,0x2859e0,0x240,0xd8610000,3,21},{0x285a94,0x285ac0,0x285ac4,0x240,0xd8610000,3,21},{0x285b18,0x285b50,0x285b54,0x240,0xd8610000,3,21},
+        {0x285c04,0x285c3c,0x285c40,0x240,0xd8610000,3,21},{0x285c90,0x285cd4,0x285cd8,0x240,0xd8610000,3,21},{0x285dc4,0x285e1c,0x285e20,0x240,0xd8610000,3,21},{0x285e70,0x285eb4,0x285eb8,0x240,0xd8610000,3,21},
+        {0x285f6c,0x285fc8,0x285fcc,0x240,0xd8610000,3,21},{0x286020,0x286064,0x286068,0x240,0xd8610000,3,21},{0x286114,0x286140,0x286144,0x240,0xd8610000,3,21},{0x286198,0x2861b8,0x2861bc,0x240,0xd8610000,3,21},
+        {0x28626c,0x2862a4,0x2862a8,0x240,0xd8610000,3,21},{0x2862f8,0x286324,0x286328,0x240,0xd8610000,3,21},{0x28648c,0x2864e4,0x2864e8,0x240,0xd8610000,3,21},{0x28651c,0x286580,0x286584,0x240,0xd8610000,3,21},
+        {0x2866b4,0x286710,0x286714,0x240,0xd8610000,3,21},{0x28674c,0x2867b0,0x2867b4,0x240,0xd8610000,3,21},{0x2868dc,0x286908,0x28690c,0x240,0xd8610000,3,21},{0x286944,0x286980,0x286984,0x240,0xd8610000,3,21},
+        {0x286aac,0x286ae4,0x286ae8,0x240,0xd8610000,3,21},{0x286b1c,0x286b68,0x286b6c,0x240,0xd8610000,3,21},{0x286ccc,0x286d24,0x286d28,0x240,0xd8610000,3,21},{0x286d5c,0x286da8,0x286dac,0x240,0xd8c10000,6,21},
+        {0x286edc,0x286f38,0x286f3c,0x240,0xd8610000,3,21},{0x286f74,0x286fc0,0x286fc4,0x240,0xd8610000,3,21},{0x2870ec,0x287118,0x28711c,0x240,0xd8610000,3,21},{0x287154,0x287178,0x28717c,0x240,0xd8e10000,7,21},
+        {0x2872a4,0x2872dc,0x2872e0,0x240,0xd8610000,3,21},{0x287314,0x287348,0x28734c,0x240,0xd8610000,3,21},
         {0x23fb94,0x23fbec,0x23fbf0,0x240,0xd8610000,3,21},{0x23fc50,0x23fcac,0x23fcb0,0x240,0xd8610000,3,21},{0x23fd78,0x23fdd4,0x23fdd8,0x240,0xd8810000,4,21},{0x23fe34,0x23fe90,0x23fe94,0x240,0xd8610000,3,21},
         {0x23ff50,0x23ff7c,0x23ff80,0x240,0xd8610000,3,21},{0x23ffe0,0x240018,0x24001c,0x240,0xd8610000,3,21},{0x2400d8,0x240110,0x240114,0x240,0xd8610000,3,21},{0x240174,0x2401b8,0x2401bc,0x240,0xd8610000,3,21},
         {0x2402b0,0x240308,0x24030c,0x240,0xd8810000,4,21},{0x24036c,0x2403b0,0x2403b4,0x240,0xd8610000,3,21},{0x240478,0x2404d4,0x2404d8,0x240,0xd8810000,4,21},{0x240534,0x240578,0x24057c,0x240,0xd8610000,3,21},

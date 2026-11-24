@@ -71,7 +71,9 @@ def header_text_end(module: bytes, text: int, word) -> int:
 def wrap(module: bytes, flags: int) -> bytes:
     load, text, dsize, bss = struct.unpack_from("<4I", module, 8)
     text_lo, text_hi = 0x80, text_end(module, text)
-    data_lo, data_hi = text_hi, min(text + dsize, len(module))
+    # Code may run past text + data (module 282: no data, its last function ends 0x40 bytes past text).
+    data_lo = text_hi
+    data_hi = max(data_lo, min(text + dsize, len(module)))
     image_off = 0x1000  # page-aligned file offset of the module image
 
     # (name, type, flags, image offset, size, alignment); offsets are relative to the image.

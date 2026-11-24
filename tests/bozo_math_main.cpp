@@ -1035,6 +1035,32 @@ int main(int argc,char **argv){try{
             m.r[2].uw[0]=stack+0x50;run(m,0x1f64ac);r=getv(stack+0x50);check(r[0]==1 && r[1]==2 && r[2]==3 && r[3]==12);
             bool refused=false;try{run(k,0x4a6a80);}catch(const std::runtime_error &){refused=true;}check(refused);   // a restore without its spill
         }
+        {   // mod137 534750 pull back (battle 0x34): n = normalize(b - a) to sp+c0, {b - n k, b.w} to sp+d0.
+            constexpr uint32_t block[]={0xd8810000,0xd8620000,0x4bc007c3,0x4bc1106c,0x4bc10aaa,0x4b0a503d,0x4b0afa8a,0x4a6a03be,0x4a0003bf,
+                0xc60003e8,0x44080000,0x00000000,0x48a81800,0x27a200c0,0x4bc0085c,0xf8410000,0x27a200d0,0x4bc011bf,0x4bc3088c,0xf8420000};
+            constexpr uint32_t at=0x534750,sp=0x1fff100;std::memcpy(rt.memory.hostPointer(at,sizeof(block)),block,sizeof(block));
+            const auto putv=[&](uint32_t a,std::array<float,4> x){std::memcpy(rt.memory.hostPointer(a,16),x.data(),16);};
+            const auto getv=[&](uint32_t a){std::array<float,4> x;std::memcpy(x.data(),rt.memory.hostPointer(a,16),16);return x;};
+            putv(sp+0xe0,{1,2,3,5});putv(sp+0xd0,{4,2,7,9});const float k=10;
+            R5900Context w{};w.r[29].uw[0]=sp;w.r[4].uw[0]=sp+0xe0;w.r[3].uw[0]=sp+0xd0;
+            for(unsigned i=0;i<std::size(block);++i){const uint32_t pc=at+4*i,x=block[i];if(x==0x44080000)std::memcpy(&w.r[8].uw[0],&k,4);
+                if(x==0x27a200c0)w.r[2].uw[0]=sp+0xc0;if(x==0x27a200d0)w.r[2].uw[0]=sp+0xd0;
+                const auto op=x>>26;check(vp2s::nativeMathInstruction(rt.memory.flat(),&w,&rt,pc)==(op==0x12 || op==0x36 || op==0x3e));}
+            const auto n=getv(sp+0xc0),r=getv(sp+0xd0);const auto near=[](float a,float b){return std::fabs(a-b)<1e-5f;};
+            check(near(n[0],0.6f) && n[1]==0 && near(n[2],0.8f) && n[3]==5);
+            check(near(r[0],-2) && r[1]==2 && near(r[2],-1) && r[3]==9);
+        }
+        {   // mod139 53272c distance (battle 0x36): {|a - b|, dy^2, dz^2, a.w} to sp+80.
+            constexpr uint32_t block[]={0xd8980000,0xd8590000,0x4bd9c62c,0x4bd8c62a,0x4bc00643,0x4b18c03d,0x4b18ce0a,0x4a1803bd,0x4a0003bf,0x4b000620,0xf8780000};
+            constexpr uint32_t at=0x53272c,sp=0x1fff200;std::memcpy(rt.memory.hostPointer(at,sizeof(block)),block,sizeof(block));
+            const auto putv=[&](uint32_t a,std::array<float,4> x){std::memcpy(rt.memory.hostPointer(a,16),x.data(),16);};
+            const auto getv=[&](uint32_t a){std::array<float,4> x;std::memcpy(x.data(),rt.memory.hostPointer(a,16),16);return x;};
+            putv(sp+0xb0,{4,6,13,7});putv(sp+0xa0,{1,2,1,2});
+            R5900Context w{};w.r[4].uw[0]=sp+0xb0;w.r[2].uw[0]=sp+0xa0;w.r[3].uw[0]=sp+0x80;
+            for(unsigned i=0;i<std::size(block);++i){const uint32_t pc=at+4*i,x=block[i];
+                const auto op=x>>26;check(vp2s::nativeMathInstruction(rt.memory.flat(),&w,&rt,pc)==(op==0x12 || op==0x36 || op==0x3e));}
+            const auto r=getv(sp+0x80);check(r[0]==13 && r[1]==16 && r[2]==144 && r[3]==7);
+        }
         {   // mod180 53ad94 retreat (battle 0x29): {P - D k, P.w} to s3+1760.
             constexpr uint32_t block[]={0xd8a10000,0xd8820000,0x44080000,0x00000000,0x48a81800,0x26621760,0x4bc009bf,0x4bc3104c,0xf8410000};
             constexpr uint32_t at=0x53ad94,p=0x1b0600,dv=0x1b0610,s3=0x1b1000;std::memcpy(rt.memory.hostPointer(at,sizeof(block)),block,sizeof(block));

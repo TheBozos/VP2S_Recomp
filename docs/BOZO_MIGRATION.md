@@ -12,6 +12,21 @@ The earlier VP2S face/shading and general brightness comparisons remain open.
 
 ## Build and evidence
 
+### Particle mode 6: the camera's own update before its angles (2026-11-24)
+
+- **The case:** mode-6 particles with angle offsets (+afb / +afc) read the drawing camera's +5d0 / +5d4. The queued
+  draw 22f170 first calls the camera's +64 method when +61 is clear (22f268..22f27c), then reads the angles whatever
+  +61 says.
+- **Before:** the native capture ran at the pre-enqueue (22f160) and refused while +61 was clear.
+- **Now:** it makes that same compiled call there through bozo_call_indirect, with the CPU state saved and restored.
+  This assumes the camera's inputs are final once objects queue their draws.
+
+**Evidence:**
+- **Maps:** 28 of the 33 maps that stopped here run 850 frames clean. The rest reach 430858 (2), a UI layer build
+  mode (2) and an object-pair spill (1). The sweep stands at 270 of 552 maps clean.
+- **Tests:** particle tests pass; full ctest 97/97.
+- **End RAM unchanged:** battle 0c9960c8d9f6, forest 912f01332dbe, game over 9df948c13063, route a3f2c8f4395d.
+
 ### Map sweep baseline; camera basis normalize 2a0730 (2026-11-24)
 
 - **All-maps sweep:** every map of warps.tsv (552), warped from the forest state, run to frame 64200 with captures.

@@ -4,6 +4,7 @@
 #include "native_particle_draws.h"
 #include "bozo/ee/dispatcher.h"
 #include "bozo/ops_vu0.h"
+#include "bozo/runtime_api.h"
 #include "../port/vp2s_music_math.h"
 #include <algorithm>
 #include <cmath>
@@ -177,7 +178,7 @@ NativeModelSubmission NativeParticleDraws::capture(Runtime *rt,NativeAssets &ass
     // is the draw's own (a1), brought up to date first through its +64 method when +61 is clear (battle 0x37).
     float angleOffset[2]={0,0};
     if(tilted && (owner[0xafb] || owner[0xafc])){
-        if(!*rt->memory.hostPointer(camera->object+0x61,1))throw std::runtime_error("native particle mode 6 angle offsets need an updated camera");
+        // (nativeParticleDrawInstruction has run the camera's +64 update first when +61 was clear, as 22f268 does.)
         if(owner[0xafb])angleOffset[0]=-number(value<float>(record(rt,camera->object+0x5d4,4),0));
         if(owner[0xafc])angleOffset[1]=-number(value<float>(record(rt,camera->object+0x5d0,4),0));}
     // VU1 particle program (0x6e0, image c8e40f07): MUL tint*colour (0b60), MINIi 255
@@ -401,6 +402,16 @@ std::optional<bool> nativeParticleDrawInstruction(R5900Context *c,Runtime *rt,ui
     auto *assets=d?vp2s::nativeCast<AssetOwner>(&d->host()):nullptr;auto *textures=d?vp2s::nativeCast<TextureOwner>(&d->host()):nullptr;auto *particles=d?vp2s::nativeCast<ParticleOwner>(&d->host()):nullptr;
     if(!c || !draw || !models || !scene || !assets || !textures || !particles || (c->pc!=0x22f140 && c->pc!=0x22f158) || c->r[31].uw[0]!=0x22f164 || c->r[5].uw[0]<0x1005b0)throw std::runtime_error("native particle draw lacks original pre-enqueue producer");
     const auto object=c->r[5].uw[0]-0x5b0;if(c->r[4].uw[0]!=object)throw std::runtime_error("native particle draw object changed before publication");
+    // Mode 6 with angle offsets (+afb / +afc) reads the drawing camera's +5d0 / +5d4. The queued draw 22f170 brings that
+    // camera up to date first through its own +64 method when +61 is clear (22f268..22f27c); the native capture runs at
+    // the pre-enqueue, so it makes that same compiled call here, with the CPU state kept as it was. This assumes the
+    // camera's inputs are final once objects queue their draws (the first queued draw that needs it does the same).
+    if(auto *owner=rt->memory.hostPointer(object,0xb10);owner && owner[0xaff]==6 && (owner[0xafb] || owner[0xafc]))
+        if(const auto camera=scene->nativeScene().drawingCamera();camera && !*rt->memory.hostPointer(camera->object+0x61,1)){
+            uint32_t vtable,method;std::memcpy(&vtable,rt->memory.hostPointer(camera->object,4),4);std::memcpy(&method,rt->memory.hostPointer(vtable+0x64,4),4);
+            const R5900Context saved=*c;c->r[4].ud[0]=camera->object;c->r[31].ud[0]=0x22f164;
+            bozo_call_indirect(rt->memory.flat(),c,rt,method);
+            const auto cycles=c->cycleLimit;*c=saved;c->cycleLimit=cycles;}   // as 22f288, the angles are read whatever +61 says now
     const auto submission=draw->nativeParticleDraws().capture(rt,assets->nativeAssets(),textures->nativeTextures(),scene->nativeScene(),particles->nativeParticles(),object);
     models->drawNativeModel(submission);c->r[4].sd[0]=int32_t(object);return true;
 }

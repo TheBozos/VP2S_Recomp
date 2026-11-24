@@ -281,7 +281,7 @@ int main(){try{
                 return;}
             auto d=vf[fd];
             if(f<0x1c){const auto t=v::bc(vf[ft],f&3);
-                switch(f>>2){case 0:v::add(&o,d,vf[fs],t,dest);break;case 1:v::sub(&o,d,vf[fs],t,dest);break;case 2:v::madd(&o,d,acc,vf[fs],t,dest);break;
+                switch(f>>2){case 0:v::add(&o,d,vf[fs],t,dest);break;case 1:v::sub(&o,d,vf[fs],t,dest);break;case 2:v::madd(&o,d,acc,vf[fs],t,dest);break;case 3:v::msub(&o,d,acc,vf[fs],t,dest);break;
                     case 4:v::max(d,vf[fs],t,dest);break;case 5:v::mini(d,vf[fs],t,dest);break;case 6:v::mul(&o,d,vf[fs],t,dest);break;default:check(false);}}
             else switch(f){case 0x1c:v::mul(&o,d,vf[fs],v::broadcast(q),dest);break;case 0x28:v::add(&o,d,vf[fs],vf[ft],dest);break;case 0x2a:v::mul(&o,d,vf[fs],vf[ft],dest);break;
                 case 0x2b:v::max(d,vf[fs],vf[ft],dest);break;case 0x2c:v::sub(&o,d,vf[fs],vf[ft],dest);break;case 0x2f:v::mini(d,vf[fs],vf[ft],dest);break;default:check(false);}
@@ -529,6 +529,71 @@ int main(){try{
         check(vp2s::nativeMathInstruction(y.memory.flat(),&m,&y,0x297490));
         write(y,0x2972f8,uint32_t(0));check(!vp2s::nativeMathInstruction(y.memory.flat(),&m,&y,0x2972f8));
         std::printf("%u general emitter particles (both copies, %u trail points, end conditions, jitter, push, curves, collision, three trail kinds) match the VU0 reference\n",programCases,programPoints);}
+        // mod001 223360 / 223580, the particle collision shapes (sphere, rectangle): each COP2 word through the VU0
+        // reference and the native handler; the scalar code between them done here; every stored value compared (xyz;
+        // the stored w lanes are register leftovers the native side leaves to memory, and no reader uses them).
+        {const std::pair<uint32_t,uint32_t> sphereWords[]={{0x223368,0xf84f0000},{0x22336c,0xf8500010},{0x223370,0xf8510020},{0x223374,0xf8520030},{0x22337c,0xd8af0000},{0x223380,0xd8d00000},{0x223384,0xd8510000},{0x22338c,0x4bd17cac},{0x223390,0x4bd184ec},{0x223394,0x4bd395a8},{0x223398,0x4bd2952a},{0x22339c,0x4bd39d6a},{0x2233a0,0x4bc007c3},{0x2233a4,0x4bd1b59b},{0x2233a8,0x4b14a03d},{0x2233ac,0x4b14fd0a},{0x2233b0,0x4a95a83c},{0x2233b4,0x4bd6b5ea},{0x2233b8,0x4a95fd0a},{0x2233bc,0xf8540000},{0x2233d8,0xd84f0000},{0x2233dc,0xd8500010},{0x2233e0,0xd8510020},{0x2233e4,0xd8520030},{0x2233fc,0xd8550000},{0x223400,0x4b17b83d},{0x223404,0x4b17fdca},{0x223408,0x4a7703be},{0x223414,0xd8780000},{0x223418,0xd8f90000},{0x22341c,0xd8530000},{0x223424,0x4a0003bf},{0x223428,0x4bc0b59c},{0x22342c,0xf8560000},{0x223430,0x4bc08abc},{0x223434,0x4bd5b5c8},{0x223438,0xf9370000},{0x22343c,0x4bd69cea},{0x223440,0x4bd8cbd8},{0x223444,0x4bd67c2a},{0x223448,0x4b10803d},{0x22344c,0x4b10fc0a},{0x223450,0x4b13983d},{0x223454,0x4b0080bf},{0x223458,0x4b13fc0a},{0x22345c,0x4b188419},{0x223460,0x4bd0b458},{0x223464,0x4bd98ca8},{0x223468,0x4bc08abc},{0x22346c,0x4bd8948a},{0x223470,0xf9120000},{0x223478,0xd84f0000},{0x22347c,0xd8500010},{0x223480,0xd8510020},{0x223484,0xd8520030}};
+         const std::pair<uint32_t,uint32_t> rectWords[]={{0x2235a0,0xf84f0000},{0x2235a4,0xf8500010},{0x2235a8,0xf8510020},{0x2235ac,0xf8520030},{0x2235b8,0xd8af0000},{0x2235bc,0xd8d50000},{0x2235c0,0xd8700000},{0x2235c4,0xd8510000},{0x2235c8,0x4bd07cac},{0x2235cc,0x4bd0adac},{0x2235d4,0x4bd194ea},{0x2235d8,0x4bd1b5ea},{0x2235dc,0x4bc007c3},{0x2235e0,0x4b13983d},{0x2235e4,0x4b13fcca},{0x2235e8,0x4a97b83c},{0x2235ec,0x4a97fcca},{0x2235f0,0x4bc0aabc},{0x2235f4,0x4bd38d0d},{0x2235f8,0xf8530000},{0x223640,0xd8d50000},{0x223644,0xd8700000},{0x223648,0xd8510000},{0x22364c,0x4bd07cac},{0x223654,0x4bd1956a},{0x223658,0x4b15a83d},{0x22365c,0x4b15fcca},{0x223660,0xf8530000},{0x22369c,0xd84f0000},{0x2236a0,0xd8500010},{0x2236a4,0xd8510020},{0x2236a8,0xd8520030},{0x2236c0,0xd8700000},{0x2236c8,0xd8510000},{0x2236d4,0xd84f0000},{0x2236d8,0xd8500010},{0x2236dc,0xd8510020},{0x2236e0,0xd8520030},{0x2236f4,0xd8550000},{0x2236f8,0xd8560010},{0x2236fc,0xd8570020},{0x223700,0xd8580030},{0x223708,0x4bf4a9bc},{0x22370c,0x4bf4b0bd},{0x223710,0x4bf4b8be},{0x223714,0x4be0c4cb},{0x223718,0xf8530000},{0x223744,0xd84f0000},{0x223748,0xd8500010},{0x22374c,0xd8510020},{0x223750,0xd8520030},{0x22378c,0xd84f0000},{0x223790,0xd8500010},{0x223794,0xd8510020},{0x223798,0xd8520030},{0x2237a8,0xf9340000},{0x2237b4,0xd8780000},{0x2237b8,0xda190000},{0x2237bc,0xd8570000},{0x2237c0,0x4bd8cbd8},{0x2237c4,0x4bd1bdea},{0x2237c8,0x4bd17c2a},{0x2237cc,0x4b10803d},{0x2237d0,0x4b10fc0a},{0x2237d4,0x4b17b83d},{0x2237d8,0x4b0080bf},{0x2237dc,0x4b17fc0a},{0x2237e0,0x4b188419},{0x2237e4,0x4bd08c58},{0x2237e8,0x4bd98ca8},{0x2237ec,0x4bc08abc},{0x2237f0,0x4bd8948a},{0x2237f4,0xf9120000},{0x223810,0xf8610000},{0x223814,0xf8620010},{0x223818,0xf8630020},{0x22381c,0xf8640030},{0x223820,0xf8650040},{0x223824,0xf8660050},{0x223828,0xf8670060},{0x22382c,0xf8680070},{0x223830,0xf8690080},{0x223834,0xf86a0090},{0x223838,0xf86b00a0},{0x22383c,0xf86c00b0},{0x223840,0xf86d00c0},{0x223844,0xf86e00d0},{0x223848,0xf86f00e0},{0x22384c,0xf87000f0},{0x223850,0xf8710100},{0x223854,0xf8720110},{0x223858,0xf8730120},{0x22385c,0xf8740130},{0x223860,0xf8750140},{0x223864,0xf8760150},{0x223868,0xf8770160},{0x22386c,0xf8780170},{0x223870,0xf8790180},{0x223874,0xf87a0190},{0x223878,0xf87b01a0},{0x22387c,0xf87c01b0},{0x223880,0xf87d01c0},{0x223884,0xf87e01d0},{0x223888,0xf87f01e0},{0x223894,0xd8550000},{0x223898,0xd8560010},{0x22389c,0xd8570020},{0x2238a0,0xd8580030},{0x2238a4,0x4bf4a9bc},{0x2238a8,0x4bf4b0bd},{0x2238ac,0x4bf4b8be},{0x2238b0,0x4be0c4cb},{0x2238b4,0xf8b30000},{0x223978,0xd8410000},{0x22397c,0xd8420010},{0x223980,0xd8430020},{0x223984,0xd8440030},{0x223988,0xd8450040},{0x22398c,0xd8460050},{0x223990,0xd8470060},{0x223994,0xd8480070},{0x223998,0xd8490080},{0x22399c,0xd84a0090},{0x2239a0,0xd84b00a0},{0x2239a4,0xd84c00b0},{0x2239a8,0xd84d00c0},{0x2239ac,0xd84e00d0},{0x2239b0,0xd84f00e0},{0x2239b4,0xd85000f0},{0x2239b8,0xd8510100},{0x2239bc,0xd8520110},{0x2239c0,0xd8530120},{0x2239c4,0xd8540130},{0x2239c8,0xd8550140},{0x2239cc,0xd8560150},{0x2239d0,0xd8570160},{0x2239d4,0xd8580170},{0x2239d8,0xd8590180},{0x2239dc,0xd85a0190},{0x2239e0,0xd85b01a0},{0x2239e4,0xd85c01b0},{0x2239e8,0xd85d01c0},{0x2239ec,0xd85e01d0},{0x2239f0,0xd85f01e0},{0x2239fc,0xd84f0000},{0x223a00,0xd8500010},{0x223a04,0xd8510020},{0x223a08,0xd8520030}};
+         for(const auto &[pc,w]:sphereWords){write(y,pc,w);write(x,pc,w);}for(const auto &[pc,w]:rectWords){write(y,pc,w);write(x,pc,w);}
+         constexpr uint32_t SH=0x1a0000,AP=0x1a1000,BP=0x1a1010,VP=0x1a1020,OV=0x1a1030,OP=0x1a1040,SPc=0x1b0000;
+         const auto both=[&](uint32_t at,uint32_t v){write(y,at,v);write(x,at,v);};
+         const auto bothf=[&](uint32_t at,float v){both(at,std::bit_cast<uint32_t>(v));};
+         const auto same=[&](uint32_t at,unsigned bytes){if(std::memcmp(x.memory.hostPointer(at,bytes),y.memory.hostPointer(at,bytes),bytes)){
+             for(unsigned i=0;i<bytes/4;++i)std::fprintf(stderr,"collision %x+%u: ref %08x native %08x\n",at,4*i,read<uint32_t>(x,at+4*i),read<uint32_t>(y,at+4*i));check(false);}};
+         const auto fx=[&](uint32_t at){return std::bit_cast<float>(read<uint32_t>(x,at));};
+         unsigned sphereHits=0,sphereMisses=0,rectHits=0,rectMisses=0,secondPlanes=0,effects=0;
+         for(unsigned seed=0;seed<200;++seed){
+            uint32_t state=seed*2654435761u+99;const auto rnd=[&](){state=state*1664525u+1013904223u;return state>>8;};
+            const auto uni=[&](float lo,float hi){return lo+(hi-lo)*float(rnd()%100000)/100000.f;};
+            const auto vec=[&](uint32_t at,float lo,float hi){for(unsigned i=0;i<3;++i)bothf(at+4*i,uni(lo,hi));bothf(at+12,uni(-2,2));};
+            vec(AP,-30,30);vec(BP,-30,30);vec(VP,-5,5);vec(OV,-1,1);vec(OP,-1,1);
+            m=R5900Context{};m.r[29].uw[0]=SPc;m.r[5].uw[0]=AP;m.r[6].uw[0]=BP;m.r[7].uw[0]=VP;m.r[8].uw[0]=OV;m.r[9].uw[0]=OP;
+            if(seed%2==0){   // sphere
+                vec(SH+0x240,-10,10);bothf(SH+0x24c,0.5f);const float r=uni(5,45);bothf(SH+0x224,r);bothf(SH+0x228,r*r);
+                vec(SH+0x230,-1.5f,1.5f);vec(SH+0x260,-1,1);m.r[4].uw[0]=SH;
+                m.r[2].uw[0]=SPc+0x10;for(uint32_t pc:{0x223368u,0x22336cu,0x223370u,0x223374u})run(pc);
+                m.r[2].uw[0]=SH+0x240;for(uint32_t pc:{0x22337cu,0x223380u,0x223384u})run(pc);
+                m.r[2].uw[0]=SPc;for(uint32_t pc=0x22338c;pc<=0x2233bc;pc+=4)run(pc);same(SPc,12);
+                if(!(fx(SPc+4)<=fx(SH+0x228))){m.r[2].uw[0]=SPc+0x10;for(uint32_t pc:{0x2233d8u,0x2233dcu,0x2233e0u,0x2233e4u})run(pc);++sphereMisses;continue;}
+                both(SPc,read<uint32_t>(x,SH+0x224));m.r[2].uw[0]=SPc;for(uint32_t pc:{0x2233fcu,0x223400u,0x223404u,0x223408u})run(pc);
+                m.r[3].uw[0]=SH+0x230;m.r[2].uw[0]=SH+0x260;for(uint32_t pc:{0x223414u,0x223418u,0x22341cu})run(pc);
+                m.r[2].uw[0]=SPc;for(uint32_t pc:{0x223424u,0x223428u,0x22342cu})run(pc);same(SPc,12);
+                for(uint32_t pc:{0x223430u,0x223434u,0x223438u})run(pc);same(OP,12);
+                for(uint32_t pc=0x22343c;pc<=0x223470;pc+=4)run(pc);same(OV,12);
+                m.r[2].uw[0]=SPc+0x10;for(uint32_t pc:{0x223478u,0x22347cu,0x223480u,0x223484u})run(pc);++sphereHits;continue;}
+            // rectangle: a plane through P with unit normal N, rows +2c0.. a rotation into its frame
+            const float a=uni(0,6.28f);const float N[3]={std::cos(a)*0.6f,0.8f,std::sin(a)*0.6f};
+            for(unsigned i=0;i<3;++i){bothf(SH+0x270+4*i,N[i]);bothf(SH+0x290+4*i,-N[i]);}bothf(SH+0x27c,0);bothf(SH+0x29c,0);
+            vec(SH+0x260,-5,5);vec(SH+0x280,-8,8);vec(SH+0x250,-1.5f,1.5f);vec(SH+0x2b0,-1,1);
+            for(unsigned k=0;k<16;++k){bothf(SH+0x2c0+4*k,uni(-1,1));bothf(SH+0x340+4*k,uni(-2,2));}
+            bothf(SH+0x230,uni(5,40));bothf(SH+0x238,uni(5,40));
+            const bool second=seed%3==1,effect=seed%5==1;write(y,SH+0x220,uint32_t(second?0x100:0)|uint32_t(effect?0x10000:0));write(x,SH+0x220,uint32_t(second?0x100:0)|uint32_t(effect?0x10000:0));
+            m.r[4].uw[0]=SH;m.r[17].uw[0]=SH;m.r[16].uw[0]=VP;
+            m.r[2].uw[0]=SPc+0x290;for(uint32_t pc:{0x2235a0u,0x2235a4u,0x2235a8u,0x2235acu})run(pc);
+            m.r[3].uw[0]=SH+0x260;m.r[2].uw[0]=SH+0x270;for(uint32_t pc:{0x2235b8u,0x2235bcu,0x2235c0u,0x2235c4u,0x2235c8u,0x2235ccu})run(pc);
+            m.r[2].uw[0]=SPc+0x280;for(uint32_t pc=0x2235d4;pc<=0x2235f8;pc+=4)run(pc);same(SPc+0x280,12);
+            const auto out=[&]{m.r[2].uw[0]=SPc+0x290;for(uint32_t pc:{0x2239fcu,0x223a00u,0x223a04u,0x223a08u})run(pc);};
+            bool go=false;
+            if(!(fx(SPc+0x280)<-1.f) && fx(SPc+0x284)<=0.f)go=true;
+            else if(second){
+                m.r[3].uw[0]=SH+0x280;m.r[2].uw[0]=SH+0x290;for(uint32_t pc:{0x223640u,0x223644u,0x223648u,0x22364cu})run(pc);
+                m.r[2].uw[0]=SPc+0x270;for(uint32_t pc:{0x223654u,0x223658u,0x22365cu,0x223660u})run(pc);same(SPc+0x270,12);++secondPlanes;
+                if(!(fx(SPc+0x270)<-1.f) && fx(SPc+0x274)<=0.f){m.r[3].uw[0]=SH+0x260;m.r[2].uw[0]=SH+0x270;run(0x2236c0);run(0x2236c8);go=true;}}
+            if(!go){out();++rectMisses;continue;}
+            m.r[2].uw[0]=SH+0x2c0;for(uint32_t pc:{0x2236f4u,0x2236f8u,0x2236fcu,0x223700u})run(pc);
+            m.r[2].uw[0]=SPc+0x260;for(uint32_t pc:{0x223708u,0x22370cu,0x223710u,0x223714u,0x223718u})run(pc);same(SPc+0x260,16);
+            const float lx=fx(SPc+0x260),lz=fx(SPc+0x268),bx=fx(SH+0x230),bz=fx(SH+0x238);
+            if(lx<-bx || !(lx<=bx) || lz<-bz || !(lz<=bz)){out();++rectMisses;continue;}
+            run(0x2237a8);same(OP,12);
+            m.r[3].uw[0]=SH+0x250;m.r[2].uw[0]=SH+0x2b0;for(uint32_t pc=0x2237b4;pc<=0x2237f4;pc+=4)run(pc);same(OV,12);
+            if(effect){m.r[3].uw[0]=SPc+0x60;for(uint32_t pc=0x223810;pc<=0x223888;pc+=4)run(pc);
+                m.r[2].uw[0]=SH+0x340;m.r[5].uw[0]=SPc+0x50;for(uint32_t pc=0x223894;pc<=0x2238b4;pc+=4)run(pc);same(SPc+0x50,16);
+                m.r[2].uw[0]=SPc+0x60;for(uint32_t pc=0x223978;pc<=0x2239f0;pc+=4)run(pc);++effects;}
+            out();++rectHits;
+         }
+         check(sphereHits>20 && sphereMisses>10 && rectHits>5 && rectMisses>5 && secondPlanes>3 && effects>0);
+         std::printf("collision shapes match the VU0 reference: sphere %u hits / %u misses, rectangle %u hits / %u misses (%u second planes, %u effect transforms)\n",
+            sphereHits,sphereMisses,rectHits,rectMisses,secondPlanes,effects);}
         // mod001 295f20 + 295580, the second emitter class (vtables 1563f0 / 156500): prepare's constant registers,
         // then per particle of 0xb0 bytes the loads, parent push, curves, the main step, output, early velocity,
         // collision, the stores of each +d0 kind (2: |A|^2, 5: rows * P, whose row loads become the next particles'
@@ -559,8 +624,9 @@ int main(){try{
                 {0x295a84,0x295a8c,0x295a90,0x295a94,0x295a98,0x295aa0},{0x295b44,0x295b48,0x295b4c,0x295b50,0x295b54,0x295b5c},
                 {0x295bd0,0x295bd4,0x295bd8,0x295bdc,0x295be0,0x295be8},{0x295c80,0x295c84,0x295c88,0x295c8c,0x295c90,0x295c98}};
             unsigned simpleCases=0,simplePoints=0;
-            for(unsigned pass=0;pass<2;++pass){
-            const uint32_t D=pass?0xbf0:0,ST=pass?0x80:0xb0;const auto at=[&](uint32_t pc){return pc-D;};const auto go=[&](uint32_t pc){run(at(pc));};
+            for(unsigned pass=0;pass<3;++pass){
+            // pass 1: class 156610 (0x80 records, sites 0xbf0 lower); pass 2: mod003's copy 40cf30 / 40c590 (177010 higher).
+            const uint32_t D=pass==1?0xbf0u:pass==2?uint32_t(-0x177010):0u,ST=pass==1?0x80:0xb0;const auto at=[&](uint32_t pc){return pc-D;};const auto go=[&](uint32_t pc){run(at(pc));};
             for(const auto &[pc,w]:words){write(y,at(pc),w);write(x,at(pc),w);}
             for(const auto &k:kindStores)for(unsigned i=0;i<6;++i){write(y,at(k[i]),storeWords[i]);write(x,at(k[i]),storeWords[i]);}
             const uint32_t P0=frame-0x40,S4=frame-0x1b0,PARENT=0x1e0000;
@@ -622,7 +688,7 @@ int main(){try{
             refused=false;try{vp2s::nativeMathInstruction(y.memory.flat(),&m,&y,at(0x295708));}catch(const std::runtime_error &){refused=true;}check(refused);   // record of index 1, not 2
             write(y,at(0x295868),uint32_t(0));check(!vp2s::nativeMathInstruction(y.memory.flat(),&m,&y,at(0x295868)));
             }
-            std::printf("%u second-class emitter particles (both classes, %u trail points, six store kinds, push, curves, collision, three trail kinds) match the VU0 reference\n",simpleCases,simplePoints);}
+            std::printf("%u second-class emitter particles (three copies, %u trail points, six store kinds, push, curves, collision, three trail kinds) match the VU0 reference\n",simpleCases,simplePoints);}
         // mod001 2932f0, the row emitter (battle 0x1c's mode-0 emitter): its own constants, per particle of 0xf0 bytes the two row
         // steps and stores, the loads, curves, main step, output, the stores of each +d0 kind (2: |A|^2, 5: e, f, then rows * P)
         // and the three trail kinds, against the same VU0 reference.

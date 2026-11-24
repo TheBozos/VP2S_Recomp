@@ -74,13 +74,15 @@ NativeModelSubmission NativeParticleDraws::capture(Runtime *rt,NativeAssets &ass
         // The strip's F is 0xff (no fog); the program writes the tag's NLOOP / EOP itself.
         const auto tagHigh=value<uint32_t>(rows,0x74);
         // Line strips: 0x20254000 (PRIM 0x4a) or with FGE 0x20354000 (PRIM 0x6a; field maps 62, 288 with the fog variant).
-        const bool tagKnown=points?(tagHigh==0x20304000u || tagHigh==0x20204000u):lineStrips?(tagHigh==0x20254000u || tagHigh==0x20354000u):tagHigh==0x20364000u;
+        const bool tagKnown=points?(tagHigh==0x20304000u || tagHigh==0x20204000u || tagHigh==0x20104000u):lineStrips?(tagHigh==0x20254000u || tagHigh==0x20354000u):tagHigh==0x20364000u;
         if(value<uint32_t>(rows,0xc)!=0x6c0f0060 || value<uint32_t>(rows,0x28)!=0x42 || !tagKnown || value<uint64_t>(rows,0x78)!=0x41)
             throw std::runtime_error(std::format("unported native particle image 3/5 GS state (ALPHA reg {:x}, tag {:08x}:{:x})",value<uint32_t>(rows,0x28),value<uint32_t>(rows,0x74),value<uint64_t>(rows,0x78)));
         const auto alpha=value<uint64_t>(rows,0x20);
         // ALPHA_1 from the block (battle 0x1c: 0x44, normal alpha; user 2026-11-24: "A: normal alpha").
         for(unsigned i=0;i<4;++i)if(((alpha>>(2*i))&3)>2)throw std::runtime_error("native particle image 5 ALPHA factor 3");
-        mat.textured=false;mat.alphaBlend=true;mat.blend=bozo::render::Material::Blend::Alpha;mat.gsBlend=true;
+        // Points may also come without ABE (0x2010400000008000: PRIM 0x20, FGE only; field maps 182-188): written opaque.
+        const bool abe=(tagHigh>>21)&1;
+        mat.textured=false;mat.alphaBlend=abe;mat.blend=abe?bozo::render::Material::Blend::Alpha:bozo::render::Material::Blend::Opaque;mat.gsBlend=abe;
         mat.blendA=alpha&3;mat.blendB=(alpha>>2)&3;mat.blendC=(alpha>>4)&3;mat.blendD=(alpha>>6)&3;mat.blendFix=(alpha>>32)&0xff;
         mat.depthTest=true;mat.depthWrite=false;mat.alphaTest=false;
     }else{

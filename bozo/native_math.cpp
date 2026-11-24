@@ -15,6 +15,7 @@
 #include <string_view>
 #include <algorithm>
 #include <cmath>
+#include <span>
 #include <format>
 #include <stdexcept>
 namespace vp2s {
@@ -6656,7 +6657,7 @@ constexpr SimpleSite simpleSites[]={
     {0x295e58,0x4bc4d6af,'b',6},{0x295e5c,0x4bc4deeb,'b',7}
 };
 struct SimpleState{
-    unsigned prepare=0;uint32_t frame=0,emitter=0,dt=0,stride=0;
+    unsigned prepare=0,variant=0;uint32_t frame=0,emitter=0,dt=0,stride=0;
     VuWords drift{},gravity{},push{},clamp{};
     unsigned phase=0;   // 0 between particles, 1 loading, 2 loaded, 3 main, 4 output, 5 stored
     char block=0;unsigned blockStep=0;
@@ -6671,9 +6672,13 @@ bool nativeSimpleEmitter(R5900Context *c,Runtime *rt,uint32_t pc){
     // Class 156610 (prepare 295330, step 2949a0 under vtable +c / +18) is this class compiled again for records of 0x80
     // bytes: its prepare is 295f20's word for word and its step 295580's except the record index (s4 << 7 for s4 * 0xb0),
     // every site 0xbf0 lower. The table below is 156500's; the copy looks its sites up at pc + 0xbf0.
-    const bool copy=pc>=0x294b18 && pc<=0x29540c;
-    if(!copy && (pc<0x295708 || pc>0x295ffc))return false;
-    const uint32_t tablePc=copy?pc+0xbf0:pc;
+    // mod003 holds 156500's code once more for the field classes 162440 / 162550 / 162660 (prepare 40cf30, step 40c590):
+    // every site 177010 higher, the same 0xb0 records; only its hook helpers' calls differ (4102d0 / 410460, 298a60 /
+    // 298bf0 word for word, 177870 higher).
+    const unsigned variant=pc>=0x294b18 && pc<=0x29540c?1u:pc>=0x295708+0x177010 && pc<=0x295ffc+0x177010?2u:0u;
+    if(!variant && (pc<0x295708 || pc>0x295ffc))return false;
+    const bool copy=variant==1;
+    const uint32_t tablePc=variant==1?pc+0xbf0:variant==2?pc-0x177010:pc;
     const SimpleSite *site=nullptr;for(const auto &s:simpleSites)if(s.pc==tablePc){site=&s;break;}
     if(!site)return false;
     uint32_t word=0;if(const auto *p=rt->memory.hostPointer(pc,4))std::memcpy(&word,p,4);
@@ -6694,19 +6699,19 @@ bool nativeSimpleEmitter(R5900Context *c,Runtime *rt,uint32_t pc){
     if(std::string_view("Yygzdoc").find(site->role)!=std::string_view::npos){
         constexpr std::string_view order="Ygzdoc";
         if(site->role=='Y' || site->role=='y'){
-            st=SimpleState{};st.emitter=reg(16);st.frame=reg(29)+0x40;st.stride=copy?0x80:0xb0;particles->nativeParticles().validateEmitter(st.frame,st.emitter);
+            st=SimpleState{};st.emitter=reg(16);st.frame=reg(29)+0x40;st.stride=copy?0x80:0xb0;st.variant=variant;particles->nativeParticles().validateEmitter(st.frame,st.emitter);
             const auto parent=field(st.emitter+0xf0);
             if(site->role=='Y'){if(!parent || reg(3)!=parent+0x10)fail("gravity source");st.gravity=vuWords(rt,address());}
             else{if(parent)fail("gravity cleared with a parent");for(unsigned i=0;i<3;++i)st.gravity[i]=0;}
             st.prepare=1;return true;}
-        if(st.prepare!=order.find(site->role) || reg(16)!=st.emitter || reg(29)+0x40!=st.frame || st.stride!=(copy?0x80u:0xb0u))fail("prepare order");
+        if(st.prepare!=order.find(site->role) || reg(16)!=st.emitter || reg(29)+0x40!=st.frame || st.variant!=variant)fail("prepare order");
         if(site->role=='g'){if(reg(3)!=st.emitter+0xc0)fail("drift source");st.drift=vuWords(rt,address());}
         if(site->role=='z'){for(unsigned i=0;i<3;++i)st.push[i]=0;}
         if(site->role=='d'){if(reg(3)!=field(0x35dee8))fail("timestep source");st.dt=reg(3);}
         if(site->role=='c'){if(reg(3)!=reg(29)+0x30)fail("clamp source");st.clamp=vuWords(rt,address());}
         ++st.prepare;return true;
     }
-    if(st.prepare!=6 || reg(21)!=st.emitter || reg(29)+0x1b0!=st.frame || st.stride!=(copy?0x80u:0xb0u))fail("step outside its prepared emitter");
+    if(st.prepare!=6 || reg(21)!=st.emitter || reg(29)+0x1b0!=st.frame || st.variant!=variant)fail("step outside its prepared emitter");
     switch(site->role){
     case 'L':{
         constexpr uint32_t offsets[7]={0x10,0x30,0x50,0x40,0x20,0x60,0x70};
@@ -7474,6 +7479,102 @@ bool retiredScaleWords(R5900Context *,Runtime *,uint32_t pc){
     case 0x239ddc:case 0x239de0:case 0x239de4:case 0x239de8:return true;
     default:return false;}
 }
+// Particle collision shapes (mod001), the +90 of the collision objects the emitters' 2240c0 walks (called at 22414c):
+// test(a0 shape, a1 A, a2 B, a3 V, t0 out velocity, t1 out point) -> hit. A and B are the particle's positions before
+// and after the step, V its velocity. Natively each value the VU0 code stores is computed from the records it loads,
+// at its store; the other COP2 words (the vf15..18 spill and refill, the 32-register spill around +222's effect
+// calls) are checked and retired. A stored lane the code leaves to whatever the register held (the hit point's and
+// velocity's w) keeps the destination's memory: no draw reads a particle position's w (they use 1), and the
+// emitters only carry it.
+//   Sphere 223360 (class at 153aa0; centre +240 with w = +24c = 0.5, r +224, r^2 +228): sp+0 = (|A - c|^2,
+//   |B - c|^2) (2233bc); on a hit (|B - c|^2 <= r^2) n = m / |m| with m = ((A - c) + (B - c)) * c.w (22342c),
+//   the point c + n r (223438) and the velocity below with s = (+260) * n, k = +230 (223470).
+//   Rectangle 223580 (class at 153bf0): plane P +260 / N +270: sp+280 = ((A - P).N, (B - P).N) and the
+//   projection X = B - N (B - P).N (2235f8); with +221 a second plane +280 / +290 for A: sp+270.x (223660);
+//   sp+260 = M X (M the rows +2c0..+2f0, w term 1; 223718) for the bounds +230 / +238; on a hit the point X (2237a8),
+//   the velocity with n = N, s = (+2b0) * N, k = +250 (2237f4); with +222, sp+50 = M' X (rows +340.., 2238b4) for
+//   the effect calls.
+//   Velocity (both): W = V * k.x; d = ((W.n).x + (W.n).y) + (W.n).z; e = (((s.x + s.y) + d) + s.z) * k.y;
+//   out = n e + (n e + V) * k.z (2237e8 / 223464 add V, not W).
+namespace {
+constexpr std::pair<uint32_t,uint32_t> kSphereSites[]={{0x223368,0xf84f0000},{0x22336c,0xf8500010},{0x223370,0xf8510020},{0x223374,0xf8520030},{0x22337c,0xd8af0000},{0x223380,0xd8d00000},{0x223384,0xd8510000},{0x22338c,0x4bd17cac},{0x223390,0x4bd184ec},{0x223394,0x4bd395a8},{0x223398,0x4bd2952a},{0x22339c,0x4bd39d6a},{0x2233a0,0x4bc007c3},{0x2233a4,0x4bd1b59b},{0x2233a8,0x4b14a03d},{0x2233ac,0x4b14fd0a},{0x2233b0,0x4a95a83c},{0x2233b4,0x4bd6b5ea},{0x2233b8,0x4a95fd0a},{0x2233bc,0xf8540000},{0x2233d8,0xd84f0000},{0x2233dc,0xd8500010},{0x2233e0,0xd8510020},{0x2233e4,0xd8520030},{0x2233fc,0xd8550000},{0x223400,0x4b17b83d},{0x223404,0x4b17fdca},{0x223408,0x4a7703be},{0x223414,0xd8780000},{0x223418,0xd8f90000},{0x22341c,0xd8530000},{0x223424,0x4a0003bf},{0x223428,0x4bc0b59c},{0x22342c,0xf8560000},{0x223430,0x4bc08abc},{0x223434,0x4bd5b5c8},{0x223438,0xf9370000},{0x22343c,0x4bd69cea},{0x223440,0x4bd8cbd8},{0x223444,0x4bd67c2a},{0x223448,0x4b10803d},{0x22344c,0x4b10fc0a},{0x223450,0x4b13983d},{0x223454,0x4b0080bf},{0x223458,0x4b13fc0a},{0x22345c,0x4b188419},{0x223460,0x4bd0b458},{0x223464,0x4bd98ca8},{0x223468,0x4bc08abc},{0x22346c,0x4bd8948a},{0x223470,0xf9120000},{0x223478,0xd84f0000},{0x22347c,0xd8500010},{0x223480,0xd8510020},{0x223484,0xd8520030}};
+constexpr std::pair<uint32_t,uint32_t> kRectSites[]={{0x2235a0,0xf84f0000},{0x2235a4,0xf8500010},{0x2235a8,0xf8510020},{0x2235ac,0xf8520030},{0x2235b8,0xd8af0000},{0x2235bc,0xd8d50000},{0x2235c0,0xd8700000},{0x2235c4,0xd8510000},{0x2235c8,0x4bd07cac},{0x2235cc,0x4bd0adac},{0x2235d4,0x4bd194ea},{0x2235d8,0x4bd1b5ea},{0x2235dc,0x4bc007c3},{0x2235e0,0x4b13983d},{0x2235e4,0x4b13fcca},{0x2235e8,0x4a97b83c},{0x2235ec,0x4a97fcca},{0x2235f0,0x4bc0aabc},{0x2235f4,0x4bd38d0d},{0x2235f8,0xf8530000},{0x223640,0xd8d50000},{0x223644,0xd8700000},{0x223648,0xd8510000},{0x22364c,0x4bd07cac},{0x223654,0x4bd1956a},{0x223658,0x4b15a83d},{0x22365c,0x4b15fcca},{0x223660,0xf8530000},{0x22369c,0xd84f0000},{0x2236a0,0xd8500010},{0x2236a4,0xd8510020},{0x2236a8,0xd8520030},{0x2236c0,0xd8700000},{0x2236c8,0xd8510000},{0x2236d4,0xd84f0000},{0x2236d8,0xd8500010},{0x2236dc,0xd8510020},{0x2236e0,0xd8520030},{0x2236f4,0xd8550000},{0x2236f8,0xd8560010},{0x2236fc,0xd8570020},{0x223700,0xd8580030},{0x223708,0x4bf4a9bc},{0x22370c,0x4bf4b0bd},{0x223710,0x4bf4b8be},{0x223714,0x4be0c4cb},{0x223718,0xf8530000},{0x223744,0xd84f0000},{0x223748,0xd8500010},{0x22374c,0xd8510020},{0x223750,0xd8520030},{0x22378c,0xd84f0000},{0x223790,0xd8500010},{0x223794,0xd8510020},{0x223798,0xd8520030},{0x2237a8,0xf9340000},{0x2237b4,0xd8780000},{0x2237b8,0xda190000},{0x2237bc,0xd8570000},{0x2237c0,0x4bd8cbd8},{0x2237c4,0x4bd1bdea},{0x2237c8,0x4bd17c2a},{0x2237cc,0x4b10803d},{0x2237d0,0x4b10fc0a},{0x2237d4,0x4b17b83d},{0x2237d8,0x4b0080bf},{0x2237dc,0x4b17fc0a},{0x2237e0,0x4b188419},{0x2237e4,0x4bd08c58},{0x2237e8,0x4bd98ca8},{0x2237ec,0x4bc08abc},{0x2237f0,0x4bd8948a},{0x2237f4,0xf9120000},{0x223810,0xf8610000},{0x223814,0xf8620010},{0x223818,0xf8630020},{0x22381c,0xf8640030},{0x223820,0xf8650040},{0x223824,0xf8660050},{0x223828,0xf8670060},{0x22382c,0xf8680070},{0x223830,0xf8690080},{0x223834,0xf86a0090},{0x223838,0xf86b00a0},{0x22383c,0xf86c00b0},{0x223840,0xf86d00c0},{0x223844,0xf86e00d0},{0x223848,0xf86f00e0},{0x22384c,0xf87000f0},{0x223850,0xf8710100},{0x223854,0xf8720110},{0x223858,0xf8730120},{0x22385c,0xf8740130},{0x223860,0xf8750140},{0x223864,0xf8760150},{0x223868,0xf8770160},{0x22386c,0xf8780170},{0x223870,0xf8790180},{0x223874,0xf87a0190},{0x223878,0xf87b01a0},{0x22387c,0xf87c01b0},{0x223880,0xf87d01c0},{0x223884,0xf87e01d0},{0x223888,0xf87f01e0},{0x223894,0xd8550000},{0x223898,0xd8560010},{0x22389c,0xd8570020},{0x2238a0,0xd8580030},{0x2238a4,0x4bf4a9bc},{0x2238a8,0x4bf4b0bd},{0x2238ac,0x4bf4b8be},{0x2238b0,0x4be0c4cb},{0x2238b4,0xf8b30000},{0x223978,0xd8410000},{0x22397c,0xd8420010},{0x223980,0xd8430020},{0x223984,0xd8440030},{0x223988,0xd8450040},{0x22398c,0xd8460050},{0x223990,0xd8470060},{0x223994,0xd8480070},{0x223998,0xd8490080},{0x22399c,0xd84a0090},{0x2239a0,0xd84b00a0},{0x2239a4,0xd84c00b0},{0x2239a8,0xd84d00c0},{0x2239ac,0xd84e00d0},{0x2239b0,0xd84f00e0},{0x2239b4,0xd85000f0},{0x2239b8,0xd8510100},{0x2239bc,0xd8520110},{0x2239c0,0xd8530120},{0x2239c4,0xd8540130},{0x2239c8,0xd8550140},{0x2239cc,0xd8560150},{0x2239d0,0xd8570160},{0x2239d4,0xd8580170},{0x2239d8,0xd8590180},{0x2239dc,0xd85a0190},{0x2239e0,0xd85b01a0},{0x2239e4,0xd85c01b0},{0x2239e8,0xd85d01c0},{0x2239ec,0xd85e01d0},{0x2239f0,0xd85f01e0},{0x2239fc,0xd84f0000},{0x223a00,0xd8500010},{0x223a04,0xd8510020},{0x223a08,0xd8520030}};
+struct CollisionState{uint32_t shape=0,stack=0;Ps2Lanes x{},n{};Ps2Word r{};bool have=false,radius=false;};
+CollisionState &collisionState(const Runtime *rt){static std::map<const Runtime *,CollisionState> states;return states[rt];}
+}
+bool nativeCollisionShape(R5900Context *c,Runtime *rt,uint32_t pc){
+    if(!rt || (pc&3) || pc<0x223368 || pc>0x223a08)return false;
+    const bool sphere=pc<0x223490;
+    const std::span<const std::pair<uint32_t,uint32_t>> sites=sphere?std::span<const std::pair<uint32_t,uint32_t>>(kSphereSites):std::span<const std::pair<uint32_t,uint32_t>>(kRectSites);
+    const auto site=std::find_if(sites.begin(),sites.end(),[&](const auto &s){return s.first==pc;});
+    if(site==sites.end())return false;
+    uint32_t word=0;if(const auto *p=rt->memory.hostPointer(pc,4))std::memcpy(&word,p,4);
+    if(word!=site->second)return false;   // another overlay at these addresses
+    if(!c)throw std::runtime_error("native collision shape has no CPU record");
+    struct ArithmeticScope{unsigned saved=_mm_getcsr();~ArithmeticScope(){_mm_setcsr(saved);}} arithmetic;
+    const auto reg=[&](unsigned r){return c->r[r].uw[0];};
+    const auto lanes=[&](uint32_t at){Ps2Lanes v;const auto *p=record(rt,at,16);for(unsigned i=0;i<4;++i)v[i]=Ps2Word::load(p+4*i);return v;};
+    const auto put=[&](uint32_t at,const Ps2Lanes &v,unsigned count){auto *p=record(rt,at,16);for(unsigned i=0;i<count;++i)v[i].store(p+4*i);};
+    const auto sum3=[](const Ps2Lanes &v){return (v[0]+v[1])+kPs2One*v[2];};
+    auto &st=collisionState(rt);
+    const auto shape=reg(17),stack=reg(29);   // the rectangle keeps a0 in s1; the sphere reads a0 (r4) directly
+    const auto velocity=[&](const Ps2Lanes &n,const Ps2Lanes &sVector,const Ps2Lanes &k,uint32_t vAt){
+        const auto V=lanes(vAt);Ps2Lanes W,Wn,s,out;for(unsigned i=0;i<3;++i){W[i]=V[i]*k[0];Wn[i]=W[i]*n[i];s[i]=sVector[i]*n[i];}
+        const auto d=sum3(Wn);const auto e=(((s[0]+s[1])+d*kPs2One)+kPs2One*s[2])*k[1];
+        for(unsigned i=0;i<3;++i){const auto ne=n[i]*e;out[i]=(ne+kPs2Zero)+(ne+V[i])*k[2];}
+        return out;};
+    if(sphere){
+        const auto object=reg(4);
+        switch(pc){
+        case 0x2233bc:{   // sp+0 = (|A - c|^2, |B - c|^2, (A - c).z^2)
+            if(reg(2)!=stack)throw std::runtime_error("native sphere test escaped its frame");
+            const auto centre=lanes(object+0x240),A=lanes(reg(5)),B=lanes(reg(6));Ps2Lanes a,b,out;
+            for(unsigned i=0;i<3;++i){a[i]=A[i]-centre[i];b[i]=B[i]-centre[i];a[i]=a[i]*a[i];b[i]=b[i]*b[i];}
+            out[0]=sum3(a);out[1]=sum3(b);out[2]=a[2];put(stack,out,3);
+            st=CollisionState{object,stack};return true;}
+        case 0x2233fc:   // vf21 = sp+0: r (stored there by 2233f8), read before 22342c reuses sp+0
+            if(st.shape!=object || st.stack!=stack || reg(2)!=stack)throw std::runtime_error("native sphere test out of order");
+            st.r=Ps2Word::load(record(rt,stack,16));st.radius=true;return true;
+        case 0x22342c:{   // n
+            if(st.shape!=object || st.stack!=stack || reg(2)!=stack)throw std::runtime_error("native sphere test out of order");
+            const auto centre=lanes(object+0x240),A=lanes(reg(5)),B=lanes(reg(6));Ps2Lanes m,m2;
+            for(unsigned i=0;i<3;++i){m[i]=((A[i]-centre[i])+(B[i]-centre[i]))*centre[3];m2[i]=m[i]*m[i];}
+            const auto q=Ps2Word::reciprocalRoot(kPs2One,sum3(m2));for(unsigned i=0;i<3;++i)st.n[i]=m[i]*q;
+            st.have=true;put(stack,st.n,3);return true;}
+        case 0x223438:{   // the point c + n r (r captured at its load 2233fc)
+            if(!st.have || !st.radius || st.shape!=object)throw std::runtime_error("native sphere test out of order");
+            const auto centre=lanes(object+0x240);const auto r=st.r;Ps2Lanes p;
+            for(unsigned i=0;i<3;++i)p[i]=(centre[i]+kPs2Zero)+st.n[i]*r;put(reg(9),p,3);return true;}
+        case 0x223470:{
+            if(!st.have || st.shape!=object)throw std::runtime_error("native sphere test out of order");
+            put(reg(8),velocity(st.n,lanes(object+0x260),lanes(object+0x230),reg(7)),3);st=CollisionState{};return true;}
+        default:return true;}
+    }
+    switch(pc){
+    case 0x2235f8:{   // sp+280 = ((A - P).N, (B - P).N, (A - P).z N.z); X = B - N (B - P).N
+        if(reg(2)!=stack+0x280)throw std::runtime_error("native rectangle test escaped its frame");
+        const auto P=lanes(shape+0x260),N=lanes(shape+0x270),A=lanes(reg(5)),B=lanes(reg(6));Ps2Lanes a,b,out;
+        for(unsigned i=0;i<3;++i){a[i]=(A[i]-P[i])*N[i];b[i]=(B[i]-P[i])*N[i];}
+        out[0]=sum3(a);out[1]=sum3(b);out[2]=a[2];
+        put(stack+0x280,out,3);st=CollisionState{shape,stack};
+        for(unsigned i=0;i<3;++i)st.x[i]=(B[i]+kPs2Zero)-N[i]*out[1];st.n=N;st.have=true;return true;}
+    case 0x223660:{   // the second plane for A: sp+270.x (y, z keep the first plane's)
+        if(!st.have || st.shape!=shape || reg(2)!=stack+0x270)throw std::runtime_error("native rectangle test out of order");
+        const auto P=lanes(shape+0x280),N=lanes(shape+0x290),A=lanes(reg(5));Ps2Lanes a;
+        for(unsigned i=0;i<3;++i)a[i]=(A[i]-P[i])*N[i];
+        const auto first=lanes(stack+0x280);Ps2Lanes out{sum3(a),first[1],first[2],{}};put(stack+0x270,out,3);return true;}
+    case 0x223718:case 0x2238b4:{   // M X (w term 1)
+        const uint32_t rows=shape+(pc==0x223718?0x2c0:0x340),at=pc==0x223718?stack+0x260:reg(5);
+        if(!st.have || st.shape!=shape || (pc==0x2238b4 && at!=stack+0x50))throw std::runtime_error("native rectangle test out of order");
+        const auto r0=lanes(rows),r1=lanes(rows+16),r2=lanes(rows+32),r3=lanes(rows+48);Ps2Lanes out;
+        for(unsigned i=0;i<4;++i)out[i]=((r0[i]*st.x[0]+r1[i]*st.x[1])+r2[i]*st.x[2])+r3[i]*kPs2One;
+        put(at,out,4);return true;}
+    case 0x2237a8:if(!st.have || st.shape!=shape)throw std::runtime_error("native rectangle test out of order");put(reg(9),st.x,3);return true;
+    case 0x2237f4:{
+        if(!st.have || st.shape!=shape)throw std::runtime_error("native rectangle test out of order");
+        put(reg(8),velocity(lanes(shape+0x270),lanes(shape+0x2b0),lanes(shape+0x250),reg(16)),3);return true;}
+    default:return true;}
+}
 // The emitters' parent-hook helpers (mod001 245540 under the general emitter's step 2439f0, battle 0x43; 298880 under the
 // row emitter 2932f0, and its copy 298510 under 293da0, battle 0x48; 297fd0, 245540 compiled again under the program
 // emitter's copy 2961a0 for class 1585f0, battles 0x1c and 0x32): around the hook call (the +6c / +70 object's +98) they
@@ -7492,8 +7593,11 @@ bool retiredEmitterHookWords(R5900Context *,Runtime *rt,uint32_t pc){
         {0x2990ac,0xf8520000},{0x2990b0,0xf85d0010},{0x2990ec,0x4bd1033c},{0x2990f0,0x4be00798},{0x299104,0x48a32800},{0x29910c,0xd8720000},{0x299110,0xd87d0010},
         {0x298d3c,0xf8520000},{0x298d40,0xf85d0010},{0x298d7c,0x4bd1033c},{0x298d80,0x4be00798},{0x298d94,0x48a32800},{0x298d9c,0xd8720000},{0x298da0,0xd87d0010},
         // mod003 40f420, 245540 again under the field copy of the general emitter (40d1b0, classes 162330 / 163fa0).
-        {0x40f52c,0xf8520000},{0x40f530,0xf85d0010},{0x40f570,0x4bd1033c},{0x40f574,0x4be00798},{0x40f588,0x48a32800},{0x40f590,0xd8720000},{0x40f594,0xd87d0010}};
-    if((pc&3) || !rt || pc<0x24564c || pc>0x40f594)return false;
+        {0x40f52c,0xf8520000},{0x40f530,0xf85d0010},{0x40f570,0x4bd1033c},{0x40f574,0x4be00798},{0x40f588,0x48a32800},{0x40f590,0xd8720000},{0x40f594,0xd87d0010},
+        // mod003 4102d0 / 410460, 298a60 / 298bf0 again under the field copy of the second emitter class (40c590).
+        {0x4103dc,0xf8520000},{0x4103e0,0xf85d0010},{0x410420,0x4bd1033c},{0x410424,0x4be00798},{0x410438,0x48a32800},{0x410440,0xd8720000},{0x410444,0xd87d0010},
+        {0x4105ac,0xf8520000},{0x4105b0,0xf85d0010},{0x4105ec,0x4bd1033c},{0x4105f0,0x4be00798},{0x410604,0x48a32800},{0x41060c,0xd8720000},{0x410610,0xd87d0010}};
+    if((pc&3) || !rt || pc<0x24564c || pc>0x410610)return false;
     const auto it=std::find_if(std::begin(words),std::end(words),[&](auto &w){return w.first==pc;});
     if(it==std::end(words))return false;
     uint32_t word=0;if(const auto *p=rt->memory.hostPointer(pc,4))std::memcpy(&word,p,4);
@@ -9297,7 +9401,7 @@ bool nativeMathInstruction(uint8_t *,R5900Context *c,Runtime *rt,uint32_t pc){
     default:
         // Inlined-block recognisers last: they read code around the PC, so
         // only sites no specific handler claimed pay for that scan.
-        return CLAIM(nativeParticleStep) || CLAIM(nativeParticleBox) || CLAIM(nativeTrailEmitter) || CLAIM(nativeProgramEmitter) || CLAIM(nativeSimpleEmitter) || CLAIM(nativeRowEmitter) || CLAIM(nativeEmitterClock) || CLAIM(nativeConstantStore) || CLAIM(nativeLengthIdiom) || CLAIM(nativeMacroIdiom) || CLAIM(nativeInverseIdiom) || nativeQuaternionIdiom(c,rt,pc);
+        return CLAIM(nativeParticleStep) || CLAIM(nativeParticleBox) || CLAIM(nativeTrailEmitter) || CLAIM(nativeProgramEmitter) || CLAIM(nativeSimpleEmitter) || CLAIM(nativeCollisionShape) || CLAIM(nativeRowEmitter) || CLAIM(nativeEmitterClock) || CLAIM(nativeConstantStore) || CLAIM(nativeLengthIdiom) || CLAIM(nativeMacroIdiom) || CLAIM(nativeInverseIdiom) || nativeQuaternionIdiom(c,rt,pc);
     }
 }
 #undef CLAIM

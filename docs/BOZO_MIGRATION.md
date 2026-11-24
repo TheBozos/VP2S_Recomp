@@ -12,6 +12,53 @@ The earlier VP2S face/shading and general brightness comparisons remain open.
 
 ## Build and evidence
 
+### Second emitter class's mod003 copy; particle collision shapes; opaque particle points (2026-11-24)
+
+**Second emitter class's mod003 copy**
+
+- **The case:** 20 maps stopped at 40cfa0 / 40cfa8, in prepare 40cf30 of field classes 162440 / 162550 / 162660.
+- **What it is:** 156500's code once more. Prepare 40cf30 and step 40c590 have every site 177010 higher and the same
+  0xb0 records. Their hook helpers 4102d0 / 410460 are 298a60 / 298bf0 word for word.
+- **Now:** nativeSimpleEmitter keeps a variant per prepare (156500, 156610's 0x80 copy, this one). Prepare and step
+  must agree. The helpers' hook words are retired.
+
+**Particle collision shapes**
+
+- **The case:** maps 182-188 reached 223580 / 223360: the +90 of the collision objects the emitters' 2240c0 walks.
+  The call is test(shape, A, B, V, out velocity, out point) -> hit.
+- **Sphere 223360** (centre +240, w = 0.5; r +224; r^2 +228):
+  - sp+0 = (|A - c|^2, |B - c|^2);
+  - on a hit, n = m / |m| with m = ((A - c) + (B - c)) * c.w;
+  - the point c + n r, where r is the vf21 loaded from sp+0 before 22342c reuses sp+0;
+  - the velocity below with s = (+260) * n and k = +230.
+- **Rectangle 223580:**
+  - sp+280 = ((A - P).N, (B - P).N) and the projection X = B - N (B - P).N;
+  - with +221, a second plane for A;
+  - sp+260 = M X (rows +2c0) for the bounds +230 / +238;
+  - on a hit, the point X and the velocity with n = N, s = (+2b0) * N, k = +250;
+  - with +222, sp+50 = M' X (rows +340) for the effect calls. The 32-register spill around them is retired.
+- **Velocity:** W = V k.x; d = sum(W * n); e = (((s.x + s.y) + d) + s.z) k.y; out = n e + (n e + V) k.z.
+- **Stored w lanes:** stores whose w lane holds a register leftover keep the destination's w. No draw reads a particle
+  position's w.
+
+**Opaque particle points**
+
+- Points may also come without ABE: tag 0x20104000 (PRIM 0x20, FGE only; maps 182-188). They are drawn opaque.
+
+**Evidence:**
+- **Tests:**
+  - The collision shapes against the VU0 reference word by word: 38 / 62 sphere hits / misses, 20 / 80 rectangle,
+    25 second planes, 3 effect transforms. Every store is compared.
+  - The second-class emitter test runs all three copies (1080 particles).
+  - Image 3 runs four more rounds with the opaque tag (224 point captures).
+- **Maps:**
+  - Of the 20 emitter maps, 6 are clean. The others stop at:
+    - 29b554: 286, 537;
+    - mesh provenance: 264, 270, 271, 535;
+    - table B: 63.
+  - Maps 182-188 now run clean; 62 and 288 already reached a line-strip tag, now ported.
+- **Atlas:** 461 of 552 maps clean.
+
 ### Haze gamma variant (11.y = 1, 11.z = 0); particle line strips with fog (2026-11-24)
 
 **Haze gamma variant**

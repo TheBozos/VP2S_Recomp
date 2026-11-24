@@ -1,5 +1,6 @@
 #include "native_cast.h"
 #include "native_particles.h"
+#include "bozo/ops_vu0.h"
 #include "bozo/ee/dispatcher.h"
 #include <cstring>
 #include <format>
@@ -105,20 +106,41 @@ void NativeParticles::publishSphere(Runtime *rt,R5900Context *c){
        word(owner,0xa90)!=build.emitter || !record(rt,build.emitter,16)[4] || word(owner,0xabc)!=build.points || word(owner,0xac0+build.index*4)!=build.chunks || word(frame,0xe0)!=build.next)
         throw std::runtime_error("native particle sphere ownership mismatch");
     float padding;std::memcpy(&padding,frame+0xf0,4);
-    const auto qualify=[&](float value,const char *what){const auto bits=std::bit_cast<uint32_t>(value),m=bits&0x7fffffff;
-        if(m>=0x7f800000 || (m && m<0x00800000) || std::abs(value)>1.e8f)
-            throw std::runtime_error(std::format("unqualified native particle sphere input {} {:08x} (object {:x}, emitter {:x}, points {})",what,bits,build.object,build.emitter,build.points));};
-    qualify(padding,"padding");qualify(build.bounds.maximum[3],"half");
-    for(unsigned i=0;i<3;++i){qualify(build.bounds.minimum[i],"minimum");qualify(build.bounds.maximum[i],"maximum");if(build.bounds.minimum[i]>build.bounds.maximum[i])throw std::runtime_error("empty native particle sphere bounds");}
-    const auto normal=[](float value){const auto bits=std::bit_cast<uint32_t>(value);return std::bit_cast<float>((bits&0x7f800000)?bits:bits&0x80000000);};
-    const auto sum=[&](float a,float b){volatile float v=a+b;return normal(v);};
-    const auto product=[&](float a,float b){volatile float v=a*b;return normal(v);};
-    std::array<float,4> sphere;float square[3];
-    for(unsigned i=0;i<3;++i){sphere[i]=product(sum(build.bounds.minimum[i],build.bounds.maximum[i]),build.bounds.maximum[3]);
-        const float extent=sum(sum(build.bounds.maximum[i],-sphere[i]),padding);square[i]=product(extent,extent);}
-    const auto squared=sum(sum(square[0],square[1]),product(1.f,square[2]));
-    volatile float root=static_cast<float>(std::sqrt(std::abs(double(squared))));sphere[3]=product(1.f,root);
-    std::memcpy(owner+0xa40,build.bounds.minimum.data(),16);std::memcpy(owner+0xa50,build.bounds.maximum.data(),16);std::memcpy(owner+0xa60,sphere.data(),16);build.boundsPublished=true;
+    for(unsigned i=0;i<3;++i)if(build.bounds.minimum[i]>build.bounds.maximum[i])throw std::runtime_error("empty native particle sphere bounds");
+    // Inputs in the qualified range (finite normal, |v| <= 1e8) keep the host arithmetic this sphere has always used
+    // (nearest sums and products, denormal results to zero, a correctly rounded root). Others follow the user's rule
+    // (2026-11-24, "Yes, PS2 float rules": battle 0x54 pushes a particle to -4.27e29, its parent reading DMA-tag words
+    // at the owner's +190 as rows for nine frames): VU0 words, a denormal reads as zero, exponent 255 is a number,
+    // overflow saturates; the root of a saturated sum is ps2f's.
+    const auto inRange=[](float value){const auto m=std::bit_cast<uint32_t>(value)&0x7fffffffu;return m<0x7f800000u && !(m && m<0x00800000u) && std::abs(value)<=1.e8f;};
+    bool qualified=inRange(padding) && inRange(build.bounds.maximum[3]);
+    for(unsigned i=0;i<3;++i)qualified=qualified && inRange(build.bounds.minimum[i]) && inRange(build.bounds.maximum[i]);
+    uint32_t sphere[4];
+    if(qualified){
+        const auto normal=[](float value){const auto bits=std::bit_cast<uint32_t>(value);return std::bit_cast<float>((bits&0x7f800000)?bits:bits&0x80000000);};
+        const auto sum=[&](float a,float b){volatile float v=a+b;return normal(v);};
+        const auto product=[&](float a,float b){volatile float v=a*b;return normal(v);};
+        std::array<float,4> host;float square[3];
+        for(unsigned i=0;i<3;++i){host[i]=product(sum(build.bounds.minimum[i],build.bounds.maximum[i]),build.bounds.maximum[3]);
+            const float extent=sum(sum(build.bounds.maximum[i],-host[i]),padding);square[i]=product(extent,extent);}
+        const auto squared=sum(sum(square[0],square[1]),product(1.f,square[2]));
+        volatile float root=static_cast<float>(std::sqrt(std::abs(double(squared))));host[3]=product(1.f,root);
+        std::memcpy(sphere,host.data(),16);
+    }else{
+        namespace V=bozo::vu0;uint32_t flags=0;const auto bits=[](float f){return std::bit_cast<uint32_t>(f);};
+        const auto add=[&](uint32_t a,uint32_t b){return V::addf(a,b,flags);};
+        const auto sub=[&](uint32_t a,uint32_t b){return V::subf(a,b,flags);};
+        const auto mul=[&](uint32_t a,uint32_t b){return V::mulf(a,b,flags);};
+        constexpr uint32_t one=0x3f800000u;uint32_t square[3];
+        for(unsigned i=0;i<3;++i){sphere[i]=mul(add(bits(build.bounds.minimum[i]),bits(build.bounds.maximum[i])),bits(build.bounds.maximum[3]));
+            const auto extent=add(sub(bits(build.bounds.maximum[i]),sphere[i]),bits(padding));square[i]=mul(extent,extent);}
+        const auto squared=add(add(square[0],square[1]),mul(one,square[2]));
+        const auto magnitude=squared&0x7fffffffu;uint32_t root;
+        if((magnitude&0x7f800000u)==0x7f800000u)root=bozo::ps2f::sqrt(magnitude,flags);
+        else{volatile float r=static_cast<float>(std::sqrt(double(std::bit_cast<float>(magnitude&0x7f800000u?magnitude:0u))));root=bits(r);}
+        sphere[3]=mul(one,root);
+    }
+    std::memcpy(owner+0xa40,build.bounds.minimum.data(),16);std::memcpy(owner+0xa50,build.bounds.maximum.data(),16);std::memcpy(owner+0xa60,sphere,16);build.boundsPublished=true;
 }
 void NativeParticles::finish(Runtime *rt,R5900Context *c){
     auto it=builds.find(c->r[29].uw[0]);if(it==builds.end())return;const auto &build=it->second;

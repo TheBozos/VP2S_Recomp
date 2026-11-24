@@ -853,7 +853,7 @@ int main(){try{
         write(rt,0x180ac0,uint32_t(1));write(rt,0x180abc,uint32_t(3));write(rt,0x190004,uint8_t(1));
         c.pc=0x22efc8;c.r[2].uw[0]=0x180a60;write(rt,0x1fff0f0,.25f);
         c.r[2].uw[0]+=16;reject(0x22f018);c.r[2].uw[0]-=16;
-        write(rt,0x1fff0f0,std::bit_cast<float>(0x7fa01234u));reject(0x22f018);write(rt,0x1fff0f0,.25f);
+        // An exponent-255 padding is a PS2 number now (user 2026-11-24, "PS2 float rules"): no longer a refusal case.
         c.pc=0x170000;reject(0x22f018);c.pc=0x22efc8;
         check(invoke(0x22f018));reject(0x22f018);
         check(read<uint32_t>(rt,0x180a4c)==0x7fa01234);

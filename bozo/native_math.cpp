@@ -8497,14 +8497,24 @@ bool nativeMathInstruction(uint8_t *,R5900Context *c,Runtime *rt,uint32_t pc){
             throw std::runtime_error("native sphere getter escaped its scalar records");
         if(pc==0x22fa38 || pc==0x24830c){
             float rows[3][4],point[4];std::memcpy(rows,record(rt,c->r[basisReg].uw[0],48),48);std::memcpy(point,record(rt,c->r[pointReg].uw[0],16),16);
-            for(auto &row:rows)for(float value:row){pairQualified(value);if(std::abs(value)>1.e8f)throw std::runtime_error("unqualified particle sphere basis");}
-            for(unsigned i=0;i<3;++i){pairQualified(point[i]);if(std::abs(point[i])>1.e8f)throw std::runtime_error("unqualified particle sphere centre");}
+            // Qualified inputs (finite normal, |v| <= 1e8) keep the codec-rounded host arithmetic. Others follow the user's rule
+            // (2026-11-24, "Yes, PS2 float rules": battle 0x54's sphere centre at -4.27e29): ps2f FPU words, a denormal reads as
+            // zero, exponent 255 is a number, overflow saturates.
+            const auto inRange=[](float value){const auto m=std::bit_cast<uint32_t>(value)&0x7fffffffu;return m<0x7f800000u && !(m && m<0x00800000u) && std::abs(value)<=1.e8f;};
+            bool qualified=true;for(auto &row:rows)for(float value:row)qualified=qualified && inRange(value);for(unsigned i=0;i<3;++i)qualified=qualified && inRange(point[i]);
             if(std::bit_cast<uint32_t>(point[3])!=0x3f800000)throw std::runtime_error("particle sphere getter lacks scalar homogeneous component");
             if(originSphere)for(unsigned i=0;i<3;++i)if(std::bit_cast<uint32_t>(point[i]))throw std::runtime_error("origin sphere getter lacks original scalar zero centre");
-            auto *output=record(rt,c->r[outputReg].uw[0],16);music::CodecRounding rounding;std::array<float,3> result;
+            auto *output=record(rt,c->r[outputReg].uw[0],16);std::array<uint32_t,3> result;
             constexpr unsigned order[3][4]={{0,1,2,3},{1,0,2,3},{2,1,0,3}};
-            for(unsigned row=0;row<3;++row){float terms[4];for(unsigned i=0;i<4;++i)terms[i]=pairProduct(rows[row][i],point[i]);
-                result[row]=pairSum(pairSum(pairSum(terms[order[row][0]],terms[order[row][1]]),pairProduct(1.f,terms[order[row][2]])),pairProduct(1.f,terms[order[row][3]]));}
+            if(qualified){music::CodecRounding rounding;
+                for(unsigned row=0;row<3;++row){float terms[4];for(unsigned i=0;i<4;++i)terms[i]=pairProduct(rows[row][i],point[i]);
+                    result[row]=std::bit_cast<uint32_t>(pairSum(pairSum(pairSum(terms[order[row][0]],terms[order[row][1]]),pairProduct(1.f,terms[order[row][2]])),pairProduct(1.f,terms[order[row][3]])));}}
+            else{const auto savedCsr=_mm_getcsr();uint32_t flags=0;const auto b=[](float f){return std::bit_cast<uint32_t>(f);};
+                const auto mul=[&](uint32_t x,uint32_t y){return bozo::ps2f::mul(x,y,flags);};const auto add=[&](uint32_t x,uint32_t y){return bozo::ps2f::add(x,y,flags);};
+                constexpr uint32_t one=0x3f800000u;
+                for(unsigned row=0;row<3;++row){uint32_t terms[4];for(unsigned i=0;i<4;++i)terms[i]=mul(b(rows[row][i]),b(point[i]));
+                    result[row]=add(add(add(terms[order[row][0]],terms[order[row][1]]),mul(one,terms[order[row][2]])),mul(one,terms[order[row][3]]));}
+                _mm_setcsr(savedCsr);}
             // The original following scalar store supplies the radius. The
             // fourth basis row's temporary dot product has no consumer.
             std::memcpy(output,result.data(),12);

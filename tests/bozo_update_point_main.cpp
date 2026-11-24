@@ -112,7 +112,10 @@ int main(){try{
         else if(which==3)c.pc=0x170000;else if(which==4)c.r[outputReg].uw[0]+=16;else if(which==5)c.r[pointReg].uw[0]+=16;else if(which==6)c.r[basisReg].uw[0]+=16;else {const float bad=2;std::memcpy(rt.memory.hostPointer(stack+(which==7?12:0),4),&bad,4);}
         const auto before=c;const auto fp=_mm_getcsr();std::vector<uint8_t> ram(rt.memory.flat(),rt.memory.flat()+bozo::kFlatBytes);bool rejected=false;
         try{vp2s::nativeMathInstruction(rt.memory.flat(),&c,&rt,origin?0x24830c:0x22fa38);}catch(const std::runtime_error &){rejected=true;}
-        check(rejected && _mm_getcsr()==fp && !std::memcmp(&c,&before,sizeof(c)) && !std::memcmp(ram.data(),rt.memory.flat(),ram.size()));
+        // A denormal, an exponent-255 word and 1.27e30 in the basis are PS2 numbers (user 2026-11-24, "PS2 float rules"):
+        // the getter computes with them; the other cases still reject without touching anything.
+        const bool accept=which<3;
+        check(rejected!=accept && _mm_getcsr()==fp && !std::memcmp(&c,&before,sizeof(c)) && (accept || !std::memcmp(ram.data(),rt.memory.flat(),ram.size())));
     }
     _mm_setcsr(saved);check(old.sites==now.sites && now.sites.size()==66);
     std::printf("%u bounded point-transform branches (%u known), %u complete particle/origin sphere getters (%u known),66 sites; scalar consumers/radius copy, integer oracle, CPU/RAM/FP, opaque unused row, four modes, aliases and mutation-free guards passed\n",callers,known,spheres,knownSpheres);return 0;

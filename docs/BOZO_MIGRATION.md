@@ -12,6 +12,33 @@ The earlier VP2S face/shading and general brightness comparisons remain open.
 
 ## Build and evidence
 
+### Battle 0x54: a game-written -4e29 particle, the particle sphere on PS2 float rules (2026-11-24)
+
+- **Trace (VP2S_BOZO_WATCH on emitter 17201f0 +c0, then on its particle owner 1742330 +190):**
+  - The emitter's drift (+c0) is not left unwritten. Every frame, slot 0xf4 (26efa0, from 22c49c) adds a push to
+    it, and the step clears it after use.
+  - The push is the parent object's movement (sp+f0 - +460) through the particle owner's rows at +190 (rows4 at
+    22c460).
+  - In frame 65476, game code (the 424a60 tree called from 424e90) wrote 50000000 00e9a210 0 into owner +190, which
+    looks like a DMA tag. For the next nine frames the pushes read it as rows, until code near 2485b4 wrote real rows.
+  - The drift reached -4.27e29 and the particle with it. Everything in that chain is game-written, so the PS2 does
+    the same.
+- **The user's rule** (2026-11-24, "Yes, PS2 float rules"):
+  - The particle sphere (22f018) and its getter (22fa38 / 24830c) keep the host arithmetic they have always used when
+    every input is qualified (finite normal, |v| <= 1e8). The in-range bits stay as they were: an all-ps2f version
+    moved three end-RAM hashes, because the PS2 FPU add is not the exact-then-truncate the codec rounding models.
+  - Other inputs, which were refused before, now follow PS2 float rules: the sphere in VU0 words (a denormal reads as
+    zero, an exponent-255 word is a number, overflow saturates, a saturated sum takes ps2f's root) and the getter in
+    ps2f FPU words.
+
+**Evidence:**
+- **Battle 0x54:** runs boundary-free to 67000.
+- **update-point test:** a denormal, an exponent-255 word and 1.27e30 in the basis are now computed. The guard
+  cases still reject without side effects.
+- **Particle tests:** pass with the in-range bits unchanged; an exponent-255 padding is no longer a refusal case.
+- **Tests:** full ctest 97/97.
+- **End RAM unchanged:** battle 0c9960c8d9f6, forest 912f01332dbe, game over 9df948c13063, route a3f2c8f4395d.
+
 ### Battles 0x1c, 0x32, 0x53: fogged points defined, mod134's random draws (2026-11-24)
 
 - **Fogged points after a draw's first chunk** (VU1 image 3, row 15.w): each later chunk's first point takes vf18 as the

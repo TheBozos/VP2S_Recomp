@@ -12,6 +12,21 @@ The earlier VP2S face/shading and general brightness comparisons remain open.
 
 ## Build and evidence
 
+### Map sweep baseline; camera basis normalize 2a0730 (2026-11-24)
+
+- **All-maps sweep:** every map of warps.tsv (552), warped from the forest state, run to frame 64200 with captures.
+  241 run clean, 267 stop, 44 need uncaptured modules. The atlas page (artifact) shows each map's capture and status.
+- **mod001 2a06e8:** an object's copy of the camera rows at s2+50, LQC2 vf1..vf4, VCALLMS 0x830, CFC2.I t1, SQC2 back.
+  0x830 normalizes lanes x, y, z over the three rows (inv = RSQRT((r0^2 + r1^2) + r2^2), as nativeWorldPosition's
+  0x830); lane w and vf4 stay. This was the first stop on 47 maps.
+
+**Evidence:**
+- **The 47 maps** now reach the next unported piece, all the same one: the environment-map UV element (class 159340,
+  +10 = 2a03b0). Its VCALLMS 0x870 is not the resident 0x830 tail; it is a VU0 program set uploaded to 0x800 from
+  mod001's 31391c packet (reflection vector, arctangent polynomial, branches on FSAND). That port is next.
+- **Tests:** full ctest 97/97.
+- **End RAM unchanged:** battle 0c9960c8d9f6, forest 912f01332dbe, game over 9df948c13063, route a3f2c8f4395d.
+
 ### F2 > Teleport; battles 0x55 to 0x5a: modules (2026-11-24)
 
 - **F2 > Teleport (window runner):**

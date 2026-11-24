@@ -1783,6 +1783,36 @@ uint32_t vuSub(uint32_t a,uint32_t b){uint32_t f=0;return bozo::ps2f::subNearest
 // the game's own words) and VCALLMS 0 (23a418): p = ((vf1 v.x + vf2 v.y) + vf3 v.z) + vf4 v.w, Q = 1 / p.w,
 // vf6 = (p.x Q, p.y Q, p.z Q, Q); CFC2.I t1 = vi0 = 0 (23a4e0) and SQC2 vf6 to sp+90 (23a4e8), whose z is the sort key.
 // All in VU0 words (ps2f, nearest; a denormal reads as zero, exponent 255 is a number).
+// mod001 2a06e8 (an object's camera copy, maps 212 and 46 others): the camera's rows copied by the EE to s2+50..80,
+// LQC2 vf1..vf4 = s2+50 (2a0730..2a073c), VCALLMS 0x830, CFC2.I t1 = vi0 (2a0748), SQC2 vf1..vf4 back to s2+50
+// (2a0750..2a075c). 0x830 normalizes each of the lanes x, y, z over the three rows: inv = RSQRT(((r0^2 + r1^2) + r2^2)),
+// r_k *= inv (as nativeWorldPosition's 0x830); lane w and vf4 stay. EE code then clears the rows' w.
+bool nativeCameraBasisNormalize(R5900Context *c,Runtime *rt,uint32_t pc){
+    struct Site{uint32_t pc,word;};
+    static constexpr Site sites[]={{0x2a0730,0xd8810000},{0x2a0734,0xd8820010},{0x2a0738,0xd8830020},{0x2a073c,0xd8840030},
+        {0x2a0744,0x4a0041b8},{0x2a0748,0x48490001},{0x2a0750,0xf8410000},{0x2a0754,0xf8420010},{0x2a0758,0xf8430020},{0x2a075c,0xf8440030}};
+    if(!rt || (pc&3) || pc<0x2a0730 || pc>0x2a075c)return false;
+    const Site *site=nullptr;for(const auto &x:sites)if(x.pc==pc)site=&x;
+    if(!site)return false;
+    uint32_t word=0;if(const auto *q=rt->memory.hostPointer(pc,4))std::memcpy(&word,q,4);
+    if(word!=site->word)return false;   // another overlay at these addresses
+    if(!c)throw std::runtime_error("native camera basis has no CPU record");
+    static std::map<const Runtime *,std::pair<uint32_t,std::array<VuWords,4>>> states;auto &st=states[rt];
+    const auto object=c->r[18].uw[0],rows=object+0x50;
+    if(pc<=0x2a073c){if(c->r[4].uw[0]!=rows)throw std::runtime_error("native camera basis source mismatch");
+        if(pc==0x2a0730)st.first=0;return true;}
+    if(pc==0x2a0744){
+        std::array<VuWords,4> r;for(unsigned k=0;k<4;++k)r[k]=vuWords(rt,rows+16*k);
+        VuWords sum;for(unsigned i=0;i<4;++i)sum[i]=vuAdd(vuAdd(vuMul(r[0][i],r[0][i]),vuMul(r[1][i],r[1][i])),vuMul(r[2][i],r[2][i]));
+        const auto saved=_mm_getcsr();
+        for(unsigned i=0;i<3;++i){uint32_t f=0;const auto inv=bozo::ps2f::rsqrt(0x3f800000u,sum[i],f);for(unsigned k=0;k<3;++k)r[k][i]=vuMul(r[k][i],inv);}
+        _mm_setcsr(saved);st={rows,r};return true;}
+    if(pc==0x2a0748){if(st.first!=rows)throw std::runtime_error("native camera basis move without its program");c->r[9].ud[0]=0;return true;}
+    if(st.first!=rows || c->r[2].uw[0]!=rows)throw std::runtime_error("native camera basis store without its program");
+    const unsigned k=(pc-0x2a0750)/4;std::memcpy(record(rt,rows+16*k,16),st.second[k].data(),16);
+    if(k==3)st.first=0;
+    return true;
+}
 struct MeshDepthState{bool columns=false;uint32_t stack=0;std::array<VuWords,4> m{};VuWords point{},result{};bool loaded=false,projected=false;};
 MeshDepthState &meshDepthState(const Runtime *rt){static std::map<const Runtime *,MeshDepthState> states;return states[rt];}
 bool nativeMeshDepth(R5900Context *c,Runtime *rt,uint32_t pc){
@@ -8582,6 +8612,7 @@ bool nativeMathInstruction(uint8_t *,R5900Context *c,Runtime *rt,uint32_t pc){
     if(CLAIM(nativeObjectCompose))return true;
     if(CLAIM(nativeCameraProjection))return true;
     if(CLAIM(nativeMeshDepth))return true;
+    if(CLAIM(nativeCameraBasisNormalize))return true;
     if(CLAIM(nativeFlareProjection))return true;
     if(CLAIM(nativePairProjection))return true;
     if(CLAIM(nativeExponentialRamp))return true;

@@ -60,6 +60,8 @@ def header_text_end(module: bytes, text: int, word) -> int:
     back = text - 4
     while back > text - 20 and word(back) == 0:
         back -= 4
+    if back == text - 4 and word(back) == JR_RA:  # the last word is jr ra: its delay slot lies past the header's text
+        return text + 4  # (module 44 at 0x514080: 0x51b9bc, then two this-adjusting thunks up to the ctor address)
     if word(back - 4) == JR_RA or word(back) == JR_RA:  # clean end: jr ra, delay slot, padding
         return text
     # Also clean: a this-adjusting thunk (`j method`, `addiu a0,a0,-N`) before up to 16 words of padding (module 147,

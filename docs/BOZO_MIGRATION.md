@@ -12,6 +12,28 @@ The earlier VP2S face/shading and general brightness comparisons remain open.
 
 ## Build and evidence
 
+### Field-map modules captured (2026-11-24)
+
+- **The case:** 29 maps jumped into code no module provided: 0x514970..0x53c040.
+- **Captured:** from end-of-run RAM dumps (one map per target), every module header found in the overlay area that
+  was not yet captured, 15 in all:
+  - mod034, mod040, mod043, mod044 (0x514080);
+  - mod118, mod126, mod127, mod151, mod152 (0x532200);
+  - mod184, mod198, mod200, mod202 (0x53a380);
+  - mod219, mod231 (0x53d800).
+  Each file runs from the load address to max(text + data, the header's ctor address +1c), as the recent captures
+  do. They are registered in tools/vp2_bozo.py and vp2_bozo_prepare.py; the files are game data and stay out of git.
+- **Wrapper fix:** mod044's last counted word (+793c) is a `jr ra`. Its delay slot and two this-adjusting thunks
+  (0x51b9d0, 0x51b9e0) lie past the header's text. wrap_elf took a final `jr ra` for a clean end and cut them;
+  that case now includes the delay slot, and the existing thunk scan then covers both thunks. Of the 117 modules,
+  only mod044 has the pattern.
+
+**Evidence:**
+- **Maps:** of the 29 maps, 26 now run 850 frames clean. Still open:
+  - 215 reaches a VU0 site in mod198 (53aa74);
+  - 408 reaches a frustum test on a NaN sphere (as battle 0x59);
+  - 107 reaches mesh algorithm 16.
+
 ### Object-pair registers kept across 430180 and 1f8aa0 (2026-11-24)
 
 - **The case:** 27 maps stopped at 430858, mod003 430180 (a sibling of the push-out loop 397780). It keeps vf1..vf9

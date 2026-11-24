@@ -35,7 +35,8 @@ struct NativeModelSubmission {
 // The VU1 shadow program 0x6f0 per strip triangle of the set-up vertices
 // (object space): odd triangles swap their first two vertices; a triangle
 // facing away from the light (dot(light, (b-a)x(c-a)) < 0, light in object
-// space, directional) is skipped; a kept one becomes the 10-vertex strip
+// space, directional; with `point` set, light is the light's object-space
+// position and the direction is a - light) is skipped; a kept one becomes the 10-vertex strip
 // a b c c' a a' b b' c' a', c' its copy through the flattened matrix. Each
 // strip triangle goes to `increment` or `decrement` by its screen winding;
 // a triangle with a vertex at w <= 0 or zero area is not drawn. top and flat
@@ -49,7 +50,7 @@ struct NativeShadowDraw {bozo::render::Material material;std::vector<bozo::rende
 std::vector<NativeShadowDraw> nativeShadowPass(const NativeModelSubmission &,float width,float height);
 void nativeShadowPrisms(const std::vector<std::array<float,3>> &positions,const std::vector<uint16_t> &strips,const std::array<float,3> &light,
                         const std::array<float,16> &top,const std::array<float,16> &flat,
-                        std::vector<bozo::render::Vertex> &increment,std::vector<bozo::render::Vertex> &decrement);
+                        std::vector<bozo::render::Vertex> &increment,std::vector<bozo::render::Vertex> &decrement,bool point=false);
 class NativeModels {
 public:
     struct Mesh;

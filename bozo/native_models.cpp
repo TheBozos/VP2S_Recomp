@@ -248,7 +248,7 @@ bool composedBy(Runtime *rt,uint32_t owner,uint32_t object){
 }
 void nativeShadowPrisms(const std::vector<std::array<float,3>> &positions,const std::vector<uint16_t> &strips,const std::array<float,3> &light,
                         const std::array<float,16> &top,const std::array<float,16> &flat,
-                        std::vector<bozo::render::Vertex> &increment,std::vector<bozo::render::Vertex> &decrement){
+                        std::vector<bozo::render::Vertex> &increment,std::vector<bozo::render::Vertex> &decrement,bool point){
     size_t total=0;for(auto length:strips)total+=length;
     if(total!=positions.size())throw std::runtime_error("native shadow strips differ from its vertices");
     using P=std::array<float,3>;
@@ -263,7 +263,10 @@ void nativeShadowPrisms(const std::vector<std::array<float,3>> &positions,const 
             P a=positions[first+k-2],b=positions[first+k-1];const P c=positions[first+k];
             if((k-2)&1)std::swap(a,b);
             const P e1=sub(b,a),e2=sub(c,a),n{e1[1]*e2[2]-e1[2]*e2[1],e1[2]*e2[0]-e1[0]*e2[2],e1[0]*e2[1]-e1[1]*e2[0]};
-            if(light[0]*n[0]+light[1]*n[1]+light[2]*n[2]<0)continue;
+            // A point light (program 0x6f0 with mem[14].w: vf01 = vf21 - mem[37]): the direction from the light to the
+            // triangle; any of its vertices gives the same sign.
+            const P d=point?sub(a,light):light;
+            if(d[0]*n[0]+d[1]*n[1]+d[2]*n[2]<0)continue;
             P s[6];if(!project(top,a,s[0]) || !project(top,b,s[1]) || !project(top,c,s[2]) || !project(flat,a,s[3]) || !project(flat,b,s[4]) || !project(flat,c,s[5]))continue;
             const unsigned order[10]={0,1,2,5,0,3,1,4,5,3};   // a b c c' a a' b b' c' a'
             for(unsigned i=0;i<8;++i){
@@ -381,10 +384,15 @@ NativeModelSubmission NativeModels::capture(Runtime *rt,NativeAssets &assets,Nat
     // object-to-world matrix flattened along the light onto the ground. The VU
     // set-up projects it as it does the world matrix: P^T V F (checked against
     // 23 recorded shadow runs, relative error < 1e-7).
-    std::array<float,3> shadowLight{};Mat shadowFlat{};
+    std::array<float,3> shadowLight{};Mat shadowFlat{};bool shadowPoint=false;
     if(shadowClass){
-        if(word(object+0x31c))throw std::runtime_error("unported native point-light shadow (mem[14].w)");
-        const auto l=row(37);for(unsigned c=0;c<3;++c)shadowLight[c]=rotation[0][c]*l[0]+rotation[1][c]*l[1]+rotation[2][c]*l[2];
+        // A point or spot light (2b82f0: the light's +2c8 & 3 set): mem[14].w = 1, its world position (w 1) in
+        // mem[20] and the flattening from 2148a0 (a projection through that point) in mem[5..8]. The object set-up
+        // 0x238 takes mem[20] through O's rigid inverse (table A), set 0xa's set-up (0xf38, 10d0..10e0) copies it
+        // to mem[37], and the shadow program culls with vertex - mem[37].
+        shadowPoint=word(object+0x31c)!=0;
+        if(shadowPoint){const auto p=row(20);if(p[3]!=1)throw std::runtime_error("native point-light shadow position without w 1");shadowLight=rigidInverse(p);}
+        else{const auto l=row(37);for(unsigned c=0;c<3;++c)shadowLight[c]=rotation[0][c]*l[0]+rotation[1][c]*l[1]+rotation[2][c]*l[2];}
         Mat ground{};for(unsigned r=0;r<4;++r){const auto line=row(5+r);for(unsigned c=0;c<4;++c)ground[4*r+c]=line[c];}
         const auto flat=product(camera->screen,product(camera->view,ground));
         for(unsigned c=0;c<4;++c){shadowFlat[4*c]=flat[c]*target->width/width+(1-target->width/width)*2048.f*flat[12+c];
@@ -601,7 +609,7 @@ NativeModelSubmission NativeModels::capture(Runtime *rt,NativeAssets &assets,Nat
         }
         if(shadowClass){
             std::vector<std::array<float,3>> positions(vertices.size());for(size_t k=0;k<vertices.size();++k)positions[k]={vertices[k].x,vertices[k].y,vertices[k].z};
-            nativeShadowPrisms(positions,m.strips,shadowLight,matrix,shadowFlat,out.shadowIncrement,out.shadowDecrement);continue;}
+            nativeShadowPrisms(positions,m.strips,shadowLight,matrix,shadowFlat,out.shadowIncrement,out.shadowDecrement,shadowPoint);continue;}
         const bool cull=(block?word(block+0x90)==0:bool(material[5])) && !byte(object+0x210);size_t first=0;unsigned guarded=0,culled=0;
         batch.vertices.reserve(m.vertices.size()*3);
         if(material[6]&6){

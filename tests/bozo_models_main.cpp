@@ -277,6 +277,16 @@ int main(int argc,char **argv){try{
         {std::vector<V> inc,dec;vp2s::nativeShadowPrisms(quad,strip,{0,0,1},top,flat,inc,dec);
             std::vector<V> one,two;vp2s::nativeShadowPrisms({quad[0],quad[1],quad[2]},std::vector<uint16_t>{3},{0,0,1},top,flat,one,two);
             check(inc.size()+dec.size()>one.size()+two.size());++shadowCases;}
+        // A point light (mem[14].w): the direction is a - light per triangle. Any light with z < 2 gives a - P a
+        // positive z, so both triangles are kept as with the directional (0,0,1), whatever its x, y; one with z > 2
+        // culls both.
+        {std::vector<V> inc,dec,ref,refDec;vp2s::nativeShadowPrisms(quad,strip,{0,0,1},top,flat,ref,refDec);
+            for(const P &light:{P{0,0,0},P{100,-50,-3},P{-7,9,1.99f}}){inc.clear();dec.clear();vp2s::nativeShadowPrisms(quad,strip,light,top,flat,inc,dec,true);
+                check(inc.size()==ref.size() && dec.size()==refDec.size());++shadowCases;}
+            for(const P &light:{P{0,0,5},P{30,30,2.01f}}){inc.clear();dec.clear();vp2s::nativeShadowPrisms(quad,strip,light,top,flat,inc,dec,true);
+                check(inc.empty() && dec.empty());++shadowCases;}
+            // Directional semantics are unchanged by the flag's default: (0,0,5) as a direction keeps both.
+            inc.clear();dec.clear();vp2s::nativeShadowPrisms(quad,strip,{0,0,5},top,flat,inc,dec);check(inc.size()==ref.size());++shadowCases;}
         // A vertex at w <= 0 drops its triangle; strips that do not cover the vertices reject.
         {auto behind=top;behind[15]=-1;std::vector<V> inc,dec;vp2s::nativeShadowPrisms(quad,strip,{0,0,1},behind,flat,inc,dec);check(inc.empty() && dec.empty());
             bool bad=false;try{vp2s::nativeShadowPrisms(quad,std::vector<uint16_t>{3},{0,0,1},top,flat,inc,dec);}catch(const std::runtime_error &){bad=true;}check(bad);shadowCases+=2;}

@@ -12,6 +12,27 @@ The earlier VP2S face/shading and general brightness comparisons remain open.
 
 ## Build and evidence
 
+### Point-light shadow (mem[14].w) native (2026-11-24)
+
+- **The case:** 42 maps refused the shadow classes 159880/1599a0 when mem[14].w (object+31c) was set.
+- **What the game does:**
+  - 2b82f0 checks the light object's +2c8 & 3. Clear: a directional light, mem[14].w = 0, its direction in mem[37],
+    flattening from 214780. Set: mem[14].w = 1, the light's world position (w 1) in mem[20], flattening from 2148a0
+    (a projection through that point) in mem[5..8].
+  - The object set-up 0x238 takes mem[20] through O's rigid inverse (table A).
+  - Set 0xa's own set-up (0xf38, 10d0..10e0) copies it to mem[37].
+  - The shadow program (USA set 0xa at 31_4140[0xa] = 324030) culls each triangle with vf01 = vf21 - mem[37]
+    (0778..0788, 0808..0818) instead of the fixed direction.
+- **Now:** nativeShadowPrisms takes a point flag. The capture passes the light's object-space position, rigidInverse
+  of mem[20], refused unless its w is 1. The flattened projection already divides by w.
+
+**Evidence:**
+- **Tests:** a point light keeps the triangles facing it and culls those facing away, whatever its x and y. The
+  directional cases are unchanged.
+- **Maps:** of the 42 maps, 29 now run 850 frames clean. 6 stop at 430858 and 7 reach missing modules.
+- **Trace:** map 212 at frame 63900 shows the shadow object 9a2920 with a far light (-1e7 in x, object space) and
+  38/28 counting faces.
+
 ### Environment-map element 159340 native (2026-11-24)
 
 - **The case:** 47 maps stopped at the animated-UV boundary (219210) on element class 159340. Its +10 method, mod001

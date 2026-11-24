@@ -53,7 +53,7 @@ const NativeParticleDraws::Material &NativeParticleDraws::material(const AssetOr
 NativeModelSubmission NativeParticleDraws::capture(Runtime *rt,NativeAssets &assets,NativeTextures &textures,const NativeScene &scene,const NativeParticles &particles,uint32_t object){
     music::CodecRounding arithmetic;particles.validateDraw(object);auto *owner=record(rt,object,0xb10);
     const auto camera=scene.drawingCamera();const auto target=scene.frameTarget();const auto current=word(rt,0x35ddf8);const unsigned layer=owner[0x65];
-    if(!camera || !target || layer>1 || word(rt,current+0x40a8+4*layer)!=object || *rt->memory.hostPointer(current+0x40dc+layer,1)!=1 || !owner[0x63] || !particleClass(value<uint32_t>(owner,0)) || (owner[0xaff]!=0 && owner[0xaff]!=2 && owner[0xaff]!=3 && owner[0xaff]!=4 && owner[0xaff]!=6) || owner[0xb04] || owner[0xaf9]>1)
+    if(!camera || !target || layer>1 || word(rt,current+0x40a8+4*layer)!=object || *rt->memory.hostPointer(current+0x40dc+layer,1)!=1 || !owner[0x63] || !particleClass(value<uint32_t>(owner,0)) || (owner[0xaff]>4 && owner[0xaff]!=6) || owner[0xb04] || owner[0xaf9]>1)
         throw std::runtime_error("native particle draw has no admitted scene/point owner");
     const auto first=NativeAssets::address(value<uint32_t>(owner,0xaa0)),second=NativeAssets::address(value<uint32_t>(owner,0xaa4));
     if(second<=first || second-first<0x20 || second-first>0x1000000)throw std::runtime_error("native particle draw buffer halves invalid");
@@ -63,13 +63,14 @@ NativeModelSubmission NativeParticleDraws::capture(Runtime *rt,NativeAssets &ass
     // Mode 2 selects VU1 image 5 (mode + 3): image 7's ribbons without a texture. It reads no kind template (+628 = 0)
     // and no FIS; its GS state is the owner's row block (+624): row 96 the A+D tag, row 97 ALPHA_1, row 102 the strip tag.
     // Mode 0 selects image 3: GS points of the same untextured kind (tag 0x2030400000008000: PRIM 0x60, FGE, ABE).
-    const bool points=owner[0xaff]==0,plain=owner[0xaff]==2 || points;NativeModelBatch batch;auto &mat=batch.material;Material m{};const uint8_t *kindData=nullptr;
+    // Mode 1 selects image 4: Gouraud line strips of the same kind (tag 0x2025400000008000: PRIM 0x4a, ABE).
+    const bool points=owner[0xaff]==0,lineStrips=owner[0xaff]==1,plain=owner[0xaff]==2 || points || lineStrips;NativeModelBatch batch;auto &mat=batch.material;Material m{};const uint8_t *kindData=nullptr;
     if(plain){
         const auto block=value<uint32_t>(owner,0x624);if(!block)throw std::runtime_error("native particle draw has no GS row block (+624)");
         auto *rows=record(rt,block,0x100);
         // Battle 0x1c: tag 0x2036400000008000 / 0x41 (PRE, PRIM 0x6c: Gouraud strip, FGE, ABE, context 1; RGBAQ, XYZF2).
         // The strip's F is 0xff (no fog); the program writes the tag's NLOOP / EOP itself.
-        if(value<uint32_t>(rows,0xc)!=0x6c0f0060 || value<uint32_t>(rows,0x28)!=0x42 || value<uint32_t>(rows,0x74)!=(points?0x20304000u:0x20364000u) || value<uint64_t>(rows,0x78)!=0x41)
+        if(value<uint32_t>(rows,0xc)!=0x6c0f0060 || value<uint32_t>(rows,0x28)!=0x42 || value<uint32_t>(rows,0x74)!=(points?0x20304000u:lineStrips?0x20254000u:0x20364000u) || value<uint64_t>(rows,0x78)!=0x41)
             throw std::runtime_error(std::format("unported native particle image 3/5 GS state (ALPHA reg {:x}, tag {:08x}:{:x})",value<uint32_t>(rows,0x28),value<uint32_t>(rows,0x74),value<uint64_t>(rows,0x78)));
         const auto alpha=value<uint64_t>(rows,0x20);
         // ALPHA_1 from the block (battle 0x1c: 0x44, normal alpha; user 2026-11-24: "A: normal alpha").
@@ -217,6 +218,37 @@ NativeModelSubmission NativeParticleDraws::capture(Runtime *rt,NativeAssets &ass
     // VU1 0x6e0 kicks every point once per pass: pass p draws kind + p * stride with ALPHA variant p,
     // all points of a pass before the next pass. Image 7 never reads the pass header (VU 2e0):
     // one pass with ALPHA variant 0 (VU 2e5 = template +70).
+    if(lineStrips){
+        // Image 4 (0868..0a20; fog variant 0a30..): the same projection as image 3 (vf01..vf04 = local-to-screen left by
+        // the set-up 238, guard rows 85..88) for every record, one GS LINE STRIP vertex each, coloured FTOI0 of the lit
+        // record colour. The header's z (ilw.z 0(vi14)) is the points per strip: at each strip's start FCSET 0xffffff
+        // marks the previous judgements outside, and FCAND 0x000fff (this vertex's CLIPW and the one before) sets ADC.
+        // So a segment joins two consecutive points of one strip when neither is outside the guard; strips never join.
+        // The fog variant would colour a chunk's first point from vf18 before its load (as image 3's): not ported.
+        if(value<uint32_t>(owner,0x32c))throw std::runtime_error("unported native particle line-strip fog variant (image 4 row 15.w)");
+        mat.lines=true;
+        auto cursor=base+0x20;uint32_t seen=0;
+        for(unsigned chunk=0;chunk<chunks;++chunk){
+            if(cursor>base+span-0x20)throw std::runtime_error("native particle chunk outside completed buffer");auto *header=record(rt,cursor,0x20);
+            const auto count=value<uint32_t>(header,0x10),extent=value<uint32_t>(header,0x14),group=value<uint32_t>(header,0x18);
+            // The program subtracts whole strips from the count (isub vi09, vi06 at 09a0) until it reaches 0.
+            if(!count || count>48 || extent!=count*3+2 || !group || group>48 || count%group || count>total-seen || uint64_t(cursor)+32+48*count>uint64_t(base)+span)
+                throw std::runtime_error(std::format("unported/incomplete native particle line-strip group (count {} extent {} group {})",count,extent,group));
+            auto *records=record(rt,cursor+0x20,count*48);
+            std::array<bozo::render::Vertex,48> strip;std::array<bool,48> outside;
+            for(unsigned p=0;p<count;++p){const auto *point=records+48*p;
+                std::array<float,4> position=value<std::array<float,4>>(point,0);for(unsigned j=0;j<3;++j)number(position[j]);position[3]=1;
+                const auto eye=transform(toView,position);auto &v=strip[p];v.x=eye[0];v.y=eye[1];v.z=eye[2];v.rgba=pointColour(point,nullptr);
+                for(float f:{v.x,v.y,v.z})if(!std::isfinite(f))throw std::runtime_error("native particle vertex overflow");
+                outside[p]=outsideGuard(v);}
+            for(unsigned first=0;first<count;first+=group)for(unsigned i=first+1;i<first+group;++i)
+                if(!outside[i-1] && !outside[i]){batch.vertices.push_back(strip[i-1]);batch.vertices.push_back(strip[i]);}
+            seen+=count;cursor+=32+48*count;
+        }
+        if(seen!=total)throw std::runtime_error("native particle draw point count mismatch");
+        if(!batch.vertices.empty())submission.batches.push_back(batch);
+        return submission;
+    }
     if(points){
         // Image 3 (0868..09c0; fog variant 09d0..0af8): one GS point per particle. The header's set-up program (MSCAL 238)
         // leaves vf01..vf04 = rows 89..92 as it stored them at 0308, the owner's local-to-screen matrix (screen x view x

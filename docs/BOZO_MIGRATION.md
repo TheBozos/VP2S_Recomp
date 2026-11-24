@@ -12,6 +12,40 @@ The earlier VP2S face/shading and general brightness comparisons remain open.
 
 ## Build and evidence
 
+### Battle 0x4d: mode-1 particles (VU1 image 4 line strips), five box copies, mesh depth keys (2026-11-24)
+
+- **Producer:** mode 1 is produced like mode 0. 22eb14..22eb48 give it the default count (48 / points per particle),
+  22ec44 leaves sp+c0 clear (the emitter's +10 is skipped), and 22ebf8 passes a3 = 0.
+- **Particle box:** 2814e0, 27e160, 27ada0, 2779e0 and 232360 are 23fa40 compiled five more times (frame 0x240,
+  emitter s5; each one's 144 VU0 words are 23fa40's in order). Battle 0x4d's mode-1 emitter takes 2814e0.
+- **Draw (VU1 image 4):** GS line strips. The tag is 0x2025400000008000 / 0x41 (PRIM 0x4a: line strip, Gouraud,
+  ABE), and ALPHA_1 comes from the block (battle 0x4d: 0x148).
+  - Every record goes through image 3's projection (vf01..vf04 left by the set-up 238, guard rows 85..88) and is
+    coloured with FTOI0 of its lit colour.
+  - The header's z is the number of points per strip. At each strip's start FCSET 0xffffff marks the previous
+    judgements outside, and FCAND 0x000fff covers this vertex and the one before. So a segment joins two
+    consecutive points of one strip when neither is outside the guard.
+  - Drawn natively as line segments (Material::lines). The fog variant (row 15.w) is refused: it would colour a
+    chunk's first point from vf18 before its load, as image 3's does.
+- **Mesh depth keys (23a288..23a4e8):**
+  - The object's local-to-screen matrix at sp+a0 is either copied, or with a parent the product 23a330..23a36c:
+    column i = ((P0 c.x + P1 c.y) + P2 c.z) + P3 c.w.
+  - VCALLMS 0x1f0 loads it as columns: the diagonal is moved raw, the W row is 1*x, and the rest is 0+x.
+  - Per mesh, VCALLMS 0 projects the centre stored at 314060: p = M v, then (p.x Q, p.y Q, p.z Q, Q) with Q = 1 / p.w,
+    stored to sp+90, whose z is the sort key. CFC2.I sets t1 = 0.
+  - The centre is stored as sign-extended halfword integers and read by VU0 as floats: the game's own words, kept
+    as VU0 words (ps2f).
+
+**Evidence:**
+- **Battle 0x4d:** runs boundary-free to 67000.
+- **Oracle:** 112 line-strip captures equal image 4's own words (1075 segments, 1325 vertices with ADC). The oracle
+  gained FCSET.
+- **Math test:** the mesh depth block (product, columns, projection, t1) on exact values, a projection refused before
+  its columns, and another overlay's word left unclaimed.
+- **Particle test:** covers 2814e0's first and r7 triplets.
+- **Tests:** full ctest 97/97.
+- **End RAM unchanged:** battle 0c9960c8d9f6, forest 912f01332dbe, game over 9df948c13063, route a3f2c8f4395d.
+
 ### Battle 0x54: a game-written -4e29 particle, the particle sphere on PS2 float rules (2026-11-24)
 
 - **Trace (VP2S_BOZO_WATCH on emitter 17201f0 +c0, then on its particle owner 1742330 +190):**

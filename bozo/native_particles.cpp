@@ -22,8 +22,9 @@ uint32_t word(const uint8_t *p,unsigned at){uint32_t v;std::memcpy(&v,p+at,4);re
 // methods a3 = 1). The records are the emitter's own, published byte for byte in every mode.
 // Mode 2 (battle 0x1c) is produced as mode 4 (halved count, a3 = 1); the producer only skips the
 // emitter's method +10 (its flag sp+c0 is mode >= 3), which stays the game's compiled code. Mode 0
-// (battle 0x1c too) takes the default count 48 / points per particle with a3 = 0, also without +10.
-bool producedMode(uint8_t mode){return mode==0 || mode==2 || mode==3 || mode==4 || mode==6;}
+// (battle 0x1c too) takes the default count 48 / points per particle with a3 = 0, also without +10; mode 1 (battle 0x4d)
+// is produced the same way (22eb14..22eb48 give it the default count, 22ec44 leaves sp+c0 clear, 22ebf8 a3 = 0).
+bool producedMode(uint8_t mode){return mode<=4 || mode==6;}
 bool overlaps(uint8_t *a,size_t na,uint8_t *b,size_t nb){const auto x=reinterpret_cast<uintptr_t>(a),y=reinterpret_cast<uintptr_t>(b);return x<y+nb && y<x+na;}
 }
 void NativeParticles::begin(Runtime *rt,R5900Context *c){

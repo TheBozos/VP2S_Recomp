@@ -218,6 +218,11 @@ int main(){try{
         write(rt,0x1d0040,std::array<float,4>{-40,0,0,1});write(rt,0x1d0060,std::array<float,4>{0,0,44,1});
         check(fmath(0x287d84) && fmath(0x287ddc) && fmath(0x287de0) && fmath(0x28a51c) && fmath(0x28a540) && fmath(0x28a544));
         {const auto eighth=now.particles.bounds(frame,0x190000);check(eighth.minimum[0]==-40 && eighth.maximum[2]==44);}
+        // mod001 2814e0 (battle 0x4d's mode-1 emitter), one of five more compilations: the first and the r7 triplet.
+        for(const auto &[pc,w]:{std::pair{0x281634u,0xd8610000u},{0x28168cu,0x4bc1d6afu},{0x281690u,0x4bc1deebu},{0x283cd4u,0xd8e10000u},{0x283cf8u,0x4bc1d6afu},{0x283cfcu,0x4bc1deebu}})write(rt,pc,w);
+        write(rt,0x1d0040,std::array<float,4>{-50,0,0,1});write(rt,0x1d0060,std::array<float,4>{0,0,55,1});
+        check(fmath(0x281634) && fmath(0x28168c) && fmath(0x281690) && fmath(0x283cd4) && fmath(0x283cf8) && fmath(0x283cfc));
+        {const auto ninth=now.particles.bounds(frame,0x190000);check(ninth.minimum[0]==-50 && ninth.maximum[2]==55);}
         now.particles=vp2s::NativeParticles{};
     }
     // mod003 40b080, the trail emitter: every VU0 site with the game's word at its address. A

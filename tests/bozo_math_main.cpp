@@ -1565,6 +1565,39 @@ int main(int argc,char **argv){try{
             for(unsigned i=0;i<std::size(words);++i)check(vp2s::nativeMathInstruction(rt.memory.flat(),&c,&rt,0x22b734+4*i));
             float o[4];std::memcpy(o,rt.memory.hostPointer(out,16),16);check(o[0]==6 && o[1]==14 && o[2]==27 && o[3]==1);   // (1+5, 4+10, 12+15, 0+1)
         }
+        {   // mod001 23a288 mesh depth keys (battle 0x4d): the parent product into sp+a0, VCALLMS 0x1f0 columns, then per mesh
+            // VCALLMS 0 on the centre at 314060 to sp+90 (x/w, y/w, z/w, 1/w); t1 = vi0 = 0. Exact values, checked independently.
+            constexpr std::pair<uint32_t,uint32_t> words[]={{0x23a310,0xd8410000},{0x23a314,0xd8420010},{0x23a318,0xd8430020},{0x23a31c,0xd8440030},
+                {0x23a320,0xd8850000},{0x23a324,0xd8860010},{0x23a328,0xd8870020},{0x23a32c,0xd8880030},
+                {0x23a330,0x4be129bc},{0x23a334,0x4be130bd},{0x23a338,0x4be138be},{0x23a33c,0x4be1404b},{0x23a340,0x4be229bc},{0x23a344,0x4be230bd},
+                {0x23a348,0x4be238be},{0x23a34c,0x4be2408b},{0x23a350,0x4be329bc},{0x23a354,0x4be330bd},{0x23a358,0x4be338be},{0x23a35c,0x4be340cb},
+                {0x23a360,0x4be429bc},{0x23a364,0x4be430bd},{0x23a368,0x4be438be},{0x23a36c,0x4be4410b},
+                {0x23a370,0xf8610000},{0x23a374,0xf8620010},{0x23a378,0xf8630020},{0x23a37c,0xf8640030},
+                {0x23a384,0xd8450000},{0x23a388,0xd8460010},{0x23a38c,0xd8470020},{0x23a390,0xd8480030},{0x23a39c,0x4a000fb8},
+                {0x23a40c,0xd8850000},{0x23a418,0x4a000c78},{0x23a4e0,0x48490001},{0x23a4e8,0xf8460000}};
+            const std::vector<uint8_t> keep(rt.memory.flat(),rt.memory.flat()+bozo::kFlatBytes);   // restored after the block
+            for(const auto &[at,w]:words)std::memcpy(rt.memory.hostPointer(at,4),&w,4);
+            constexpr uint32_t sp=0x1ffe000,local=0x1b0000,parent=0x1b1000;
+            const float L[16]={1,0,0,0, 0,2,0,0, 0,0,4,0, 3,5,7,1},P[16]={2,0,0,0, 0,1,0,0, 0,0,1,0, 0,0,8,2},v[4]={1,2,3,1};
+            std::memcpy(rt.memory.hostPointer(local,64),L,64);std::memcpy(rt.memory.hostPointer(parent,64),P,64);std::memcpy(rt.memory.hostPointer(0x314060,16),v,16);
+            R5900Context c{};c.r[29].uw[0]=sp;c.r[2].uw[0]=local;c.r[4].uw[0]=parent;c.r[3].uw[0]=sp+0xa0;c.r[9].ud[0]=~0ull;
+            for(uint32_t at=0x23a310;at<=0x23a37c;at+=4)check(vp2s::nativeMathInstruction(rt.memory.flat(),&c,&rt,at));
+            float R[16];for(unsigned i=0;i<4;++i)for(unsigned l=0;l<4;++l)R[i*4+l]=((P[l]*L[i*4]+P[4+l]*L[i*4+1])+P[8+l]*L[i*4+2])+P[12+l]*L[i*4+3];
+            float got[16];std::memcpy(got,rt.memory.hostPointer(sp+0xa0,64),64);for(unsigned i=0;i<16;++i)check(got[i]==R[i]);
+            c.r[2].uw[0]=sp+0xa0;for(uint32_t at:{0x23a384u,0x23a388u,0x23a38cu,0x23a390u,0x23a39cu})check(vp2s::nativeMathInstruction(rt.memory.flat(),&c,&rt,at));
+            c.r[4].uw[0]=0x314060;check(vp2s::nativeMathInstruction(rt.memory.flat(),&c,&rt,0x23a40c) && vp2s::nativeMathInstruction(rt.memory.flat(),&c,&rt,0x23a418));
+            check(vp2s::nativeMathInstruction(rt.memory.flat(),&c,&rt,0x23a4e0) && c.r[9].ud[0]==0);
+            c.r[2].uw[0]=sp+0x90;check(vp2s::nativeMathInstruction(rt.memory.flat(),&c,&rt,0x23a4e8));
+            // 0x1f0 makes vf(1+k) lane l = stored row l lane k, so p[l] = R_l . v.
+            float p[4];for(unsigned l=0;l<4;++l)p[l]=((R[l*4]*v[0]+R[l*4+1]*v[1])+R[l*4+2]*v[2])+R[l*4+3]*v[3];
+            float out[4];std::memcpy(out,rt.memory.hostPointer(sp+0x90,16),16);
+            volatile float q=1/p[3];const float qq=q;check(out[0]==p[0]*qq && out[1]==p[1]*qq && out[2]==p[2]*qq && out[3]==qq);   // times Q = 1/w
+            // A projection before its columns, and another overlay's word, are refused / not claimed.
+            bool refused=false;c.r[2].uw[0]=sp+0xa0;check(vp2s::nativeMathInstruction(rt.memory.flat(),&c,&rt,0x23a384));
+            try{vp2s::nativeMathInstruction(rt.memory.flat(),&c,&rt,0x23a418);}catch(const std::runtime_error &){refused=true;}check(refused);
+            const uint32_t other=0;std::memcpy(rt.memory.hostPointer(0x23a418,4),&other,4);check(!vp2s::nativeMathInstruction(rt.memory.flat(),&c,&rt,0x23a418));
+            std::memcpy(rt.memory.flat(),keep.data(),keep.size());
+        }
         {   // mod001 2234a0 rows4one idiom (battle frame 75120): the same with r4 * 1 (vf0.w), not the point's w.
             constexpr uint32_t words[]={0xd8a50000,0xda210000,0xda220010,0xda230020,0xda240030,0x4be509bc,0x4be510bd,0x4be518be,0x4be0214b,0xf8850000};
             std::memcpy(rt.memory.hostPointer(0x2234f8,sizeof(words)),words,sizeof(words));

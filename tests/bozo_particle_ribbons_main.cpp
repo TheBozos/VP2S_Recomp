@@ -37,7 +37,7 @@ std::vector<uint8_t> image(const std::filesystem::path &elfPath,unsigned which){
     for(uint32_t i=0;i<qwc*16;){uint32_t vif;std::memcpy(&vif,packet+i,4);i+=4;const auto cmd=(vif>>24)&0x7f,num=(vif>>16)&0xff,imm=vif&0xffff;
         if(cmd==0x4a){const auto n=num?num:256;check(imm*8+n*8<=code.size() && i+n*8<=qwc*16);std::memcpy(code.data()+imm*8,packet+i,n*8);i+=n*8;++uploads;}
         else if(cmd==0x20)i+=4;else if(cmd==0x30 || cmd==0x31)i+=16;else if(cmd>=0x60)throw std::runtime_error("image 7 packet carries data");}
-    check(uploads==(which==3?2u:3u));return code;
+    check(uploads==(which==3 || which==4?2u:3u));return code;
 }
 
 // ---- the oracle ----
@@ -97,6 +97,7 @@ struct Vu1 {
             case 0x05:{auto &r=row(addr(is,imm11));for(int f=0;f<4;++f)if(on(d,f))r.u[f]=vi[it&15];return ~0u;}
             case 0x08:setVi(it,vi[is&15]+((d<<11)|(w&0x7ff)));return ~0u;
             case 0x09:setVi(it,vi[is&15]-((d<<11)|(w&0x7ff)));return ~0u;
+            case 0x11:clip=w&0xffffff;return ~0u;   // FCSET
             case 0x12:vi[1]=(clip&(w&0xffffff))?1:0;return ~0u;
             case 0x20:return target();
             case 0x21:setVi(it,(pc+16)/8);return target();
@@ -154,6 +155,7 @@ void files(const std::filesystem::path &dir){
 struct Case {unsigned groups[4],perChunk,chunks;bool lit,coincide,tilt,ambient=false;unsigned lights=0;};
 bool plain=false;   // image 5 (mode 2) instead of image 7 (mode 4)
 bool dots=false;    // with plain: image 3 (mode 0), GS points
+bool strips=false;  // with plain and dots: image 4 (mode 1), GS line strips
 bool fogged=false;  // image 5 with row 15.w: its fog variant (camera fog pair -60, 200; FOGCOL 203040)
 void initialize(Runtime &rt,vp2s::NativeScene &scene,vp2s::NativeAssets &assets,const Case &c,std::mt19937 &random){
     std::memset(rt.memory.flat(),0,bozo::kFlatBytes);scene=vp2s::NativeScene{};assets=vp2s::NativeAssets{};
@@ -168,7 +170,7 @@ void initialize(Runtime &rt,vp2s::NativeScene &scene,vp2s::NativeAssets &assets,
     if(fogged){put(rt,camera+0x5a0,uint32_t(0x203040));put(rt,camera+0x5a8,-60.f);put(rt,camera+0x5ac,200.f);}
     put(rt,camera+0x244,2048.f);put(rt,camera+0x248,2048.f);put(rt,camera+0x260,1728.f);put(rt,camera+0x264,1824.f);scene.selectCamera(&rt,camera);
     put(rt,object,uint32_t(0x1725d0));put(rt,object+0x63,uint8_t(1));put(rt,object+0x65,uint8_t(0));Mat world=identity;world[3]=.05f;world[7]=-.05f;put(rt,object+0x90,world);
-    put(rt,object+0xaff,uint8_t(dots?0:plain?2:4));put(rt,object+0xaf9,uint8_t(0));put(rt,object+0xaa0,uint32_t(0x200000));put(rt,object+0xaa4,uint32_t(0x210000));
+    put(rt,object+0xaff,uint8_t(strips?1:dots?0:plain?2:4));put(rt,object+0xaf9,uint8_t(0));put(rt,object+0xaa0,uint32_t(0x200000));put(rt,object+0xaa4,uint32_t(0x210000));
     put(rt,object+0x32c,uint32_t(fogged?1:0));put(rt,object+0x628,plain?0u:kinds);put(rt,object+0x658,plain?0x55555555u:fis);
     put(rt,fis+4,uint32_t(0x11223344));put(rt,fis+8,uint32_t(5));put(rt,0x35de38,manager);put(rt,manager+0x2670,int16_t(1));put(rt,manager+0x1008+16,uint32_t(0x11223344));put(rt,manager+8+16,uint32_t(5));
     put(rt,object+0x230,std::array<float,4>{255,128,255,64});put(rt,object+0x300,std::array<float,4>{.5f,1,.25f,2});put(rt,object+0x310,uint32_t(c.lit?0:1));
@@ -177,7 +179,7 @@ void initialize(Runtime &rt,vp2s::NativeScene &scene,vp2s::NativeAssets &assets,
     put(rt,object+0x624,block);put(rt,block+0xc,uint32_t(0x6c0f0060));put(rt,block+0x24,uint32_t(c.ambient?0x40:0));put(rt,block+0x54,.5f);
     // Image 5's GS state (battle 0x1c's block): row 97 ALPHA_1 = 0x44 (normal alpha), row 102 the Gouraud strip tag.
     put(rt,block+0x20,uint32_t(0x44));put(rt,block+0x28,uint32_t(0x42));put(rt,block+0x10,uint32_t(0x8004));put(rt,block+0x14,uint32_t(0x10000000));
-    put(rt,block+0x18,uint32_t(0xeeeeeeee));put(rt,block+0x70,uint32_t(0x8000));put(rt,block+0x74,uint32_t(dots?0x20304000:0x20364000));put(rt,block+0x78,uint64_t(0x41));
+    put(rt,block+0x18,uint32_t(0xeeeeeeee));put(rt,block+0x70,uint32_t(0x8000));put(rt,block+0x74,uint32_t(strips?0x20254000:dots?0x20304000:0x20364000));put(rt,block+0x78,uint64_t(0x41));
     if(c.ambient){put(rt,object+0x230+16*5,std::array<float,4>{.25f,.5f,.125f,0});put(rt,object+0x230+16*6,std::array<float,4>{.25f,.25f,.25f,0});
         put(rt,object+0x230+16*8,std::array<float,4>{-.01f,-.06f,-.002f,0});put(rt,object+0x230+16*19,std::array<float,4>{.85f,.64f,.47f,1});}
     if(c.lights){put(rt,object+0x31c,uint32_t(2));put(rt,object+0x314,uint32_t(1));
@@ -221,7 +223,7 @@ Strip oracle(const std::vector<uint8_t> &code,Runtime &rt,const vp2s::NativeCame
         // The real first MSCAL (6e0): ambient 0f38, the GS-state kick of rows 96..99 at row 81.w, lighting 0b08, then vf18 =
         // row 96 (0788) and the points packet after the state (a fogged chunk's first point takes FTOI0 of that vf18).
         vu.run(0x6e0);if(vu.kicks.size()!=3 || vu.kicks[0]!=0x3b0 || vu.kicks[1]!=0x1a0)throw std::runtime_error(std::format("image 3 kicks {}",vu.kicks.size()));
-        const unsigned at=vu.kicks[2];const auto tag=vu.row(at);check(tag.u[0]==0x8000+count && tag.u[1]==0x20304000u && tag.u[2]==0x41);
+        const unsigned at=vu.kicks[2];const auto tag=vu.row(at);check(tag.u[0]==0x8000+count && tag.u[1]==(strips?0x20254000u:0x20304000u) && tag.u[2]==0x41);
         Strip s;for(unsigned v=0;v<count;++v){std::array<uint32_t,12> out{};std::memcpy(out.data()+4,&vu.row(at+1+2*v),16);std::memcpy(out.data()+8,&vu.row(at+2+2*v),16);s.vertices.push_back(out);}
         return s;}
     vu.vi[15]=0x3ff0/8;vu.run(plain?0x1a38:0x1aa0);check(vu.kicks.empty());
@@ -241,7 +243,7 @@ Strip oracle(const std::vector<uint8_t> &code,Runtime &rt,const vp2s::NativeCame
 int main(int argc,char **argv){try{
     check(argc==3);const std::filesystem::path dir=argv[1];files(dir);
     // An E-bit NOP pair (and its delay pair) at 3ff0: the return point of a subroutine run on its own.
-    auto images=std::array{image(argv[2],7),image(argv[2],5),image(argv[2],3)};
+    auto images=std::array{image(argv[2],7),image(argv[2],5),image(argv[2],3),image(argv[2],4)};
     for(auto &code:images){check(code.size()>=0x4000);for(uint32_t at:{0x3ff0u,0x3ff8u}){const uint32_t lower=0x8000033c,upper=at==0x3ff0?0x400002ffu:0x000002ffu;
         std::memcpy(code.data()+at,&lower,4);std::memcpy(code.data()+at+4,&upper,4);}}
     unsigned plainCases=0,fogSeen=0;
@@ -303,7 +305,26 @@ int main(int argc,char **argv){try{
             if(!ok)throw std::runtime_error(std::format("point case {} point {}: native ({} {} {} fog {} {:08x}), oracle ({} {} {} w {:x}) {:08x}",dotCases,n,v.x*16,v.y*16,v.z*16,v.fog*255,v.rgba,int32_t(o[8]),int32_t(o[9]),int32_t(o[10]),o[11],rgba));
             ++dotsDrawn;}
         ++dotCases;}
-    check(dotsDrawn>500 && dotsCulled>50 && dotsFogged>40 && laterChunkFirsts>8);fogged=false;std::printf("%u point captures equal image 3's words: %u points drawn, %u ADC-culled\n",dotCases,dotsDrawn,dotsCulled);
+    check(dotsDrawn>500 && dotsCulled>50 && dotsFogged>40 && laterChunkFirsts>8);
+    // Image 4 (mode 1): one GS LINE STRIP per group of points; a vertex without ADC closes a segment from the one before.
+    {unsigned stripCases=0,segments=0,skipped=0;fogged=false;strips=true;
+     for(unsigned round=0;round<8;++round)for(const auto &c:table){
+        initialize(rt,scene,assets,c,random);const auto cam=scene.drawingCamera();check(bool(cam));
+        const auto result=draws.capture(&rt,assets,textures,scene,particles,object);check(result.batches.size()<=1);
+        std::vector<std::array<uint32_t,12>> expect;uint32_t chunk=chunks;
+        for(unsigned k=0;k<c.chunks;++k){const auto s=oracle(images[3],rt,*cam,chunk);
+            for(size_t n=0;n<s.vertices.size();++n){if(s.vertices[n][11]&0x8000){++skipped;continue;}check(n>0);expect.push_back(s.vertices[n-1]);expect.push_back(s.vertices[n]);}
+            chunk+=32+48*(c.perChunk*c.groups[k]);}
+        const std::vector<bozo::render::Vertex> none;const auto &got=result.batches.empty()?none:result.batches[0].vertices;
+        if(got.size()!=expect.size())throw std::runtime_error(std::format("strip case {}: {} native vertices, oracle {}",stripCases,got.size(),expect.size()));
+        if(!result.batches.empty())check(result.batches[0].material.lines && !result.batches[0].material.textured);
+        for(size_t n=0;n<got.size();++n){const auto &v=got[n];const auto &o=expect[n];const auto &m=result.batches[0].matrix;
+            float clip[4];for(unsigned r=0;r<4;++r)clip[r]=m[r]*v.x+m[4+r]*v.y+m[8+r]*v.z+m[12+r];uint32_t rgba=0;for(unsigned i=0;i<4;++i)rgba|=(o[4+i]&0xff)<<(8*i);
+            const bool ok=std::abs(clip[0]/clip[3]*16-int32_t(o[8]))<=1.5f && std::abs(clip[1]/clip[3]*16-int32_t(o[9]))<=1.5f && std::abs(clip[2]/clip[3]*16-int32_t(o[10]))<=2.f && rgba==v.rgba;
+            if(!ok)throw std::runtime_error(std::format("strip case {} vertex {}: native ({} {} {} {:08x}) oracle ({} {} {}) {:08x}",stripCases,n,clip[0]/clip[3]*16,clip[1]/clip[3]*16,clip[2]/clip[3]*16,v.rgba,int32_t(o[8]),int32_t(o[9]),int32_t(o[10]),rgba));}
+        segments+=unsigned(got.size()/2);++stripCases;}
+     check(segments>300 && skipped>100);strips=false;
+     std::printf("%u line-strip captures equal image 4's words: %u segments drawn, %u vertices with ADC\n",stripCases,segments,skipped);}fogged=false;std::printf("%u point captures equal image 3's words: %u points drawn, %u ADC-culled\n",dotCases,dotsDrawn,dotsCulled);
     dots=plain=fogged=false;
     for(unsigned which=0;which<5;++which){Case c{{3},1,1,false,false,which==2};initialize(rt,scene,assets,c,random);
         if(which==0)put(rt,object+0x32c,uint32_t(1));else if(which==1){put(rt,object+0x31c,uint32_t(2));put(rt,object+0x318,uint32_t(1));}

@@ -25,10 +25,27 @@ Launched from the forest state with `--battle 0x1c/0x1d/0x1e` and the attack4 pa
   (the screen copy: PSMCT16 512 x 512, TBP 3180 or 2ec0), as well as the feedback key. Battle 0x1e then stops at the
   submission: no feedback copy has been published there, so what the mesh samples is open (question sent).
 - **Clearer boundaries:** the mesh class and submission refusals name the failing condition.
+- **Battle 0x1c's emitters:**
+  - class 1585f0 (the mode-2 emitter) runs the general emitter compiled again: prepare 297970 and step 2961a0 hold
+    its VU0 words in the same order, 527a0 / 527a8 higher. The program emitter and its random draws map those sites
+    back to the general ones. Its +14, 28e290, is 23fa40 again (144 VU0 words, the EE code between them a little
+    longer): its 48 box triplets are listed beside 23fa40's.
+  - the mode-0 emitter's step 2932f0 is a new one, the **row emitter**: 0xf0-byte records with two row pairs
+    integrated by dt (+b0 by +c0, +80 by +90, then +c0 by +d0, +90 by +a0), a scalar offset at sp+1a0 added to P and A,
+    its own constants (dt, drift +c0, 0, 255), the general per-kind stores (kind 2: |A|^2, kind 5: e, f, then rows * P)
+    and trails. Production mode 0 (default count, a3 = 0) is admitted.
+- **Mesh set-up routines 50, 52, 54:** bare `JR vi10` in all eight set-up tables in EE RAM (battles 0x1c and 0x18, the
+  forest), as 22 and 46: admitted.
+- **Open:** the mode-2 draw (VU1 image 5) is untextured Gouraud ribbons (RGBAQ + XYZ2 per vertex, colour = FTOI0 of the
+  point colour, offsets in eye space, a per-vertex divide). Its GIF tag comes from VU row 102, which no EE code in reach
+  writes and the owner has no template (+628 = 0), so its PRIM / ALPHA are not known yet (question sent).
 
 **Evidence:**
 - **0x1d:** runs boundary-free to 67000.
-- **Tests:** full ctest 97/97 (the particle test now refuses mode 5 where it refused mode 2).
+- **0x1c:** reaches the mode-2 particle draw (its emitters, production and models are native).
+- **Row emitter:** 360 particles (540 trail points, every store kind, row steps, offset, curves) match the VU0 reference;
+  the copies' prepare, step and box triplets run at their own addresses.
+- **Tests:** full ctest 97/97 (the particle test now refuses mode 5 where it refused mode 2; row emitter and copies added).
 - **End RAM unchanged:** battle 64100 0c9960c8d9f6, forest 912f01332dbe, game over 9df948c13063, route a3f2c8f4395d.
 
 ### Battle HUD portraits: the party sheet the game composes in RAM (2026-11-23)

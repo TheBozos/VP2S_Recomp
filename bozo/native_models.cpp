@@ -431,7 +431,9 @@ NativeModelSubmission NativeModels::capture(Runtime *rt,NativeAssets &assets,Nat
         const auto &m=*held;
         // 22: the library's set-up table entry is a bare JR vi10 (both layouts, 0x499 / 0x483, every copy in EE RAM
         // at the battle's frame 72200), so the routine does nothing, as 46 (and as publishGeneratedMesh admits it).
-        for(auto algorithm:m.algorithms)if(algorithm!=-1 && algorithm!=0 && algorithm!=2 && algorithm!=4 && algorithm!=6 && algorithm!=8 && algorithm!=12 && algorithm!=14 && algorithm!=18 && algorithm!=22 && algorithm!=28 && algorithm!=32 && algorithm!=36 && algorithm!=20 && algorithm!=26 && algorithm!=40 && algorithm!=44 && algorithm!=46 && algorithm!=48)
+        // 50, 52, 54 likewise: bare JR vi10 in all eight table copies in EE RAM (battle 0x1c and 0x18, the forest), found as
+        // the tables whose entry 40 branches to the screen-UV routine (0x4000076f) and whose 22 and 46 return.
+        for(auto algorithm:m.algorithms)if(algorithm!=-1 && algorithm!=0 && algorithm!=2 && algorithm!=4 && algorithm!=6 && algorithm!=8 && algorithm!=12 && algorithm!=14 && algorithm!=18 && algorithm!=22 && algorithm!=28 && algorithm!=32 && algorithm!=36 && algorithm!=20 && algorithm!=26 && algorithm!=40 && algorithm!=44 && algorithm!=46 && algorithm!=48 && algorithm!=50 && algorithm!=52 && algorithm!=54)
             throw std::runtime_error(std::format("unported native mesh algorithm {}",algorithm));
         if(m.hasMaterial)material=m.material;
         else if(origin && block>=0x40 && block-0x40!=mesh){const auto owner=assets.origin(block-0x40);if(owner && owner->disc==origin->disc && owner->part==origin->part){

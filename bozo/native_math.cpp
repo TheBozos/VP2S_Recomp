@@ -5415,6 +5415,20 @@ bool nativeParticleBox(R5900Context *c,Runtime *rt,uint32_t pc){
         {0x241b3c,0x241b68,0x241b6c,0x240,0xd8610000,3,21},{0x241ba4,0x241be0,0x241be4,0x240,0xd8610000,3,21},{0x241d0c,0x241d44,0x241d48,0x240,0xd8610000,3,21},{0x241d7c,0x241dc8,0x241dcc,0x240,0xd8610000,3,21},
         {0x241f2c,0x241f84,0x241f88,0x240,0xd8610000,3,21},{0x241fbc,0x242008,0x24200c,0x240,0xd8c10000,6,21},{0x24213c,0x242198,0x24219c,0x240,0xd8610000,3,21},{0x2421d4,0x242220,0x242224,0x240,0xd8610000,3,21},
         {0x24234c,0x242378,0x24237c,0x240,0xd8610000,3,21},{0x2423b4,0x2423d8,0x2423dc,0x240,0xd8e10000,7,21},{0x242504,0x24253c,0x242540,0x240,0xd8610000,3,21},{0x242574,0x2425a8,0x2425ac,0x240,0xd8610000,3,21},
+        // mod001 28e290, the same method compiled again for class 1585f0 (battle 0x1c, the driver's 22ed1c call): its 144 VU0
+        // words are 23fa40's in order (the EE code between them differs in length), so the 48 triplets map one to one.
+        {0x28e3e4,0x28e43c,0x28e440,0x240,0xd8610000,3,21},{0x28e498,0x28e4f4,0x28e4f8,0x240,0xd8610000,3,21},{0x28e5c0,0x28e61c,0x28e620,0x240,0xd8810000,4,21},{0x28e678,0x28e6d4,0x28e6d8,0x240,0xd8610000,3,21},
+        {0x28e798,0x28e7c4,0x28e7c8,0x240,0xd8610000,3,21},{0x28e820,0x28e858,0x28e85c,0x240,0xd8610000,3,21},{0x28e918,0x28e950,0x28e954,0x240,0xd8610000,3,21},{0x28e9b0,0x28e9f4,0x28e9f8,0x240,0xd8610000,3,21},
+        {0x28eaf0,0x28eb48,0x28eb4c,0x240,0xd8810000,4,21},{0x28eba8,0x28ebec,0x28ebf0,0x240,0xd8610000,3,21},{0x28ecb0,0x28ed0c,0x28ed10,0x240,0xd8810000,4,21},{0x28ed68,0x28edac,0x28edb0,0x240,0xd8610000,3,21},
+        {0x28ee68,0x28ee94,0x28ee98,0x240,0xd8610000,3,21},{0x28eef0,0x28ef10,0x28ef14,0x240,0xd8610000,3,21},{0x28efd0,0x28f008,0x28f00c,0x240,0xd8610000,3,21},{0x28f068,0x28f094,0x28f098,0x240,0xd8610000,3,21},
+        {0x28f184,0x28f1dc,0x28f1e0,0x240,0xd8610000,3,21},{0x28f22c,0x28f288,0x28f28c,0x240,0xd8610000,3,21},{0x28f344,0x28f3a0,0x28f3a4,0x240,0xd8610000,3,21},{0x28f3f4,0x28f450,0x28f454,0x240,0xd8610000,3,21},
+        {0x28f504,0x28f530,0x28f534,0x240,0xd8610000,3,21},{0x28f584,0x28f5bc,0x28f5c0,0x240,0xd8610000,3,21},{0x28f674,0x28f6ac,0x28f6b0,0x240,0xd8610000,3,21},{0x28f6fc,0x28f740,0x28f744,0x240,0xd8610000,3,21},
+        {0x28f82c,0x28f884,0x28f888,0x240,0xd8610000,3,21},{0x28f8d4,0x28f918,0x28f91c,0x240,0xd8610000,3,21},{0x28f9d4,0x28fa30,0x28fa34,0x240,0xd8610000,3,21},{0x28fa84,0x28fac8,0x28facc,0x240,0xd8610000,3,21},
+        {0x28fb7c,0x28fba8,0x28fbac,0x240,0xd8610000,3,21},{0x28fbfc,0x28fc1c,0x28fc20,0x240,0xd8610000,3,21},{0x28fccc,0x28fd04,0x28fd08,0x240,0xd8610000,3,21},{0x28fd54,0x28fd80,0x28fd84,0x240,0xd8610000,3,21},
+        {0x28fee4,0x28ff3c,0x28ff40,0x240,0xd8610000,3,21},{0x28ff74,0x28ffd8,0x28ffdc,0x240,0xd8610000,3,21},{0x290104,0x290160,0x290164,0x240,0xd8610000,3,21},{0x29019c,0x290200,0x290204,0x240,0xd8610000,3,21},
+        {0x290324,0x290350,0x290354,0x240,0xd8610000,3,21},{0x29038c,0x2903c8,0x2903cc,0x240,0xd8610000,3,21},{0x2904ec,0x290524,0x290528,0x240,0xd8610000,3,21},{0x29055c,0x2905a8,0x2905ac,0x240,0xd8610000,3,21},
+        {0x290704,0x29075c,0x290760,0x240,0xd8610000,3,21},{0x290794,0x2907e0,0x2907e4,0x240,0xd8c10000,6,21},{0x29090c,0x290968,0x29096c,0x240,0xd8610000,3,21},{0x2909a4,0x2909f0,0x2909f4,0x240,0xd8610000,3,21},
+        {0x290b14,0x290b40,0x290b44,0x240,0xd8610000,3,21},{0x290b7c,0x290ba0,0x290ba4,0x240,0xd8e10000,7,21},{0x290cc4,0x290cfc,0x290d00,0x240,0xd8610000,3,21},{0x290d34,0x290d68,0x290d6c,0x240,0xd8610000,3,21},
         // mod003 40a700 and 40a7d0 (leaf emitter methods, the driver frame is their sp; point at a2 after its copy), and their
         // mod001 copies 290eb0 / 290f80 (179850 lower; battle 0x1b).
         {0x40a75c,0x40a76c,0x40a770,0,0xd8c10000,6,4},{0x40a82c,0x40a83c,0x40a840,0,0xd8c10000,6,4},
@@ -5769,9 +5783,19 @@ struct ProgramState{
     unsigned trail=0,trailStep=0,trailIndex=0;uint32_t length=0,next=0;VuWords prev{},anchor{};
 };
 ProgramState &programState(const Runtime *rt){static std::map<const Runtime *,ProgramState> states;return states[rt];}
+// The same compiled emitter for class 1585f0 (battle 0x1c, mode 2): prepare 297970 and step 2961a0 hold these VU0
+// words in the same order, every step site 527a8 higher (the step begins 527b0 higher; two words shorter before
+// its first site) and every prepare site 527a0 higher, with the same frames, registers and record layout.
+constexpr uint32_t kProgramStepCopy=0x527a8,kProgramPrepareCopy=0x527a0;
+uint32_t programCanonical(uint32_t pc){
+    if(pc>=0x2447e4+kProgramStepCopy && pc<=0x2450fc+kProgramStepCopy)return pc-kProgramStepCopy;
+    if(pc>=0x245240+kProgramPrepareCopy && pc<=0x2452b0+kProgramPrepareCopy)return pc-kProgramPrepareCopy;
+    return pc;
+}
 bool nativeProgramEmitter(R5900Context *c,Runtime *rt,uint32_t pc){
-    if(!rt || pc<0x2447e4 || pc>0x2452b0)return false;
-    const ProgramSite *site=nullptr;for(const auto &s:programSites)if(s.pc==pc){site=&s;break;}
+    const auto canonical=programCanonical(pc);
+    if(!rt || canonical<0x2447e4 || canonical>0x2452b0)return false;
+    const ProgramSite *site=nullptr;for(const auto &s:programSites)if(s.pc==canonical){site=&s;break;}
     if(!site)return false;
     uint32_t word=0;if(const auto *p=rt->memory.hostPointer(pc,4))std::memcpy(&word,p,4);
     if(word!=site->word)return false;   // another overlay at these addresses
@@ -6132,6 +6156,217 @@ bool nativeSimpleEmitter(R5900Context *c,Runtime *rt,uint32_t pc){
         st.next=address();st.trailIndex=reg(3);st.trailStep=1;return true;}
     case 'i':case 'a':case 'b':
         if(st.phase!=5 || !st.trail || st.trailStep!=site->param)fail("trail step order");
+        if(site->role=='a'){if(address()!=st.next)fail("trail store address");put(address(),st.anchor);}
+        if(site->role=='b' && word==0x4bc4d6af)include(st.anchor);
+        ++st.trailStep;return true;
+    }
+    return false;
+}
+// Row emitter (mod001 2932f0, the step of battle 0x1c's mode-0 emitter; frame 0x1e0, emitter a0 kept in s5). The step
+// loads its own constants: vf5.x = dt = *35dee8 (QMTC2 v0, 2933a8), vf20 = drift (+c0, 2933b0), vf30 = 0 (2933ec), vf29 =
+// (255, 255, 255, 255) from sp+1d0 (2933f4). Live particles of 0xf0 bytes (s3 = [emitter+14] + s4*f0):
+//   p +10 (s2), rows b +b0, a +80, e +c0, f +90 (2934c8..2934f8); b.xyz = (b + 0) + e*dt, a.xyz = (a + 0) + f*dt,
+//   stored back to +b0 / +80 (293504..293520). The scalar code then turns a into sines (213fd0) and writes the offset
+//   to sp+1a0 and +e0. Loads (2935b4..293604): v +30, A +50, acc +40, C +20, rate +60, change +70, offset sp+1a0,
+//   g +d0, h +a0, e +c0, f +90 (e and f again, now updated). The curve loop (+68 rows, index a3, fraction a0 = f1)
+//   adds row * fraction to p (293690..2936a4). Main (2936dc..293734):
+//   P.xyz = (((p + 0) + offset*1) + drift*1) + v*dt (P.w = p.w);  C = min(max((0 + c) + rate*dt, 0), 255)
+//   A.xyz = ((A + 0) + offset*1) + v*dt, A.w += dt;  V.xyz = (v + 0) + acc*dt, V.w -= dt;  R = rate*1 + change*dt
+//   e.xyz = (e + 0) + g*dt;  f.xyz = (f + 0) + h*dt
+// P goes to the output *(sp+160) (29373c), C to output+10 (293744). By +d0: the seven record stores A, P, V, C, R, e, f
+// (kinds 1, 3, 6 and the default); kind 2 also stores |A|^2 to sp+190 ({(x^2 + y^2) + 1*z^2, y^2, z^2, A.w}); kind 5
+// stores e, f, then loads the emitter's rows +80..+b0 into vf8..vf11 and stores rows * P (w term 1) to sp+180 after the
+// other five (vf8..vf11 are reloaded per particle, so nothing carries over). Trails by +d7 (2, 1, 3 with sp+f0 set) are
+// the general emitter's, word for word. No parent hook and no collision object here.
+struct RowSite{uint32_t pc,word;char role;unsigned param;};
+constexpr RowSite rowSites[]={
+    {0x2933a8,0x48a22800,'d',0},{0x2933b0,0xd8540000,'g',0},{0x2933ec,0x4be00798,'o',0},{0x2933f4,0xd85d0000,'c',0},
+    {0x2934c8,0xda410000,'L',0},{0x2934e0,0xd8490000,'L',1},{0x2934e8,0xd84a0000,'L',2},{0x2934f0,0xdaeb0000,'L',3},{0x2934f8,0xdbcd0000,'L',4},
+    {0x293504,0x4bc04abc,'r',0},{0x293508,0x4bc55a48,'r',1},{0x29350c,0x4bc052bc,'r',2},{0x293510,0x4bc56a88,'r',3},
+    {0x293518,0xf8490000,'w',0},{0x293520,0xf84a0000,'w',1},
+    {0x2935b4,0xda220000,'M',0},{0x2935bc,0xd9040000,'M',1},{0x2935cc,0xd8430000,'M',2},{0x2935d4,0xda060000,'M',3},{0x2935dc,0xd8670000,'M',4},
+    {0x2935e4,0xd8480000,'M',5},{0x2935ec,0xd84f0000,'M',6},{0x2935f4,0xd84c0000,'M',7},{0x2935fc,0xd84e0000,'M',8},{0x293600,0xdaeb0000,'M',9},
+    {0x293604,0xdbcd0000,'M',10},
+    {0x293690,0xd8900000,'e',0},{0x29369c,0x48a48800,'F',0},{0x2936a0,0x4bc00abc,'-',0},{0x2936a4,0x4bd18048,'E',0},
+    {0x2936dc,0x4bc00abc,'k',0},{0x2936e0,0x4bc078bf,'k',1},{0x2936e4,0x4bc0a0bf,'k',2},{0x2936e8,0x4bc51048,'k',3},{0x2936ec,0x4bfe32bc,'k',4},
+    {0x2936f0,0x4be53988,'k',5},{0x2936f4,0x4bc022bc,'k',6},{0x2936f8,0x4bc078bf,'k',7},{0x2936fc,0x4bc51108,'k',8},{0x293700,0x4bc012bc,'k',9},
+    {0x293704,0x4bc51888,'k',10},{0x293708,0x4a251084,'k',11},{0x29370c,0x4be03190,'k',12},{0x293710,0x4a252100,'k',13},{0x293714,0x4be039bf,'k',14},
+    {0x293718,0x4be541c8,'k',15},{0x29371c,0x4bc1d6af,'k',16},{0x293720,0x4bfd3194,'k',17},{0x293724,0x4bc1deeb,'k',18},{0x293728,0x4bc05abc,'k',19},
+    {0x29372c,0x4bc562c8,'k',20},{0x293730,0x4bc06abc,'k',21},{0x293734,0x4bc57348,'k',22},
+    {0x29373c,0xf8810000,'O',0},{0x293744,0xf8860010,'U',0},
+    // kind 1, kind 3, kind 6, default: the seven record stores.
+    {0x2937b0,0xf9040000,'R',0},{0x2937b4,0xfa410000,'R',1},{0x2937b8,0xfa220000,'R',2},{0x2937bc,0xfa060000,'R',3},{0x2937c0,0xf8670000,'R',4},{0x2937c4,0xfaeb0000,'R',5},{0x2937c8,0xfbcd0000,'R',6},
+    {0x293838,0xf9040000,'R',0},{0x29383c,0xfa410000,'R',1},{0x293840,0xfa220000,'R',2},{0x293844,0xfa060000,'R',3},{0x293848,0xf8670000,'R',4},{0x29384c,0xfaeb0000,'R',5},{0x293850,0xfbcd0000,'R',6},
+    {0x293a28,0xf9040000,'R',0},{0x293a2c,0xfa410000,'R',1},{0x293a30,0xfa220000,'R',2},{0x293a34,0xfa060000,'R',3},{0x293a38,0xf8670000,'R',4},{0x293a3c,0xfaeb0000,'R',5},{0x293a40,0xfbcd0000,'R',6},
+    {0x293ad8,0xf9040000,'R',0},{0x293adc,0xfa410000,'R',1},{0x293ae0,0xfa220000,'R',2},{0x293ae4,0xfa060000,'R',3},{0x293ae8,0xf8670000,'R',4},{0x293aec,0xfaeb0000,'R',5},{0x293af0,0xfbcd0000,'R',6},
+    // kind 2: |A|^2 to sp+190 around the stores.
+    {0x2938c8,0x4bc007c3,'s',0},{0x2938cc,0xf9040000,'R',0},{0x2938d0,0x4bc4212a,'s',1},{0x2938d4,0xfa410000,'R',1},{0x2938d8,0xfa220000,'R',2},
+    {0x2938dc,0xfa060000,'R',3},{0x2938e0,0xf8670000,'R',4},{0x2938e4,0xfaeb0000,'R',5},{0x2938e8,0xfbcd0000,'R',6},{0x2938ec,0x4b04203d,'s',2},
+    {0x2938f0,0x4b04f90a,'s',3},{0x2938fc,0xf8440000,'S',0},
+    // kind 5: e and f, the emitter's rows times P to sp+180, then the other five.
+    {0x293970,0xfaeb0000,'R',5},{0x293974,0xfbcd0000,'R',6},{0x29397c,0xd8480000,'x',0},{0x293980,0xd8490010,'x',1},{0x293984,0xd84a0020,'x',2},
+    {0x293988,0xd84b0030,'x',3},{0x29398c,0x4be141bc,'x',4},{0x293990,0x4be148bd,'x',5},{0x293994,0x4be150be,'x',6},{0x293998,0x4be05c8b,'x',7},
+    {0x29399c,0xf9040000,'R',0},{0x2939a0,0xfa410000,'R',1},{0x2939a4,0xfa220000,'R',2},{0x2939a8,0xfa060000,'R',3},{0x2939ac,0xf8670000,'R',4},
+    {0x2939b4,0xf8520000,'X',0},
+    // trails (+d7): kind 2, kind 1, kind 3.
+    {0x293b2c,0xd8810000,'h',2},{0x293b3c,0x48a21800,'n',2},{0x293b40,0x4be40b3c,'t',2},{0x293b60,0xd8420000,'p',2},
+    {0x293b64,0x4be111ac,'i',1},{0x293b68,0x4be1133c,'i',2},{0x293b6c,0x4bc007c3,'i',3},{0x293b70,0x4bc631ea,'i',4},{0x293b74,0x4b07383d,'i',5},{0x293b78,0x4b07f9ca,'i',6},
+    {0x293b7c,0x4a6703be,'i',7},{0x293b80,0x4a0003bf,'i',8},{0x293b84,0x4bc0321c,'i',9},{0x293b88,0x4bc022bc,'i',10},{0x293b8c,0x4bc030bf,'i',11},{0x293b90,0x4bc34108,'i',12},
+    {0x293b94,0xf8440000,'a',13},{0x293b98,0x4bc4d6af,'b',14},{0x293b9c,0x4bc4deeb,'b',15},
+    {0x293bd4,0xd8810000,'h',1},{0x293be4,0x48a21800,'n',1},{0x293be8,0x4be40b3c,'t',1},{0x293c08,0xd8420000,'p',1},
+    {0x293c0c,0x4be111ac,'i',1},{0x293c10,0x4be1133c,'i',2},{0x293c14,0x4bc007c3,'i',3},{0x293c18,0x4bc631ea,'i',4},{0x293c1c,0x4b07383d,'i',5},{0x293c20,0x4b07f9ca,'i',6},
+    {0x293c24,0x4a6703be,'i',7},{0x293c28,0x4a0003bf,'i',8},{0x293c2c,0x4bc0319c,'i',9},{0x293c30,0x4bc022bc,'i',10},{0x293c34,0x4bc33108,'i',11},
+    {0x293c38,0xf8440000,'a',12},{0x293c3c,0x4bc4d6af,'b',13},{0x293c40,0x4bc4deeb,'b',14},
+    {0x293c7c,0xd8810000,'h',3},{0x293c8c,0x48a21800,'n',3},{0x293c90,0x4be40b3c,'t',3},{0x293cb0,0xd8420000,'p',3},
+    {0x293cb4,0x4be111ac,'i',1},{0x293cb8,0x4be1133c,'i',2},{0x293cbc,0x4bc022bc,'i',3},{0x293cc0,0x4bc33108,'i',4},{0x293cc4,0xf8440000,'a',5},
+    {0x293cc8,0x4bc4d6af,'b',6},{0x293ccc,0x4bc4deeb,'b',7}
+};
+struct RowState{
+    bool setup=false;unsigned setupStep=0;uint32_t frame=0,emitter=0,dt=0;VuWords drift{},clamp{};
+    unsigned phase=0;   // 0 between particles, 1 rows, 2 loading, 3 loaded, 4 main, 5 output, 6 stored
+    char block=0;unsigned blockStep=0;unsigned loads=0,main=0,stored=0;uint32_t record=0,output=0,fraction=0;
+    VuWords p{},b{},a{},e{},f{},v{},A{},acc{},colour{},rate{},change{},offset{},g{},h{},row{},P{},C{},V{},R{};
+    std::array<VuWords,4> rows{};
+    unsigned trail=0,trailStep=0,trailIndex=0;uint32_t length=0,next=0;VuWords prev{},anchor{};
+};
+RowState &rowState(const Runtime *rt){static std::map<const Runtime *,RowState> states;return states[rt];}
+bool nativeRowEmitter(R5900Context *c,Runtime *rt,uint32_t pc){
+    if(!rt || (pc&3) || pc<0x2933a8 || pc>0x293ccc)return false;
+    const RowSite *site=nullptr;for(const auto &s:rowSites)if(s.pc==pc){site=&s;break;}
+    if(!site)return false;
+    uint32_t word=0;if(const auto *p=rt->memory.hostPointer(pc,4))std::memcpy(&word,p,4);
+    if(word!=site->word)return false;   // another overlay at these addresses
+    auto *d=vp2s::nativeCast<bozo::ee::Dispatcher>(rt->services);auto *particles=d?vp2s::nativeCast<ParticleOwner>(&d->host()):nullptr;
+    if(!c || !particles)throw std::runtime_error("native row emitter requires its bounds owner");
+    struct ArithmeticScope{unsigned saved=_mm_getcsr();~ArithmeticScope(){_mm_setcsr(saved);}} arithmetic;
+    auto &st=rowState(rt);
+    const auto fail=[&](const char *what){st=RowState{};throw std::runtime_error(std::format("native row emitter at {:x}: {}",pc,what));};
+    const auto reg=[&](unsigned r){return c->r[r].uw[0];};
+    const auto address=[&]{return reg((word>>21)&31)+uint32_t(int32_t(int16_t(word&0xffff)));};
+    const auto put=[&](uint32_t at,const VuWords &v){std::memcpy(record(rt,at,16),v.data(),16);};
+    const auto field=[&](uint32_t at){const auto *p=rt->memory.hostPointer(at,4);if(!p)fail("scalar field outside RAM");uint32_t v;std::memcpy(&v,p,4);return v;};
+    constexpr uint32_t one=0x3f800000u;
+    const auto include=[&](const VuWords &v){std::array<float,4> f;for(unsigned i=0;i<4;++i)f[i]=std::bit_cast<float>(v[i]);particles->nativeParticles().includePoint(st.frame,st.emitter,f);};
+    const auto sumSquares=[&](const VuWords &v){return vuAdd(vuAdd(vuMul(v[0],v[0]),vuMul(v[1],v[1])),vuMul(one,vuMul(v[2],v[2])));};
+    const auto stepped=[&](const VuWords &base,const VuWords &rate){VuWords out=base;for(unsigned i=0;i<3;++i)out[i]=vuAdd(vuAdd(base[i],0),vuMul(rate[i],st.dt));return out;};
+    // Setup (the step's own constants).
+    if(std::string_view("dgoc").find(site->role)!=std::string_view::npos){
+        if(site->role=='d'){
+            st=RowState{};st.emitter=reg(21);st.frame=reg(29)+0x1e0;particles->nativeParticles().validateEmitter(st.frame,st.emitter);
+            if(reg(2)!=field(0x35dee8))fail("timestep source");st.dt=reg(2);st.setupStep=1;return true;}
+        constexpr std::string_view order="dgoc";
+        if(st.setupStep!=order.find(site->role) || reg(21)!=st.emitter || reg(29)+0x1e0!=st.frame)fail("setup order");
+        if(site->role=='g'){if(address()!=st.emitter+0xc0)fail("drift source");st.drift=vuWords(rt,address());}
+        if(site->role=='c'){if(address()!=reg(29)+0x1d0)fail("clamp source");st.clamp=vuWords(rt,address());st.setup=true;}
+        ++st.setupStep;return true;
+    }
+    if(!st.setup || reg(21)!=st.emitter || reg(29)+0x1e0!=st.frame)fail("particle outside its emitter's step");
+    switch(site->role){
+    case 'L':{
+        constexpr uint32_t offsets[5]={0x10,0xb0,0x80,0xc0,0x90};
+        if(site->param==0){
+            if(st.phase==6 && st.trail && st.trailStep!=(st.trail==2?16u:st.trail==1?15u:8u))fail("particle inside a trail");
+            if((st.phase!=0 && st.phase!=6) || st.block)fail("particle loads inside a particle's step");
+            st.record=address()-0x10;
+            if(st.record!=field(st.emitter+0x14)+reg(20)*0xf0)fail("particle record");
+            st.phase=1;st.loads=0;st.main=0;st.stored=0;st.output=0;st.trail=0;}
+        else if(st.phase!=1 || st.loads!=site->param)fail("row load order");
+        if(address()!=st.record+offsets[site->param])fail("row address");
+        VuWords *targets[5]={&st.p,&st.b,&st.a,&st.e,&st.f};*targets[site->param]=vuWords(rt,address());++st.loads;return true;}
+    case 'r':
+        if(st.phase!=1 || st.loads!=5+site->param)fail("row step order");
+        if(site->param==1)st.b=stepped(st.b,st.e);
+        if(site->param==3)st.a=stepped(st.a,st.f);
+        ++st.loads;return true;
+    case 'w':
+        if(st.phase!=1 || st.loads!=9+site->param || address()!=st.record+(site->param?0x80u:0xb0u))fail("row store order");
+        put(address(),site->param?st.a:st.b);if(++st.loads==11){st.phase=2;st.loads=0;}return true;
+    case 'M':{
+        constexpr uint32_t offsets[11]={0x30,0x50,0x40,0x20,0x60,0x70,0,0xd0,0xa0,0xc0,0x90};
+        if(st.phase!=2 || st.loads!=site->param)fail("particle load order");
+        if(address()!=(site->param==6?reg(29)+0x1a0:st.record+offsets[site->param]))fail("particle field address");
+        VuWords *targets[11]={&st.v,&st.A,&st.acc,&st.colour,&st.rate,&st.change,&st.offset,&st.g,&st.h,&st.e,&st.f};*targets[site->param]=vuWords(rt,address());
+        if(++st.loads==11)st.phase=3;return true;}
+    case 'e':
+        if(st.phase!=3 || st.block || address()!=field(st.emitter+0x68)+reg(7)*16)fail("curve row");
+        st.row=vuWords(rt,address());st.block='e';st.blockStep=1;return true;
+    case 'F':
+        if(st.block!='e' || st.blockStep!=1 || reg(4)!=std::bit_cast<uint32_t>(c->f[1]))fail("curve fraction");st.fraction=reg(4);st.blockStep=2;return true;
+    case '-':
+        if(st.block!='e' || st.blockStep!=2)fail("curve step order");st.blockStep=3;return true;
+    case 'E':
+        if(st.block!='e' || st.blockStep!=3)fail("curve order");
+        for(unsigned i=0;i<3;++i)st.p[i]=vuAdd(vuAdd(st.p[i],0),vuMul(st.row[i],st.fraction));
+        st.block=0;return true;
+    case 'k':
+        if(st.block || (site->param==0?st.phase!=3:(st.phase!=4 || st.main!=site->param)))fail("main block order");
+        if(site->param==0){
+            const auto dt=st.dt;
+            for(unsigned i=0;i<3;++i){
+                st.P[i]=vuAdd(vuAdd(vuAdd(vuAdd(st.p[i],0),vuMul(st.offset[i],one)),vuMul(st.drift[i],one)),vuMul(st.v[i],dt));
+                st.A[i]=vuAdd(vuAdd(vuAdd(st.A[i],0),vuMul(st.offset[i],one)),vuMul(st.v[i],dt));
+                st.V[i]=vuAdd(vuAdd(st.v[i],0),vuMul(st.acc[i],dt));}
+            st.P[3]=st.p[3];st.A[3]=vuAdd(st.A[3],dt);st.V[3]=vuSub(st.v[3],dt);
+            for(unsigned i=0;i<4;++i){
+                st.C[i]=bozo::ps2f::min(bozo::ps2f::max(vuAdd(vuAdd(0,st.colour[i]),vuMul(st.rate[i],dt)),0),st.clamp[0]);
+                st.R[i]=vuAdd(vuMul(st.rate[i],one),vuMul(st.change[i],dt));}
+            st.e=stepped(st.e,st.g);st.f=stepped(st.f,st.h);
+            st.phase=4;st.main=0;}
+        if(word==0x4bc1d6af)include(st.P);
+        if(++st.main==23)st.phase=5;return true;
+    case 'O':
+        if(st.phase!=5 || st.output || address()!=field(reg(29)+0x160))fail("output order");st.output=address();put(st.output,st.P);return true;
+    case 'U':
+        if(st.phase!=5 || !st.output || st.stored || address()!=st.output+0x10)fail("output colour order");put(address(),st.C);return true;
+    case 'R':{
+        // A, P, V, C, R, e, f (kind 5 stores e and f first).
+        constexpr uint32_t offsets[7]={0x50,0x10,0x30,0x20,0x60,0xc0,0x90};
+        if(st.phase!=5 || !st.output || (st.block && st.block!='s' && st.block!='x' && st.block!='X'))fail("record store order");
+        const bool kind5=pc>=0x293970 && pc<=0x2939ac;
+        if(kind5){const unsigned expected[7]={5,6,0,1,2,3,4};if(st.stored>=7 || expected[st.stored]!=site->param || (st.stored>=2)!=(st.block=='X'))fail("kind 5 store order");}
+        else if(st.stored!=site->param)fail("record store order");
+        if(address()!=st.record+offsets[site->param])fail("record store address");
+        const VuWords *sources[7]={&st.A,&st.P,&st.V,&st.C,&st.R,&st.e,&st.f};put(address(),*sources[site->param]);
+        if(++st.stored==7 && !st.block){st.phase=6;st.trail=0;}return true;}
+    case 's':
+        // kind 2's squares: vf31 before the first store, MUL after it, ADDAy/MADDz after the seventh.
+        if(st.phase!=5 || st.stored!=(site->param==0?0u:site->param==1?1u:7u) || (site->param?(st.block!='s' || st.blockStep!=site->param):st.block!=0))fail("square order");
+        st.block='s';st.blockStep=site->param+1;return true;
+    case 'S':{
+        if(st.block!='s' || st.blockStep!=4 || st.stored!=7 || address()!=reg(29)+0x190)fail("square store order");
+        const VuWords out{sumSquares(st.A),vuMul(st.A[1],st.A[1]),vuMul(st.A[2],st.A[2]),st.A[3]};put(address(),out);
+        st.block=0;st.phase=6;st.trail=0;return true;}
+    case 'x':
+        if(st.phase!=5 || st.stored!=2 || (site->param==0?st.block!=0:(st.block!='x' || st.blockStep!=site->param)))fail("rows order");
+        if(site->param<4){if(address()!=st.emitter+0x80+0x10*site->param)fail("rows address");st.rows[site->param]=vuWords(rt,address());}
+        st.block='x';st.blockStep=site->param+1;if(site->param==7)st.block='X';return true;
+    case 'X':{
+        if(st.block!='X' || st.stored!=7 || address()!=reg(29)+0x180)fail("rows store order");
+        VuWords out;for(unsigned i=0;i<4;++i)out[i]=vuAdd(vuAdd(vuAdd(vuMul(st.rows[0][i],st.P[0]),vuMul(st.rows[1][i],st.P[1])),vuMul(st.rows[2][i],st.P[2])),vuMul(st.rows[3][i],one));
+        put(address(),out);st.block=0;st.phase=6;st.trail=0;return true;}
+    case 'h':
+        if(st.phase!=6 || st.trail || address()!=st.output)fail("trail head order");
+        {VuWords head=vuWords(rt,address());st.prev=st.anchor=head;}
+        st.trail=site->param;st.trailStep=1;return true;
+    case 'n':
+        if(st.phase!=6 || st.trail!=site->param || st.trailStep!=1 || reg(2)!=field(st.emitter+0x54))fail("trail length");st.length=reg(2);st.trailStep=2;return true;
+    case 't':
+        if(st.phase!=6 || st.trail!=site->param || st.trailStep!=2)fail("trail anchor order");st.trailStep=0;st.trailIndex=0;return true;
+    case 'p':{
+        const unsigned last=site->param==2?16:site->param==1?15:8;
+        if(st.phase!=6 || st.trail!=site->param || (st.trailStep!=0 && st.trailStep!=last) || reg(3)!=st.trailIndex+1)fail("trail point order");
+        if(address()!=st.output+reg(3)*0x30)fail("trail point address");
+        const auto next=vuWords(rt,address());VuWords delta{},direction{};
+        for(unsigned i=0;i<4;++i)delta[i]=vuSub(next[i],st.prev[i]);st.prev=next;
+        if(site->param!=3){uint32_t flags=0;const auto root=bozo::ps2f::rsqrt(one,sumSquares(delta),flags);
+            for(unsigned i=0;i<3;++i)direction[i]=vuMul(delta[i],root);}
+        for(unsigned i=0;i<3;++i){
+            const auto start=vuAdd(st.anchor[i],0);
+            st.anchor[i]=site->param==2?vuAdd(vuAdd(start,vuMul(delta[i],one)),vuMul(direction[i],st.length)):
+                         site->param==1?vuAdd(start,vuMul(direction[i],st.length)):vuAdd(start,vuMul(delta[i],st.length));}
+        st.next=address();st.trailIndex=reg(3);st.trailStep=1;return true;}
+    case 'i':case 'a':case 'b':
+        if(st.phase!=6 || !st.trail || st.trailStep!=site->param)fail("trail step order");
         if(site->role=='a'){if(address()!=st.next)fail("trail store address");put(address(),st.anchor);}
         if(site->role=='b' && word==0x4bc4d6af)include(st.anchor);
         ++st.trailStep;return true;
@@ -8325,7 +8560,7 @@ bool nativeMathInstruction(uint8_t *,R5900Context *c,Runtime *rt,uint32_t pc){
     default:
         // Inlined-block recognisers last: they read code around the PC, so
         // only sites no specific handler claimed pay for that scan.
-        return CLAIM(nativeParticleStep) || CLAIM(nativeParticleBox) || CLAIM(nativeTrailEmitter) || CLAIM(nativeProgramEmitter) || CLAIM(nativeSimpleEmitter) || CLAIM(nativeEmitterClock) || CLAIM(nativeConstantStore) || CLAIM(nativeLengthIdiom) || CLAIM(nativeMacroIdiom) || CLAIM(nativeInverseIdiom) || nativeQuaternionIdiom(c,rt,pc);
+        return CLAIM(nativeParticleStep) || CLAIM(nativeParticleBox) || CLAIM(nativeTrailEmitter) || CLAIM(nativeProgramEmitter) || CLAIM(nativeSimpleEmitter) || CLAIM(nativeRowEmitter) || CLAIM(nativeEmitterClock) || CLAIM(nativeConstantStore) || CLAIM(nativeLengthIdiom) || CLAIM(nativeMacroIdiom) || CLAIM(nativeInverseIdiom) || nativeQuaternionIdiom(c,rt,pc);
     }
 }
 #undef CLAIM

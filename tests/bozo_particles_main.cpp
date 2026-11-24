@@ -509,6 +509,9 @@ int main(){try{
         check(vp2s::nativeMathInstruction(y.memory.flat(),&m,&y,0x297a0c) && vp2s::nativeMathInstruction(y.memory.flat(),&m,&y,0x297a48));m.r[3].uw[0]=P0+0x30;
         check(vp2s::nativeMathInstruction(y.memory.flat(),&m,&y,0x297a50));
         m.r[29].uw[0]=S3;m.r[20].uw[0]=E;check(vp2s::nativeMathInstruction(y.memory.flat(),&m,&y,0x2972f8) && vp2s::nativeMathInstruction(y.memory.flat(),&m,&y,0x297488));
+        // The copy's records are 0x140 bytes (2962fc: (5i)64), not 0x170: its first particle load (297490) takes record 2 there.
+        write(y,0x297490,0xda010000u);m.r[19].uw[0]=2;m.r[17].uw[0]=read<uint32_t>(y,E+0x14)+2*0x140;m.r[16].uw[0]=m.r[17].uw[0]+0x10;
+        check(vp2s::nativeMathInstruction(y.memory.flat(),&m,&y,0x297490));
         write(y,0x2972f8,uint32_t(0));check(!vp2s::nativeMathInstruction(y.memory.flat(),&m,&y,0x2972f8));
         std::printf("%u general emitter particles (%u trail points, end conditions, jitter, push, curves, collision, three trail kinds) match the VU0 reference\n",programCases,programPoints);}
         // mod001 295f20 + 295580, the second emitter class (vtables 1563f0 / 156500): prepare's constant registers,

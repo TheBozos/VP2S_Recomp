@@ -6174,7 +6174,10 @@ bool nativeProgramEmitter(R5900Context *c,Runtime *rt,uint32_t pc){
         if(site->param==0){
             between();if(!st.offsetSet || !st.jitterSet || !st.dtLive)fail("particle loads before its offset, jitter or timestep");
             st.offsetSet=st.jitterSet=false;st.record=reg(17);
-            if(st.record!=field(st.emitter+0x14)+reg(19)*0x170)fail("particle record");
+            // Records are 0x170 bytes for the general step (243b4c: ((3i)8 - i)16) and 0x140 for class 1585f0's copy
+            // (2962fc: (5i)64). The copy still stores the script values at record+0x150/+0x154 (2966b0, as 243f08):
+            // into the next record, as the game does; every native store goes by its address.
+            if(st.record!=field(st.emitter+0x14)+reg(19)*(pc!=canonical?0x140u:0x170u))fail("particle record");
             st.phase=1;st.loads=0;st.main=0;st.stored=0;st.output=0;}
         else if(st.phase!=1 || st.loads!=site->param)fail("particle load order");
         if(address()!=st.record+offsets[site->param])fail("particle field address");
@@ -7273,13 +7276,16 @@ bool mathBlock10(R5900Context *c,Runtime *rt,uint32_t pc){
         record(rt,stack,0x40);
         if(pc==0x2a68fc){
             if(c->r[3].uw[0]!=stack+0x30)throw std::runtime_error("native Hermite vector destination mismatch");
-            math::Matrix controls;__m128 weights;std::memcpy(controls.data(),record(rt,c->r[16].uw[0],0x50),64);
-            std::memcpy(&weights,record(rt,0x35dfd0,16),16);float inputs[20];std::memcpy(inputs,controls.data(),64);std::memcpy(inputs+16,&weights,16);
-            for(float value:inputs){const auto b=std::bit_cast<uint32_t>(value),e=b&0x7f800000;
-                if(e==0x7f800000 || (!e && (b&0x7fffff)) || std::abs(value)>1.e8f){std::string list;for(float v:inputs)list+=std::format(" {:08x}",std::bit_cast<uint32_t>(v));
-                    throw std::runtime_error(std::format("unqualified native Hermite vector input (controls {:x}:{})",c->r[16].uw[0],list));}}
-            struct ArithmeticScope {unsigned saved=_mm_getcsr();~ArithmeticScope(){_mm_setcsr(saved);}} arithmetic;
-            const auto result=math::matrixVectorProduct(controls,weights);std::memcpy(record(rt,stack+0x30,16),&result,16);
+            // ((c0 w.x + c1 w.y) + c2 w.z) + c3 w.w per lane, in ps2f words (user 2026-11-24: "PS2 float rules").
+            // Battle 0x23's effect script hands near-maximum controls (-1.6e38 ..) here; on PS2 they saturate
+            // instead of becoming Inf, and in-range inputs give the host's correctly rounded result bit for bit.
+            struct ArithmeticScope {unsigned saved=_mm_getcsr();~ArithmeticScope(){_mm_setcsr(saved);}} arithmetic;   // ps2f may raise host flags
+            const auto *controls=record(rt,c->r[16].uw[0],0x50),*weights=record(rt,0x35dfd0,16);Ps2Word result[4];
+            for(unsigned lane=0;lane<4;++lane){
+                Ps2Word sum=Ps2Word::load(controls+lane*4)*Ps2Word::load(weights);
+                for(unsigned row=1;row<4;++row)sum=sum+Ps2Word::load(controls+row*16+lane*4)*Ps2Word::load(weights+row*4);
+                result[lane]=sum;}
+            auto *out=record(rt,stack+0x30,16);for(unsigned lane=0;lane<4;++lane)result[lane].store(out+lane*4);
         }return true;
     }
     return false;

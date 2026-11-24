@@ -12,6 +12,46 @@ The earlier VP2S face/shading and general brightness comparisons remain open.
 
 ## Build and evidence
 
+### The user's three answers applied: image 5 ribbons, screen-copy meshes, PS2 floats in the curve; BozoEngine 36991be (2026-11-24)
+
+The user's answers (relayed by the hub, 2026-11-24): battle 0x1c's ribbon blend "A: normal alpha"; a screen-copy effect
+with no copy "A: draw from previous frame"; battle 0x23's near-maximum curve "A: PS2 float rules".
+- **Mode-2 particle draw (VU1 image 5):**
+  - The owner's GS row block (+624) is there after all (the earlier note looked at +628, the kind template, which is 0).
+    Row 97 is ALPHA_1 = 0x44, normal alpha, as the user chose. Row 102 is the strip tag 0x2036400000008000 / 0x41: PRE,
+    PRIM 0x6c (Gouraud triangle strip, FGE, ABE, context 1), regs RGBAQ and XYZF2, with F = 0xff (no fog).
+  - Image 5 is image 7 without a texture: the same ambient step (1a38) and lighting passes (1608; only the scratch
+    addresses differ), and no tint or MINI 255. The colour is FTOI0 of the lit point colour, low byte per channel.
+  - One difference in the program itself: its loop moves the next point into vf19 (0b80) one pair before ADDy / SUBx
+    (0bb8). Each middle point's two vertices therefore sit at the next point's x, y, around its own z. The native draw
+    does the same.
+  - The draw refuses a block whose ALPHA register or strip tag differs, and refuses the fog variant (row 15.w).
+- **Screen-copy procedural mesh (152ca0 / 152d50) with no copy published in its frame:** the batches sample the
+  previous presentation (`kPreviousFrame`), in the same normalized coordinates a whole-frame copy would have.
+- **Program emitter copy for class 1585f0 (step 2961a0):** its records are 0x140 bytes ((5i)64 at 2962fc), not the
+  general step's 0x170 (243b4c). It still stores the script values at record+0x150 / +0x154 (2966b0, as 243f08 does),
+  which lands in the next record, as on the PS2; the native stores go by address, so they do the same.
+- **Hermite vector 2a68a0 (battle 0x23):** ((c0 w.x + c1 w.y) + c2 w.z) + c3 w.w per lane, in ps2f words. A denormal
+  reads as zero, exponent 255 is a number, and overflow saturates. In-range inputs give the same bits as before.
+- **BozoEngine 8a87fc3 -> 36991be** (needed by newer save states). Since e1518bf / 5deab59 its ps2f and VU0 ops use the
+  host's SSE where it gives the same bits. That assumes the default round-to-nearest MXCSR, as the game runs, and
+  raises the host's sticky exception flags. Five old-versus-native tests (particle physics, bones, math records, field
+  distance, DOF matrix) therefore now run the original code at round-to-nearest only. They compare MXCSR without the
+  sticky flags; rounding, FTZ and DAZ must still match, and the FTZ/DAZ variations still run.
+
+**Evidence:**
+- **Ribbon oracle:** 224 captures equal image 7's and image 5's own words (112 of them image 5: positions, ADC, colours,
+  ambient and point lights); 7 refusals.
+- **Hermite:** PS2 extremes covered (a denormal, exponent 255, a saturating product).
+- **Procedural draws:** the no-copy submission samples the previous frame.
+- **Emitter copy:** its first particle load (297490) accepts record 2 at 2 x 0x140.
+- **End RAM unchanged** with the new engine: battle 64100 0c9960c8d9f6, forest 912f01332dbe, game over 9df948c13063,
+  route a3f2c8f4395d.
+- **Battles:** 0x1e, 0x24, 0x29 and 0x37 run boundary-free to 67000. 0x1c and 0x32 get past their first ribbon draws
+  and the emitter copy, then stop at a later image-5 draw that uses the fog variant (row 15.w, path 0ee8). 0x23 gets past the curve, whose saturated output reaches an
+  object transform (249180) that still refuses exponent 255. 0x3e stops at 298b6c (not yet ported).
+- **Tests:** full ctest 97/97.
+
 ### Battles 0x49 to 0x4e: modules (2026-11-24)
 
 - **Captured modules:** 173 (0x53a380), 124 (0x532200), 280 (0x542a80, loaded at frame 63658 in 0x4d).

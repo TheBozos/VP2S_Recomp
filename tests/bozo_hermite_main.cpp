@@ -81,8 +81,11 @@ int main(){try{
             try{vp2s::nativeMathInstruction(rt.memory.flat(),&c,&rt,0x2a68fc);}catch(const std::runtime_error &){bad=true;}
             check(bad && !std::memcmp(&before,&c,sizeof(c)) && !std::memcmp(ram.data(),rt.memory.flat(),ram.size()));};
         c.pc=0x170000;reject();c.pc=0x2a68c8;c.r[4].uw[0]+=16;reject();c.r[4].uw[0]-=16;c.r[3].uw[0]+=16;reject();c.r[3].uw[0]-=16;
-        for(uint32_t address:{0x180000u,0x35dfd0u}){
-            for(uint32_t bad:{1u,0x7fc01234u,0x7f7fffffu}){put(rt,address,bad);reject();}put(rt,address,uint32_t(0));}
+        // PS2 float rules (battle 0x23): a denormal reads as zero, exponent 255 is a number, overflow saturates.
+        const auto x=[&]{check(vp2s::nativeMathInstruction(rt.memory.flat(),&c,&rt,0x2a68fc));uint32_t v;std::memcpy(&v,rt.memory.hostPointer(0x1ffe030,4),4);return v;};
+        for(auto [in,out]:std::initializer_list<std::pair<uint32_t,uint32_t>>{{1u,0u},{0x7fc01234u,0x7fc01234u},{0x7f7fffffu,0x7f7fffffu},{0xff7fffffu,0xff7fffffu}}){put(rt,0x180000,in);check(x()==out);}
+        put(rt,0x35dfd0,0x7f7fffffu);put(rt,0x180000,0x40800000u);check(x()==0x7fffffffu);
+        put(rt,0x180000,0xc0800000u);check(x()==0xffffffffu);put(rt,0x180000,uint32_t(0));put(rt,0x35dfd0,0x3f800000u);
     }
-    std::printf("%u complete Hermite callers (%u endpoints,%u extrapolated) + %u full XYZW records,10 sites; CPU/RAM/FP, four modes/FTZ/DAZ, original scalar weights and aliases passed\n",callers,endpoints,extrapolated,records);return 0;
+    std::printf("%u complete Hermite callers (%u endpoints,%u extrapolated) + %u full XYZW records,10 sites; CPU/RAM/FP, four modes/FTZ/DAZ, original scalar weights and aliases, PS2 float extremes passed\n",callers,endpoints,extrapolated,records);return 0;
 }catch(const std::exception &e){std::fprintf(stderr,"%s\n",e.what());return 1;}}

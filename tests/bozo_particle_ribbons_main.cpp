@@ -1,5 +1,5 @@
-// Mode-4 particle ribbons (VU1 image 7): NativeParticleDraws::capture against an oracle that
-// executes image 7's own words. The image comes from the game's mod001.elf at test time (table
+// Mode-4 particle ribbons (VU1 image 7) and mode-2 plain ribbons (image 5: no texture, no tint, ALPHA from the GS row
+// block): NativeParticleDraws::capture against an oracle that executes each image's own words. The image comes from the game's mod001.elf at test time (table
 // 3141a0 entry 7 -> a REF to a VIF packet of MPG uploads); nothing of it is stored here.
 // The interpreter is sequential with pair semantics (both halves read the state before the
 // pair): image 7 relies only on VU interlocks, and every FCAND it uses comes 4 or more
@@ -10,6 +10,7 @@
 #include <cmath>
 #include <cstdio>
 #include <cstring>
+#include <cstdlib>
 #include <format>
 #include <fstream>
 #include <random>
@@ -22,7 +23,7 @@ using Mat=std::array<float,16>;
 const Mat identity{1,0,0,0,0,1,0,0,0,0,1,0,0,0,0,1};
 
 // ---- image 7 from mod001.elf ----
-std::vector<uint8_t> image7(const std::filesystem::path &elfPath){
+std::vector<uint8_t> image(const std::filesystem::path &elfPath,unsigned which){
     std::ifstream in(elfPath,std::ios::binary);std::vector<uint8_t> elf((std::istreambuf_iterator<char>(in)),{});check(elf.size()>0x34);
     const auto u32=[&](size_t at){check(at+4<=elf.size());uint32_t v;std::memcpy(&v,elf.data()+at,4);return v;};
     const auto phoff=u32(0x1c);uint16_t phnum;std::memcpy(&phnum,elf.data()+0x2c,2);
@@ -30,7 +31,7 @@ std::vector<uint8_t> image7(const std::filesystem::path &elfPath){
         for(unsigned i=0;i<phnum;++i){const auto h=phoff+32*i;if(u32(h)!=1)continue;const auto off=u32(h+4),va=u32(h+8),size=u32(h+16);
             if(address>=va && uint64_t(address)+bytes<=uint64_t(va)+size){check(off+(address-va)+bytes<=elf.size());return elf.data()+off+(address-va);}}
         throw std::runtime_error(std::format("mod001 address {:x} outside its image",address));};
-    uint32_t entry,tag[2];std::memcpy(&entry,read(0x3141a0+4*7,4),4);std::memcpy(tag,read(entry,8),8);
+    uint32_t entry,tag[2];std::memcpy(&entry,read(0x3141a0+4*which,4),4);std::memcpy(tag,read(entry,8),8);
     check(((tag[0]>>28)&7)==3);const auto qwc=tag[0]&0xffff;const auto *packet=read(tag[1],qwc*16);
     std::vector<uint8_t> code(16384);unsigned uploads=0;
     for(uint32_t i=0;i<qwc*16;){uint32_t vif;std::memcpy(&vif,packet+i,4);i+=4;const auto cmd=(vif>>24)&0x7f,num=(vif>>16)&0xff,imm=vif&0xffff;
@@ -151,6 +152,7 @@ void files(const std::filesystem::path &dir){
     {std::ofstream f(dir/"c_0000000000000000.tex",std::ios::binary);write(f,std::array<uint32_t,3>{2,2,0});write(f,std::array<uint32_t,4>{0x800000ff,0x8000ff00,0x80ff0000,0x80ffffff});write(f,std::array<uint32_t,256>{});}
 }
 struct Case {unsigned groups[4],perChunk,chunks;bool lit,coincide,tilt,ambient=false;unsigned lights=0;};
+bool plain=false;   // image 5 (mode 2) instead of image 7 (mode 4)
 void initialize(Runtime &rt,vp2s::NativeScene &scene,vp2s::NativeAssets &assets,const Case &c,std::mt19937 &random){
     std::memset(rt.memory.flat(),0,bozo::kFlatBytes);scene=vp2s::NativeScene{};assets=vp2s::NativeAssets{};
     put(rt,0x1c8d00+0xcc84,uint8_t(1));put(rt,0x35ddf8,current);put(rt,current+0x40a8,object);put(rt,current+0x40dc,uint8_t(1));
@@ -163,13 +165,16 @@ void initialize(Runtime &rt,vp2s::NativeScene &scene,vp2s::NativeAssets &assets,
     if(c.tilt)screen[12]=.01f;put(rt,camera+0x330,screen);
     put(rt,camera+0x244,2048.f);put(rt,camera+0x248,2048.f);put(rt,camera+0x260,1728.f);put(rt,camera+0x264,1824.f);scene.selectCamera(&rt,camera);
     put(rt,object,uint32_t(0x1725d0));put(rt,object+0x63,uint8_t(1));put(rt,object+0x65,uint8_t(0));Mat world=identity;world[3]=.05f;world[7]=-.05f;put(rt,object+0x90,world);
-    put(rt,object+0xaff,uint8_t(4));put(rt,object+0xaf9,uint8_t(0));put(rt,object+0xaa0,uint32_t(0x200000));put(rt,object+0xaa4,uint32_t(0x210000));
-    put(rt,object+0x628,kinds);put(rt,object+0x658,fis);
+    put(rt,object+0xaff,uint8_t(plain?2:4));put(rt,object+0xaf9,uint8_t(0));put(rt,object+0xaa0,uint32_t(0x200000));put(rt,object+0xaa4,uint32_t(0x210000));
+    put(rt,object+0x628,plain?0u:kinds);put(rt,object+0x658,plain?0x55555555u:fis);
     put(rt,fis+4,uint32_t(0x11223344));put(rt,fis+8,uint32_t(5));put(rt,0x35de38,manager);put(rt,manager+0x2670,int16_t(1));put(rt,manager+0x1008+16,uint32_t(0x11223344));put(rt,manager+8+16,uint32_t(5));
     put(rt,object+0x230,std::array<float,4>{255,128,255,64});put(rt,object+0x300,std::array<float,4>{.5f,1,.25f,2});put(rt,object+0x310,uint32_t(c.lit?0:1));
     // The GS row block (+624, rows 96..110): row 97.y (ALPHA.FIX) switches image 7's ambient step 1aa0 on, row 100.y
     // scales rows 5..8 into row 13 (+ row 19). Lights (row 14.w = 2, 14.y = 1): positions 20..22, colours 23..25, k row 27.
     put(rt,object+0x624,block);put(rt,block+0xc,uint32_t(0x6c0f0060));put(rt,block+0x24,uint32_t(c.ambient?0x40:0));put(rt,block+0x54,.5f);
+    // Image 5's GS state (battle 0x1c's block): row 97 ALPHA_1 = 0x44 (normal alpha), row 102 the Gouraud strip tag.
+    put(rt,block+0x20,uint32_t(0x44));put(rt,block+0x28,uint32_t(0x42));put(rt,block+0x10,uint32_t(0x8004));put(rt,block+0x14,uint32_t(0x10000000));
+    put(rt,block+0x18,uint32_t(0xeeeeeeee));put(rt,block+0x70,uint32_t(0x8000));put(rt,block+0x74,uint32_t(0x20364000));put(rt,block+0x78,uint64_t(0x41));
     if(c.ambient){put(rt,object+0x230+16*5,std::array<float,4>{.25f,.5f,.125f,0});put(rt,object+0x230+16*6,std::array<float,4>{.25f,.25f,.25f,0});
         put(rt,object+0x230+16*8,std::array<float,4>{-.01f,-.06f,-.002f,0});put(rt,object+0x230+16*19,std::array<float,4>{.85f,.64f,.47f,1});}
     if(c.lights){put(rt,object+0x31c,uint32_t(2));put(rt,object+0x314,uint32_t(1));
@@ -201,45 +206,59 @@ Strip oracle(const std::vector<uint8_t> &code,Runtime &rt,const vp2s::NativeCame
     Mat world;std::memcpy(world.data(),owner+0x90,64);Mat toView{};for(unsigned a=0;a<4;++a)for(unsigned b=0;b<4;++b)for(unsigned k=0;k<4;++k)toView[a*4+b]+=cam.view[a*4+k]*world[k*4+b];
     const auto columns=[&](unsigned first,const Mat &m){for(unsigned col=0;col<4;++col)for(unsigned r=0;r<4;++r)vu.row(first+col).u[r]=std::bit_cast<uint32_t>(m[r*4+col]);};
     columns(52,cam.screen);columns(56,cam.guard);columns(77,toView);
-    vu.row(81).u[3]=0x1a0;vu.row(36).u[0]=vu.row(36).u[1]=0x1a0;vu.row(102).u[1]=0x30000000u;vu.row(102).u[2]=0x512;
+    vu.row(81).u[3]=0x1a0;vu.row(36).u[0]=vu.row(36).u[1]=0x1a0;if(!plain){vu.row(102).u[1]=0x30000000u;vu.row(102).u[2]=0x512;}
     const auto *k=rt.memory.hostPointer(kinds,0x160);for(unsigned r=0;r<9;++r)std::memcpy(&vu.row(0x2e0+r),k+0x20+16*r,16);for(unsigned r=0;r<10;++r)std::memcpy(&vu.row(0x2e9+r),k+0xc0+16*r,16);
     const auto count=*reinterpret_cast<const uint32_t *>(rt.memory.hostPointer(chunk+0x10,4));
     vu.xtop=0x100;std::memcpy(&vu.row(0x100),rt.memory.hostPointer(chunk+0x10,16+48*count),16+48*count);
     // The draw's first MSCAL (6e0) calls the ambient step 1aa0 at 0738 before 1670; its row 13 / row 14.x stay in VU
     // memory for the following chunks (0818). Here 1aa0 runs on its own, returning (vi15) into an E-bit stub at 3ff0.
-    vu.vi[15]=0x3ff0/8;vu.run(0x1aa0);check(vu.kicks.empty());
+    vu.vi[15]=0x3ff0/8;vu.run(plain?0x1a38:0x1aa0);check(vu.kicks.empty());
     vu.run(0x818);check(vu.kicks.size()==1 && vu.kicks[0]==0x1a0);
+    if(std::getenv("RIBBON_COLOURS"))for(unsigned i=0;i<count;++i){float in[4],out[4];std::memcpy(in,rt.memory.hostPointer(chunk+0x30+48*i,16),16);std::memcpy(out,&vu.row(0x101+3*i+1),16);
+        std::fprintf(stderr,"point %u colour %g %g %g %g -> %g %g %g %g\n",i,in[0],in[1],in[2],in[3],out[0],out[1],out[2],out[3]);}
+    if(plain){   // image 5: the tag at the kick, then RGBAQ and XYZF2 per vertex (the RGBAQ in the first four words)
+        const auto tag=vu.row(0x1a0);check(tag.u[0]==0x8000+2*count && tag.u[1]==0x20364000u && tag.u[2]==0x41);
+        Strip s;for(unsigned v=0;v<2*count;++v){std::array<uint32_t,12> out{};std::memcpy(out.data()+4,&vu.row(0x1a1+2*v),16);std::memcpy(out.data()+8,&vu.row(0x1a2+2*v),16);
+            out[2]=0x3f800000;s.vertices.push_back(out);}
+        return s;}
     const auto tag=vu.row(0x1a0+5);if(!(tag.u[0]==0x8000+2*count && tag.u[1]==0x30000000u))for(unsigned r=0;r<8;++r)std::fprintf(stderr,"%x: %08x %08x %08x %08x\n",0x1a0+r,vu.row(0x1a0+r).u[0],vu.row(0x1a0+r).u[1],vu.row(0x1a0+r).u[2],vu.row(0x1a0+r).u[3]);check(tag.u[0]==0x8000+2*count && tag.u[1]==0x30000000u);
     Strip s;for(unsigned v=0;v<2*count;++v){std::array<uint32_t,12> out;for(unsigned j=0;j<3;++j)std::memcpy(out.data()+4*j,&vu.row(0x1a0+6+3*v+j),16);s.vertices.push_back(out);}
     return s;
 }
 }
 int main(int argc,char **argv){try{
-    check(argc==3);const std::filesystem::path dir=argv[1];files(dir);auto code=image7(argv[2]);
+    check(argc==3);const std::filesystem::path dir=argv[1];files(dir);
     // An E-bit NOP pair (and its delay pair) at 3ff0: the return point of a subroutine run on its own.
-    check(code.size()>=0x4000);for(uint32_t at:{0x3ff0u,0x3ff8u}){const uint32_t lower=0x8000033c,upper=at==0x3ff0?0x400002ffu:0x000002ffu;
-        std::memcpy(code.data()+at,&lower,4);std::memcpy(code.data()+at+4,&upper,4);}
+    auto images=std::array{image(argv[2],7),image(argv[2],5)};
+    for(auto &code:images){check(code.size()>=0x4000);for(uint32_t at:{0x3ff0u,0x3ff8u}){const uint32_t lower=0x8000033c,upper=at==0x3ff0?0x400002ffu:0x000002ffu;
+        std::memcpy(code.data()+at,&lower,4);std::memcpy(code.data()+at+4,&upper,4);}}
+    unsigned plainCases=0;
     Runtime rt;vp2s::NativeScene scene;vp2s::NativeAssets assets;vp2s::NativeParticles particles;vp2s::NativeParticleDraws draws(dir);vp2s::NativeTextures textures(dir,dir/"manifest.txt");
     std::mt19937 random(0x7a11);unsigned cases=0,triangles=0,culled=0;
     const Case table[]={{{2},1,1,false,false,false},{{3},2,1,false,false,false},{{5},3,1,true,false,false},{{2,4,6},2,3,false,false,false},
         {{22},1,1,false,true,false},{{8,3},2,2,true,true,false},{{16},3,1,false,false,false},{{48},1,1,true,false,false},{{4},12,1,false,false,false},
         {{5},3,1,false,false,false,true},{{6},2,1,true,false,false,true},{{4},3,1,false,false,false,false,1},{{7},2,1,true,false,false,true,1},{{3},4,1,false,false,false,true,2}};
-    for(unsigned round=0;round<8;++round)for(const auto &c:table){
+    for(const bool five:{false,true})for(unsigned round=0;round<8;++round)for(const auto &c:table){
+        plain=five;const auto &code=images[five];plainCases+=five;
         initialize(rt,scene,assets,c,random);const auto cam=scene.drawingCamera();check(bool(cam));
         const auto result=draws.capture(&rt,assets,textures,scene,particles,object);check(result.batches.size()<=1);
         // Expected: per chunk, the GS strip: vertex j (j >= 2) completes (j-2, j-1, j) unless ADC.
         std::vector<std::array<uint32_t,12>> expect;uint32_t chunk=chunks;
-        for(unsigned k=0;k<c.chunks;++k){const auto s=oracle(code,rt,*cam,chunk);
+        for(unsigned k=0;k<c.chunks;++k){const auto s=oracle(code,rt,*cam,chunk);if(std::getenv("RIBBON_DUMP") && cases==unsigned(std::atoi(std::getenv("RIBBON_DUMP"))))for(size_t n=0;n<s.vertices.size();++n){const auto *p=rt.memory.hostPointer(chunk+32+48*(n/2),12);float q[3];std::memcpy(q,p,12);std::fprintf(stderr,"strip %zu: %d %d %x  point %g %g %g\n",n,int32_t(s.vertices[n][8]),int32_t(s.vertices[n][9]),s.vertices[n][11],q[0],q[1],q[2]);}
             for(unsigned j=2;j<s.vertices.size();++j){if(s.vertices[j][11]&0x8000){++culled;continue;}for(unsigned v=j-2;v<=j;++v)expect.push_back(s.vertices[v]);++triangles;}
             chunk+=32+48*(c.perChunk*c.groups[k]);}
         const std::vector<bozo::render::Vertex> none;const auto &got=result.batches.empty()?none:result.batches[0].vertices;
+        if(std::getenv("RIBBON_DUMP") && cases==unsigned(std::atoi(std::getenv("RIBBON_DUMP"))))for(size_t n=0;n<got.size();++n){const auto &m=result.batches[0].matrix;const auto &v=got[n];float cl[4];for(unsigned r=0;r<4;++r)cl[r]=m[r]*v.x+m[4+r]*v.y+m[8+r]*v.z+m[12+r];
+            std::fprintf(stderr,"%zu native %.1f %.1f oracle %d %d adc %x\n",n,cl[0]/cl[3]*16,cl[1]/cl[3]*16,int32_t(expect[n][8]),int32_t(expect[n][9]),expect[n][11]);}
         if(got.size()!=expect.size())throw std::runtime_error(std::format("case {}: {} native vertices, oracle {}",cases,got.size(),expect.size()));
-        if(!result.batches.empty()){const auto &b=result.batches[0];check(b.material.blendA==0 && b.material.blendB==2 && b.material.blendD==1);}
+        if(!result.batches.empty()){const auto &b=result.batches[0];
+            if(plain)check(!b.material.textured && b.material.blendA==0 && b.material.blendB==1 && b.material.blendC==0 && b.material.blendD==1);
+            else check(b.material.blendA==0 && b.material.blendB==2 && b.material.blendD==1);}
         for(unsigned n=0;n<got.size();++n){const auto &v=got[n];const auto &o=expect[n];const auto &m=result.batches[0].matrix;
             float clip[4];for(unsigned r=0;r<4;++r)clip[r]=m[r]*v.x+m[4+r]*v.y+m[8+r]*v.z+m[12+r];
             const auto f=[&](unsigned i){return std::bit_cast<float>(o[i]);};const float qv=f(2);
             const bool ok=std::abs(clip[0]/clip[3]*16-int32_t(o[8]))<=1.5f && std::abs(clip[1]/clip[3]*16-int32_t(o[9]))<=1.5f && std::abs(clip[2]/clip[3]*16-int32_t(o[10]))<=2.f &&
-                std::abs(qv*clip[3]-1)<1.e-5f && std::abs(v.u-f(0)/qv)<=1.e-5f && std::abs(v.v-f(1)/qv)<=1.e-5f;
+                (plain || std::abs(qv*clip[3]-1)<1.e-5f) &&std::abs(v.u-f(0)/qv)<=1.e-5f && std::abs(v.v-f(1)/qv)<=1.e-5f;
             uint32_t rgba=0;for(unsigned i=0;i<4;++i)rgba|=(o[4+i]&0xff)<<(8*i);
             if(!ok || rgba!=v.rgba)throw std::runtime_error(std::format("case {} vertex {}: native ({} {} {} uv {} {} {:08x}) clip ({} {} {}), oracle XYZ ({} {} {}) STQ ({} {} {}) {:08x}",
                 cases,n,v.x,v.y,v.z,v.u,v.v,v.rgba,clip[0]/clip[3]*16,clip[1]/clip[3]*16,clip[2]/clip[3]*16,int32_t(o[8]),int32_t(o[9]),int32_t(o[10]),f(0),f(1),qv,rgba));}
@@ -248,10 +267,16 @@ int main(int argc,char **argv){try{
     check(triangles>500 && culled>50);
     // Refusals: the fog variant (row 15.w), lighting pass 1c78 (row 14.w = 2 with 14.z), a screen w row with an x term,
     // a ribbon of one point, a ribbon kind outside the template.
+    plain=false;
     for(unsigned which=0;which<5;++which){Case c{{3},1,1,false,false,which==2};initialize(rt,scene,assets,c,random);
         if(which==0)put(rt,object+0x32c,uint32_t(1));else if(which==1){put(rt,object+0x31c,uint32_t(2));put(rt,object+0x318,uint32_t(1));}
         else if(which==3){put(rt,chunks+0x10,uint32_t(1));put(rt,chunks+0x14,uint32_t(5));put(rt,chunks+0x18,uint32_t(1));put(rt,object+0xabc,uint32_t(1));}
         else if(which==4)put(rt,chunks+0x20+44,uint32_t(2));
         bool refused=false;try{draws.capture(&rt,assets,textures,scene,particles,object);}catch(const std::runtime_error &){refused=true;}check(refused);}
-    std::printf("%u ribbon captures equal image 7's words: %u triangles drawn, %u ADC-culled; 5 refusals passed\n",cases,triangles,culled);return 0;
+    // Image 5 refusals: its fog variant (row 15.w), and a GS block whose strip tag differs.
+    plain=true;
+    for(unsigned which=0;which<2;++which){Case c{{3},1,1,false,false,false};initialize(rt,scene,assets,c,random);
+        if(which==0)put(rt,object+0x32c,uint32_t(1));else put(rt,block+0x74,uint32_t(0x20324000));
+        bool refused=false;try{draws.capture(&rt,assets,textures,scene,particles,object);}catch(const std::runtime_error &){refused=true;}check(refused);}
+    std::printf("%u ribbon captures equal images 7 and 5's words (%u plain): %u triangles drawn, %u ADC-culled; 7 refusals passed\n",cases,plainCases,triangles,culled);return 0;
 }catch(const std::exception &e){std::fprintf(stderr,"%s\n",e.what());return 1;}}

@@ -85,11 +85,16 @@ void NativeProceduralDraws::finish(const R5900Context *c,const NativeProceduralT
 }
 NativeModelSubmission NativeProceduralDraws::submission(Runtime *rt,const NativeScene &scene,const NativeFeedbackCopies &copies,uint32_t object)const{
     const auto found=ready.find(object);const auto image=copies.image(scene);const auto current=value<uint32_t>(rt,0x35ddf8);const auto layer=value<uint8_t>(rt,object+0x65);
-    if(found==ready.end() || !image || found->second.frame!=scene.frameTarget() || layer>1 || !value<uint8_t>(rt,current+0x40dc+layer) || value<uint32_t>(rt,current+0x40a8+4*layer)!=object || !value<uint8_t>(rt,object+0x63) || !proceduralMeshClass(value<uint32_t>(rt,object)))
+    if(found==ready.end() || found->second.frame!=scene.frameTarget() || layer>1 || !value<uint8_t>(rt,current+0x40dc+layer) || value<uint32_t>(rt,current+0x40a8+4*layer)!=object || !value<uint8_t>(rt,object+0x63) || !proceduralMeshClass(value<uint32_t>(rt,object)))
         throw std::runtime_error(std::format("procedural submission has no current scene/feedback image (object {:x}: ready {}, image {}, frame {}, layer {}, scene layer {}, current {:x})",
             object,found!=ready.end(),bool(image),found!=ready.end() && found->second.frame==scene.frameTarget(),layer,layer<=1?value<uint8_t>(rt,current+0x40dc+layer):0,
             layer<=1?value<uint32_t>(rt,current+0x40a8+4*layer):0));
-    return {object,found->second.camera->object,found->second.batches};
+    // Battles 0x1e, 0x24, 0x29, 0x37 and 0x3e build the mesh over the screen copy's TEX0 (*(35d9c0)) with no copy
+    // published in that frame. The user's rule (2026-11-24, "A: draw from previous frame"): sample the previous
+    // presentation, with the same coordinates as a whole-frame copy.
+    NativeModelSubmission out{object,found->second.camera->object,found->second.batches};
+    if(!image)for(auto &batch:out.batches)batch.material.source=bozo::render::Material::kPreviousFrame;
+    return out;
 }
 void NativeProceduralDraws::consumed(uint32_t object){if(!ready.erase(object))throw std::runtime_error("procedural draw consumed twice");}
 std::optional<bool> nativeProceduralDrawInstruction(R5900Context *c,Runtime *rt,uint32_t pc){

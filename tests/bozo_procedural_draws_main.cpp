@@ -75,19 +75,21 @@ int main(int argc,char **argv){try{
         draws.beginMesh(&rt,&c,scene,projections);check(!std::memcmp(&before,&c,sizeof(c)) && _mm_getcsr()==control);
         for(unsigned i=0;i<count;++i){vertexInput(rt,c,i,seed&32 && i==2,0x80402010+seed);const auto cpu=c;const auto ram=std::vector<uint8_t>(rt.memory.flat(),rt.memory.flat()+bozo::kFlatBytes);draws.vertex(&rt,&c);check(!std::memcmp(&cpu,&c,sizeof(c)) && !std::memcmp(ram.data(),rt.memory.flat(),ram.size()) && _mm_getcsr()==control);}
         end(draws,c,projections);check(_mm_getcsr()==control);_mm_setcsr(saved);
-        bool rejected=false;try{draws.submission(&rt,scene,copies,object);}catch(const std::runtime_error &){rejected=true;}check(rejected && draws.pending()==1);
+        // No copy published in this frame (battles 0x1e, 0x24, 0x29, 0x37, 0x3e): the same batches sample the previous frame.
+        {const auto previous=draws.submission(&rt,scene,copies,object);check(draws.pending()==1);
+            for(const auto &b:previous.batches)check(b.material.fromFrame && b.material.source==bozo::render::Material::kPreviousFrame);}
         copies.published({0x1d2000,target,0x1d3000,640,448,scene.frameTarget(),0,640,448});const auto submission=draws.submission(&rt,scene,copies,object);
         const unsigned triangles=count>=3?(count-2)-unsigned(bool(seed&32)):0;check(submission.object==object && submission.camera==camera && submission.batches.size()==unsigned(triangles!=0));
         if(triangles){const auto &batch=submission.batches[0];check(batch.vertices.size()==triangles*3 && batch.matrix==identity);const auto &m=batch.material;
             check(m.fromFrame && m.source==5 && !m.textureAlpha && m.textureFunction==bozo::render::Material::TextureFunction::Modulate && m.alphaBlend==bool(seed&16) && m.depthTest==!bool(seed&2) && m.depthWrite==!bool(seed&4));
             for(const auto &v:batch.vertices){check(v.x==1888 || v.x==2208);check(v.y==1936 || v.y==2160);check(v.z==1000 && v.u==(v.x==2208?1.f:0.f) && v.v==(v.y==2160?1.f:0.f) && v.rgba==0x80402010+seed);}}
-        draws.consumed(object);check(!draws.pending());rejected=false;try{draws.consumed(object);}catch(const std::runtime_error &){rejected=true;}check(rejected);++cases;
+        draws.consumed(object);check(!draws.pending());bool rejected=false;try{draws.consumed(object);}catch(const std::runtime_error &){rejected=true;}check(rejected);++cases;
     }
     for(unsigned which=0;which<21;++which){initialize(rt,scene,projections,0);vp2s::NativeProceduralDraws draws;vp2s::NativeFeedbackCopies copies;auto c=meshContext(0,4);
         if(which==0)put(rt,object,uint32_t(0));else if(which==1)put(rt,manager+0x1018,uint32_t(0));else if(which==2)c.r[22].uw[0]=2;else if(which==3)c.pc=0;else if(which==16)c.r[16].uw[0]=2;
         else {draws.beginMesh(&rt,&c,scene,projections);
             if(which>=10 && which<=14){for(unsigned i=0;i<4;++i){vertexInput(rt,c,i);draws.vertex(&rt,&c);}end(draws,c,projections);
-                if(which!=10)copies.published({0x1d2000,target,0x1d3000,640,448,scene.frameTarget(),0,640,448});
+                copies.published({0x1d2000,target,0x1d3000,640,448,scene.frameTarget(),0,640,448});if(which==10)draws.consumed(object);   // no ready mesh (a missing copy now samples the previous frame)
                 if(which==11)put(rt,sceneObject+0x40dc,uint8_t(0));else if(which==12)put(rt,object+0x65,uint8_t(2));else if(which==13){scene.finishComposition(0x1e0000);scene.beginComposition(&rt,0x1e0000,target);}else if(which==14)put(rt,object,uint32_t(0));
             }else if(which==5 || which==6 || which==15 || which==17){vertexInput(rt,c,0);if(which==5)c.r[5].uw[0]=1;else if(which==6)put(rt,stack+0xa8,uint32_t(0x7fa01234));else if(which==15)c.r[21].uw[0]+=16;else draws.vertex(&rt,&c);
             }else if(which==7 || which==18){c.pc=c.r[31].uw[0]=0x247ac0;if(which==18)c.r[31].uw[0]=0;

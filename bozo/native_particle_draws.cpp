@@ -52,15 +52,32 @@ const NativeParticleDraws::Material &NativeParticleDraws::material(const AssetOr
 NativeModelSubmission NativeParticleDraws::capture(Runtime *rt,NativeAssets &assets,NativeTextures &textures,const NativeScene &scene,const NativeParticles &particles,uint32_t object){
     music::CodecRounding arithmetic;particles.validateDraw(object);auto *owner=record(rt,object,0xb10);
     const auto camera=scene.drawingCamera();const auto target=scene.frameTarget();const auto current=word(rt,0x35ddf8);const unsigned layer=owner[0x65];
-    if(!camera || !target || layer>1 || word(rt,current+0x40a8+4*layer)!=object || *rt->memory.hostPointer(current+0x40dc+layer,1)!=1 || !owner[0x63] || !particleClass(value<uint32_t>(owner,0)) || (owner[0xaff]!=3 && owner[0xaff]!=4 && owner[0xaff]!=6) || owner[0xb04] || owner[0xaf9]>1)
+    if(!camera || !target || layer>1 || word(rt,current+0x40a8+4*layer)!=object || *rt->memory.hostPointer(current+0x40dc+layer,1)!=1 || !owner[0x63] || !particleClass(value<uint32_t>(owner,0)) || (owner[0xaff]!=2 && owner[0xaff]!=3 && owner[0xaff]!=4 && owner[0xaff]!=6) || owner[0xb04] || owner[0xaf9]>1)
         throw std::runtime_error("native particle draw has no admitted scene/point owner");
     const auto first=NativeAssets::address(value<uint32_t>(owner,0xaa0)),second=NativeAssets::address(value<uint32_t>(owner,0xaa4));
     if(second<=first || second-first<0x20 || second-first>0x1000000)throw std::runtime_error("native particle draw buffer halves invalid");
     const auto span=second-first,index=owner[0xaf9]^1u,base=index?second:first,total=value<uint32_t>(owner,0xabc),chunks=value<uint32_t>(owner,0xac0+4*index);
     record(rt,first,span*2);if(total>65536 || chunks>65536 || bool(total)!=bool(chunks))throw std::runtime_error("native particle draw counts invalid");
     NativeModelSubmission submission{object,camera->object};if(!total)return submission;
+    // Mode 2 selects VU1 image 5 (mode + 3): image 7's ribbons without a texture. It reads no kind template (+628 = 0)
+    // and no FIS; its GS state is the owner's row block (+624): row 96 the A+D tag, row 97 ALPHA_1, row 102 the strip tag.
+    const bool plain=owner[0xaff]==2;NativeModelBatch batch;auto &mat=batch.material;Material m{};const uint8_t *kindData=nullptr;
+    if(plain){
+        const auto block=value<uint32_t>(owner,0x624);if(!block)throw std::runtime_error("native particle draw has no GS row block (+624)");
+        auto *rows=record(rt,block,0x100);
+        // Battle 0x1c: tag 0x2036400000008000 / 0x41 (PRE, PRIM 0x6c: Gouraud strip, FGE, ABE, context 1; RGBAQ, XYZF2).
+        // The strip's F is 0xff (no fog); the program writes the tag's NLOOP / EOP itself.
+        if(value<uint32_t>(rows,0xc)!=0x6c0f0060 || value<uint32_t>(rows,0x28)!=0x42 || value<uint32_t>(rows,0x74)!=0x20364000 || value<uint64_t>(rows,0x78)!=0x41)
+            throw std::runtime_error(std::format("unported native particle image 5 GS state (ALPHA reg {:x}, tag {:08x}:{:x})",value<uint32_t>(rows,0x28),value<uint32_t>(rows,0x74),value<uint64_t>(rows,0x78)));
+        const auto alpha=value<uint64_t>(rows,0x20);
+        // ALPHA_1 from the block (battle 0x1c: 0x44, normal alpha; user 2026-11-24: "A: normal alpha").
+        for(unsigned i=0;i<4;++i)if(((alpha>>(2*i))&3)>2)throw std::runtime_error("native particle image 5 ALPHA factor 3");
+        mat.textured=false;mat.alphaBlend=true;mat.blend=bozo::render::Material::Blend::Alpha;mat.gsBlend=true;
+        mat.blendA=alpha&3;mat.blendB=(alpha>>2)&3;mat.blendC=(alpha>>4)&3;mat.blendD=(alpha>>6)&3;mat.blendFix=(alpha>>32)&0xff;
+        mat.depthTest=true;mat.depthWrite=false;mat.alphaTest=false;
+    }else{
     const auto kinds=value<uint32_t>(owner,0x628);const auto origin=assets.origin(kinds);if(!origin)throw std::runtime_error("native particle kinds lack allocation provenance");
-    const auto &m=material(*origin);auto *kindData=record(rt,kinds,m.extent);
+    m=material(*origin);kindData=record(rt,kinds,m.extent);
     if(assets.origin(kinds,m.extent)!=origin)throw std::runtime_error("native particle kinds extend beyond their converted template");
     // +210 is not a draw input: 22fa50 turns it into draw bucket +60 = 2, and the
     // bucket lists (21ea80) only order the 22f140 calls; this draw never reads it.
@@ -81,12 +98,13 @@ NativeModelSubmission NativeParticleDraws::capture(Runtime *rt,NativeAssets &ass
      const auto pixelBlock=uint32_t(tex0)&0x3fff,paletteBlock=uint32_t(tex0>>37)&0x3fff;
      if(pixelBlock)textures.publishBlock(pixelBlock,false,resolvedKey);
      if(paletteBlock && (texture->format==0x13 || texture->format==0x14))textures.publishBlock(paletteBlock,true,resolvedKey);}
-    NativeModelBatch batch;batch.texture=texture->picture(palette);auto &mat=batch.material;
+    batch.texture=texture->picture(palette);
     // The template carries no CLAMP: U clamps and V repeats as the earlier
     // single-pass draws did (the game's own CLAMP for these kicks is unverified).
     mat.textured=true;mat.textureAlpha=m.textureAlpha;mat.textureFunction=static_cast<bozo::render::Material::TextureFunction>(m.function);mat.clampU=true;mat.clampV=false;
     mat.alphaBlend=true;mat.blend=bozo::render::Material::Blend::Alpha;mat.gsBlend=true;
     mat.depthTest=true;mat.depthWrite=false;mat.alphaTest=false;
+    }
     // Screen depth coefficients are in the game's projected depth domain and can
     // exceed the spatial-input bound. They are coefficients, not positions.
     const auto world=value<Mat>(owner,0x90);for(const auto &matrix:{world,camera->view,camera->screen,camera->guard})for(float v:matrix){
@@ -121,7 +139,7 @@ NativeModelSubmission NativeParticleDraws::capture(Runtime *rt,NativeAssets &ass
     // position); buf.xyz = ((c1 k1/|d1| + (c0 k0) /|d0|) + buf) + c2 k2/|d2| (ERLENG for light 0, RSQRT k/sqrt((x2 + y2) + 1 z2)
     // for 1 and 2). The apply (18f0) is then colour * buf clamped to [0, row 0], whatever row 14.x says. Row 14.z (1c78) is
     // not ported. Battles 0x37 / 0x38: one light (rows 24, 25 zero).
-    const bool perPointLight=owner[0xaff]==4 && (value<uint32_t>(owner,0x31c)&0xffff)==2;
+    const bool perPointLight=(owner[0xaff]==4 || owner[0xaff]==2) && (value<uint32_t>(owner,0x31c)&0xffff)==2;
     std::array<std::array<float,4>,3> lightAt{},lightColour{};std::array<float,3> lightK{};bool pointLights=false;
     if(perPointLight){
         if(value<uint32_t>(owner,0x318)&0xffff)throw std::runtime_error("unported native particle ribbon lighting pass 1c78 (VU row 14.z)");
@@ -150,7 +168,7 @@ NativeModelSubmission NativeParticleDraws::capture(Runtime *rt,NativeAssets &ass
     // the point record reads (ax, ay, scale, kind); see the corner loop. Its angle offsets
     // (VU row 37 = header +260/+264, the camera angles when emitter +afb / +afc) are not
     // ported: with either flag set the draw refuses.
-    const bool tilted=owner[0xaff]==6,ribbon=owner[0xaff]==4;
+    const bool tilted=owner[0xaff]==6,ribbon=owner[0xaff]==4 || plain;
     // Image 9 adds row 37's xy to the point's two angles before its sin/cos (0908: ADD.xy vf27, vf27, vf16). The draw
     // (22f250..22f2ec) fills row 37: x = -camera +5d4 when emitter +afb, y = -camera +5d0 when +afc, else 0; the camera
     // is the draw's own (a1), brought up to date first through its +64 method when +61 is clear (battle 0x37).
@@ -164,8 +182,13 @@ NativeModelSubmission NativeParticleDraws::capture(Runtime *rt,NativeAssets &ass
     // and GIF PACKED RGBAQ keeps each word's low byte: a channel of -1 draws as 0xff.
     // The lighting pass before it (subroutine 1400 in image 6, 1670 in image 7, the same
     // words) multiplies by VU row 13 (+300) and clamps to [0, row 0 (+230)] unless +310 is set.
+    // Image 5 has no tint and no MINI 255: FTOI0 of the lit colour, low byte per channel.
     const auto pointColour=[&](const uint8_t *point,const uint8_t *shape){
         const auto light=litColour(point);
+        if(plain){uint32_t rgba=0;for(unsigned i=0;i<4;++i){auto channel=number(value<float>(point,16+4*i));
+                if(!identity){if(channel<0)throw std::runtime_error("negative native particle colour");channel=std::clamp(channel*light[i],0.f,limit[i]);}
+                const int32_t fixed=channel<=-2147483648.f?INT32_MIN:channel>=2147483648.f?INT32_MAX:int32_t(channel);rgba|=(uint32_t(fixed)&0xffu)<<(8*i);}
+            return rgba;}
         uint32_t rgba=0;for(unsigned i=0;i<4;++i){auto channel=number(value<float>(point,16+4*i));const auto tint=number(value<float>(shape,64+4*i));
             if(tint<0 || (!identity && channel<0))throw std::runtime_error("negative native particle colour");
             if(!identity)channel=std::clamp(channel*light[i],0.f,limit[i]);channel=std::min(channel*tint,255.f);
@@ -183,13 +206,13 @@ NativeModelSubmission NativeParticleDraws::capture(Runtime *rt,NativeAssets &ass
         if(value<uint32_t>(owner,0x32c))throw std::runtime_error("unported native particle ribbon fog variant (VU row 15.w)");
         // Image 7 divides a point's second vertex by the first one's Q (0b58, 0d08, 0ea8):
         // that equals a per-vertex projection only while the screen w row ignores x and y.
-        if(camera->screen[12]!=0 || camera->screen[13]!=0)throw std::runtime_error("unported native particle ribbon projection (screen w depends on x/y)");
+        if(!plain && (camera->screen[12]!=0 || camera->screen[13]!=0))throw std::runtime_error("unported native particle ribbon projection (screen w depends on x/y)");
     }
     // VU1 0x6e0 kicks every point once per pass: pass p draws kind + p * stride with ALPHA variant p,
     // all points of a pass before the next pass. Image 7 never reads the pass header (VU 2e0):
     // one pass with ALPHA variant 0 (VU 2e5 = template +70).
     for(unsigned pass=0;pass<(ribbon?1u:m.passes);++pass){
-    mat.blendA=m.blends[pass][0];mat.blendB=m.blends[pass][1];mat.blendC=m.blends[pass][2];mat.blendD=m.blends[pass][3];mat.blendFix=m.blends[pass][4];batch.vertices.clear();
+    if(!plain){mat.blendA=m.blends[pass][0];mat.blendB=m.blends[pass][1];mat.blendC=m.blends[pass][2];mat.blendD=m.blends[pass][3];mat.blendFix=m.blends[pass][4];}batch.vertices.clear();
     auto cursor=base+0x20;uint32_t seen=0;
     for(unsigned chunk=0;chunk<chunks;++chunk){
         if(cursor>base+span-0x20)throw std::runtime_error("native particle chunk outside completed buffer");auto *header=record(rt,cursor,0x20);
@@ -204,12 +227,13 @@ NativeModelSubmission NativeParticleDraws::capture(Runtime *rt,NativeAssets &ass
                 const auto *start=points+48*first;
                 // The ribbon's kind comes from its first point (ILW.w record +2 at 0970); kind rows
                 // 2e9 + 5 kind: +2 (u0, v0, q0), +3 (u1, v1, q1), +4 tint.
-                const auto kind=value<uint32_t>(start,44);if(kind>=m.kinds)throw std::runtime_error("native particle ribbon kind outside template");
-                const auto *shape=kindData+0xc0+80*kind;
-                if(value<uint32_t>(shape,40)!=0x3f800000 || value<uint32_t>(shape,56)!=0x3f800000)throw std::runtime_error("unported native particle projective texture coordinates");
-                const float u0=number(value<float>(shape,32)),v0=number(value<float>(shape,36)),u1=number(value<float>(shape,48)),v1=number(value<float>(shape,52));
+                const uint8_t *shape=nullptr;float u0=0,v0=0,u1=0,v1=0;
+                if(!plain){const auto kind=value<uint32_t>(start,44);if(kind>=m.kinds)throw std::runtime_error("native particle ribbon kind outside template");
+                    shape=kindData+0xc0+80*kind;
+                    if(value<uint32_t>(shape,40)!=0x3f800000 || value<uint32_t>(shape,56)!=0x3f800000)throw std::runtime_error("unported native particle projective texture coordinates");
+                    u0=number(value<float>(shape,32));v0=number(value<float>(shape,36));u1=number(value<float>(shape,48));v1=number(value<float>(shape,52));}
                 // T runs from v0 by (v1 - v0) / (group - 1) per point (DIV 0980, ADDw.y 0b70 / 0d50).
-                const float step=(v1-v0)*(1.f/float(group-1));
+                const float step=plain?0.f:(v1-v0)*(1.f/float(group-1));
                 std::array<std::array<float,4>,48> eye;
                 for(unsigned i=0;i<group;++i){std::array<float,4> position=value<std::array<float,4>>(start+48*i,0);for(unsigned j=0;j<3;++j)number(position[j]);position[3]=1;eye[i]=transform(toView,position);}
                 std::array<bozo::render::Vertex,96> strip;std::array<bool,96> outside;float t=v0;
@@ -228,7 +252,11 @@ NativeModelSubmission NativeParticleDraws::capture(Runtime *rt,NativeAssets &ass
                     const auto rgba=pointColour(point,shape);
                     // Vertices (0a98..0ab0): p.x + d.y, p.y - d.x and p.x - d.y, p.y + d.x; S u0 / u1, both T t.
                     auto &a=strip[2*i],&b=strip[2*i+1];
-                    a.x=e[0]+oy;a.y=e[1]-ox;b.x=e[0]-oy;b.y=e[1]+ox;a.z=b.z=e[2];a.u=u0;b.u=u1;a.v=b.v=t;a.rgba=b.rgba=rgba;t+=step;
+                    // Image 5's loop (0b48..0cf0) moves the next point into vf19 (0b80) before its ADDy / SUBx (0bb8):
+                    // a middle point's vertices take the next point's x, y around its own z (image 7 reads vf19 in
+                    // the same pair as that move, so it keeps its own).
+                    const auto &centre=plain && i && i+1<group?eye[i+1]:e;
+                    a.x=centre[0]+oy;a.y=centre[1]-ox;b.x=centre[0]-oy;b.y=centre[1]+ox;a.z=b.z=e[2];a.u=u0;b.u=u1;a.v=b.v=t;a.rgba=b.rgba=rgba;t+=step;
                     for(const auto *v:{&a,&b})for(float f:{v->x,v->y,v->z,v->u,v->v})if(!std::isfinite(f))throw std::runtime_error("native particle vertex overflow");
                     outside[2*i]=outsideGuard(a);outside[2*i+1]=outsideGuard(b);
                 }

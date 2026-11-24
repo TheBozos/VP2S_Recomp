@@ -700,8 +700,13 @@ public:
                     const auto origin=nativeAssets().origin(address);
                     detail+=std::format(" {}:{:x}/{:x}",id,address,qwc);
                     if(origin)detail+=std::format("(asset {}/{:x}+{:x})",origin->part,origin->disc,origin->offset);
-                    if(id==7 || id==0)break;at+=16;}
-                detail+="]";
+                    // CNT's payload follows its tag (data, not tags); NEXT goes to its address.
+                    if(id==7 || id==0)break;at=id==1?at+16+16*qwc:id==2?address:at+16;}
+                // The queue (s2) entry being run: +0 type, +4 chain, +8 t0, +c owner (1131c0's t1).
+                const auto word=[&](uint32_t a){uint32_t v=0;if(const auto *p=m.hostPointer(a,4))std::memcpy(&v,p,4);return v;};
+                const auto queue=c->r[18].uw[0],entry=word(queue+4)+16*uint32_t(int16_t(word(queue+8)>>16));
+                const auto owner=word(entry+0xc);
+                detail+=std::format("] [entry {:x} owner={:x} class={:x} {:x}]",entry,owner,owner?word(owner):0u,owner?word(owner+4):0u);
             }
             throw std::runtime_error(std::format("native VP2S draw/data owner required at {:x} ra={:x}{}",target,c->r[31].uw[0],detail));
         }

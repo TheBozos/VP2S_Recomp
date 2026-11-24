@@ -24,8 +24,26 @@ The earlier VP2S face/shading and general brightness comparisons remain open.
     (a TEX0 with CLD 2 before the texture's TEX0), where the asset's palette is uploaded for the draw. So `modelImage` now
     takes the copy's own palette when TEX0 names no CBP, as for a plain key; a set CBP still needs a published palette.
   - **Test:** `vp2s-bozo-texture-publication` checks the no-CBP case.
-- **Evidence:** 0x2e and 0x30 run boundary-free to 67000. 0x2f now stops at the type-3 VIF1 upload (112fe0 -> 123220),
+- **Evidence:** 0x2e and 0x30 run boundary-free to 67000. 0x2f now stops at the type-3 queue job (112fe0 -> 123220),
   as 0x2c and 0x2d.
+
+### The type-3 job of 0x2c, 0x2d and 0x2f is a screen shockwave (analysis, 2026-11-24)
+
+- **Correction:** the "REFE 0x1aac000 / 0x8008" reported earlier was a misread. The refusal walked every qword as a DMA
+  tag, but a CNT's payload is data. 0x...11aac000_00008008 is the GIF tag of the payload (NLOOP 8, EOP, A+D). The
+  refusal now skips CNT payloads and names the queue entry's owner.
+- **Producer:** mod028 class 1746d0 (constructor 4c7570, owner sub-object +c0 with vtable 174754). Its draw method
+  4c0e50 queues the chain at +90[+bc] through 120c50 (type 3, owner +c0); 4c0fb0 builds it.
+- **Chain (GIF path 3, battle 0x2f, object f54bf0):**
+  - CNT 9, A+D: TEX0_2 = 0x6_68128ea0 (TBP 0xea0, TBW 10, PSMCT24, TW 1024, TH 512, TCC), TEX1_2 61 (linear),
+    TEST_2 30000, TEXA 80/80, ALPHA_2 44, ZBUF_2 ZMSK, RGBAQ 808080, TEXFLUSH.
+  - CNT 21: a 20-vertex UV + XYZ2 fan (a disc around the target's projected position).
+  - CNT 164: TEST_2 70000, then 18 tristrips of 5 vertices (RGBAQ, UV, XYZ2; context 2, TME, ABE, FST): a ring
+    whose UVs are pushed outward from the screen positions.
+  - END 8: state restored (TEX1_2, TEXFLUSH, TEST_2, TEXA, ALPHA_2, ZBUF_2, SCISSOR_2).
+- **So:** a refraction ring that redraws the screen copy at GS block 0xea0 displaced. Port: a native draw from the
+  object's own fields (target +140 projected through 36bc00, radii and colours +d0..+10e) that samples the frame.
+  Still to establish: which picture block 0xea0 holds at that point of the frame (a copy made earlier, or the frame).
 
 ### Battles 0x2b to 0x2d: modules, squad denormal lanes (2026-11-24)
 

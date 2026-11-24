@@ -3437,5 +3437,157 @@ int main(int argc,char **argv){try{
          check(get(e+0x808)==2 && (get(e+0x80c)&0xff)==1);
          std::puts("battle trail element: two rings interleaved into the positions, newest first, count and toggle stored back");}
     }
+    {   // Environment-map element (class 159340, mod001 2a03b0 + VU0 program 0x870 uploaded from 31391c) on
+        // the animator. Oracle: the listing transcribed pair by pair (upper before lower, each I-bit
+        // pair's upper reading the old I, the I constants read from the upload bytes in RAM; each
+        // FSAND names the FMAC four cycles earlier), then the EE loop as written (result k handled
+        // after the call for k+1, strips compared with the previous pair, 0 first).
+        std::string path=argv[1];const auto at=path.rfind("mod010");check(at!=std::string::npos);path.replace(at,6,"mod001");
+        std::vector<uint8_t> elf;{FILE *f=std::fopen(path.c_str(),"rb");if(!f)throw std::runtime_error("mod001 image missing");
+            std::fseek(f,0,SEEK_END);elf.resize(size_t(std::ftell(f)));std::fseek(f,0,SEEK_SET);check(std::fread(elf.data(),1,elf.size(),f)==elf.size());std::fclose(f);}
+        auto &r=native.runtime();
+        const auto put=[&](uint32_t a,uint32_t v){std::memcpy(r.memory.hostPointer(a,4),&v,4);};
+        const auto putf=[&](uint32_t a,float v){put(a,std::bit_cast<uint32_t>(v));};
+        const auto get=[&](uint32_t a){uint32_t v;std::memcpy(&v,r.memory.hostPointer(a,4),4);return v;};
+        namespace F=bozo::ps2f;
+        const auto M=[](uint32_t a,uint32_t b){uint32_t f=0;return F::mul(a,b,f);};
+        const auto A=[](uint32_t a,uint32_t b){uint32_t f=0;return F::addNearest(a,b,f);};
+        const auto S=[](uint32_t a,uint32_t b){uint32_t f=0;return F::subNearest(a,b,f);};
+        const auto ftoi12=[](uint32_t b){const unsigned ex=(b>>23)&255;if(!ex)return 0u;const double m=std::ldexp(double((b&0x7fffff)|0x800000),int(ex)-150+12),v=b>>31?-m:m;
+            if(v>=2147483647.)return 0x7fffffffu;if(v<=-2147483648.)return 0x80000000u;return uint32_t(int32_t(v));};
+        const auto loi=[&](uint32_t pc){return get(0x313920+pc-0x800);};   // the lower word of an I-bit pair
+        unsigned envCases=0,paths[5]={},seams=0,resets=0;
+        for(unsigned seed=1;seed<=40;++seed){
+            std::memset(r.memory.flat(),0,bozo::kFlatBytes);
+            {uint32_t ph,count;std::memcpy(&ph,elf.data()+0x1c,4);count=uint16_t(elf[0x2c]|elf[0x2d]<<8);
+             for(uint32_t i=0;i<count;++i){uint32_t h[6];std::memcpy(h,elf.data()+ph+32*i,24);if(h[0]==1)std::memcpy(r.memory.hostPointer(h[2],h[4]),elf.data()+h[1],h[4]);}}
+            uint32_t rng=seed*2654435761u;const auto next=[&]{rng^=rng<<13;rng^=rng>>17;rng^=rng<<5;return rng;};
+            const auto uni=[&](float lo,float hi){return lo+(hi-lo)*float(next()%100000)/100000.f;};
+            constexpr uint32_t object=0x1200000,model=0x1201000,iterator=0x1201800,maskAt=0x1200800,data=0x1210000,packets=0x1240000,stack=0x1ffc000,e=0x1206000,vt=0x159340,desc=0x1207000;   // above mod001's image
+            const unsigned n=2+seed%30;
+            put(object+0x54,model);put(model+0x644,iterator);put(iterator+8,data);put(iterator+0x14,packets);
+            put(data+0x10+0x34,1);put(object+0x48,maskAt);put(maskAt,1);put(object+0x58,0xb);put(object+0x84,1);put(object+8,e);
+            const uint32_t source=data+0x70,packet=packets+0x60,span=0x1000,posAt=0x40,nrmAt=0x400,uvAt=0x800;
+            put(source+4,span);put(packet+4,span);put(source+0x14,n<<16);put(source+0x18,posAt|nrmAt<<16);put(source+0x1c,uvAt);
+            put(source+span+4,0);put(packet+span+4,0);
+            std::vector<uint32_t> pos(4*n),nrm(4*n);
+            for(unsigned v=0;v<n;++v){
+                for(unsigned l=0;l<3;++l){pos[4*v+l]=std::bit_cast<uint32_t>(uni(-50,50));}pos[4*v+3]=0x3f800000;
+                float nx=uni(-1,1),ny=uni(-1,1),nz=uni(-1,1);const float len=std::sqrt(nx*nx+ny*ny+nz*nz)+1e-3f;
+                nrm[4*v]=std::bit_cast<uint32_t>(nx/len);nrm[4*v+1]=std::bit_cast<uint32_t>(ny/len);nrm[4*v+2]=std::bit_cast<uint32_t>(nz/len);nrm[4*v+3]=0;
+                std::memcpy(r.memory.hostPointer(source+posAt+16*v,16),&pos[4*v],16);std::memcpy(r.memory.hostPointer(source+nrmAt+16*v,16),&nrm[4*v],16);
+                put(source+uvAt+4*v,0xdead0000u+v);}
+            put(vt+0x10,0x2a03b0);put(vt+0x18,0x2a05d0);put(e,vt);put(e+8,object);r.memory.hostPointer(e+0x19,1)[0]=1;r.memory.hostPointer(e+0xc+1,1)[0]=1;
+            for(unsigned l=0;l<3;++l)putf(e+0x40+4*l,uni(-80,80));
+            for(unsigned k=0;k<3;++k)for(unsigned l=0;l<4;++l)putf(e+0x50+16*k+4*l,k==l?uni(0.5f,1.5f):uni(-0.5f,0.5f));
+            put(e+0x34,desc);const uint32_t step=(0x10+2*n+15)&~15u;put(desc,n);put(desc+4,0);put(desc+8,step);
+            std::vector<uint8_t> order(n);for(unsigned v=0;v<n;++v)order[v]=uint8_t(v);
+            for(unsigned v=n;v>1;--v)std::swap(order[v-1],order[next()%v]);
+            std::vector<uint8_t> strips(n);for(unsigned k=0;k<n;++k)strips[k]=uint8_t(seed%3==0?(k*3/n):(next()%4==0?next()%3:(k?strips[k-1]:0)));
+            for(unsigned k=0;k<n;++k){r.memory.hostPointer(desc+0x10+2*k,1)[0]=order[k];r.memory.hostPointer(desc+0x11+2*k,1)[0]=strips[k];}
+            put(stack+0xe0,e);
+            // Oracle.
+            std::vector<uint32_t> want(n);for(unsigned v=0;v<n;++v)want[v]=0xdead0000u+v;
+            uint32_t eye[4],rows[3][4];std::memcpy(eye,r.memory.hostPointer(e+0x40,16),16);for(unsigned k=0;k<3;++k)std::memcpy(rows[k],r.memory.hostPointer(e+0x50+16*k,16),16);
+            uint32_t vf25[4]={0,0,0,0};
+            const auto program=[&](unsigned v){
+                uint32_t vf[32][4]={};vf[0][3]=0x3f800000;std::memcpy(vf[1],eye,16);for(unsigned k=0;k<3;++k)std::memcpy(vf[2+k],rows[k],16);
+                std::memcpy(vf[6],&pos[4*v],16);std::memcpy(vf[7],&nrm[4*v],16);std::memcpy(vf[25],vf25,16);
+                uint32_t acc[4]={},I=0,Q=0;const auto lanes=[&](unsigned d,unsigned mask,auto f){for(unsigned l=0;l<4;++l)if(mask>>(3-l)&1)vf[d][l]=f(l);};
+                const auto accLanes=[&](unsigned mask,auto f){uint32_t t[4];for(unsigned l=0;l<4;++l)t[l]=acc[l];for(unsigned l=0;l<4;++l)if(mask>>(3-l)&1)t[l]=f(l);std::memcpy(acc,t,16);};
+                constexpr unsigned XYZ=14,XY=12,Xm=8,Ym=4,XYZW=15;
+                lanes(8,XYZ,[&](unsigned l){return S(vf[1][l],vf[6][l]);});                                 // 0870
+                lanes(31,XY,[&](unsigned){return A(vf[0][0],vf[0][3]);});I=loi(0x878);                        // 0878
+                lanes(28,XY,[&](unsigned l){return S(vf[0][l],vf[0][3]);});                                  // 0880
+                lanes(9,XYZ,[&](unsigned l){return M(vf[8][l],vf[8][l]);});                                  // 0888
+                lanes(30,XYZ,[&](unsigned l){return M(vf[7][l],vf[8][l]);});                                 // 0890
+                lanes(29,XY,[&](unsigned l){return A(vf[0][l],I);});                                         // 0898
+                accLanes(Xm,[&](unsigned){return A(vf[9][0],vf[9][1]);});                                    // 08a0
+                lanes(10,Xm,[&](unsigned){return A(acc[0],M(vf[31][0],vf[9][2]));});                         // 08a8
+                accLanes(Xm,[&](unsigned){return M(vf[29][0],vf[30][0]);});                                  // 08b0
+                accLanes(Xm,[&](unsigned){return A(acc[0],M(vf[29][0],vf[30][1]));});                        // 08b8
+                lanes(14,Xm,[&](unsigned){return A(acc[0],M(vf[29][0],vf[30][2]));});                        // 08c0
+                {uint32_t f=0;Q=F::rsqrt(vf[0][3],vf[10][0],f);}                                             // 08c8
+                accLanes(XYZ,[&](unsigned l){return M(vf[8][l],vf[28][0]);});                                // 08d0
+                lanes(17,XYZ,[&](unsigned l){return A(acc[l],M(vf[7][l],vf[14][0]));});                      // 08d8
+                accLanes(XYZW,[&](unsigned l){return M(vf[2][l],vf[17][0]);});                               // 08e0
+                accLanes(XYZW,[&](unsigned l){return A(acc[l],M(vf[3][l],vf[17][1]));});                     // 08e8
+                lanes(18,XYZW,[&](unsigned l){return A(acc[l],M(vf[4][l],vf[17][2]));});                     // 08f0
+                lanes(18,XYZ,[&](unsigned l){return M(vf[18][l],Q);});I=loi(0x8f8);                          // 08f8
+                lanes(27,Ym,[&](unsigned l){return A(vf[0][l],I);});                                         // 0900
+                I=loi(0x908);                                                                                // 0908
+                lanes(19,XYZ,[&](unsigned l){return vf[18][l]&0x7fffffffu;});{uint32_t f=0;Q=F::div(vf[18][0],vf[18][2],f);}   // 0910
+                lanes(26,Ym,[&](unsigned l){return M(vf[18][l],vf[18][l]);});                                // 0918
+                accLanes(Ym,[&](unsigned l){return M(vf[18][l],I);});I=loi(0x920);                           // 0920 (old I)
+                accLanes(Ym,[&](unsigned l){return A(acc[l],M(vf[31][l],I));});                              // 0928
+                const uint32_t f0930=S(vf[19][2],vf[19][0]);                                                 // 0930 subx.z vf00
+                lanes(26,Ym,[&](unsigned l){return M(vf[26][l],vf[18][l]);});                                // 0938
+                const uint32_t f0940=A(vf[0][0],vf[18][2]);I=loi(0x940);                                     // 0940 addz.x vf00
+                lanes(20,Xm,[&](unsigned){return A(vf[0][0],Q);});{uint32_t f=0;Q=F::div(vf[18][2],vf[18][0],f);}   // 0948
+                const uint32_t f0950=A(vf[0][0],vf[18][0]);unsigned vi1=f0930>>31;                            // 0950: fsand sees 0930
+                lanes(26,Xm,[&](unsigned){return A(vf[0][0],vf[0][0]);});const bool toB=vi1!=0;               // 0958 ibne
+                lanes(25,Ym,[&](unsigned l){return A(acc[l],M(vf[27][l],vf[26][l]));});vi1=f0940>>31;         // 0960 (delay slot): fsand sees 0940
+                unsigned path;
+                if(!toB){
+                    lanes(21,Xm,[&](unsigned){return M(vf[20][0],vf[20][0]);});const bool zPositive=vi1==0;  // 0968 ibeq
+                    accLanes(Xm,[&](unsigned){return M(vf[20][0],I);});vi1=f0950>>31;                        // 0970 (delay slot): fsand sees 0950
+                    if(zPositive){I=loi(0x998);lanes(26,Xm,[&](unsigned){return A(vf[0][0],I);});            // 0998, 09a0
+                        lanes(22,Xm,[&](unsigned){return M(vf[21][0],vf[20][0]);});path=0;}                  // 09a8
+                    else if(vi1){lanes(22,Xm,[&](unsigned){return M(vf[21][0],vf[20][0]);});path=1;}         // 0978 ibne -> 09a8
+                    else{lanes(22,Xm,[&](unsigned){return M(vf[21][0],vf[20][0]);});                         // 0988, b 09b0
+                        lanes(26,Xm,[&](unsigned){return A(vf[0][0],vf[0][3]);});path=2;}                    // 0990 (delay slot)
+                    lanes(28,Xm,[&](unsigned){return M(vf[21][0],vf[21][0]);});                              // 09b0
+                    vf[25][1]=ftoi12(vf[25][1]);                                                             // 09b8
+                    lanes(23,Xm,[&](unsigned){return M(vf[22][0],vf[21][0]);});I=loi(0x9c0);                  // 09c0
+                    lanes(24,Xm,[&](unsigned){return M(vf[28][0],vf[22][0]);});                              // 09c8
+                    accLanes(Xm,[&](unsigned){return A(acc[0],M(vf[22][0],I));});                            // 09d0
+                    accLanes(Xm,[&](unsigned){return A(acc[0],M(vf[26][0],vf[0][3]));});I=loi(0x9d8);         // 09d8
+                    accLanes(Xm,[&](unsigned){return A(acc[0],M(vf[23][0],I));});I=loi(0x9e0);                // 09e0 (old I)
+                    lanes(25,Xm,[&](unsigned){return A(acc[0],M(vf[24][0],I));});                            // 09e8
+                }else{
+                    I=loi(0x9f0);                                                                            // 09f0
+                    lanes(26,Xm,[&](unsigned){return A(vf[0][0],I);});vi1=f0950>>31;                         // 09f8: fsand sees 0950
+                    const bool xNegative=vi1!=0;                                                             // 0a00 ibne
+                    lanes(20,Xm,[&](unsigned){return A(vf[0][0],Q);});I=loi(0xa08);                          // 0a08 (delay slot)
+                    if(!xNegative)lanes(26,Xm,[&](unsigned){return A(vf[0][0],I);});                         // 0a10
+                    path=xNegative?3:4;
+                    lanes(21,Xm,[&](unsigned){return M(vf[20][0],vf[20][0]);});I=loi(0xa18);                  // 0a18
+                    accLanes(Xm,[&](unsigned){return M(vf[20][0],I);});                                      // 0a20
+                    lanes(22,Xm,[&](unsigned){return M(vf[21][0],vf[20][0]);});                              // 0a28
+                    lanes(28,Xm,[&](unsigned){return M(vf[21][0],vf[21][0]);});                              // 0a30
+                    vf[25][1]=ftoi12(vf[25][1]);                                                             // 0a38
+                    lanes(23,Xm,[&](unsigned){return M(vf[22][0],vf[21][0]);});I=loi(0xa40);                  // 0a40
+                    lanes(24,Xm,[&](unsigned){return M(vf[28][0],vf[22][0]);});                              // 0a48
+                    accLanes(Xm,[&](unsigned){return A(acc[0],M(vf[22][0],I));});                            // 0a50
+                    accLanes(Xm,[&](unsigned){return A(acc[0],M(vf[26][0],vf[0][3]));});I=loi(0xa58);         // 0a58
+                    accLanes(Xm,[&](unsigned){return A(acc[0],M(vf[23][0],I));});I=loi(0xa60);                // 0a60 (old I)
+                    lanes(25,Xm,[&](unsigned){return A(acc[0],M(vf[24][0],I));});                            // 0a68
+                }
+                ++paths[path];std::memcpy(vf25,vf[25],16);};
+            {   // 2a03e8 QMTC2 r0 -> vf25; the loop as written.
+                const uint32_t one=0x3f800000;uint32_t f1=0,f5=0;unsigned a3=0;
+                program(order[0]);
+                for(unsigned k=0;k<n;++k){
+                    const uint32_t u=vf25[0],vint=vf25[1];
+                    if(k+1<n)program(order[k+1]);
+                    uint32_t f0=0;{uint32_t fl=0;f0=F::sub(u,f1,fl)&0x7fffffffu;}
+                    if(a3!=strips[k]){f5=0;++resets;}
+                    else if(!F::le(f0,0x3ecccccdu)){uint32_t fl=0;f5=F::add(f5,F::le(u,f1)?one:0xbf800000u,fl);++seams;}
+                    uint32_t fl=0;const uint32_t s=F::add(u,f5,fl);const uint32_t w=F::toInt(F::mul(0x45800000u,s,fl));
+                    want[order[k]]=(vint<<16)|(w&0xffff);a3=strips[k];f1=u;}
+            }
+            R5900Context y{};y.r[23].ud[0]=object;y.r[21].ud[0]=1;y.r[29].ud[0]=stack;
+            const auto fp=_mm_getcsr();check(vp2s::nativeMathInstruction(r.memory.flat(),&y,&r,0x219210) && y.r[2].sd[0]==1);check((_mm_getcsr()|0x3f)==(fp|0x3f));
+            for(unsigned v=0;v<n;++v)if(get(packet+uvAt+4*v)!=want[v]){std::fprintf(stderr,"env seed%u vertex %u oracle %08x native %08x\n",seed,v,want[v],get(packet+uvAt+4*v));check(false);}
+            check(get(e+0x34)==desc && get(e+0x38)==0);   // the element's own cursor is the loader's (+38), untouched here
+            if(seed==1){   // a descriptor too short for the mesh's pairs is refused
+                put(desc+8,0x10);bool refused=false;R5900Context z{};z.r[23].ud[0]=object;z.r[21].ud[0]=1;z.r[29].ud[0]=stack;
+                try{vp2s::nativeMathInstruction(r.memory.flat(),&z,&r,0x219210);}catch(const std::runtime_error &){refused=true;}check(refused);}
+            ++envCases;
+        }
+        check(paths[0] && paths[1] && paths[2] && paths[3] && paths[4] && seams && resets);
+        std::printf("%u environment-map meshes match the VU0 0x870 listing + 2a03b0 loop (paths %u/%u/%u/%u/%u, %u seam steps, %u strip resets); short descriptor refused\n",
+            envCases,paths[0],paths[1],paths[2],paths[3],paths[4],seams,resets);
+    }
     std::printf("%u matrix/quaternion/Euler ABI cases, %u component products, %u whole CPU/RAM sphere getters,8192 independent scale cases and%u whole CPU/RAM axis-angle cases passed; no VU/device state\n",cases,products,sphereCases,axisCases);return 0;
 }catch(const std::exception &e){std::fprintf(stderr,"%s\n",e.what());return 1;}}

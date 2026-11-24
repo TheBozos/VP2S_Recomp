@@ -12,6 +12,31 @@ The earlier VP2S face/shading and general brightness comparisons remain open.
 
 ## Build and evidence
 
+### Environment-map element 159340 native (2026-11-24)
+
+- **The case:** 47 maps stopped at the animated-UV boundary (219210) on element class 159340. Its +10 method, mod001
+  2a03b0, runs VU0 program 0x870 (uploaded from 31391c) once per (vertex, strip) pair of its descriptor. The program
+  reflects eye - position about the normal, turns the direction through the element's rows (+50..+70) and maps it to
+  a UV pair: v from a cubic in y, u from an odd polynomial in x/z or z/x plus a quadrant offset. The EE loop then
+  unwraps u across the 0/1 seam within one strip (steps of 1 when |u - previous u| > 0.4) and writes
+  (v << 16) | (4096 (u + steps)) into the mesh's UV words. These are the flag-8 words, not the 4-byte stream.
+- **Now:** envMesh computes the same thing. It follows the program's operation order, its Q timing (every Q read
+  lands on its DIV/RSQRT completion), the I-bit rule (an upper op reads the old I) and the FSAND flags of the FMAC four
+  cycles earlier. The loop uses EE FPU words. It runs in the UV pass, in list order with the scroll elements, and is
+  refused after a position-rewriting element.
+- **Refused:**
+  - a descriptor shorter than the mesh's pairs (the method would read past its scratchpad copy);
+  - meshes with fewer than 2 vertices;
+  - a vertex index outside the mesh.
+
+**Evidence:**
+- **Test:** 40 random meshes match a pair-by-pair transcription of the 0x870 listing, with its I constants read from
+  the upload bytes, followed by the 2a03b0 loop. All five branches are covered, plus 194 seam steps and 90 strip
+  resets. The short-descriptor refusal is checked.
+- **Maps:** of the 47 maps, 12 now run 850 frames clean and 2 reach missing modules (227, 256). The rest stop at the
+  point-light shadow mem[14].w (28), 430858 (4) and an object-pair spill (1). The map 213 capture shows the palace
+  rails and pillars as expected.
+
 ### Particle mode 6: the camera's own update before its angles (2026-11-24)
 
 - **The case:** mode-6 particles with angle offsets (+afb / +afc) read the drawing camera's +5d0 / +5d4. The queued

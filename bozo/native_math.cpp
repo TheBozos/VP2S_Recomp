@@ -1503,6 +1503,7 @@ void ribbonMesh(Runtime *rt,uint32_t element,unsigned vertices,uint8_t *position
     for(unsigned i=0;i<4;++i)uvStore(rt,boundsAt+4*i,bounds[i]);
     uvStore(rt,element+0x254,uint32_t(index));
 }
+void envMesh(Runtime *rt,uint32_t element,uint32_t descriptor,uint32_t step,unsigned vertices,const uint8_t *positions,const uint8_t *normals,uint32_t *uvs,size_t uvBytes);
 bool nativeUvAnimation(R5900Context *c,Runtime *rt,uint32_t pc){
     if(pc!=0x219210)return false;
     if(!c)throw std::runtime_error("native UV animation has no CPU record");
@@ -1530,7 +1531,7 @@ bool nativeUvAnimation(R5900Context *c,Runtime *rt,uint32_t pc){
         // skin positions/normals/packed vectors; their table for each included
         // mesh is the +18 cursor, which 237320 resets to +44 and each included
         // mesh advances by its leading halfword.
-        struct Element{uint32_t at,cursor;float scroll[2];bool all;uint32_t bits;bool skeleton;bool morph=false;bool ribbon=false;bool colour=false;bool flash=false;bool trail=false;};std::vector<Element> elements;
+        struct Element{uint32_t at,cursor;float scroll[2];bool all;uint32_t bits;bool skeleton;bool morph=false;bool ribbon=false;bool colour=false;bool flash=false;bool trail=false;bool env=false;};std::vector<Element> elements;
         for(unsigned i=0;i<count;++i){const auto e=uvWord(rt,list+4*i);const auto vt=uvWord(rt,e);
             if(vt==0x154690){
                 if(uvWord(rt,vt+0x10)!=0x218220 || uvWord(rt,vt+0x18)!=0x2372f0)throw std::runtime_error("unqualified skeleton element methods");
@@ -1566,6 +1567,16 @@ bool nativeUvAnimation(R5900Context *c,Runtime *rt,uint32_t pc){
                     throw std::runtime_error("unqualified battle trail element methods");
                 if(!(flags&1))throw std::runtime_error("battle trail element without streamed positions");
                 elements.push_back({e,0,{0,0},(uvWord(rt,e+0x18)>>8&0xff)!=0,uvWord(rt,e+0x24),true});elements.back().trail=true;continue;}
+            if(vt==0x159340){
+                // Environment-map element: +10 is mod001 2a03b0 with VU0 program 0x870 (uploaded from
+                // 31391c), see envMesh; its data (+18, 2a05d0) is the scroll elements' descriptor walk.
+                if(uvWord(rt,vt+0x10)!=0x2a03b0 || uvWord(rt,vt+0x18)!=0x2a05d0 || !overlayCode(rt,0x2a03b0,0x2a05d0,0x2a107df4b5bb6fa3ull) || !overlayCode(rt,0x313920,0x313bf0,0x1546c1d5c3203b68ull))
+                    throw std::runtime_error("unqualified environment-map element methods");
+                if((flags&0xb)!=0xb)throw std::runtime_error(std::format("environment-map element without positions, normals and UVs (attributes {:x})",flags));
+                // It reads positions and normals as the elements before it in the list left them:
+                // natively it runs after every element that rewrites them.
+                for(const auto &before:elements)if(before.skeleton)throw std::runtime_error("environment-map element after an element that rewrites positions");
+                elements.push_back({e,uvWord(rt,e+0x34),{0,0},(uvWord(rt,e+0x18)>>8&0xff)!=0,uvWord(rt,e+0x24),false});elements.back().env=true;continue;}
             if(vt!=0x1591b0)throw std::runtime_error(std::format("unported animated vertex element class {:x} (+10={:x})",vt,uvWord(rt,vt+0x10)));
             Element el{e,uvWord(rt,e+0x34),{std::bit_cast<float>(uvWord(rt,e+0x40)),std::bit_cast<float>(uvWord(rt,e+0x44))},(uvWord(rt,e+0x18)>>8&0xff)!=0,uvWord(rt,e+0x24),false};
             for(float s:el.scroll)if((std::bit_cast<uint32_t>(s)&0x7f800000)==0x7f800000)throw std::runtime_error("unqualified UV scroll");
@@ -1630,6 +1641,7 @@ bool nativeUvAnimation(R5900Context *c,Runtime *rt,uint32_t pc){
                     if(el.skeleton)continue;
                     if(!el.all && !(uvWord(rt,el.bits+4*(uint32_t(j)>>5))>>(j&31)&1))continue;
                     const auto descriptor=el.cursor;el.cursor+=uvWord(rt,descriptor+8);
+                    if(el.env){envMesh(rt,el.at,descriptor,uvWord(rt,descriptor+8),unsigned(n),positions.data(),normals.data(),words.data(),4*words.size());continue;}
                     const auto listed=int32_t(uvWord(rt,descriptor));// A zero count makes 29cfe0 read one index past the descriptor, from
                     // whatever its scratchpad copy holds there: not reproducible from records.
                     if(listed<1 || listed>256)throw std::runtime_error("native UV descriptor count outside bounds");
@@ -1774,6 +1786,60 @@ VuWords vuWords(Runtime *rt,uint32_t at){VuWords v;std::memcpy(v.data(),record(r
 uint32_t vuMul(uint32_t a,uint32_t b){uint32_t f=0;return bozo::ps2f::mul(a,b,f);}
 uint32_t vuAdd(uint32_t a,uint32_t b){uint32_t f=0;return bozo::ps2f::addNearest(a,b,f);}
 uint32_t vuSub(uint32_t a,uint32_t b){uint32_t f=0;return bozo::ps2f::subNearest(a,b,f);}
+// Environment-map element (class 159340), its +10 method mod001 2a03b0(e, mesh record, data index).
+// For each of the mesh's n (vertex, strip) byte pairs at descriptor+10, VU0 program 0x870 runs on
+// vf1 = eye (e+40), vf2..vf4 = rows (e+50..70), vf6 = position, vf7 = normal of that vertex:
+//   V = eye - p; L = (Vx^2 + Vy^2) + 1*Vz^2; d = (2NxVx + 2NyVy) + 2NzVz; R = -V + N d;
+//   r = (rows . R) * RSQRT(1, L) (lane i = (r0i Rx + r1i Ry) + r2i Rz);
+//   v = FTOI12((y * 0.367347 + 1 * 0.5) + 0.0612245 * y^3);
+//   |z| >= |x| (S of |z| - |x| clear): t = 0 + x/z, offset 0.5 for z >= 0, else 0 (x < 0) or 1;
+//   else t = 0 + z/x, offset 0.25 (x < 0) or 0.75, polynomial coefficients negated;
+//   u = (((t c1 + t^3 c3) + offset * 1) + t^5 c5) + t^7 c7, t^5 = t^3 t^2, t^7 = t^4 t^3.
+// The signs are the S flags of 0 + z and 0 + x. Every Q read waits for its DIV/RSQRT (cycle count:
+// the reads land on the completion cycles), and each I-bit pair's upper op reads the old I.
+// EE (2a0460..2a05c0, COP1): f1 = 0, f5 = 0, previous strip 0; per pair: when the strip differs
+// from the previous one f5 = 0, else when |u - f1| > 0.4, f5 += (u <= f1 ? 1 : -1); the UV word
+// of the vertex (record +c, the flag-8 words) is (v << 16) | (cvt.w(4096 (u + f5)) & ffff)
+// (PINTEH), then f1 = u.
+void envMesh(Runtime *rt,uint32_t element,uint32_t descriptor,uint32_t step,unsigned vertices,const uint8_t *positions,const uint8_t *normals,uint32_t *uvs,size_t uvBytes){
+    namespace F=bozo::ps2f;
+    // The method reads n pairs from the scratchpad copy of the descriptor (step bytes): pairs past it
+    // are whatever follows the copy, and fewer than 2 pairs run its loop past the count.
+    if(vertices<2 || 0x10ull+2ull*vertices>step)throw std::runtime_error(std::format("native environment map reads {} pairs past its {:x}-byte descriptor",vertices,step));
+    if(4ull*vertices>uvBytes)throw std::runtime_error("native environment map outside its UV words");
+    const auto eye=vuWords(rt,element+0x40);std::array<VuWords,3> rows;for(unsigned k=0;k<3;++k)rows[k]=vuWords(rt,element+0x50+16*k);
+    constexpr uint32_t one=0x3f800000u,two=0x40000000u,minusOne=0xbf800000u,half=0x3f000000u,cubic=0x3d7ac688u,linear=0x3ebc14e6u;
+    constexpr uint32_t pathA[4]={0x3e30d794u,0xbd6bca1bu,0x3d0d7943u,0xbcca1af3u},pathB[4]={0xbe30d794u,0x3d6bca1bu,0xbd0d7943u,0x3cca1af3u};
+    const auto saved=_mm_getcsr();
+    uint32_t f1=0,f5=0,previous=0;
+    for(unsigned k=0;k<vertices;++k){
+        const auto vertex=uvByte(rt,descriptor+0x10+2*k),strip=uvByte(rt,descriptor+0x11+2*k);
+        if(vertex>=vertices)throw std::runtime_error("native environment map vertex outside its mesh");
+        uint32_t p[3],nrm[3];std::memcpy(p,positions+16*vertex,12);std::memcpy(nrm,normals+16*vertex,12);
+        uint32_t V[3],R[3],r[3];for(unsigned i=0;i<3;++i)V[i]=vuSub(eye[i],p[i]);
+        const auto L=vuAdd(vuAdd(vuMul(V[0],V[0]),vuMul(V[1],V[1])),vuMul(one,vuMul(V[2],V[2])));
+        const auto d=vuAdd(vuAdd(vuMul(two,vuMul(nrm[0],V[0])),vuMul(two,vuMul(nrm[1],V[1]))),vuMul(two,vuMul(nrm[2],V[2])));
+        uint32_t flags=0;const auto q=F::rsqrt(one,L,flags);
+        for(unsigned i=0;i<3;++i)R[i]=vuAdd(vuMul(V[i],minusOne),vuMul(nrm[i],d));
+        for(unsigned i=0;i<3;++i)r[i]=vuMul(vuAdd(vuAdd(vuMul(rows[0][i],R[0]),vuMul(rows[1][i],R[1])),vuMul(rows[2][i],R[2])),q);
+        const auto x=r[0],y=r[1],z=r[2];
+        const auto y3=vuMul(vuMul(y,y),y);
+        const auto v=vuFtoi(vuAdd(vuAdd(vuMul(y,linear),vuMul(one,half)),vuMul(cubic,y3)),12);
+        const auto xz=F::div(x,z,flags),zx=F::div(z,x,flags);
+        const bool xWide=vuSub(z&0x7fffffffu,x&0x7fffffffu)>>31,zNegative=vuAdd(0,z)>>31,xNegative=vuAdd(0,x)>>31;
+        const auto t=vuAdd(0,xWide?zx:xz);
+        const uint32_t offset=xWide?(xNegative?0x3e800000u:0x3f400000u):(!zNegative?half:(xNegative?0u:one));
+        const auto *c=xWide?pathB:pathA;
+        const auto t2=vuMul(t,t),t3=vuMul(t2,t),t4=vuMul(t2,t2),t5=vuMul(t3,t2),t7=vuMul(t4,t3);
+        const auto u=vuAdd(vuAdd(vuAdd(vuAdd(vuMul(t,c[0]),vuMul(t3,c[1])),vuMul(offset,one)),vuMul(t5,c[2])),vuMul(t7,c[3]));
+        if(previous!=strip)f5=0;
+        else if(!F::le(eeSub(u,f1)&0x7fffffffu,0x3ecccccdu))f5=eeAdd(f5,F::le(u,f1)?one:minusOne);
+        const uint32_t word=(v<<16)|(F::toInt(eeMul(0x45800000u,eeAdd(u,f5)))&0xffffu);
+        uvs[vertex]=word;
+        f1=u;previous=strip;
+    }
+    _mm_setcsr(saved);
+}
 // Mesh depth keys (mod001 23a288..23a4e8, battle 0x4d): the object's local-to-screen matrix at sp+a0, either the rows
 // s0+2f0 copied by the EE (no parent) or, with a parent (+208), the product 23a330..23a36c: column i = ((P0 c.x + P1 c.y)
 // + P2 c.z) + P3 c.w, c = row i of s0+2f0, P = the parent's rows at +d0, stored by SQC2 at 23a370..23a37c. LQC2 vf5..vf8

@@ -586,6 +586,14 @@ float vu0Input(float v){const auto bits=std::bit_cast<uint32_t>(v);
     return pairNormal(v);}
 struct ObjectPairRegisters{std::array<std::array<uint32_t,4>,8> rows{};std::array<uint32_t,4> scale{};bool valid=false;};
 ObjectPairRegisters &objectPairRegisters(const Runtime *rt){static std::map<const Runtime *,ObjectPairRegisters> states;return states[rt];}
+// A routine that SQC2s vf1..vf9 to its frame on entry and LQC2s them back on each exit gives its caller the same
+// registers back: the tracked set (valid or not) is kept per frame at the spill and returned at the first restore.
+std::map<std::pair<const Runtime *,uint32_t>,ObjectPairRegisters> &objectPairSaves(){static std::map<std::pair<const Runtime *,uint32_t>,ObjectPairRegisters> m;return m;}
+void saveObjectPairRegisters(const Runtime *rt,uint32_t frame){objectPairSaves()[{rt,frame}]=objectPairRegisters(rt);}
+void restoreObjectPairRegisters(const Runtime *rt,uint32_t frame){
+    auto &saves=objectPairSaves();const auto it=saves.find({rt,frame});
+    if(it==saves.end())throw std::runtime_error("native object-pair registers restored without their spill");
+    objectPairRegisters(rt)=it->second;saves.erase(it);}
 // Common-math 0x7f0 on an object's basis rows +90..+b0: the per-axis lengths
 // (column norms) to out.xyz. The micro program leaves W as inherited register
 // state; no reader.
@@ -633,21 +641,45 @@ bool nativeObjectPairSetup(R5900Context *c,Runtime *rt,uint32_t pc){
 // them back (3985e0..398600), then LQC2 vf8 from sp+460 (398608: the second
 // object's position row, as its +20 method moved it) before 1f88d0 runs the
 // shape test on them. The spill writes the registers' words, as the original.
+// Its sibling mod003 430180 (another object's +20 method, run inside that loop; maps 71, 107 and 25 others) keeps
+// the registers the same way around its calls to 41f610 (which runs the object-pair routines 1f9430 / 1f98a0 /
+// 1f8aa0 itself): SQC2 vf1..vf9 to sp+170 at 4302f4, 430858 (base v0) and 430a50 (base v1), LQC2 them back at
+// 430604 (vf9 at 430628, after a branch), 4309cc and 430abc. No scalar code reads sp+170..200.
 bool nativeObjectPairSpill(R5900Context *c,Runtime *rt,uint32_t pc){
-    const bool spill=pc>=0x3984f4 && pc<=0x398514,restore=pc>=0x3985e0 && pc<=0x398600,moved=pc==0x398608;
-    if(!(spill || restore || moved) || (pc&3) || !rt)return false;
-    const unsigned index=spill?(pc-0x3984f4)/4:restore?(pc-0x3985e0)/4:7;
-    const uint32_t expected=moved?0xd8480000u:(spill?0xf8600000u|((index+1)<<16):0xd8400000u|((index+1)<<16))|(moved?0:index*0x10);
+    struct Block{uint32_t first;bool spill;unsigned base;uint32_t offset;};
+    static constexpr Block blocks[]={{0x3984f4,true,3,0x3a0},{0x3985e0,false,2,0x3a0},
+        {0x4302f4,true,2,0x170},{0x430604,false,2,0x170},{0x430858,true,2,0x170},{0x4309cc,false,2,0x170},{0x430a50,true,3,0x170},{0x430abc,false,2,0x170}};
+    if((pc&3) || !rt)return false;
+    const bool moved=pc==0x398608;const Block *block=nullptr;unsigned index=7;
+    for(const auto &b:blocks)if(pc>=b.first && pc<=b.first+0x20){block=&b;index=(pc-b.first)/4;}
+    if(pc==0x430628){static constexpr Block late{0x430604,false,2,0x170};block=&late;index=8;}   // vf9 after the branch at 430624
+    else if(block && block->first==0x430604 && index==8)return false;
+    if(!block && !moved)return false;
+    const bool spill=block && block->spill;const unsigned baseReg=moved?2:block->base;const uint32_t offset=moved?0x460:block->offset;
+    const uint32_t expected=moved?0xd8480000u:((spill?0xf8000000u:0xd8000000u)|(baseReg<<21)|((index+1)<<16)|index*0x10);
     uint32_t word=0;if(const auto *p=rt->memory.hostPointer(pc,4))std::memcpy(&word,p,4);
     if(word!=expected)return false;   // another overlay at these addresses
     if(!c)throw std::runtime_error("native object pair spill has no CPU record");
     const auto stack=c->r[29].uw[0];auto &regs=objectPairRegisters(rt);
-    const auto base=c->r[spill?3:2].uw[0];
-    if(base!=stack+(moved?0x460:0x3a0))throw std::runtime_error("native object pair spill escaped its frame");
+    const auto base=c->r[baseReg].uw[0];
+    if(base!=stack+offset)throw std::runtime_error("native object pair spill escaped its frame");
     auto *row=index<8?regs.rows[index].data():regs.scale.data();
-    if(spill){if(!regs.valid)throw std::runtime_error("native object pair spill without registers");std::memcpy(record(rt,base+index*16,16),row,16);return true;}
+    // 430180 also saves registers it never had set for it (the path 4302d8 -> 430718 skips its first spill, so
+    // 430858 saves its caller's vf1..vf9). No scalar code reads sp+170..200; only its own restore does. A set the
+    // native state does not hold is kept as such: the frame is marked, its slots stay untouched, and the
+    // restore returns an unknown set (a later reader still refuses it).
+    static std::set<std::pair<const Runtime *,uint32_t>> unknownFrames;
+    const bool keepsUnknown=!moved && offset==0x170;
+    if(spill){
+        if(!regs.valid){if(!keepsUnknown)throw std::runtime_error("native object pair spill without registers");
+            if(index==0)unknownFrames.insert({rt,base});else if(!unknownFrames.count({rt,base}))throw std::runtime_error("native object pair spill lost its registers");
+            return true;}
+        if(index==0)unknownFrames.erase({rt,base});
+        else if(keepsUnknown && unknownFrames.count({rt,base}))throw std::runtime_error("native object pair spill gained registers midway");
+        std::memcpy(record(rt,base+index*16,16),row,16);return true;}
     if(moved){if(!regs.valid)throw std::runtime_error("native object pair row without registers");std::memcpy(row,record(rt,base,16),16);return true;}
     if(index==0)regs.valid=false;
+    if(keepsUnknown && unknownFrames.count({rt,base})){if(index==8)unknownFrames.erase({rt,base});return true;}
     std::memcpy(row,record(rt,base+index*16,16),16);if(index==8)regs.valid=true;
     return true;
 }
@@ -848,7 +880,9 @@ bool nativeObjectOverlap(R5900Context *c,Runtime *rt,uint32_t pc){
     const auto stack=c->r[29].uw[0],first=c->r[18].uw[0],second=c->r[17].uw[0];
     if(spill || restore){
         if(c->r[2].uw[0]!=stack+0xa0)throw std::runtime_error("native object overlap spill escaped its frame");
-        objectPairRegisters(rt).valid=false;   // vf1..vf9 belong to the caller again
+        // vf1..vf9 belong to the caller again: saved at the first spill word, returned at each exit's first restore.
+        if(pc==0x1f8b34)saveObjectPairRegisters(rt,stack);
+        else if(pc==0x1f8e70 || pc==0x1f8fec || pc==0x1f907c || pc==0x1f90dc)restoreObjectPairRegisters(rt,stack);
         return true;
     }
     if(firstScale || secondScale){
@@ -916,7 +950,8 @@ bool nativeBattleObjectOverlap(R5900Context *c,Runtime *rt,uint32_t pc){
     const auto stack=c->r[29].uw[0],first=c->r[19].uw[0],second=c->r[18].uw[0];
     if(spill || restore){
         if(c->r[2].uw[0]!=stack+0xd0)throw std::runtime_error("native battle object overlap spill escaped its frame");
-        objectPairRegisters(rt).valid=false;   // vf1..vf9 belong to the caller again
+        if(pc==0x4a6cf4)saveObjectPairRegisters(rt,stack);   // returned to the caller at each exit (as 1f8aa0)
+        else if(pc==0x4a7034 || pc==0x4a7250 || pc==0x4a7290)restoreObjectPairRegisters(rt,stack);
         return true;
     }
     if(c->r[6].uw[0]!=stack+0xc0 || c->r[5].uw[0]!=c->r[21].uw[0]+0x10 || c->r[4].uw[0]!=c->r[20].uw[0]+0x10 || c->r[3].uw[0]!=first+0x150 ||

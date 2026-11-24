@@ -12,6 +12,28 @@ The earlier VP2S face/shading and general brightness comparisons remain open.
 
 ## Build and evidence
 
+### Object-pair registers kept across 430180 and 1f8aa0 (2026-11-24)
+
+- **The case:** 27 maps stopped at 430858, mod003 430180 (a sibling of the push-out loop 397780). It keeps vf1..vf9
+  across its calls to 41f610, which runs the object-pair routines itself. It saves them with SQC2 to sp+170 at
+  4302f4, 430858 and 430a50, and loads them back with LQC2 at 430604 (vf9 at 430628, after a branch), 4309cc and
+  430abc. No scalar code reads that area.
+- **Now:**
+  - nativeObjectPairSpill covers these blocks as it covers 397780's.
+  - 1f8aa0 (and its battle compile 4a6c40) saves vf1..vf9 on entry and loads them back at every exit. Natively it
+    used to drop the tracked set at both points; it now saves the set at its spill and returns it at each exit's
+    restore. A restore without its spill is refused.
+  - The path 4302d8 -> 430718 skips 430180's first spill, so 430858 saves its caller's registers, which native
+    state does not hold. The frame is then marked: its slots stay untouched and the restore returns an unknown set,
+    so a later reader still refuses it. 397780 keeps its strict refusal.
+
+**Evidence:**
+- **Tests:** the 430180 blocks (the branch word at 430624 is not claimed), a set surviving 1f8aa0 while another is
+  loaded in between, the unpaired restore, and an unknown set carried through spill and restore with its slots
+  untouched.
+- **Maps:** of the 27 maps, 16 now run 850 frames clean (71, 116, 122, 156, 175, 207, 217, 222, 244, 255, 283, 354,
+  384, 404, 411, 431). 10 reach missing modules and 1 reaches mesh algorithm 16.
+
 ### Point-light shadow (mem[14].w) native (2026-11-24)
 
 - **The case:** 42 maps refused the shadow classes 159880/1599a0 when mem[14].w (object+31c) was set.

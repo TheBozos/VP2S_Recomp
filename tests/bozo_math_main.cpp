@@ -759,6 +759,48 @@ int main(int argc,char **argv){try{
             check(!std::memcmp(earlier.data(),rt.memory.hostPointer(stack+0x3a0,0x90),0x90));
             c.r[3].uw[0]=stack+0x3b0;bool rejected=false;try{vp2s::nativeMathInstruction(rt.memory.flat(),&c,&rt,0x3984f4);}catch(const std::runtime_error &){rejected=true;}check(rejected);
             const uint32_t other=0;std::memcpy(rt.memory.hostPointer(0x3984f4,4),&other,4);check(!vp2s::nativeMathInstruction(rt.memory.flat(),&c,&rt,0x3984f4));   // another overlay
+            // Its sibling 430180: spills at 4302f4 / 430858 (v0) and 430a50 (v1), restores at 430604 (vf9 at 430628,
+            // 430624 being a branch), 4309cc and 430abc, all at sp+170.
+            {const uint32_t spills[3][2]={{0x4302f4,2},{0x430858,2},{0x430a50,3}},restores[3]={0x430604,0x4309cc,0x430abc};
+             const auto at=[](uint32_t first,unsigned i){return first==0x430604 && i==8?0x430628u:first+4*i;};
+             std::vector<uint8_t> keep(0x400);std::memcpy(keep.data(),rt.memory.hostPointer(0x4302f4,0x400),0x400);
+             for(const auto &s:spills)for(unsigned i=0;i<9;++i){const uint32_t w=0xf8000000u|(s[1]<<21)|((i+1)<<16)|i*0x10;std::memcpy(rt.memory.hostPointer(s[0]+4*i,4),&w,4);}
+             for(uint32_t r:restores)for(unsigned i=0;i<9;++i){const uint32_t w=0xd8400000u|((i+1)<<16)|i*0x10;std::memcpy(rt.memory.hostPointer(at(r,i),4),&w,4);}
+             const uint32_t branch=0x1600003c;std::memcpy(rt.memory.hostPointer(0x430624,4),&branch,4);
+             R5900Context k{};k.r[29].uw[0]=stack;k.r[2].uw[0]=stack+0x170;k.r[3].uw[0]=stack+0x170;
+             const std::vector<uint8_t> before(rt.memory.hostPointer(stack+0x3a0,0x90),rt.memory.hostPointer(stack+0x3a0,0x90)+0x90);   // the registers as spilled above
+             for(unsigned i=0;i<9;++i)check(vp2s::nativeMathInstruction(rt.memory.flat(),&k,&rt,0x4302f4+4*i));
+             check(!std::memcmp(before.data(),rt.memory.hostPointer(stack+0x170,0x90),0x90));
+             check(!vp2s::nativeMathInstruction(rt.memory.flat(),&k,&rt,0x430624));   // the branch is not a restore
+             std::vector<uint8_t> other2(0x90);for(unsigned i=0;i<0x90;++i)other2[i]=uint8_t(i*7+1);std::memcpy(rt.memory.hostPointer(stack+0x170,0x90),other2.data(),0x90);
+             for(unsigned i=0;i<9;++i)check(vp2s::nativeMathInstruction(rt.memory.flat(),&k,&rt,at(0x430604,i)));
+             std::memset(rt.memory.hostPointer(stack+0x170,0x90),0,0x90);
+             for(unsigned i=0;i<9;++i)check(vp2s::nativeMathInstruction(rt.memory.flat(),&k,&rt,0x430a50+4*i));   // v1 base: the restored set
+             check(!std::memcmp(other2.data(),rt.memory.hostPointer(stack+0x170,0x90),0x90));
+             // 1f8aa0 (inside 41f610) gives its caller the registers back: saved at its spill 1f8b34, returned at an
+             // exit's restore 1f8e70, whatever was loaded in between.
+             {constexpr uint32_t inner=0x1ffd000;R5900Context o{};o.r[29].uw[0]=inner;o.r[2].uw[0]=inner+0xa0;
+              check(vp2s::nativeMathInstruction(rt.memory.flat(),&o,&rt,0x1f8b34));
+              std::memset(rt.memory.hostPointer(stack+0x170,0x90),0x5a,0x90);
+              for(unsigned i=0;i<9;++i)check(vp2s::nativeMathInstruction(rt.memory.flat(),&k,&rt,at(0x430604,i)));   // clobbered
+              check(vp2s::nativeMathInstruction(rt.memory.flat(),&o,&rt,0x1f8e70));
+              std::memset(rt.memory.hostPointer(stack+0x170,0x90),0,0x90);k.r[2].uw[0]=stack+0x170;
+              for(unsigned i=0;i<9;++i)check(vp2s::nativeMathInstruction(rt.memory.flat(),&k,&rt,0x430858+4*i));
+              check(!std::memcmp(other2.data(),rt.memory.hostPointer(stack+0x170,0x90),0x90));
+              bool unpaired=false;try{vp2s::nativeMathInstruction(rt.memory.flat(),&o,&rt,0x1f8fec);}catch(const std::runtime_error &){unpaired=true;}check(unpaired);}
+             // An unknown set (397780's restore has begun: vf1 reloaded, the rest not yet) is kept as unknown through
+             // 430180's spill and restore: its slots stay untouched and the next spill is unknown again.
+             {R5900Context u{};u.r[29].uw[0]=stack;u.r[2].uw[0]=stack+0x3a0;check(vp2s::nativeMathInstruction(rt.memory.flat(),&u,&rt,0x3985e0));
+              std::memset(rt.memory.hostPointer(stack+0x170,0x90),0x77,0x90);const std::vector<uint8_t> marked(rt.memory.hostPointer(stack+0x170,0x90),rt.memory.hostPointer(stack+0x170,0x90)+0x90);
+              k.r[2].uw[0]=stack+0x170;k.r[3].uw[0]=stack+0x170;
+              for(unsigned i=0;i<9;++i)check(vp2s::nativeMathInstruction(rt.memory.flat(),&k,&rt,0x430858+4*i));
+              for(unsigned i=0;i<9;++i)check(vp2s::nativeMathInstruction(rt.memory.flat(),&k,&rt,0x4309cc+4*i));
+              for(unsigned i=0;i<9;++i)check(vp2s::nativeMathInstruction(rt.memory.flat(),&k,&rt,0x430a50+4*i));
+              check(!std::memcmp(marked.data(),rt.memory.hostPointer(stack+0x170,0x90),0x90));
+              for(unsigned i=0;i<9;++i)check(vp2s::nativeMathInstruction(rt.memory.flat(),&k,&rt,0x430abc+4*i));
+              bool strict=false;try{for(unsigned i=0;i<9;++i)vp2s::nativeMathInstruction(rt.memory.flat(),&k,&rt,0x430858+4*i);}catch(const std::runtime_error &){strict=true;}check(!strict);}
+             k.r[2].uw[0]=stack+0x180;bool escaped=false;try{vp2s::nativeMathInstruction(rt.memory.flat(),&k,&rt,0x430858);}catch(const std::runtime_error &){escaped=true;}check(escaped);
+             std::memcpy(rt.memory.hostPointer(0x4302f4,0x400),keep.data(),0x400);}
         }
         for(unsigned which=0;which<4;++which){R5900Context c{};c.r[29].uw[0]=stack;c.r[17].uw[0]=first;c.r[16].uw[0]=second;
             uint32_t pc=0x1f930c;c.r[6].uw[0]=first+0x90;c.r[3].uw[0]=stack+0x40;

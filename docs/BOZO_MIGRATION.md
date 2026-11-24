@@ -12,6 +12,27 @@ The earlier VP2S face/shading and general brightness comparisons remain open.
 
 ## Build and evidence
 
+### Row-matrix points (mod003 35f4f8 / 410da0); the second sprite-motion copy (361ea0) (2026-11-24)
+
+- **The case:** 4 maps (104, 105, 130, 444) stopped at 35f4f8. There, LQC2 vf1..vf4 load the rows at a2, then
+  410da0(a0 = a1 = s0+30+16 i), for i < 8, takes each point in place through them.
+  - The lanes sum as x ((x+y)+z)+w, y ((y+x)+z)+w, z ((z+y)+x)+w, w ((w+y)+z)+x.
+  - The store is the jr's delay slot (410dec).
+- **Then:** the same maps reached 361ea0, the +10 of classes 15c0c0 / 15c710. It is 3cb370's four blocks at other
+  addresses. Their step 35ff80 loads its own box point (a2), so it is a box-triplet entry.
+- **Now:**
+  - nativeRowPoints captures the rows at their loads and transforms each point at 410dec, only when 410da0 returns
+    to 35f524. It uses VU0 macro arithmetic (ps2f mul, nearest add): the older rowPoint helper's rounding differs
+    from the VU0 reference.
+  - nativeSpriteMove takes the second copy's sites.
+
+**Evidence:**
+- **Tests:**
+  - 256 row points through the VU0 reference word by word.
+  - The sprite-motion test runs both copies (192 moves).
+- **Maps:** all 4 run clean.
+- **Atlas:** 484 of 552 maps clean.
+
 ### Sprite-particle motion (mod003 3cb370 / 3ca780, classes 1609a0 / 160bc0) (2026-11-24)
 
 - **The case:** 6 maps (463-468) stopped at 3cb3f0. That is the +10 of field emitter classes 1609a0 / 160bc0,

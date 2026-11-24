@@ -6106,7 +6106,9 @@ bool nativeParticleBox(R5900Context *c,Runtime *rt,uint32_t pc){
         // mod003 40a700 and 40a7d0 (leaf emitter methods, the driver frame is their sp; point at a2 after its copy), and their
         // mod001 copies 290eb0 / 290f80 (179850 lower; battle 0x1b).
         {0x40a75c,0x40a76c,0x40a770,0,0xd8c10000,6,4},{0x40a82c,0x40a83c,0x40a840,0,0xd8c10000,6,4},
-        {0x290f0c,0x290f1c,0x290f20,0,0xd8c10000,6,4},{0x290fdc,0x290fec,0x290ff0,0,0xd8c10000,6,4}};
+        {0x290f0c,0x290f1c,0x290f20,0,0xd8c10000,6,4},{0x290fdc,0x290fec,0x290ff0,0,0xd8c10000,6,4},
+        // mod003 35ff80 (step of classes 15c0c0 / 15c710, frame 0x40, emitter a0): the output point at a2 before its fill.
+        {0x35fff4,0x360018,0x36001c,0x40,0xd8c10000,6,4}};
     const Box *box=nullptr;unsigned role=0;
     for(const auto &b:boxes){if(pc==b.load){box=&b;role=0;}else if(pc==b.min){box=&b;role=1;}else if(pc==b.max){box=&b;role=2;}}
     if(!rt || !box)return false;
@@ -7571,8 +7573,14 @@ bool nativeSpriteMove(R5900Context *c,Runtime *rt,uint32_t pc){
         {0x3cb54c,0xd8610000,'1'},{0x3cb550,0xd9220000,'2'},{0x3cb570,0x4bc00abc,'A'},{0x3cb574,0x4bc31048,'M'},{0x3cb580,0xf9210000,'S'},{0x3cb584,0xf8610000,'S'},
         {0x3cb688,0xda610000,'1'},{0x3cb690,0xdaa20000,'2'},{0x3cb794,0x4bc00abc,'A'},{0x3cb798,0x4bc31048,'M'},{0x3cb7a4,0xfa410000,'S'},{0x3cb7ac,0xfa610000,'S'},
         {0x3cb884,0xda610000,'1'},{0x3cb888,0xda020000,'2'},{0x3cb99c,0x4bc00abc,'A'},{0x3cb9a0,0x4bc31048,'M'},{0x3cb9ac,0xfa010000,'S'},{0x3cb9b4,0xfa610000,'S'},
-        {0x3ca828,0x4bc1d6af,'m'},{0x3ca82c,0x4bc1deeb,'x'}};
-    if(!rt || (pc&3) || pc<0x3ca828 || pc>0x3cb9b4)return false;
+        {0x3ca828,0x4bc1d6af,'m'},{0x3ca82c,0x4bc1deeb,'x'},
+        // mod003 361ea0, the same +10 for classes 15c0c0 / 15c710 (their step 35ff80 loads its own box point).
+        {0x361f20,0x48a31800,'T'},{0x3620fc,0x48b11800,'T'},
+        {0x361f8c,0xda010000,'1'},{0x361f90,0xd8620000,'2'},{0x361fa8,0x4bc00abc,'A'},{0x361fac,0x4bc31048,'M'},{0x361fb8,0xf8610000,'S'},{0x361fbc,0xfa010000,'S'},
+        {0x362064,0xd8610000,'1'},{0x362068,0xd9220000,'2'},{0x362080,0x4bc00abc,'A'},{0x362084,0x4bc31048,'M'},{0x362090,0xf9210000,'S'},{0x362094,0xf8610000,'S'},
+        {0x362190,0xda610000,'1'},{0x362198,0xdaa20000,'2'},{0x362294,0x4bc00abc,'A'},{0x362298,0x4bc31048,'M'},{0x3622a4,0xfa410000,'S'},{0x3622ac,0xfa610000,'S'},
+        {0x36237c,0xda610000,'1'},{0x362380,0xda020000,'2'},{0x36248c,0x4bc00abc,'A'},{0x362490,0x4bc31048,'M'},{0x36249c,0xfa010000,'S'},{0x3624a4,0xfa610000,'S'}};
+    if(!rt || (pc&3) || !((pc>=0x3ca828 && pc<=0x3cb9b4) || (pc>=0x361f20 && pc<=0x3624a4)))return false;
     const auto site=std::find_if(std::begin(sites),std::end(sites),[&](const auto &s){return s.pc==pc;});
     if(site==std::end(sites))return false;
     uint32_t word=0;if(const auto *p=rt->memory.hostPointer(pc,4))std::memcpy(&word,p,4);
@@ -7600,6 +7608,37 @@ bool nativeSpriteMove(R5900Context *c,Runtime *rt,uint32_t pc){
     default:{if(!st.moved)throw std::runtime_error("native sprite motion stored before its step");
         auto *p=record(rt,at(),16);for(unsigned i=0;i<4;++i)st.result[i].store(p+4*i);return true;}
     }
+}
+// Eight points through a row matrix, mod003 35f4f8: LQC2 vf1..vf4 = the rows at a2, then 410da0(a0 = a1 = s0+30+16 i)
+// for i < 8 takes each point in place through them (the height query's row-point block, same accumulation order:
+// x ((x+y)+z)+w, y ((y+x)+z)+w, z ((z+y)+x)+w, w ((w+y)+z)+x, in VU0 arithmetic; the store is 410dec, jr's delay slot). The rows are
+// captured at their loads and 410da0 is native only when it returns to 35f524 (its other callers load their own).
+namespace {struct RowPointsState{uint32_t matrix=0;unsigned loaded=0;};
+RowPointsState &rowPointsState(const Runtime *rt){static std::map<const Runtime *,RowPointsState> states;return states[rt];}}
+bool nativeRowPoints(R5900Context *c,Runtime *rt,uint32_t pc){
+    const bool rows=pc>=0x35f4f8 && pc<=0x35f504,point=pc>=0x410da0 && pc<=0x410dec;
+    if(!rt || (pc&3) || !(rows || point))return false;
+    static constexpr uint32_t rowWords[]={0xd8c10000,0xd8c20010,0xd8c30020,0xd8c40030};
+    static constexpr uint32_t pointWords[]={0xd88f0000,0x4bc00183,0x4bef0aea,0x4bef132a,0x4bef1b6a,0x4bef23aa,0x4b0b583d,0x4b0b30be,0x4b0b314b,0x4a8c603c,0x4a8c30be,0x4a8c314b,
+        0x4a4d683d,0x4a4d30bc,0x4a4d314b,0x4a2e703d,0x4a2e00be,0x4a2e0148,0x03e00008,0xf8a50000};
+    uint32_t word=0;if(const auto *p=rt->memory.hostPointer(pc,4))std::memcpy(&word,p,4);
+    if(word!=(rows?rowWords[(pc-0x35f4f8)/4]:pointWords[(pc-0x410da0)/4]))return false;   // another overlay at these addresses
+    if(point && pc==0x410de8)return false;   // jr ra runs as compiled
+    if(!c)throw std::runtime_error("native row points have no CPU record");
+    auto &st=rowPointsState(rt);
+    if(rows){const auto base=c->r[6].uw[0];const unsigned k=(pc-0x35f4f8)/4;if(!k)st=RowPointsState{base,0};
+        if(base!=st.matrix)throw std::runtime_error("native row points matrix moved between its loads");st.loaded|=1u<<k;return true;}
+    if(c->r[31].uw[0]!=0x35f524)throw std::runtime_error("native row point outside the 35f4f8 loop");
+    if(st.loaded!=15)throw std::runtime_error("native row point without its rows");
+    if(pc!=0x410dec)return true;
+    const auto at=c->r[4].uw[0];if(c->r[5].uw[0]!=at)throw std::runtime_error("native row point not in place");
+    // VU0 macro arithmetic as the emitters' ports (ps2f mul, nearest add), each lane in the listing's order.
+    struct ArithmeticScope{unsigned saved=_mm_getcsr();~ArithmeticScope(){_mm_setcsr(saved);}} arithmetic;
+    const auto *m=record(rt,st.matrix,64),*v=record(rt,at,16);Ps2Lanes out;
+    constexpr unsigned order[4][4]={{0,1,2,3},{1,0,2,3},{2,1,0,3},{3,1,2,0}};
+    for(unsigned row=0;row<4;++row){Ps2Word t[4];for(unsigned i=0;i<4;++i)t[i]=Ps2Word::load(m+16*row+4*i)*Ps2Word::load(v+4*i);
+        out[row]=((t[order[row][0]]+t[order[row][1]])+kPs2One*t[order[row][2]])+kPs2One*t[order[row][3]];}
+    auto *dst=record(rt,at,16);for(unsigned i=0;i<4;++i)out[i].store(dst+4*i);return true;
 }
 // Particle collision shapes (mod001), the +90 of the collision objects the emitters' 2240c0 walks (called at 22414c):
 // test(a0 shape, a1 A, a2 B, a3 V, t0 out velocity, t1 out point) -> hit. A and B are the particle's positions before
@@ -9523,7 +9562,7 @@ bool nativeMathInstruction(uint8_t *,R5900Context *c,Runtime *rt,uint32_t pc){
     default:
         // Inlined-block recognisers last: they read code around the PC, so
         // only sites no specific handler claimed pay for that scan.
-        return CLAIM(nativeParticleStep) || CLAIM(nativeParticleBox) || CLAIM(nativeTrailEmitter) || CLAIM(nativeProgramEmitter) || CLAIM(nativeSimpleEmitter) || CLAIM(nativeCollisionShape) || CLAIM(nativeHeightNormals) || CLAIM(nativeSpriteMove) || CLAIM(nativeRowEmitter) || CLAIM(nativeEmitterClock) || CLAIM(nativeConstantStore) || CLAIM(nativeLengthIdiom) || CLAIM(nativeMacroIdiom) || CLAIM(nativeInverseIdiom) || nativeQuaternionIdiom(c,rt,pc);
+        return CLAIM(nativeParticleStep) || CLAIM(nativeParticleBox) || CLAIM(nativeTrailEmitter) || CLAIM(nativeProgramEmitter) || CLAIM(nativeSimpleEmitter) || CLAIM(nativeCollisionShape) || CLAIM(nativeHeightNormals) || CLAIM(nativeSpriteMove) || CLAIM(nativeRowPoints) || CLAIM(nativeRowEmitter) || CLAIM(nativeEmitterClock) || CLAIM(nativeConstantStore) || CLAIM(nativeLengthIdiom) || CLAIM(nativeMacroIdiom) || CLAIM(nativeInverseIdiom) || nativeQuaternionIdiom(c,rt,pc);
     }
 }
 #undef CLAIM

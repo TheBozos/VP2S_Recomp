@@ -12,6 +12,42 @@ The earlier VP2S face/shading and general brightness comparisons remain open.
 
 ## Build and evidence
 
+### Battles 0x1c and 0x32: image 5 fog, emitter hook copy, a fifth box copy, mode-0 points (VU1 image 3) (2026-11-24)
+
+- **Image 5 fog variant (row 15.w, 0ee8..15f8):** the same strips; each vertex's F = clamp(row68.z + row68.w Q, 0, 255),
+  Q = 1 / its screen w, integer after FTOI4. Row 68 is the camera's +5a0 qword (z, w = the fog pair at +5a8, battle 0x1c:
+  186 and 69000); FOGCOL is the camera's clear colour, as for models. In the loop, MULAz.w (1298, for vertex a's F)
+  lands in the middle of vertex b's guard transform. A middle point's b is therefore judged against
+  w = ((fog.z + g13 y) + g14 z) + g15; the native guard test does the same.
+- **Parent-hook helper 297fd0** (245540 compiled again under the program emitter copy): its seven spill/restore words are
+  retired like the general ones (word-checked).
+- **Particle box 287c30** (23fa40 compiled a fifth time, the driver's 22ed1c call): its 144 VU0 words are 23fa40's in
+  order, so its 48 triplets map one to one (frame 0x240, emitter s5).
+- **Mode-0 particles (VU1 image 3):**
+  - GS points: tag 0x2030400000008000 / 0x41 (PRIM 0x60: point, FGE, ABE). ALPHA_1 comes from the block (battle 0x1c:
+    0x148, Cs As + Cd).
+  - The draw header's MSCAL 238 (the resident set-up) stores the owner's local-to-screen matrix (screen x view x
+    world) in rows 89..92 at 0308. At its end it loads those rows into vf01..vf04 (0608..0638) before overwriting
+    them. Image 3 never loads vf01..vf04: it projects each record through them with its own divide, and judges it by
+    rows 85..88 (guard x view x world; ADC when outside).
+  - The colour is FTOI0 of the lit record colour (the same lighting and ambient code as images 5 and 7). Each point is
+    drawn as one GS pixel.
+  - Fog variant (09d0): F as in image 5. Each chunk's first point is coloured from vf18 before its record loads (FTOI0
+    at 0a10, the load at 0a18). In the first chunk that vf18 is row 96, the block's A+D tag (0788, after the lighting
+    call): FTOI0 of its words, 0 in battle 0x1c. In later chunks it is the previous chunk's load one past its records,
+    VU memory the draw never wrote. That case is refused and the question goes to the user.
+
+**Evidence:**
+- **Oracle:** 112 point captures equal image 3's own words, run from its real 6e0 entry (1702 points, 698 ADC-culled,
+  fogged single chunks included). 224 ribbon captures equal images 7 and 5 (3321 fogged vertices).
+- **Tests:** the emitter copy's 297fd0 words and 287c30's triplets are covered.
+- **Battles 0x1c and 0x32:** now stop at a fogged point draw past its first chunk (the open question).
+- **Tests:** full ctest 97/97.
+- **End RAM unchanged:** battle 0c9960c8d9f6, forest 912f01332dbe, game over 9df948c13063, route a3f2c8f4395d.
+- **Still open, 0x23:** the object transform 249180 refuses the curve's saturated (exponent-255) position. Its native
+  sums still use the old truncating rounding where the engine's VU0 adds round to nearest (the rounding audit), so
+  extending PS2 float rules to it waits for that audit.
+
 ### The user's three answers applied: image 5 ribbons, screen-copy meshes, PS2 floats in the curve; BozoEngine 36991be (2026-11-24)
 
 The user's answers (relayed by the hub, 2026-11-24): battle 0x1c's ribbon blend "A: normal alpha"; a screen-copy effect

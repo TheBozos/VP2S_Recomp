@@ -213,6 +213,11 @@ int main(){try{
         check(fmath(0x28e3e4) && fmath(0x28e43c) && fmath(0x28e440) && fmath(0x290b7c) && fmath(0x290ba0) && fmath(0x290ba4));
         const auto seventh=now.particles.bounds(frame,0x190000);check(seventh.minimum[0]==-30 && seventh.maximum[2]==33);
         write(rt,0x28e3e4,uint32_t(0));check(!fmath(0x28e3e4));   // another overlay's word there
+        // mod001 287c30, a fifth compilation (battles 0x1c, 0x32): the first and the r7 triplet.
+        for(const auto &[pc,w]:{std::pair{0x287d84u,0xd8610000u},{0x287ddcu,0x4bc1d6afu},{0x287de0u,0x4bc1deebu},{0x28a51cu,0xd8e10000u},{0x28a540u,0x4bc1d6afu},{0x28a544u,0x4bc1deebu}})write(rt,pc,w);
+        write(rt,0x1d0040,std::array<float,4>{-40,0,0,1});write(rt,0x1d0060,std::array<float,4>{0,0,44,1});
+        check(fmath(0x287d84) && fmath(0x287ddc) && fmath(0x287de0) && fmath(0x28a51c) && fmath(0x28a540) && fmath(0x28a544));
+        {const auto eighth=now.particles.bounds(frame,0x190000);check(eighth.minimum[0]==-40 && eighth.maximum[2]==44);}
         now.particles=vp2s::NativeParticles{};
     }
     // mod003 40b080, the trail emitter: every VU0 site with the game's word at its address. A

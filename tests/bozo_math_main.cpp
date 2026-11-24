@@ -3331,6 +3331,14 @@ int main(int argc,char **argv){try{
         }
         std::printf("%u battle ribbon meshes (flat and ground-following, 4ab140 one tile) and the several-tile refusal passed\n",ribbonCases);
     }
+    {   // The parent-hook helper's spill words, retired in the copy 297fd0 (under the program emitter copy, battle 0x1c):
+        // claimed only while each word is the expected one.
+        auto &r=native.runtime();R5900Context c{};const auto saved=std::vector<uint8_t>(r.memory.hostPointer(0x2980dc,0x6c),r.memory.hostPointer(0x2980dc,0x6c)+0x6c);
+        for(const auto &[pc,word]:{std::pair{0x2980dcu,0xf8520000u},{0x2980e0u,0xf85d0010u},{0x298120u,0x4bd1033cu},{0x298124u,0x4be00798u},{0x298138u,0x48a32800u},{0x298140u,0xd8720000u},{0x298144u,0xd87d0010u}}){
+            std::memcpy(r.memory.hostPointer(pc,4),&word,4);check(vp2s::nativeMathInstruction(r.memory.flat(),&c,&r,pc));
+            const uint32_t other=0;std::memcpy(r.memory.hostPointer(pc,4),&other,4);check(!vp2s::nativeMathInstruction(r.memory.flat(),&c,&r,pc));}
+        std::memcpy(r.memory.hostPointer(0x2980dc,0x6c),saved.data(),0x6c);
+    }
     {   // Battle colour element (class 171f20, mod028 47a910) on the animator, with the pair its task's
         // 47a9b0 loaded (47aa5c): one mesh of 6 vertices, three pairs. Phase .25, entries .5, 1, -.75:
         // t = .75 (u .25), 1.25 - 2 -> .75, .5 (u .5). Pair (64, 32, 127.5, 128) / (0, .5, 1, 3).

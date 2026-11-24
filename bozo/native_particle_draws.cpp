@@ -3,6 +3,7 @@
 #include "native_cast.h"
 #include "native_particle_draws.h"
 #include "bozo/ee/dispatcher.h"
+#include "bozo/ops_vu0.h"
 #include "../port/vp2s_music_math.h"
 #include <algorithm>
 #include <cmath>
@@ -52,7 +53,7 @@ const NativeParticleDraws::Material &NativeParticleDraws::material(const AssetOr
 NativeModelSubmission NativeParticleDraws::capture(Runtime *rt,NativeAssets &assets,NativeTextures &textures,const NativeScene &scene,const NativeParticles &particles,uint32_t object){
     music::CodecRounding arithmetic;particles.validateDraw(object);auto *owner=record(rt,object,0xb10);
     const auto camera=scene.drawingCamera();const auto target=scene.frameTarget();const auto current=word(rt,0x35ddf8);const unsigned layer=owner[0x65];
-    if(!camera || !target || layer>1 || word(rt,current+0x40a8+4*layer)!=object || *rt->memory.hostPointer(current+0x40dc+layer,1)!=1 || !owner[0x63] || !particleClass(value<uint32_t>(owner,0)) || (owner[0xaff]!=2 && owner[0xaff]!=3 && owner[0xaff]!=4 && owner[0xaff]!=6) || owner[0xb04] || owner[0xaf9]>1)
+    if(!camera || !target || layer>1 || word(rt,current+0x40a8+4*layer)!=object || *rt->memory.hostPointer(current+0x40dc+layer,1)!=1 || !owner[0x63] || !particleClass(value<uint32_t>(owner,0)) || (owner[0xaff]!=0 && owner[0xaff]!=2 && owner[0xaff]!=3 && owner[0xaff]!=4 && owner[0xaff]!=6) || owner[0xb04] || owner[0xaf9]>1)
         throw std::runtime_error("native particle draw has no admitted scene/point owner");
     const auto first=NativeAssets::address(value<uint32_t>(owner,0xaa0)),second=NativeAssets::address(value<uint32_t>(owner,0xaa4));
     if(second<=first || second-first<0x20 || second-first>0x1000000)throw std::runtime_error("native particle draw buffer halves invalid");
@@ -61,14 +62,15 @@ NativeModelSubmission NativeParticleDraws::capture(Runtime *rt,NativeAssets &ass
     NativeModelSubmission submission{object,camera->object};if(!total)return submission;
     // Mode 2 selects VU1 image 5 (mode + 3): image 7's ribbons without a texture. It reads no kind template (+628 = 0)
     // and no FIS; its GS state is the owner's row block (+624): row 96 the A+D tag, row 97 ALPHA_1, row 102 the strip tag.
-    const bool plain=owner[0xaff]==2;NativeModelBatch batch;auto &mat=batch.material;Material m{};const uint8_t *kindData=nullptr;
+    // Mode 0 selects image 3: GS points of the same untextured kind (tag 0x2030400000008000: PRIM 0x60, FGE, ABE).
+    const bool points=owner[0xaff]==0,plain=owner[0xaff]==2 || points;NativeModelBatch batch;auto &mat=batch.material;Material m{};const uint8_t *kindData=nullptr;
     if(plain){
         const auto block=value<uint32_t>(owner,0x624);if(!block)throw std::runtime_error("native particle draw has no GS row block (+624)");
         auto *rows=record(rt,block,0x100);
         // Battle 0x1c: tag 0x2036400000008000 / 0x41 (PRE, PRIM 0x6c: Gouraud strip, FGE, ABE, context 1; RGBAQ, XYZF2).
         // The strip's F is 0xff (no fog); the program writes the tag's NLOOP / EOP itself.
-        if(value<uint32_t>(rows,0xc)!=0x6c0f0060 || value<uint32_t>(rows,0x28)!=0x42 || value<uint32_t>(rows,0x74)!=0x20364000 || value<uint64_t>(rows,0x78)!=0x41)
-            throw std::runtime_error(std::format("unported native particle image 5 GS state (ALPHA reg {:x}, tag {:08x}:{:x})",value<uint32_t>(rows,0x28),value<uint32_t>(rows,0x74),value<uint64_t>(rows,0x78)));
+        if(value<uint32_t>(rows,0xc)!=0x6c0f0060 || value<uint32_t>(rows,0x28)!=0x42 || value<uint32_t>(rows,0x74)!=(points?0x20304000u:0x20364000u) || value<uint64_t>(rows,0x78)!=0x41)
+            throw std::runtime_error(std::format("unported native particle image 3/5 GS state (ALPHA reg {:x}, tag {:08x}:{:x})",value<uint32_t>(rows,0x28),value<uint32_t>(rows,0x74),value<uint64_t>(rows,0x78)));
         const auto alpha=value<uint64_t>(rows,0x20);
         // ALPHA_1 from the block (battle 0x1c: 0x44, normal alpha; user 2026-11-24: "A: normal alpha").
         for(unsigned i=0;i<4;++i)if(((alpha>>(2*i))&3)>2)throw std::runtime_error("native particle image 5 ALPHA factor 3");
@@ -139,7 +141,7 @@ NativeModelSubmission NativeParticleDraws::capture(Runtime *rt,NativeAssets &ass
     // position); buf.xyz = ((c1 k1/|d1| + (c0 k0) /|d0|) + buf) + c2 k2/|d2| (ERLENG for light 0, RSQRT k/sqrt((x2 + y2) + 1 z2)
     // for 1 and 2). The apply (18f0) is then colour * buf clamped to [0, row 0], whatever row 14.x says. Row 14.z (1c78) is
     // not ported. Battles 0x37 / 0x38: one light (rows 24, 25 zero).
-    const bool perPointLight=(owner[0xaff]==4 || owner[0xaff]==2) && (value<uint32_t>(owner,0x31c)&0xffff)==2;
+    const bool perPointLight=(owner[0xaff]==4 || plain) && (value<uint32_t>(owner,0x31c)&0xffff)==2;
     std::array<std::array<float,4>,3> lightAt{},lightColour{};std::array<float,3> lightK{};bool pointLights=false;
     if(perPointLight){
         if(value<uint32_t>(owner,0x318)&0xffff)throw std::runtime_error("unported native particle ribbon lighting pass 1c78 (VU row 14.z)");
@@ -168,7 +170,7 @@ NativeModelSubmission NativeParticleDraws::capture(Runtime *rt,NativeAssets &ass
     // the point record reads (ax, ay, scale, kind); see the corner loop. Its angle offsets
     // (VU row 37 = header +260/+264, the camera angles when emitter +afb / +afc) are not
     // ported: with either flag set the draw refuses.
-    const bool tilted=owner[0xaff]==6,ribbon=owner[0xaff]==4 || plain;
+    const bool tilted=owner[0xaff]==6,ribbon=owner[0xaff]==4 || plain;bool fogged=false;
     // Image 9 adds row 37's xy to the point's two angles before its sin/cos (0908: ADD.xy vf27, vf27, vf16). The draw
     // (22f250..22f2ec) fills row 37: x = -camera +5d4 when emitter +afb, y = -camera +5d0 when +afc, else 0; the camera
     // is the draw's own (a1), brought up to date first through its +64 method when +61 is clear (battle 0x37).
@@ -203,7 +205,11 @@ NativeModelSubmission NativeParticleDraws::capture(Runtime *rt,NativeAssets &ass
         // qwords to row 0). Only the path for row 15.w = 0 (0868..0f28) is ported; 15.w set
         // selects a fog variant (0f38..1660: XYZF2, fog from row 68). Row 14.w = 2 (pass 1a50) is
         // litColour's per-point buffer.
-        if(value<uint32_t>(owner,0x32c))throw std::runtime_error("unported native particle ribbon fog variant (VU row 15.w)");
+        // Image 5's fog variant (row 15.w, 0ee8..15f8): the same strips, each vertex's F = clamp(row68.z + row68.w Q, 0, 255)
+        // (MULAz.w by vf00.w, MADDq.w, MINIi 255, MAXx), Q = 1 / its screen w; FTOI4 keeps the integer F. Row 68 is the
+        // camera's +5a0 qword (z, w = the fog pair at +5a8, battle 0x1c: 186, 69000); FOGCOL is the camera's clear colour.
+        if(value<uint32_t>(owner,0x32c)){if(!plain)throw std::runtime_error("unported native particle ribbon fog variant (VU row 15.w)");
+            fogged=true;mat.fog=true;mat.fogColour=camera->clearColour;for(float f:camera->fog)number(f);}
         // Image 7 divides a point's second vertex by the first one's Q (0b58, 0d08, 0ea8):
         // that equals a per-vertex projection only while the screen w row ignores x and y.
         if(!plain && (camera->screen[12]!=0 || camera->screen[13]!=0))throw std::runtime_error("unported native particle ribbon projection (screen w depends on x/y)");
@@ -211,6 +217,49 @@ NativeModelSubmission NativeParticleDraws::capture(Runtime *rt,NativeAssets &ass
     // VU1 0x6e0 kicks every point once per pass: pass p draws kind + p * stride with ALPHA variant p,
     // all points of a pass before the next pass. Image 7 never reads the pass header (VU 2e0):
     // one pass with ALPHA variant 0 (VU 2e5 = template +70).
+    if(points){
+        // Image 3 (0868..09c0; fog variant 09d0..0af8): one GS point per particle. The header's set-up program (MSCAL 238)
+        // leaves vf01..vf04 = rows 89..92 as it stored them at 0308, the owner's local-to-screen matrix (screen x view x
+        // world); image 3 never loads them and projects each record position through them with its own divide. Rows
+        // 85..88 (guard x view x world) judge it: CLIPW, FCAND 0x3f, ADC when outside. The colour is FTOI0 of the lit
+        // record colour (image 5's rule). A point covers one GS pixel: drawn as a 1 x 1 quad in GS pixel space.
+        // Its fog variant (row 15.w, 09d0) colours each chunk's first point with vf18 as it was (FTOI0 at 0a10 runs before
+        // the record's load at 0a18). In the first chunk that is row 96, the GS block's A+D tag (loaded at 0788 by the
+        // 6e0 prologue): FTOI0 of its words. In later chunks (MSCAL 818) it is the previous chunk's load one past its
+        // records, VU memory this draw never wrote: refused until the user defines it.
+        const bool fog=value<uint32_t>(owner,0x32c)!=0;if(fog)for(float f:camera->fog)number(f);
+        if(fog && chunks>1)throw std::runtime_error("unported native particle point fog variant after the first chunk (first point's colour is VU memory the draw never wrote)");
+        uint32_t staleColour=0;
+        {const auto *row96=record(rt,value<uint32_t>(owner,0x624)+0x10,16);
+         for(unsigned i=0;i<4;++i){uint32_t flags=0;staleColour|=(bozo::ps2f::toFixed(value<uint32_t>(row96,4*i),0)&0xffu)<<(8*i);}}
+        NativeModelBatch dots;dots.material=mat;dots.material.fog=fog;dots.material.fogColour=camera->clearColour;
+        const float width=2*(2048.f-camera->viewport[0]),height=2*(2048.f-camera->viewport[1]);
+        dots.matrix={target->width/width,0,0,0,0,target->height/height,0,0,0,0,1,0,(1-target->width/width)*2048.f,(1-target->height/height)*2048.f,0,1};
+        auto cursor=base+0x20;uint32_t seen=0;
+        for(unsigned chunk=0;chunk<chunks;++chunk){
+            if(cursor>base+span-0x20)throw std::runtime_error("native particle chunk outside completed buffer");auto *header=record(rt,cursor,0x20);
+            const auto count=value<uint32_t>(header,0x10),extent=value<uint32_t>(header,0x14);
+            // Image 3 reads only the header's x (the count) and the records (vi13 += 3).
+            if(!count || count>48 || extent!=count*3+2 || count>total-seen || uint64_t(cursor)+32+48*count>uint64_t(base)+span)
+                throw std::runtime_error(std::format("unported/incomplete native particle point group (count {} extent {})",count,extent));
+            auto *records=record(rt,cursor+0x20,count*48);
+            for(unsigned p=0;p<count;++p){const auto *point=records+48*p;
+                std::array<float,4> position=value<std::array<float,4>>(point,0);for(unsigned j=0;j<3;++j)number(position[j]);position[3]=1;
+                const auto eye=transform(toView,position);
+                bozo::render::Vertex centre;centre.x=eye[0];centre.y=eye[1];centre.z=eye[2];if(outsideGuard(centre))continue;   // ADC
+                const auto clip=transform(camera->screen,eye);if(!(clip[3]!=0))throw std::runtime_error("native particle point at w = 0");
+                const float q=1/clip[3],x=clip[0]*q,y=clip[1]*q,z=clip[2]*q;
+                if(!std::isfinite(x) || !std::isfinite(y) || !std::isfinite(z) || x<0 || x>=4096 || y<0 || y>=4096)throw std::runtime_error("native particle point outside the GS coordinate range");
+                float f=1;if(fog){f=camera->fog[0]+camera->fog[1]*q;if(!(f<=255.f))f=255.f;if(!(f>=0.f))f=0.f;f=std::floor(f)/255.f;}
+                const auto rgba=fog && !chunk && !p?staleColour:pointColour(point,nullptr);const float gz=std::trunc(z*16)/16;
+                bozo::render::Vertex corner[4];for(unsigned k=0;k<4;++k){auto &v=corner[k];v.x=x+float(k&1);v.y=y+float(k>>1);v.z=gz;v.rgba=rgba;v.fog=f;}
+                for(unsigned k:{0u,1u,2u,1u,3u,2u})dots.vertices.push_back(corner[k]);}
+            seen+=count;cursor+=32+48*count;
+        }
+        if(seen!=total)throw std::runtime_error("native particle draw point count mismatch");
+        if(!dots.vertices.empty())submission.batches.push_back(std::move(dots));
+        return submission;
+    }
     for(unsigned pass=0;pass<(ribbon?1u:m.passes);++pass){
     if(!plain){mat.blendA=m.blends[pass][0];mat.blendB=m.blends[pass][1];mat.blendC=m.blends[pass][2];mat.blendD=m.blends[pass][3];mat.blendFix=m.blends[pass][4];}batch.vertices.clear();
     auto cursor=base+0x20;uint32_t seen=0;
@@ -259,6 +308,20 @@ NativeModelSubmission NativeParticleDraws::capture(Runtime *rt,NativeAssets &ass
                     a.x=centre[0]+oy;a.y=centre[1]-ox;b.x=centre[0]-oy;b.y=centre[1]+ox;a.z=b.z=e[2];a.u=u0;b.u=u1;a.v=b.v=t;a.rgba=b.rgba=rgba;t+=step;
                     for(const auto *v:{&a,&b})for(float f:{v->x,v->y,v->z,v->u,v->v})if(!std::isfinite(f))throw std::runtime_error("native particle vertex overflow");
                     outside[2*i]=outsideGuard(a);outside[2*i+1]=outsideGuard(b);
+                    // The fog loop (1290..12c0) sets ACC.w to fog.z (MULAz.w at 1298, for vertex a's F) in the middle of
+                    // vertex b's guard transform: a middle point's b is judged against w = ((a + g13 y) + g14 z) + g15.
+                    if(fogged && i && i+1<group){const auto clip=transform(camera->guard,{b.x,b.y,b.z,1});
+                        const float w=((camera->fog[0]+camera->guard[13]*b.y)+camera->guard[14]*b.z)+camera->guard[15];
+                        outside[2*i+1]=std::abs(clip[0])>std::abs(w) || std::abs(clip[1])>std::abs(w) || std::abs(clip[2])>std::abs(w);}
+                    if(fogged)for(auto *v:{&a,&b}){
+                        // w as the program forms it (row 52..55's w lane by MULAx, MADDAy, MADDAz, MADDw).
+                        namespace V=bozo::vu0;uint32_t flags=0;const auto bits=[](float f){return std::bit_cast<uint32_t>(f);};
+                        const auto &sc=camera->screen;
+                        const auto w=V::addf(V::addf(V::addf(V::mulf(bits(sc[12]),bits(v->x),flags),V::mulf(bits(sc[13]),bits(v->y),flags),flags),
+                            V::mulf(bits(sc[14]),bits(v->z),flags),flags),bits(sc[15]),flags);
+                        const auto q=bozo::ps2f::div(0x3f800000u,w,flags);
+                        auto f=std::bit_cast<float>(V::addf(bits(camera->fog[0]),V::mulf(bits(camera->fog[1]),q,flags),flags));
+                        if(!(f<=255.f))f=255.f;if(!(f>=0.f))f=0.f;v->fog=std::floor(f)/255.f;}
                 }
                 // The first point's two vertices always carry ADC (isw.w vi06): no triangle bridges two
                 // ribbons. Every later vertex gets ADC when FCAND 0x03ffff sees any of the last three

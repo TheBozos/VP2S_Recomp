@@ -155,6 +155,7 @@ void files(const std::filesystem::path &dir){
 struct Case {unsigned groups[4],perChunk,chunks;bool lit,coincide,tilt,ambient=false;unsigned lights=0;};
 bool plain=false;   // image 5 (mode 2) instead of image 7 (mode 4)
 bool dots=false;    // with plain: image 3 (mode 0), GS points
+bool dotsNoFge=false;   // with dots: the tag without FGE (0x20204000, PRIM 0x40: field maps 61-93)
 bool strips=false;  // with plain and dots: image 4 (mode 1), GS line strips
 bool fogged=false;  // image 5 with row 15.w: its fog variant (camera fog pair -60, 200; FOGCOL 203040)
 void initialize(Runtime &rt,vp2s::NativeScene &scene,vp2s::NativeAssets &assets,const Case &c,std::mt19937 &random){
@@ -179,7 +180,7 @@ void initialize(Runtime &rt,vp2s::NativeScene &scene,vp2s::NativeAssets &assets,
     put(rt,object+0x624,block);put(rt,block+0xc,uint32_t(0x6c0f0060));put(rt,block+0x24,uint32_t(c.ambient?0x40:0));put(rt,block+0x54,.5f);
     // Image 5's GS state (battle 0x1c's block): row 97 ALPHA_1 = 0x44 (normal alpha), row 102 the Gouraud strip tag.
     put(rt,block+0x20,uint32_t(0x44));put(rt,block+0x28,uint32_t(0x42));put(rt,block+0x10,uint32_t(0x8004));put(rt,block+0x14,uint32_t(0x10000000));
-    put(rt,block+0x18,uint32_t(0xeeeeeeee));put(rt,block+0x70,uint32_t(0x8000));put(rt,block+0x74,uint32_t(strips?0x20254000:dots?0x20304000:0x20364000));put(rt,block+0x78,uint64_t(0x41));
+    put(rt,block+0x18,uint32_t(0xeeeeeeee));put(rt,block+0x70,uint32_t(0x8000));put(rt,block+0x74,uint32_t(strips?0x20254000:dots?(dotsNoFge?0x20204000:0x20304000):0x20364000));put(rt,block+0x78,uint64_t(0x41));
     if(c.ambient){put(rt,object+0x230+16*5,std::array<float,4>{.25f,.5f,.125f,0});put(rt,object+0x230+16*6,std::array<float,4>{.25f,.25f,.25f,0});
         put(rt,object+0x230+16*8,std::array<float,4>{-.01f,-.06f,-.002f,0});put(rt,object+0x230+16*19,std::array<float,4>{.85f,.64f,.47f,1});}
     if(c.lights){put(rt,object+0x31c,uint32_t(2));put(rt,object+0x314,uint32_t(1));
@@ -223,7 +224,7 @@ Strip oracle(const std::vector<uint8_t> &code,Runtime &rt,const vp2s::NativeCame
         // The real first MSCAL (6e0): ambient 0f38, the GS-state kick of rows 96..99 at row 81.w, lighting 0b08, then vf18 =
         // row 96 (0788) and the points packet after the state (a fogged chunk's first point takes FTOI0 of that vf18).
         vu.run(0x6e0);if(vu.kicks.size()!=3 || vu.kicks[0]!=0x3b0 || vu.kicks[1]!=0x1a0)throw std::runtime_error(std::format("image 3 kicks {}",vu.kicks.size()));
-        const unsigned at=vu.kicks[2];const auto tag=vu.row(at);check(tag.u[0]==0x8000+count && tag.u[1]==(strips?0x20254000u:0x20304000u) && tag.u[2]==0x41);
+        const unsigned at=vu.kicks[2];const auto tag=vu.row(at);check(tag.u[0]==0x8000+count && tag.u[1]==(strips?0x20254000u:dotsNoFge?0x20204000u:0x20304000u) && tag.u[2]==0x41);
         Strip s;for(unsigned v=0;v<count;++v){std::array<uint32_t,12> out{};std::memcpy(out.data()+4,&vu.row(at+1+2*v),16);std::memcpy(out.data()+8,&vu.row(at+2+2*v),16);s.vertices.push_back(out);}
         return s;}
     vu.vi[15]=0x3ff0/8;vu.run(plain?0x1a38:0x1aa0);check(vu.kicks.empty());
@@ -287,7 +288,8 @@ int main(int argc,char **argv){try{
     // Image 3 (mode 0): one GS point per particle, drawn as a GS pixel; positions, colours, fog and ADC against its words.
     unsigned dotCases=0,dotsDrawn=0,dotsCulled=0,dotsFogged=0;dots=plain=true;
     unsigned laterChunkFirsts=0;
-    for(unsigned round=0;round<8;++round)for(const auto &c:table){fogged=round&1;
+    unsigned dotsUnfogged=0;
+    for(unsigned round=0;round<12;++round)for(const auto &c:table){fogged=round&1;dotsNoFge=round>=8;
         initialize(rt,scene,assets,c,random);const auto cam=scene.drawingCamera();check(bool(cam));
         const auto result=draws.capture(&rt,assets,textures,scene,particles,object);check(result.batches.size()<=1);
         std::vector<std::array<uint32_t,12>> expect;uint32_t chunk=chunks;
@@ -298,14 +300,14 @@ int main(int argc,char **argv){try{
                 if(v[11]&0x8000){++dotsCulled;continue;}expect.push_back(v);}chunk+=32+48*(c.perChunk*c.groups[k]);}
         const std::vector<bozo::render::Vertex> none;const auto &got=result.batches.empty()?none:result.batches[0].vertices;
         if(got.size()!=6*expect.size())throw std::runtime_error(std::format("point case {}: {} native vertices, oracle {} points",dotCases,got.size(),expect.size()));
-        if(!result.batches.empty())check(!result.batches[0].material.textured && result.batches[0].material.fog==fogged);dotsFogged+=fogged;
+        if(!result.batches.empty())check(!result.batches[0].material.textured && result.batches[0].material.fog==(fogged && !dotsNoFge));dotsFogged+=fogged && !dotsNoFge;dotsUnfogged+=dotsNoFge;
         for(size_t n=0;n<expect.size();++n){const auto &v=got[6*n];const auto &o=expect[n];uint32_t rgba=0;for(unsigned i=0;i<4;++i)rgba|=(o[4+i]&0xff)<<(8*i);
             const bool ok=std::abs(v.x*16-int32_t(o[8]))<=1.5f && std::abs(v.y*16-int32_t(o[9]))<=1.5f && std::abs(v.z*16-int32_t(o[10]))<=2.f &&
-                std::abs(int(std::lround(v.fog*255))-int((o[11]>>4)&0xff))<=1 && rgba==v.rgba;
+                (dotsNoFge?v.fog==1.f:std::abs(int(std::lround(v.fog*255))-int((o[11]>>4)&0xff))<=1) && rgba==v.rgba;   // without FGE the GS never fogs
             if(!ok)throw std::runtime_error(std::format("point case {} point {}: native ({} {} {} fog {} {:08x}), oracle ({} {} {} w {:x}) {:08x}",dotCases,n,v.x*16,v.y*16,v.z*16,v.fog*255,v.rgba,int32_t(o[8]),int32_t(o[9]),int32_t(o[10]),o[11],rgba));
             ++dotsDrawn;}
         ++dotCases;}
-    check(dotsDrawn>500 && dotsCulled>50 && dotsFogged>40 && laterChunkFirsts>8);
+    check(dotsDrawn>500 && dotsCulled>50 && dotsFogged>40 && laterChunkFirsts>8 && dotsUnfogged>20);dotsNoFge=false;
     // Image 4 (mode 1): one GS LINE STRIP per group of points; a vertex without ADC closes a segment from the one before.
     {unsigned stripCases=0,segments=0,skipped=0;fogged=false;strips=true;
      for(unsigned round=0;round<8;++round)for(const auto &c:table){

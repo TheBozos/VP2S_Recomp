@@ -12,6 +12,24 @@ The earlier VP2S face/shading and general brightness comparisons remain open.
 
 ## Build and evidence
 
+### Particle points without fog (image 3, PRIM 0x40) (2026-11-24)
+
+- **The case:** 10 field maps (61-93, 190-193) stopped on "particle image 3/5 GS state (ALPHA reg 42, tag
+  20204000:41)".
+  - Their owners (class 154180) draw in mode 0: image 3, one GS point per particle.
+  - Their GS row block's tag has PRIM 0x40 (points, ABE) where the ported one has 0x60 (points, FGE, ABE).
+  - ALPHA_1 is 0x148: Cs * As + Cd, additive.
+  - No fog variant is set (+32c = 0) and lighting is off (+310 = 1).
+- **Now:** image 3 accepts both tags. The material fogs only when the tag's FGE is set **and** the owner selects the
+  fog variant. Without FGE the GS never fogs, whatever F the variant writes. The variant's first-point colour quirk
+  follows the variant, not FGE.
+
+**Evidence:**
+- **Tests:** the image 3 test runs four more rounds with the no-FGE tag (168 point captures in all). Positions and
+  colours match the VU program's words; the material has no fog and every F is 1.
+- **Maps:** 9 of the 10 run clean. Map 76 reaches a live table-B pass (routine 32/52/54).
+- **Atlas:** 420 of 552 maps clean.
+
 ### Vertex colour scale element (class 1594d0) native; chain filter fixed (2026-11-24)
 
 - **The case:** 22 maps (61-91, 155-208, 467, 515-518) stopped on the animated vertex element class 1594d0.

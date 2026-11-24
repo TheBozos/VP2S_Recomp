@@ -63,7 +63,8 @@ NativeModelSubmission NativeParticleDraws::capture(Runtime *rt,NativeAssets &ass
     NativeModelSubmission submission{object,camera->object};if(!total)return submission;
     // Mode 2 selects VU1 image 5 (mode + 3): image 7's ribbons without a texture. It reads no kind template (+628 = 0)
     // and no FIS; its GS state is the owner's row block (+624): row 96 the A+D tag, row 97 ALPHA_1, row 102 the strip tag.
-    // Mode 0 selects image 3: GS points of the same untextured kind (tag 0x2030400000008000: PRIM 0x60, FGE, ABE).
+    // Mode 0 selects image 3: GS points of the same untextured kind (tag 0x2030400000008000: PRIM 0x60, FGE, ABE), or
+    // without fog (0x2020400000008000: PRIM 0x40, ABE; field maps 61-93, 189-193: ALPHA 0x148, additive).
     // Mode 1 selects image 4: Gouraud line strips of the same kind (tag 0x2025400000008000: PRIM 0x4a, ABE).
     const bool points=owner[0xaff]==0,lineStrips=owner[0xaff]==1,plain=owner[0xaff]==2 || points || lineStrips;NativeModelBatch batch;auto &mat=batch.material;Material m{};const uint8_t *kindData=nullptr;
     if(plain){
@@ -71,7 +72,9 @@ NativeModelSubmission NativeParticleDraws::capture(Runtime *rt,NativeAssets &ass
         auto *rows=record(rt,block,0x100);
         // Battle 0x1c: tag 0x2036400000008000 / 0x41 (PRE, PRIM 0x6c: Gouraud strip, FGE, ABE, context 1; RGBAQ, XYZF2).
         // The strip's F is 0xff (no fog); the program writes the tag's NLOOP / EOP itself.
-        if(value<uint32_t>(rows,0xc)!=0x6c0f0060 || value<uint32_t>(rows,0x28)!=0x42 || value<uint32_t>(rows,0x74)!=(points?0x20304000u:lineStrips?0x20254000u:0x20364000u) || value<uint64_t>(rows,0x78)!=0x41)
+        const auto tagHigh=value<uint32_t>(rows,0x74);
+        const bool tagKnown=points?(tagHigh==0x20304000u || tagHigh==0x20204000u):tagHigh==(lineStrips?0x20254000u:0x20364000u);
+        if(value<uint32_t>(rows,0xc)!=0x6c0f0060 || value<uint32_t>(rows,0x28)!=0x42 || !tagKnown || value<uint64_t>(rows,0x78)!=0x41)
             throw std::runtime_error(std::format("unported native particle image 3/5 GS state (ALPHA reg {:x}, tag {:08x}:{:x})",value<uint32_t>(rows,0x28),value<uint32_t>(rows,0x74),value<uint64_t>(rows,0x78)));
         const auto alpha=value<uint64_t>(rows,0x20);
         // ALPHA_1 from the block (battle 0x1c: 0x44, normal alpha; user 2026-11-24: "A: normal alpha").
@@ -260,7 +263,9 @@ NativeModelSubmission NativeParticleDraws::capture(Runtime *rt,NativeAssets &ass
         // the record's load at 0a18). In the first chunk that is row 96, the GS block's A+D tag (loaded at 0788 by the
         // 6e0 prologue): FTOI0 of its words. In later chunks (MSCAL 818) it is the previous chunk's load one past its
         // records, VU memory this draw never wrote: colour 0, invisible (user 2026-11-24: "Colour 0, invisible").
-        const bool fog=value<uint32_t>(owner,0x32c)!=0;if(fog)for(float f:camera->fog)number(f);
+        // The GS fogs only with the tag's PRIM.FGE (bit 20 of its high word); the variant's first-point colour stays.
+        const bool variant=value<uint32_t>(owner,0x32c)!=0,fge=(value<uint32_t>(record(rt,value<uint32_t>(owner,0x624),0x100),0x74)>>20)&1;
+        const bool fog=variant && fge;if(fog)for(float f:camera->fog)number(f);
         uint32_t staleColour=0;
         {const auto *row96=record(rt,value<uint32_t>(owner,0x624)+0x10,16);
          for(unsigned i=0;i<4;++i){uint32_t flags=0;staleColour|=(bozo::ps2f::toFixed(value<uint32_t>(row96,4*i),0)&0xffu)<<(8*i);}}
@@ -283,7 +288,7 @@ NativeModelSubmission NativeParticleDraws::capture(Runtime *rt,NativeAssets &ass
                 const float q=1/clip[3],x=clip[0]*q,y=clip[1]*q,z=clip[2]*q;
                 if(!std::isfinite(x) || !std::isfinite(y) || !std::isfinite(z) || x<0 || x>=4096 || y<0 || y>=4096)throw std::runtime_error("native particle point outside the GS coordinate range");
                 float f=1;if(fog){f=camera->fog[0]+camera->fog[1]*q;if(!(f<=255.f))f=255.f;if(!(f>=0.f))f=0.f;f=std::floor(f)/255.f;}
-                const auto rgba=fog && !p?(chunk?0u:staleColour):pointColour(point,nullptr);const float gz=std::trunc(z*16)/16;
+                const auto rgba=variant && !p?(chunk?0u:staleColour):pointColour(point,nullptr);const float gz=std::trunc(z*16)/16;
                 bozo::render::Vertex corner[4];for(unsigned k=0;k<4;++k){auto &v=corner[k];v.x=x+float(k&1);v.y=y+float(k>>1);v.z=gz;v.rgba=rgba;v.fog=f;}
                 for(unsigned k:{0u,1u,2u,1u,3u,2u})dots.vertices.push_back(corner[k]);}
             seen+=count;cursor+=32+48*count;

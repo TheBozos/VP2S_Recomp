@@ -129,12 +129,13 @@ def main():
     # battles 0x2b-0x2d: mod135 (0x532200), mod182 and mod189 (0x53a380), mod217 and mod225 (0x53d800), mod272 (0x542a80);
     # battles 0x2e-0x30: mod125 and mod138 (0x532200);
     # battles 0x31-0x36: mod158, mod136, mod137, mod111, mod139 (0x532200), mod201, mod192 (0x53a380), mod282 (0x542a80, frame 65482 in 0x35);
-    # battles 0x37-0x3c: mod130, mod140, mod142 (0x532200), mod171, mod170 (0x53a380), mod236, mod218 (0x53d800), mod276, mod289 and mod291 (0x542a80).
+    # battles 0x37-0x3c: mod130, mod140, mod142 (0x532200), mod171, mod170 (0x53a380), mod236, mod218 (0x53d800), mod276, mod289 and mod291 (0x542a80);
+    # battles 0x3e-0x42: mod147 and mod146 (0x532200), mod285 and mod274 (0x542a80).
     # mod014-mod025: the overlays at 0x495500 (the camp menu's pages; mod020 is the Items page).
     ap.add_argument('--inputs', default='main,mod001,mod002,mod003,mod004,mod005,mod006,mod007,mod008,mod009,mod010,mod011,mod012,mod013,'
                                         'mod014,mod015,mod016,mod017,mod018,mod019,mod020,mod021,mod022,mod023,mod024,mod025,'
                                         'mod027,mod028,mod030,mod060,mod068,mod112,mod119,mod129,mod133,mod134,mod144,mod157,mod169,mod175,mod176,'
-                                        'mod179,mod191,mod206,mod220,mod271,mod287,mod117,mod120,mod128,mod174,mod132,mod141,mod197,mod121,mod178,mod115,mod172,mod180,mod135,mod182,mod189,mod217,mod225,mod272,mod125,mod138,mod158,mod201,mod136,mod137,mod192,mod111,mod139,mod282,mod276,mod130,mod171,mod140,mod170,mod236,mod142,mod218,mod289,mod291')
+                                        'mod179,mod191,mod206,mod220,mod271,mod287,mod117,mod120,mod128,mod174,mod132,mod141,mod197,mod121,mod178,mod115,mod172,mod180,mod135,mod182,mod189,mod217,mod225,mod272,mod125,mod138,mod158,mod201,mod136,mod137,mod192,mod111,mod139,mod282,mod276,mod130,mod171,mod140,mod170,mod236,mod142,mod218,mod289,mod291,mod147,mod146,mod285,mod274')
     ap.add_argument('--stage', choices=['tools', 'generate', 'build', 'run', 'all'], default='build')
     ap.add_argument('--jobs', type=int, default=4)
     ap.add_argument('--ffmpeg', default=os.environ.get('BOZO_FFMPEG_ROOT', 'D:/tmb_kit/kit/ffmpeg'))

@@ -12,6 +12,24 @@ The earlier VP2S face/shading and general brightness comparisons remain open.
 
 ## Build and evidence
 
+### Battles 0x3d to 0x42: modules, a constructor table, emitter 28aff0, a basis block (2026-11-24)
+
+- **Captured modules:** 147, 146 (0x532200); 285, 274 (0x542a80).
+- **Module 147:**
+  - Its text ends with three this-adjusting thunks, then 10 zero words. `wrap_elf.py`'s clean-end test looked back only
+    5 words, so it stretched text into the data (strings) and the census failed. A thunk before up to 16 words of
+    padding is now a clean end too; of the 87 modules, only 147's text end changes.
+  - Its constructor (0x533e80) is listed by a table at +1d40..+1d44, just past text + data. Captures now run to the
+    table's end (header +1c), so the `.init` section is made. No other capture lacked its table.
+- **Particle box (0x3f):** mod001 28aff0 is 2847e0 compiled again (frame 0x240, emitter s5, records of 0x120): its 48
+  triplets.
+- **Basis lengths (0x3f):** mod028 4a65f0, object s0 (base a1 = s0 + 90), output sp+70 (on the scratchpad stack).
+- **Evidence:** 0x3f, 0x40 and 0x42 run boundary-free to 67000. 0x3e reaches the screen-copy procedural mesh (as 0x1e,
+  0x24, 0x29, 0x37).
+- **Open, 0x3d and 0x41:** both stop in the first frame in the decryptor 366170 (called from 365fa0). Its job (a 0x20-byte
+  heap block) holds a record count of 0x6be4 and offsets that point outside RAM. The launcher only injects op 0x38 with
+  the id, so the game itself starts this job. Likely these ids are unused battle-table entries; to confirm in PCSX2.
+
 ### Screen shockwave 1746d0 native; projection leaf 36bc00 (2026-11-24)
 
 - **Draw:** the kernel turns 1746d0's enqueue (4c0e7c, `jal 120c50`) into its completion `jal 42d4a0` (the owner +c0's

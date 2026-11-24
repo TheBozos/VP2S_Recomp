@@ -58,18 +58,23 @@ uint32_t hazeVertexColour(const std::array<std::array<float,4>,25> &c,const std:
     if(!(length2>0))throw std::runtime_error("native haze point at the camera");
     const double length=std::sqrt(length2);
     double dot=0;for(unsigned i=0;i<3;++i)dot+=r[i]*double(c[1][i]);
-    // cos to the light direction (qword 1), clamped below by its w; sine of the elevation.
-    const double cosine=std::max(dot/length,double(c[1][3])),sine=std::abs(r[1])/length;
+    // cos to the light direction (qword 1), clamped below by its w (14f8; the two-lobe path 1520 has no clamp); sine of
+    // the elevation.
+    const bool twoLobes=std::bit_cast<uint32_t>(c[8][0])!=0;   // 8.x: 1520..15e8 instead of 1460..1518
+    const double cosine=twoLobes?dot/length:std::max(dot/length,double(c[1][3])),sine=std::abs(r[1])/length;
     // Rayleigh phase (7.x (1 + cos^2)) and the Mie term 7.y / (7.z + 7.w cos)^1.5.
     const double rayleigh=double(c[7][0])*(1+cosine*cosine),base=double(c[7][2])+double(c[7][3])*cosine;
     if(!(base>0))throw std::runtime_error("native haze Mie phase outside its domain");
     const double mie=double(c[7][1])/std::exp(1.5*std::log(base));
+    // The second lobe: 8.y / (8.z + 8.w cos)^1.5 weighted by qword 6 (15a8 / 15d8).
+    double mie2=0;if(twoLobes){const double base2=double(c[8][2])+double(c[8][3])*cosine;
+        if(!(base2>0))throw std::runtime_error("native haze second Mie phase outside its domain");mie2=double(c[8][1])/std::exp(1.5*std::log(base2));}
     // 17f8: 11.z selects the elevation mask (1808..1860); 1870: 11.y selects the gamma (1878..18c0: 256 *
     // exp(11.x * ln(scatter / 2)) by the program's series), else 128 * scatter (18c8).
     const bool elevation=std::bit_cast<uint32_t>(c[11][2])!=0,gamma=std::bit_cast<uint32_t>(c[11][1])!=0;
     uint32_t rgba=0x80u<<24;
     for(unsigned i=0;i<3;++i){
-        double scatter=(double(c[4][i])*rayleigh+double(c[5][i])*mie)*double(c[3][i]);
+        double scatter=(double(c[4][i])*rayleigh+double(c[5][i])*mie+double(c[6][i])*mie2)*double(c[3][i]);
         // Elevation mask: max(1 + 9 * exp(10 / (10 + sine)), 0) per channel.
         if(elevation)scatter*=std::max(1+double(c[9][i])*std::exp(double(c[10][i])/(double(c[10][i])+sine)),0.0);
         double v;
@@ -94,7 +99,8 @@ NativeHaze nativeHaze(Runtime *rt,const NativeScene &scene,uint32_t object){
         throw std::runtime_error(std::format("native haze size {}x{} differs from the frame {}x{}",width,height,haze.frame->width,haze.frame->height));
     // The packet's depth index assumes a 24-bit Z (0x31) read at shift 5.
     const int depthFormat=value<int16_t>(rt,value<uint32_t>(rt,object+0x94)+0x3c74),shift=value<uint8_t>(rt,object+0x18951);
-    if(depthFormat!=0x31 || (shift!=5 && shift!=8))throw std::runtime_error(std::format("unported native haze depth variant (format {:x}, shift {})",depthFormat,shift));
+    // 2c5580 builds the packet for any shift (shift doublings, 2^(shift-1) Ad / 128 into blue's low shift bits): 3, 5, 8 seen.
+    if(depthFormat!=0x31 || shift<1 || shift>8)throw std::runtime_error(std::format("unported native haze depth variant (format {:x}, shift {})",depthFormat,shift));
     // The ramp (2df060's table), RGBA bytes; alpha above 0x80 has no native form.
     std::array<uint32_t,256> ramp;for(unsigned i=0;i<256;++i){ramp[i]=value<uint32_t>(rt,object+0x134c4+4*i);
         if((ramp[i]>>24)>0x80)throw std::runtime_error("native haze ramp alpha above 0x80");}
@@ -103,9 +109,11 @@ NativeHaze nativeHaze(Runtime *rt,const NativeScene &scene,uint32_t object){
     // The VU1 constants (25 qwords) and its branch flags.
     std::array<std::array<float,4>,25> constants;for(unsigned i=0;i<25;++i)constants[i]=quad(rt,object+0x18b30+16*i);
     const auto flag=[&](unsigned q,unsigned lane){return value<uint32_t>(rt,object+0x18b30+16*q+4*lane);};
-    if(flag(8,0) || flag(11,1)>1 || flag(11,2)>1 || flag(11,1)==flag(11,2))
+    // 11.z (mask) and 11.y (gamma) compose in the listing's order (1808..1860, then 1878..18c0); neither is a flat 128 * scatter.
+    if(flag(8,0)>1 || flag(11,1)>1 || flag(11,2)>1 || (!flag(11,1) && !flag(11,2)))
         throw std::runtime_error(std::format("unported native haze scattering variant ({:x} {:x} {:x})",flag(8,0),flag(11,1),flag(11,2)));
     for(unsigned q:{1u,2u,3u,4u,5u,7u,9u,10u})for(float v:constants[q])finite(v);
+    if(flag(8,0)){for(unsigned l=1;l<4;++l)finite(constants[8][l]);for(float v:constants[6])finite(v);}
     if(flag(11,1)){finite(constants[11][0]);for(unsigned q=13;q<25;++q)for(unsigned l=0;l<4;++l)if(!std::isfinite(constants[q][l]))throw std::runtime_error("unqualified native haze series constant");}
     // Tiles: rows from +18940 (height +18930, offset +18938), width / 64 columns,
     // records at +13940 + row * 0x1400 + column * 0x200.

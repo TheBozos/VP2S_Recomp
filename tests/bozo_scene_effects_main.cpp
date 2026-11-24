@@ -73,9 +73,9 @@ int main(){try{
     for(const auto &v:haze.vertices)if(v.x==1984+128 && v.y==1920+256)farCorner=v.rgba==vp2s::hazeVertexColour(constants,{140+40,50-80,200-10+12,1});
     check(farCorner);
     const auto hazeRejected=rejections(rt,[&]{vp2s::nativeHaze(&rt,scene,object);},[&](unsigned w){
-        switch(w){case 0:put(rt,object+0x90,uint32_t(0));break;case 1:put(rt,depthOwner+0x3c74,int16_t(0x30));break;case 2:put(rt,object+0x18951,uint8_t(4));break;
-        case 3:put(rt,object+0x134c4+40,uint32_t(0x81000000));break;case 4:put(rt,object+0x18b30+16*8,uint32_t(1));break;
-        case 5:put(rt,object+0x18b30+16*11+4,uint32_t(1));break;case 6:put(rt,object+0x18940,uint8_t(1));break;
+        switch(w){case 0:put(rt,object+0x90,uint32_t(0));break;case 1:put(rt,depthOwner+0x3c74,int16_t(0x30));break;case 2:put(rt,object+0x18951,uint8_t(9));break;
+        case 3:put(rt,object+0x134c4+40,uint32_t(0x81000000));break;case 4:put(rt,object+0x18b30+16*8,uint32_t(2));break;
+        case 5:put(rt,object+0x18b30+16*11+4,uint32_t(2));break;case 6:put(rt,object+0x18940,uint8_t(1));break;
         case 7:put(rt,object+0x13940+0x200+16,1990.f);break;case 8:put(rt,object+0x13940,uint32_t(3));break;
         case 9:put(rt,object+0xa8,int32_t(192));break;case 10:put(rt,object+0x18930,int16_t(64));break;
         default:put(rt,object+0x13940+80,std::bit_cast<float>(0x7fc00000u));break;}},12);

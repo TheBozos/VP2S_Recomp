@@ -12,6 +12,25 @@ The earlier VP2S face/shading and general brightness comparisons remain open.
 
 ## Build and evidence
 
+### Haze: mask and gamma together, any depth shift, the two-lobe path (2026-11-24)
+
+- **Mask and gamma together (11.z = 1, 11.y = 1; maps 82-85, 491):** the listing applies the mask (1808..1860)
+  and then the gamma (1878..18c0). hazeVertexColour already composes them; nativeHaze now admits it.
+- **Depth shift 3 (maps 392, 407, 414, 426):** the packet builder 2c5580 is general in the shift. It does shift
+  doublings, then adds 2^(shift-1) Ad / 128 into blue's low shift bits. Shifts 1..8 are admitted. The test's GS
+  model was fixed below shift 5.
+- **Two lobes (8.x = 1; the same four maps):** vertex routine 1410 branches to 1520..15e8.
+  - The cosine is not clamped by 1.w (no MAXw).
+  - A second lobe 8.y / (8.z + 8.w cos)^1.5, weighted by qword 6, joins Rayleigh and the first Mie lobe in the
+    scatter.
+
+**Evidence:**
+- **Tests:** shift 3's indices against the step-by-step GS model; the two-lobe and both-flags colours differ from
+  their single-path forms. On map 392's real constants and tiles, the six vertices of tile (row 3, column 6)
+  computed by this formula equal the VU1 analysis interpreter's bytes exactly (92 94 79, 93 95 79, ...).
+- **Maps:** all 9 run clean.
+- **Atlas:** 475 of 552 maps clean.
+
 ### Lens flare: the element loop's projections (2026-11-24)
 
 - **The case:** 9 maps (108, 358-364, 504, 519) stopped at 256698. That is inside the lens-flare owner's draw

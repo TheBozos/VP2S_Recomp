@@ -44,6 +44,8 @@ void initialize(Runtime &rt,vp2s::NativeScene &scene,vp2s::NativeAssets &assets,
     put(rt,fis+4,uint32_t(0x11223344));put(rt,fis+8,uint32_t(5));put(rt,0x35de38,manager);put(rt,manager+0x2670,int16_t(1));put(rt,manager+0x1008+16,uint32_t(0x11223344));put(rt,manager+8+16,uint32_t(5));
     put(rt,object+0x230,std::array<float,4>{255,255,255,128});put(rt,object+0x300,std::array<float,4>{.5f,1,.25f,.5f});put(rt,object+0x310,uint32_t(seed&4?1:0));
     if(seed&4){std::array<uint32_t,4> opaque{0x7fa01234,0x7f800000,1,0xffffffff};put(rt,object+0x230,opaque);put(rt,object+0x300,opaque);}
+    // The GS row block (+624, VU rows 96..110) with ALPHA.FIX (row 97.y) 0: image 6's ambient step stays off.
+    put(rt,object+0x624,uint32_t(0x1d8000));put(rt,0x1d8000+0xc,uint32_t(0x6c0f0060));put(rt,0x1d8000+0x24,uint32_t(0));put(rt,0x1d8000+0x54,.5f);
     // These words resemble transport/material data intentionally. Runtime
     // drawing must ignore all of them in favour of the offline semantic pack.
     std::memset(rt.memory.hostPointer(kinds,0x110),0xcd,0x110);put(rt,kinds,uint8_t(1));put(rt,kinds+1,uint8_t(1));put(rt,kinds+2,uint8_t(0));
@@ -181,6 +183,11 @@ int main(int argc,char **argv){try{
      check(one.batches.size()==1 && two.batches.size()==1 && one.batches[0].vertices.size()==two.batches[0].vertices.size());
      for(size_t i=0;i<one.batches[0].vertices.size();++i){const auto &a=one.batches[0].vertices[i],&b=two.batches[0].vertices[i];check(a.x==b.x && a.y==b.y && a.z==b.z && a.u==b.u && a.v==b.v && a.rgba==b.rgba);}
      put(rt,object+0xaff,uint8_t(6));bool refused=false;try{draws.capture(&rt,assets,textures,scene,particles,object);}catch(const std::runtime_error &){refused=true;}check(refused);}
+    // Image 6's ambient step (1830): with row 97.y set, row 13.xyz = (r5..r8) * row 100.y + r19 = r19 here (rows 5..8
+    // zero) = (2, .5, 1), w kept (.5): the point (16, 16, 64, 128) draws (32, 8, 64, 64). Lighting applies even with +310 set.
+    {initialize(rt,scene,assets,1);put(rt,0x1d8000+0x24,uint32_t(1));put(rt,object+0x230+16*19,std::array<float,4>{2,.5f,1,7});put(rt,object+0x310,uint32_t(1));
+     const auto lit=draws.capture(&rt,assets,textures,scene,particles,object);check(!lit.batches.empty());for(const auto &v:lit.batches[0].vertices)check(v.rgba==0x40400820u);
+     put(rt,object+0x624,uint32_t(0));bool refused=false;try{draws.capture(&rt,assets,textures,scene,particles,object);}catch(const std::runtime_error &){refused=true;}check(refused);}
     // Mode 6 (VU1 image 9): the record's +32 ax 0, +36 ay .5, +40 scale 1; shape z .1 / .3.
     // Corners: x' = x, y' = cos(ay) y, z' = .5 + sin(ay) y + cos(ay) z (no z term in y).
     {initialize(rt,scene,assets,1);put(rt,object+0xaff,uint8_t(6));put(rt,kinds+0xc0+8,.1f);put(rt,kinds+0xc0+24,.3f);

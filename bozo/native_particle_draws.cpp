@@ -98,23 +98,77 @@ NativeModelSubmission NativeParticleDraws::capture(Runtime *rt,NativeAssets &ass
     for(unsigned column=0;column<4;++column){batch.matrix[4*column]=camera->screen[column]*target->width/width+(1-target->width/width)*2048.f*camera->screen[12+column];
         batch.matrix[4*column+1]=camera->screen[4+column]*target->height/height+(1-target->height/height)*2048.f*camera->screen[12+column];batch.matrix[4*column+2]=camera->screen[8+column];batch.matrix[4*column+3]=camera->screen[12+column];}
     for(float coefficient:batch.matrix)if(!std::isfinite(coefficient))throw std::runtime_error("native particle screen transform overflow");
-    const auto colour=value<std::array<float,4>>(owner,0x300),limit=value<std::array<float,4>>(owner,0x230);const auto identity=value<uint32_t>(owner,0x310);
-    if(identity>1)throw std::runtime_error("unported native particle lighting mode");if(!identity)for(unsigned i=0;i<4;++i){number(colour[i]);number(limit[i]);if(colour[i]<0 || limit[i]<0 || limit[i]>255)throw std::runtime_error("native particle colour/limit invalid");}
+    auto colour=value<std::array<float,4>>(owner,0x300);const auto limit=value<std::array<float,4>>(owner,0x230);auto identity=value<uint32_t>(owner,0x310);
+    if(identity>1)throw std::runtime_error("unported native particle lighting mode");
+    // Images 6 and 7 first call an ambient step (1830 / 1aa0, at 0738): when the low 16 bits of VU row 97.y are set, row
+    // 13.xyz = (((r5 s + r6 s) + r7 s) + r8 s) + r19 with s = row 100.y, and row 14.x (+310, the "no lighting" flag) is
+    // cleared. Rows 96..110 are the owner's GS block (+624), uploaded by the draw itself (UNPACK 15 to 0x60 before MSCAL
+    // 6e0): row 97 is its ALPHA entry, y = ALPHA.FIX (emitter +afa, 22dac0), row 100.y = +af0. Image 9 has no such step.
+    if(owner[0xaff]!=6){
+        const auto block=value<uint32_t>(owner,0x624);
+        if(!block)throw std::runtime_error("native particle draw has no GS row block (+624)");
+        auto *rows=record(rt,block,0x100);
+        if(value<uint32_t>(rows,0xc)!=0x6c0f0060)throw std::runtime_error("native particle GS row block is not the UNPACK of rows 96..110");
+        if(value<uint32_t>(rows,0x24)&0xffff){
+            const auto s=number(value<float>(rows,0x54));std::array<float,4> acc{};
+            for(unsigned r=5;r<=8;++r){const auto row=value<std::array<float,4>>(owner,0x230+16*r);for(unsigned i=0;i<3;++i)acc[i]+=number(row[i])*s;}
+            const auto ambient=value<std::array<float,4>>(owner,0x230+16*19);for(unsigned i=0;i<3;++i)colour[i]=acc[i]+number(ambient[i]);
+            identity=0;}
+    }
+    if(!identity)for(unsigned i=0;i<4;++i){number(colour[i]);number(limit[i]);if(colour[i]<0 || limit[i]<0 || limit[i]>255)throw std::runtime_error("native particle colour/limit invalid");}
+    // Image 7 with row 14.w = 2 (+31c) lights per point (1a50): a buffer starts at row 13 for every point, row 14.y (+314)
+    // adds three point lights (1b28): L = rows 20..22, colour rows 23..25, k = row 27.xyz, d = L - p (p the point record's
+    // position); buf.xyz = ((c1 k1/|d1| + (c0 k0) /|d0|) + buf) + c2 k2/|d2| (ERLENG for light 0, RSQRT k/sqrt((x2 + y2) + 1 z2)
+    // for 1 and 2). The apply (18f0) is then colour * buf clamped to [0, row 0], whatever row 14.x says. Row 14.z (1c78) is
+    // not ported. Battles 0x37 / 0x38: one light (rows 24, 25 zero).
+    const bool perPointLight=owner[0xaff]==4 && (value<uint32_t>(owner,0x31c)&0xffff)==2;
+    std::array<std::array<float,4>,3> lightAt{},lightColour{};std::array<float,3> lightK{};bool pointLights=false;
+    if(perPointLight){
+        if(value<uint32_t>(owner,0x318)&0xffff)throw std::runtime_error("unported native particle ribbon lighting pass 1c78 (VU row 14.z)");
+        pointLights=(value<uint32_t>(owner,0x314)&0xffff)!=0;
+        const auto flush=[](float f){return std::fpclassify(f)==FP_SUBNORMAL?0.f:f;};   // VU reads denormals as zero
+        for(unsigned k=0;k<3;++k){lightAt[k]=value<std::array<float,4>>(owner,0x230+16*(20+k));lightColour[k]=value<std::array<float,4>>(owner,0x230+16*(23+k));
+            for(auto &f:lightAt[k])f=flush(f);for(auto &f:lightColour[k])f=flush(f);lightK[k]=flush(value<float>(owner,0x230+16*27+4*k));}
+        for(unsigned i=0;i<4;++i){number(colour[i]);number(limit[i]);}
+        identity=0;
+    }
+    const auto litColour=[&](const uint8_t *point){
+        if(!perPointLight)return colour;
+        auto buf=colour;if(!pointLights)return buf;
+        const auto p=value<std::array<float,4>>(point,0);float term[3][3]{};
+        for(unsigned k=0;k<3;++k){
+            if(lightColour[k][0]==0 && lightColour[k][1]==0 && lightColour[k][2]==0)continue;   // 0 * anything is 0 on the VU
+            float d[3];for(unsigned i=0;i<3;++i)d[i]=number(lightAt[k][i])-number(p[i]);
+            const float length2=(d[0]*d[0]+d[1]*d[1])+d[2]*d[2];
+            if(!(length2>=std::numeric_limits<float>::min()))throw std::runtime_error("native particle point light at the point");
+            const float r=1/std::sqrt(length2);
+            for(unsigned i=0;i<3;++i)term[k][i]=k==0?(number(lightColour[0][i])*lightK[0])*r:number(lightColour[k][i])*(lightK[k]*r);}
+        for(unsigned i=0;i<3;++i){buf[i]=(term[1][i]+term[0][i])+buf[i];buf[i]=buf[i]+term[2][i];number(buf[i]);}
+        return buf;
+    };
     // Mode 6 selects VU1 image 9 (table 3141a0 entry 9 via 22ddf0: mode + 3) instead of 6:
     // the point record reads (ax, ay, scale, kind); see the corner loop. Its angle offsets
     // (VU row 37 = header +260/+264, the camera angles when emitter +afb / +afc) are not
     // ported: with either flag set the draw refuses.
     const bool tilted=owner[0xaff]==6,ribbon=owner[0xaff]==4;
-    if(tilted && (owner[0xafb] || owner[0xafc]))throw std::runtime_error("unported native particle mode 6 camera angle offsets");
+    // Image 9 adds row 37's xy to the point's two angles before its sin/cos (0908: ADD.xy vf27, vf27, vf16). The draw
+    // (22f250..22f2ec) fills row 37: x = -camera +5d4 when emitter +afb, y = -camera +5d0 when +afc, else 0; the camera
+    // is the draw's own (a1), brought up to date first through its +64 method when +61 is clear (battle 0x37).
+    float angleOffset[2]={0,0};
+    if(tilted && (owner[0xafb] || owner[0xafc])){
+        if(!*rt->memory.hostPointer(camera->object+0x61,1))throw std::runtime_error("native particle mode 6 angle offsets need an updated camera");
+        if(owner[0xafb])angleOffset[0]=-number(value<float>(record(rt,camera->object+0x5d4,4),0));
+        if(owner[0xafc])angleOffset[1]=-number(value<float>(record(rt,camera->object+0x5d0,4),0));}
     // VU1 particle program (0x6e0, image c8e40f07): MUL tint*colour (0b60), MINIi 255
     // (0b80), FTOI0 (0ba8); no clamp at zero. FTOI0 truncates toward zero (saturating),
     // and GIF PACKED RGBAQ keeps each word's low byte: a channel of -1 draws as 0xff.
     // The lighting pass before it (subroutine 1400 in image 6, 1670 in image 7, the same
     // words) multiplies by VU row 13 (+300) and clamps to [0, row 0 (+230)] unless +310 is set.
     const auto pointColour=[&](const uint8_t *point,const uint8_t *shape){
+        const auto light=litColour(point);
         uint32_t rgba=0;for(unsigned i=0;i<4;++i){auto channel=number(value<float>(point,16+4*i));const auto tint=number(value<float>(shape,64+4*i));
             if(tint<0 || (!identity && channel<0))throw std::runtime_error("negative native particle colour");
-            if(!identity)channel=std::clamp(channel*colour[i],0.f,limit[i]);channel=std::min(channel*tint,255.f);
+            if(!identity)channel=std::clamp(channel*light[i],0.f,limit[i]);channel=std::min(channel*tint,255.f);
             const int32_t fixed=channel<=-2147483648.f?INT32_MIN:int32_t(channel);rgba|=(uint32_t(fixed)&0xffu)<<(8*i);}
         return rgba;
     };
@@ -124,10 +178,9 @@ NativeModelSubmission NativeParticleDraws::capture(Runtime *rt,NativeAssets &ass
         // Mode 4 selects VU1 image 7 (table 3141a0 entry 7, mod001 325240): ribbons. The
         // owner's VU rows are owner +230 + 16 row (the +220 REF opens with UNPACK 0x2f
         // qwords to row 0). Only the path for row 15.w = 0 (0868..0f28) is ported; 15.w set
-        // selects a fog variant (0f38..1660: XYZF2, fog from row 68). Row 14.w = 2 selects
-        // another lighting pass (1a50) than the one pointColour transcribes.
+        // selects a fog variant (0f38..1660: XYZF2, fog from row 68). Row 14.w = 2 (pass 1a50) is
+        // litColour's per-point buffer.
         if(value<uint32_t>(owner,0x32c))throw std::runtime_error("unported native particle ribbon fog variant (VU row 15.w)");
-        if((value<uint32_t>(owner,0x31c)&0xffff)==2)throw std::runtime_error("unported native particle ribbon lighting variant (VU row 14.w = 2)");
         // Image 7 divides a point's second vertex by the first one's Q (0b58, 0d08, 0ea8):
         // that equals a per-vertex projection only while the screen w row ignores x and y.
         if(camera->screen[12]!=0 || camera->screen[13]!=0)throw std::runtime_error("unported native particle ribbon projection (screen w depends on x/y)");
@@ -193,7 +246,7 @@ NativeModelSubmission NativeParticleDraws::capture(Runtime *rt,NativeAssets &ass
         auto *points=record(rt,cursor+0x20,count*48);
         for(unsigned p=0;p<count;++p){const auto *point=points+48*p;const auto kind=uint64_t(value<uint32_t>(point,44))+uint64_t(pass)*m.stride;if(kind>=m.kinds)throw std::runtime_error("native particle sprite kind outside template");auto *shape=kindData+0xc0+80*kind;
             std::array<float,4> position=value<std::array<float,4>>(point,0);for(unsigned i=0;i<3;++i)number(position[i]);position[3]=1;const auto eye=transform(toView,position);
-            const auto angle=number(value<float>(point,32)),sx=number(value<float>(point,36)),sy=number(value<float>(point,40)),c=std::cos(angle),s=std::sin(angle);
+            const auto angle=number(value<float>(point,32))+angleOffset[0],sx=number(value<float>(point,36))+angleOffset[1],sy=number(value<float>(point,40)),c=std::cos(angle),s=std::sin(angle);
             const float x[2]={number(value<float>(shape,0)),number(value<float>(shape,16))},y[2]={number(value<float>(shape,4)),number(value<float>(shape,20))};
             if(value<uint32_t>(shape,40)!=0x3f800000 || value<uint32_t>(shape,56)!=0x3f800000)throw std::runtime_error("unported native particle projective texture coordinates");
             const float u[2]={number(value<float>(shape,32)),number(value<float>(shape,48))},v[2]={number(value<float>(shape,36)),number(value<float>(shape,52))};

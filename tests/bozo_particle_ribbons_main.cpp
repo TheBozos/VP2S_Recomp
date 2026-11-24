@@ -116,6 +116,9 @@ struct Vu1 {
             case 0x34:setVf(it,row(vi[is&15]&0x3ff));setVi(is,vi[is&15]+1);return ~0u;
             case 0x35:{auto &r=row(vi[it&15]&0x3ff);for(int f=0;f<4;++f)if(on(d,f))r.u[f]=in[is].u[f];setVi(it,vi[it&15]+1);return ~0u;}
             case 0x38:{uint32_t f=0;q=bozo::ps2f::div(in[is].u[(w>>21)&3],in[it].u[(w>>23)&3],f);return ~0u;}
+            // RSQRT Q = fs.fsf / sqrt(ft.ftf) (the light pass 1b28 of row 14.w = 2); WAITQ: Q is set at once here.
+            case 0x3a:{uint32_t f=0;q=bozo::ps2f::rsqrt(in[is].u[(w>>21)&3],in[it].u[(w>>23)&3],f);return ~0u;}
+            case 0x3b:return ~0u;
             case 0x3d:setVf(it,bozo::vu0::broadcast(uint32_t(int32_t(int16_t(vi[is&15])))));return ~0u;
             case 0x64:setVf(it,bozo::vu0::broadcast(p));return ~0u;
             case 0x68:setVi(it,xtop);return ~0u;
@@ -138,7 +141,7 @@ struct Vu1 {
 };
 
 // ---- fixture (as the mode 3/6 test's) ----
-constexpr uint32_t object=0x160000,camera=0x170000,target=0x180000,current=0x190000,kinds=0x1e1020,fis=0x1d1000,manager=0x1b0000,chunks=0x210020;
+constexpr uint32_t object=0x160000,camera=0x170000,target=0x180000,current=0x190000,kinds=0x1e1020,fis=0x1d1000,manager=0x1b0000,chunks=0x210020,block=0x1d8000;
 void files(const std::filesystem::path &dir){
     std::filesystem::create_directories(dir);
     // Two kinds, two passes (variant 1 differs): image 7 draws one pass with variant 0.
@@ -147,7 +150,7 @@ void files(const std::filesystem::path &dir){
     {std::ofstream f(dir/"manifest.txt");f<<"VPNT1\n11223344 5 c_0000000000000000.tex\n";}
     {std::ofstream f(dir/"c_0000000000000000.tex",std::ios::binary);write(f,std::array<uint32_t,3>{2,2,0});write(f,std::array<uint32_t,4>{0x800000ff,0x8000ff00,0x80ff0000,0x80ffffff});write(f,std::array<uint32_t,256>{});}
 }
-struct Case {unsigned groups[4],perChunk,chunks;bool lit,coincide,tilt;};
+struct Case {unsigned groups[4],perChunk,chunks;bool lit,coincide,tilt,ambient=false;unsigned lights=0;};
 void initialize(Runtime &rt,vp2s::NativeScene &scene,vp2s::NativeAssets &assets,const Case &c,std::mt19937 &random){
     std::memset(rt.memory.flat(),0,bozo::kFlatBytes);scene=vp2s::NativeScene{};assets=vp2s::NativeAssets{};
     put(rt,0x1c8d00+0xcc84,uint8_t(1));put(rt,0x35ddf8,current);put(rt,current+0x40a8,object);put(rt,current+0x40dc,uint8_t(1));
@@ -164,6 +167,15 @@ void initialize(Runtime &rt,vp2s::NativeScene &scene,vp2s::NativeAssets &assets,
     put(rt,object+0x628,kinds);put(rt,object+0x658,fis);
     put(rt,fis+4,uint32_t(0x11223344));put(rt,fis+8,uint32_t(5));put(rt,0x35de38,manager);put(rt,manager+0x2670,int16_t(1));put(rt,manager+0x1008+16,uint32_t(0x11223344));put(rt,manager+8+16,uint32_t(5));
     put(rt,object+0x230,std::array<float,4>{255,128,255,64});put(rt,object+0x300,std::array<float,4>{.5f,1,.25f,2});put(rt,object+0x310,uint32_t(c.lit?0:1));
+    // The GS row block (+624, rows 96..110): row 97.y (ALPHA.FIX) switches image 7's ambient step 1aa0 on, row 100.y
+    // scales rows 5..8 into row 13 (+ row 19). Lights (row 14.w = 2, 14.y = 1): positions 20..22, colours 23..25, k row 27.
+    put(rt,object+0x624,block);put(rt,block+0xc,uint32_t(0x6c0f0060));put(rt,block+0x24,uint32_t(c.ambient?0x40:0));put(rt,block+0x54,.5f);
+    if(c.ambient){put(rt,object+0x230+16*5,std::array<float,4>{.25f,.5f,.125f,0});put(rt,object+0x230+16*6,std::array<float,4>{.25f,.25f,.25f,0});
+        put(rt,object+0x230+16*8,std::array<float,4>{-.01f,-.06f,-.002f,0});put(rt,object+0x230+16*19,std::array<float,4>{.85f,.64f,.47f,1});}
+    if(c.lights){put(rt,object+0x31c,uint32_t(2));put(rt,object+0x314,uint32_t(1));
+        put(rt,object+0x230+16*20,std::array<float,4>{3.f,-4.f,5.f,1});put(rt,object+0x230+16*23,std::array<float,4>{.05f,.04f,.03f,0});put(rt,object+0x230+16*27,std::array<float,4>{152,40,9,0});
+        put(rt,object+0x230+16*21,std::array<float,4>{1.7e-9f,1e-15f,-8e-11f,0});put(rt,object+0x230+16*22,std::array<float,4>{-2,1,-6,0});
+        if(c.lights>1){put(rt,object+0x230+16*24,std::array<float,4>{.01f,.02f,.03f,0});put(rt,object+0x230+16*25,std::array<float,4>{.03f,.01f,.02f,0});}}
     std::memset(rt.memory.hostPointer(kinds,0x160),0,0x160);put(rt,kinds,uint8_t(2));put(rt,kinds+1,uint8_t(1));put(rt,kinds+2,uint8_t(0));
     const std::array<float,20> k0{-1,-1,0,1,1,1,0,1, .125f,.25f,1,1, .75f,.875f,1,1, 1,.5f,1,2};put(rt,kinds+0xc0,k0);
     const std::array<float,20> k1{-1,-1,0,1,1,1,0,1, 0,1,1,1, 1,0,1,1, .5f,1,.25f,1};put(rt,kinds+0xc0+80,k1);
@@ -185,6 +197,7 @@ struct Strip {std::vector<std::array<uint32_t,12>> vertices;};
 Strip oracle(const std::vector<uint8_t> &code,Runtime &rt,const vp2s::NativeCamera &cam,uint32_t chunk){
     Vu1 vu(code);const auto *owner=rt.memory.hostPointer(object,0xb10);
     for(unsigned r=0;r<47;++r)std::memcpy(&vu.row(r),owner+0x230+16*r,16);
+    for(unsigned r=0;r<15;++r)std::memcpy(&vu.row(96+r),rt.memory.hostPointer(block+0x10+16*r,16),16);
     Mat world;std::memcpy(world.data(),owner+0x90,64);Mat toView{};for(unsigned a=0;a<4;++a)for(unsigned b=0;b<4;++b)for(unsigned k=0;k<4;++k)toView[a*4+b]+=cam.view[a*4+k]*world[k*4+b];
     const auto columns=[&](unsigned first,const Mat &m){for(unsigned col=0;col<4;++col)for(unsigned r=0;r<4;++r)vu.row(first+col).u[r]=std::bit_cast<uint32_t>(m[r*4+col]);};
     columns(52,cam.screen);columns(56,cam.guard);columns(77,toView);
@@ -192,6 +205,9 @@ Strip oracle(const std::vector<uint8_t> &code,Runtime &rt,const vp2s::NativeCame
     const auto *k=rt.memory.hostPointer(kinds,0x160);for(unsigned r=0;r<9;++r)std::memcpy(&vu.row(0x2e0+r),k+0x20+16*r,16);for(unsigned r=0;r<10;++r)std::memcpy(&vu.row(0x2e9+r),k+0xc0+16*r,16);
     const auto count=*reinterpret_cast<const uint32_t *>(rt.memory.hostPointer(chunk+0x10,4));
     vu.xtop=0x100;std::memcpy(&vu.row(0x100),rt.memory.hostPointer(chunk+0x10,16+48*count),16+48*count);
+    // The draw's first MSCAL (6e0) calls the ambient step 1aa0 at 0738 before 1670; its row 13 / row 14.x stay in VU
+    // memory for the following chunks (0818). Here 1aa0 runs on its own, returning (vi15) into an E-bit stub at 3ff0.
+    vu.vi[15]=0x3ff0/8;vu.run(0x1aa0);check(vu.kicks.empty());
     vu.run(0x818);check(vu.kicks.size()==1 && vu.kicks[0]==0x1a0);
     const auto tag=vu.row(0x1a0+5);if(!(tag.u[0]==0x8000+2*count && tag.u[1]==0x30000000u))for(unsigned r=0;r<8;++r)std::fprintf(stderr,"%x: %08x %08x %08x %08x\n",0x1a0+r,vu.row(0x1a0+r).u[0],vu.row(0x1a0+r).u[1],vu.row(0x1a0+r).u[2],vu.row(0x1a0+r).u[3]);check(tag.u[0]==0x8000+2*count && tag.u[1]==0x30000000u);
     Strip s;for(unsigned v=0;v<2*count;++v){std::array<uint32_t,12> out;for(unsigned j=0;j<3;++j)std::memcpy(out.data()+4*j,&vu.row(0x1a0+6+3*v+j),16);s.vertices.push_back(out);}
@@ -199,11 +215,15 @@ Strip oracle(const std::vector<uint8_t> &code,Runtime &rt,const vp2s::NativeCame
 }
 }
 int main(int argc,char **argv){try{
-    check(argc==3);const std::filesystem::path dir=argv[1];files(dir);const auto code=image7(argv[2]);
+    check(argc==3);const std::filesystem::path dir=argv[1];files(dir);auto code=image7(argv[2]);
+    // An E-bit NOP pair (and its delay pair) at 3ff0: the return point of a subroutine run on its own.
+    check(code.size()>=0x4000);for(uint32_t at:{0x3ff0u,0x3ff8u}){const uint32_t lower=0x8000033c,upper=at==0x3ff0?0x400002ffu:0x000002ffu;
+        std::memcpy(code.data()+at,&lower,4);std::memcpy(code.data()+at+4,&upper,4);}
     Runtime rt;vp2s::NativeScene scene;vp2s::NativeAssets assets;vp2s::NativeParticles particles;vp2s::NativeParticleDraws draws(dir);vp2s::NativeTextures textures(dir,dir/"manifest.txt");
     std::mt19937 random(0x7a11);unsigned cases=0,triangles=0,culled=0;
     const Case table[]={{{2},1,1,false,false,false},{{3},2,1,false,false,false},{{5},3,1,true,false,false},{{2,4,6},2,3,false,false,false},
-        {{22},1,1,false,true,false},{{8,3},2,2,true,true,false},{{16},3,1,false,false,false},{{48},1,1,true,false,false},{{4},12,1,false,false,false}};
+        {{22},1,1,false,true,false},{{8,3},2,2,true,true,false},{{16},3,1,false,false,false},{{48},1,1,true,false,false},{{4},12,1,false,false,false},
+        {{5},3,1,false,false,false,true},{{6},2,1,true,false,false,true},{{4},3,1,false,false,false,false,1},{{7},2,1,true,false,false,true,1},{{3},4,1,false,false,false,true,2}};
     for(unsigned round=0;round<8;++round)for(const auto &c:table){
         initialize(rt,scene,assets,c,random);const auto cam=scene.drawingCamera();check(bool(cam));
         const auto result=draws.capture(&rt,assets,textures,scene,particles,object);check(result.batches.size()<=1);
@@ -226,10 +246,10 @@ int main(int argc,char **argv){try{
         ++cases;
     }
     check(triangles>500 && culled>50);
-    // Refusals: the fog variant (row 15.w), lighting row 14.w = 2, a screen w row with an x term,
+    // Refusals: the fog variant (row 15.w), lighting pass 1c78 (row 14.w = 2 with 14.z), a screen w row with an x term,
     // a ribbon of one point, a ribbon kind outside the template.
     for(unsigned which=0;which<5;++which){Case c{{3},1,1,false,false,which==2};initialize(rt,scene,assets,c,random);
-        if(which==0)put(rt,object+0x32c,uint32_t(1));else if(which==1)put(rt,object+0x31c,uint32_t(2));
+        if(which==0)put(rt,object+0x32c,uint32_t(1));else if(which==1){put(rt,object+0x31c,uint32_t(2));put(rt,object+0x318,uint32_t(1));}
         else if(which==3){put(rt,chunks+0x10,uint32_t(1));put(rt,chunks+0x14,uint32_t(5));put(rt,chunks+0x18,uint32_t(1));put(rt,object+0xabc,uint32_t(1));}
         else if(which==4)put(rt,chunks+0x20+44,uint32_t(2));
         bool refused=false;try{draws.capture(&rt,assets,textures,scene,particles,object);}catch(const std::runtime_error &){refused=true;}check(refused);}

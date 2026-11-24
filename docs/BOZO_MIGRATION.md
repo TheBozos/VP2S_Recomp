@@ -12,6 +12,21 @@ The earlier VP2S face/shading and general brightness comparisons remain open.
 
 ## Build and evidence
 
+### Field overlays get their pointer-only entries (2026-11-24)
+
+- **The case:** maps 289-321 (33 maps) stopped on "no code at 0x48f2b0", 27 frames after the warp. The module at
+  0x48ef00 is mod008, byte-identical in RAM and on the disc. 0x48f2b0 is a function reached only through a vtable.
+  tools/find_entry_points.py lists it in build_usa/entries/mod008.txt, but vp2_bozo_prepare applied those gap
+  entries to captured modules only.
+- **Now:** the field overlays mod004-mod013 (slot 0x48ef00) get them too, 98 entries in all. The core modules (main,
+  mod001-mod003; about 1800 more) keep Ghidra's boundaries, which the native sites are written against.
+
+**Evidence:**
+- **Maps:** none of the 33 maps reaches missing code. One runs 850 frames clean; 32 stop at the next boundary, class
+  168e10: mod008's countdown timer HUD ("If the timer at the bottom left reaches zero, Rufus's soul will disappear"),
+  which the UI layer admits as neither text nor a known element.
+- **Regression:** full ctest 97/97; the four scenes run to their frame limit with their hashes.
+
 ### Table B: shells 12 / 14, second passes 18 / 28, 32 / 52 / 54 refused (2026-11-24)
 
 - **Disc data** (all 1.37M meshes scanned with vp2_meshes' unpack):

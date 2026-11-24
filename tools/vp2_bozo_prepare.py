@@ -448,6 +448,11 @@ def prepare(data, rows, sdk):
 CAPTURED_BATTLE_MODULES={'mod027','mod028','mod030','mod060','mod068','mod112','mod129','mod133','mod144','mod169','mod175','mod179','mod191','mod220','mod271','mod119','mod134','mod157','mod176','mod206','mod287','mod117','mod120','mod128','mod174','mod132','mod141','mod197','mod121','mod178','mod115','mod172','mod180','mod135','mod182','mod189','mod217','mod225','mod272','mod125','mod138','mod158','mod201','mod136','mod137','mod192','mod111','mod139','mod282','mod276','mod130','mod171','mod140','mod170','mod236','mod142','mod218','mod289','mod291','mod147','mod146','mod285','mod274','mod150','mod131','mod183','mod113','mod114','mod173','mod124','mod280','mod185','mod181','mod145','mod122','mod123','mod186','mod244','mod116','mod034','mod040','mod043','mod044','mod118','mod127','mod151','mod152','mod184','mod198','mod200','mod202','mod231','mod126','mod219'}
 
 
+# The disc's field overlays in slot 0x48ef00 (mod004-mod013): the same gaps (maps 289-321 call mod008's 0x48f2b0, reached only
+# through a vtable). The core modules (main, mod001-mod003) keep Ghidra's boundaries, which the native sites are written against.
+FIELD_OVERLAY_MODULES={f'mod{i:03d}' for i in range(4,14)}
+
+
 def gap_entries(path,rows,data):
     if not path.exists():return []
     _,_,sections=elf_parts(data)
@@ -501,7 +506,7 @@ def main():
             rows=list(csv.DictReader(stream))
         rows+=overlay_entries(name,data)
         rows+=empty_stub_entries(data,rows)
-        if name in CAPTURED_BATTLE_MODULES:rows+=gap_entries(args.build/'entries'/f'{name}.txt',rows,data)
+        if name in CAPTURED_BATTLE_MODULES or name in FIELD_OVERLAY_MODULES:rows+=gap_entries(args.build/'entries'/f'{name}.txt',rows,data)
         if name=='main':
             from vp2_bozo_kernel import game_entries,bootstrap_tables
             rows+=game_entries(data)

@@ -53,6 +53,12 @@ std::vector<NativeShadowDraw> nativeShadowPass(const NativeModelSubmission &,flo
 // its texture slot and palette part (row 21 .z / .w, as row 15's for pass 1 at block +98 / +9c) and the TEX0 low word
 // row 18 writes (the slot's manager entry must hold it); nullopt otherwise.
 using NativeMaterialRows=std::array<std::array<uint32_t,4>,16>;
+// Mesh routine 46 (table B 21e0) per vertex, object space: q = ((c3 + c0 x) + c1 y) + c2 z (the projector rows 43..46),
+// S, T, Q = FTOI12(q.xyz); off (alpha 0) when q.z < 0 or the z-lane MAC flags (Z 0x02, S 0x20) of ((t.z + t.y) + t.x),
+// t = (origin - p) * n, meet the mask (row 40.z).
+struct ProjectedTexture {std::array<int32_t,3> stq{};bool off=false;};
+ProjectedTexture projectedTexture(const std::array<float,3> &p,const std::array<float,3> &n,const std::array<float,4> &origin,
+                                  const std::array<float,4> (&cols)[4],uint32_t mask);
 struct NativeSecondPass {uint32_t alpha=0,slot=0,part=0,tex0=0;bool on=false;};   // on: row 21.y (each table-B pass clears it)
 std::optional<NativeSecondPass> nativeSecondPass(const NativeMaterialRows &rows);
 void nativeShadowPrisms(const std::vector<std::array<float,3>> &positions,const std::vector<uint16_t> &strips,const std::array<float,3> &light,

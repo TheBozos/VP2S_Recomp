@@ -304,6 +304,17 @@ int main(int argc,char **argv){try{
          other=rows;other[11][2]=0x14;check(!vp2s::nativeSecondPass(other));                   // row 18 not a TEX0_1 write
          other=rows;other[6][1]=0x302e4000;other[12][1]=0x302e4000;check(vp2s::nativeSecondPass(other).has_value());   // pass 1 already blended (map 65)
          other[12][1]=0x30ae4000;check(!vp2s::nativeSecondPass(other));shadowCases+=6;}   // ... and pass 2 changing another PRIM bit
+        // Routine 46's projection, Logun's projector rows (object d23280): S = trunc(4096 (-1.7 + -0.0028573 x)), Q = 1;
+        // the mask 0x20 turns a vertex facing away from the origin (dot((origin - p), n) < 0) off, and q.z < 0 too.
+        {const std::array<float,4> cols[4]{{std::bit_cast<float>(0xbb3b3ee7u),0,0,0},{0,std::bit_cast<float>(0x3aced65cu),0,std::bit_cast<float>(0x3f55691eu)},
+             {0,std::bit_cast<float>(0xbb1c1839u),0,std::bit_cast<float>(0x3f0d6489u)},{-1.7f,-1.25f,1,0}};
+         const std::array<float,4> origin{-1500,-2867,-2683,1};
+         const auto t=vp2s::projectedTexture({100,-40,200},{0,-1,0},origin,cols,0x20);
+         const float s=((-1.7f*1.0f+cols[0][0]*100.0f)+cols[1][0]*-40.0f)+cols[2][0]*200.0f;
+         check(t.stq[0]==int32_t(std::trunc(double(s)*4096)) && t.stq[2]==4096 && !t.off);++shadowCases;          // facing up to the origin above
+         check(vp2s::projectedTexture({100,-40,200},{0,1,0},origin,cols,0x20).off);++shadowCases;                  // facing away: off
+         check(!vp2s::projectedTexture({100,-40,200},{0,1,0},origin,cols,0).off);++shadowCases;                    // ... unless the mask is 0
+         std::array<float,4> behind[4]{cols[0],cols[1],cols[2],cols[3]};behind[3][2]=-1;check(vp2s::projectedTexture({100,-40,200},{0,-1,0},origin,behind,0).off);++shadowCases;}   // q.z < 0
         // A vertex at w <= 0 drops its triangle; strips that do not cover the vertices reject.
         {auto behind=top;behind[15]=-1;std::vector<V> inc,dec;vp2s::nativeShadowPrisms(quad,strip,{0,0,1},behind,flat,inc,dec);check(inc.empty() && dec.empty());
             bool bad=false;try{vp2s::nativeShadowPrisms(quad,std::vector<uint16_t>{3},{0,0,1},top,flat,inc,dec);}catch(const std::runtime_error &){bad=true;}check(bad);shadowCases+=2;}

@@ -12,6 +12,36 @@ The earlier VP2S face/shading and general brightness comparisons remain open.
 
 ## Build and evidence
 
+### Table B routine 46: the projected darkening pattern (2026-11-24)
+
+- **The routine:** table B 21e0, lifted with the fork's timed vu1_lift so that the pipelined flags are exact. It is
+  gated by mem[36].z and row 21.x (which it clears, independent of the 16/22/50 pass's row 21.y).
+  - **Per vertex (object space):** q = ((r46 + r43 x) + r44 y) + r45 z, and S, T, Q = FTOI12(q.xyz) go to the UV
+    row. The colour row's .w is 0 when q.z < 0 (vf14's S z), or when the z-lane MAC flags of f = ((t.z + t.y) + t.x),
+    t = (r42 - p) * n, meet the mask r40.z (0x20: facing away). Otherwise it is FTOI0(r36.w).
+  - **Material:** row 16.x = r16.x (ALPHA_1), row 19.y = r16.y (the tag's PRIM), rows 17/18.xy = r40/r41 (TEX0).
+    Then 16's tail draws (1748).
+- **Seen (maps 1, 65, 79, traced):**
+  - row 21.x = 1 and r36.z = 1 on every traced object;
+  - ALPHA 0x46 = Cd (1 - As), r36.w = 64 (half strength), mask 0x20, PRIM 0x5c;
+  - TEX0 TBP 3280 (4-bit; the texture-manager entry with that TEX0 is found by its low word);
+  - an orthographic projector whose r46 offsets each object so that the pattern stays continuous in world space;
+  - S, T spanning several units per mesh (-5..5), so the texture repeats: a ground darkening pattern, not one
+    blob. Clamped, every pixel took the edge texel and nothing showed.
+- **Now:** a third batch after pass 1, ordered with the 16/22/50 pass by the routines' order. It uses the projected
+  S/Q, T/Q, the lit alpha (r36.w times lighting's alpha factor, clamped as pass 1), and the projector's texture
+  (CSA, TCC, TFX from r41), repeating, FGE from its PRIM, and no depth write.
+- **Assumption:** the CLAMP register this pass draws with is not in these rows; repeat is read from the UV spans.
+- **Refused:** an ALPHA with a reserved field, a PRIM not textured and blended or of another type than row 13's,
+  other tag bits, mask bits besides Z/S z, no manager entry for the TEX0, and the feedback picture.
+
+**Evidence:**
+- **Tests:** projectedTexture on Logun's projector rows (S exact, Q = 1); facing away is off, mask 0 keeps it, and
+  q.z < 0 is off.
+- **Maps:** a sample of 41 clean maps still runs clean. Logun's cliff face gains a mottled darkening; it is not yet
+  compared with PCSX2.
+- **Regression:** the four EE-RAM hashes are unchanged; they cover game state, not the drawn frame.
+
 ### Table B second passes: routines 22 and 50 (2026-11-24)
 
 - **The audit:** every routine's work sits in one table: A before the kick, or B after it. The native path admitted

@@ -284,6 +284,14 @@ void nativeShadowPrisms(const std::vector<std::array<float,3>> &positions,const 
         first+=length;
     }
 }
+ProjectedTexture projectedTexture(const std::array<float,3> &p,const std::array<float,3> &n,const std::array<float,4> &origin,
+                                  const std::array<float,4> (&cols)[4],uint32_t mask){
+    std::array<float,3> q{};for(unsigned c=0;c<3;++c)q[c]=((cols[3][c]*1.0f+cols[0][c]*p[0])+cols[1][c]*p[1])+cols[2][c]*p[2];
+    std::array<float,3> t{};for(unsigned c=0;c<3;++c)t[c]=(origin[c]-p[c])*n[c];
+    const float f=(t[2]+t[1])+t[0];const uint32_t mac=(f==0?0x02u:0u)|(std::signbit(f) && f!=0?0x20u:0u);   // z lane: Z, S
+    const auto fixed=[](float x){return int32_t(std::clamp(std::trunc(double(x)*4096),-2147483648.0,2147483647.0));};   // FTOI12
+    return {{fixed(q[0]),fixed(q[1]),fixed(q[2])},(std::signbit(q[2]) && q[2]!=0) || (mac&mask)!=0};
+}
 std::optional<NativeSecondPass> nativeSecondPass(const NativeMaterialRows &rows){
     const auto row=[&](unsigned r,unsigned c){return rows[r-7][c];};
     const auto prim=[&](unsigned r){return (row(r,1)>>15)&0x7ff;};
@@ -477,6 +485,12 @@ NativeModelSubmission NativeModels::capture(Runtime *rt,NativeAssets &assets,Nat
                 const bool live=block>=0x100000 && word(block+0x70)==0x8000 && word(block+0x78)==0x412;
                 std::fprintf(stderr,"[vp2s:table-b] object=%x class=%x mesh=%x block=%x algs=%d.%d.%d.%d live=%d row21y=%u row17w=%u row36z=%u\n",object,word(object),mesh,block,
                     m.algorithms[0],m.algorithms[1],m.algorithms[2],m.algorithms[3],int(live),live?word(block+0xf4):0u,live?word(block+0xbc):0u,word(object+0x230+16*36+8));}}
+        // ... and for 46 (VP2S_BOZO_TRACE_TABLE_B=46): row 21.x, and the projector rows 16, 36, 40..46 of the object.
+        if(static const bool trace46=[]{const char *v=std::getenv("VP2S_BOZO_TRACE_TABLE_B");return v && std::string(v)=="46";}();trace46 && m.has(46)){
+            static std::set<uint32_t> shown;const bool live=block>=0x100000 && word(block+0x70)==0x8000 && word(block+0x78)==0x412;
+            if(shown.insert(object).second){std::string rows;for(unsigned r:{16u,36u,40u,41u,42u,43u,44u,45u,46u})rows+=std::format(" r{}={:08x},{:08x},{:08x},{:08x}",r,word(object+0x230+16*r),word(object+0x234+16*r),word(object+0x238+16*r),word(object+0x23c+16*r));
+                if(live)for(unsigned r:{13u,14u,19u,20u})rows+=std::format(" m{}={:08x},{:08x},{:08x},{:08x}",r,word(block+0x10+16*(r-7)),word(block+0x14+16*(r-7)),word(block+0x18+16*(r-7)),word(block+0x1c+16*(r-7)));
+                std::fprintf(stderr,"[vp2s:table-b46] object=%x class=%x mesh=%x row21x=%u live=%d%s\n",object,word(object),mesh,live?word(block+0xf0):0u,int(live),rows.c_str());}}
         // 22 (table B 0f90: routine 20's sphere map, bal 0fd0, then 1720) and 50 (2348: the UVs plus object row 38 + data.x
         // .zw, bal 2398, then 1720) are the same pass with other UVs. Each tests and clears row 21.y, so the first of them in
         // the mesh's routine order draws it.
@@ -492,6 +506,36 @@ NativeModelSubmission NativeModels::capture(Runtime *rt,NativeAssets &assets,Nat
             secondPass=nativeSecondPass(rows);
             if(!secondPass)throw std::runtime_error(std::format("unported native mesh second pass (routine {}): mesh {:x} block {:x}",passRoutine,mesh,block));
             if(!secondPass->on)secondPass.reset();}   // row 21.y clear: the routine skips its pass
+        // 46 (table B 21e0): a texture projected onto the mesh (a darkening pattern in world space: ALPHA 0x46, Cd (1 - As)).
+        // Gated by mem[36].z and row 21.x (which it clears; the 16/22/50 pass tests .y, so both may draw). Per vertex,
+        // in the object's VU rows: q = ((r46 + r43 x) + r44 y) + r45 z; S, T, Q = FTOI12(q.xyz) to the UV row; the colour
+        // row's .w = 0 when q.z < 0 (vf14's S z) or when the MAC flags of f = ((t.z + t.y) + t.x), t = (r42 - p) * n, meet
+        // the mask r40.z, else FTOI0(r36.w). Rows 16.x (ALPHA_1), 19.y (= r16.y, the tag's PRIM) and 17/18.xy (= r40/r41,
+        // TEX0) are set, then 16's tail draws (1748). Lifted with the fork's vu1_lift (timed): the flags are this vertex's.
+        struct Projector{uint32_t alpha=0,prim=0,mask=0;float level=0;std::array<float,4> origin{},cols[4]{};std::shared_ptr<const bozo::render::Texture> texture;bool textureAlpha=false;uint32_t textureFunction=0;};
+        std::optional<Projector> projector;int projectorSlot=-1,passSlot=-1;
+        for(unsigned a=0;a<4;++a){if(m.algorithms[a]==46 && projectorSlot<0)projectorSlot=int(a);if(passRoutine && m.algorithms[a]==passRoutine && passSlot<0)passSlot=int(a);}
+        const auto rw=[&](unsigned r,unsigned c){return word(object+0x230+16*r+4*c);};
+        if(m.has(46) && rw(36,2)){
+            if(block<0x100000 || word(block+0x70)!=0x8000 || word(block+0x78)!=0x412)throw std::runtime_error("native projected texture (routine 46) without its live material rows");
+            if(word(block+0xf0)){
+                Projector pr;pr.alpha=rw(16,0);pr.prim=(rw(16,1)>>15)&0x7ff;pr.mask=rw(40,2);
+                constexpr uint32_t primBits=0x7ffu<<15;const auto row13y=word(block+0x74);
+                bool ok=pr.alpha<=0xff && (pr.prim&7)==((row13y>>15)&7) && (pr.prim&16) && (pr.prim&64) && (rw(16,1)&~primBits)==(row13y&~primBits) && !(pr.mask&~0x22u);
+                for(unsigned f=0;f<4;++f)ok=ok && ((pr.alpha>>(2*f))&3)!=3;
+                if(!ok)throw std::runtime_error(std::format("unported native projected texture (routine 46): ALPHA {:x} tag {:08x} mask {:x}",pr.alpha,rw(16,1),pr.mask));
+                const float level=row(36)[3];pr.level=float(int32_t(std::clamp(std::trunc(double(level)),-2147483648.0,2147483647.0)));   // FTOI0
+                pr.origin=row(42);for(unsigned c=0;c<4;++c)pr.cols[c]=row(43+c);
+                // The texture: the manager entry whose TEX0 is the one r41 writes (r40 is the CLUT load before it).
+                const auto lo=rw(41,0),hi=rw(41,1);int found=-1;
+                if(manager)for(int e=0;e<256;++e)if((word(manager+0x1008+16*e) || word(manager+8+16*e)) && word(manager+0x1010+16*e)==lo){found=e;break;}
+                if(found<0)throw std::runtime_error(std::format("native projected texture: no texture-manager entry holds TEX0 {:08x}",lo));
+                const TextureKey key{word(manager+0x1008+16*found),word(manager+8+16*found)};
+                if(key.tag==0x4674404c && key.index==1)throw std::runtime_error("native projected texture over the feedback picture");
+                const uint64_t tex0=lo|uint64_t(word(manager+0x1014+16*found))<<32;
+                pr.texture=textures.modelImage(key,tex0,std::nullopt)->picture((hi>>24)&0xf);   // CSA
+                pr.textureAlpha=(hi>>2)&1;pr.textureFunction=(hi>>3)&3;   // TCC, TFX
+                projector=pr;}}
         if(m.hasMaterial)material=m.material;
         else if(origin && block>=0x40 && block-0x40!=mesh){const auto owner=assets.origin(block-0x40);if(owner && owner->disc==origin->disc && owner->part==origin->part){
             const auto other=pack->find(owner->offset);if(other!=pack->end() && other->second->hasMaterial)material=other->second->material;}}
@@ -552,7 +596,8 @@ NativeModelSubmission NativeModels::capture(Runtime *rt,NativeAssets &assets,Nat
         // Per-mesh scratch kept between calls (the draw runs on the game's thread only): no allocation per mesh.
         thread_local std::vector<bozo::render::Vertex> vertices;thread_local std::vector<std::array<float,4>> projected;thread_local std::vector<uint8_t> outside;
         vertices.assign(m.vertices.size(),bozo::render::Vertex{});
-        thread_local std::vector<std::array<float,2>> passUv;thread_local std::vector<uint32_t> emitted;emitted.clear();if(secondPass)passUv.assign(m.vertices.size(),{});projected.clear();projected.reserve(m.vertices.size());outside.clear();outside.reserve(m.vertices.size());
+        thread_local std::vector<std::array<float,2>> passUv,projectedUv;thread_local std::vector<uint32_t> emitted,projectedRgba;emitted.clear();if(secondPass)passUv.assign(m.vertices.size(),{});
+        if(projector){projectedUv.assign(m.vertices.size(),{});projectedRgba.assign(m.vertices.size(),0);}projected.clear();projected.reserve(m.vertices.size());outside.clear();outside.reserve(m.vertices.size());
         for(size_t k=0;k<m.vertices.size();++k){const auto &v=m.vertices[k];std::array<float,3> p{v.p[0],v.p[1],v.p[2]},n{v.n[0],v.n[1],v.n[2]};
             if(editable){if(m.sources[k].position!=UINT32_MAX)for(unsigned c=0;c<3;++c)p[c]=real(source+m.sources[k].position+4*c);
                 if(m.sources[k].normal!=UINT32_MAX)for(unsigned c=0;c<3;++c)n[c]=real(source+m.sources[k].normal+4*c);}
@@ -660,6 +705,11 @@ NativeModelSubmission NativeModels::capture(Runtime *rt,NativeAssets &assets,Nat
                 if(passRoutine==22){const auto stq=sphereMapTexture(n,eyeDirection,rotation);uv={stq[2]?float(stq[0])/float(stq[2]):.5f,stq[2]?float(stq[1])/float(stq[2]):.5f};}
                 else if(passRoutine==50){uv[0]+=passScroll[0];uv[1]+=passScroll[1];}
                 for(auto f:uv)finite(f);}
+            if(projector){const auto &pr=*projector;
+                const auto t=projectedTexture(p,n,pr.origin,pr.cols,pr.mask);const int32_t S=t.stq[0],T=t.stq[1],Q=t.stq[2];
+                projectedUv[k]={Q?float(S)/float(Q):.5f,Q?float(T)/float(Q):.5f};for(auto x:projectedUv[k])finite(x);
+                const auto lit=uint32_t(std::clamp((t.off?0.0f:pr.level)*factor[3],0.0f,limit[3]>0?std::min(limit[3],255.0f):255.0f));
+                projectedRgba[k]=(vout.rgba&0xffffffu)|lit<<24;}
         }
         if(shadowClass){
             std::vector<std::array<float,3>> positions(vertices.size());for(size_t k=0;k<vertices.size();++k)positions[k]={vertices[k].x,vertices[k].y,vertices[k].z};
@@ -671,7 +721,7 @@ NativeModelSubmission NativeModels::capture(Runtime *rt,NativeAssets &assets,Nat
             mat.lines=true;const bool strip=material[6]&2;
             for(auto length:m.strips){for(unsigned k=1;k<length;k+=strip?1:2){const auto a=first+k-1,b=first+k;
                 if(outside[a] || outside[b]){++guarded;continue;}batch.vertices.push_back(vertices[a]);batch.vertices.push_back(vertices[b]);
-                if(secondPass){emitted.push_back(uint32_t(a));emitted.push_back(uint32_t(b));}}first+=length;}
+                if(secondPass || projector){emitted.push_back(uint32_t(a));emitted.push_back(uint32_t(b));}}first+=length;}
         }else
         for(auto length:m.strips){for(unsigned k=2;k<length;++k){const auto a=first+k-2,b=first+k-1,c=first+k;
             if(outside[a] || outside[b] || outside[c]){++guarded;continue;}
@@ -679,7 +729,7 @@ NativeModelSubmission NativeModels::capture(Runtime *rt,NativeAssets &assets,Nat
                 const float area=(p[0]/p[3]-q[0]/q[3])*(q[1]/q[3]-r[1]/r[3])-(p[1]/p[3]-q[1]/q[3])*(q[0]/q[3]-r[0]/r[3]);
                 if(!std::signbit(area*((k&1)?-1.0f:1.0f))){++culled;continue;}}
             batch.vertices.push_back(vertices[a]);batch.vertices.push_back(vertices[(k&1)?c:b]);batch.vertices.push_back(vertices[(k&1)?b:c]);
-            if(secondPass){emitted.push_back(uint32_t(a));emitted.push_back(uint32_t((k&1)?c:b));emitted.push_back(uint32_t((k&1)?b:c));}}first+=length;}
+            if(secondPass || projector){emitted.push_back(uint32_t(a));emitted.push_back(uint32_t((k&1)?c:b));emitted.push_back(uint32_t((k&1)?b:c));}}first+=length;}
         if(traceModels && batch.vertices.empty())
             std::fprintf(stderr,"[vp2s:model-empty] object=%x mesh=%u/%x vertices=%zu guarded=%u culled=%u textured=%u blend=%u/%u%u%u%u class=%x\n",
                 object,i,mesh,m.vertices.size(),guarded,culled,material[1],material[0],material[7],material[8],material[9],material[10],word(object));
@@ -698,6 +748,7 @@ NativeModelSubmission NativeModels::capture(Runtime *rt,NativeAssets &assets,Nat
             for(auto a:m.algorithms)std::fprintf(stderr,"%d.",a);
             std::fprintf(stderr," obj=%.2f,%.2f,%.2f amb=%.2f,%.2f,%.2f class=%x o66=%u m3f=%u m57=%u blend=%u/%u%u%u%u\n",objectColour[0],objectColour[1],objectColour[2],ambient[0],ambient[1],ambient[2],
                 word(object),byte(object+0x66),byte(model+0x3f),byte(model+0x57),material[0],material[7],material[8],material[9],material[10]);}
+        std::vector<std::pair<int,NativeModelBatch>> extra;
         if(secondPass && !batch.vertices.empty()){
             // The second pass (routine 16, 22 or 50): the same triangles with its UVs and texture, blended with its ALPHA_1, after pass 1.
             auto second=batch;if(emitted.size()!=second.vertices.size())throw std::runtime_error("native second pass lost its vertex order");
@@ -714,8 +765,25 @@ NativeModelSubmission NativeModels::capture(Runtime *rt,NativeAssets &assets,Nat
                 const auto meshPart=origin && origin->kind==AssetOrigin::Kind::Part?std::optional(std::pair{origin->disc,origin->part}):std::nullopt;
                 second.texture=textures.modelImage(key,tex0,meshPart)->picture(secondPass->part);}
             m2.depthWrite=bool(palette);
-            out.batches.push_back(std::move(batch));out.batches.push_back(std::move(second));continue;}
-        if(!batch.vertices.empty())out.batches.push_back(std::move(batch));
+            extra.push_back({passSlot,std::move(second)});}
+        if(projector && !batch.vertices.empty()){
+            // Routine 46's pass: the same triangles with the projected S/T and alpha, the projector's texture, blended with r16's
+            // ALPHA. Repeating: Logun's meshes span S, T over several units (-5..5) and each object's r46 offsets the
+            // projection so the pattern stays continuous in world space (the CLAMP register it draws with is not in these rows).
+            auto third=batch;if(emitted.size()!=third.vertices.size())throw std::runtime_error("native projected texture lost its vertex order");
+            for(size_t e=0;e<emitted.size();++e){auto &v=third.vertices[e];v.u=projectedUv[emitted[e]][0];v.v=projectedUv[emitted[e]][1];v.rgba=projectedRgba[emitted[e]];}
+            auto &m3=third.material;const auto &pr=*projector;m3.alphaBlend=true;m3.blend=bozo::render::Material::Blend::Alpha;m3.gsBlend=true;
+            m3.blendA=pr.alpha&3;m3.blendB=(pr.alpha>>2)&3;m3.blendC=(pr.alpha>>4)&3;m3.blendD=(pr.alpha>>6)&3;m3.blendFix=0x80;
+            third.texture=pr.texture;m3.textured=true;m3.directColour=false;m3.fromFrame=0;m3.textureAlpha=pr.textureAlpha;
+            m3.textureFunction=static_cast<bozo::render::Material::TextureFunction>(pr.textureFunction);m3.clampU=m3.clampV=false;
+            m3.fog=(pr.prim&32) && camera->fog[1]!=0;m3.depthWrite=false;m3.lines=false;
+            if(traceModels){unsigned lit=0;float u0=1e9,u1=-1e9,v0=1e9,v1=-1e9;for(const auto &v:third.vertices){lit+=(v.rgba>>24)!=0;u0=std::min(u0,v.u);u1=std::max(u1,v.u);v0=std::min(v0,v.v);v1=std::max(v1,v.v);}
+                std::fprintf(stderr,"[vp2s:projected] object=%x mesh=%x vertices=%zu lit=%u u=%.3f..%.3f v=%.3f..%.3f level=%.0f texture=%ux%u\n",object,mesh,third.vertices.size(),lit,u0,u1,v0,v1,pr.level,
+                    pr.texture?pr.texture->width:0,pr.texture?pr.texture->height:0);}
+            extra.push_back({projectorSlot,std::move(third)});}
+        if(!batch.vertices.empty()){out.batches.push_back(std::move(batch));
+            std::stable_sort(extra.begin(),extra.end(),[](const auto &x,const auto &y){return x.first<y.first;});   // table B runs in routine order
+            for(auto &[slot,b]:extra)out.batches.push_back(std::move(b));}
     }
     if(traceModels && shadowClass){
         std::fprintf(stderr,"[vp2s:shadow] object=%x light=%.4f,%.4f,%.4f faces=%zu/%zu\n",object,shadowLight[0],shadowLight[1],shadowLight[2],out.shadowIncrement.size()/3,out.shadowDecrement.size()/3);

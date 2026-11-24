@@ -37,6 +37,7 @@ int main(){try{
     std::array<std::array<float,4>,25> c{};
     c[1]={0.3f,-0.8f,-0.52f,-1};c[2]={-50,-20,-80,1};c[3]={180,120,60,0};c[4]={0.0008f,0.0013f,0.0026f,0};c[5]={0.03f,0.009f,0.005f,1.5f};
     c[7]={0.0597f,0.08f,1.04f,0.4f};c[8]={0,0.007f,1.49f,-1.4f};c[9]={0.6f,-0.4f,-1.5f,0};c[10]={0.001f,0.002f,0.0005f,0};
+    c[11][2]=std::bit_cast<float>(1u);   // 11.z: the elevation mask path (the forest)
     struct Case{std::array<float,4> point;uint32_t rgba;};
     const Case cases[]={{{120,-40,300,1},0x80000867u},{{-200,35,90,1},0x80000b8fu},{{10,-300,40,1},0x80000540u},
                         {{400,60,-500,1},0x80000543u},{{-90,-10,600,1},0x8000097cu},{{0,5,-81,1},0x80000759u}};
@@ -55,6 +56,18 @@ int main(){try{
     reject([&]{vp2s::hazeVertexColour(c,{std::bit_cast<float>(0x7fc00000u),0,0,1});});
     reject([&]{auto b=c;b[7][2]=0.3f;b[7][3]=1;vp2s::hazeVertexColour(b,{-50-3.f,-20+8.f,-80+5.2f,1});}); // ray against the light: cos -1
     reject([&]{auto b=c;b[3]={-100,0,0,0};vp2s::hazeVertexColour(b,{120,-40,300,1});});
+    // The gamma path (11.y = 1, 11.z = 0; maps 259-271, 535): 256 * exp(11.x ln(scatter / 2)) by the program's series:
+    // ln's coefficient qwords 13.. are 2 / (2k + 1) (12.x = 2: three of them), exp's 21.. are 1 / n! (12.y = 1: two).
+    auto g=c;g[11]={0.4f,std::bit_cast<float>(1u),0,0};g[12]={std::bit_cast<float>(2u),std::bit_cast<float>(1u),0,0};
+    for(unsigned k=0;k<32;++k)g[13+k/4][k%4]=2.f/float(2*k+3);
+    {float f=1;for(unsigned k=0;k<12;++k){f*=float(k+2);g[21+k/4][k%4]=1.f/f;}}
+    // With no light (scatter 0) the series give 0.1655, not 0: byte 42, as the VU1 analysis interpreter computes it on the
+    // program's own constants (map 259's 2 / (2k + 1) and 1 / n! words).
+    auto gd=g;gd[3]={0,0,0,0};check(vp2s::hazeVertexColour(gd,{120,-40,300,1})==0x802a2a2au);
+    // Near 1 the series match ln / exp; the program's exp multiplies its second batch by the argument, not its fourth power.
+    check(std::abs(vp2s::hazeSeriesLn(g,1.5f)-std::log(1.5f))<1e-5f && std::abs(vp2s::hazeSeriesExp(g,0.5f)-std::exp(0.5f))<1e-3f);
+    {const auto lit=vp2s::hazeVertexColour(g,{120,-40,300,1});for(unsigned i=0;i<3;++i)check(((lit>>(8*i))&0xff)>42);}
+    reject([&]{auto b=g;b[12][0]=std::bit_cast<float>(8u);vp2s::hazeVertexColour(b,{120,-40,300,1});});   // ln series past its constants
     std::printf("haze: 2^24 depth indices (%u saturated groups), %zu vertex colours (%u exact), %u rejections\n",saturated,std::size(cases),exact,rejected);
     return 0;
 }catch(const std::exception &e){std::fprintf(stderr,"%s\n",e.what());return 1;}}

@@ -12,6 +12,47 @@ The earlier VP2S face/shading and general brightness comparisons remain open.
 
 ## Build and evidence
 
+### Haze gamma variant (11.y = 1, 11.z = 0); particle line strips with fog (2026-11-24)
+
+**Haze gamma variant**
+
+- **The case:** 14 maps (259-271, 535) stopped on "haze scattering variant (0 1 0)". The VU1 program's flags at
+  constant qword 11 select:
+  - at 17f8, 11.z: the elevation mask (1808..1860);
+  - at 1870, 11.y: the gamma (1878..18c0) instead of 128 * scatter (18c8).
+- **The gamma:** 256 * exp(11.x * ln(scatter / 2)), clamped to 255.
+  - **ln, 19b8:** t = (x - 1) / (x + 1). The result is 2t plus the coefficient qwords 13.. (2 / (2k + 1)) on t^3,
+    t^5, t^7, t^9, stepping by t^8: 12.x qwords in the loop at 1958, then one more.
+  - **exp, 1c60:** 1 + |a| + q21 . (|a|^2 .. |a|^5), then 12.y more qwords with those powers multiplied by a itself.
+    That is the program's own step (vf24 = the argument, not a^4). The reciprocal is taken for a negative argument
+    (MAC sign & 0xe0).
+  - The series are evaluated as written. With no light (scatter 0) they give 0.1655, byte 42, where a true power
+    would give black.
+- **Now:** hazeVertexColour takes the mask and the gamma from their flags. nativeHaze admits (11.y, 11.z) = (0, 1)
+  and (1, 0).
+
+**Line strips with fog**
+
+- **The case:** maps 62 and 288 draw mode-1 particles (image 4) with the fog variant (+32c) and the tag 0x20354000
+  (PRIM 0x6a: line strip with FGE).
+- **The fog variant** (0a30..) is image 3's, with one difference:
+  - each vertex's F = clamp(fog.x + fog.y q, 0, 255);
+  - a chunk's first vertex is coloured from vf18 before its load (row 96's FTOI0 in the first chunk, 0 after);
+  - the difference: it judges each vertex's guard one vertex ahead (CLIPW 0b08), so the FCSET 0xffffff at a strip's
+    end (0b30) replaces the next strip's first judgement. In every strip after a chunk's first, the segment from its
+    start to the next vertex is not drawn.
+- **Now:** the material fogs only with FGE and the variant.
+
+**Evidence:**
+- **Tests:**
+  - Haze: with the program's constants and no light, exactly 0x802a2a2a. The VU1 analysis interpreter gives 42 on
+    map 259's real constants. ln / exp near 1 match; a series past its constants is refused. The forest's six mask
+    colours are unchanged. The scene-effects fixture sets 11.z.
+  - Line strips: four rounds of the fog variant against image 4's words, F included (168 strip captures).
+- **Maps:**
+  - The haze maps pass: 8 clean, 6 reach 40cfa8.
+  - Maps 62 and 288 run clean.
+
 ### Glow above strength 8: the further level passes (2026-11-24)
 
 - **The case:** 15 maps (359-375, 513, 550, 555) stopped on "glow multi-pass level gain (2d4dc4)". Their glow

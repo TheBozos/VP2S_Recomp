@@ -53,9 +53,8 @@ int main(){try{
     for(unsigned i=0;i<256;++i)put(rt,object+0x134c4+4*i,uint32_t(i)|uint32_t(255-i)<<8|uint32_t(i/2)<<24); // alpha <= 0x7f
     const std::array<std::array<float,4>,25> constants=[]{std::array<std::array<float,4>,25> c{};
         c[1]={0.3f,-0.8f,-0.52f,-1};c[2]={-50,-20,-80,1};c[3]={180,120,60,0};c[4]={0.0008f,0.0013f,0.0026f,0};c[5]={0.03f,0.009f,0.005f,1.5f};
-        c[7]={0.0597f,0.08f,1.04f,0.4f};c[9]={0.6f,-0.4f,-1.5f,0};c[10]={0.001f,0.002f,0.0005f,0};return c;}();
+        c[7]={0.0597f,0.08f,1.04f,0.4f};c[9]={0.6f,-0.4f,-1.5f,0};c[10]={0.001f,0.002f,0.0005f,0};c[11][2]=std::bit_cast<float>(1u);return c;}();   // 11.z: the elevation mask
     for(unsigned q=0;q<25;++q)put(rt,object+0x18b30+16*q,constants[q]);
-    put(rt,object+0x18b30+16*11+8,uint32_t(1));
     put(rt,object+0x18940,uint8_t(2));
     for(unsigned row=0;row<2;++row){put(rt,object+0x18930+2*row,int16_t(128));put(rt,object+0x18938+2*row,int16_t(128*row));
         for(unsigned column=0;column<2;++column){const uint32_t record=object+0x13940+row*0x1400+column*0x200;

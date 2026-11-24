@@ -73,7 +73,8 @@ NativeModelSubmission NativeParticleDraws::capture(Runtime *rt,NativeAssets &ass
         // Battle 0x1c: tag 0x2036400000008000 / 0x41 (PRE, PRIM 0x6c: Gouraud strip, FGE, ABE, context 1; RGBAQ, XYZF2).
         // The strip's F is 0xff (no fog); the program writes the tag's NLOOP / EOP itself.
         const auto tagHigh=value<uint32_t>(rows,0x74);
-        const bool tagKnown=points?(tagHigh==0x20304000u || tagHigh==0x20204000u):tagHigh==(lineStrips?0x20254000u:0x20364000u);
+        // Line strips: 0x20254000 (PRIM 0x4a) or with FGE 0x20354000 (PRIM 0x6a; field maps 62, 288 with the fog variant).
+        const bool tagKnown=points?(tagHigh==0x20304000u || tagHigh==0x20204000u):lineStrips?(tagHigh==0x20254000u || tagHigh==0x20354000u):tagHigh==0x20364000u;
         if(value<uint32_t>(rows,0xc)!=0x6c0f0060 || value<uint32_t>(rows,0x28)!=0x42 || !tagKnown || value<uint64_t>(rows,0x78)!=0x41)
             throw std::runtime_error(std::format("unported native particle image 3/5 GS state (ALPHA reg {:x}, tag {:08x}:{:x})",value<uint32_t>(rows,0x28),value<uint32_t>(rows,0x74),value<uint64_t>(rows,0x78)));
         const auto alpha=value<uint64_t>(rows,0x20);
@@ -228,9 +229,15 @@ NativeModelSubmission NativeParticleDraws::capture(Runtime *rt,NativeAssets &ass
         // record colour. The header's z (ilw.z 0(vi14)) is the points per strip: at each strip's start FCSET 0xffffff
         // marks the previous judgements outside, and FCAND 0x000fff (this vertex's CLIPW and the one before) sets ADC.
         // So a segment joins two consecutive points of one strip when neither is outside the guard; strips never join.
-        // The fog variant would colour a chunk's first point from vf18 before its load (as image 3's): not ported.
-        if(value<uint32_t>(owner,0x32c))throw std::runtime_error("unported native particle line-strip fog variant (image 4 row 15.w)");
-        mat.lines=true;
+        // Its fog variant (row 15.w, 0a30..) is image 3's: each vertex's F = clamp(fog.x + fog.y q, 0, 255) from its own
+        // projection, and a chunk's first vertex coloured from vf18 before its load (row 96's FTOI0 in the first chunk,
+        // colour 0 after: VU memory this draw never wrote). The GS fogs only with the tag's FGE.
+        const bool variant=value<uint32_t>(owner,0x32c)!=0,fge=(value<uint32_t>(record(rt,value<uint32_t>(owner,0x624),0x100),0x74)>>20)&1;
+        const bool fog=variant && fge;if(fog)for(float f:camera->fog)number(f);
+        uint32_t staleColour=0;
+        {const auto *row96=record(rt,value<uint32_t>(owner,0x624)+0x10,16);
+         for(unsigned i=0;i<4;++i)staleColour|=(bozo::ps2f::toFixed(value<uint32_t>(row96,4*i),0)&0xffu)<<(8*i);}
+        mat.lines=true;mat.fog=fog;mat.fogColour=camera->clearColour;
         auto cursor=base+0x20;uint32_t seen=0;
         for(unsigned chunk=0;chunk<chunks;++chunk){
             if(cursor>base+span-0x20)throw std::runtime_error("native particle chunk outside completed buffer");auto *header=record(rt,cursor,0x20);
@@ -242,11 +249,18 @@ NativeModelSubmission NativeParticleDraws::capture(Runtime *rt,NativeAssets &ass
             std::array<bozo::render::Vertex,48> strip;std::array<bool,48> outside;
             for(unsigned p=0;p<count;++p){const auto *point=records+48*p;
                 std::array<float,4> position=value<std::array<float,4>>(point,0);for(unsigned j=0;j<3;++j)number(position[j]);position[3]=1;
-                const auto eye=transform(toView,position);auto &v=strip[p];v.x=eye[0];v.y=eye[1];v.z=eye[2];v.rgba=pointColour(point,nullptr);
+                const auto eye=transform(toView,position);auto &v=strip[p];v.x=eye[0];v.y=eye[1];v.z=eye[2];
+                v.rgba=variant && !p?(chunk?0u:staleColour):pointColour(point,nullptr);v.fog=1;
+                if(fog){const auto clip=transform(camera->screen,eye);if(!(clip[3]!=0))throw std::runtime_error("native particle strip vertex at w = 0");
+                    float f=camera->fog[0]+camera->fog[1]*(1/clip[3]);if(!(f<=255.f))f=255.f;if(!(f>=0.f))f=0.f;v.fog=std::floor(f)/255.f;}
                 for(float f:{v.x,v.y,v.z})if(!std::isfinite(f))throw std::runtime_error("native particle vertex overflow");
                 outside[p]=outsideGuard(v);}
-            for(unsigned first=0;first<count;first+=group)for(unsigned i=first+1;i<first+group;++i)
-                if(!outside[i-1] && !outside[i]){batch.vertices.push_back(strip[i-1]);batch.vertices.push_back(strip[i]);}
+            // The fog variant judges each vertex's guard one vertex ahead (CLIPW 0b08), so the FCSET 0xffffff at a strip's
+            // end (0b30) replaces the judgement already taken for the next strip's first vertex: in every strip after a
+            // chunk's first, the start and the vertex after it both carry ADC (the segment start..start+1 is not drawn).
+            for(unsigned first=0;first<count;first+=group)for(unsigned i=first+1;i<first+group;++i){
+                if(variant && first && i==first+1)continue;
+                if(!outside[i-1] && !outside[i]){batch.vertices.push_back(strip[i-1]);batch.vertices.push_back(strip[i]);}}
             seen+=count;cursor+=32+48*count;
         }
         if(seen!=total)throw std::runtime_error("native particle draw point count mismatch");

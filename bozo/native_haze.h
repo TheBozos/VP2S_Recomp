@@ -23,8 +23,11 @@ struct NativeHaze {
 // The shift (+18951) sets the packet 2c5580 builds: that many doubling sprites, the add 2^(shift-1) * Ad / 128
 // and its write mask (the low shift bits of blue). Observed: 5 (forest entry) and 8 (deeper in).
 unsigned hazeRampIndex(uint32_t z,unsigned shift=5);
-// The VU1 program's vertex colour for a grid point (configuration: flags 8.x = 0,
-// 11.y = 0, 11.z = 1), from the 25-qword constant block. Returns R | G << 8 | B << 16 | 0x80 << 24.
+// The VU1 program's vertex colour for a grid point (flag 8.x = 0; 11.z = 1 the elevation mask, 11.y = 1 the gamma
+// 256 * (scatter / 2)^11.x by the program's ln / exp series), from the 25-qword constant block.
+// Returns R | G << 8 | B << 16 | 0x80 << 24.
+float hazeSeriesLn(const std::array<std::array<float,4>,25> &constants,float x);
+float hazeSeriesExp(const std::array<std::array<float,4>,25> &constants,float a);
 uint32_t hazeVertexColour(const std::array<std::array<float,4>,25> &constants,const std::array<float,4> &point);
 NativeHaze nativeHaze(Runtime *,const NativeScene &,uint32_t object);
 void drawHaze(const NativeHaze &);

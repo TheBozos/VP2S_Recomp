@@ -2,6 +2,7 @@
 #include "native_cast.h"
 #include "native_haze.h"
 #include "bozo/ee/dispatcher.h"
+#include <bit>
 #include <cmath>
 #include <cstring>
 #include <format>
@@ -29,6 +30,27 @@ unsigned hazeRampIndex(uint32_t z,unsigned shift){
     const unsigned mask=(1u<<shift)-1,sum=std::min(255u,blue+(((1u<<(shift-1))*alpha)>>7));
     return (blue&~mask&0xffu)|(sum&mask);
 }
+float hazeSeriesLn(const std::array<std::array<float,4>,25> &c,float x){
+    // VU1 19b8 per lane: t = (x - 1) / (x + 1); 2t + sum of k * t^(2i+1) over the coefficient qwords 13.. (12.x of them
+    // in the loop at 1958, then one more at 1998), the powers t^3, t^5, t^7, t^9 stepping by t^8.
+    const unsigned batches=std::bit_cast<uint32_t>(c[12][0])&0xffff;if(batches>7)throw std::runtime_error("native haze ln series past its constants");
+    const float t=(x-1.f)*(1.f/(x+1.f));float acc=t+t;
+    const float t2=t*t,t4=t2*t2,t8=t4*t4;float p[4]={t*t2,t4*t,0,0};p[2]=p[0]*t4;p[3]=t4*p[1];
+    for(unsigned q=0;;++q){const auto &k=c[13+q];
+        if(q==batches){acc=acc+p[0]*k[0];acc=acc+p[1]*k[1];acc=acc+p[2]*k[2];return acc+p[3]*k[3];}
+        for(unsigned i=0;i<4;++i)acc=acc+p[i]*k[i];for(float &v:p)v=v*t8;}
+}
+float hazeSeriesExp(const std::array<std::array<float,4>,25> &c,float a){
+    // VU1 1c60 per lane: s = |a|; 1 + s + q21 . (s^2, s^3, s^4, s^5), then 12.y more qwords from q22 with those powers
+    // multiplied by a itself (vf24 = the argument, as the program does: not s^4); the reciprocal when a is negative
+    // (its MAC sign bit, vi04 = MAC & 0xe0).
+    const unsigned batches=std::bit_cast<uint32_t>(c[12][1])&0xffff;if(batches>3)throw std::runtime_error("native haze exp series past its constants");
+    const float s=std::abs(a);float acc=s+1.f;const float s2=s*s;float p[4]={s2,s*s2,s2*s2,0};p[3]=s2*p[1];
+    for(unsigned q=0;;++q){const auto &k=c[21+q];
+        if(q==batches){acc=acc+p[0]*k[0];acc=acc+p[1]*k[1];acc=acc+p[2]*k[2];acc=acc+p[3]*k[3];break;}
+        for(unsigned i=0;i<4;++i)acc=acc+p[i]*k[i];for(float &v:p)v=v*a;}
+    return std::signbit(a)?1.f/acc:acc;
+}
 uint32_t hazeVertexColour(const std::array<std::array<float,4>,25> &c,const std::array<float,4> &point){
     // VU1 1410/15f0, 17f8, 18c8 (the vertex pipelines one call behind; each
     // colour depends on its own point only). r: camera (qword 2) to the point.
@@ -42,12 +64,18 @@ uint32_t hazeVertexColour(const std::array<std::array<float,4>,25> &c,const std:
     const double rayleigh=double(c[7][0])*(1+cosine*cosine),base=double(c[7][2])+double(c[7][3])*cosine;
     if(!(base>0))throw std::runtime_error("native haze Mie phase outside its domain");
     const double mie=double(c[7][1])/std::exp(1.5*std::log(base));
+    // 17f8: 11.z selects the elevation mask (1808..1860); 1870: 11.y selects the gamma (1878..18c0: 256 *
+    // exp(11.x * ln(scatter / 2)) by the program's series), else 128 * scatter (18c8).
+    const bool elevation=std::bit_cast<uint32_t>(c[11][2])!=0,gamma=std::bit_cast<uint32_t>(c[11][1])!=0;
     uint32_t rgba=0x80u<<24;
     for(unsigned i=0;i<3;++i){
-        const double scatter=(double(c[4][i])*rayleigh+double(c[5][i])*mie)*double(c[3][i]);
+        double scatter=(double(c[4][i])*rayleigh+double(c[5][i])*mie)*double(c[3][i]);
         // Elevation mask: max(1 + 9 * exp(10 / (10 + sine)), 0) per channel.
-        const double mask=std::max(1+double(c[9][i])*std::exp(double(c[10][i])/(double(c[10][i])+sine)),0.0);
-        const double v=std::min(128*scatter*mask,255.0);
+        if(elevation)scatter*=std::max(1+double(c[9][i])*std::exp(double(c[10][i])/(double(c[10][i])+sine)),0.0);
+        double v;
+        if(gamma){const float x=float(scatter)*0.5f;if(!std::isfinite(x) || x<0)throw std::runtime_error("native haze gamma input outside its domain");
+            v=std::min(256.0*double(hazeSeriesExp(c,hazeSeriesLn(c,x)*c[11][0])),255.0);}
+        else v=std::min(128*scatter,255.0);
         if(!std::isfinite(v) || v<0)throw std::runtime_error("native haze scattering colour outside 0..255");
         rgba|=uint32_t(int(float(v)))<<(8*i);
     }
@@ -75,9 +103,10 @@ NativeHaze nativeHaze(Runtime *rt,const NativeScene &scene,uint32_t object){
     // The VU1 constants (25 qwords) and its branch flags.
     std::array<std::array<float,4>,25> constants;for(unsigned i=0;i<25;++i)constants[i]=quad(rt,object+0x18b30+16*i);
     const auto flag=[&](unsigned q,unsigned lane){return value<uint32_t>(rt,object+0x18b30+16*q+4*lane);};
-    if(flag(8,0) || flag(11,1) || flag(11,2)!=1)
+    if(flag(8,0) || flag(11,1)>1 || flag(11,2)>1 || flag(11,1)==flag(11,2))
         throw std::runtime_error(std::format("unported native haze scattering variant ({:x} {:x} {:x})",flag(8,0),flag(11,1),flag(11,2)));
     for(unsigned q:{1u,2u,3u,4u,5u,7u,9u,10u})for(float v:constants[q])finite(v);
+    if(flag(11,1)){finite(constants[11][0]);for(unsigned q=13;q<25;++q)for(unsigned l=0;l<4;++l)if(!std::isfinite(constants[q][l]))throw std::runtime_error("unqualified native haze series constant");}
     // Tiles: rows from +18940 (height +18930, offset +18938), width / 64 columns,
     // records at +13940 + row * 0x1400 + column * 0x200.
     const unsigned rows=value<uint8_t>(rt,object+0x18940),columns=unsigned(width)/64;

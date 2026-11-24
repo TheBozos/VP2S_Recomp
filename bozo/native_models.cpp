@@ -471,7 +471,7 @@ NativeModelSubmission NativeModels::capture(Runtime *rt,NativeAssets &assets,Nat
         else{
             // A run-time mesh: only one the sprite batcher published, with every
             // byte as it was published.
-            const auto g=generated.find(mesh);if(g==generated.end())throw std::runtime_error("native mesh missing allocation provenance");
+            const auto g=generated.find(mesh);if(g==generated.end())throw std::runtime_error(std::format("native mesh missing allocation provenance (mesh {:x} model {:x} words {:08x} {:08x} {:08x} {:08x})",mesh,model,word(mesh),word(mesh+4),word(mesh+0x14),word(mesh+0x18)));
             const auto *now=rt->memory.hostPointer(mesh,uint32_t(g->second.bytes.size()));
             if(!now)throw std::runtime_error("native generated mesh unmapped");
             // Except the material block's +5c (mesh +9c), the palette entry the game

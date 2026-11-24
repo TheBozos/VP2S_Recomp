@@ -413,8 +413,16 @@ bool nativeSquadInstruction(R5900Context *c,Runtime *rt,uint32_t pc){
                     throw std::runtime_error("native squad scalar weight mismatch");
             }
             std::array<float,4> a,b;std::memcpy(a.data(),record(rt,c->r[17].uw[0],16),16);std::memcpy(b.data(),record(rt,c->r[16].uw[0],16),16);
+            // VU0 reads a denormal lane as signed zero (LQC2 then MUL/MADD): battle 0x2c's phase-1 control holds packed
+            // halfwords (0x01000000 0x00010006 0x40 0) whose two denormal lanes the blend sees as 0.
+            for(auto *q:{&a,&b})for(auto &v:*q){const auto bits=std::bit_cast<uint32_t>(v);if(!(bits&0x7f800000) && (bits&0x7fffff))v=std::bit_cast<float>(bits&0x80000000u);}
             const auto destination=call.phase==0?stack+0xb0:call.phase==1?stack+0xa0:call.output;
-            auto *out=record(rt,destination,16);const auto result=linearQuaternionBlend(a,b,weights[0],weights[1],false,scale);
+            auto *out=record(rt,destination,16);std::array<float,4> result;
+            try{result=linearQuaternionBlend(a,b,weights[0],weights[1],false,scale);}
+            catch(const std::runtime_error &e){std::string list;for(float v:a)list+=std::format(" {:08x}",std::bit_cast<uint32_t>(v));list+=" |";
+                for(float v:b)list+=std::format(" {:08x}",std::bit_cast<uint32_t>(v));
+                throw std::runtime_error(std::format("{} (squad phase {}: a{} b, weights {:08x} {:08x}, scale {:08x})",e.what(),call.phase,list,std::bit_cast<uint32_t>(weights[0]),
+                    std::bit_cast<uint32_t>(weights[1]),std::bit_cast<uint32_t>(scale)));}
             std::memcpy(out,result.data(),16);call.published=true;
         }return true;
     }

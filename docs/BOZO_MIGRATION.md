@@ -12,6 +12,18 @@ The earlier VP2S face/shading and general brightness comparisons remain open.
 
 ## Build and evidence
 
+### Battles 0x2b to 0x2d: modules, squad denormal lanes (2026-11-24)
+
+- **Captured modules:** 135 (0x532200), 182 and 189 (0x53a380), 217 and 225 (0x53d800), 272 (0x542a80, loaded later, frame
+  64507 in 0x2d).
+- **Squad blend (mod001 214db8..214e1c):** battle 0x2c's phase-1 control holds packed halfwords (0x01000000 0x00010006 0x40
+  0). VU0 reads a denormal lane as signed zero, so the blend now flushes those lanes before computing (as the visibility test
+  does); NaN and huge inputs are still refused. The refusal now names the phase, both inputs and the weights.
+- **Evidence:** 0x2b runs boundary-free to 67000; the trig test accepts a denormal lane and still refuses NaN / float max;
+  full ctest 97/97; end RAM unchanged.
+- **Open (0x2c, 0x2d):** a type-3 queue job (112fe0 -> 123220) kicks a VIF1 source chain: CNT 9 then REFE 0x1aac000 /
+  0x8008 qwords (about 512 KB, likely a large image upload; the chain itself is not in EE RAM). Not analysed yet.
+
 ### Battles 0x28 to 0x2a: modules and a twice-stored advance (2026-11-24)
 
 - **Captured modules:** 115 (0x532200), 172 and 180 (0x53a380).

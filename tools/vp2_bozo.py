@@ -125,12 +125,13 @@ def main():
     # battles 0x1c-0x1e: mod119, mod134 and mod157 at 0x532200, mod176 and mod206 at 0x53a380, mod287 at 0x542a80;
     # battles 0x1f-0x21: mod117, mod120 and mod128 at 0x532200, mod174 at 0x53a380;
     # battles 0x22, 0x23: mod132 and mod141 at 0x532200, mod197 at 0x53a380; battles 0x25-0x27: mod121 (0x532200), mod178 (0x53a380);
-    # battles 0x29, 0x2a: mod115 (0x532200), mod172 and mod180 (0x53a380).
+    # battles 0x29, 0x2a: mod115 (0x532200), mod172 and mod180 (0x53a380);
+    # battles 0x2b-0x2d: mod135 (0x532200), mod182 and mod189 (0x53a380), mod217 and mod225 (0x53d800), mod272 (0x542a80).
     # mod014-mod025: the overlays at 0x495500 (the camp menu's pages; mod020 is the Items page).
     ap.add_argument('--inputs', default='main,mod001,mod002,mod003,mod004,mod005,mod006,mod007,mod008,mod009,mod010,mod011,mod012,mod013,'
                                         'mod014,mod015,mod016,mod017,mod018,mod019,mod020,mod021,mod022,mod023,mod024,mod025,'
                                         'mod027,mod028,mod030,mod060,mod068,mod112,mod119,mod129,mod133,mod134,mod144,mod157,mod169,mod175,mod176,'
-                                        'mod179,mod191,mod206,mod220,mod271,mod287,mod117,mod120,mod128,mod174,mod132,mod141,mod197,mod121,mod178,mod115,mod172,mod180')
+                                        'mod179,mod191,mod206,mod220,mod271,mod287,mod117,mod120,mod128,mod174,mod132,mod141,mod197,mod121,mod178,mod115,mod172,mod180,mod135,mod182,mod189,mod217,mod225,mod272')
     ap.add_argument('--stage', choices=['tools', 'generate', 'build', 'run', 'all'], default='build')
     ap.add_argument('--jobs', type=int, default=4)
     ap.add_argument('--ffmpeg', default=os.environ.get('BOZO_FFMPEG_ROOT', 'D:/tmb_kit/kit/ffmpeg'))

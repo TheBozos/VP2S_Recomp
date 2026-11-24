@@ -532,8 +532,10 @@ int main(){try{
         c.r[16].uw[0]+=16;reject(0x214e1c);c.r[16].uw[0]-=16;
         c.f[0]=.5f;c.f[21]=.5f;float weights[2]={.5f,.5f};std::memcpy(rt.memory.hostPointer(frame-0x10,8),weights,8);
         const std::array<float,4> unit{0,0,0,1};std::memcpy(rt.memory.hostPointer(0x190000,16),unit.data(),16);
-        for(uint32_t bad:{1u,0x7fc01234u,0x7f7fffffu}){std::memcpy(rt.memory.hostPointer(0x180000,16),unit.data(),16);std::memcpy(rt.memory.hostPointer(0x180000,4),&bad,4);reject(0x214e1c);}
-        std::memcpy(rt.memory.hostPointer(0x180000,16),unit.data(),16);check(vp2s::nativeMathInstruction(rt.memory.flat(),&c,&rt,0x214e1c));reject(0x214e1c);
+        for(uint32_t bad:{0x7fc01234u,0x7f7fffffu}){std::memcpy(rt.memory.hostPointer(0x180000,16),unit.data(),16);std::memcpy(rt.memory.hostPointer(0x180000,4),&bad,4);reject(0x214e1c);}
+        // A denormal lane reads as zero on VU0 (battle 0x2c's packed-halfword control): accepted as (0, 0, 0, 1).
+        std::memcpy(rt.memory.hostPointer(0x180000,16),unit.data(),16);{const uint32_t tiny=1;std::memcpy(rt.memory.hostPointer(0x180000,4),&tiny,4);}
+        check(vp2s::nativeMathInstruction(rt.memory.flat(),&c,&rt,0x214e1c));reject(0x214e1c);
         c.r[29].uw[0]=frame;c.pc=0x214c74;c.r[3].uw[0]=frame+0x50;reject(0x214ca0);c.r[3].uw[0]=frame+0x60;
         for(uint32_t pc:{0x214c98u,0x214c9cu,0x214ca0u})check(vp2s::nativeMathInstruction(rt.memory.flat(),&c,&rt,pc));reject(0x214ca0);
         // A deliberately incomplete call is disposed with its test owner.

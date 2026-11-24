@@ -12,6 +12,25 @@ The earlier VP2S face/shading and general brightness comparisons remain open.
 
 ## Build and evidence
 
+### F2 > Teleport; battles 0x55 to 0x5a: modules (2026-11-24)
+
+- **F2 > Teleport (window runner):**
+  - A map list (ids only, 552 maps from the game's own exit scripts, build_usa/bozo/warps.tsv) with each map's entry
+    points (position, facing, uses), and a Warp button.
+  - A battle id + stage launcher.
+  - Both arm the existing --warp / --battle requests, which fire at the next event-script step. The requests are now
+    guarded by a lock: the panel runs on the window's thread.
+- **Captured modules:** 122, 123, 116 (0x532200), 186 (0x53a380), 244 (0x53d800).
+- **Map warps** (headless, from the forest state): 10 of maps 1..12 run 850 frames boundary-free (towns and
+  interiors drawn natively). Map 2 stops at UI text class 168b30, map 10 at a model without scene ownership (239ff0).
+  A full sweep of all 552 maps with a capture each is running.
+
+**Evidence:**
+- **Battles:** 0x55, 0x56, 0x57, 0x58 and 0x5a run boundary-free to 67000. 0x59 stops at the frustum test on an
+  object sphere holding 2.6e27 / NaN (not yet traced).
+- **Tests:** full ctest 97/97; the hidden window still runs at 60 fps with sound.
+- **End RAM unchanged:** battle 0c9960c8d9f6, forest 912f01332dbe, game over 9df948c13063, route a3f2c8f4395d.
+
 ### Battle 0x4d: mode-1 particles (VU1 image 4 line strips), five box copies, mesh depth keys (2026-11-24)
 
 - **Producer:** mode 1 is produced like mode 0. 22eb14..22eb48 give it the default count (48 / points per particle),

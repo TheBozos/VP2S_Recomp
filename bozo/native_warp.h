@@ -4,6 +4,7 @@
 #include <cstdint>
 #include <optional>
 #include <string>
+#include <vector>
 namespace vp2s {
 // Debug teleport (--warp). The game changes map with event-script op 0x3a
 // (handler 3af3b0): args map, entry, x, y, z, camera (-1), facing in degrees.
@@ -18,6 +19,9 @@ struct WarpRequest {int32_t map=0,entry=0,x=0,y=0,z=0,camera=-1,facing=0;};
 WarpRequest parseWarp(const std::string &text,const std::string &table);
 void armNativeWarp(const WarpRequest &request);
 bool nativeWarpPending();
+// Every row of the warp table (tools/vp2_warps.py), in file order: the map's entry points, most used first.
+struct WarpRow {int32_t map=0,entry=0,x=0,y=0,z=0,facing=0,uses=0;};
+std::vector<WarpRow> loadWarpTable(const std::string &table);
 // The 8 words the interpreter reads: (0x3a << 8) | 7, then the 7 arguments.
 std::array<uint32_t,8> warpInstruction(const WarpRequest &request);
 // Debug battle launcher (--battle). Battles start with event-script op 0x38
@@ -33,6 +37,8 @@ struct BattleRequest {uint32_t battle=0,stage=0,flags=0x01000100;};
 // outside 0..0xfffe (0xffff selects the area table).
 BattleRequest parseBattle(const std::string &text);
 void armNativeBattle(const BattleRequest &request);
+bool nativeBattlePending();
+// Arming may come from another thread (the window's F2 panel): the requests are guarded by a lock.
 // The 3 words the handler reads: (0x38 << 8) | 2, arg0, arg1.
 std::array<uint32_t,3> battleInstruction(const BattleRequest &request);
 std::optional<bool> nativeWarpInstruction(R5900Context *,Runtime *,uint32_t pc);

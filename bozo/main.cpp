@@ -1311,6 +1311,49 @@ int main(int argc,char **argv) {
                 ImGui::EndDisabled();
                 if(selected>=0)ImGui::TextDisabled("Selected: %s (id %d), held %d",names[selected].c_str(),selected,int(cheats.counts[selected].load()));
             });
+            // F2 > Teleport: the debug teleport (--warp) and battle launcher (--battle) from the panel. A request fires at
+            // the next event-script step of any running interpreter (the field runs one; the title screen does not).
+            bozo::app::ui::registerTab("Teleport",[]{
+                static const std::vector<vp2s::WarpRow> rows=vp2s::loadWarpTable(std::string(VP2S_BOZO_IMAGES)+"/../warps.tsv");
+                static std::string last;
+                if(rows.empty()){ImGui::TextDisabled("No warps.tsv (run tools/vp2_warps.py)");}
+                else{
+                    static char search[16]="";static int selectedMap=-1,selectedRow=-1;
+                    ImGui::SetNextItemWidth(120);ImGui::InputTextWithHint("##map","Map id",search,sizeof search,ImGuiInputTextFlags_CharsDecimal);
+                    ImGui::SameLine();ImGui::TextDisabled("%zu entry points, ids only", rows.size());
+                    if(ImGui::BeginChild("maps",ImVec2(140,260),ImGuiChildFlags_Borders)){
+                        int previous=-1;
+                        for(const auto &r:rows){if(r.map==previous)continue;previous=r.map;
+                            const auto label=std::to_string(r.map);if(search[0] && label.find(search)!=0)continue;
+                            if(ImGui::Selectable(std::format("Map {}##m{}",r.map,r.map).c_str(),selectedMap==r.map)){selectedMap=r.map;selectedRow=-1;}}
+                    }
+                    ImGui::EndChild();ImGui::SameLine();
+                    if(ImGui::BeginChild("entries",ImVec2(0,260),ImGuiChildFlags_Borders)){
+                        if(selectedMap<0)ImGui::TextDisabled("Pick a map");
+                        for(size_t i=0;i<rows.size();++i){const auto &r=rows[i];if(r.map!=selectedMap)continue;
+                            const auto label=std::format("entry {}  ({}, {}, {})  facing {}  used {}x##r{}",r.entry,r.x,r.y,r.z,r.facing,r.uses,i);
+                            if(ImGui::Selectable(label.c_str(),selectedRow==int(i)))selectedRow=int(i);}
+                    }
+                    ImGui::EndChild();
+                    ImGui::BeginDisabled(selectedRow<0);
+                    if(ImGui::Button("Warp")){const auto &r=rows[selectedRow];
+                        vp2s::armNativeWarp({r.map,r.entry,r.x,r.y,r.z,-1,r.facing});last=std::format("Warp to map {} entry {} armed",r.map,r.entry);}
+                    ImGui::EndDisabled();
+                    if(vp2s::nativeWarpPending()){ImGui::SameLine();ImGui::TextColored(ImVec4(1,0.8f,0.3f,1),"waiting for the next script step...");}
+                }
+                ImGui::Separator();
+                static char battle[16]="0x18";static int stage=0;
+                ImGui::SetNextItemWidth(100);ImGui::InputText("Battle id",battle,sizeof battle);
+                ImGui::SameLine();ImGui::SetNextItemWidth(100);ImGui::InputInt("Stage",&stage);stage=std::clamp(stage,0,0x7fff);
+                ImGui::SameLine();
+                if(ImGui::Button("Start battle")){
+                    try{auto request=vp2s::parseBattle(std::string(battle)+","+std::to_string(stage));vp2s::armNativeBattle(request);
+                        last=std::format("Battle {:#x} stage {} armed",request.battle,request.stage);}
+                    catch(const std::exception &e){last=e.what();}}
+                if(vp2s::nativeBattlePending()){ImGui::SameLine();ImGui::TextColored(ImVec4(1,0.8f,0.3f,1),"waiting...");}
+                ImGui::TextDisabled("Stage 0 is the field's default. Requests fire at the next event-script step (not on the title screen).");
+                if(!last.empty())ImGui::TextUnformatted(last.c_str());
+            });
             bozo::app::WindowOptions window;
             window.title="Valkyrie Profile 2: Silmeria";window.aspect=4.0f/3.0f;window.stats=std::getenv("VP2S_WINDOW_STATS")!=nullptr;
             window.hidden=hiddenWindow;window.captureScene=hiddenWindow;

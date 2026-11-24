@@ -6,12 +6,14 @@
 #include <cstring>
 #include <format>
 #include <fstream>
+#include <mutex>
 #include <sstream>
 #include <stdexcept>
 #include <string>
 #include <vector>
 namespace vp2s {
 namespace {
+std::mutex requests;   // the F2 panel arms from the window's thread; the game's thread takes the request
 std::optional<WarpRequest> pending;
 std::optional<BattleRequest> battlePending;
 // After the battle words the snippet holds kResumeTag and the interpreter's own pc: the handler
@@ -32,7 +34,8 @@ BattleRequest parseBattle(const std::string &text){
     if(v.size()>2){if((v[2]&0xff)==0xff)throw std::runtime_error("--battle flags 0xff need an inline formation");r.flags=v[2];}
     return r;
 }
-void armNativeBattle(const BattleRequest &request){battlePending=request;}
+void armNativeBattle(const BattleRequest &request){std::lock_guard lock(requests);battlePending=request;}
+bool nativeBattlePending(){std::lock_guard lock(requests);return battlePending.has_value();}
 std::array<uint32_t,3> battleInstruction(const BattleRequest &r){return {0x3802u,(r.stage<<16)|r.battle,r.flags};}
 WarpRequest parseWarp(const std::string &text,const std::string &table){
     std::vector<int32_t> v;std::stringstream in(text);std::string item;
@@ -54,8 +57,14 @@ WarpRequest parseWarp(const std::string &text,const std::string &table){
     r.x=v[1];r.y=v[2];r.z=v[3];if(v.size()>4)r.facing=v[4];if(v.size()>5)r.entry=v[5];
     return r;
 }
-void armNativeWarp(const WarpRequest &request){pending=request;}
-bool nativeWarpPending(){return pending.has_value();}
+void armNativeWarp(const WarpRequest &request){std::lock_guard lock(requests);pending=request;}
+bool nativeWarpPending(){std::lock_guard lock(requests);return pending.has_value();}
+std::vector<WarpRow> loadWarpTable(const std::string &table){
+    std::vector<WarpRow> rows;std::ifstream file(table);
+    for(std::string line;std::getline(file,line);){if(line.empty() || line[0]=='#')continue;std::stringstream in(line);WarpRow r;
+        if(in>>r.map>>r.entry>>r.x>>r.y>>r.z>>r.facing>>r.uses)rows.push_back(r);}
+    return rows;
+}
 std::array<uint32_t,8> warpInstruction(const WarpRequest &r){
     return {0x3a07u,uint32_t(r.map),uint32_t(r.entry),uint32_t(r.x),uint32_t(r.y),uint32_t(r.z),uint32_t(r.camera),uint32_t(r.facing)};
 }
@@ -85,6 +94,7 @@ std::optional<bool> nativeWarpInstruction(R5900Context *c,Runtime *rt,uint32_t p
             std::memcpy(fields+0x18,&resumePc,4);std::memcpy(fields+0x604,&args,4);c->r[5].uw[0]=at;std::memcpy(resume,&cleared,4);
         }
     }
+    std::unique_lock lock(requests);
     if(battlePending){
         const uint32_t object=c->r[16].uw[0],at=c->r[5].uw[0];
         auto *snippet=rt->memory.hostPointer(kSnippet,20);auto *fields=rt->memory.hostPointer(object,0x608);

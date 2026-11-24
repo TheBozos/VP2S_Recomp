@@ -17,17 +17,25 @@ template<class T>T value(Runtime *rt,uint32_t at){
 // The builder (3d3660) reads bits 2..4 (skip, pause gate, hidden); bits 0..1 steer the
 // timer update and auto-destroy (3d46c0..3d47e4), and no class method reads bits 5..7.
 constexpr uint8_t kFadeDrawFlags=0x1c;
+// 3d37cc: ALPHA_2 = the qword at 3140e0 + 8 index, index = 2 for +f4 0 (0x44, normal), 1 for +f4 2 (0x148, additive:
+// Cs As + Cd), 7 for +f4 1 (0x6), else +f4 itself.
+uint64_t fadeAlpha(Runtime *rt,uint32_t object){
+    const int8_t blend=int8_t(value<uint8_t>(rt,object+0xf4));const int index=blend==2?1:blend==1?7:blend==0?2:blend;
+    if(index<0 || index>7)throw std::runtime_error("native fade blend index outside its table");
+    return value<uint64_t>(rt,0x3140e0+8*uint32_t(index));
+}
 void NativeScreenRects::captureFade(Runtime *rt,const R5900Context *c){
     const auto object=c->r[17].uw[0];
     if(value<uint32_t>(rt,object)!=0x161230 || value<uint32_t>(rt,object+0x90)!=0x1612ac ||
-       value<uint8_t>(rt,object+0xf2) || value<uint8_t>(rt,object+0xf3) || value<uint8_t>(rt,object+0xf4) || (value<uint8_t>(rt,object+0xf5)&kFadeDrawFlags))
+       value<uint8_t>(rt,object+0xf2) || value<uint8_t>(rt,object+0xf3) || (value<uint8_t>(rt,object+0xf5)&kFadeDrawFlags))
         throw std::runtime_error(std::format("unported native fade type/mode (object {:x} class {:x}/{:x} f2..f5 {:x} {:x} {:x} {:x})",object,
             value<uint32_t>(rt,object),value<uint32_t>(rt,object+0x90),value<uint8_t>(rt,object+0xf2),value<uint8_t>(rt,object+0xf3),
             value<uint8_t>(rt,object+0xf4),value<uint8_t>(rt,object+0xf5)));
     const auto source=value<uint32_t>(rt,0x35de60);
     NativeScreenRect rect{.object=object,.colour=c->r[10].uw[0],.depth=c->r[16].uw[0],
         .x=c->r[5].sw[0],.y=c->r[6].sw[0],.right=c->r[7].sw[0],.bottom=c->r[8].sw[0],
-        .sourceWidth=value<int16_t>(rt,source+0x3c6c),.sourceHeight=value<int16_t>(rt,source+0x3c6e)};
+        .sourceWidth=value<int16_t>(rt,source+0x3c6c),.sourceHeight=value<int16_t>(rt,source+0x3c6e),.alpha=fadeAlpha(rt,object)};
+    for(unsigned i=0;i<4;++i)if(((rect.alpha>>(2*i))&3)==3)throw std::runtime_error("native fade ALPHA factor 3");
     if(c->r[4].uw[0]!=value<uint32_t>(rt,object+0xc4) || rect.colour!=value<uint32_t>(rt,object+0xa0) ||
        rect.depth!=value<uint32_t>(rt,object+0xc0)+value<uint8_t>(rt,object+0xf1) || rect.depth>0xffffff ||
        rect.x || rect.y || rect.right!=rect.sourceWidth || rect.bottom!=rect.sourceHeight ||
@@ -126,7 +134,7 @@ NativeScreenRect NativeScreenRects::beginFade(Runtime *rt,uint32_t stack,uint32_
     if(calls.contains(stack))throw std::runtime_error("native fade publication stack reused");
     auto it=fades.find(object);
     if(it==fades.end() || value<uint32_t>(rt,object)!=0x161230 || !value<uint8_t>(rt,object+0x63) || value<uint8_t>(rt,object+0x64)!=1 ||
-       value<uint8_t>(rt,object+0xf2) || value<uint8_t>(rt,object+0xf3) || value<uint8_t>(rt,object+0xf4) || (value<uint8_t>(rt,object+0xf5)&kFadeDrawFlags))
+       value<uint8_t>(rt,object+0xf2) || value<uint8_t>(rt,object+0xf3) || (value<uint8_t>(rt,object+0xf5)&kFadeDrawFlags))
         throw std::runtime_error(std::format("native fade has no completed flat builder (object {:x} class {:x} captured {} +63 {} +64 {} f2..f5 {:x} {:x} {:x} {:x})",object,
             value<uint32_t>(rt,object),it!=fades.end(),value<uint8_t>(rt,object+0x63),value<uint8_t>(rt,object+0x64),value<uint8_t>(rt,object+0xf2),
             value<uint8_t>(rt,object+0xf3),value<uint8_t>(rt,object+0xf4),value<uint8_t>(rt,object+0xf5)));

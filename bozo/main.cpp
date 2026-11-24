@@ -309,6 +309,9 @@ public:
         if(!scene.frameTarget())throw std::runtime_error("native screen rectangle has no source frame");
         bozo::render::Material material;material.textured=false;material.alphaTest=true;
         material.blend=bozo::render::Material::Blend::Alpha;
+        if(rect.alpha!=0x44){   // the fade's own ALPHA_2 (+f4: e.g. 0x148, Cs As + Cd)
+            material.gsBlend=true;material.blendA=rect.alpha&3;material.blendB=(rect.alpha>>2)&3;material.blendC=(rect.alpha>>4)&3;material.blendD=(rect.alpha>>6)&3;
+            material.blendFix=(rect.alpha>>32)&0xff;}
         const float identity[16]={1,0,0,0,0,1,0,0,0,0,1,0,0,0,0,1};
         if(rect.wipe){
             // The fade's Gouraud strip (PRIM 24c) as triangles: 10 for the wipe, 2 for mode 1.

@@ -211,7 +211,7 @@ int main(int argc,char **argv){try{
         check(p.cycles==q.cycles+8 && p.checkpoints==q.checkpoints+1);p.cycles-=8;--p.checkpoints;p.cycleLimit=q.cycleLimit;p.r[2]=q.r[2];check(!std::memcmp(&p,&q,sizeof(p)));++cases;
         put(y,object+0x64,uint8_t(1));put(y,scene+0x40dc+layer,uint8_t(1));put(y,scene+0x40a8+layer*4,object);put(y,buffer+12,base+0x40);put(y,buffer+8,base+0xa0);
         const auto flags=*y.memory.hostPointer(object+0xf5,1);
-        for(const auto [offset,bits]:std::array<std::pair<uint32_t,uint32_t>,6>{{{0xf2u,1u},{0xf3u,1u},{0xf4u,1u},{0xf5u,4u},{0xf5u,8u},{0xf5u,16u}}}){
+        for(const auto [offset,bits]:std::array<std::pair<uint32_t,uint32_t>,5>{{{0xf2u,1u},{0xf3u,1u},{0xf5u,4u},{0xf5u,8u},{0xf5u,16u}}}){
             const auto saved=*y.memory.hostPointer(object+offset,1);put(y,object+offset,uint8_t(saved|bits));bool rejected=false;
             try{now.rects.beginFade(&y,1,object);}catch(const std::runtime_error &){rejected=true;}check(rejected && !now.rects.outstanding());put(y,object+offset,saved);
         }

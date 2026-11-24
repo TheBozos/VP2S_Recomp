@@ -12,6 +12,22 @@ The earlier VP2S face/shading and general brightness comparisons remain open.
 
 ## Build and evidence
 
+### Flat fades with their own blend; mod149 and mod049 captured (2026-11-25)
+
+- **Fade blend (maps 137, 138, 145, 146):** these flat fades (class 161230, mode 0) have +f4 = 2.
+  - The builder (3d37cc) sets ALPHA_2 from the table at 3140e0, indexed 2 for +f4 0 (0x44, normal), 1 for +f4 2
+    (0x148, Cs As + Cd: additive), 7 for +f4 1, else +f4 itself.
+  - The fade now carries that ALPHA, and the draw applies it as GS blend factors unless it is 0x44. Factor 3 is
+    refused.
+  - captureFade and beginFade no longer require +f4 = 0.
+- **Modules:** map 372 / 374 jumped to 0x533460 (mod149, slot 0x532200), and map 452 to 0x514c70 (mod049, slot
+  0x514080). Both were captured from end-of-run RAM and registered.
+
+**Evidence:**
+- **Tests:** the flat-fade test without the +f4 rejection (any table index is now admitted).
+- **Maps:** all 7 run clean.
+- **Atlas:** 491 of 552 maps clean.
+
 ### Row-matrix points (mod003 35f4f8 / 410da0); the second sprite-motion copy (361ea0) (2026-11-24)
 
 - **The case:** 4 maps (104, 105, 130, 444) stopped at 35f4f8. There, LQC2 vf1..vf4 load the rows at a2, then

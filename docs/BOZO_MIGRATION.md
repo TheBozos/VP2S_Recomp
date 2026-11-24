@@ -12,6 +12,16 @@ The earlier VP2S face/shading and general brightness comparisons remain open.
 
 ## Build and evidence
 
+### Battles 0x22 to 0x27: modules (2026-11-24)
+
+- **Captured modules:** 132, 141, 121 (0x532200), 197, 178 (0x53a380).
+- **Evidence:** 0x22, 0x25, 0x26 and 0x27 run boundary-free to 67000; full ctest 97/97; end RAM unchanged.
+- **Open:**
+  - 0x23 reaches the Hermite curve 2a68a0 with near-maximum control values (-1.6e38 ..), computed by the effect
+    script interpreter 2a89c0 from its loaded data; the curve refuses inputs above 1e8 (the refusal now lists all 20
+    inputs). Question sent: evaluate with ps2f as the PS2 would, or dig into the opcode first.
+  - 0x24 stops at the same procedural-mesh submission as 0x1e (no screen copy published).
+
 ### Battles 0x1f, 0x20, 0x21: modules and three VU0 formulas (2026-11-24)
 
 - **Captured modules:** 117, 120 and 128 (0x532200), 174 (0x53a380).

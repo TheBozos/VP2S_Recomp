@@ -6972,7 +6972,9 @@ bool mathBlock10(R5900Context *c,Runtime *rt,uint32_t pc){
             if(c->r[3].uw[0]!=stack+0x30)throw std::runtime_error("native Hermite vector destination mismatch");
             math::Matrix controls;__m128 weights;std::memcpy(controls.data(),record(rt,c->r[16].uw[0],0x50),64);
             std::memcpy(&weights,record(rt,0x35dfd0,16),16);float inputs[20];std::memcpy(inputs,controls.data(),64);std::memcpy(inputs+16,&weights,16);
-            for(float value:inputs){pairQualified(value);if(std::abs(value)>1.e8f)throw std::runtime_error("unqualified native Hermite vector input");}
+            for(float value:inputs){const auto b=std::bit_cast<uint32_t>(value),e=b&0x7f800000;
+                if(e==0x7f800000 || (!e && (b&0x7fffff)) || std::abs(value)>1.e8f){std::string list;for(float v:inputs)list+=std::format(" {:08x}",std::bit_cast<uint32_t>(v));
+                    throw std::runtime_error(std::format("unqualified native Hermite vector input (controls {:x}:{})",c->r[16].uw[0],list));}}
             struct ArithmeticScope {unsigned saved=_mm_getcsr();~ArithmeticScope(){_mm_setcsr(saved);}} arithmetic;
             const auto result=math::matrixVectorProduct(controls,weights);std::memcpy(record(rt,stack+0x30,16),&result,16);
         }return true;

@@ -1398,6 +1398,29 @@ int main(int argc,char **argv){try{
             for(uint32_t pc:{0x500ee8u,0x500eecu,0x500f10u})check(vp2s::nativeMathInstruction(rt.memory.flat(),&c,&rt,pc));
             check(c.r[8].uw[0]==80 && c.r[8].uw[1]==0 && c.r[8].uw[2]==216 && c.r[8].uw[3]==63);   // alpha: 255 * 0.25 = 63.75 -> 63 (the EE code then keeps B's alpha)
         }
+        {   // mod028 3f9630 palette scale: factors (0.5, 1, 1.5, 0.25) at sp+a0; (200, 7, 100, 255) -> (100, 7, 150, 63).
+            constexpr uint32_t sites[]={0x3f9694,0x3f970c,0x3f9710,0x3f9714,0x3f9718,0x3f971c};constexpr uint32_t words[]={0xd8610000,0x48a81000,0x4be2113c,0x4be110aa,0x4be2117c,0x48281000};
+            for(unsigned i=0;i<6;++i)std::memcpy(rt.memory.hostPointer(sites[i],4),&words[i],4);
+            constexpr uint32_t stack=0x1ff5000;const float f[4]={0.5f,1,1.5f,0.25f};std::memcpy(rt.memory.hostPointer(stack+0xa0,16),f,16);
+            R5900Context c{};c.r[29].uw[0]=stack;c.r[3].uw[0]=stack+0xa0;
+            {bool failed=false;try{vp2s::nativeMathInstruction(rt.memory.flat(),&c,&rt,0x3f971c);}catch(const std::runtime_error &){failed=true;}check(failed);}
+            check(vp2s::nativeMathInstruction(rt.memory.flat(),&c,&rt,0x3f9694));
+            for(unsigned round=0;round<2;++round){const uint32_t a[4]={200,7,100,255};for(unsigned i=0;i<4;++i)c.r[8].uw[i]=a[i];
+                for(uint32_t pc:{0x3f970cu,0x3f9710u,0x3f9714u,0x3f9718u,0x3f971cu})check(vp2s::nativeMathInstruction(rt.memory.flat(),&c,&rt,pc));
+                check(c.r[8].uw[0]==100 && c.r[8].uw[1]==7 && c.r[8].uw[2]==150 && c.r[8].uw[3]==63);}   // the factors stay for every colour
+        }
+        {   // mod028 3f90f0 palette crossfade: (t, 1 - t, 255, 0) = (0.25, 0.75, 255, 0); A (200, 0, 100, 255), B (40, 0, 255, 255)
+            // -> (80, 0, 216.25 -> 216, 255).
+            constexpr uint32_t sites[]={0x3f912c,0x3f91a0,0x3f91a4,0x3f91c4};constexpr uint32_t words[]={0xd8c10000,0x48a81000,0x48a91800,0x48281800};
+            for(unsigned i=0;i<4;++i)std::memcpy(rt.memory.hostPointer(sites[i],4),&words[i],4);
+            constexpr uint32_t stack=0x1ff4000;const float f[4]={0.25f,0.75f,255,0};std::memcpy(rt.memory.hostPointer(stack,16),f,16);
+            R5900Context c{};c.r[29].uw[0]=stack;c.r[6].uw[0]=stack;
+            {bool failed=false;try{vp2s::nativeMathInstruction(rt.memory.flat(),&c,&rt,0x3f91c4);}catch(const std::runtime_error &){failed=true;}check(failed);}
+            check(vp2s::nativeMathInstruction(rt.memory.flat(),&c,&rt,0x3f912c));
+            const uint32_t a[4]={200,0,100,255},b[4]={40,0,255,255};for(unsigned i=0;i<4;++i){c.r[8].uw[i]=a[i];c.r[9].uw[i]=b[i];}
+            for(uint32_t pc:{0x3f91a0u,0x3f91a4u,0x3f91c4u})check(vp2s::nativeMathInstruction(rt.memory.flat(),&c,&rt,pc));
+            check(c.r[8].uw[0]==80 && c.r[8].uw[1]==0 && c.r[8].uw[2]==216 && c.r[8].uw[3]==255);
+        }
         {   // mod028 4a41b0 effect scatter: direction (0, 0, 4) normalized (Q = 1/4), length 2, position
             // (1, 2, 3, 7) -> (1, 2, 5, 7) at sp+d0; the store before the length refuses.
             constexpr uint32_t sites[]={0x4a43d8,0x4a43dc,0x4a43e0,0x4a43e4,0x4a43e8,0x4a43ec,0x4a43f0,0x4a4424,0x4a442c,0x4a4430,0x4a4434,0x4a4438,0x4a443c};

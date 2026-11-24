@@ -445,7 +445,7 @@ def prepare(data, rows, sdk):
 # modules fill in main's data at run time (mod027 0x35edc0..0x35f1f0). The old
 # pipeline's static entry finder (tools/find_entry_points.py, build/entries)
 # lists them; each spans to the next known function start in its code section.
-CAPTURED_BATTLE_MODULES={'mod027','mod028','mod030','mod060','mod068','mod112','mod129','mod133','mod144','mod169','mod175','mod179','mod191','mod220','mod271','mod119','mod134','mod157','mod176','mod206','mod287','mod117','mod120','mod128','mod174','mod132','mod141','mod197','mod121','mod178','mod115','mod172','mod180','mod135','mod182','mod189','mod217','mod225','mod272','mod125','mod138','mod158','mod201','mod136','mod137','mod192','mod111','mod139','mod282','mod276','mod130','mod171','mod140','mod170','mod236','mod142','mod218','mod289','mod291','mod147','mod146','mod285','mod274'}
+CAPTURED_BATTLE_MODULES={'mod027','mod028','mod030','mod060','mod068','mod112','mod129','mod133','mod144','mod169','mod175','mod179','mod191','mod220','mod271','mod119','mod134','mod157','mod176','mod206','mod287','mod117','mod120','mod128','mod174','mod132','mod141','mod197','mod121','mod178','mod115','mod172','mod180','mod135','mod182','mod189','mod217','mod225','mod272','mod125','mod138','mod158','mod201','mod136','mod137','mod192','mod111','mod139','mod282','mod276','mod130','mod171','mod140','mod170','mod236','mod142','mod218','mod289','mod291','mod147','mod146','mod285','mod274','mod150','mod131','mod183','mod113','mod114'}
 
 
 def gap_entries(path,rows,data):

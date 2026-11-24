@@ -669,7 +669,8 @@ constexpr BasisLengthSite basisLengthSites[]={{0x43c120,0x43c130,0x43c13c,16,4,3
     {0x4a6e10,0x4a6e20,0x4a6e2c,19,5,2,0xb0},{0x4a6f40,0x4a6f50,0x4a6f5c,18,5,2,0xa0},{0x1f5d90,0x1f5da0,0x1f5dac,16,5,2,0x50},{0x4a52a8,0x4a52b8,0x4a52c4,17,5,2,0x70},
     {0x1f7608,0x1f7618,0x1f7624,16,5,2,0x60},{0x493cb0,0x493cc0,0x493ccc,17,6,3,0x110},{0x493d28,0x493d38,0x493d44,16,6,3,0x100},{0x1f7b20,0x1f7b30,0x1f7b3c,18,5,2,0x40},
     {0x4a69b8,0x4a69c8,0x4a69d4,20,5,2,0x60},{0x1f6408,0x1f6418,0x1f6424,16,5,2,0x40},   // point-tree walks 4a6840 (object s4) / 1f62b0 (s0)
-    {0x4a65f0,0x4a6600,0x4a660c,16,5,2,0x70}};   // mod028 4a6xxx (battle 0x3f), object s0 (base a1 = s0+90), output sp+70 (its +204 = the largest)
+    {0x4a65f0,0x4a6600,0x4a660c,16,5,2,0x70},
+    {0x4a5d28,0x4a5d38,0x4a5d44,16,5,2,0x80}};   // mod028 sphere-tree walk 4a5b90 (battle 0x43), node object s0, output sp+80 (its +204)   // mod028 4a6xxx (battle 0x3f), object s0 (base a1 = s0+90), output sp+70 (its +204 = the largest)
 bool nativeBattleBasisLengths(R5900Context *c,Runtime *rt,uint32_t pc){
     if(!rt || (pc&3))return false;
     const auto site=std::find_if(std::begin(basisLengthSites),std::end(basisLengthSites),[&](auto &s){return pc>=s.load && pc<=s.store;});
@@ -3700,20 +3701,31 @@ bool nativePointTreeWalk(R5900Context *c,Runtime *rt,uint32_t pc){
 // s0+150, vf5..vf8 = a2 (s1); vf10.w *= vf9.x, vf11.w *= vf9.y; vf12 = M1 vf10, vf13 = M2
 // vf11 (w by 1); sp+70 = (((1*dx^2 + 1*dy^2) - 1*(r1 + r2)^2) + 1*dz^2, dy^2, dz^2, M1's w).
 // Then vf1..vf9 are the object-pair registers for the shape tests 1f73a0 runs.
+// mod028 4a5b90 is the same walk compiled again (battle 0x43; recursion at 4a5f0c, called from 4a5f14): node s5, point s4,
+// matrix s3, object s0 = node+4; spill vf1..vf9 to sp+a0 (4a5c0c..4a5c2c), restores at 4a5e10, 4a5f40, 4a5f80; scale record
+// sp+90 = (+204, f20) by a0, rows s0+150 by v0, the overlap's words as 1f7490's (no CPU word between) and its result to sp+90.
+struct SphereWalk{uint32_t spill,spillTo;std::array<uint32_t,3> restores;uint32_t first,last;std::array<uint32_t,32> words;
+    unsigned node,point,matrix,rowsBase,scaleBase,outBase;uint32_t scaleAt,outAt;};
+constexpr SphereWalk sphereWalks[]={
+    {0x1f74f4,0x90,{0x1f76f4,0x1f77dc,0x1f785c},0x1f7660,0x1f76dc,{0xd8490000,0xd86a0000,0xda4b0000,0xd8810000,0xd8820010,0x4a295298,0x4a295ad9,0xd8830020,0xd8840030,
+        0xda250000,0xda260010,0xda270020,0xda280030,0x4bea09bc,0x4bea10bd,0x4bea18be,0x4be0230b,0x4beb29bc,0x4beb30bd,0x4beb38be,0x4be0434b,0x4bcd632c,0x4a2b52a8,
+        0x4bcc632a,0x4b000343,0x4a2a52aa,0x4b0c69bc,0x4b0c68bd,0x4b0a68ff,0x4b0c6b0a,0,0xf84c0000},19,18,17,4,2,2,0x80,0x70},   // 0: the addiu v0, sp, 70 between
+    {0x4a5c0c,0xa0,{0x4a5e10,0x4a5f40,0x4a5f80},0x4a5d80,0x4a5df8,{0xd8890000,0xd86a0000,0xda8b0000,0xd8410000,0xd8420010,0x4a295298,0x4a295ad9,0xd8430020,0xd8440030,
+        0xda650000,0xda660010,0xda670020,0xda680030,0x4bea09bc,0x4bea10bd,0x4bea18be,0x4be0230b,0x4beb29bc,0x4beb30bd,0x4beb38be,0x4be0434b,0x4bcd632c,0x4a2b52a8,
+        0x4bcc632a,0x4b000343,0x4a2a52aa,0x4b0c69bc,0x4b0c68bd,0x4b0a68ff,0x4b0c6b0a,0xf88c0000,0},21,20,19,2,4,4,0x90,0x90}};
 bool nativeSphereTreeWalk(R5900Context *c,Runtime *rt,uint32_t pc){
-    if((pc&3) || !rt || pc<0x1f74f4 || pc>0x1f787c)return false;
-    const auto restoreBase=[](uint32_t at)->uint32_t{for(uint32_t b:{0x1f76f4u,0x1f77dcu,0x1f785cu})if(at>=b && at<=b+0x20)return b;return 0;};
-    const bool spill=pc<=0x1f7514;const uint32_t rb=restoreBase(pc);
-    constexpr uint32_t first=0x1f7660;
-    static constexpr uint32_t words[]={0xd8490000,0xd86a0000,0xda4b0000,0xd8810000,0xd8820010,0x4a295298,0x4a295ad9,0xd8830020,0xd8840030,0xda250000,0xda260010,0xda270020,0xda280030,
-        0x4bea09bc,0x4bea10bd,0x4bea18be,0x4be0230b,0x4beb29bc,0x4beb30bd,0x4beb38be,0x4be0434b,0x4bcd632c,0x4a2b52a8,0x4bcc632a,0x4b000343,0x4a2a52aa,0x4b0c69bc,0x4b0c68bd,
-        0x4b0a68ff,0x4b0c6b0a,0,0xf84c0000};   // 0: the addiu v0, sp, 70 between (runs as compiled)
-    const bool block=pc>=first && pc<=0x1f76dc;
+    if((pc&3) || !rt)return false;
+    const SphereWalk *w=nullptr;
+    for(const auto &s:sphereWalks)if(pc>=s.spill && pc<=s.restores[2]+0x20){w=&s;break;}
+    if(!w)return false;
+    const auto restoreBase=[&](uint32_t at)->uint32_t{for(uint32_t b:w->restores)if(at>=b && at<=b+0x20)return b;return 0;};
+    const bool spill=pc<=w->spill+0x20;const uint32_t rb=restoreBase(pc);
+    const bool block=pc>=w->first && pc<=w->last;
     if(!spill && !rb && !block)return false;
     uint32_t expected=0;
-    if(spill)expected=0xf8400000u|((pc-0x1f74f4)/4+1)<<16|(pc-0x1f74f4)*4;
+    if(spill)expected=0xf8400000u|((pc-w->spill)/4+1)<<16|(pc-w->spill)*4;
     else if(rb)expected=0xd8400000u|((pc-rb)/4+1)<<16|(pc-rb)*4;
-    else{expected=words[(pc-first)/4];if(!expected)return false;}
+    else{expected=w->words[(pc-w->first)/4];if(!expected)return false;}
     uint32_t word=0;if(const auto *p=rt->memory.hostPointer(pc,4))std::memcpy(&word,p,4);
     if(word!=expected)return false;   // another overlay at these addresses
     if(!c)throw std::runtime_error("native sphere-tree walk has no CPU record");
@@ -3722,22 +3734,22 @@ bool nativeSphereTreeWalk(R5900Context *c,Runtime *rt,uint32_t pc){
     const auto key=std::make_pair(static_cast<const Runtime *>(rt),stack);
     auto &regs=objectPairRegisters(rt);
     if(spill || rb){
-        if(c->r[2].uw[0]!=stack+0x90)throw std::runtime_error("native sphere-tree spill escaped its frame");
-        if(spill){if(pc==0x1f74f4)saved[key]=regs;return true;}
+        if(c->r[2].uw[0]!=stack+w->spillTo)throw std::runtime_error("native sphere-tree spill escaped its frame");
+        if(spill){if(pc==w->spill)saved[key]=regs;return true;}
         auto it=saved.find(key);if(it==saved.end())throw std::runtime_error("native sphere-tree restore without its spill");
         if(pc==rb+0x20){regs=it->second;saved.erase(it);}
         return true;
     }
-    const auto node=c->r[19].uw[0],point=c->r[18].uw[0],matrix=c->r[17].uw[0];
-    if(c->r[3].uw[0]!=node+0x10 || c->r[4].uw[0]!=object+0x150 || [&]{uint32_t v=0;const auto *q=rt->memory.hostPointer(node+4,4);if(!q)throw std::runtime_error("native sphere-tree node outside RAM");std::memcpy(&v,q,4);return v;}()!=object)
+    const auto node=c->r[w->node].uw[0],point=c->r[w->point].uw[0],matrix=c->r[w->matrix].uw[0];
+    if(c->r[3].uw[0]!=node+0x10 || c->r[w->rowsBase].uw[0]!=object+0x150 || [&]{uint32_t v=0;const auto *q=rt->memory.hostPointer(node+4,4);if(!q)throw std::runtime_error("native sphere-tree node outside RAM");std::memcpy(&v,q,4);return v;}()!=object)
         throw std::runtime_error("native sphere-tree overlap escaped its records");
-    if(pc<0x1f76d8 && c->r[2].uw[0]!=stack+0x80)throw std::runtime_error("native sphere-tree scale record mismatch");
-    if(pc!=0x1f76dc)return true;
-    if(c->r[2].uw[0]!=stack+0x70)throw std::runtime_error("native sphere-tree overlap destination mismatch");
+    if(pc<w->last-4 && c->r[w->scaleBase].uw[0]!=stack+w->scaleAt)throw std::runtime_error("native sphere-tree scale record mismatch");
+    if(pc!=w->last)return true;
+    if(c->r[w->outBase].uw[0]!=stack+w->outAt)throw std::runtime_error("native sphere-tree overlap destination mismatch");
     using Words=std::array<uint32_t,4>;constexpr uint32_t one=0x3f800000u;
     const auto load=[&](uint32_t at){Words v;std::memcpy(v.data(),record(rt,at,16),16);return v;};
     std::array<Words,4> m1,m2;for(unsigned i=0;i<4;++i){m1[i]=load(object+0x150+16*i);m2[i]=load(matrix+16*i);}
-    const auto scale=load(stack+0x80),a=load(node+0x10),b=load(point);
+    const auto scale=load(stack+w->scaleAt),a=load(node+0x10),b=load(point);
     const auto through=[&](const std::array<Words,4> &r,const Words &v){Words o;
         for(unsigned k=0;k<4;++k)o[k]=vuAdd(vuAdd(vuAdd(vuMul(r[0][k],v[0]),vuMul(r[1][k],v[1])),vuMul(r[2][k],v[2])),vuMul(r[3][k],one));return o;};
     const auto t1=through(m1,a),t2=through(m2,b);
@@ -3745,7 +3757,7 @@ bool nativeSphereTreeWalk(R5900Context *c,Runtime *rt,uint32_t pc){
     Words out=t1;for(unsigned i=0;i<3;++i){out[i]=vuSub(t1[i],t2[i]);out[i]=vuMul(out[i],out[i]);}
     const auto squaredX=out[0];
     out[0]=vuAdd(vuSub(vuAdd(vuMul(one,squaredX),vuMul(one,out[1])),vuMul(one,radius)),vuMul(one,out[2]));
-    std::memcpy(record(rt,stack+0x70,16),out.data(),16);
+    std::memcpy(record(rt,stack+w->outAt,16),out.data(),16);
     for(unsigned i=0;i<4;++i){regs.rows[i]=m1[i];regs.rows[4+i]=m2[i];}regs.scale=scale;regs.valid=true;
     return true;
 }
@@ -4378,6 +4390,70 @@ bool nativePaletteFade(R5900Context *c,Runtime *rt,uint32_t pc){
             c->r[8].uw[i]=vuFtoi(minimum(vuAdd(acc,vuMul(b,st.fade[1])),st.fade[2]),0);}
         st.moved=0;return true;}
     default:return true;   // ITOF0 / MULA / MUL / MINI / MADD / FTOI0: folded into the QMFC2
+    }
+}
+// mod028 3f9630 (battle 0x44: an object's palettes scaled per channel): 3f9240 writes the four factors to sp+a0; LQC2 vf1
+// loads them once (3f9694). Then for each palette (10 lists at +1010, 0x20-byte entries, colour count at +2 of the entry's
+// header) each RGBA word is widened by the EE (PEXTLB/PEXTLH), QMTC2 t0 -> vf2 (3f970c), ITOF0, MUL vf2 = vf2 * vf1, FTOI0,
+// QMFC2 t0 (3f971c); the EE packs the low bytes back. Between the load and the loop only memcpy 132c88 runs (no COP2).
+struct PaletteScale{VuWords factors{};bool loaded=false;uint32_t lanes[4]{};bool moved=false;};
+std::map<std::pair<const Runtime *,uint32_t>,PaletteScale> &paletteScales(){static std::map<std::pair<const Runtime *,uint32_t>,PaletteScale> m;return m;}
+// The same scale compiled again in 3f89a0 (factors at sp+50: load 3f89ec, colour 3f8a54..3f8a64).
+bool nativePaletteScale(R5900Context *c,Runtime *rt,uint32_t pc){
+    struct Site{uint32_t pc,word;char role;uint32_t factors;};
+    static constexpr Site sites[]={{0x3f9694,0xd8610000,'f',0xa0},{0x3f970c,0x48a81000,'a',0xa0},{0x3f9710,0x4be2113c,'-',0xa0},{0x3f9714,0x4be110aa,'-',0xa0},{0x3f9718,0x4be2117c,'-',0xa0},{0x3f971c,0x48281000,'m',0xa0},
+        {0x3f89ec,0xd8610000,'f',0x50},{0x3f8a54,0x48a81000,'a',0x50},{0x3f8a58,0x4be2113c,'-',0x50},{0x3f8a5c,0x4be110aa,'-',0x50},{0x3f8a60,0x4be2117c,'-',0x50},{0x3f8a64,0x48281000,'m',0x50}};
+    if((pc&3) || !rt || pc<0x3f89ec || pc>0x3f971c)return false;
+    const auto site=std::find_if(std::begin(sites),std::end(sites),[&](const Site &x){return x.pc==pc;});
+    if(site==std::end(sites))return false;
+    uint32_t word=0;if(const auto *p=rt->memory.hostPointer(pc,4))std::memcpy(&word,p,4);
+    if(word!=site->word)return false;   // another overlay at these addresses
+    if(!c)throw std::runtime_error("native palette scale has no CPU record");
+    auto &st=paletteScales()[{rt,c->r[29].uw[0]}];
+    switch(site->role){
+    case 'f':if(c->r[3].uw[0]!=c->r[29].uw[0]+site->factors)throw std::runtime_error("native palette scale factors not at their stack record");
+        st=PaletteScale{};st.factors=vuWords(rt,c->r[3].uw[0]);st.loaded=true;return true;
+    case 'a':if(!st.loaded)throw std::runtime_error("native palette scale colour without its factors");for(unsigned i=0;i<4;++i)st.lanes[i]=c->r[8].uw[i];st.moved=true;return true;
+    case 'm':{if(!st.moved)throw std::runtime_error("native palette scale result without its colour");
+        for(unsigned i=0;i<4;++i){if(st.lanes[i]>255)throw std::runtime_error("native palette scale lane outside a byte");
+            c->r[8].uw[i]=vuFtoi(vuMul(std::bit_cast<uint32_t>(float(int32_t(st.lanes[i]))),st.factors[i]),0);}   // ITOF0 exact for bytes
+        st.moved=false;return true;}
+    default:return true;   // ITOF0 / MUL / FTOI0: folded into the QMFC2
+    }
+}
+// mod028 3f90f0 (a leaf: the object's palettes crossfaded by t = +404 / +400; battles 0x43, 0x44): LQC2 vf1 = sp = (t, 1 - t,
+// 255, 0) (3f912c). Per colour pair the EE widens A (t0) and B (t1) (PEXTLB/PEXTLH), QMTC2 both (3f91a0 / 3f91a4), ITOF0 both;
+// ACC = A * t; vf3 = ACC + B * (1 - t); MINIz 255; MAXw 0; FTOI0; QMFC2 t0 (3f91c4); the EE packs the bytes and keeps the
+// destination's alpha byte.
+struct PaletteCrossfade{VuWords fade{};bool loaded=false;uint32_t a[4]{},b[4]{};unsigned moved=0;};
+std::map<std::pair<const Runtime *,uint32_t>,PaletteCrossfade> &paletteCrossfades(){static std::map<std::pair<const Runtime *,uint32_t>,PaletteCrossfade> m;return m;}
+bool nativePaletteCrossfade(R5900Context *c,Runtime *rt,uint32_t pc){
+    struct Site{uint32_t pc,word;char role;};
+    // 3f8860 is the same leaf over the lists at +1060 (load 3f889c, colours 3f8918..3f893c).
+    static constexpr Site sites[]={{0x3f912c,0xd8c10000,'f'},{0x3f91a0,0x48a81000,'a'},{0x3f91a4,0x48a91800,'b'},{0x3f91a8,0x4be2113c,'-'},{0x3f91ac,0x4be3193c,'-'},
+        {0x3f91b0,0x4be111bc,'-'},{0x3f91b4,0x4be118c9,'-'},{0x3f91b8,0x4be118d6,'-'},{0x3f91bc,0x4be118d3,'-'},{0x3f91c0,0x4be3197c,'-'},{0x3f91c4,0x48281800,'m'},
+        {0x3f889c,0xd8c10000,'f'},{0x3f8918,0x48a81000,'a'},{0x3f891c,0x48a91800,'b'},{0x3f8920,0x4be2113c,'-'},{0x3f8924,0x4be3193c,'-'},
+        {0x3f8928,0x4be111bc,'-'},{0x3f892c,0x4be118c9,'-'},{0x3f8930,0x4be118d6,'-'},{0x3f8934,0x4be118d3,'-'},{0x3f8938,0x4be3197c,'-'},{0x3f893c,0x48281800,'m'}};
+    if((pc&3) || !rt || pc<0x3f889c || pc>0x3f91c4)return false;
+    const auto site=std::find_if(std::begin(sites),std::end(sites),[&](const Site &x){return x.pc==pc;});
+    if(site==std::end(sites))return false;
+    uint32_t word=0;if(const auto *p=rt->memory.hostPointer(pc,4))std::memcpy(&word,p,4);
+    if(word!=site->word)return false;   // another overlay at these addresses
+    if(!c)throw std::runtime_error("native palette crossfade has no CPU record");
+    auto &st=paletteCrossfades()[{rt,c->r[29].uw[0]}];
+    switch(site->role){
+    case 'f':if(c->r[6].uw[0]!=c->r[29].uw[0])throw std::runtime_error("native palette crossfade factors not at sp");
+        st=PaletteCrossfade{};st.fade=vuWords(rt,c->r[6].uw[0]);st.loaded=true;return true;
+    case 'a':if(!st.loaded)throw std::runtime_error("native palette crossfade colour without its factors");for(unsigned i=0;i<4;++i)st.a[i]=c->r[8].uw[i];st.moved=1;return true;
+    case 'b':if(st.moved!=1)throw std::runtime_error("native palette crossfade colours out of order");for(unsigned i=0;i<4;++i)st.b[i]=c->r[9].uw[i];st.moved=2;return true;
+    case 'm':{if(st.moved!=2)throw std::runtime_error("native palette crossfade result without its colours");
+        const auto toFloat=[](uint32_t v){return std::bit_cast<uint32_t>(float(int32_t(v)));};
+        for(unsigned i=0;i<4;++i){
+            if(st.a[i]>255 || st.b[i]>255)throw std::runtime_error("native palette crossfade lane outside a byte");
+            const auto v=vuAdd(vuMul(toFloat(st.a[i]),st.fade[0]),vuMul(toFloat(st.b[i]),st.fade[1]));
+            c->r[8].uw[i]=vuFtoi(bozo::ps2f::max(bozo::ps2f::min(v,st.fade[2]),st.fade[3]),0);}
+        st.moved=0;return true;}
+    default:return true;   // ITOF0 / MULA / MADD / MINI / MAX / FTOI0: folded into the QMFC2
     }
 }
 // mod001 1fd110 chain constraint blocks (s1 = part record, s2 = chain owner,
@@ -7013,6 +7089,22 @@ bool retiredScaleWords(R5900Context *,Runtime *,uint32_t pc){
     case 0x239ddc:case 0x239de0:case 0x239de4:case 0x239de8:return true;
     default:return false;}
 }
+// The emitters' parent-hook helpers (mod001 245540 under the general emitter's step 2439f0, battle 0x43; 298880 under the
+// row emitter 2932f0, and its copy 298510 under 293da0, battle 0x48): around the hook call (the +6c / +70 object's +98) they
+// SQC2 vf18 / vf29 to sp+30 / sp+50 and LQC2 them back, then re-establish vf17.xyz = 0, vf30 = 0 and vf5.x = dt (*35dee8).
+// The native emitters hold those values in their own state from the prepare (gravity, the 255s, 0, 0, dt) and never read
+// them from VU registers, so these words are retired (each checked: another overlay at these addresses is not them).
+bool retiredEmitterHookWords(R5900Context *,Runtime *rt,uint32_t pc){
+    static constexpr std::pair<uint32_t,uint32_t> words[]={
+        {0x24564c,0xf8520000},{0x245650,0xf85d0010},{0x245690,0x4bd1033c},{0x245694,0x4be00798},{0x2456a8,0x48a32800},{0x2456b0,0xd8720000},{0x2456b4,0xd87d0010},
+        {0x2989cc,0xf8520000},{0x2989d0,0xf85d0010},{0x298a0c,0x4bd1033c},{0x298a10,0x4be00798},{0x298a24,0x48a32800},{0x298a2c,0xd8720000},{0x298a30,0xd87d0010},
+        {0x29865c,0xf8520000},{0x298660,0xf85d0010},{0x29869c,0x4bd1033c},{0x2986a0,0x4be00798},{0x2986b4,0x48a32800},{0x2986bc,0xd8720000},{0x2986c0,0xd87d0010}};
+    if((pc&3) || !rt || pc<0x24564c || pc>0x298a30)return false;
+    const auto it=std::find_if(std::begin(words),std::end(words),[&](auto &w){return w.first==pc;});
+    if(it==std::end(words))return false;
+    uint32_t word=0;if(const auto *p=rt->memory.hostPointer(pc,4))std::memcpy(&word,p,4);
+    return word==it->second;
+}
 // Inline blocks of the cascade, as named sub-handlers (same order, same code) so the dispatcher can claim
 // their sites directly.
 bool mathBlock1(R5900Context *c,Runtime *rt,uint32_t pc){
@@ -8278,6 +8370,8 @@ bool nativeMathInstruction(uint8_t *,R5900Context *c,Runtime *rt,uint32_t pc){
     if(CLAIM(nativeChainAim))return true;
     if(CLAIM(nativeVectorTurn))return true;
     if(CLAIM(nativePaletteFade))return true;
+    if(CLAIM(nativePaletteScale))return true;
+    if(CLAIM(nativePaletteCrossfade))return true;
     if(CLAIM(nativeEffectScatter))return true;
     if(CLAIM(nativeBattlePointScale))return true;
     if(CLAIM(nativeBattleTaskColours))return true;
@@ -8547,6 +8641,7 @@ bool nativeMathInstruction(uint8_t *,R5900Context *c,Runtime *rt,uint32_t pc){
     if(CLAIM(mathBlock71))return true;
     if(CLAIM(mathBlock72))return true;
     if(CLAIM(retiredScaleWords))return true;   // its cases, before the switch they were in (disjoint labels)
+    if(CLAIM(retiredEmitterHookWords))return true;
     switch(pc){
     case 0x37b548:case 0x37b54c:case 0x37b550:case 0x37b554:
     case 0x37b558:case 0x37b55c:case 0x37b560:case 0x37b564:return true;

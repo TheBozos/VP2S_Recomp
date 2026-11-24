@@ -12,6 +12,27 @@ The earlier VP2S face/shading and general brightness comparisons remain open.
 
 ## Build and evidence
 
+### Battles 0x43 to 0x48: modules, palette scale and crossfade, a second sphere-tree walk, the emitters' hook helpers (2026-11-24)
+
+- **Captured modules:** 150, 131, 113, 114 (0x532200); 183 (0x53a380).
+- **Palette scale** (mod028 3f9630 and its copy 3f89a0, battle 0x44): factors from 3f9240 at sp+a0 / sp+50 load vf1
+  once. Each widened colour (PEXTLB/PEXTLH) then runs QMTC2, ITOF0, MUL by vf1, FTOI0 and QMFC2 t0; only memcpy 132c88
+  runs between (`nativePaletteScale`).
+- **Palette crossfade** (mod028 3f90f0 over +1010 and 3f8860 over +1060, battles 0x43, 0x44): vf1 = sp = (t, 1 - t, 255, 0)
+  with t = +404 / +400; per pair, A t + B (1 - t), MINIz 255, MAXw 0, FTOI0 (`nativePaletteCrossfade`).
+- **Sphere-tree walk, second compilation** (mod028 4a5b90, battle 0x43): `nativeSphereTreeWalk` takes a table of instances.
+  This one has node s5, point s4, matrix s3, spill to sp+a0, restores 4a5e10 / 4a5f40 / 4a5f80, scale record sp+90 by a0,
+  rows by v0 and its result at sp+90; it has the same arithmetic words as 1f7490. Its basis block 4a5d28 is a
+  basisLengthSites row (output sp+80).
+- **Emitters' parent-hook helpers** (mod001 245540 under the general step 2439f0, battle 0x43; 298880 under the row
+  emitter, and its copy 298510 under 293da0, battle 0x48):
+  - Around the hook call they spill and reload vf18 / vf29, then set vf17.xyz = 0, vf30 = 0 and vf5.x = dt.
+  - The native emitters hold these values in their own state from the prepare and never read VU registers, so the
+    21 words are retired, each checked against its word.
+- **Tests:** the math test covers the palette scale (twice through the same factors) and the crossfade (clamped lane 216,
+  kept alpha), each refusing a result without its load.
+- **Evidence:** 0x43, 0x44, 0x45, 0x46, 0x47 and 0x48 run boundary-free to 67000.
+
 ### Battles 0x3d to 0x42: modules, a constructor table, emitter 28aff0, a basis block (2026-11-24)
 
 - **Captured modules:** 147, 146 (0x532200); 285, 274 (0x542a80).

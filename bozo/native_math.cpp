@@ -1461,6 +1461,36 @@ void taskColourMesh(Runtime *rt,uint32_t element,unsigned vertices,uint8_t *stre
         std::memcpy(stream+4*i,rgba,4);std::memcpy(stream+4*i+4,rgba,4);}
     uvStore(rt,element+0x34,cursor-4);
 }
+// Vertex colour scale element (class 1594d0, +10 = mod001 2a1a40, VU0 program 0xca0 of the image uploaded from
+// 31391c). Its mesh record's +10 is the 4-byte vertex stream (source u16 +1e, as the loader fills it at 21a110);
+// its descriptors walk like the UV scroll's (count at +0, index bytes from +10, size at +8). For each listed index
+// the word's bytes b (PEXTLB/PEXTLH lanes x..w = bytes 0..3) become ftoi0(max(min(itof0(b) * s, 255), 0)), s the
+// element's +40..+4c, and are packed back (PPACH/PPACB keep each lane's low byte). The loop loads word k before it
+// stores word k-1's result, so a repeated index is scaled from its unscaled value; a count below 1 still scales
+// the first index.
+uint8_t colourScaled(uint8_t value,uint32_t scale){
+    // MINI/MAX compare the words as sign-magnitude numbers; vf00.x is +0, I is 255.0.
+    const auto key=[](uint32_t w){return w>>31?-int64_t(w&0x7fffffffu):int64_t(w);};
+    uint32_t v=vuMul(std::bit_cast<uint32_t>(float(value)),scale);
+    if(!(key(v)<key(0x437f0000u)))v=0x437f0000u;
+    if(!(key(v)>key(0)))v=0;
+    return uint8_t(vuFtoi(v,0));
+}
+void colourScaleMesh(Runtime *rt,uint32_t element,uint32_t descriptor,uint8_t *stream,size_t streamBytes){
+    const int32_t count=int32_t(uvWord(rt,descriptor));
+    if(count>256)throw std::runtime_error("native colour scale descriptor count outside bounds");
+    const unsigned listed=count<1?1u:unsigned(count);
+    std::array<uint32_t,4> scale;for(unsigned i=0;i<4;++i)scale[i]=uvWord(rt,element+0x40+4*i);
+    uint32_t pendingAt=0,pending=0;
+    for(unsigned k=0;k<listed;++k){
+        const unsigned index=uvByte(rt,descriptor+0x10+k);
+        if(4ull*index+4>streamBytes)throw std::runtime_error("native colour scale index outside its vertex stream");
+        uint32_t word;std::memcpy(&word,stream+4*index,4);
+        if(k)std::memcpy(stream+pendingAt,&pending,4);
+        pending=0;for(unsigned i=0;i<4;++i)pending|=uint32_t(colourScaled(uint8_t(word>>(8*i)),scale[i]))<<(8*i);
+        pendingAt=4*index;}
+    std::memcpy(stream+pendingAt,&pending,4);
+}
 // Battle flash element (class 172080): its slot +1c, mod028 47cdc0, resets the cursor +3c and
 // ends with QMTC2 t0 = 255.0f -> vf23, MULx.w vf23.w = vf0.w * vf23.x (47cdd8, 47cddc), then
 // returns; only its element draw +10, 47ccf0, reads vf23.w, in a later call. Same rule as the
@@ -1566,7 +1596,7 @@ bool nativeUvAnimation(R5900Context *c,Runtime *rt,uint32_t pc){
         // skin positions/normals/packed vectors; their table for each included
         // mesh is the +18 cursor, which 237320 resets to +44 and each included
         // mesh advances by its leading halfword.
-        struct Element{uint32_t at,cursor;float scroll[2];bool all;uint32_t bits;bool skeleton;bool morph=false;bool ribbon=false;bool colour=false;bool flash=false;bool trail=false;bool env=false;};std::vector<Element> elements;
+        struct Element{uint32_t at,cursor;float scroll[2];bool all;uint32_t bits;bool skeleton;bool morph=false;bool ribbon=false;bool colour=false;bool flash=false;bool trail=false;bool env=false;bool tint=false;};std::vector<Element> elements;
         for(unsigned i=0;i<count;++i){const auto e=uvWord(rt,list+4*i);const auto vt=uvWord(rt,e);
             if(vt==0x154690){
                 if(uvWord(rt,vt+0x10)!=0x218220 || uvWord(rt,vt+0x18)!=0x2372f0)throw std::runtime_error("unqualified skeleton element methods");
@@ -1612,20 +1642,33 @@ bool nativeUvAnimation(R5900Context *c,Runtime *rt,uint32_t pc){
                 // natively it runs after every element that rewrites them.
                 for(const auto &before:elements)if(before.skeleton)throw std::runtime_error("environment-map element after an element that rewrites positions");
                 elements.push_back({e,uvWord(rt,e+0x34),{0,0},(uvWord(rt,e+0x18)>>8&0xff)!=0,uvWord(rt,e+0x24),false});elements.back().env=true;continue;}
+            if(vt==0x1594d0){
+                // Vertex colour scale element: +10 is mod001 2a1a40 with VU0 program 0xca0 (uploaded from 31391c),
+                // see colourScaleMesh; its +18 (2a1b00) is the scroll elements' descriptor walk.
+                if(uvWord(rt,vt+0x10)!=0x2a1a40 || uvWord(rt,vt+0x18)!=0x2a1b00 || !overlayCode(rt,0x2a1a40,0x2a1b60,0x7acdb2e3c11e80c3ull) || !overlayCode(rt,0x313dc0,0x313df0,0xc391913280cbe2d7ull))
+                    throw std::runtime_error("unqualified colour scale element methods");
+                if(!(flags&4))throw std::runtime_error("colour scale element without its vertex stream");
+                elements.push_back({e,uvWord(rt,e+0x34),{0,0},(uvWord(rt,e+0x18)>>8&0xff)!=0,uvWord(rt,e+0x24),false});elements.back().tint=true;continue;}
             if(vt!=0x1591b0)throw std::runtime_error(std::format("unported animated vertex element class {:x} (+10={:x})",vt,uvWord(rt,vt+0x10)));
             Element el{e,uvWord(rt,e+0x34),{std::bit_cast<float>(uvWord(rt,e+0x40)),std::bit_cast<float>(uvWord(rt,e+0x44))},(uvWord(rt,e+0x18)>>8&0xff)!=0,uvWord(rt,e+0x24),false};
             for(float s:el.scroll)if((std::bit_cast<uint32_t>(s)&0x7f800000)==0x7f800000)throw std::runtime_error("unqualified UV scroll");
             elements.push_back(el);}
+        // The battle colour/flash elements write the stream in the first pass here; the colour scale in the second.
+        // In the game they run in list order, so a mix would need that order: refused.
+        {bool tint=false,battle=false;for(const auto &el:elements){tint|=el.tint;battle|=el.colour || el.flash;}
+         if(tint && battle)throw std::runtime_error("colour scale element beside a battle stream element");}
         // The loader numbers element data by the object's element chain
-        // (+d or +18 set); the +10 callbacks index it by this list. Elements
+        // (+d and +18 both set, as 218b10 and 219b50 test them); the +10 callbacks index it by this list. Elements
         // that read that data (skeleton, UV scroll) must sit at the same index
         // in both; the morph element reads its own RAM table.
         {std::vector<uint32_t> chain;for(auto e=uvWord(rt,object+8);e!=object;e=uvWord(rt,e+8)){
             const auto bytes=uvWord(rt,e+0xc),flagWord=uvWord(rt,e+0x18);
-            if(!((bytes>>8)&0xff) && !(flagWord&0xff))continue;
+            if(!((bytes>>8)&0xff) || !(flagWord&0xff))continue;   // both set (218b10, 219b50); an element whose +1c expired clears +18
             chain.push_back(e);if(chain.size()>64)throw std::runtime_error("animated element chain outside bounds");}
          for(size_t i=0;i<elements.size();++i){if(elements[i].morph || elements[i].ribbon || elements[i].colour || elements[i].flash || elements[i].trail)continue;
-            if(i>=chain.size() || chain[i]!=elements[i].at)throw std::runtime_error("animated element data index differs from the object's chain");}}
+            if(i>=chain.size() || chain[i]!=elements[i].at){
+                std::string list,links;for(const auto &el:elements)list+=std::format(" {:x}:vt{:x}",el.at,uvWord(rt,el.at));for(const auto e:chain)links+=std::format(" {:x}:vt{:x}",e,uvWord(rt,e));
+                throw std::runtime_error(std::format("animated element data index differs from the object's chain (object {:x}, list{}, chain{})",object,list,links));}}}
         music::NearestRounding rounding;
         for(int32_t j=0;j<meshes;++j){
             const auto sourceStep=int16_t(uvWord(rt,source+4)),packetStep=int16_t(uvWord(rt,packet+4));
@@ -1672,11 +1715,13 @@ bool nativeUvAnimation(R5900Context *c,Runtime *rt,uint32_t pc){
                 if(n && (flags&2))std::memcpy(uvBytes(rt,packet+normalAt,16*n),normals.data(),16*n);
                 if(n && streamBytes)std::memcpy(uvBytes(rt,packet+streamAt,streamBytes),stream.data(),streamBytes);
                 if(n && hasPacked)std::memcpy(uvBytes(rt,packet+packedAt,packedBytes),packedData.data(),packedBytes);
+                bool tinted=false;
                 if(n)for(auto &el:elements){
                     if(el.skeleton)continue;
                     if(!el.all && !(uvWord(rt,el.bits+4*(uint32_t(j)>>5))>>(j&31)&1))continue;
                     const auto descriptor=el.cursor;el.cursor+=uvWord(rt,descriptor+8);
                     if(el.env){envMesh(rt,el.at,descriptor,uvWord(rt,descriptor+8),unsigned(n),positions.data(),normals.data(),words.data(),4*words.size());continue;}
+                    if(el.tint){colourScaleMesh(rt,el.at,descriptor,stream.data(),stream.size());tinted=true;continue;}
                     const auto listed=int32_t(uvWord(rt,descriptor));// A zero count makes 29cfe0 read one index past the descriptor, from
                     // whatever its scratchpad copy holds there: not reproducible from records.
                     if(listed<1 || listed>256)throw std::runtime_error("native UV descriptor count outside bounds");
@@ -1685,6 +1730,7 @@ bool nativeUvAnimation(R5900Context *c,Runtime *rt,uint32_t pc){
                         auto &w=words[index];w=(uint32_t(uvScrolled(w>>16,el.scroll[1]))<<16)|(uint32_t(uvScrolled(w&0xffff,el.scroll[0]))&0xffff);}
                 }
                 if(qwords)std::memcpy(uvBytes(rt,packet+offset,qwords*16),words.data(),qwords*16);
+                if(tinted)std::memcpy(uvBytes(rt,packet+streamAt,streamBytes),stream.data(),streamBytes);
             }
             source+=sourceStep;packet+=packetStep;
         }

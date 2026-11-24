@@ -12,6 +12,34 @@ The earlier VP2S face/shading and general brightness comparisons remain open.
 
 ## Build and evidence
 
+### Vertex colour scale element (class 1594d0) native; chain filter fixed (2026-11-24)
+
+- **The case:** 22 maps (61-91, 155-208, 467, 515-518) stopped on the animated vertex element class 1594d0.
+- **What it is:** its +10, mod001 2a1a40, runs VU0 program 0xca0 of the image uploaded from 31391c (EE 313dc0).
+  - Its mesh record's +10 is the 4-byte vertex stream: source u16 +1e, as the loader fills it at 21a110.
+  - Its descriptors walk like the UV scroll's: count at +0, index bytes from +10. Its +18 is the scroll's code.
+  - For each listed index, each byte b becomes `ftoi0(max(min(itof0(b) * s, 255), 0))`, with s the element's
+    +40..+4c per lane.
+  - The EE loop loads word k before storing word k-1's result, so a repeated index is scaled once. A count
+    below 1 still scales the first index.
+- **Now:** colourScaleMesh runs it in the animator's second pass, then writes the stream back to the packet. The
+  code and the micro program are hashed. It is refused beside the battle colour or flash elements, whose order
+  against it would matter.
+- **Chain filter fixed:** the list builder (218b10) and the loader's data walk (219b50) take an element only when
+  +d **and** +18 are set. The native chain took +d **or** +18.
+  - An element whose +1c expired clears +18. That element (a UV scroll on maps 91 and 191) was counted, which
+    shifted the data index.
+
+**Evidence:**
+- **Tests:** 60 meshes match the 0xca0 listing and the 2a1a40 loop, with repeated indices, clamped lanes, zero
+  counts, and 20 meshes behind an expired chain element. An index past the stream and changed code are refused.
+  The env-map and colour-scale fixtures now set +18 as live elements do.
+- **Maps:** none of the 22 stops on 1594d0. 15 run clean. The others stop at:
+  - the particle image 3/5 GS state (ALPHA 42): 61, 76, 91, 191;
+  - the main loop waiting at 0x112150, as map 160 already does: 199, 202;
+  - algorithm 3cb3f0: 467.
+- **Atlas:** 411 of 552 maps clean.
+
 ### Particle emitter class 156610 native (the 0x80-record copy) (2026-11-24)
 
 - **The case:** 18 maps (61-93, 189-193, 459-461, 487, 490) stopped at 2953a8. That is the prepare (vtable +c,

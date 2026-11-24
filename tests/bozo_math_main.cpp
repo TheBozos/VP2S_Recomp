@@ -3519,7 +3519,7 @@ int main(int argc,char **argv){try{
                 nrm[4*v]=std::bit_cast<uint32_t>(nx/len);nrm[4*v+1]=std::bit_cast<uint32_t>(ny/len);nrm[4*v+2]=std::bit_cast<uint32_t>(nz/len);nrm[4*v+3]=0;
                 std::memcpy(r.memory.hostPointer(source+posAt+16*v,16),&pos[4*v],16);std::memcpy(r.memory.hostPointer(source+nrmAt+16*v,16),&nrm[4*v],16);
                 put(source+uvAt+4*v,0xdead0000u+v);}
-            put(vt+0x10,0x2a03b0);put(vt+0x18,0x2a05d0);put(e,vt);put(e+8,object);r.memory.hostPointer(e+0x19,1)[0]=1;r.memory.hostPointer(e+0xc+1,1)[0]=1;
+            put(vt+0x10,0x2a03b0);put(vt+0x18,0x2a05d0);put(e,vt);put(e+8,object);r.memory.hostPointer(e+0x19,1)[0]=1;r.memory.hostPointer(e+0xc+1,1)[0]=1;r.memory.hostPointer(e+0x18,1)[0]=1;
             for(unsigned l=0;l<3;++l)putf(e+0x40+4*l,uni(-80,80));
             for(unsigned k=0;k<3;++k)for(unsigned l=0;l<4;++l)putf(e+0x50+16*k+4*l,k==l?uni(0.5f,1.5f):uni(-0.5f,0.5f));
             put(e+0x34,desc);const uint32_t step=(0x10+2*n+15)&~15u;put(desc,n);put(desc+4,0);put(desc+8,step);
@@ -3630,6 +3630,72 @@ int main(int argc,char **argv){try{
         check(paths[0] && paths[1] && paths[2] && paths[3] && paths[4] && seams && resets);
         std::printf("%u environment-map meshes match the VU0 0x870 listing + 2a03b0 loop (paths %u/%u/%u/%u/%u, %u seam steps, %u strip resets); short descriptor refused\n",
             envCases,paths[0],paths[1],paths[2],paths[3],paths[4],seams,resets);
+    }
+    {   // Vertex colour scale element (class 1594d0, mod001 2a1a40 + VU0 program 0xca0 uploaded from 31391c) on the
+        // animator. Oracle: the listing (itof0; mul; minii with I read from the upload bytes; maxx with vf00.x; ftoi0)
+        // and the EE loop as written (word k loaded before word k-1's result is stored; the first index always).
+        std::string path=argv[1];const auto at=path.rfind("mod010");check(at!=std::string::npos);path.replace(at,6,"mod001");
+        std::vector<uint8_t> elf;{FILE *f=std::fopen(path.c_str(),"rb");if(!f)throw std::runtime_error("mod001 image missing");
+            std::fseek(f,0,SEEK_END);elf.resize(size_t(std::ftell(f)));std::fseek(f,0,SEEK_SET);check(std::fread(elf.data(),1,elf.size(),f)==elf.size());std::fclose(f);}
+        auto &r=native.runtime();
+        const auto put=[&](uint32_t a,uint32_t v){std::memcpy(r.memory.hostPointer(a,4),&v,4);};
+        const auto get=[&](uint32_t a){uint32_t v;std::memcpy(&v,r.memory.hostPointer(a,4),4);return v;};
+        namespace F=bozo::ps2f;
+        const auto ftoi0=[](uint32_t b){const unsigned ex=(b>>23)&255;if(!ex)return 0u;const double m=std::ldexp(double((b&0x7fffff)|0x800000),int(ex)-150),v=b>>31?-m:m;
+            if(v>=2147483647.)return 0x7fffffffu;if(v<=-2147483648.)return 0x80000000u;return uint32_t(int32_t(v));};
+        unsigned tintCases=0,repeats=0,clamped=0,zeroCounts=0,expiredCases=0;
+        for(unsigned seed=1;seed<=60;++seed){
+            std::memset(r.memory.flat(),0,bozo::kFlatBytes);
+            {uint32_t ph,count;std::memcpy(&ph,elf.data()+0x1c,4);count=uint16_t(elf[0x2c]|elf[0x2d]<<8);
+             for(uint32_t i=0;i<count;++i){uint32_t h[6];std::memcpy(h,elf.data()+ph+32*i,24);if(h[0]==1)std::memcpy(r.memory.hostPointer(h[2],h[4]),elf.data()+h[1],h[4]);}}
+            uint32_t rng=seed*2246822519u;const auto next=[&]{rng^=rng<<13;rng^=rng>>17;rng^=rng<<5;return rng;};
+            const uint32_t I=get(0x313920+0xca8-0x800);check(I==0x437f0000u);   // loi 255 of the 0xca8 pair
+            constexpr uint32_t object=0x1200000,model=0x1201000,iterator=0x1201800,maskAt=0x1200800,data=0x1210000,packets=0x1240000,stack=0x1ffc000,e=0x1206000,vt=0x1594d0,desc=0x1207000;
+            const unsigned n=1+seed%40,words=(n+3)&~3u;
+            put(object+0x54,model);put(model+0x644,iterator);put(iterator+8,data);put(iterator+0x14,packets);
+            put(data+0x10+0x34,1);put(object+0x48,maskAt);put(maskAt,1);put(object+0x58,0x4);put(object+0x84,1);put(object+8,e);
+            const uint32_t source=data+0x70,packet=packets+0x60,span=0x1000,streamAt=0x200;
+            put(source+4,span);put(packet+4,span);put(source+0x14,n<<16);put(source+0x1c,streamAt<<16);
+            put(source+span+4,0);put(packet+span+4,0);
+            std::vector<uint32_t> stream(words);for(auto &w:stream){w=next();put(source+streamAt+4*uint32_t(&w-stream.data()),w);}
+            put(vt+0x10,0x2a1a40);put(vt+0x18,0x2a1b00);put(e,vt);put(e+8,object);r.memory.hostPointer(e+0x19,1)[0]=1;r.memory.hostPointer(e+0xc+1,1)[0]=1;r.memory.hostPointer(e+0x18,1)[0]=1;
+            if(seed%3==0){   // an expired element ahead in the chain (+d set, +18 cleared by its +1c) holds no data slot
+                constexpr uint32_t expired=0x1205000;put(object+8,expired);put(expired+8,e);put(expired,0x1591b0);r.memory.hostPointer(expired+0xd,1)[0]=1;++expiredCases;}
+            uint32_t scale[4];
+            for(unsigned l=0;l<4;++l){const unsigned kind=next()%8;
+                scale[l]=kind==0?0u:kind==1?0xbf800000u:kind==2?std::bit_cast<uint32_t>(4.f+float(next()%1000)/10.f):std::bit_cast<uint32_t>(float(next()%2000)/1000.f);put(e+0x40+4*l,scale[l]);}
+            const int32_t count=seed%9==0?0:int32_t(1+next()%std::min(2*n,40u));if(!count)++zeroCounts;
+            put(e+0x34,desc);put(desc,uint32_t(count));put(desc+4,0);put(desc+8,0x40);
+            std::vector<uint8_t> idx(std::max(count,1));for(auto &v:idx)v=uint8_t(next()%words);
+            if(idx.size()>2 && seed%2)idx[2]=idx[1];   // a repeated index
+            for(size_t k=0;k<idx.size();++k)r.memory.hostPointer(desc+0x10+uint32_t(k),1)[0]=idx[k];
+            put(stack+0xe0,e);
+            // Oracle.
+            std::vector<uint32_t> want=stream;
+            const auto program=[&](uint32_t word){uint32_t out=0;
+                for(unsigned l=0;l<4;++l){uint32_t fl=0;uint32_t v=std::bit_cast<uint32_t>(float((word>>(8*l))&0xff));   // itof0
+                    v=F::mul(v,scale[l],fl);                                                                            // mul.xyzw vf01, vf02
+                    if(!F::le(v,I))v=I;                                                                                 // minii I
+                    if(F::le(v,0))v=0;                                                                                  // maxx vf00x
+                    if(v==I)++clamped;
+                    out|=(ftoi0(v)&0xff)<<(8*l);}
+                return out;};
+            {uint32_t a3=want[idx[0]],r8=0;unsigned t1=idx[0];r8=program(a3);   // 2a1a6c..2a1a80
+             for(size_t k=1;k<idx.size();++k){a3=want[idx[k]];const uint32_t prev=r8;r8=program(a3);want[t1]=prev;t1=idx[k];if(idx[k]==idx[k-1])++repeats;}
+             want[t1]=r8;}
+            R5900Context y{};y.r[23].ud[0]=object;y.r[21].ud[0]=1;y.r[29].ud[0]=stack;
+            check(vp2s::nativeMathInstruction(r.memory.flat(),&y,&r,0x219210) && y.r[2].sd[0]==1);
+            for(unsigned v=0;v<words;++v)if(get(packet+streamAt+4*v)!=want[v]){std::fprintf(stderr,"colour scale seed%u word %u oracle %08x native %08x\n",seed,v,want[v],get(packet+streamAt+4*v));check(false);}
+            if(seed==1){   // an index past the stream, and another +10, are refused
+                r.memory.hostPointer(desc+0x10,1)[0]=uint8_t(words);bool refused=false;R5900Context z{};z.r[23].ud[0]=object;z.r[21].ud[0]=1;z.r[29].ud[0]=stack;
+                try{vp2s::nativeMathInstruction(r.memory.flat(),&z,&r,0x219210);}catch(const std::runtime_error &){refused=true;}check(refused);
+                r.memory.hostPointer(desc+0x10,1)[0]=0;put(0x2a1a80,0);refused=false;R5900Context z2{};z2.r[23].ud[0]=object;z2.r[21].ud[0]=1;z2.r[29].ud[0]=stack;
+                try{vp2s::nativeMathInstruction(r.memory.flat(),&z2,&r,0x219210);}catch(const std::runtime_error &){refused=true;}check(refused);}
+            ++tintCases;
+        }
+        check(repeats && clamped && zeroCounts && expiredCases);
+        std::printf("%u colour scale meshes match the VU0 0xca0 listing + 2a1a40 loop (%u repeated indices, %u clamped lanes, %u zero counts, %u behind an expired chain element); bad index and changed code refused\n",
+            tintCases,repeats,clamped,zeroCounts,expiredCases);
     }
     std::printf("%u matrix/quaternion/Euler ABI cases, %u component products, %u whole CPU/RAM sphere getters,8192 independent scale cases and%u whole CPU/RAM axis-angle cases passed; no VU/device state\n",cases,products,sphereCases,axisCases);return 0;
 }catch(const std::exception &e){std::fprintf(stderr,"%s\n",e.what());return 1;}}

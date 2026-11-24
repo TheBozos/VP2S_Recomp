@@ -12,6 +12,16 @@ The earlier VP2S face/shading and general brightness comparisons remain open.
 
 ## Build and evidence
 
+### Battles 0x28 to 0x2a: modules and a twice-stored advance (2026-11-24)
+
+- **Captured modules:** 115 (0x532200), 172 and 180 (0x53a380).
+- **Formula:** `advance2`, mod180 53a6dc (battle 0x29): P.xyz = P*1 + D*k (k from t0), w kept, stored to sp+50 and back to P.
+- **Evidence:** 0x28 and 0x2a run boundary-free to 67000; the math test covers `advance2`; full ctest 97/97; end RAM
+  unchanged.
+- **Open (0x29):** mod028 4a6840, another recursive shape walk: it spills vf1..vf5 to sp+80, computes basis lengths (0x7f0
+  on s4+90 into vf6, to sp+60, cached in +204), then a sphere test (rows s4+150 times the centre s2+10, against the cached
+  radius from QMTC2 t0, to sp+70), calls 1f61c0 per child and recurses, restoring vf1..vf5 on its exits. Not ported yet.
+
 ### Battles 0x22 to 0x27: modules (2026-11-24)
 
 - **Captured modules:** 132, 141, 121 (0x532200), 197, 178 (0x53a380).

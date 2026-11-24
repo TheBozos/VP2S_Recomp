@@ -993,6 +993,17 @@ int main(int argc,char **argv){try{
                 const auto op=w>>26;check(vp2s::nativeMathInstruction(rt.memory.flat(),&k,&rt,pc)==(op==0x12 || op==0x36 || op==0x3e));}
             const auto r=getv(v);check(r[0]==0 && r[1]==100 && r[2]==255 && r[3]==255);
         }
+        {   // mod180 53a6dc advance stored twice (battle 0x29): {P + D k, P.w} to sp+50 and back to P.
+            constexpr uint32_t block[]={0xda210000,0xd8420000,0x4408a000,0x00000000,0x48a8a800,0x27a20050,0x4bc009bf,0x4bd51048,0xf8410000,0xfa210000};
+            constexpr uint32_t at=0x53a6dc,stack=0x1fff000,p=0x1b0500,dv=0x1b0510;std::memcpy(rt.memory.hostPointer(at,sizeof(block)),block,sizeof(block));
+            const auto putv=[&](uint32_t a,std::array<float,4> x){std::memcpy(rt.memory.hostPointer(a,16),x.data(),16);};
+            const auto getv=[&](uint32_t a){std::array<float,4> x;std::memcpy(x.data(),rt.memory.hostPointer(a,16),16);return x;};
+            putv(p,{1,2,3,9});putv(dv,{1,-1,2,5});const float k=4;
+            R5900Context w{};w.r[29].uw[0]=stack;w.r[17].uw[0]=p;w.r[2].uw[0]=dv;
+            for(unsigned i=0;i<std::size(block);++i){const uint32_t pc=at+4*i,x=block[i];if(x==0x4408a000)std::memcpy(&w.r[8].uw[0],&k,4);if(x==0x27a20050)w.r[2].uw[0]=stack+0x50;
+                const auto op=x>>26;check(vp2s::nativeMathInstruction(rt.memory.flat(),&w,&rt,pc)==(op==0x12 || op==0x36 || op==0x3e));}
+            const auto a=getv(p),b=getv(stack+0x50);check(a[0]==5 && a[1]==-2 && a[2]==11 && a[3]==9 && a==b);
+        }
         {   // mod028 4ce0ec xz step (battle 0x1f): P.xz += normalize(d).xz * k, P.y / P.w kept; the store in b's delay slot.
             constexpr uint32_t block[]={0xd8790000,0xd85b0000,0x44030000,0x00000000,0x48a3e000,0x4bc007c3,0x4bd9ceaa,0x4b1ad03d,0x4b1afe8a,0x4a7a03be,
                 0x4a0003bf,0x4bc0ce5c,0x4b40d9bf,0x4b5ccec8,0x10000008,0xf85b0000};

@@ -5076,6 +5076,9 @@ constexpr MacroIdiom macroIdioms[]={
     // clamp (mod001 227f44 at 2282a0, battle 0x1f): LQC2 vf1 = v, vf2 = c (35dba0, the 255s); MAXx.xyzw vf1 = max(v, 0);
     // MINIx.xyzw vf1 = min(vf1, c.x); SQC2 vf1 back.
     {"clamp",{-2,-3,0x4be00850,0x4be20854,-101},5},
+    // advance stored twice (mod180 53a6a0 at 53a6dc, battle 0x29): LQC2 vf1 = P (s1), vf2 = D (+e0); QMTC2 t0 -> vf21 (k);
+    // MULAw.xyz ACC = P*1; MADDx.xyz vf1 = ACC + D*k; SQC2 vf1 to sp+50 and to P -> {P + D k, P.w} twice.
+    {"advance2",{-2,-3,0x48a8a800,0x4bc009bf,0x4bd51048,-101,-101},7},
     // direction with w = 1 (mod028 4ce370 at 4ce548, battle 0x20): LQC2 vf27 = a, vf28 = b; SUB.xyz vf25 = a - b; ADDw.xyz
     // vf31 = 1; MUL.xyz vf26 = vf25^2; ADDAy / MADDz.x vf26.x = (x^2 + y^2) + 1*z^2; RSQRT; MOVE.w vf25 = 1; WAITQ; MULq.xyz
     // vf25; SQC2 vf25 -> {(a - b) Q, 1}.
@@ -5270,6 +5273,9 @@ bool nativeMacroIdiom(R5900Context *c,Runtime *rt,uint32_t pc){
             else if(kind=="direction27"){const auto a=need(27),b=need(28);uint32_t d[3],sq[3];for(unsigned i=0;i<3;++i){d[i]=vuSub(a[i],b[i]);sq[i]=vuMul(d[i],d[i]);}
                 uint32_t f=0;const auto q=bozo::ps2f::rsqrt(one,vuAdd(vuAdd(sq[0],sq[1]),vuMul(one,sq[2])),f);_mm_setcsr(savedCsr);
                 for(unsigned i=0;i<3;++i)out[i]=vuMul(d[i],q);out[3]=one;}
+            else if(kind=="advance2"){const auto p=need(1),d=need(2),s=need(21);
+                for(unsigned i=0;i<3;++i)out[i]=vuAdd(vuMul(p[i],one),vuMul(d[i],s[0]));out[3]=p[3];
+                _mm_setcsr(savedCsr);std::memcpy(record(rt,address(self),16),out.data(),16);if(k==6)capture.valid=0;return true;}
             else if(kind=="clamp"){const auto v=need(1),limit=need(2);for(unsigned i=0;i<4;++i)out[i]=bozo::ps2f::min(bozo::ps2f::max(v[i],0),limit[0]);}
             else if(kind=="span"){const auto p=need(1),d=need(2),s=need(3);
                 for(unsigned i=0;i<3;++i){const auto m=vuMul(d[i],s[0]);out[i]=want==-104?vuSub(p[i],m):vuAdd(p[i],m);}

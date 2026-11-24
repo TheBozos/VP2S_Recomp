@@ -12,6 +12,22 @@ The earlier VP2S face/shading and general brightness comparisons remain open.
 
 ## Build and evidence
 
+### Lens flare: the element loop's projections (2026-11-24)
+
+- **The case:** 9 maps (108, 358-364, 504, 519) stopped at 256698. That is inside the lens-flare owner's draw
+  (class 155b50, block entry 256038): the loop over its element list (+21c, classes 155ad0 / 155b10 / 155b30).
+- **What it does:** it projects each element's point at SP+2b0 with program 0 (LQC2 vf5, VCALLMS 0, CFC2.I, SQC2 vf6
+  back to SP+2b0). The matrix is vf1..vf4 as the flare block loaded them from SP+360.
+  - Nothing between writes vf1..vf4. The elements' +c (2550d0 / 253770 / 2549a0) use no COP2 except through
+    213fd0, which uses vf12..vf20 and vf31. 120fa0 / 120f70 use none.
+- **Now:** nativeFlareProjection keeps the rows after its store and projects the loop's points with them.
+
+**Evidence:**
+- **Tests:** after each of the 128 flare cases, two element points projected in place match the ps2f oracle
+  (384 projections).
+- **Maps:** all 9 pass 256698. They stop at the flare packet's DMA kick (D2 QWC write at 255ad0, the owner's +234
+  / +238). The flare draw itself is not native yet.
+
 ### Height grids: normals pass (29eb48) and the grid element (class 163e30) (2026-11-24)
 
 - **The case:** 8 maps (132, 133, 323, 360, 364, 452, 457, 458; lava and water surfaces) stopped at 29eda4.

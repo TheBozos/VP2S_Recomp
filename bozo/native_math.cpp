@@ -1031,7 +1031,10 @@ bool nativeCameraProjection(R5900Context *c,Runtime *rt,uint32_t pc){
 // to SP+2c0. Program 0: ACC = vf1*v.x + vf2*v.y + vf3*v.z, vf6 = ACC + vf4*v.w,
 // Q = 1/vf6.w, vf6.w = 1, vf6 *= Q: (p.x*Q, p.y*Q, p.z*Q, Q). The rows are
 // captured at their loads; a path that leaves before the store (no intensity)
-// just drops them.
+// just drops them. The element loop after it (2565d8..256700, one pass per element of the owner's list +21c) projects
+// each element's point at SP+2b0 the same way (LQC2 vf5 256698, VCALLMS 0 2566a4, CFC2.I 2566a8, SQC2 vf6 to SP+2b0
+// 2566b0) with the same vf1..vf4: nothing between writes them (the elements' +c, 2550d0 / 253770 / 2549a0, use no
+// COP2 but 213fd0's vf12..vf20 and vf31; 120fa0 / 120f70 none), so the rows stay until the next load.
 struct FlareProjection{float rows[4][4]{};unsigned loaded=0;bool point=false;float v[4]{};};
 // Common-math program 0 on directly loaded column registers: ACC = vf1*v.x +
 // vf2*v.y + vf3*v.z, p = ACC + vf4*v.w, Q = 1/p.w, (p.x*Q, p.y*Q, p.z*Q, Q).
@@ -1051,7 +1054,21 @@ std::array<float,4> program0Projection(const FlareProjection &state,const char *
 FlareProjection &flareProjection(const Runtime *rt){static std::map<const Runtime *,FlareProjection> states;return states[rt];}
 bool nativeFlareProjection(R5900Context *c,Runtime *rt,uint32_t pc){
     const bool row=pc>=0x256068 && pc<=0x256074 && !(pc&3);
-    if(!row && pc!=0x256170 && pc!=0x25617c && pc!=0x256180 && pc!=0x256188)return false;
+    if(!row && pc!=0x256170 && pc!=0x25617c && pc!=0x256180 && pc!=0x256188 && pc!=0x256698 && pc!=0x2566a4 && pc!=0x2566a8 && pc!=0x2566b0)return false;
+    if(pc>=0x256698){   // the element loop
+        static constexpr std::pair<uint32_t,uint32_t> words[]={{0x256698,0xd8850000},{0x2566a4,0x4a000038},{0x2566a8,0x48490001},{0x2566b0,0xf8460000}};
+        uint32_t word=0;if(const auto *p=rt?rt->memory.hostPointer(pc,4):nullptr)std::memcpy(&word,p,4);
+        if(std::find_if(std::begin(words),std::end(words),[&](const auto &w){return w.first==pc && w.second==word;})==std::end(words))return false;
+        if(!c)throw std::runtime_error("native flare projection has no CPU record");
+        const auto stack=c->r[29].uw[0];auto &state=flareProjection(rt);
+        if(pc==0x256698){if(c->r[4].uw[0]!=stack+0x2b0)throw std::runtime_error("native flare element point source mismatch");
+            std::memcpy(state.v,record(rt,stack+0x2b0,16),16);for(float &x:state.v)x=vu0Input(x);state.point=true;return true;}
+        if(pc==0x2566a4)return true;
+        if(pc==0x2566a8){c->r[9].ud[0]=0;return true;}
+        if(c->r[2].uw[0]!=stack+0x2b0)throw std::runtime_error("native flare element destination mismatch");
+        if(state.loaded!=15 || !state.point)throw std::runtime_error("native flare element projected without its matrix and point");
+        const auto result=program0Projection(state,"flare element");std::memcpy(record(rt,stack+0x2b0,16),result.data(),16);state.point=false;return true;
+    }
     if(!c)throw std::runtime_error("native flare projection has no CPU record");
     const auto stack=c->r[29].uw[0],base=c->r[3].uw[0];auto &state=flareProjection(rt);
     if(row){
@@ -1068,7 +1085,7 @@ bool nativeFlareProjection(R5900Context *c,Runtime *rt,uint32_t pc){
     if(pc==0x256180){c->r[9].ud[0]=0;return true;}
     if(base!=stack+0x2c0)throw std::runtime_error("native flare projection destination mismatch");
     if(state.loaded!=15 || !state.point)throw std::runtime_error("native flare projection stored without its matrix and light");
-    const auto result=program0Projection(state,"flare");std::memcpy(record(rt,base,16),result.data(),16);state.loaded=0;state.point=false;return true;
+    const auto result=program0Projection(state,"flare");std::memcpy(record(rt,base,16),result.data(),16);state.point=false;return true;   // the rows stay (the element loop)
 }
 // Battle camera projections, mod028 (384b0c, 384b74, 387330 in 386fbc, 4c8670): the camera
 // rows at *(*(*36d880+80)+18) loaded in place, R..R+c: LQC2 vf1..vf4 = 0..30(rA); R+14:

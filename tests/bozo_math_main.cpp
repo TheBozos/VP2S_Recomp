@@ -1852,6 +1852,16 @@ int main(int argc,char **argv){try{
             _MM_SET_ROUNDING_MODE(rounding);const auto csr=_mm_getcsr();std::array<uint32_t,4> out{};run(stack,c,out);
             check((_mm_getcsr()|0x3f)==(csr|0x3f));_MM_SET_ROUNDING_MODE(_MM_ROUND_NEAREST);
             check(!std::memcmp(out.data(),expected,16));++flareCases;
+            // The element loop (256698..2566b0): two more points at SP+2b0, projected in place with the same rows.
+            for(const auto &[pc,w]:{std::pair{0x256698u,0xd8850000u},{0x2566a4u,0x4a000038u},{0x2566a8u,0x48490001u},{0x2566b0u,0xf8460000u}})std::memcpy(rt.memory.hostPointer(pc,4),&w,4);
+            for(unsigned k=0;k<2;++k){float pt[4];for(unsigned i=0;i<3;++i)pt[i]=value(3000.f);pt[3]=1.f;std::memcpy(rt.memory.hostPointer(stack+0x2b0,16),pt,16);
+                uint32_t u[4],pe[4],ee[4],f2=0;std::memcpy(u,pt,16);
+                for(unsigned i=0;i<4;++i)pe[i]=add(add(add(mul(m[0][i],u[0]),mul(m[1][i],u[1])),mul(m[2][i],u[2])),mul(m[3][i],u[3]));
+                const auto saved=_mm_getcsr();const auto q2=bozo::ps2f::div(0x3f800000,pe[3],f2);_mm_setcsr(saved);
+                for(unsigned i=0;i<3;++i)ee[i]=mul(pe[i],q2);ee[3]=mul(0x3f800000,q2);
+                R5900Context e=c;e.r[4].uw[0]=stack+0x2b0;e.r[2].uw[0]=stack+0x2b0;
+                for(uint32_t pc:{0x256698u,0x2566a4u,0x2566a8u,0x2566b0u})check(vp2s::nativeMathInstruction(rt.memory.flat(),&e,&rt,pc));
+                check(e.r[9].ud[0]==0 && !std::memcmp(rt.memory.hostPointer(stack+0x2b0,16),ee,16));++flareCases;}
         }
         // Rejections: wrong sources/destination, store without loads, zero depth.
         const uint32_t stack=0x1ffd000;

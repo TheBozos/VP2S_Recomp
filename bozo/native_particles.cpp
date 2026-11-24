@@ -105,10 +105,11 @@ void NativeParticles::publishSphere(Runtime *rt,R5900Context *c){
        word(owner,0xa90)!=build.emitter || !record(rt,build.emitter,16)[4] || word(owner,0xabc)!=build.points || word(owner,0xac0+build.index*4)!=build.chunks || word(frame,0xe0)!=build.next)
         throw std::runtime_error("native particle sphere ownership mismatch");
     float padding;std::memcpy(&padding,frame+0xf0,4);
-    const auto qualify=[](float value){const auto bits=std::bit_cast<uint32_t>(value),m=bits&0x7fffffff;
-        if(m>=0x7f800000 || (m && m<0x00800000) || std::abs(value)>1.e8f)throw std::runtime_error("unqualified native particle sphere input");};
-    qualify(padding);qualify(build.bounds.maximum[3]);
-    for(unsigned i=0;i<3;++i){qualify(build.bounds.minimum[i]);qualify(build.bounds.maximum[i]);if(build.bounds.minimum[i]>build.bounds.maximum[i])throw std::runtime_error("empty native particle sphere bounds");}
+    const auto qualify=[&](float value,const char *what){const auto bits=std::bit_cast<uint32_t>(value),m=bits&0x7fffffff;
+        if(m>=0x7f800000 || (m && m<0x00800000) || std::abs(value)>1.e8f)
+            throw std::runtime_error(std::format("unqualified native particle sphere input {} {:08x} (object {:x}, emitter {:x}, points {})",what,bits,build.object,build.emitter,build.points));};
+    qualify(padding,"padding");qualify(build.bounds.maximum[3],"half");
+    for(unsigned i=0;i<3;++i){qualify(build.bounds.minimum[i],"minimum");qualify(build.bounds.maximum[i],"maximum");if(build.bounds.minimum[i]>build.bounds.maximum[i])throw std::runtime_error("empty native particle sphere bounds");}
     const auto normal=[](float value){const auto bits=std::bit_cast<uint32_t>(value);return std::bit_cast<float>((bits&0x7f800000)?bits:bits&0x80000000);};
     const auto sum=[&](float a,float b){volatile float v=a+b;return normal(v);};
     const auto product=[&](float a,float b){volatile float v=a*b;return normal(v);};

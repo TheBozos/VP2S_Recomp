@@ -705,6 +705,88 @@ int main(){try{
             try{vp2s::nativeMathInstruction(y.memory.flat(),&m,&y,0x2934c8);}catch(const std::runtime_error &){refused=true;}check(refused);   // record of index 1, not 2
             write(y,0x2936dc,uint32_t(0));check(!vp2s::nativeMathInstruction(y.memory.flat(),&m,&y,0x2936dc));
             std::printf("%u row emitter particles (%u trail points, six store kinds, row steps, offset, curves, three trail kinds) match the VU0 reference\n",rowCases,rowPoints);}
+        // mod001 2920e0, the plain emitter (battle 0x3e; the row emitter without rows, records of 0x80 bytes, frame 0x170, output s7):
+        // its constants, the six loads, curves, the main step, output, the five stores of each +d0 kind and the three trails, against
+        // the same VU0 reference.
+        {const std::pair<uint32_t,uint32_t> words[]={
+                {0x292184,0x48a22800},{0x29218c,0xd8540000},{0x2921c8,0x4be00798},{0x2921d0,0xd85d0000},{0x2922a8,0xda410000},{0x2922b0,0xda220000},
+                {0x2922b8,0xd9040000},{0x2922c0,0xdac30000},{0x2922c8,0xda060000},{0x2922d0,0xd8670000},{0x2922d8,0xd8480000},{0x292368,0xd88b0000},
+                {0x292374,0x48a46000},{0x292378,0x4bc00abc},{0x29237c,0x4bcc5848},{0x2923b4,0x4bc00abc},{0x2923b8,0x4bc0a0bf},{0x2923bc,0x4bc51048},
+                {0x2923c0,0x4bfe32bc},{0x2923c4,0x4be53988},{0x2923c8,0x4bc022bc},{0x2923cc,0x4bc51108},{0x2923d0,0x4bc012bc},{0x2923d4,0x4bc51888},
+                {0x2923d8,0x4a251084},{0x2923dc,0x4be03190},{0x2923e0,0x4a252100},{0x2923e4,0x4be039bf},{0x2923e8,0x4be541c8},{0x2923ec,0x4bc1d6af},
+                {0x2923f0,0x4bfd3194},{0x2923f4,0x4bc1deeb},{0x2923f8,0xfae10000},{0x2923fc,0xfae60010},{0x292460,0xf9040000},{0x292464,0xfa410000},
+                {0x292468,0xfa220000},{0x29246c,0xfa060000},{0x292470,0xf8670000},{0x2924d8,0xf9040000},{0x2924dc,0xfa410000},{0x2924e0,0xfa220000},
+                {0x2924e4,0xfa060000},{0x2924e8,0xf8670000},{0x292560,0x4bc007c3},{0x292564,0xf9040000},{0x292568,0x4bc4212a},{0x29256c,0xfa410000},
+                {0x292570,0xfa220000},{0x292574,0xfa060000},{0x292578,0xf8670000},{0x29257c,0x4b04203d},{0x292580,0x4b04f90a},{0x29258c,0xf8440000},
+                {0x2925fc,0xd8480000},{0x292600,0xd8490010},{0x292604,0xd84a0020},{0x292608,0xd84b0030},{0x29260c,0x4be141bc},{0x292610,0x4be148bd},
+                {0x292614,0x4be150be},{0x292618,0x4be05c8b},{0x29261c,0xf9040000},{0x292620,0xfa410000},{0x292624,0xfa220000},{0x292628,0xfa060000},
+                {0x29262c,0xf8670000},{0x292634,0xf8520000},{0x2926a0,0xf9040000},{0x2926a4,0xfa410000},{0x2926a8,0xfa220000},{0x2926ac,0xfa060000},
+                {0x2926b0,0xf8670000},{0x292740,0xf9040000},{0x292744,0xfa410000},{0x292748,0xfa220000},{0x29274c,0xfa060000},{0x292750,0xf8670000},
+                {0x292788,0xd8810000},{0x292798,0x48a21800},{0x29279c,0x4be40b3c},{0x2927b8,0xd8420000},{0x2927bc,0x4be111ac},{0x2927c0,0x4be1133c},
+                {0x2927c4,0x4bc007c3},{0x2927c8,0x4bc631ea},{0x2927cc,0x4b07383d},{0x2927d0,0x4b07f9ca},{0x2927d4,0x4a6703be},{0x2927d8,0x4a0003bf},
+                {0x2927dc,0x4bc0321c},{0x2927e0,0x4bc022bc},{0x2927e4,0x4bc030bf},{0x2927e8,0x4bc34108},{0x2927ec,0xf8440000},{0x2927f0,0x4bc4d6af},
+                {0x2927f4,0x4bc4deeb},{0x292828,0xd8810000},{0x292838,0x48a21800},{0x29283c,0x4be40b3c},{0x292858,0xd8420000},{0x29285c,0x4be111ac},
+                {0x292860,0x4be1133c},{0x292864,0x4bc007c3},{0x292868,0x4bc631ea},{0x29286c,0x4b07383d},{0x292870,0x4b07f9ca},{0x292874,0x4a6703be},
+                {0x292878,0x4a0003bf},{0x29287c,0x4bc0319c},{0x292880,0x4bc022bc},{0x292884,0x4bc33108},{0x292888,0xf8440000},{0x29288c,0x4bc4d6af},
+                {0x292890,0x4bc4deeb},{0x2928c8,0xd8810000},{0x2928d8,0x48a21800},{0x2928dc,0x4be40b3c},{0x2928f8,0xd8420000},{0x2928fc,0x4be111ac},
+                {0x292900,0x4be1133c},{0x292904,0x4bc022bc},{0x292908,0x4bc33108},{0x29290c,0xf8440000},{0x292910,0x4bc4d6af},{0x292914,0x4bc4deeb},
+            };
+            for(const auto &[pc,w]:words){write(y,pc,w);write(x,pc,w);}
+            constexpr uint32_t kindStores[5][5]={{0x292460,0x292464,0x292468,0x29246c,0x292470},{0x2924d8,0x2924dc,0x2924e0,0x2924e4,0x2924e8},
+                {0x292564,0x29256c,0x292570,0x292574,0x292578},{0x2926a0,0x2926a4,0x2926a8,0x2926ac,0x2926b0},{0x292740,0x292744,0x292748,0x29274c,0x292750}};
+            constexpr uint32_t kind5Stores[5]={0x29261c,0x292620,0x292624,0x292628,0x29262c};
+            const uint32_t S7=frame-0x170;unsigned plainCases=0,plainPoints=0;
+            const auto both=[&](uint32_t at,uint32_t v){write(y,at,v);write(x,at,v);};
+            for(unsigned seed=0;seed<120;++seed){
+                uint32_t state=seed*2246822519u+31;const auto rnd=[&](){state=state*1664525u+1013904223u;return state>>8;};
+                const auto value=[&](unsigned lo=105,unsigned span=40){return (rnd()&0x807fffffu)|((lo+rnd()%span)<<23);};
+                const auto vec=[&](uint32_t at){for(unsigned i=0;i<4;++i)both(at+4*i,value());};
+                const uint32_t dt=value(118,6)&0x7fffffffu;both(0x35dee8,dt);vec(E+0xc0);both(E+0x54,value(122,6));
+                both(E+0x14,B);both(E+0x68,T);
+                for(unsigned i=0;i<4;++i)vec(E+0x80+16*i);for(unsigned i=0;i<16;++i)vec(T+16*i);
+                for(uint32_t at=B;at<B+0x80*12;at+=16)vec(at);for(uint32_t at=O;at<O+0x30*8;at+=16)vec(at);
+                vec(S7+0x140);vec(S7+0x150);
+                const auto random=[&](unsigned r,uint32_t low){m.r[r].uw[0]=low;for(unsigned i=1;i<4;++i)m.r[r].uw[i]=rnd();};
+                m=R5900Context{};m.r[29].uw[0]=S7;m.r[21].uw[0]=E;
+                random(2,dt);run(0x292184);m.r[2].uw[0]=E+0xc0;run(0x29218c);run(0x2921c8);
+                for(unsigned i=0;i<4;++i)both(S7+0x160+4*i,0x437f0000u);m.r[2].uw[0]=S7+0x160;run(0x2921d0);
+                const unsigned kind=seed%6,trail=(seed/6)%4,rows=(seed/3)%3,n=2+seed%3;
+                for(unsigned k=0;k<3;++k){
+                    const unsigned index=seed%4+3*k;const uint32_t rec=B+index*0x80,out=O+(k%2)*0x30*4;
+                    m.r[20].uw[0]=index;m.r[18].uw[0]=rec+0x10;run(0x2922a8);m.r[17].uw[0]=rec+0x30;run(0x2922b0);m.r[8].uw[0]=rec+0x50;run(0x2922b8);
+                    m.r[22].uw[0]=rec+0x40;run(0x2922c0);m.r[16].uw[0]=rec+0x20;run(0x2922c8);m.r[3].uw[0]=rec+0x60;run(0x2922d0);m.r[2].uw[0]=rec+0x70;run(0x2922d8);
+                    for(unsigned j=0;j<rows;++j){const unsigned t1=j+seed%5;m.r[9].uw[0]=t1;m.r[4].uw[0]=T+16*t1;run(0x292368);
+                        const auto fraction=value(115,8)&0x7fffffffu;m.f[1]=std::bit_cast<float>(fraction);random(4,fraction);run(0x292374);run(0x292378);run(0x29237c);}
+                    for(uint32_t pc=0x2923b4;pc<=0x2923f4;pc+=4)run(pc);
+                    m.r[23].uw[0]=out;run(0x2923f8);run(0x2923fc);
+                    const unsigned which=kind%6;   // 0..4: kinds 1, 3, 2, 6, default; 5: kind 5
+                    if(which==5){m.r[2].uw[0]=E+0x80;for(uint32_t pc=0x2925fc;pc<=0x292618;pc+=4)run(pc);
+                        for(unsigned i=0;i<5;++i)run(kind5Stores[i]);m.r[2].uw[0]=S7+0x140;run(0x292634);}
+                    else{const auto &st=kindStores[which];
+                        if(which==2)run(0x292560);
+                        for(unsigned i=0;i<5;++i){run(st[i]);if(which==2 && i==0)run(0x292568);}
+                        if(which==2){run(0x29257c);run(0x292580);m.r[2].uw[0]=S7+0x150;run(0x29258c);}}
+                    if(trail){
+                        const uint32_t head=trail==2?0x292788:trail==1?0x292828:0x2928c8,first=trail==2?0x2927b8:trail==1?0x292858:0x2928f8,last=trail==2?0x2927f4:trail==1?0x292890:0x292914;
+                        m.r[4].uw[0]=out;run(head);random(2,read<uint32_t>(y,E+0x54));run(head+0x10);run(head+0x14);
+                        for(unsigned i=1;i<n;++i){m.r[3].uw[0]=i;m.r[2].uw[0]=out+i*0x30;for(uint32_t pc=first;pc<=last;pc+=4)run(pc);++plainPoints;}
+                    }
+                }
+                check(!std::memcmp(x.memory.hostPointer(B,0x80*12),y.memory.hostPointer(B,0x80*12),0x80*12));
+                check(!std::memcmp(x.memory.hostPointer(O,0x30*8),y.memory.hostPointer(O,0x30*8),0x30*8));
+                check(!std::memcmp(x.memory.hostPointer(S7+0x140,0x20),y.memory.hostPointer(S7+0x140,0x20),0x20));
+                const auto box=now.particles.bounds(frame,E);
+                for(unsigned i=0;i<3;++i)check(std::bit_cast<uint32_t>(box.minimum[i])==o.vu0_vf[26].u[i] && std::bit_cast<uint32_t>(box.maximum[i])==o.vu0_vf[27].u[i]);
+                plainCases+=3;
+            }
+            // A wrong record (index 2 at record 1) rejects; the copy 2929e0 shares the sites' roles 0x900 / its own addresses.
+            bool refused=false;m=R5900Context{};m.r[29].uw[0]=S7;m.r[21].uw[0]=E;m.r[2].uw[0]=read<uint32_t>(y,0x35dee8);check(vp2s::nativeMathInstruction(y.memory.flat(),&m,&y,0x292184));
+            m.r[2].uw[0]=E+0xc0;check(vp2s::nativeMathInstruction(y.memory.flat(),&m,&y,0x29218c) && vp2s::nativeMathInstruction(y.memory.flat(),&m,&y,0x2921c8));
+            m.r[2].uw[0]=S7+0x160;check(vp2s::nativeMathInstruction(y.memory.flat(),&m,&y,0x2921d0));
+            m.r[20].uw[0]=2;m.r[18].uw[0]=B+0x80+0x10;
+            try{vp2s::nativeMathInstruction(y.memory.flat(),&m,&y,0x2922a8);}catch(const std::runtime_error &){refused=true;}check(refused);
+            write(y,0x2923b4,uint32_t(0));check(!vp2s::nativeMathInstruction(y.memory.flat(),&m,&y,0x2923b4));
+            std::printf("%u plain emitter particles (%u trail points, six store kinds, curves, three trail kinds) match the VU0 reference\n",plainCases,plainPoints);}
         // mod001 23f3f0, the general emitter's frame clock: vf3.x = dt, then per particle clock +140
         // += rate +150 * dt (.xyz) to the output's +20 and back, in both branches, against the reference.
         {const std::pair<uint32_t,uint32_t> clock[]={{0x23f47c,0x48b01800},

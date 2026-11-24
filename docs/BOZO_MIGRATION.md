@@ -12,6 +12,32 @@ The earlier VP2S face/shading and general brightness comparisons remain open.
 
 ## Build and evidence
 
+### Battles 0x3e, 0x4f to 0x54: modules, the plain emitter 2920e0, hook helper copies (2026-11-24)
+
+- **Captured modules:** 185 (0x53a380, battle 0x4f), 181 (0x53a380, 0x51), 145 (0x532200, 0x54).
+- **Plain emitter 2920e0** (battle 0x3e, vtable 156e60):
+  - It is the trail emitter (mod003 40b080) compiled again for 0x80-byte records instead of 0xb0. Its mod001 copy at
+    2929e0 (0xb0 records) was already native through nativeTrailEmitter. The EE code and site addresses differ, but
+    121 of its 126 VU0 words are the row emitter's (2932f0) in order.
+  - It runs in the row emitter handler as a variant: frame 0x170 (the 255s at sp+160); records [emitter+14] + s4*80;
+    p, then six loads (v, A, acc from s6, C, rate, change); the curve row index t1 (vf11 * vf12.x).
+  - Main step: P.xyz = ((p + 0) + drift*1) + v*dt and A.xyz = (A + 0) + v*dt, with no offset and no e/f.
+  - Output s7. Five record stores. Kind 2's squares go to sp+150; kind 5 does the rows first and stores rows * P to sp+140.
+- **Hook helper copies:** the per-kind and end helpers of both steps are retired like the others, word-checked: 298dd0
+  and 298a60 (245540's layout), 298f60 and 298bf0 (2456d0's, as 298880).
+
+**Evidence:**
+- **Plain emitter:** 360 particles (540 trail points, six store kinds, curves, three trail kinds) match the VU0 reference.
+- **Battles:** 0x3e, 0x4f, 0x50, 0x51 and 0x52 run boundary-free to 67000. 0x53 stops at the fogged point draw past
+  its first chunk (the open question from battle 0x1c).
+- **0x54 (question for the user):** stops at the particle sphere (22f018) with a bounds minimum of -4.27e29. The orbit
+  emitter copy 293da0 adds the emitter's drift (+c0), and emitter 17201f0's +c0 holds f0ac8000 00f57ad0 0 0: the
+  second word looks like an EE address. Other emitters of this class (vtable 1581b0) hold small drifts, zeros, or
+  pointer-like or tiny junk there. The drift looks like it is read without ever being written for some emitters, so
+  how to define it is the user's call.
+- **Tests:** full ctest 97/97.
+- **End RAM unchanged:** battle 0c9960c8d9f6, forest 912f01332dbe, game over 9df948c13063, route a3f2c8f4395d.
+
 ### Battles 0x1c and 0x32: image 5 fog, emitter hook copy, a fifth box copy, mode-0 points (VU1 image 3) (2026-11-24)
 
 - **Image 5 fog variant (row 15.w, 0ee8..15f8):** the same strips; each vertex's F = clamp(row68.z + row68.w Q, 0, 255),

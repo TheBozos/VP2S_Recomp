@@ -12,6 +12,20 @@ The earlier VP2S face/shading and general brightness comparisons remain open.
 
 ## Build and evidence
 
+### Battles 0x1f, 0x20, 0x21: modules and three VU0 formulas (2026-11-24)
+
+- **Captured modules:** 117, 120 and 128 (0x532200), 174 (0x53a380).
+- **Formulas (macro idioms):**
+  - `clamp`, mod001 2282a0 (battle 0x1f): v = min(max(v, 0), c.x) on all four lanes, c = 35dba0 (the 255s);
+  - `xzstep`, mod028 4ce0ec (battle 0x1f): P.xz = P*1 + normalize(d).xz * k (k from v1), P.y and P.w kept, stored in a
+    `b` delay slot;
+  - `direction27`, mod028 4ce548 (battle 0x20): normalize(a - b) with w = 1.
+
+**Evidence:**
+- **0x1f, 0x20, 0x21:** each runs boundary-free to 67000.
+- **Tests:** the math test covers the three formulas; full ctest 97/97; end RAM unchanged (battle 0c9960c8d9f6, forest
+  912f01332dbe, game over 9df948c13063, route a3f2c8f4395d).
+
 ### Battles 0x1c, 0x1d, 0x1e: modules, mode-2 production, mesh class 152ca0 (2026-11-24, in progress)
 
 Launched from the forest state with `--battle 0x1c/0x1d/0x1e` and the attack4 pad.

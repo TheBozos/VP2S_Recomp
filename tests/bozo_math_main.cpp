@@ -982,6 +982,42 @@ int main(int argc,char **argv){try{
              check(x[0]==1 && x[1]==2 && x[2]==-1 && x[3]==7 && y[0]==3 && y[1]==6 && y[2]==-3 && y[3]==7);}
             {bool rejected=false;try{vp2s::nativeMathInstruction(rt.memory.flat(),&c,&rt,0x1f7c60);}catch(const std::runtime_error &){rejected=true;}check(rejected);}   // a load out of order
         }
+        {   // mod001 2282a0 clamp (battle 0x1f): min(max(v, 0), c.x) on all four lanes, stored back to v.
+            constexpr uint32_t block[]={0x3c020036,0x2442dba0,0xd8810000,0xd8420000,0x4be00850,0x4be20854,0xf8810000};
+            constexpr uint32_t at=0x228298,v=0x1b0300,c=0x1b0310;std::memcpy(rt.memory.hostPointer(at,sizeof(block)),block,sizeof(block));
+            const auto putv=[&](uint32_t a,std::array<float,4> x){std::memcpy(rt.memory.hostPointer(a,16),x.data(),16);};
+            const auto getv=[&](uint32_t a){std::array<float,4> x;std::memcpy(x.data(),rt.memory.hostPointer(a,16),16);return x;};
+            putv(v,{-3,100,300,255.5f});putv(c,{255,1,1,1});
+            R5900Context k{};k.r[4].uw[0]=v;
+            for(unsigned i=0;i<std::size(block);++i){const uint32_t pc=at+4*i,w=block[i];if(w==0x2442dba0)k.r[2].uw[0]=c;
+                const auto op=w>>26;check(vp2s::nativeMathInstruction(rt.memory.flat(),&k,&rt,pc)==(op==0x12 || op==0x36 || op==0x3e));}
+            const auto r=getv(v);check(r[0]==0 && r[1]==100 && r[2]==255 && r[3]==255);
+        }
+        {   // mod028 4ce0ec xz step (battle 0x1f): P.xz += normalize(d).xz * k, P.y / P.w kept; the store in b's delay slot.
+            constexpr uint32_t block[]={0xd8790000,0xd85b0000,0x44030000,0x00000000,0x48a3e000,0x4bc007c3,0x4bd9ceaa,0x4b1ad03d,0x4b1afe8a,0x4a7a03be,
+                0x4a0003bf,0x4bc0ce5c,0x4b40d9bf,0x4b5ccec8,0x10000008,0xf85b0000};
+            constexpr uint32_t at=0x4ce0ec,d=0x1b0400,p=0x1b0410;std::memcpy(rt.memory.hostPointer(at,sizeof(block)),block,sizeof(block));
+            const auto putv=[&](uint32_t a,std::array<float,4> x){std::memcpy(rt.memory.hostPointer(a,16),x.data(),16);};
+            const auto getv=[&](uint32_t a){std::array<float,4> x;std::memcpy(x.data(),rt.memory.hostPointer(a,16),16);return x;};
+            putv(d,{3,0,4,7});putv(p,{10,20,30,40});const float k=10;
+            R5900Context w{};w.r[3].uw[0]=d;w.r[2].uw[0]=p;
+            for(unsigned i=0;i<std::size(block);++i){const uint32_t pc=at+4*i,x=block[i];if(x==0x44030000)std::memcpy(&w.r[3].uw[0],&k,4);
+                const auto op=x>>26;check(vp2s::nativeMathInstruction(rt.memory.flat(),&w,&rt,pc)==(op==0x12 || op==0x36 || op==0x3e));}
+            const auto r=getv(p);check(r[0]==16 && r[1]==20 && r[2]==38 && r[3]==40);
+        }
+        {   // mod028 4ce548 direction with w = 1 (battle 0x20): normalize(a - b), w = 1, to sp+60 (v0).
+            constexpr uint32_t block[]={0x27a30080,0x27a20050,0xd87b0000,0xd85c0000,0x27a20060,0x4bdcde6c,0x4bc007c3,0x4bd9ceaa,0x4b1ad03d,0x4b1afe8a,
+                0x4a7a03be,0x4a39033c,0x4a0003bf,0x4bc0ce5c,0xf8590000};
+            constexpr uint32_t at=0x4ce540,stack=0x1fff000;std::memcpy(rt.memory.hostPointer(at,sizeof(block)),block,sizeof(block));
+            const auto putv=[&](uint32_t a,std::array<float,4> x){std::memcpy(rt.memory.hostPointer(a,16),x.data(),16);};
+            const auto getv=[&](uint32_t a){std::array<float,4> x;std::memcpy(x.data(),rt.memory.hostPointer(a,16),16);return x;};
+            putv(stack+0x80,{4,6,3,9});putv(stack+0x50,{1,2,3,7});putv(stack+0x60,{8,8,8,8});   // a - b = (3, 4, 0): length 5
+            R5900Context k{};k.r[29].uw[0]=stack;
+            for(unsigned i=0;i<std::size(block);++i){const uint32_t pc=at+4*i,w=block[i];
+                if(w==0x27a30080)k.r[3].uw[0]=stack+0x80;if(w==0x27a20050)k.r[2].uw[0]=stack+0x50;if(w==0x27a20060)k.r[2].uw[0]=stack+0x60;
+                const auto op=w>>26;check(vp2s::nativeMathInstruction(rt.memory.flat(),&k,&rt,pc)==(op==0x12 || op==0x36 || op==0x3e));}
+            const auto r=getv(stack+0x60);check(r[0]==0.6f && r[1]==0.8f && r[2]==0 && r[3]==1);
+        }
         {   // mod028 38cd8c battle body 16f5e0's vtable store: also defines the acceleration +450..+458 as zero (until set).
             constexpr uint32_t object=0x1b0200,store=0xae030000;std::memcpy(rt.memory.hostPointer(0x38cd8c,4),&store,4);
             const uint32_t garbage[4]={0x08c7f7a1,0xf78cff96,0xff93091c,0x0933f815};std::memcpy(rt.memory.hostPointer(object+0x450,16),garbage,16);

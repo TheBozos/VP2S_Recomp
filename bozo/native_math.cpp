@@ -5073,6 +5073,17 @@ constexpr MacroIdiom macroIdioms[]={
     // SUB.xyz vf4 = P - D k; ADD.xyz vf5 = P + D k; SQC2 vf4, vf5 -> the segment 1f6010 walks. Only xyz are
     // written (w: register leftovers the segment tests never read).
     {"span",{-3,0x48a81800,-2,0x4bc31098,0x4bc2092c,0x4bc20968,-104,-105},8},
+    // clamp (mod001 227f44 at 2282a0, battle 0x1f): LQC2 vf1 = v, vf2 = c (35dba0, the 255s); MAXx.xyzw vf1 = max(v, 0);
+    // MINIx.xyzw vf1 = min(vf1, c.x); SQC2 vf1 back.
+    {"clamp",{-2,-3,0x4be00850,0x4be20854,-101},5},
+    // direction with w = 1 (mod028 4ce370 at 4ce548, battle 0x20): LQC2 vf27 = a, vf28 = b; SUB.xyz vf25 = a - b; ADDw.xyz
+    // vf31 = 1; MUL.xyz vf26 = vf25^2; ADDAy / MADDz.x vf26.x = (x^2 + y^2) + 1*z^2; RSQRT; MOVE.w vf25 = 1; WAITQ; MULq.xyz
+    // vf25; SQC2 vf25 -> {(a - b) Q, 1}.
+    // xz step along a normalized direction (mod028 4cdxxx at 4ce0ec, battle 0x1f): LQC2 vf25 = d, vf27 = P; QMTC2 v1 -> vf28 (k);
+    // the normalize25 words on d; MULAw.xz ACC = P*1; MADDx.xz vf27 = ACC + n*k; SQC2 vf27 (b's delay slot) -> {P.x + n.x k, P.y,
+    // P.z + n.z k, P.w}.
+    {"xzstep",{-26,-28,0x48a3e000,0x4bc007c3,0x4bd9ceaa,0x4b1ad03d,0x4b1afe8a,0x4a7a03be,0x4a0003bf,0x4bc0ce5c,0x4b40d9bf,0x4b5ccec8,-127},13},
+    {"direction27",{-28,-29,0x4bdcde6c,0x4bc007c3,0x4bd9ceaa,0x4b1ad03d,0x4b1afe8a,0x4a7a03be,0x4a39033c,0x4a0003bf,0x4bc0ce5c,-125},12},
     // three copies (mod028 494590 at 4945a4): LQC2 vf1; SQC2 vf1 at 0, 16, 32 of v0.
     {"copy3",{-2,-101,-101,-101},4},
     // plane through three points, second form (mod028 494530; its store the jr ra's delay slot): LQC2 vf1..vf3; ADDw.xyz vf31
@@ -5253,6 +5264,13 @@ bool nativeMacroIdiom(R5900Context *c,Runtime *rt,uint32_t pc){
             else if(kind=="offsetpair"){const auto p=need(1),d=need(2),s=need(k==6?3:4);
                 for(unsigned i=0;i<3;++i)out[i]=vuSub(vuMul(p[i],one),vuMul(d[i],s[0]));out[3]=p[3];
                 _mm_setcsr(savedCsr);std::memcpy(record(rt,address(self),16),out.data(),16);if(k==8)capture.valid=0;return true;}
+            else if(kind=="xzstep"){const auto d=need(25),p=need(27),k=need(28);uint32_t sq[3];for(unsigned i=0;i<3;++i)sq[i]=vuMul(d[i],d[i]);
+                uint32_t f=0;const auto q=bozo::ps2f::rsqrt(one,vuAdd(vuAdd(sq[0],sq[1]),vuMul(one,sq[2])),f);_mm_setcsr(savedCsr);
+                out=p;for(unsigned i:{0u,2u})out[i]=vuAdd(vuMul(p[i],one),vuMul(vuMul(d[i],q),k[0]));}
+            else if(kind=="direction27"){const auto a=need(27),b=need(28);uint32_t d[3],sq[3];for(unsigned i=0;i<3;++i){d[i]=vuSub(a[i],b[i]);sq[i]=vuMul(d[i],d[i]);}
+                uint32_t f=0;const auto q=bozo::ps2f::rsqrt(one,vuAdd(vuAdd(sq[0],sq[1]),vuMul(one,sq[2])),f);_mm_setcsr(savedCsr);
+                for(unsigned i=0;i<3;++i)out[i]=vuMul(d[i],q);out[3]=one;}
+            else if(kind=="clamp"){const auto v=need(1),limit=need(2);for(unsigned i=0;i<4;++i)out[i]=bozo::ps2f::min(bozo::ps2f::max(v[i],0),limit[0]);}
             else if(kind=="span"){const auto p=need(1),d=need(2),s=need(3);
                 for(unsigned i=0;i<3;++i){const auto m=vuMul(d[i],s[0]);out[i]=want==-104?vuSub(p[i],m):vuAdd(p[i],m);}
                 _mm_setcsr(savedCsr);std::memcpy(record(rt,address(self),16),out.data(),12);if(want==-105)capture.valid=0;return true;}

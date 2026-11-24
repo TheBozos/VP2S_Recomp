@@ -12,6 +12,22 @@ The earlier VP2S face/shading and general brightness comparisons remain open.
 
 ## Build and evidence
 
+### Battles 0x1c, 0x32, 0x53: fogged points defined, mod134's random draws (2026-11-24)
+
+- **Fogged points after a draw's first chunk** (VU1 image 3, row 15.w): each later chunk's first point takes vf18 as the
+  previous chunk left it, VU memory the draw never wrote. The user's rule (2026-11-24, "Colour 0, invisible"): it is
+  drawn with colour 0, which adds nothing with the block's ALPHA (Cs As + Cd). The first chunk keeps FTOI0 of row 96.
+- **mod134 5336b8** (battles 0x1c and 0x32): two RNEXT / QMFC2 v1 draws (5336d8, 5337b4), each v1 read only by the
+  mtc1 after it before `lui v1` rewrites it; they take the procedural random stream like the other listed sites.
+
+**Evidence:**
+- **Battles:** 0x1c, 0x32 and 0x53 run boundary-free to 67000.
+- **Oracle:** 112 point captures equal image 3's words, now including fogged multi-chunk draws with later first
+  points at colour 0.
+- **Random test:** covers the two mod134 draws.
+- **Tests:** full ctest 97/97.
+- **End RAM unchanged:** battle 0c9960c8d9f6, forest 912f01332dbe, game over 9df948c13063, route a3f2c8f4395d.
+
 ### Battles 0x3e, 0x4f to 0x54: modules, the plain emitter 2920e0, hook helper copies (2026-11-24)
 
 - **Captured modules:** 185 (0x53a380, battle 0x4f), 181 (0x53a380, 0x51), 145 (0x532200, 0x54).

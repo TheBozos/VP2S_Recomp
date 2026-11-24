@@ -226,9 +226,8 @@ NativeModelSubmission NativeParticleDraws::capture(Runtime *rt,NativeAssets &ass
         // Its fog variant (row 15.w, 09d0) colours each chunk's first point with vf18 as it was (FTOI0 at 0a10 runs before
         // the record's load at 0a18). In the first chunk that is row 96, the GS block's A+D tag (loaded at 0788 by the
         // 6e0 prologue): FTOI0 of its words. In later chunks (MSCAL 818) it is the previous chunk's load one past its
-        // records, VU memory this draw never wrote: refused until the user defines it.
+        // records, VU memory this draw never wrote: colour 0, invisible (user 2026-11-24: "Colour 0, invisible").
         const bool fog=value<uint32_t>(owner,0x32c)!=0;if(fog)for(float f:camera->fog)number(f);
-        if(fog && chunks>1)throw std::runtime_error("unported native particle point fog variant after the first chunk (first point's colour is VU memory the draw never wrote)");
         uint32_t staleColour=0;
         {const auto *row96=record(rt,value<uint32_t>(owner,0x624)+0x10,16);
          for(unsigned i=0;i<4;++i){uint32_t flags=0;staleColour|=(bozo::ps2f::toFixed(value<uint32_t>(row96,4*i),0)&0xffu)<<(8*i);}}
@@ -251,7 +250,7 @@ NativeModelSubmission NativeParticleDraws::capture(Runtime *rt,NativeAssets &ass
                 const float q=1/clip[3],x=clip[0]*q,y=clip[1]*q,z=clip[2]*q;
                 if(!std::isfinite(x) || !std::isfinite(y) || !std::isfinite(z) || x<0 || x>=4096 || y<0 || y>=4096)throw std::runtime_error("native particle point outside the GS coordinate range");
                 float f=1;if(fog){f=camera->fog[0]+camera->fog[1]*q;if(!(f<=255.f))f=255.f;if(!(f>=0.f))f=0.f;f=std::floor(f)/255.f;}
-                const auto rgba=fog && !chunk && !p?staleColour:pointColour(point,nullptr);const float gz=std::trunc(z*16)/16;
+                const auto rgba=fog && !p?(chunk?0u:staleColour):pointColour(point,nullptr);const float gz=std::trunc(z*16)/16;
                 bozo::render::Vertex corner[4];for(unsigned k=0;k<4;++k){auto &v=corner[k];v.x=x+float(k&1);v.y=y+float(k>>1);v.z=gz;v.rgba=rgba;v.fog=f;}
                 for(unsigned k:{0u,1u,2u,1u,3u,2u})dots.vertices.push_back(corner[k]);}
             seen+=count;cursor+=32+48*count;

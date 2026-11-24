@@ -284,14 +284,16 @@ int main(int argc,char **argv){try{
     check(fogSeen>100);
     // Image 3 (mode 0): one GS point per particle, drawn as a GS pixel; positions, colours, fog and ADC against its words.
     unsigned dotCases=0,dotsDrawn=0,dotsCulled=0,dotsFogged=0;dots=plain=true;
-    {fogged=true;Case c{{2,4,6},2,3,false,false,false};initialize(rt,scene,assets,c,random);bool refused=false;   // fog after the first chunk: refused
-        try{draws.capture(&rt,assets,textures,scene,particles,object);}catch(const std::runtime_error &){refused=true;}check(refused);fogged=false;}
-    for(unsigned round=0;round<8;++round)for(const auto &c:table){fogged=(round&1) && c.chunks==1;
+    unsigned laterChunkFirsts=0;
+    for(unsigned round=0;round<8;++round)for(const auto &c:table){fogged=round&1;
         initialize(rt,scene,assets,c,random);const auto cam=scene.drawingCamera();check(bool(cam));
         const auto result=draws.capture(&rt,assets,textures,scene,particles,object);check(result.batches.size()<=1);
         std::vector<std::array<uint32_t,12>> expect;uint32_t chunk=chunks;
         for(unsigned k=0;k<c.chunks;++k){const auto s=oracle(images[2],rt,*cam,chunk);
-            for(const auto &v:s.vertices){if(v[11]&0x8000){++dotsCulled;continue;}expect.push_back(v);}chunk+=32+48*(c.perChunk*c.groups[k]);}
+            // The oracle runs every chunk from 6e0; a later chunk's first fogged point takes leftover VU memory on the PS2 (818),
+            // defined as colour 0 (user 2026-11-24: "Colour 0, invisible").
+            for(size_t n=0;n<s.vertices.size();++n){auto v=s.vertices[n];if(fogged && k && !n){for(unsigned i=4;i<8;++i)v[i]=0;++laterChunkFirsts;}
+                if(v[11]&0x8000){++dotsCulled;continue;}expect.push_back(v);}chunk+=32+48*(c.perChunk*c.groups[k]);}
         const std::vector<bozo::render::Vertex> none;const auto &got=result.batches.empty()?none:result.batches[0].vertices;
         if(got.size()!=6*expect.size())throw std::runtime_error(std::format("point case {}: {} native vertices, oracle {} points",dotCases,got.size(),expect.size()));
         if(!result.batches.empty())check(!result.batches[0].material.textured && result.batches[0].material.fog==fogged);dotsFogged+=fogged;
@@ -301,7 +303,7 @@ int main(int argc,char **argv){try{
             if(!ok)throw std::runtime_error(std::format("point case {} point {}: native ({} {} {} fog {} {:08x}), oracle ({} {} {} w {:x}) {:08x}",dotCases,n,v.x*16,v.y*16,v.z*16,v.fog*255,v.rgba,int32_t(o[8]),int32_t(o[9]),int32_t(o[10]),o[11],rgba));
             ++dotsDrawn;}
         ++dotCases;}
-    check(dotsDrawn>500 && dotsCulled>50 && dotsFogged>40);fogged=false;std::printf("%u point captures equal image 3's words: %u points drawn, %u ADC-culled\n",dotCases,dotsDrawn,dotsCulled);
+    check(dotsDrawn>500 && dotsCulled>50 && dotsFogged>40 && laterChunkFirsts>8);fogged=false;std::printf("%u point captures equal image 3's words: %u points drawn, %u ADC-culled\n",dotCases,dotsDrawn,dotsCulled);
     dots=plain=fogged=false;
     for(unsigned which=0;which<5;++which){Case c{{3},1,1,false,false,which==2};initialize(rt,scene,assets,c,random);
         if(which==0)put(rt,object+0x32c,uint32_t(1));else if(which==1){put(rt,object+0x31c,uint32_t(2));put(rt,object+0x318,uint32_t(1));}

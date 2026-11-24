@@ -527,7 +527,8 @@ int main(){try{
         // mod001 295f20 + 295580, the second emitter class (vtables 1563f0 / 156500): prepare's constant registers,
         // then per particle of 0xb0 bytes the loads, parent push, curves, the main step, output, early velocity,
         // collision, the stores of each +d0 kind (2: |A|^2, 5: rows * P, whose row loads become the next particles'
-        // gravity and push) and the three trail kinds, against the same VU0 reference.
+        // gravity and push) and the three trail kinds, against the same VU0 reference. Pass 1 runs class 156610 (prepare 295330,
+        // step 2949a0): the same code compiled for records of 0x80 bytes, every site 0xbf0 lower.
         {const std::pair<uint32_t,uint32_t> words[]={
                 {0x295f90,0xd8690000},{0x295f98,0x4bc9033c},{0x295fa4,0xd86d0000},{0x295fa8,0x4bca033c},{0x295fbc,0x48a32800},{0x295ff4,0x4be00798},{0x295ffc,0xd87d0000},
                 {0x295708,0xda610000},{0x295714,0xda420000},{0x295720,0xdae40000},{0x29572c,0xda230000},{0x295738,0xda060000},{0x29574c,0xd8470000},{0x295760,0xd8480000},
@@ -552,9 +553,12 @@ int main(){try{
             constexpr uint32_t kindStores[6][6]={{0x295970,0x295974,0x295978,0x29597c,0x295980,0x295988},{0x2959f0,0x2959f4,0x2959f8,0x2959fc,0x295a00,0x295a08},
                 {0x295a84,0x295a8c,0x295a90,0x295a94,0x295a98,0x295aa0},{0x295b44,0x295b48,0x295b4c,0x295b50,0x295b54,0x295b5c},
                 {0x295bd0,0x295bd4,0x295bd8,0x295bdc,0x295be0,0x295be8},{0x295c80,0x295c84,0x295c88,0x295c8c,0x295c90,0x295c98}};
-            for(const auto &[pc,w]:words){write(y,pc,w);write(x,pc,w);}
-            for(const auto &k:kindStores)for(unsigned i=0;i<6;++i){write(y,k[i],storeWords[i]);write(x,k[i],storeWords[i]);}
-            const uint32_t P0=frame-0x40,S4=frame-0x1b0,PARENT=0x1e0000;unsigned simpleCases=0,simplePoints=0;
+            unsigned simpleCases=0,simplePoints=0;
+            for(unsigned pass=0;pass<2;++pass){
+            const uint32_t D=pass?0xbf0:0,ST=pass?0x80:0xb0;const auto at=[&](uint32_t pc){return pc-D;};const auto go=[&](uint32_t pc){run(at(pc));};
+            for(const auto &[pc,w]:words){write(y,at(pc),w);write(x,at(pc),w);}
+            for(const auto &k:kindStores)for(unsigned i=0;i<6;++i){write(y,at(k[i]),storeWords[i]);write(x,at(k[i]),storeWords[i]);}
+            const uint32_t P0=frame-0x40,S4=frame-0x1b0,PARENT=0x1e0000;
             const auto both=[&](uint32_t at,uint32_t v){write(y,at,v);write(x,at,v);};
             for(unsigned seed=0;seed<120;++seed){
                 uint32_t state=seed*2654435761u+17;const auto rnd=[&](){state=state*1664525u+1013904223u;return state>>8;};
@@ -566,32 +570,32 @@ int main(){try{
                 for(uint32_t at=B;at<B+0xb0*10;at+=16)vec(at);for(uint32_t at=O;at<O+0x30*8;at+=16)vec(at);
                 const auto random=[&](unsigned r,uint32_t low){m.r[r].uw[0]=low;for(unsigned i=1;i<4;++i)m.r[r].uw[i]=rnd();};
                 m=R5900Context{};m.r[29].uw[0]=P0;m.r[16].uw[0]=E;
-                if(seed&1){m.r[3].uw[0]=PARENT+0x10;run(0x295f90);}else run(0x295f98);
-                m.r[3].uw[0]=E+0xc0;run(0x295fa4);run(0x295fa8);random(3,dt);run(0x295fbc);run(0x295ff4);
-                for(unsigned i=0;i<4;++i)both(P0+0x30+4*i,0x437f0000u);m.r[3].uw[0]=P0+0x30;run(0x295ffc);
+                if(seed&1){m.r[3].uw[0]=PARENT+0x10;go(0x295f90);}else go(0x295f98);
+                m.r[3].uw[0]=E+0xc0;go(0x295fa4);go(0x295fa8);random(3,dt);go(0x295fbc);go(0x295ff4);
+                for(unsigned i=0;i<4;++i)both(P0+0x30+4*i,0x437f0000u);m.r[3].uw[0]=P0+0x30;go(0x295ffc);
                 m=R5900Context{};m.r[29].uw[0]=S4;m.r[21].uw[0]=E;
                 const unsigned kind=seed%6,trail=(seed/6)%4,rows=(seed/3)%3,n=2+seed%3;
                 for(unsigned k=0;k<3;++k){
-                    const unsigned index=seed%4+3*k;const uint32_t rec=B+index*0xb0,out=O+(k%2)*0x30*4;
-                    m.r[20].uw[0]=index;m.r[19].uw[0]=rec+0x10;run(0x295708);m.r[18].uw[0]=rec+0x30;run(0x295714);m.r[23].uw[0]=rec+0x50;run(0x295720);
-                    m.r[17].uw[0]=rec+0x40;run(0x29572c);m.r[16].uw[0]=rec+0x20;run(0x295738);m.r[2].uw[0]=rec+0x60;run(0x29574c);m.r[2].uw[0]=rec+0x70;run(0x295760);
-                    if(seed&2){vec(S4+0x1a0);m.r[2].uw[0]=S4+0x1a0;run(0x29578c);}
-                    for(unsigned j=0;j<rows;++j){const unsigned a1=j+seed%5;m.r[5].uw[0]=a1;m.r[2].uw[0]=T+16*a1;run(0x295818);
-                        const auto fraction=value(115,8)&0x7fffffffu;m.f[1]=std::bit_cast<float>(fraction);random(2,fraction);run(0x295824);run(0x295828);run(0x29582c);}
-                    for(uint32_t pc=0x295868;pc<=0x2958b4;pc+=4)run(pc);
-                    m.r[30].uw[0]=out;run(0x2958b8);run(0x2958c8);
-                    if(seed%4==3 || (seed%7==2 && k)){vec(S4+0x1a0);vec(S4+0x190);m.r[2].uw[0]=S4+0x1a0;run(0x2958f4);m.r[2].uw[0]=S4+0x190;run(0x2958fc);run(0x295908);}
-                    run(0x295910);
+                    const unsigned index=seed%4+3*k;const uint32_t rec=B+index*ST,out=O+(k%2)*0x30*4;
+                    m.r[20].uw[0]=index;m.r[19].uw[0]=rec+0x10;go(0x295708);m.r[18].uw[0]=rec+0x30;go(0x295714);m.r[23].uw[0]=rec+0x50;go(0x295720);
+                    m.r[17].uw[0]=rec+0x40;go(0x29572c);m.r[16].uw[0]=rec+0x20;go(0x295738);m.r[2].uw[0]=rec+0x60;go(0x29574c);m.r[2].uw[0]=rec+0x70;go(0x295760);
+                    if(seed&2){vec(S4+0x1a0);m.r[2].uw[0]=S4+0x1a0;go(0x29578c);}
+                    for(unsigned j=0;j<rows;++j){const unsigned a1=j+seed%5;m.r[5].uw[0]=a1;m.r[2].uw[0]=T+16*a1;go(0x295818);
+                        const auto fraction=value(115,8)&0x7fffffffu;m.f[1]=std::bit_cast<float>(fraction);random(2,fraction);go(0x295824);go(0x295828);go(0x29582c);}
+                    for(uint32_t pc=0x295868;pc<=0x2958b4;pc+=4)go(pc);
+                    m.r[30].uw[0]=out;go(0x2958b8);go(0x2958c8);
+                    if(seed%4==3 || (seed%7==2 && k)){vec(S4+0x1a0);vec(S4+0x190);m.r[2].uw[0]=S4+0x1a0;go(0x2958f4);m.r[2].uw[0]=S4+0x190;go(0x2958fc);go(0x295908);}
+                    go(0x295910);
                     const unsigned which=kind==0?0:kind==1?1:kind==2?2:kind==3?3:kind==4?4:5;const auto &st=kindStores[which];
-                    if(which==2)run(0x295a80);
-                    if(which==3){m.r[2].uw[0]=E+0x80;for(uint32_t pc=0x295b24;pc<=0x295b40;pc+=4)run(pc);}
-                    for(unsigned i=0;i<6;++i){if(i==5)m.r[2].uw[0]=rec+0x60;run(st[i]);if(which==2 && i==0)run(0x295a88);}
-                    if(which==2){run(0x295aa4);run(0x295aa8);m.r[2].uw[0]=S4+0x180;run(0x295ab4);}
-                    if(which==3){m.r[2].uw[0]=S4+0x170;run(0x295b64);}
+                    if(which==2)go(0x295a80);
+                    if(which==3){m.r[2].uw[0]=E+0x80;for(uint32_t pc=0x295b24;pc<=0x295b40;pc+=4)go(pc);}
+                    for(unsigned i=0;i<6;++i){if(i==5)m.r[2].uw[0]=rec+0x60;go(st[i]);if(which==2 && i==0)go(0x295a88);}
+                    if(which==2){go(0x295aa4);go(0x295aa8);m.r[2].uw[0]=S4+0x180;go(0x295ab4);}
+                    if(which==3){m.r[2].uw[0]=S4+0x170;go(0x295b64);}
                     if(trail){
                         const uint32_t head=trail==2?0x295cd0:trail==1?0x295d70:0x295e10,first=trail==2?0x295d00:trail==1?0x295da0:0x295e40,last=trail==2?0x295d3c:trail==1?0x295dd8:0x295e5c;
-                        m.r[4].uw[0]=out;run(head);random(2,read<uint32_t>(y,E+0x54));run(head+0x10);run(head+0x14);
-                        for(unsigned i=1;i<n;++i){m.r[3].uw[0]=i;m.r[2].uw[0]=out+i*0x30;for(uint32_t pc=first;pc<=last;pc+=4)run(pc);++simplePoints;}
+                        m.r[4].uw[0]=out;go(head);random(2,read<uint32_t>(y,E+0x54));go(head+0x10);go(head+0x14);
+                        for(unsigned i=1;i<n;++i){m.r[3].uw[0]=i;m.r[2].uw[0]=out+i*0x30;for(uint32_t pc=first;pc<=last;pc+=4)go(pc);++simplePoints;}
                     }
                 }
                 check(!std::memcmp(x.memory.hostPointer(B,0xb0*10),y.memory.hostPointer(B,0xb0*10),0xb0*10));
@@ -603,16 +607,17 @@ int main(){try{
             }
             // A main site before the loads, a store without its prepare, a wrong record and another word reject.
             m=R5900Context{};m.r[29].uw[0]=S4;m.r[21].uw[0]=E;
-            bool refused=false;try{vp2s::nativeMathInstruction(y.memory.flat(),&m,&y,0x295868);}catch(const std::runtime_error &){refused=true;}check(refused);
-            refused=false;try{vp2s::nativeMathInstruction(y.memory.flat(),&m,&y,0x295708);}catch(const std::runtime_error &){refused=true;}check(refused);   // state reset: no prepare
-            m.r[29].uw[0]=P0;m.r[16].uw[0]=E;both(E+0xf0,0);check(vp2s::nativeMathInstruction(y.memory.flat(),&m,&y,0x295f98));
-            m.r[3].uw[0]=E+0xc0;check(vp2s::nativeMathInstruction(y.memory.flat(),&m,&y,0x295fa4) && vp2s::nativeMathInstruction(y.memory.flat(),&m,&y,0x295fa8));
-            m.r[3].uw[0]=read<uint32_t>(y,0x35dee8);check(vp2s::nativeMathInstruction(y.memory.flat(),&m,&y,0x295fbc) && vp2s::nativeMathInstruction(y.memory.flat(),&m,&y,0x295ff4));
-            m.r[3].uw[0]=P0+0x30;check(vp2s::nativeMathInstruction(y.memory.flat(),&m,&y,0x295ffc));
-            m.r[29].uw[0]=S4;m.r[21].uw[0]=E;m.r[20].uw[0]=2;m.r[19].uw[0]=B+0xb0+0x10;
-            refused=false;try{vp2s::nativeMathInstruction(y.memory.flat(),&m,&y,0x295708);}catch(const std::runtime_error &){refused=true;}check(refused);   // record of index 1, not 2
-            write(y,0x295868,uint32_t(0));check(!vp2s::nativeMathInstruction(y.memory.flat(),&m,&y,0x295868));
-            std::printf("%u second-class emitter particles (%u trail points, six store kinds, push, curves, collision, three trail kinds) match the VU0 reference\n",simpleCases,simplePoints);}
+            bool refused=false;try{vp2s::nativeMathInstruction(y.memory.flat(),&m,&y,at(0x295868));}catch(const std::runtime_error &){refused=true;}check(refused);
+            refused=false;try{vp2s::nativeMathInstruction(y.memory.flat(),&m,&y,at(0x295708));}catch(const std::runtime_error &){refused=true;}check(refused);   // state reset: no prepare
+            m.r[29].uw[0]=P0;m.r[16].uw[0]=E;both(E+0xf0,0);check(vp2s::nativeMathInstruction(y.memory.flat(),&m,&y,at(0x295f98)));
+            m.r[3].uw[0]=E+0xc0;check(vp2s::nativeMathInstruction(y.memory.flat(),&m,&y,at(0x295fa4)) && vp2s::nativeMathInstruction(y.memory.flat(),&m,&y,at(0x295fa8)));
+            m.r[3].uw[0]=read<uint32_t>(y,0x35dee8);check(vp2s::nativeMathInstruction(y.memory.flat(),&m,&y,at(0x295fbc)) && vp2s::nativeMathInstruction(y.memory.flat(),&m,&y,at(0x295ff4)));
+            m.r[3].uw[0]=P0+0x30;check(vp2s::nativeMathInstruction(y.memory.flat(),&m,&y,at(0x295ffc)));
+            m.r[29].uw[0]=S4;m.r[21].uw[0]=E;m.r[20].uw[0]=2;m.r[19].uw[0]=B+ST+0x10;
+            refused=false;try{vp2s::nativeMathInstruction(y.memory.flat(),&m,&y,at(0x295708));}catch(const std::runtime_error &){refused=true;}check(refused);   // record of index 1, not 2
+            write(y,at(0x295868),uint32_t(0));check(!vp2s::nativeMathInstruction(y.memory.flat(),&m,&y,at(0x295868)));
+            }
+            std::printf("%u second-class emitter particles (both classes, %u trail points, six store kinds, push, curves, collision, three trail kinds) match the VU0 reference\n",simpleCases,simplePoints);}
         // mod001 2932f0, the row emitter (battle 0x1c's mode-0 emitter): its own constants, per particle of 0xf0 bytes the two row
         // steps and stores, the loads, curves, main step, output, the stores of each +d0 kind (2: |A|^2, 5: e, f, then rows * P)
         // and the three trail kinds, against the same VU0 reference.

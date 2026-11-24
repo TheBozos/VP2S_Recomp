@@ -12,6 +12,30 @@ The earlier VP2S face/shading and general brightness comparisons remain open.
 
 ## Build and evidence
 
+### Particle emitter class 156610 native (the 0x80-record copy) (2026-11-24)
+
+- **The case:** 18 maps (61-93, 189-193, 459-461, 487, 490) stopped at 2953a8. That is the prepare (vtable +c,
+  295330) of emitter class 156610, owned by class 154180 at owner+0xa90. Its step is +18, 2949a0.
+- **What it is:** the second emitter class (1563f0 / 156500: prepare 295f20, step 295580) compiled again for particle
+  records of 0x80 bytes:
+  - the prepare is 295f20's code word for word;
+  - the step is 295580's except the record index (`s4 << 7` for `s4 * 0xb0`, three instructions fewer);
+  - every VU0 site sits exactly 0xbf0 lower.
+- **Now:** nativeSimpleEmitter also runs 294b18..29540c, looking its sites up at pc + 0xbf0. The words are still
+  checked at the real pc. The record stride (0x80 or 0xb0) is fixed by the prepare that ran, and a step of the other
+  class is refused.
+
+**Evidence:**
+- **Tests:** the second-class emitter test runs twice, the second pass with every site shifted and 0x80-byte
+  records. All 720 particles (1080 trail points) match the VU0 reference.
+- **Maps:** none of the 18 stops at 2953a8 any more. Maps 89, 189 and 490 run clean. The others stop at:
+  - the animated vertex element class 1594d0: 61, 64, 76, 91, 191;
+  - particle image 3/5 GS state (ALPHA 42): 90, 92, 93, 190, 192, 193;
+  - algorithm 2911e0: 459, 460;
+  - mesh algorithm 34: 461;
+  - a nonfinite model input: 487.
+- **Atlas:** 396 of 552 maps clean.
+
 ### Countdown timer HUD (class 168e10) native; mod046 captured (2026-11-24)
 
 - **The case:** the 32 timer maps (289-321, Rufus's soul: "If the timer at the bottom left reaches zero...") stopped

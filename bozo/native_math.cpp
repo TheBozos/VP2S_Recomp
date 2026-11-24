@@ -6591,7 +6591,7 @@ constexpr SimpleSite simpleSites[]={
     {0x295e58,0x4bc4d6af,'b',6},{0x295e5c,0x4bc4deeb,'b',7}
 };
 struct SimpleState{
-    unsigned prepare=0;uint32_t frame=0,emitter=0,dt=0;
+    unsigned prepare=0;uint32_t frame=0,emitter=0,dt=0,stride=0;
     VuWords drift{},gravity{},push{},clamp{};
     unsigned phase=0;   // 0 between particles, 1 loading, 2 loaded, 3 main, 4 output, 5 stored
     char block=0;unsigned blockStep=0;
@@ -6602,8 +6602,14 @@ struct SimpleState{
 };
 SimpleState &simpleState(const Runtime *rt){static std::map<const Runtime *,SimpleState> states;return states[rt];}
 bool nativeSimpleEmitter(R5900Context *c,Runtime *rt,uint32_t pc){
-    if(!rt || (pc&3) || pc<0x295708 || pc>0x295ffc)return false;
-    const SimpleSite *site=nullptr;for(const auto &s:simpleSites)if(s.pc==pc){site=&s;break;}
+    if(!rt || (pc&3))return false;
+    // Class 156610 (prepare 295330, step 2949a0 under vtable +c / +18) is this class compiled again for records of 0x80
+    // bytes: its prepare is 295f20's word for word and its step 295580's except the record index (s4 << 7 for s4 * 0xb0),
+    // every site 0xbf0 lower. The table below is 156500's; the copy looks its sites up at pc + 0xbf0.
+    const bool copy=pc>=0x294b18 && pc<=0x29540c;
+    if(!copy && (pc<0x295708 || pc>0x295ffc))return false;
+    const uint32_t tablePc=copy?pc+0xbf0:pc;
+    const SimpleSite *site=nullptr;for(const auto &s:simpleSites)if(s.pc==tablePc){site=&s;break;}
     if(!site)return false;
     uint32_t word=0;if(const auto *p=rt->memory.hostPointer(pc,4))std::memcpy(&word,p,4);
     if(word!=site->word)return false;   // another overlay at these addresses
@@ -6623,19 +6629,19 @@ bool nativeSimpleEmitter(R5900Context *c,Runtime *rt,uint32_t pc){
     if(std::string_view("Yygzdoc").find(site->role)!=std::string_view::npos){
         constexpr std::string_view order="Ygzdoc";
         if(site->role=='Y' || site->role=='y'){
-            st=SimpleState{};st.emitter=reg(16);st.frame=reg(29)+0x40;particles->nativeParticles().validateEmitter(st.frame,st.emitter);
+            st=SimpleState{};st.emitter=reg(16);st.frame=reg(29)+0x40;st.stride=copy?0x80:0xb0;particles->nativeParticles().validateEmitter(st.frame,st.emitter);
             const auto parent=field(st.emitter+0xf0);
             if(site->role=='Y'){if(!parent || reg(3)!=parent+0x10)fail("gravity source");st.gravity=vuWords(rt,address());}
             else{if(parent)fail("gravity cleared with a parent");for(unsigned i=0;i<3;++i)st.gravity[i]=0;}
             st.prepare=1;return true;}
-        if(st.prepare!=order.find(site->role) || reg(16)!=st.emitter || reg(29)+0x40!=st.frame)fail("prepare order");
+        if(st.prepare!=order.find(site->role) || reg(16)!=st.emitter || reg(29)+0x40!=st.frame || st.stride!=(copy?0x80u:0xb0u))fail("prepare order");
         if(site->role=='g'){if(reg(3)!=st.emitter+0xc0)fail("drift source");st.drift=vuWords(rt,address());}
         if(site->role=='z'){for(unsigned i=0;i<3;++i)st.push[i]=0;}
         if(site->role=='d'){if(reg(3)!=field(0x35dee8))fail("timestep source");st.dt=reg(3);}
         if(site->role=='c'){if(reg(3)!=reg(29)+0x30)fail("clamp source");st.clamp=vuWords(rt,address());}
         ++st.prepare;return true;
     }
-    if(st.prepare!=6 || reg(21)!=st.emitter || reg(29)+0x1b0!=st.frame)fail("step outside its prepared emitter");
+    if(st.prepare!=6 || reg(21)!=st.emitter || reg(29)+0x1b0!=st.frame || st.stride!=(copy?0x80u:0xb0u))fail("step outside its prepared emitter");
     switch(site->role){
     case 'L':{
         constexpr uint32_t offsets[7]={0x10,0x30,0x50,0x40,0x20,0x60,0x70};
@@ -6643,7 +6649,7 @@ bool nativeSimpleEmitter(R5900Context *c,Runtime *rt,uint32_t pc){
             if(st.phase==5 && st.trail && st.trailStep!=(st.trail==2?16u:st.trail==1?15u:8u))fail("particle inside a trail");
             if((st.phase!=0 && st.phase!=5) || st.block)fail("particle loads inside a particle's step");
             st.record=address()-0x10;
-            if(st.record!=field(st.emitter+0x14)+reg(20)*0xb0)fail("particle record");
+            if(st.record!=field(st.emitter+0x14)+reg(20)*st.stride)fail("particle record");
             st.phase=1;st.loads=0;st.main=0;st.stored=0;st.output=0;st.trail=0;}
         else if(st.phase!=1 || st.loads!=site->param)fail("particle load order");
         if(address()!=st.record+offsets[site->param])fail("particle field address");

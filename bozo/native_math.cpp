@@ -670,7 +670,10 @@ bool nativeObjectPairSpill(R5900Context *c,Runtime *rt,uint32_t pc){
     // native state does not hold is kept as such: the frame is marked, its slots stay untouched, and the
     // restore returns an unknown set (a later reader still refuses it).
     static std::set<std::pair<const Runtime *,uint32_t>> unknownFrames;
-    const bool keepsUnknown=!moved && offset==0x170;
+    // 397780 too: its set-up 1f9130 returns at once when either pair member has no object (+4 = 0), and the loop spills
+    // and restores at sp+3a0 regardless; a set the native state does not hold (none set since the run began) stays
+    // unknown through that spill / restore, and 398608's reload of vf8 leaves it unknown.
+    const bool keepsUnknown=!moved;
     if(spill){
         if(!regs.valid){if(!keepsUnknown)throw std::runtime_error("native object pair spill without registers");
             if(index==0)unknownFrames.insert({rt,base});else if(!unknownFrames.count({rt,base}))throw std::runtime_error("native object pair spill lost its registers");
@@ -678,7 +681,8 @@ bool nativeObjectPairSpill(R5900Context *c,Runtime *rt,uint32_t pc){
         if(index==0)unknownFrames.erase({rt,base});
         else if(keepsUnknown && unknownFrames.count({rt,base}))throw std::runtime_error("native object pair spill gained registers midway");
         std::memcpy(record(rt,base+index*16,16),row,16);return true;}
-    if(moved){if(!regs.valid)throw std::runtime_error("native object pair row without registers");std::memcpy(row,record(rt,base,16),16);return true;}
+    if(moved){if(!regs.valid)return true;   // an unknown set stays unknown (a reader of it still refuses)
+        std::memcpy(row,record(rt,base,16),16);return true;}
     if(index==0)regs.valid=false;
     if(keepsUnknown && unknownFrames.count({rt,base})){if(index==8)unknownFrames.erase({rt,base});return true;}
     std::memcpy(row,record(rt,base+index*16,16),16);if(index==8)regs.valid=true;

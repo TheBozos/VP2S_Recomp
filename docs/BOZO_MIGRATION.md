@@ -12,6 +12,23 @@ The earlier VP2S face/shading and general brightness comparisons remain open.
 
 ## Build and evidence
 
+### Push-out loop 397780: a pair without objects keeps the registers unknown (2026-11-25)
+
+- **The case:** 4 maps (216, 350, 351, 436) stopped on "object pair spill without registers" at 3984f4.
+  - 397780's pair set-up 1f9130 returns at once when either member has no object (+4 = 0). It loads no registers.
+  - The loop does not test that: it spills vf1..vf9 to sp+3a0, calls the second object's +20 / +64, restores
+    them, reloads vf8 from sp+460 (398608) and runs 1f88d0.
+  - The registers the game spills there are whatever the last pair left. The native state holds none when no pair
+    has been set up since the run began (these runs start from a save state).
+- **Now:** as for 430180, the spill marks its frame and leaves its slots; the restore returns the unknown set; and
+  398608's reload leaves an unknown set unknown. A reader that needs the registers still refuses. None did on
+  these maps.
+
+**Evidence:**
+- **Maps:** all 4 run clean.
+- **Regression:** full ctest 97/97; the four scenes keep their hashes.
+- **Atlas:** 495 of 552 maps clean.
+
 ### Flat fades with their own blend; mod149 and mod049 captured (2026-11-25)
 
 - **Fade blend (maps 137, 138, 145, 146):** these flat fades (class 161230, mode 0) have +f4 = 2.

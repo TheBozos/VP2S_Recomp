@@ -287,6 +287,20 @@ int main(int argc,char **argv){try{
                 check(inc.empty() && dec.empty());++shadowCases;}
             // Directional semantics are unchanged by the flag's default: (0,0,5) as a direction keeps both.
             inc.clear();dec.clear();vp2s::nativeShadowPrisms(quad,strip,{0,0,5},top,flat,inc,dec);check(inc.size()==ref.size());++shadowCases;}
+        // Mesh algorithm 16's second pass, from map 107's mesh rows 7..22 (EE RAM, object d40690): ALPHA_1 0x48, slot 0,
+        // part 0, TEX0 0x01400000; map 124's block 148eb70 samples slot 1 (TBP 3a40).
+        {vp2s::NativeMaterialRows rows{{{0x8004,0x10000000,0xeeeeeeee,0},{0,0,0x42,0},{0x01400000,6,6,0},{0x01400000,6,6,0xa35},
+            {0x3f800000,0,0,1},{0x3f800000,0,0,0},{0x8000,0x300e4000,0x412,0},{0x8000,0x300ec000,0x412,0},{0,1,0,0},
+            {0x48,0,0x42,1},{0x01400000,6,6,0},{0x01400000,6,6,0},{0x8000,0x302e4000,0x412,0},{0x8000,0x302ec000,0x412,0},{1,1,0,0},{0,0,0,0x6202c016}}};
+         const auto pass=vp2s::nativeSecondPass(rows);check(pass && pass->alpha==0x48 && pass->slot==0 && pass->part==0 && pass->tex0==0x01400000u);++shadowCases;
+         auto other=rows;
+         {auto glow=rows;glow[2]={0x21300000,0x4007b406,6,0};glow[3]={0x65423380,0x0007b406,6,0xa35};glow[10]={0x21300000,0x4007b786,6,0};glow[11]={0x21413a40,0x0007b786,6,0};
+          glow[14]={1,1,1,0};glow[9][0]=0x44;const auto p2=vp2s::nativeSecondPass(glow);check(p2 && p2->alpha==0x44 && p2->slot==1 && p2->part==0 && p2->tex0==0x21413a40u);++shadowCases;}
+         other=rows;other[12][1]=0x30ae4000;check(!vp2s::nativeSecondPass(other));             // PRIM differs beyond ABE
+         other=rows;other[9][3]=0;check(!vp2s::nativeSecondPass(other));                       // row 65 selected
+         other=rows;other[9][0]=0xc8;check(!vp2s::nativeSecondPass(other));                    // a reserved blend field (3)
+         other=rows;other[11][2]=0x14;check(!vp2s::nativeSecondPass(other));                   // row 18 not a TEX0_1 write
+         other=rows;other[6][1]=0x302e4000;other[12][1]=0x302e4000;check(!vp2s::nativeSecondPass(other));shadowCases+=5;}   // pass 1 already blended
         // A vertex at w <= 0 drops its triangle; strips that do not cover the vertices reject.
         {auto behind=top;behind[15]=-1;std::vector<V> inc,dec;vp2s::nativeShadowPrisms(quad,strip,{0,0,1},behind,flat,inc,dec);check(inc.empty() && dec.empty());
             bool bad=false;try{vp2s::nativeShadowPrisms(quad,std::vector<uint16_t>{3},{0,0,1},top,flat,inc,dec);}catch(const std::runtime_error &){bad=true;}check(bad);shadowCases+=2;}

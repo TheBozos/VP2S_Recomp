@@ -12,6 +12,32 @@ The earlier VP2S face/shading and general brightness comparisons remain open.
 
 ## Build and evidence
 
+### Mesh algorithm 16: the blended second pass (2026-11-24)
+
+- **The case:** 12 maps refused mesh algorithm 16.
+- **What the game does:** the model programs run a mesh's algorithms from two tables.
+  - Table A (bases 0x483 / 0x4ab / 0x499 / 0x42c / 0x454 / 0x442) runs before the mesh's kick. Its entry 16 is a bare
+    JR vi10 in every copy.
+  - Table B (base + 0x32) runs after the kick (0f28). Its entry 16 (set 0x00's 0x1720) draws the mesh again: rows 19
+    and 20 become the GIF tags 13 and 14, and the register packet is row 7's tag with rows 16, 65 or 66
+    (mem[15].y | row 16.w), 17 and 18. Pass 1 sends 8, 65/66, 9 and 10. Then it re-enters the vertex loop (0918).
+  - Every such mesh in the sweep's dumps has pass 2 = pass 1 with PRIM.ABE set and ALPHA_1 from row 16: 0x48 (Cs As
+    + Cd), 0x44 (blend) or 0x42 (0 - Cs).
+  - The texture is row 21's slot and palette part, as row 15's (block +98 / +9c) are pass 1's. Map 107's pass reuses
+    pass 1's image; map 124's samples manager slot 1 (TBP 3a40), whose TEX0 is the one row 18 writes.
+- **Now:** nativeSecondPass qualifies the rows. The capture then adds a second batch after pass 1: the same
+  triangles, pass 2's texture, the GS blend from row 16, and no depth write (the rule for blended meshes).
+- **Refused:** a slot whose TEX0 is not row 18's, the feedback picture, a reserved blend field, a pass 1 already
+  blended, row 65 selected, and any other PRIM or tag change.
+- **Assumption, not verified:** the register in row 65/66 is treated like the existing blended-mesh depth rule.
+- **Seen but not ported here:** table B also has routines for algorithms the native path already admits (12, 14, 18,
+  22, 24, 28, 30, 32, 34, 38, 42, 46, 50, 52, 54). Those run after the draw, and some may be passes of their own.
+
+**Evidence:**
+- **Tests:** map 107's rows, map 124's two-texture rows, and five refusals.
+- **Maps:** of the 12 maps, 9 now run 850 frames clean (107, 124, 126, 127, 128, 129, 131, 134, 135). 130 and 358
+  move on to 35f4f8 and 256698; 462 also needs algorithm 34. The glow itself is not yet checked on screen.
+
 ### Field-map modules captured (2026-11-24)
 
 - **The case:** 29 maps jumped into code no module provided: 0x514970..0x53c040.

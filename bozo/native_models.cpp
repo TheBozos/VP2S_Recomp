@@ -282,6 +282,19 @@ void nativeShadowPrisms(const std::vector<std::array<float,3>> &positions,const 
         first+=length;
     }
 }
+std::optional<NativeSecondPass> nativeSecondPass(const NativeMaterialRows &rows){
+    const auto row=[&](unsigned r,unsigned c){return rows[r-7][c];};
+    const auto prim=[&](unsigned r){return (row(r,1)>>15)&0x7ff;};
+    constexpr uint32_t primBits=0x7ffu<<15;
+    for(unsigned r:{17u,18u})if((row(r,2)&0xff)!=6)return std::nullopt;   // TEX0_1 writes, as rows 9 / 10
+    if(row(21,2)>=256 || row(21,3)>15)return std::nullopt;
+    for(unsigned r:{13u,14u})if(row(r+6,0)!=row(r,0) || row(r+6,2)!=row(r,2) || (row(r+6,1)&~primBits)!=(row(r,1)&~primBits) || prim(r)&0x40 || prim(r+6)!=(prim(r)|0x40))
+        return std::nullopt;   // the same tags, PRIM with ABE added
+    const auto alpha=row(16,0);
+    if((row(16,2)&0xff)!=0x42 || row(16,1) || row(16,3)!=1 || alpha>0xff)return std::nullopt;   // ALPHA_1, selecting row 66
+    for(unsigned f=0;f<4;++f)if(((alpha>>(2*f))&3)==3)return std::nullopt;
+    return NativeSecondPass{alpha,row(21,2),row(21,3),row(18,0)};
+}
 std::vector<NativeShadowDraw> nativeShadowPass(const NativeModelSubmission &s,float width,float height){
     std::vector<NativeShadowDraw> draws;
     if(!s.shadow || (s.shadowIncrement.empty() && s.shadowDecrement.empty()))return draws;
@@ -441,8 +454,22 @@ NativeModelSubmission NativeModels::capture(Runtime *rt,NativeAssets &assets,Nat
         // at the battle's frame 72200), so the routine does nothing, as 46 (and as publishGeneratedMesh admits it).
         // 50, 52, 54 likewise: bare JR vi10 in all eight table copies in EE RAM (battle 0x1c and 0x18, the forest), found as
         // the tables whose entry 40 branches to the screen-UV routine (0x4000076f) and whose 22 and 46 return.
-        for(auto algorithm:m.algorithms)if(algorithm!=-1 && algorithm!=0 && algorithm!=2 && algorithm!=4 && algorithm!=6 && algorithm!=8 && algorithm!=12 && algorithm!=14 && algorithm!=18 && algorithm!=22 && algorithm!=28 && algorithm!=32 && algorithm!=36 && algorithm!=20 && algorithm!=26 && algorithm!=40 && algorithm!=44 && algorithm!=46 && algorithm!=48 && algorithm!=50 && algorithm!=52 && algorithm!=54)
+        for(auto algorithm:m.algorithms)if(algorithm!=-1 && algorithm!=0 && algorithm!=2 && algorithm!=4 && algorithm!=6 && algorithm!=8 && algorithm!=12 && algorithm!=14 && algorithm!=16 && algorithm!=18 && algorithm!=22 && algorithm!=28 && algorithm!=32 && algorithm!=36 && algorithm!=20 && algorithm!=26 && algorithm!=40 && algorithm!=44 && algorithm!=46 && algorithm!=48 && algorithm!=50 && algorithm!=52 && algorithm!=54)
             throw std::runtime_error(std::format("unported native mesh algorithm {}",algorithm));
+        // 16: table A's entry is a bare JR vi10 in every copy (0x483 / 0x4ab / 0x499 / 0x42c / 0x454 / 0x442, map 107's
+        // EE RAM); table B's, which the mesh program runs after the mesh's kick (0f28: base A + 0x32), is a second
+        // pass (set 0x00's 0x1720): rows 19 and 20 become the GIF tags 13 and 14, the register packet is row 7's tag
+        // with rows 16, 65 or 66 (mem[15].y | row 16.w), 17 and 18 (pass 1 sends 8, 65/66, 9, 10), and the vertex loop
+        // (0918) draws the mesh again. Every such mesh in the all-maps sweep (12 maps) has pass 2 = pass 1 with PRIM.ABE
+        // set and ALPHA_1 from row 16 (0x48, 0x44 or 0x42): drawn natively as a second, blended copy of the batch.
+        // Its texture: row 21's slot and part (pass 1's are row 15's, block +98 / +9c); map 124's pass 2 samples another
+        // image (manager slot 1, TBP 3a40) than pass 1 (slot 0, TBP 3380), map 107's the same one.
+        std::optional<NativeSecondPass> secondPass;
+        if(m.has(16)){
+            if(block<0x100000 || word(block+0x70)!=0x8000 || word(block+0x78)!=0x412)throw std::runtime_error("native mesh second pass without its live material rows");
+            NativeMaterialRows rows;for(unsigned r=0;r<16;++r)for(unsigned c=0;c<4;++c)rows[r][c]=word(block+0x10+16*r+4*c);
+            secondPass=nativeSecondPass(rows);
+            if(!secondPass)throw std::runtime_error(std::format("unported native mesh second pass (algorithm 16): mesh {:x} block {:x}",mesh,block));}
         if(m.hasMaterial)material=m.material;
         else if(origin && block>=0x40 && block-0x40!=mesh){const auto owner=assets.origin(block-0x40);if(owner && owner->disc==origin->disc && owner->part==origin->part){
             const auto other=pack->find(owner->offset);if(other!=pack->end() && other->second->hasMaterial)material=other->second->material;}}
@@ -642,6 +669,22 @@ NativeModelSubmission NativeModels::capture(Runtime *rt,NativeAssets &assets,Nat
             for(auto a:m.algorithms)std::fprintf(stderr,"%d.",a);
             std::fprintf(stderr," obj=%.2f,%.2f,%.2f amb=%.2f,%.2f,%.2f class=%x o66=%u m3f=%u m57=%u blend=%u/%u%u%u%u\n",objectColour[0],objectColour[1],objectColour[2],ambient[0],ambient[1],ambient[2],
                 word(object),byte(object+0x66),byte(model+0x3f),byte(model+0x57),material[0],material[7],material[8],material[9],material[10]);}
+        if(secondPass && !batch.vertices.empty()){
+            // Algorithm 16's second pass: the same triangles, with its own texture, blended with its ALPHA_1, after pass 1.
+            auto second=batch;auto &m2=second.material;m2.alphaBlend=true;m2.blend=bozo::render::Material::Blend::Alpha;m2.gsBlend=true;
+            const auto a=secondPass->alpha;m2.blendA=a&3;m2.blendB=(a>>2)&3;m2.blendC=(a>>4)&3;m2.blendD=(a>>6)&3;m2.blendFix=0x80;
+            if(material[1]){
+                if(feedbackTexture || !manager)throw std::runtime_error("native mesh second pass over the feedback picture");
+                const auto index=value<int16_t>(rt,manager+0x2670+2*secondPass->slot);if(index<0)throw std::runtime_error("native mesh second-pass texture not registered");
+                const TextureKey key{word(manager+0x1008+16*index),word(manager+8+16*index)};
+                const auto lo=word(manager+0x1010+16*index);
+                if(lo!=secondPass->tex0 || (key.tag==0x4674404c && key.index==1))
+                    throw std::runtime_error(std::format("native mesh second pass: slot {} holds TEX0 {:08x}, row 18 writes {:08x}",secondPass->slot,lo,secondPass->tex0));
+                const uint64_t tex0=lo|uint64_t(word(manager+0x1014+16*index))<<32;
+                const auto meshPart=origin && origin->kind==AssetOrigin::Kind::Part?std::optional(std::pair{origin->disc,origin->part}):std::nullopt;
+                second.texture=textures.modelImage(key,tex0,meshPart)->picture(secondPass->part);}
+            m2.depthWrite=bool(palette);
+            out.batches.push_back(std::move(batch));out.batches.push_back(std::move(second));continue;}
         if(!batch.vertices.empty())out.batches.push_back(std::move(batch));
     }
     if(traceModels && shadowClass){

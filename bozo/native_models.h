@@ -48,6 +48,13 @@ struct NativeModelSubmission {
 // alpha 0x3f, (Cs - Cd) * As + Cd. Empty when the volume has no face.
 struct NativeShadowDraw {bozo::render::Material material;std::vector<bozo::render::Vertex> vertices;};
 std::vector<NativeShadowDraw> nativeShadowPass(const NativeModelSubmission &,float width,float height);
+// Mesh algorithm 16's second pass (table B, set 0x00's 0x1720), from the mesh's material rows 7..22 (rows[0] is row 7):
+// when pass 2 is pass 1 with PRIM.ABE set (rows 19/20 = 13/14 but ABE; row 16 an ALPHA_1 write with .w 1), its ALPHA_1,
+// its texture slot and palette part (row 21 .z / .w, as row 15's for pass 1 at block +98 / +9c) and the TEX0 low word
+// row 18 writes (the slot's manager entry must hold it); nullopt otherwise.
+using NativeMaterialRows=std::array<std::array<uint32_t,4>,16>;
+struct NativeSecondPass {uint32_t alpha=0,slot=0,part=0,tex0=0;};
+std::optional<NativeSecondPass> nativeSecondPass(const NativeMaterialRows &rows);
 void nativeShadowPrisms(const std::vector<std::array<float,3>> &positions,const std::vector<uint16_t> &strips,const std::array<float,3> &light,
                         const std::array<float,16> &top,const std::array<float,16> &flat,
                         std::vector<bozo::render::Vertex> &increment,std::vector<bozo::render::Vertex> &decrement,bool point=false);

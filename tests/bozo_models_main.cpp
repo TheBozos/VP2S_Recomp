@@ -17,7 +17,7 @@ using Mat=std::array<float,16>;
 const Mat identity{1,0,0,0,0,1,0,0,0,0,1,0,0,0,0,1};
 void fixture(const std::filesystem::path &dir,int algorithm,uint32_t mode=2,uint32_t textured=0){
     std::filesystem::create_directories(dir);std::ofstream f(dir/"0000004000_001.mesh",std::ios::binary);
-    for(uint32_t n:{0x324e5056,1,0x60,4,1,1})write(f,n);
+    for(uint32_t n:{0x334e5056,1,0x60,4,1,1})write(f,n);
     write(f,std::array<int32_t,4>{algorithm,48,0,0});write(f,uint32_t(1));
     write(f,std::array<uint32_t,11>{0,textured,0,0,mode,0,0,0,1,0,1});write(f,uint16_t(4));
     const float xy[4][2]={{-.5f,-.5f},{.5f,-.5f},{-.5f,.5f},{.5f,.5f}};
@@ -315,6 +315,21 @@ int main(int argc,char **argv){try{
          check(vp2s::projectedTexture({100,-40,200},{0,1,0},origin,cols,0x20).off);++shadowCases;                  // facing away: off
          check(!vp2s::projectedTexture({100,-40,200},{0,1,0},origin,cols,0).off);++shadowCases;                    // ... unless the mask is 0
          std::array<float,4> behind[4]{cols[0],cols[1],cols[2],cols[3]};behind[3][2]=-1;check(vp2s::projectedTexture({100,-40,200},{0,-1,0},origin,behind,0).off);++shadowCases;}   // q.z < 0
+        // Shell redraws (table B 12 / 14). 12, counter 3, push 1, alpha step -8.5: dispatch 1 steps twice (12, then 14's part:
+        // the counter 3 -> 1), dispatch 2 once (-> 0): two redraws, pushed 2 and 3, alpha 120 -> 111 -> 102, then 93.
+        {const auto f=[](float x){return std::bit_cast<uint32_t>(x);};
+         vp2s::NativeShellVertex v;v.colour={10,20,30,120};v.p={1,2,3};v.n={0,1,0};v.uv={0.5f,0.25f};
+         const auto s12=vp2s::nativeShells(12,{f(1),3,0,0,0,0,0,f(-8.5f)},{v});
+         check(s12.size()==2 && s12[0][0].p[1]==4 && s12[1][0].p[1]==5 && s12[0][0].colour[3]==102 && s12[1][0].colour[3]==93 && s12[1][0].colour[0]==10 && s12[1][0].uv[0]==0.5f);++shadowCases;
+         // Colours clamp to 0..255; a zero counter draws nothing.
+         const auto bright=vp2s::nativeShells(14,{0,1,0,0,f(300),f(-300),0,0},{v});check(bright.size()==1 && bright[0][0].colour[0]==255 && bright[0][0].colour[1]==0);++shadowCases;
+         check(vp2s::nativeShells(14,{f(1),0,0,0,0,0,0,0},{v}).empty());++shadowCases;
+         // 14's jitter: RINIT from the seed, then two RNEXTs a vertex: u += (R1 - 1.5) * scale, v += (R2 - 1.5) * scale (12-bit).
+         const uint32_t seed=0x2bc22;const auto next=[](uint32_t r){return (((r<<1)^((r>>4)&1u)^((r>>22)&1u))&0x7fffffu)|0x3f800000u;};
+         const uint32_t r1=next(0x3f800000u|seed),r2=next(r1);const float scale=0.005f;
+         const auto j=vp2s::nativeShells(14,{0,1,f(scale),seed,0,0,0,0},{v});
+         const auto expect=[&](float uv,uint32_t r){return float(std::trunc((double(int32_t(std::trunc(double(uv)*4096)))/4096+(std::bit_cast<float>(r)-1.5f)*scale)*4096))/4096;};
+         check(j.size()==1 && j[0][0].uv[0]==expect(0.5f,r1) && j[0][0].uv[1]==expect(0.25f,r2) && j[0][0].uv[0]!=0.5f);++shadowCases;}
         // A vertex at w <= 0 drops its triangle; strips that do not cover the vertices reject.
         {auto behind=top;behind[15]=-1;std::vector<V> inc,dec;vp2s::nativeShadowPrisms(quad,strip,{0,0,1},behind,flat,inc,dec);check(inc.empty() && dec.empty());
             bool bad=false;try{vp2s::nativeShadowPrisms(quad,std::vector<uint16_t>{3},{0,0,1},top,flat,inc,dec);}catch(const std::runtime_error &){bad=true;}check(bad);shadowCases+=2;}

@@ -53,6 +53,10 @@ std::vector<NativeShadowDraw> nativeShadowPass(const NativeModelSubmission &,flo
 // its texture slot and palette part (row 21 .z / .w, as row 15's for pass 1 at block +98 / +9c) and the TEX0 low word
 // row 18 writes (the slot's manager entry must hold it); nullopt otherwise.
 using NativeMaterialRows=std::array<std::array<uint32_t,4>,16>;
+// Mesh routines 12 / 14 (table B shell redraws), from their data rows 0..1 (push, count, jitter, seed; colour step): the
+// vertices (pre-lighting colour, object-space position, normal, UV) at each redraw, in order.
+struct NativeShellVertex {std::array<uint32_t,4> colour{};std::array<float,3> p{},n{};std::array<float,2> uv{};};
+std::vector<std::vector<NativeShellVertex>> nativeShells(int routine,const std::array<uint32_t,8> &data,std::vector<NativeShellVertex> vertices);
 // Mesh routine 46 (table B 21e0) per vertex, object space: q = ((c3 + c0 x) + c1 y) + c2 z (the projector rows 43..46),
 // S, T, Q = FTOI12(q.xyz); off (alpha 0) when q.z < 0 or the z-lane MAC flags (Z 0x02, S 0x20) of ((t.z + t.y) + t.x),
 // t = (origin - p) * n, meet the mask (row 40.z).

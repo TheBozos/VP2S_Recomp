@@ -1,4 +1,4 @@
-"""Offline VPM4 -> semantic native mesh records. Never used by the game runner."""
+"""Offline VPM5 -> semantic native mesh records. Never used by the game runner."""
 import argparse
 import struct
 from pathlib import Path
@@ -12,8 +12,8 @@ def convert(data):
         if at+size>len(data):raise ValueError('truncated mesh pack')
         result=struct.unpack_from('<'+fmt,data,at);at+=size
         return result
-    if take('4s')[0]!=b'VPM4':raise ValueError('VPM4 required')
-    count,=take('I');out=bytearray(struct.pack('<4sI',b'VPN2',count))
+    if take('4s')[0]!=b'VPM5':raise ValueError('VPM5 required')
+    count,=take('I');out=bytearray(struct.pack('<4sI',b'VPN3',count))
     for _ in range(count):
         offset,nv,ns,flags,group,*rest=take('4Ii8i3fI20I')
         routines=rest[:4];material=rest[11]
@@ -37,6 +37,10 @@ def convert(data):
         if 40 in routines:out+=struct.pack('<5f',*take('5f'))
         if 48 in routines:out+=struct.pack('<i',*take('i'))
         if 50 in routines:out+=struct.pack('<i',*take('i'))
+        for r in (12,14):
+            if r in routines:out+=struct.pack('<8I',*take('8I'))
+        if 18 in routines:out+=struct.pack(f'<{nv*2}i',*take(f'{nv*2}i'))
+        if 28 in routines:out+=struct.pack('<fif',*take('fif'))
         size,=take('I');sources=take(f'{nv*2}I')
         if any(s!=0xffffffff and s+12>size for s in sources):raise ValueError('vertex source outside mesh')
         out+=struct.pack(f'<I{nv*2}I',size,*sources)

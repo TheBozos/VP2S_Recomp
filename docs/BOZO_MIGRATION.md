@@ -12,6 +12,43 @@ The earlier VP2S face/shading and general brightness comparisons remain open.
 
 ## Build and evidence
 
+### Table B: shells 12 / 14, second passes 18 / 28, 32 / 52 / 54 refused (2026-11-24)
+
+- **Disc data** (all 1.37M meshes scanned with vp2_meshes' unpack):
+
+  | Routine | Meshes | Gate set | Notes |
+  |---|---|---|---|
+  | 12 | 1671 | all | counter 3, push 0.33..1.17, colour step (0, 0, 0, -8.5); skinned meshes, routines 8 4 12 |
+  | 14 | 1139 | all | counter 4, push 1.25, colour (0.64, 0.64, 0.64, -9.6), jitter 0.005, seed 2bc22 |
+  | 18 | 1616 | 422 | |
+  | 28 | 16549 | 1265 | |
+  | 32 | 44 | 3 | |
+  | 52, 54 | none | | |
+
+- **12 / 14 (1488 / 1590, lifted with vu1_lift):** shell redraws.
+  - **Per step:** colour = FTOI0(min(max(ITOF0 + data1, 0), 255)) and position += normal * data0.x. 14's part also
+    adds a UV jitter (R - 1.5) * data0.z: two RNEXTs a vertex, 2 (n + 1) a step, RINIT from data0.w, then cleared.
+  - **The counter data0.y** falls by one a step. 12's code runs into 14's, so a 12 dispatch can step twice.
+  - **Each dispatch** sets vi12, and 0f58 redraws from 08b8, past table A, with the mesh's own material.
+  - **Natively:** nativeShells gives each redraw's vertices. Each redraw is a batch re-lit with the vertex's lighting
+    factor and re-guarded and re-culled.
+  - **Refused:** shells with another table-B pass, with position-dependent lighting (mode 3, point or spot lights),
+    with generated UVs (20 / 26 / 36 / 40), with lines, and with jitter without a seed.
+- **18 (1870):** its data's per-vertex UVs (12-bit), then the second pass.
+- **28 (1138 -> 26's 1178):** reflectionTexture with 28's own data row, and alpha when on, then the second pass.
+  - Pass 1 over the feedback picture (maps 103, 445): pass 2 keeps that source when its slot is the same picture,
+    and otherwise samples its own texture.
+- **32, 52, 54:** refused when row 17.w is set; no live one in the clean maps.
+- **Converter:** VPM5 / VPN3 keep 12 / 14's data rows 0..1, 18's UV list and 28's data row.
+
+**Evidence:**
+- **Tests:**
+  - converter: the table-B data;
+  - nativeShells: 12's 3 -> 1 -> 0 sequence (two redraws, pushed 2 and 3, alpha 120 -> 102 -> 93), the clamps, an
+    empty counter, and 14's jitter from the seed (exact RNEXT).
+- **Maps:** the 20 clean maps whose traced meshes use 12 / 14 / 18 / 28 still run 850 frames clean. Map 194's
+  tanks and map 207's moss look layered. They are not yet compared with PCSX2.
+
 ### Table B routine 46: the projected darkening pattern (2026-11-24)
 
 - **The routine:** table B 21e0, lifted with the fork's timed vu1_lift so that the pipelined flags are exact. It is

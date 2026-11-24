@@ -28,8 +28,10 @@ struct NativeModels::Mesh {
     bool hasMaterial=false;
     int32_t scroll=-1;
     int32_t secondScroll=-1;   // routine 50's offset row index (table B: the second pass's UV scroll)
+    std::array<std::array<uint32_t,8>,2> shell{};   // routines 12 / 14 (table B shells): data rows 0, 1
+    std::vector<std::array<int32_t,2>> listedUv;   // routine 18: the second pass's UVs, 12-bit fixed point
     // Routine 26's data row: alpha base (.x), alpha on (.y), alpha scale (.w).
-    struct Reflection {float base=0;int32_t on=0;float scale=0;} reflection;
+    struct Reflection {float base=0;int32_t on=0;float scale=0;} reflection,secondReflection;   // 26, 28 (table B)
     ScreenProjection screen; // routine 40's data rows
     std::vector<uint16_t> strips;
     std::vector<Vertex> vertices;
@@ -112,7 +114,7 @@ std::shared_ptr<const NativeModels::Pack> NativeModels::load(const AssetOrigin &
     const auto file=root/std::format("{:010x}_{:03}.mesh",origin.disc,origin.part);
     std::ifstream in(file,std::ios::binary);if(!in)throw std::runtime_error("missing semantic native mesh pack: "+file.string());
     Reader r{{std::istreambuf_iterator<char>(in),{}}};
-    if(r.take<uint32_t>()!=0x324e5056)throw std::runtime_error("semantic native mesh version mismatch (VPN2: rebuild the mesh packs)");
+    if(r.take<uint32_t>()!=0x334e5056)throw std::runtime_error("semantic native mesh version mismatch (VPN3: rebuild the mesh packs)");
     const auto count=r.take<uint32_t>();if(count>65536)throw std::runtime_error("native mesh pack too large");
     auto pack=std::make_shared<Pack>();
     for(unsigned i=0;i<count;++i){auto m=std::make_shared<Mesh>();const auto offset=r.take<uint32_t>(),nv=r.take<uint32_t>(),ns=r.take<uint32_t>();
@@ -127,6 +129,9 @@ std::shared_ptr<const NativeModels::Pack> NativeModels::load(const AssetOrigin &
         if(m->has(40)){m->screen=r.take<ScreenProjection>();for(auto f:{m->screen.offset[0],m->screen.offset[1],m->screen.push,m->screen.scale[0],m->screen.scale[1]})finite(f);}
         if(m->has(48))m->scroll=r.take<int32_t>();
         if(m->has(50))m->secondScroll=r.take<int32_t>();
+        for(unsigned s=0;s<2;++s)if(m->has(s?14:12))m->shell[s]=r.take<std::array<uint32_t,8>>();
+        if(m->has(18))r.array(m->listedUv,nv);
+        if(m->has(28))m->secondReflection=r.take<Mesh::Reflection>();
         m->sourceSize=r.take<uint32_t>();r.array(m->sources,nv);
         uint64_t total=0;for(auto n:m->strips)total+=n;if(total!=nv)throw std::runtime_error("native strip extent mismatch");
         for(const auto source:m->sources)for(auto at:{source.normal,source.position})if(at!=UINT32_MAX && uint64_t(at)+12>m->sourceSize)
@@ -291,6 +296,26 @@ ProjectedTexture projectedTexture(const std::array<float,3> &p,const std::array<
     const float f=(t[2]+t[1])+t[0];const uint32_t mac=(f==0?0x02u:0u)|(std::signbit(f) && f!=0?0x20u:0u);   // z lane: Z, S
     const auto fixed=[](float x){return int32_t(std::clamp(std::trunc(double(x)*4096),-2147483648.0,2147483647.0));};   // FTOI12
     return {{fixed(q[0]),fixed(q[1]),fixed(q[2])},(std::signbit(q[2]) && q[2]!=0) || (mac&mask)!=0};
+}
+std::vector<std::vector<NativeShellVertex>> nativeShells(int routine,const std::array<uint32_t,8> &data,std::vector<NativeShellVertex> v){
+    const float push=std::bit_cast<float>(data[0]),jitter=std::bit_cast<float>(data[2]);std::array<float,4> add{};for(unsigned c=0;c<4;++c)add[c]=std::bit_cast<float>(data[4+c]);
+    int32_t counter=int32_t(data[1]);uint32_t seed=data[3],R=0x3f800000u;
+    const auto rnext=[](uint32_t r){return (((r<<1)^((r>>4)&1u)^((r>>22)&1u))&0x007fffffu)|0x3f800000u;};
+    const auto step=[&](bool jittered){
+        for(auto &x:v){for(unsigned c=0;c<4;++c){const float f=std::min(std::max(float(int32_t(x.colour[c]))+add[c],0.0f),255.0f);x.colour[c]=uint32_t(int32_t(f));}   // FTOI0
+            for(unsigned c=0;c<3;++c)x.p[c]=x.p[c]*1.0f+x.n[c]*push;}
+        if(!jittered)return;
+        std::array<float,2> pair{};const auto draw=[&]{R=rnext(R);pair[0]=std::bit_cast<float>(R);R=rnext(R);pair[1]=std::bit_cast<float>(R);};
+        draw();for(auto &x:v){for(unsigned c=0;c<2;++c){const float j=(pair[c]-1.5f)*jitter;const double f=(double(int32_t(std::trunc(double(x.uv[c])*4096)))/4096+j)*4096;
+                x.uv[c]=float(std::clamp(std::trunc(f),-2147483648.0,2147483647.0))/4096;}
+            draw();}};   // the pair after the last vertex is drawn too (the loop draws one ahead)
+    std::vector<std::vector<NativeShellVertex>> out;
+    for(unsigned dispatch=0;dispatch<64 && counter>0;++dispatch){
+        if(routine==12){step(false);--counter;
+            if(counter>0){--counter;if(seed){R=0x3f800000u|(seed&0x007fffffu);seed=0;}step(true);}}
+        else{--counter;if(seed){R=0x3f800000u|(seed&0x007fffffu);seed=0;}step(true);}
+        out.push_back(v);}
+    return out;
 }
 std::optional<NativeSecondPass> nativeSecondPass(const NativeMaterialRows &rows){
     const auto row=[&](unsigned r,unsigned c){return rows[r-7][c];};
@@ -491,10 +516,11 @@ NativeModelSubmission NativeModels::capture(Runtime *rt,NativeAssets &assets,Nat
             if(shown.insert(object).second){std::string rows;for(unsigned r:{16u,36u,40u,41u,42u,43u,44u,45u,46u})rows+=std::format(" r{}={:08x},{:08x},{:08x},{:08x}",r,word(object+0x230+16*r),word(object+0x234+16*r),word(object+0x238+16*r),word(object+0x23c+16*r));
                 if(live)for(unsigned r:{13u,14u,19u,20u})rows+=std::format(" m{}={:08x},{:08x},{:08x},{:08x}",r,word(block+0x10+16*(r-7)),word(block+0x14+16*(r-7)),word(block+0x18+16*(r-7)),word(block+0x1c+16*(r-7)));
                 std::fprintf(stderr,"[vp2s:table-b46] object=%x class=%x mesh=%x row21x=%u live=%d%s\n",object,word(object),mesh,live?word(block+0xf0):0u,int(live),rows.c_str());}}
-        // 22 (table B 0f90: routine 20's sphere map, bal 0fd0, then 1720) and 50 (2348: the UVs plus object row 38 + data.x
-        // .zw, bal 2398, then 1720) are the same pass with other UVs. Each tests and clears row 21.y, so the first of them in
-        // the mesh's routine order draws it.
-        int passRoutine=0;for(auto a:m.algorithms)if(a==16 || a==22 || a==50){passRoutine=a;break;}
+        // 22 (table B 0f90: routine 20's sphere map, bal 0fd0, then 1720), 50 (2348: the UVs plus object row 38 + data.x
+        // .zw, bal 2398, then 1720), 18 (1870: its data's per-vertex UV pairs copied in, then 1748) and 28 (1138: routine 26's
+        // reflection map with 28's data row, bal 1178, then 1720) are the same pass with other UVs. Each tests and clears
+        // row 21.y, so the first of them in the mesh's routine order draws it.
+        int passRoutine=0;for(auto a:m.algorithms)if(a==16 || a==18 || a==22 || a==28 || a==50){passRoutine=a;break;}
         std::array<float,2> passScroll{};
         if(passRoutine==50){
             if(m.has(20) || m.has(26) || m.has(36) || m.has(40))throw std::runtime_error("native second pass (routine 50) over UVs that are not the mesh's own");
@@ -536,6 +562,23 @@ NativeModelSubmission NativeModels::capture(Runtime *rt,NativeAssets &assets,Nat
                 pr.texture=textures.modelImage(key,tex0,std::nullopt)->picture((hi>>24)&0xf);   // CSA
                 pr.textureAlpha=(hi>>2)&1;pr.textureFunction=(hi>>3)&3;   // TCC, TFX
                 projector=pr;}}
+        // 32, 52, 54 (table B 1bb8, 1e70, 1e60; gated by row 17.w): not ported. No live one in the 362 clean maps; 3 disc meshes
+        // with 32 have the gate set.
+        if((m.has(32) || m.has(52) || m.has(54)) && block>=0x100000 && word(block+0x70)==0x8000 && word(block+0x78)==0x412 && word(block+0xbc))
+            throw std::runtime_error(std::format("unported native table-B pass (routine 32/52/54): mesh {:x} block {:x}",mesh,block));
+        // 12 and 14 (table B 1488 and 1590, lifted with vu1_lift): shell redraws. Each step, over the vertices in order:
+        // colour = FTOI0(min(max(ITOF0(colour) + data row 1, 0), 255)); position = position + normal * data0.x; and in 14's part
+        // UV = FTOI12(ITOF12(uv) + (R - 1.5) * data0.z), R two RNEXTs a vertex (2 (n + 1) a step: the pipeline draws one pair
+        // ahead), RINIT from data0.w when set (then cleared). The counter data0.y falls by one a step. 14: if counter, one
+        // step. 12: if counter, a step without the UV part, then (its code runs into 14's) a 14 step if the counter is still
+        // set. Each dispatch that stepped sets vi12, and 0f58 redraws the mesh from 08b8 (past table A) with its own material.
+        const int shellRoutine=m.has(12)?12:m.has(14)?14:0;std::array<uint32_t,8> shellData{};
+        if(shellRoutine){shellData=m.shell[shellRoutine==12?0:1];
+            if(m.has(12) && m.has(14))throw std::runtime_error("native shell routines 12 and 14 together");
+            if(int32_t(shellData[1])>0 && (passRoutine || projector || m.has(20) || m.has(26) || m.has(36) || m.has(40) || (material[6]&6)))
+                throw std::runtime_error(std::format("unqualified native shell redraw (routine {}) combination: pass {} projector {} routines {}.{}.{}.{} lines {}",shellRoutine,passRoutine,bool(projector),m.algorithms[0],m.algorithms[1],m.algorithms[2],m.algorithms[3],material[6]&6));
+            if(int32_t(shellData[1])>64)throw std::runtime_error("native shell count outside bounds");
+            if(std::bit_cast<float>(shellData[2])!=0 && !shellData[3])throw std::runtime_error("native shell jitter without its seed (the VU's R register before it)");}
         if(m.hasMaterial)material=m.material;
         else if(origin && block>=0x40 && block-0x40!=mesh){const auto owner=assets.origin(block-0x40);if(owner && owner->disc==origin->disc && owner->part==origin->part){
             const auto other=pack->find(owner->offset);if(other!=pack->end() && other->second->hasMaterial)material=other->second->material;}}
@@ -596,48 +639,15 @@ NativeModelSubmission NativeModels::capture(Runtime *rt,NativeAssets &assets,Nat
         // Per-mesh scratch kept between calls (the draw runs on the game's thread only): no allocation per mesh.
         thread_local std::vector<bozo::render::Vertex> vertices;thread_local std::vector<std::array<float,4>> projected;thread_local std::vector<uint8_t> outside;
         vertices.assign(m.vertices.size(),bozo::render::Vertex{});
-        thread_local std::vector<std::array<float,2>> passUv,projectedUv;thread_local std::vector<uint32_t> emitted,projectedRgba;emitted.clear();if(secondPass)passUv.assign(m.vertices.size(),{});
+        thread_local std::vector<std::array<float,2>> passUv,projectedUv;thread_local std::vector<uint32_t> emitted,projectedRgba,passRgba;emitted.clear();
+        if(secondPass){passUv.assign(m.vertices.size(),{});passRgba.assign(m.vertices.size(),0);}
+        thread_local std::vector<std::array<float,3>> shellP,shellN;thread_local std::vector<std::array<float,4>> shellFactor;
+        if(shellRoutine){shellP.assign(m.vertices.size(),{});shellN.assign(m.vertices.size(),{});shellFactor.assign(m.vertices.size(),{});}
         if(projector){projectedUv.assign(m.vertices.size(),{});projectedRgba.assign(m.vertices.size(),0);}projected.clear();projected.reserve(m.vertices.size());outside.clear();outside.reserve(m.vertices.size());
-        for(size_t k=0;k<m.vertices.size();++k){const auto &v=m.vertices[k];std::array<float,3> p{v.p[0],v.p[1],v.p[2]},n{v.n[0],v.n[1],v.n[2]};
-            if(editable){if(m.sources[k].position!=UINT32_MAX)for(unsigned c=0;c<3;++c)p[c]=real(source+m.sources[k].position+4*c);
-                if(m.sources[k].normal!=UINT32_MAX)for(unsigned c=0;c<3;++c)n[c]=real(source+m.sources[k].normal+4*c);}
-            p=skinned(k,p,1);n=skinned(k,n,0);auto &vout=vertices[k];vout.x=p[0];vout.y=p[1];vout.z=p[2];vout.u=v.uv[0]+scroll[0];vout.v=v.uv[1]+scroll[1];
-            const auto clip=apply(screen,{p[0],p[1],p[2],1}),g=apply(guard,{p[0],p[1],p[2],1});projected.push_back(clip);
-            outside.push_back(std::fabs(g[0])>std::fabs(g[3]) || std::fabs(g[1])>std::fabs(g[3]) || std::fabs(g[2])>std::fabs(g[3]));
-            if(mat.fog && clip[3]>0)vout.fog=std::clamp(camera->fog[0]+camera->fog[1]/clip[3],0.0f,255.0f)/255;
+        // The vertex loop's lighting factor at position p, normal n (its own e = eye - p): the shell redraws (12 / 14) light
+        // their moved vertices the same way, as the VU's redraw (08b8) runs the lighting again.
+        const auto lightFactor=[&](const std::array<float,3> &p,const std::array<float,3> &n){
             std::array<float,3> e{eye[0]-p[0],eye[1]-p[1],eye[2]-p[2]};const auto length=std::sqrt(dot(e,e));
-            if(m.has(36)){const float d=dot(n,e),inv=length?1/length:0;std::array<float,3> reflection{2*d*n[0]-e[0],2*d*n[1]-e[1],2*d*n[2]-e[2]},view{};
-                for(unsigned r=0;r<3;++r)view[r]=(viewObject[4*r]*reflection[0]+viewObject[4*r+1]*reflection[1]+viewObject[4*r+2]*reflection[2])*inv;
-                const float q=std::sqrt(std::max(1-view[2],0.1f));vout.u=(-view[0]+1.41421f*q)/(2.82843f*q);vout.v=(view[1]+1.41421f*q)/(2.82843f*q);}
-            if(m.has(20)){
-                // Skinning (2, 4) before 20 gives it the skinned normal, as computed above (battle 0x1a: routines 8 2 20; the
-                // palette's output is object space, drawn through the same screen matrix as unskinned meshes).
-                const auto at20=std::find(m.algorithms.begin(),m.algorithms.end(),20);
-                const bool skinAfter=std::find(at20,m.algorithms.end(),2)!=m.algorithms.end() || std::find(at20,m.algorithms.end(),4)!=m.algorithms.end();
-                if(skinAfter || m.has(36)){std::string order;for(const auto r:m.algorithms)order+=std::format(" {}",int(r));
-                    throw std::runtime_error("unqualified native sphere map with routine 36 or skinning after it (routines"+order+")");}
-                // Routine 20 writes S, T, Q; a later routine 48 adds its offset to S
-                // and T (12-bit); the GS then divides by Q.
-                auto stq=sphereMapTexture(n,eyeDirection,rotation);
-                if(m.has(48)){const auto scrollAfter=std::find(m.algorithms.begin(),m.algorithms.end(),48)>std::find(m.algorithms.begin(),m.algorithms.end(),20);
-                    if(scrollAfter)for(unsigned c=0;c<2;++c)stq[c]=int32_t(std::trunc((double(stq[c])/4096+scroll[c])*4096));}
-                vout.u=stq[2]?float(stq[0])/float(stq[2]):.5f;vout.v=stq[2]?float(stq[1])/float(stq[2]):.5f;}
-            float alphaRow=v.colour[3];
-            if(m.has(26)){
-                // Routine 26 runs after the skinning it follows (it reads the skinned
-                // normal and position); with 20, 36 or 48 it would share the UV row.
-                const auto at=std::find(m.algorithms.begin(),m.algorithms.end(),26);
-                if(m.has(20) || m.has(36) || m.has(48) || std::find(at,m.algorithms.end(),2)!=m.algorithms.end() || std::find(at,m.algorithms.end(),4)!=m.algorithms.end())
-                    throw std::runtime_error("unqualified native routine 26 combination");
-                const auto t=reflectionTexture(n,p,eye,rotation,m.reflection.base,m.reflection.on,m.reflection.scale);
-                vout.u=t.stq[2]?float(t.stq[0])/float(t.stq[2]):.5f;vout.v=t.stq[2]?float(t.stq[1])/float(t.stq[2]):.5f;
-                if(t.alpha)alphaRow=float(*t.alpha);}
-            if(m.has(40)){
-                // Routine 40 reads the converted normal and position; every disc mesh
-                // runs it after 6 or 8 (or alone), never with skinning or another UV routine.
-                if(m.has(2) || m.has(4) || m.has(20) || m.has(26) || m.has(36) || m.has(48))throw std::runtime_error("unqualified native routine 40 combination");
-                const auto st=screenTexture(n,p,m.screen,{screenRows[0][0],screenRows[0][1]},{screenRows[1][0],screenRows[1][1]},guard);
-                vout.u=float(st[0])/4096;vout.v=float(st[1])/4096;}
             std::array<float,4> factor{1,1,1,objectColour[3]};
             // Mode 0 keeps the object colour (row 13) with or without table A. Without A
             // and with plain (mem[14].x) clear, the model program's table-D entry
@@ -699,11 +709,60 @@ NativeModelSubmission NativeModels::capture(Runtime *rt,NativeAssets &assets,Nat
                     float sp=std::max(0.0f,dot(half,n));for(int32_t r=0;r<power;++r)sp*=sp;const float specular=sp*cone*strength;diffuse*=weights[1];
                     for(unsigned c=0;c<3;++c)factor[c]+=l.colour[c]*diffuse+l.colour[c]*specular;}
             }
+            return factor;};
+        for(size_t k=0;k<m.vertices.size();++k){const auto &v=m.vertices[k];std::array<float,3> p{v.p[0],v.p[1],v.p[2]},n{v.n[0],v.n[1],v.n[2]};
+            if(editable){if(m.sources[k].position!=UINT32_MAX)for(unsigned c=0;c<3;++c)p[c]=real(source+m.sources[k].position+4*c);
+                if(m.sources[k].normal!=UINT32_MAX)for(unsigned c=0;c<3;++c)n[c]=real(source+m.sources[k].normal+4*c);}
+            p=skinned(k,p,1);n=skinned(k,n,0);auto &vout=vertices[k];vout.x=p[0];vout.y=p[1];vout.z=p[2];vout.u=v.uv[0]+scroll[0];vout.v=v.uv[1]+scroll[1];
+            const auto clip=apply(screen,{p[0],p[1],p[2],1}),g=apply(guard,{p[0],p[1],p[2],1});projected.push_back(clip);
+            outside.push_back(std::fabs(g[0])>std::fabs(g[3]) || std::fabs(g[1])>std::fabs(g[3]) || std::fabs(g[2])>std::fabs(g[3]));
+            if(mat.fog && clip[3]>0)vout.fog=std::clamp(camera->fog[0]+camera->fog[1]/clip[3],0.0f,255.0f)/255;
+            std::array<float,3> e{eye[0]-p[0],eye[1]-p[1],eye[2]-p[2]};const auto length=std::sqrt(dot(e,e));
+            if(m.has(36)){const float d=dot(n,e),inv=length?1/length:0;std::array<float,3> reflection{2*d*n[0]-e[0],2*d*n[1]-e[1],2*d*n[2]-e[2]},view{};
+                for(unsigned r=0;r<3;++r)view[r]=(viewObject[4*r]*reflection[0]+viewObject[4*r+1]*reflection[1]+viewObject[4*r+2]*reflection[2])*inv;
+                const float q=std::sqrt(std::max(1-view[2],0.1f));vout.u=(-view[0]+1.41421f*q)/(2.82843f*q);vout.v=(view[1]+1.41421f*q)/(2.82843f*q);}
+            if(m.has(20)){
+                // Skinning (2, 4) before 20 gives it the skinned normal, as computed above (battle 0x1a: routines 8 2 20; the
+                // palette's output is object space, drawn through the same screen matrix as unskinned meshes).
+                const auto at20=std::find(m.algorithms.begin(),m.algorithms.end(),20);
+                const bool skinAfter=std::find(at20,m.algorithms.end(),2)!=m.algorithms.end() || std::find(at20,m.algorithms.end(),4)!=m.algorithms.end();
+                if(skinAfter || m.has(36)){std::string order;for(const auto r:m.algorithms)order+=std::format(" {}",int(r));
+                    throw std::runtime_error("unqualified native sphere map with routine 36 or skinning after it (routines"+order+")");}
+                // Routine 20 writes S, T, Q; a later routine 48 adds its offset to S
+                // and T (12-bit); the GS then divides by Q.
+                auto stq=sphereMapTexture(n,eyeDirection,rotation);
+                if(m.has(48)){const auto scrollAfter=std::find(m.algorithms.begin(),m.algorithms.end(),48)>std::find(m.algorithms.begin(),m.algorithms.end(),20);
+                    if(scrollAfter)for(unsigned c=0;c<2;++c)stq[c]=int32_t(std::trunc((double(stq[c])/4096+scroll[c])*4096));}
+                vout.u=stq[2]?float(stq[0])/float(stq[2]):.5f;vout.v=stq[2]?float(stq[1])/float(stq[2]):.5f;}
+            float alphaRow=v.colour[3];
+            if(m.has(26)){
+                // Routine 26 runs after the skinning it follows (it reads the skinned
+                // normal and position); with 20, 36 or 48 it would share the UV row.
+                const auto at=std::find(m.algorithms.begin(),m.algorithms.end(),26);
+                if(m.has(20) || m.has(36) || m.has(48) || std::find(at,m.algorithms.end(),2)!=m.algorithms.end() || std::find(at,m.algorithms.end(),4)!=m.algorithms.end())
+                    throw std::runtime_error("unqualified native routine 26 combination");
+                const auto t=reflectionTexture(n,p,eye,rotation,m.reflection.base,m.reflection.on,m.reflection.scale);
+                vout.u=t.stq[2]?float(t.stq[0])/float(t.stq[2]):.5f;vout.v=t.stq[2]?float(t.stq[1])/float(t.stq[2]):.5f;
+                if(t.alpha)alphaRow=float(*t.alpha);}
+            if(m.has(40)){
+                // Routine 40 reads the converted normal and position; every disc mesh
+                // runs it after 6 or 8 (or alone), never with skinning or another UV routine.
+                if(m.has(2) || m.has(4) || m.has(20) || m.has(26) || m.has(36) || m.has(48))throw std::runtime_error("unqualified native routine 40 combination");
+                const auto st=screenTexture(n,p,m.screen,{screenRows[0][0],screenRows[0][1]},{screenRows[1][0],screenRows[1][1]},guard);
+                vout.u=float(st[0])/4096;vout.v=float(st[1])/4096;}
+            const auto factor=lightFactor(p,n);
             vout.rgba=0;for(unsigned c=0;c<4;++c){finite(factor[c]);const auto lit=uint32_t(std::clamp((c==3?alphaRow:float(v.colour[c]))*factor[c],0.0f,limit[c]>0?std::min(limit[c],255.0f):255.0f));vout.rgba|=lit<<(8*c);}
             for(auto f:{vout.x,vout.y,vout.z,vout.u,vout.v,vout.fog})finite(f);
+            if(secondPass)passRgba[k]=vout.rgba;
+            if(shellRoutine){shellP[k]=p;shellN[k]=n;shellFactor[k]=factor;}
             if(secondPass){auto &uv=passUv[k];uv={vout.u,vout.v};
                 if(passRoutine==22){const auto stq=sphereMapTexture(n,eyeDirection,rotation);uv={stq[2]?float(stq[0])/float(stq[2]):.5f,stq[2]?float(stq[1])/float(stq[2]):.5f};}
                 else if(passRoutine==50){uv[0]+=passScroll[0];uv[1]+=passScroll[1];}
+                else if(passRoutine==18){if(m.listedUv.size()!=m.vertices.size())throw std::runtime_error("native second pass (routine 18) without its UV list");
+                    uv={float(m.listedUv[k][0])/4096,float(m.listedUv[k][1])/4096};}
+                else if(passRoutine==28){const auto &r=m.secondReflection;const auto t=reflectionTexture(n,p,eye,rotation,r.base,r.on,r.scale);
+                    uv={t.stq[2]?float(t.stq[0])/float(t.stq[2]):.5f,t.stq[2]?float(t.stq[1])/float(t.stq[2]):.5f};
+                    if(t.alpha){const auto lit=uint32_t(std::clamp(float(*t.alpha)*factor[3],0.0f,limit[3]>0?std::min(limit[3],255.0f):255.0f));passRgba[k]=(vout.rgba&0xffffffu)|lit<<24;}}
                 for(auto f:uv)finite(f);}
             if(projector){const auto &pr=*projector;
                 const auto t=projectedTexture(p,n,pr.origin,pr.cols,pr.mask);const int32_t S=t.stq[0],T=t.stq[1],Q=t.stq[2];
@@ -752,18 +811,23 @@ NativeModelSubmission NativeModels::capture(Runtime *rt,NativeAssets &assets,Nat
         if(secondPass && !batch.vertices.empty()){
             // The second pass (routine 16, 22 or 50): the same triangles with its UVs and texture, blended with its ALPHA_1, after pass 1.
             auto second=batch;if(emitted.size()!=second.vertices.size())throw std::runtime_error("native second pass lost its vertex order");
-            for(size_t e=0;e<emitted.size();++e){second.vertices[e].u=passUv[emitted[e]][0];second.vertices[e].v=passUv[emitted[e]][1];}auto &m2=second.material;m2.alphaBlend=true;m2.blend=bozo::render::Material::Blend::Alpha;m2.gsBlend=true;
+            for(size_t e=0;e<emitted.size();++e){second.vertices[e].u=passUv[emitted[e]][0];second.vertices[e].v=passUv[emitted[e]][1];second.vertices[e].rgba=passRgba[emitted[e]];}auto &m2=second.material;m2.alphaBlend=true;m2.blend=bozo::render::Material::Blend::Alpha;m2.gsBlend=true;
             const auto a=secondPass->alpha;m2.blendA=a&3;m2.blendB=(a>>2)&3;m2.blendC=(a>>4)&3;m2.blendD=(a>>6)&3;m2.blendFix=0x80;
             if(material[1]){
-                if(feedbackTexture || !manager)throw std::runtime_error("native mesh second pass over the feedback picture");
+                if(!manager)throw std::runtime_error("native mesh second pass without the texture manager");
                 const auto index=value<int16_t>(rt,manager+0x2670+2*secondPass->slot);if(index<0)throw std::runtime_error("native mesh second-pass texture not registered");
                 const TextureKey key{word(manager+0x1008+16*index),word(manager+8+16*index)};
-                const auto lo=word(manager+0x1010+16*index);
-                if(lo!=secondPass->tex0 || (key.tag==0x4674404c && key.index==1))
+                const auto lo=word(manager+0x1010+16*index);const bool feedbackKey=key.tag==0x4674404c && key.index==1;
+                if(lo!=secondPass->tex0 || (feedbackKey && !feedbackTexture))
                     throw std::runtime_error(std::format("native mesh second pass: slot {} holds TEX0 {:08x}, row 18 writes {:08x}",secondPass->slot,lo,secondPass->tex0));
+                // Pass 1 over the screen-feedback picture (maps 103, 445): pass 2 keeps that source when its slot is the same
+                // picture ('L@tF' 1), else samples its own texture.
+                if(feedbackKey)goto secondTextured;
+                m2.fromFrame=0;m2.source=0;
                 const uint64_t tex0=lo|uint64_t(word(manager+0x1014+16*index))<<32;
                 const auto meshPart=origin && origin->kind==AssetOrigin::Kind::Part?std::optional(std::pair{origin->disc,origin->part}):std::nullopt;
-                second.texture=textures.modelImage(key,tex0,meshPart)->picture(secondPass->part);}
+                second.texture=textures.modelImage(key,tex0,meshPart)->picture(secondPass->part);m2.textured=true;}
+            secondTextured:
             m2.depthWrite=bool(palette);
             extra.push_back({passSlot,std::move(second)});}
         if(projector && !batch.vertices.empty()){
@@ -781,6 +845,27 @@ NativeModelSubmission NativeModels::capture(Runtime *rt,NativeAssets &assets,Nat
                 std::fprintf(stderr,"[vp2s:projected] object=%x mesh=%x vertices=%zu lit=%u u=%.3f..%.3f v=%.3f..%.3f level=%.0f texture=%ux%u\n",object,mesh,third.vertices.size(),lit,u0,u1,v0,v1,pr.level,
                     pr.texture?pr.texture->width:0,pr.texture?pr.texture->height:0);}
             extra.push_back({projectorSlot,std::move(third)});}
+        if(shellRoutine && int32_t(shellData[1])>0 && !batch.vertices.empty()){
+            const auto shellMaterial=batch.material;const auto shellTexture=batch.texture;const auto shellMatrix=batch.matrix;
+            std::vector<NativeShellVertex> start(m.vertices.size());
+            for(size_t k=0;k<m.vertices.size();++k){for(unsigned c=0;c<4;++c)start[k].colour[c]=m.vertices[k].colour[c];start[k].p=shellP[k];start[k].n=shellN[k];start[k].uv={vertices[k].u,vertices[k].v};}
+            const auto redraw=[&](const std::vector<NativeShellVertex> &state){
+                NativeModelBatch shell;shell.matrix=shellMatrix;shell.material=shellMaterial;shell.texture=shellTexture;
+                std::vector<bozo::render::Vertex> verts(m.vertices.size());std::vector<std::array<float,4>> clip(m.vertices.size());std::vector<uint8_t> away(m.vertices.size());
+                for(size_t k=0;k<m.vertices.size();++k){auto &o=verts[k];const auto &q=state[k].p;const auto relit=lightFactor(q,state[k].n);for(auto f:relit)finite(f);o.x=q[0];o.y=q[1];o.z=q[2];o.u=state[k].uv[0];o.v=state[k].uv[1];
+                    clip[k]=apply(screen,{q[0],q[1],q[2],1});const auto g=apply(guard,{q[0],q[1],q[2],1});
+                    away[k]=std::fabs(g[0])>std::fabs(g[3]) || std::fabs(g[1])>std::fabs(g[3]) || std::fabs(g[2])>std::fabs(g[3]);
+                    if(shellMaterial.fog && clip[k][3]>0)o.fog=std::clamp(camera->fog[0]+camera->fog[1]/clip[k][3],0.0f,255.0f)/255;
+                    o.rgba=0;for(unsigned c=0;c<4;++c){const auto lit=uint32_t(std::clamp(float(int32_t(state[k].colour[c]))*relit[c],0.0f,limit[c]>0?std::min(limit[c],255.0f):255.0f));o.rgba|=lit<<(8*c);}
+                    for(auto f:{o.x,o.y,o.z,o.u,o.v,o.fog})finite(f);}
+                size_t at=0;for(auto length:m.strips){for(unsigned k=2;k<length;++k){const auto a=at+k-2,b=at+k-1,c=at+k;
+                    if(away[a] || away[b] || away[c])continue;
+                    if(cull && clip[a][3]>0 && clip[b][3]>0 && clip[c][3]>0){const auto &p0=clip[a],&p1=clip[b],&p2=clip[c];
+                        const float area=(p0[0]/p0[3]-p1[0]/p1[3])*(p1[1]/p1[3]-p2[1]/p2[3])-(p0[1]/p0[3]-p1[1]/p1[3])*(p1[0]/p1[3]-p2[0]/p2[3]);
+                        if(!std::signbit(area*((k&1)?-1.0f:1.0f)))continue;}
+                    shell.vertices.push_back(verts[a]);shell.vertices.push_back(verts[(k&1)?c:b]);shell.vertices.push_back(verts[(k&1)?b:c]);}at+=length;}
+                if(!shell.vertices.empty())extra.push_back({4,std::move(shell)});};
+            for(const auto &state:nativeShells(shellRoutine,shellData,std::move(start)))redraw(state);}
         if(!batch.vertices.empty()){out.batches.push_back(std::move(batch));
             std::stable_sort(extra.begin(),extra.end(),[](const auto &x,const auto &y){return x.first<y.first;});   // table B runs in routine order
             for(auto &[slot,b]:extra)out.batches.push_back(std::move(b));}

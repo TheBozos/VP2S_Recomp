@@ -450,55 +450,60 @@ int main(){try{
             {0x2450e0,0xd8420000},{0x2450e4,0x4be111ac},{0x2450e8,0x4be1133c},{0x2450ec,0x4bc022bc},{0x2450f0,0x4bc33108},{0x2450f4,0xf8440000},{0x2450f8,0x4bc4d6af},{0x2450fc,0x4bc4deeb},
             {0x245240,0xd8720000},{0x245248,0x4bd2033c},{0x245250,0x4bd1033c},{0x245264,0x48a32800},{0x24526c,0xd8680000},{0x2452a8,0x4be00798},{0x2452b0,0xd87d0000}
         };
-        for(const auto &[pc,w]:program){write(y,pc,w);write(x,pc,w);}
         const uint32_t P0=frame-0x40,S3=frame-0x270,PARENT=0x1e0000;unsigned programCases=0,programPoints=0;
         const auto both=[&](uint32_t at,uint32_t v){write(y,at,v);write(x,at,v);};
-        for(unsigned seed=0;seed<96;++seed){
-            uint32_t state=seed*2246822519u+29;const auto rnd=[&](){state=state*1664525u+1013904223u;return state>>8;};
-            const auto value=[&](unsigned lo=105,unsigned span=40){return (rnd()&0x807fffffu)|((lo+rnd()%span)<<23);};
-            const auto vec=[&](uint32_t at){for(unsigned i=0;i<4;++i)both(at+4*i,value());};
-            const uint32_t dt=value(118,6)&0x7fffffffu;both(0x35dee8,dt);vec(E+0xc0);both(E+0x54,value(122,6));
-            both(E+0x14,B);both(E+0x68,T);both(E+0xf8,seed&1?PARENT:0);vec(PARENT+0x10);
-            for(unsigned i=0;i<4;++i)vec(E+0x80+16*i);for(unsigned i=0;i<16;++i)vec(T+16*i);
-            for(uint32_t at=B;at<B+0x170*10;at+=16)vec(at);for(uint32_t at=O;at<O+0x30*8;at+=16)vec(at);
-            const auto random=[&](unsigned r,uint32_t low){m.r[r].uw[0]=low;for(unsigned i=1;i<4;++i)m.r[r].uw[i]=rnd();};
-            m=R5900Context{};m.r[29].uw[0]=P0;m.r[16].uw[0]=E;
-            if(seed&1){m.r[3].uw[0]=PARENT+0x10;run(0x245240);}else run(0x245248);
-            run(0x245250);random(3,dt);run(0x245264);m.r[3].uw[0]=E+0xc0;run(0x24526c);run(0x2452a8);
-            for(unsigned i=0;i<4;++i)both(P0+0x30+4*i,0x437f0000u);m.r[3].uw[0]=P0+0x30;run(0x2452b0);
-            m=R5900Context{};m.r[29].uw[0]=S3;m.r[20].uw[0]=E;
-            const unsigned trail=seed%4,rows=(seed/4)%3,n=2+seed%3;
-            for(unsigned k=0;k<2;++k){
-                const unsigned index=seed%5+3*k,ops=(seed/2+k)%4;const uint32_t rec=B+index*0x170,out=O+k*0x30*4;
-                m.r[19].uw[0]=index;m.r[17].uw[0]=rec;m.r[16].uw[0]=rec+0x10;m.r[30].uw[0]=rec+0x30;
-                if(ops==1){m.r[2].uw[0]=rec+0x50;for(uint32_t pc=0x2447e4;pc<=0x2447f4;pc+=4)run(pc);m.r[2].uw[0]=S3+0x210;run(0x2447fc);}
-                if(ops==2 || ops==3){const uint32_t base=ops==2?0x2448d8:0x244958,store=ops==2?0x200:0x1f0,reload=ops==2?0x244940:0x2449a8;
-                    m.r[3].uw[0]=E+0x80;for(uint32_t pc=base;pc<base+0x24;pc+=4)run(pc);m.r[2].uw[0]=S3+store;run(base+0x24);
-                    random(2,dt);run(reload);m.r[2].uw[0]=E+0xc0;run(reload+0xc);}
-                run(0x244b50);
-                if(seed%3==0){vec(S3+0x1e0);m.r[2].uw[0]=S3+0x1e0;run(0x244c58);}else run(0x244ce0);
-                run(0x244ce8);run(0x244cec);m.r[2].uw[0]=rec+0x40;run(0x244cf4);m.r[2].uw[0]=rec+0x50;run(0x244cfc);m.r[2].uw[0]=rec+0x20;run(0x244d04);
-                m.r[22].uw[0]=rec+0x60;run(0x244d0c);m.r[21].uw[0]=rec+0x70;run(0x244d14);
-                if(seed&2){vec(S3+0x260);m.r[2].uw[0]=S3+0x260;run(0x244d44);}
-                for(unsigned j=0;j<rows;++j){const unsigned a1=j+seed%5;m.r[5].uw[0]=a1;m.r[2].uw[0]=T+16*a1;run(0x244dd0);
-                    const auto fraction=value(115,8)&0x7fffffffu;m.f[1]=std::bit_cast<float>(fraction);random(2,fraction);run(0x244ddc);run(0x244de0);run(0x244de4);}
-                for(uint32_t pc=0x244e1c;pc<=0x244e74;pc+=4)run(pc);
-                m.r[23].uw[0]=out;run(0x244e7c);
-                if(seed%4==3 || (seed%7==2 && k)){run(0x244e8c);vec(S3+0x260);vec(S3+0x250);m.r[2].uw[0]=S3+0x260;run(0x244ecc);m.r[2].uw[0]=S3+0x250;run(0x244ed4);run(0x244ee0);}
-                run(0x244ee8);m.r[2].uw[0]=rec+0x50;run(0x244ef0);run(0x244ef4);run(0x244ef8);m.r[2].uw[0]=rec+0x40;run(0x244f00);m.r[2].uw[0]=rec+0x20;run(0x244f08);run(0x244f0c);
-                if(trail){
-                    const uint32_t head=trail==2?0x244f68:trail==1?0x245008:0x2450ac,first=trail==2?0x244f98:trail==1?0x245038:0x2450e0,last=trail==2?0x244fd4:trail==1?0x245070:0x2450fc;
-                    m.r[4].uw[0]=out;run(head);random(2,read<uint32_t>(y,E+0x54));run(head+0x10);run(head+0x14);
-                    for(unsigned i=1;i<n;++i){m.r[3].uw[0]=i;m.r[2].uw[0]=out+i*0x30;for(uint32_t pc=first;pc<=last;pc+=4)run(pc);++programPoints;}
+        // Pass 1: mod003's copy for the field classes 162330 / 163fa0 (prepare 40e990, step 40d1b0), every site 1c97c0
+        // higher, with the same 0x170-byte records. Pass 0 last, so the refusals below run against mod001's words.
+        for(const uint32_t D:{0x1c97c0u,0u}){
+        const auto go=[&](uint32_t pc){run(pc+D);};
+        for(const auto &[pc,w]:program){write(y,pc+D,w);write(x,pc+D,w);}
+            for(unsigned seed=0;seed<96;++seed){
+                uint32_t state=seed*2246822519u+29;const auto rnd=[&](){state=state*1664525u+1013904223u;return state>>8;};
+                const auto value=[&](unsigned lo=105,unsigned span=40){return (rnd()&0x807fffffu)|((lo+rnd()%span)<<23);};
+                const auto vec=[&](uint32_t at){for(unsigned i=0;i<4;++i)both(at+4*i,value());};
+                const uint32_t dt=value(118,6)&0x7fffffffu;both(0x35dee8,dt);vec(E+0xc0);both(E+0x54,value(122,6));
+                both(E+0x14,B);both(E+0x68,T);both(E+0xf8,seed&1?PARENT:0);vec(PARENT+0x10);
+                for(unsigned i=0;i<4;++i)vec(E+0x80+16*i);for(unsigned i=0;i<16;++i)vec(T+16*i);
+                for(uint32_t at=B;at<B+0x170*10;at+=16)vec(at);for(uint32_t at=O;at<O+0x30*8;at+=16)vec(at);
+                const auto random=[&](unsigned r,uint32_t low){m.r[r].uw[0]=low;for(unsigned i=1;i<4;++i)m.r[r].uw[i]=rnd();};
+                m=R5900Context{};m.r[29].uw[0]=P0;m.r[16].uw[0]=E;
+                if(seed&1){m.r[3].uw[0]=PARENT+0x10;go(0x245240);}else go(0x245248);
+                go(0x245250);random(3,dt);go(0x245264);m.r[3].uw[0]=E+0xc0;go(0x24526c);go(0x2452a8);
+                for(unsigned i=0;i<4;++i)both(P0+0x30+4*i,0x437f0000u);m.r[3].uw[0]=P0+0x30;go(0x2452b0);
+                m=R5900Context{};m.r[29].uw[0]=S3;m.r[20].uw[0]=E;
+                const unsigned trail=seed%4,rows=(seed/4)%3,n=2+seed%3;
+                for(unsigned k=0;k<2;++k){
+                    const unsigned index=seed%5+3*k,ops=(seed/2+k)%4;const uint32_t rec=B+index*0x170,out=O+k*0x30*4;
+                    m.r[19].uw[0]=index;m.r[17].uw[0]=rec;m.r[16].uw[0]=rec+0x10;m.r[30].uw[0]=rec+0x30;
+                    if(ops==1){m.r[2].uw[0]=rec+0x50;for(uint32_t pc=0x2447e4;pc<=0x2447f4;pc+=4)go(pc);m.r[2].uw[0]=S3+0x210;go(0x2447fc);}
+                    if(ops==2 || ops==3){const uint32_t base=ops==2?0x2448d8:0x244958,store=ops==2?0x200:0x1f0,reload=ops==2?0x244940:0x2449a8;
+                        m.r[3].uw[0]=E+0x80;for(uint32_t pc=base;pc<base+0x24;pc+=4)go(pc);m.r[2].uw[0]=S3+store;go(base+0x24);
+                        random(2,dt);go(reload);m.r[2].uw[0]=E+0xc0;go(reload+0xc);}
+                    go(0x244b50);
+                    if(seed%3==0){vec(S3+0x1e0);m.r[2].uw[0]=S3+0x1e0;go(0x244c58);}else go(0x244ce0);
+                    go(0x244ce8);go(0x244cec);m.r[2].uw[0]=rec+0x40;go(0x244cf4);m.r[2].uw[0]=rec+0x50;go(0x244cfc);m.r[2].uw[0]=rec+0x20;go(0x244d04);
+                    m.r[22].uw[0]=rec+0x60;go(0x244d0c);m.r[21].uw[0]=rec+0x70;go(0x244d14);
+                    if(seed&2){vec(S3+0x260);m.r[2].uw[0]=S3+0x260;go(0x244d44);}
+                    for(unsigned j=0;j<rows;++j){const unsigned a1=j+seed%5;m.r[5].uw[0]=a1;m.r[2].uw[0]=T+16*a1;go(0x244dd0);
+                        const auto fraction=value(115,8)&0x7fffffffu;m.f[1]=std::bit_cast<float>(fraction);random(2,fraction);go(0x244ddc);go(0x244de0);go(0x244de4);}
+                    for(uint32_t pc=0x244e1c;pc<=0x244e74;pc+=4)go(pc);
+                    m.r[23].uw[0]=out;go(0x244e7c);
+                    if(seed%4==3 || (seed%7==2 && k)){go(0x244e8c);vec(S3+0x260);vec(S3+0x250);m.r[2].uw[0]=S3+0x260;go(0x244ecc);m.r[2].uw[0]=S3+0x250;go(0x244ed4);go(0x244ee0);}
+                    go(0x244ee8);m.r[2].uw[0]=rec+0x50;go(0x244ef0);go(0x244ef4);go(0x244ef8);m.r[2].uw[0]=rec+0x40;go(0x244f00);m.r[2].uw[0]=rec+0x20;go(0x244f08);go(0x244f0c);
+                    if(trail){
+                        const uint32_t head=trail==2?0x244f68:trail==1?0x245008:0x2450ac,first=trail==2?0x244f98:trail==1?0x245038:0x2450e0,last=trail==2?0x244fd4:trail==1?0x245070:0x2450fc;
+                        m.r[4].uw[0]=out;go(head);random(2,read<uint32_t>(y,E+0x54));go(head+0x10);go(head+0x14);
+                        for(unsigned i=1;i<n;++i){m.r[3].uw[0]=i;m.r[2].uw[0]=out+i*0x30;for(uint32_t pc=first;pc<=last;pc+=4)go(pc);++programPoints;}
+                    }
                 }
+                check(!std::memcmp(x.memory.hostPointer(B,0x170*10),y.memory.hostPointer(B,0x170*10),0x170*10));
+                check(!std::memcmp(x.memory.hostPointer(O,0x30*8),y.memory.hostPointer(O,0x30*8),0x30*8));
+                check(!std::memcmp(x.memory.hostPointer(S3+0x1f0,0x20),y.memory.hostPointer(S3+0x1f0,0x20),0x20));
+                check(!std::memcmp(x.memory.hostPointer(S3+0x210,12),y.memory.hostPointer(S3+0x210,12),12));   // .w of the |A|^2 store is never read
+                const auto box=now.particles.bounds(frame,E);
+                for(unsigned i=0;i<3;++i)check(std::bit_cast<uint32_t>(box.minimum[i])==o.vu0_vf[26].u[i] && std::bit_cast<uint32_t>(box.maximum[i])==o.vu0_vf[27].u[i]);
+                programCases+=2;
             }
-            check(!std::memcmp(x.memory.hostPointer(B,0x170*10),y.memory.hostPointer(B,0x170*10),0x170*10));
-            check(!std::memcmp(x.memory.hostPointer(O,0x30*8),y.memory.hostPointer(O,0x30*8),0x30*8));
-            check(!std::memcmp(x.memory.hostPointer(S3+0x1f0,0x20),y.memory.hostPointer(S3+0x1f0,0x20),0x20));
-            check(!std::memcmp(x.memory.hostPointer(S3+0x210,12),y.memory.hostPointer(S3+0x210,12),12));   // .w of the |A|^2 store is never read
-            const auto box=now.particles.bounds(frame,E);
-            for(unsigned i=0;i<3;++i)check(std::bit_cast<uint32_t>(box.minimum[i])==o.vu0_vf[26].u[i] && std::bit_cast<uint32_t>(box.maximum[i])==o.vu0_vf[27].u[i]);
-            programCases+=2;
         }
         // A main site before the loads, a step without its prepare frame, a wrong record and another word reject.
         m=R5900Context{};m.r[29].uw[0]=S3;m.r[20].uw[0]=E;
@@ -523,7 +528,7 @@ int main(){try{
         write(y,0x297490,0xda010000u);m.r[19].uw[0]=2;m.r[17].uw[0]=read<uint32_t>(y,E+0x14)+2*0x140;m.r[16].uw[0]=m.r[17].uw[0]+0x10;
         check(vp2s::nativeMathInstruction(y.memory.flat(),&m,&y,0x297490));
         write(y,0x2972f8,uint32_t(0));check(!vp2s::nativeMathInstruction(y.memory.flat(),&m,&y,0x2972f8));
-        std::printf("%u general emitter particles (%u trail points, end conditions, jitter, push, curves, collision, three trail kinds) match the VU0 reference\n",programCases,programPoints);}
+        std::printf("%u general emitter particles (both copies, %u trail points, end conditions, jitter, push, curves, collision, three trail kinds) match the VU0 reference\n",programCases,programPoints);}
         // mod001 295f20 + 295580, the second emitter class (vtables 1563f0 / 156500): prepare's constant registers,
         // then per particle of 0xb0 bytes the loads, parent push, curves, the main step, output, early velocity,
         // collision, the stores of each +d0 kind (2: |A|^2, 5: rows * P, whose row loads become the next particles'

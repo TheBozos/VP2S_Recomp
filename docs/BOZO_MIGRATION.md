@@ -12,6 +12,31 @@ The earlier VP2S face/shading and general brightness comparisons remain open.
 
 ## Build and evidence
 
+### General particle emitter: mod003's copy for the field classes 162330 / 163fa0 (2026-11-24)
+
+- **The case:** 17 maps (137-147, 376, 479-561) stopped at 40ea08, in 40e990: the +c of field emitter classes
+  162330 / 163fa0. Their vtables are 154810 / 154a30's with mod003 code:
+  - prepare 40e990 is 2451d0;
+  - step 40d1b0 is 2439f0;
+  - +14 3f56a0 is 23fa40;
+  - +1c is 405b20.
+- **What differs:** every VU0 site of the prepare and step sits 1c97c0 higher (the +14's sit 1b5c60 higher). The
+  only other differences are:
+  - two scalar table addresses (3563a0 / 356370 become 48d730 / 48d700), read by EE code, not by these sites;
+  - the parent-hook helpers 40f420 / 40f5b0, which are 245540 / 2456d0 word for word, 1c9ee0 higher.
+- **Now:**
+  - programCanonical maps the copy onto the general emitter's sites. Its records are 0x170 bytes, as the general
+    step's. The 0x140 stride is now chosen only for the battle copy (1585f0), not for any copy.
+  - The step's random draws map the same way.
+  - 40f420's hook words are retired.
+  - 3f56a0's 48 box triplets are listed, each load / MINI / MAX word checked against the image.
+
+**Evidence:**
+- **Tests:** the general emitter test runs both copies. All 384 particles (576 trail points) match the VU0 reference.
+- **Maps:** all 17 pass 40ea08, and 11 run clean. **Atlas:** 431 of 552 maps clean. The others stop at:
+  - an unported fade type/mode (class 161230, mode 2): 137, 138, 145, 146;
+  - a live table-B pass (routine 32/52/54): 140, 143.
+
 ### Particle points without fog (image 3, PRIM 0x40) (2026-11-24)
 
 - **The case:** 10 field maps (61-93, 190-193) stopped on "particle image 3/5 GS state (ALPHA reg 42, tag

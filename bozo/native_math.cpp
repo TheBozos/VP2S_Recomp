@@ -1597,7 +1597,7 @@ bool nativeUvAnimation(R5900Context *c,Runtime *rt,uint32_t pc){
         // skin positions/normals/packed vectors; their table for each included
         // mesh is the +18 cursor, which 237320 resets to +44 and each included
         // mesh advances by its leading halfword.
-        struct Element{uint32_t at,cursor;float scroll[2];bool all;uint32_t bits;bool skeleton;bool morph=false;bool ribbon=false;bool colour=false;bool flash=false;bool trail=false;bool env=false;bool tint=false;};std::vector<Element> elements;
+        struct Element{uint32_t at,cursor;float scroll[2];bool all;uint32_t bits;bool skeleton;bool morph=false;bool ribbon=false;bool colour=false;bool flash=false;bool trail=false;bool env=false;bool tint=false;bool grid=false;};std::vector<Element> elements;
         for(unsigned i=0;i<count;++i){const auto e=uvWord(rt,list+4*i);const auto vt=uvWord(rt,e);
             if(vt==0x154690){
                 if(uvWord(rt,vt+0x10)!=0x218220 || uvWord(rt,vt+0x18)!=0x2372f0)throw std::runtime_error("unqualified skeleton element methods");
@@ -1650,6 +1650,15 @@ bool nativeUvAnimation(R5900Context *c,Runtime *rt,uint32_t pc){
                     throw std::runtime_error("unqualified colour scale element methods");
                 if(!(flags&4))throw std::runtime_error("colour scale element without its vertex stream");
                 elements.push_back({e,uvWord(rt,e+0x34),{0,0},(uvWord(rt,e+0x18)>>8&0xff)!=0,uvWord(rt,e+0x24),false});elements.back().tint=true;continue;}
+            if(vt==0x163e30){
+                // Height-grid element (water / ground grids): +10 is mod001 29e8f0, plain EE code: for each of the mesh's N
+                // vertices, index = u16 descriptor[k]; position.y = (*(e+40))[index] (a float) and the normal = the qword
+                // (*(e+4c))[index] (29eb48's normals). Its +18 29ef10 has no group test: every included mesh takes its
+                // descriptor at the cursor (+38, reset to +34) and moves it by (2N + 15) & ~15.
+                if(uvWord(rt,vt+0x10)!=0x29e8f0 || uvWord(rt,vt+0x18)!=0x29ef10 || !overlayCode(rt,0x29e8f0,0x29eae0,0xaf80a731747fd6f2ull) || !overlayCode(rt,0x29ef10,0x29ef3c,0xdfdb30875e82d7e3ull))
+                    throw std::runtime_error("unqualified height-grid element methods");
+                if((flags&3)!=3)throw std::runtime_error("height-grid element without streamed positions and normals");
+                elements.push_back({e,uvWord(rt,e+0x34),{0,0},(uvWord(rt,e+0x18)>>8&0xff)!=0,uvWord(rt,e+0x24),false});elements.back().grid=true;continue;}
             if(vt!=0x1591b0)throw std::runtime_error(std::format("unported animated vertex element class {:x} (+10={:x})",vt,uvWord(rt,vt+0x10)));
             Element el{e,uvWord(rt,e+0x34),{std::bit_cast<float>(uvWord(rt,e+0x40)),std::bit_cast<float>(uvWord(rt,e+0x44))},(uvWord(rt,e+0x18)>>8&0xff)!=0,uvWord(rt,e+0x24),false};
             for(float s:el.scroll)if((std::bit_cast<uint32_t>(s)&0x7f800000)==0x7f800000)throw std::runtime_error("unqualified UV scroll");
@@ -1697,6 +1706,17 @@ bool nativeUvAnimation(R5900Context *c,Runtime *rt,uint32_t pc){
                 if(n && (flags&2))std::memcpy(normals.data(),uvBytes(rt,source+normalAt,16*n),16*n);
                 if(n && hasPacked)std::memcpy(packedData.data(),uvBytes(rt,source+packedAt,packedBytes),packedBytes);
                 for(auto &el:elements){
+                    if(el.grid){
+                        const auto descriptor=el.cursor;el.cursor+=(2*uint32_t(n)+15)&~15u;
+                        if(!n || (!el.all && !(uvWord(rt,el.bits+4*(uint32_t(j)>>5))>>(j&31)&1)))continue;
+                        const auto dims=uvWord(rt,el.at+0x30),heights=uvWord(rt,el.at+0x40),normalsAt=uvWord(rt,el.at+0x4c);
+                        const uint64_t cells=uint64_t(uvWord(rt,dims)+2)*uint64_t(uvWord(rt,dims+4)+2);
+                        if(cells>0x100000)throw std::runtime_error("native height grid outside bounds");
+                        for(int32_t k=0;k<n;++k){const auto at=descriptor+2*uint32_t(k);const auto index=uint32_t(uint16_t(uvWord(rt,at&~3u)>>((at&2)*8)));
+                            if(index>=cells)throw std::runtime_error("native height-grid index outside its grid");
+                            const auto y=uvWord(rt,heights+4*index);std::memcpy(positions.data()+16*k+4,&y,4);
+                            std::memcpy(normals.data()+16*k,uvBytes(rt,normalsAt+16*index,16),16);}
+                        continue;}
                     if(el.flash){if(!n || (!el.all && !(uvWord(rt,el.bits+4*(uint32_t(j)>>5))>>(j&31)&1)))continue;
                         taskFlashMesh(rt,el.at,unsigned(n),stream.data(),stream.size());continue;}
                     if(el.colour){if(!n || (!el.all && !(uvWord(rt,el.bits+4*(uint32_t(j)>>5))>>(j&31)&1)))continue;
@@ -1718,7 +1738,7 @@ bool nativeUvAnimation(R5900Context *c,Runtime *rt,uint32_t pc){
                 if(n && hasPacked)std::memcpy(uvBytes(rt,packet+packedAt,packedBytes),packedData.data(),packedBytes);
                 bool tinted=false;
                 if(n)for(auto &el:elements){
-                    if(el.skeleton)continue;
+                    if(el.skeleton || el.grid)continue;   // the grid took its descriptor in the first pass
                     if(!el.all && !(uvWord(rt,el.bits+4*(uint32_t(j)>>5))>>(j&31)&1))continue;
                     const auto descriptor=el.cursor;el.cursor+=uvWord(rt,descriptor+8);
                     if(el.env){envMesh(rt,el.at,descriptor,uvWord(rt,descriptor+8),unsigned(n),positions.data(),normals.data(),words.data(),4*words.size());continue;}
@@ -7479,6 +7499,43 @@ bool retiredScaleWords(R5900Context *,Runtime *,uint32_t pc){
     case 0x239ddc:case 0x239de0:case 0x239de4:case 0x239de8:return true;
     default:return false;}
 }
+// Height-grid normals, mod001 29eb48 (field water / ground grids): per interior point the EE stores the gradient
+// (h(x+1) - h(x-1), -[+30].y, h(z+1) - h(z-1)) at sp+80, then LQC2 vf1 = sp+80 and VCALLMS 0x9b0 (the main image's
+// normalise: vf3.xyz = vf1 * rsqrt(((x^2 + y^2) + 1 z^2)), vf3.w = 1; vf31 = (1, 1, 1) from 29eda4). The loop is
+// pipelined: each SQC2 vf3 (to s0 + 16 index) stores the result of the call before it, the last one after the loop.
+// CFC2.I t1 = vi0 is 0 and CTC2.I to vi0 does nothing.
+namespace {
+struct NormalGridState{bool loaded=false,computed=false;Ps2Lanes vf1{},vf3{};};
+NormalGridState &normalGridState(const Runtime *rt){static std::map<const Runtime *,NormalGridState> states;return states[rt];}
+}
+bool nativeHeightNormals(R5900Context *c,Runtime *rt,uint32_t pc){
+    static constexpr std::pair<uint32_t,uint32_t> sites[]={{0x29eda4,0x4bc007c3},{0x29ee10,0xd8810000},{0x29ee18,0x4a004db8},{0x29ee84,0x48c00001},
+        {0x29ee88,0xd8410000},{0x29ee8c,0x48490001},{0x29ee90,0xf8e30000},{0x29ee98,0x4a004db8},{0x29eec0,0x48490001},{0x29eec4,0xf8e30000}};
+    if(!rt || (pc&3) || pc<0x29eda4 || pc>0x29eec4)return false;
+    const auto site=std::find_if(std::begin(sites),std::end(sites),[&](const auto &s){return s.first==pc;});
+    if(site==std::end(sites))return false;
+    uint32_t word=0;if(const auto *p=rt->memory.hostPointer(pc,4))std::memcpy(&word,p,4);
+    if(word!=site->second)return false;   // another overlay at these addresses
+    if(!c)throw std::runtime_error("native height normals have no CPU record");
+    struct ArithmeticScope{unsigned saved=_mm_getcsr();~ArithmeticScope(){_mm_setcsr(saved);}} arithmetic;
+    auto &st=normalGridState(rt);const auto stack=c->r[29].uw[0];
+    switch(pc){
+    case 0x29eda4:st=NormalGridState{};return true;
+    case 0x29ee10:case 0x29ee88:{
+        const auto at=c->r[pc==0x29ee10?4:2].uw[0];if(at!=stack+0x80)throw std::runtime_error("native height normals escaped their gradient");
+        const auto *p=record(rt,at,16);for(unsigned i=0;i<4;++i)st.vf1[i]=Ps2Word::load(p+4*i);st.loaded=true;return true;}
+    case 0x29ee18:case 0x29ee98:{
+        if(!st.loaded)throw std::runtime_error("native height normals call without their gradient");
+        const auto &v=st.vf1;const auto q=Ps2Word::reciprocalRoot(kPs2One,(v[0]*v[0]+v[1]*v[1])+kPs2One*(v[2]*v[2]));
+        for(unsigned i=0;i<3;++i)st.vf3[i]=v[i]*q;st.vf3[3]=kPs2One;st.computed=true;return true;}
+    case 0x29ee84:return true;
+    case 0x29ee8c:case 0x29eec0:c->r[9].ud[0]=0;c->r[9].ud[1]=0;return true;
+    case 0x29ee90:case 0x29eec4:{
+        if(!st.computed)throw std::runtime_error("native height normals store without a result");
+        auto *p=record(rt,c->r[7].uw[0],16);for(unsigned i=0;i<4;++i)st.vf3[i].store(p+4*i);return true;}
+    }
+    return false;
+}
 // Particle collision shapes (mod001), the +90 of the collision objects the emitters' 2240c0 walks (called at 22414c):
 // test(a0 shape, a1 A, a2 B, a3 V, t0 out velocity, t1 out point) -> hit. A and B are the particle's positions before
 // and after the step, V its velocity. Natively each value the VU0 code stores is computed from the records it loads,
@@ -9401,7 +9458,7 @@ bool nativeMathInstruction(uint8_t *,R5900Context *c,Runtime *rt,uint32_t pc){
     default:
         // Inlined-block recognisers last: they read code around the PC, so
         // only sites no specific handler claimed pay for that scan.
-        return CLAIM(nativeParticleStep) || CLAIM(nativeParticleBox) || CLAIM(nativeTrailEmitter) || CLAIM(nativeProgramEmitter) || CLAIM(nativeSimpleEmitter) || CLAIM(nativeCollisionShape) || CLAIM(nativeRowEmitter) || CLAIM(nativeEmitterClock) || CLAIM(nativeConstantStore) || CLAIM(nativeLengthIdiom) || CLAIM(nativeMacroIdiom) || CLAIM(nativeInverseIdiom) || nativeQuaternionIdiom(c,rt,pc);
+        return CLAIM(nativeParticleStep) || CLAIM(nativeParticleBox) || CLAIM(nativeTrailEmitter) || CLAIM(nativeProgramEmitter) || CLAIM(nativeSimpleEmitter) || CLAIM(nativeCollisionShape) || CLAIM(nativeHeightNormals) || CLAIM(nativeRowEmitter) || CLAIM(nativeEmitterClock) || CLAIM(nativeConstantStore) || CLAIM(nativeLengthIdiom) || CLAIM(nativeMacroIdiom) || CLAIM(nativeInverseIdiom) || nativeQuaternionIdiom(c,rt,pc);
     }
 }
 #undef CLAIM

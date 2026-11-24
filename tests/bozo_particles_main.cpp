@@ -529,6 +529,30 @@ int main(){try{
         check(vp2s::nativeMathInstruction(y.memory.flat(),&m,&y,0x297490));
         write(y,0x2972f8,uint32_t(0));check(!vp2s::nativeMathInstruction(y.memory.flat(),&m,&y,0x2972f8));
         std::printf("%u general emitter particles (both copies, %u trail points, end conditions, jitter, push, curves, collision, three trail kinds) match the VU0 reference\n",programCases,programPoints);}
+        // mod001 29eb48, height-grid normals: the pipelined loop (LQC2 vf1 = sp+80, VCALLMS 0x9b0, SQC2 vf3 one point
+        // behind) against the main image's 0x9b0 transcribed through the VU0 reference (mul, adday.x, maddz.x with vf31 = 1,
+        // rsqrt, mulq; vf3.w = vf0.w).
+        {for(const auto &[pc,w]:{std::pair{0x29eda4u,0x4bc007c3u},{0x29ee10u,0xd8810000u},{0x29ee18u,0x4a004db8u},{0x29ee84u,0x48c00001u},{0x29ee88u,0xd8410000u},
+                {0x29ee8cu,0x48490001u},{0x29ee90u,0xf8e30000u},{0x29ee98u,0x4a004db8u},{0x29eec0u,0x48490001u},{0x29eec4u,0xf8e30000u}})write(y,pc,w);
+         namespace v=bozo::vu0;constexpr uint32_t SPn=0x1b8000,OUT=0x1b9000;unsigned normals=0;
+         const auto call=[&](uint32_t pc){check(vp2s::nativeMathInstruction(y.memory.flat(),&m,&y,pc));};
+         for(unsigned seed=0;seed<40;++seed){
+            uint32_t state=seed*2246822519u+7;const auto rnd=[&](){state=state*1664525u+1013904223u;return state>>8;};
+            const auto uni=[&](float lo,float hi){return lo+(hi-lo)*float(rnd()%100000)/100000.f;};
+            const unsigned n=2+seed%6;std::vector<std::array<float,4>> g(n);for(auto &e:g)e={uni(-3,3),-uni(0.2f,4),uni(-3,3),uni(-9,9)};
+            m=R5900Context{};m.r[29].uw[0]=SPn;m.r[4].uw[0]=SPn+0x80;m.r[2].uw[0]=SPn+0x80;call(0x29eda4);
+            for(unsigned k=0;k<n;++k){std::memcpy(y.memory.hostPointer(SPn+0x80,16),g[k].data(),16);
+                if(!k){call(0x29ee10);call(0x29ee18);continue;}
+                call(0x29ee84);call(0x29ee88);m.r[9].ud[0]=77;call(0x29ee8c);check(m.r[9].ud[0]==0);m.r[7].uw[0]=OUT+16*(k-1);call(0x29ee90);call(0x29ee98);}
+            m.r[7].uw[0]=OUT+16*(n-1);call(0x29eec0);call(0x29eec4);
+            R5900Context o{};
+            for(unsigned k=0;k<n;++k){v::Vec v1,v2,v3,one;std::memcpy(v1.u,g[k].data(),16);for(unsigned i=0;i<3;++i)one.u[i]=0x3f800000u;one.u[3]=0;
+                v2=v1;v::mul(&o,v2,v1,v1,0xe);v3=v1;v3.u[3]=0x3f800000u;v::Vec acc{};v::add(&o,acc,v2,v::bc(v2,1),0x8);v::madd(&o,v2,acc,one,v::bc(v2,2),0x8);
+                const uint32_t q=v::rsqrt(&o,0x3f800000u,v2.u[0]);v::mul(&o,v3,v3,v::broadcast(q),0xe);
+                if(std::memcmp(v3.u,y.memory.hostPointer(OUT+16*k,16),16)){for(unsigned i=0;i<4;++i)std::fprintf(stderr,"normal %u.%u ref %08x native %08x\n",k,i,v3.u[i],read<uint32_t>(y,OUT+16*k+4*i));check(false);}
+                ++normals;}
+         }
+         std::printf("%u height-grid normals match the VU0 reference (0x9b0, pipelined)\n",normals);}
         // mod001 223360 / 223580, the particle collision shapes (sphere, rectangle): each COP2 word through the VU0
         // reference and the native handler; the scalar code between them done here; every stored value compared (xyz;
         // the stored w lanes are register leftovers the native side leaves to memory, and no reader uses them).

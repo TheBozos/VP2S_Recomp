@@ -12,6 +12,35 @@ The earlier VP2S face/shading and general brightness comparisons remain open.
 
 ## Build and evidence
 
+### Height grids: normals pass (29eb48) and the grid element (class 163e30) (2026-11-24)
+
+- **The case:** 8 maps (132, 133, 323, 360, 364, 452, 457, 458; lava and water surfaces) stopped at 29eda4.
+  That is the height-grid simulation's normal pass, which the element's +1c (3f3260) runs before the frame's
+  animator.
+- **The normals (29eb48):** per interior point, the EE stores the gradient (h(x+1) - h(x-1), -[+30].y,
+  h(z+1) - h(z-1)) at sp+80.
+  - LQC2 vf1 = sp+80, then VCALLMS 0x9b0: the main image's normalise. That is vf3.xyz = vf1 * rsqrt((x^2 + y^2)
+    + 1 z^2), vf3.w = 1, with vf31 = (1, 1, 1) from 29eda4.
+  - The loop is pipelined: each SQC2 vf3 stores the call before it, the last one after the loop.
+  - CFC2.I t1 = vi0 is 0.
+- **The element (+10 29e8f0, plain EE code):** for each of the mesh's N vertices, with index = u16 descriptor[k]:
+  - position.y = (*(e+40))[index];
+  - the normal = the qword (*(e+4c))[index].
+  - Its +18 (29ef10) has no group test: every included mesh moves the cursor by (2N + 15) & ~15.
+- **Now:**
+  - nativeHeightNormals runs the normals pass.
+  - The animator admits 163e30 (code hashed) in its first pass, before positions and normals go back to the packet,
+    and skips it in the second.
+
+**Evidence:**
+- **Tests:**
+  - 176 normals against the main image's 0x9b0 transcribed through the VU0 reference, pipelined as the loop is.
+  - 24 grid meshes: positions.y and normals; a mesh outside the element's group bits keeps its vertices but still
+    moves the cursor; an index past the grid is refused.
+- **Maps:** 5 of the 8 run clean (132, 133, 323, 457, 458; map 132's lava surface draws). 360 and 364 reach
+  256698; 452 jumps to a missing module (0x514c70).
+- **Atlas:** 466 of 552 maps clean.
+
 ### Second emitter class's mod003 copy; particle collision shapes; opaque particle points (2026-11-24)
 
 **Second emitter class's mod003 copy**

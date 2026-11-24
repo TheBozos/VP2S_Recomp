@@ -3631,6 +3631,55 @@ int main(int argc,char **argv){try{
         std::printf("%u environment-map meshes match the VU0 0x870 listing + 2a03b0 loop (paths %u/%u/%u/%u/%u, %u seam steps, %u strip resets); short descriptor refused\n",
             envCases,paths[0],paths[1],paths[2],paths[3],paths[4],seams,resets);
     }
+    {   // Height-grid element (class 163e30, mod001 29e8f0 / 29ef10) on the animator: position.y and the normal of each
+        // listed vertex from the grid's arrays; the cursor moves by (2N + 15) & ~15 for every included mesh, its own
+        // group bits only deciding whether that mesh is written.
+        std::string path=argv[1];const auto at=path.rfind("mod010");check(at!=std::string::npos);path.replace(at,6,"mod001");
+        std::vector<uint8_t> elf;{FILE *f=std::fopen(path.c_str(),"rb");if(!f)throw std::runtime_error("mod001 image missing");
+            std::fseek(f,0,SEEK_END);elf.resize(size_t(std::ftell(f)));std::fseek(f,0,SEEK_SET);check(std::fread(elf.data(),1,elf.size(),f)==elf.size());std::fclose(f);}
+        auto &r=native.runtime();
+        const auto put=[&](uint32_t a,uint32_t v){std::memcpy(r.memory.hostPointer(a,4),&v,4);};
+        const auto get=[&](uint32_t a){uint32_t v;std::memcpy(&v,r.memory.hostPointer(a,4),4);return v;};
+        unsigned gridCases=0,skipped=0;
+        for(unsigned seed=1;seed<=24;++seed){
+            std::memset(r.memory.flat(),0,bozo::kFlatBytes);
+            {uint32_t ph,count;std::memcpy(&ph,elf.data()+0x1c,4);count=uint16_t(elf[0x2c]|elf[0x2d]<<8);
+             for(uint32_t i=0;i<count;++i){uint32_t h[6];std::memcpy(h,elf.data()+ph+32*i,24);if(h[0]==1)std::memcpy(r.memory.hostPointer(h[2],h[4]),elf.data()+h[1],h[4]);}}
+            uint32_t rng=seed*2246822519u;const auto next=[&]{rng^=rng<<13;rng^=rng>>17;rng^=rng<<5;return rng;};
+            constexpr uint32_t object=0x1200000,model=0x1201000,iterator=0x1201800,maskAt=0x1200800,data=0x1210000,packets=0x1240000,stack=0x1ffc000,e=0x1206000,vt=0x163e30,desc=0x1207000;
+            constexpr uint32_t dims=0x1208000,heights=0x1209000,normals=0x1220000;
+            const unsigned W=3+seed%5,H=2+seed%4,cells=(W+2)*(H+2);put(dims,W);put(dims+4,H);
+            std::vector<uint32_t> hv(cells);for(auto &v:hv)v=std::bit_cast<uint32_t>(float(int(next()%2000)-1000)/37.f);
+            for(unsigned i=0;i<cells;++i){put(heights+4*i,hv[i]);for(unsigned l=0;l<4;++l)put(normals+16*i+4*l,next());}
+            // two meshes: the element's group bits include only the second when seed is odd
+            put(object+0x54,model);put(model+0x644,iterator);put(iterator+8,data);put(iterator+0x14,packets);
+            put(data+0x10+0x34,2);put(object+0x48,maskAt);put(maskAt,3);put(object+0x58,0x3);put(object+0x84,1);put(object+8,e);
+            const uint32_t span=0x1000,posAt=0x40,nrmAt=0x600;unsigned ns[2];
+            for(unsigned j=0;j<2;++j){const uint32_t source=data+0x70+span*j,packet=packets+0x60+span*j;ns[j]=1+(next()%20);
+                put(source+4,span);put(packet+4,span);put(source+0x14,ns[j]<<16);put(source+0x18,posAt|nrmAt<<16);
+                for(unsigned v=0;v<4*ns[j];++v){put(source+posAt+4*v,0x3f800000u+v);put(source+nrmAt+4*v,0x40000000u+v);}}
+            put(data+0x70+2*span+4,0);put(packets+0x60+2*span+4,0);
+            put(vt+0x10,0x29e8f0);put(vt+0x18,0x29ef10);put(e,vt);put(e+8,object);r.memory.hostPointer(e+0xc+1,1)[0]=1;r.memory.hostPointer(e+0x18,1)[0]=1;
+            const bool firstExcluded=seed&1;if(firstExcluded){r.memory.hostPointer(e+0x19,1)[0]=0;put(e+0x24,maskAt+0x10);put(maskAt+0x10,2);}else r.memory.hostPointer(e+0x19,1)[0]=1;
+            put(e+0x30,dims);put(e+0x40,heights);put(e+0x4c,normals);put(e+0x34,desc);
+            std::vector<std::vector<uint16_t>> idx(2);uint32_t cursor=desc;std::vector<uint32_t> starts;
+            for(unsigned j=0;j<2;++j){starts.push_back(cursor);for(unsigned k=0;k<ns[j];++k){idx[j].push_back(uint16_t(next()%cells));r.memory.hostPointer(cursor+2*k,2)[0]=uint8_t(idx[j][k]);r.memory.hostPointer(cursor+2*k+1,1)[0]=uint8_t(idx[j][k]>>8);}
+                cursor+=(2*ns[j]+15)&~15u;}
+            put(stack+0xe0,e);
+            R5900Context y{};y.r[23].ud[0]=object;y.r[21].ud[0]=1;y.r[29].ud[0]=stack;
+            check(vp2s::nativeMathInstruction(r.memory.flat(),&y,&r,0x219210) && y.r[2].sd[0]==1);
+            for(unsigned j=0;j<2;++j){const uint32_t packet=packets+0x60+span*j;
+                for(unsigned k=0;k<ns[j];++k){
+                    if(j==0 && firstExcluded){check(get(packet+posAt+16*k+4)==0x3f800000u+4*k+1);++skipped;continue;}
+                    check(get(packet+posAt+16*k)==0x3f800000u+4*k && get(packet+posAt+16*k+4)==hv[idx[j][k]] && get(packet+posAt+16*k+8)==0x3f800000u+4*k+2);
+                    for(unsigned l=0;l<4;++l)check(get(packet+nrmAt+16*k+4*l)==get(normals+16*idx[j][k]+4*l));}}
+            if(seed==2){r.memory.hostPointer(starts[0],1)[0]=0xff;r.memory.hostPointer(starts[0]+1,1)[0]=0xff;bool refused=false;R5900Context z{};z.r[23].ud[0]=object;z.r[21].ud[0]=1;z.r[29].ud[0]=stack;
+                try{vp2s::nativeMathInstruction(r.memory.flat(),&z,&r,0x219210);}catch(const std::runtime_error &){refused=true;}check(refused);}
+            ++gridCases;
+        }
+        check(skipped>0);
+        std::printf("%u height-grid meshes: positions.y and normals from the grid, the cursor moved for every mesh (%u vertices of excluded meshes kept); an index past the grid refused\n",gridCases,skipped);
+    }
     {   // Vertex colour scale element (class 1594d0, mod001 2a1a40 + VU0 program 0xca0 uploaded from 31391c) on the
         // animator. Oracle: the listing (itof0; mul; minii with I read from the upload bytes; maxx with vf00.x; ftoi0)
         // and the EE loop as written (word k loaded before word k-1's result is stored; the first index always).

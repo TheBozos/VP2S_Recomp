@@ -553,6 +553,34 @@ int main(){try{
                 ++normals;}
          }
          std::printf("%u height-grid normals match the VU0 reference (0x9b0, pipelined)\n",normals);}
+        // mod003 3cb370, sprite-particle motion: each of the four blocks through the VU0 reference (QMTC2 dt, LQC2 p / v, ADDA,
+        // MADDx, two SQC2) and the native handler; both destinations compared whole (w is p.w).
+        {const struct {uint32_t pc,word;} words[]={{0x3cb3f0,0x48a31800},{0x3cb5ec,0x48b11800},
+                {0x3cb464,0xda010000},{0x3cb468,0xd8620000},{0x3cb488,0x4bc00abc},{0x3cb48c,0x4bc31048},{0x3cb498,0xf8610000},{0x3cb49c,0xfa010000},
+                {0x3cb54c,0xd8610000},{0x3cb550,0xd9220000},{0x3cb570,0x4bc00abc},{0x3cb574,0x4bc31048},{0x3cb580,0xf9210000},{0x3cb584,0xf8610000},
+                {0x3cb688,0xda610000},{0x3cb690,0xdaa20000},{0x3cb794,0x4bc00abc},{0x3cb798,0x4bc31048},{0x3cb7a4,0xfa410000},{0x3cb7ac,0xfa610000},
+                {0x3cb884,0xda610000},{0x3cb888,0xda020000},{0x3cb99c,0x4bc00abc},{0x3cb9a0,0x4bc31048},{0x3cb9ac,0xfa010000},{0x3cb9b4,0xfa610000}};
+         for(const auto &w:words){write(y,w.pc,w.word);write(x,w.pc,w.word);}
+         constexpr uint32_t REC=0x1a8000,OUTP=0x1a9000;unsigned moves=0;
+         const auto both=[&](uint32_t at,uint32_t v){write(y,at,v);write(x,at,v);};
+         // block: load pcs (p reg, v reg), adda, maddx, two stores (reg each)
+         struct Block{uint32_t p1,p2,a,mx,s1,s2;unsigned r1,r2,rs1,rs2;};
+         const Block blocks[]={{0x3cb464,0x3cb468,0x3cb488,0x3cb48c,0x3cb498,0x3cb49c,16,3,3,16},{0x3cb54c,0x3cb550,0x3cb570,0x3cb574,0x3cb580,0x3cb584,3,9,9,3},
+                               {0x3cb688,0x3cb690,0x3cb794,0x3cb798,0x3cb7a4,0x3cb7ac,19,21,18,19},{0x3cb884,0x3cb888,0x3cb99c,0x3cb9a0,0x3cb9ac,0x3cb9b4,19,16,16,19}};
+         for(unsigned seed=0;seed<64;++seed){
+            uint32_t state=seed*2654435761u+3;const auto rnd=[&](){state=state*1664525u+1013904223u;return state>>8;};
+            const auto value=[&](unsigned lo=100,unsigned span=40){return (rnd()&0x807fffffu)|((lo+rnd()%span)<<23);};
+            m=R5900Context{};const uint32_t dt=value(118,6)&0x7fffffffu;
+            const bool second=seed&1;m.r[second?17:3].uw[0]=dt;for(unsigned i=1;i<4;++i)m.r[second?17:3].uw[i]=rnd();run(second?0x3cb5ec:0x3cb3f0);
+            for(unsigned k=0;k<3;++k){const auto &b=blocks[(seed+k)%4];
+                for(unsigned i=0;i<4;++i){both(REC+4*i,value());both(REC+0x10+4*i,value());}
+                const uint32_t pAt=REC,vAt=REC+0x10,o1=OUTP+0x40*k,o2=OUTP+0x40*k+0x20;
+                // the two loads may share a register (p reg then v reg)
+                m.r[b.r1].uw[0]=pAt;run(b.p1);m.r[b.r2].uw[0]=vAt;run(b.p2);run(b.a);run(b.mx);
+                m.r[b.rs1].uw[0]=o1;run(b.s1);m.r[b.rs2].uw[0]=o2;run(b.s2);
+                check(!std::memcmp(x.memory.hostPointer(o1,16),y.memory.hostPointer(o1,16),16) && !std::memcmp(x.memory.hostPointer(o2,16),y.memory.hostPointer(o2,16),16));++moves;}
+         }
+         std::printf("%u sprite-particle moves (four blocks, both steps) match the VU0 reference\n",moves);}
         // mod001 223360 / 223580, the particle collision shapes (sphere, rectangle): each COP2 word through the VU0
         // reference and the native handler; the scalar code between them done here; every stored value compared (xyz;
         // the stored w lanes are register leftovers the native side leaves to memory, and no reader uses them).

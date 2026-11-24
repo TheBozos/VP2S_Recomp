@@ -12,6 +12,27 @@ The earlier VP2S face/shading and general brightness comparisons remain open.
 
 ## Build and evidence
 
+### Sprite-particle motion (mod003 3cb370 / 3ca780, classes 1609a0 / 160bc0) (2026-11-24)
+
+- **The case:** 6 maps (463-468) stopped at 3cb3f0. That is the +10 of field emitter classes 1609a0 / 160bc0,
+  called from the driver at 22ecf8.
+- **The +10:** vf3.x = dt (QMTC2 3cb3f0 / 3cb5ec). Then, per live particle, one of four blocks does LQC2 vf1 = p,
+  vf2 = v; P.xyz = (p + 0) + v dt (ADDA, MADDx; w stays p.w); two SQC2 (the output and the record).
+- **The step (3ca780, +18):** it copies each record to the output on the EE. It extends the driver's box with MINI
+  / MAX of vf1, which it never loads.
+  - vf1 is still the +10's last moved point: the +14 (3ca9c0) returns at once, and the driver runs no VU0 between.
+  - So every particle includes that one point, as the game does.
+- **Now:** nativeSpriteMove runs the four blocks and includes that point at 3ca828.
+  - The bounds error now prints the point's words.
+
+**Evidence:**
+- **Tests:** 192 moves through the VU0 reference (four blocks, both dt sources), both destinations compared whole.
+- **Maps:** 463, 465, 466, 467 and 468 run clean.
+  - Map 464 stops at the box: its live particles 6..11 carry words such as f237f925 f714e940 ff82a22f in their
+    position. Their records hold no position the game wrote; they look like other data. This is left for the
+    user to decide.
+- **Atlas:** 480 of 552 maps clean.
+
 ### Haze: mask and gamma together, any depth shift, the two-lobe path (2026-11-24)
 
 - **Mask and gamma together (11.z = 1, 11.y = 1; maps 82-85, 491):** the listing applies the mask (1808..1860)

@@ -90,7 +90,7 @@ void NativeParticles::validateDraw(uint32_t object)const{
 void NativeParticles::includePoint(uint32_t frame,uint32_t emitter,const std::array<float,4> &point){
     validateEmitter(frame,emitter);auto it=builds.find(frame);
     for(unsigned i=0;i<3;++i){const auto bits=std::bit_cast<uint32_t>(point[i]),magnitude=bits&0x7fffffff;
-        if(magnitude>=0x7f800000 || (magnitude && magnitude<0x00800000))throw std::runtime_error("unqualified native particle bounds point");}
+        if(magnitude>=0x7f800000 || (magnitude && magnitude<0x00800000))throw std::runtime_error(std::format("unqualified native particle bounds point ({:08x} {:08x} {:08x})",std::bit_cast<uint32_t>(point[0]),std::bit_cast<uint32_t>(point[1]),std::bit_cast<uint32_t>(point[2])));}
     // Earlier simulation substeps do not publish bounds. The final substep's
     // explicit source observation starts the box used by the original caller.
     auto &build=it->second;if(!build.boundsReady)return;

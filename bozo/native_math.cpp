@@ -7553,6 +7553,54 @@ bool nativeHeightNormals(R5900Context *c,Runtime *rt,uint32_t pc){
     }
     return false;
 }
+// Sprite-particle motion, mod003 3cb370 (the +10 of field classes 1609a0 / 160bc0, from the driver at 22ecf8): vf3.x = dt
+// (QMTC2 at 3cb3f0 / 3cb5ec), then per live particle one of four blocks: LQC2 vf1 = p, vf2 = v; ADDA.xyz vf1, vf0;
+// MADDx.xyz vf1 = ACC + v dt (w stays p.w); two SQC2 vf1 (the output point and the record). The scalar code around
+// them (animation frames, counters) stays recompiled.
+// The same classes' step 3ca780 (+18, frame 0x40 under the driver's) copies each record to the output on the EE and
+// extends the driver's box with MINI / MAX of vf1 (3ca828 / 3ca82c), which it never loads: vf1 is still the +10's
+// last moved point (the +14, 3ca9c0, returns at once; the driver runs no VU0 between), so every particle includes
+// that one point, as the game does.
+namespace {
+struct SpriteMoveState{bool dt=false,p=false,v=false,acc=false,moved=false;Ps2Word step{};Ps2Lanes position{},velocity{},sum{},result{};};
+SpriteMoveState &spriteMoveState(const Runtime *rt){static std::map<const Runtime *,SpriteMoveState> states;return states[rt];}
+}
+bool nativeSpriteMove(R5900Context *c,Runtime *rt,uint32_t pc){
+    static constexpr struct {uint32_t pc,word;char role;} sites[]={{0x3cb3f0,0x48a31800,'T'},{0x3cb5ec,0x48b11800,'T'},
+        {0x3cb464,0xda010000,'1'},{0x3cb468,0xd8620000,'2'},{0x3cb488,0x4bc00abc,'A'},{0x3cb48c,0x4bc31048,'M'},{0x3cb498,0xf8610000,'S'},{0x3cb49c,0xfa010000,'S'},
+        {0x3cb54c,0xd8610000,'1'},{0x3cb550,0xd9220000,'2'},{0x3cb570,0x4bc00abc,'A'},{0x3cb574,0x4bc31048,'M'},{0x3cb580,0xf9210000,'S'},{0x3cb584,0xf8610000,'S'},
+        {0x3cb688,0xda610000,'1'},{0x3cb690,0xdaa20000,'2'},{0x3cb794,0x4bc00abc,'A'},{0x3cb798,0x4bc31048,'M'},{0x3cb7a4,0xfa410000,'S'},{0x3cb7ac,0xfa610000,'S'},
+        {0x3cb884,0xda610000,'1'},{0x3cb888,0xda020000,'2'},{0x3cb99c,0x4bc00abc,'A'},{0x3cb9a0,0x4bc31048,'M'},{0x3cb9ac,0xfa010000,'S'},{0x3cb9b4,0xfa610000,'S'},
+        {0x3ca828,0x4bc1d6af,'m'},{0x3ca82c,0x4bc1deeb,'x'}};
+    if(!rt || (pc&3) || pc<0x3ca828 || pc>0x3cb9b4)return false;
+    const auto site=std::find_if(std::begin(sites),std::end(sites),[&](const auto &s){return s.pc==pc;});
+    if(site==std::end(sites))return false;
+    uint32_t word=0;if(const auto *p=rt->memory.hostPointer(pc,4))std::memcpy(&word,p,4);
+    if(word!=site->word)return false;   // another overlay at these addresses
+    if(!c)throw std::runtime_error("native sprite motion has no CPU record");
+    struct ArithmeticScope{unsigned saved=_mm_getcsr();~ArithmeticScope(){_mm_setcsr(saved);}} arithmetic;
+    auto &st=spriteMoveState(rt);
+    const auto at=[&]{return c->r[(word>>21)&31].uw[0]+uint32_t(int32_t(int16_t(word&0xffff)));};
+    const auto load=[&](Ps2Lanes &v){const auto *p=record(rt,at(),16);for(unsigned i=0;i<4;++i)v[i]=Ps2Word::load(p+4*i);};
+    switch(site->role){
+    case 'T':st=SpriteMoveState{};st.step={c->r[(word>>16)&31].uw[0]};st.dt=true;return true;
+    case '1':if(!st.dt)throw std::runtime_error("native sprite motion without its step");load(st.position);st.p=true;st.acc=st.moved=false;return true;
+    case '2':if(!st.p)throw std::runtime_error("native sprite motion velocity before its position");load(st.velocity);st.v=true;return true;
+    case 'A':if(!st.p || !st.v)throw std::runtime_error("native sprite motion out of order");for(unsigned i=0;i<3;++i)st.sum[i]=st.position[i]+kPs2Zero;st.acc=true;return true;
+    case 'M':if(!st.acc)throw std::runtime_error("native sprite motion out of order");
+        st.result=st.position;for(unsigned i=0;i<3;++i)st.result[i]=st.sum[i]+st.velocity[i]*st.step;st.moved=true;return true;
+    case 'm':{   // the box: the +10's last point
+        if(!st.moved)throw std::runtime_error("native sprite step box without a moved point");
+        auto *d=vp2s::nativeCast<bozo::ee::Dispatcher>(rt->services);auto *particles=d?vp2s::nativeCast<ParticleOwner>(&d->host()):nullptr;
+        if(!particles)throw std::runtime_error("native sprite step box requires its bounds owner");
+        const auto frame=c->r[29].uw[0]+0x40,emitter=c->r[4].uw[0];particles->nativeParticles().validateEmitter(frame,emitter);
+        std::array<float,4> point;for(unsigned i=0;i<4;++i)point[i]=std::bit_cast<float>(st.result[i].bits);
+        particles->nativeParticles().includePoint(frame,emitter,point);return true;}
+    case 'x':return true;
+    default:{if(!st.moved)throw std::runtime_error("native sprite motion stored before its step");
+        auto *p=record(rt,at(),16);for(unsigned i=0;i<4;++i)st.result[i].store(p+4*i);return true;}
+    }
+}
 // Particle collision shapes (mod001), the +90 of the collision objects the emitters' 2240c0 walks (called at 22414c):
 // test(a0 shape, a1 A, a2 B, a3 V, t0 out velocity, t1 out point) -> hit. A and B are the particle's positions before
 // and after the step, V its velocity. Natively each value the VU0 code stores is computed from the records it loads,
@@ -9475,7 +9523,7 @@ bool nativeMathInstruction(uint8_t *,R5900Context *c,Runtime *rt,uint32_t pc){
     default:
         // Inlined-block recognisers last: they read code around the PC, so
         // only sites no specific handler claimed pay for that scan.
-        return CLAIM(nativeParticleStep) || CLAIM(nativeParticleBox) || CLAIM(nativeTrailEmitter) || CLAIM(nativeProgramEmitter) || CLAIM(nativeSimpleEmitter) || CLAIM(nativeCollisionShape) || CLAIM(nativeHeightNormals) || CLAIM(nativeRowEmitter) || CLAIM(nativeEmitterClock) || CLAIM(nativeConstantStore) || CLAIM(nativeLengthIdiom) || CLAIM(nativeMacroIdiom) || CLAIM(nativeInverseIdiom) || nativeQuaternionIdiom(c,rt,pc);
+        return CLAIM(nativeParticleStep) || CLAIM(nativeParticleBox) || CLAIM(nativeTrailEmitter) || CLAIM(nativeProgramEmitter) || CLAIM(nativeSimpleEmitter) || CLAIM(nativeCollisionShape) || CLAIM(nativeHeightNormals) || CLAIM(nativeSpriteMove) || CLAIM(nativeRowEmitter) || CLAIM(nativeEmitterClock) || CLAIM(nativeConstantStore) || CLAIM(nativeLengthIdiom) || CLAIM(nativeMacroIdiom) || CLAIM(nativeInverseIdiom) || nativeQuaternionIdiom(c,rt,pc);
     }
 }
 #undef CLAIM

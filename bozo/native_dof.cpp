@@ -49,8 +49,16 @@ NativeGlowGains glowGains(float strength){
     PreserveFp arithmetic;NativeGlowGains out;
     float level=1;volatile float blur=strength;
     if(!(blur<=2.f)){volatile float half=blur/2.f;level=half;blur=blur/half;}
-    if(!(level<=4.f))throw std::runtime_error("unported native glow multi-pass level gain (2d4dc4)");
-    {volatile float c=64.f*level+0.5f;out.level=2.f*float(std::min(255,int(float(c))))/128.f;}
+    // Level 0's colour (2d4da4): int(64 * level + 0.5) when level <= 4. Above 4 it is 255 and f = level / 4 drives
+    // 2d5058's further passes over the level copy itself (TEX0 = its own FRAME, from 2d8ef0; the same sprite, ALPHA
+    // 0x08): while f > 0, colour 255 with f /= 4 when f > 4, else int(64 * f + 0.5) and f = 0. Each pass doubles
+    // colour / 128 over the clamped copy, as level 0 does.
+    const auto levelColour=[](float f){volatile float c=64.f*f+0.5f;return 2.f*float(std::min(255,int(float(c))))/128.f;};
+    if(level<=4.f)out.level=levelColour(level);
+    else{out.level=2.f*255/128;volatile float f=level/4.f;
+        while(f>0.f){if(out.levelPasses.size()>=16)throw std::runtime_error("native glow level passes outside bounds");
+            if(!(f<=4.f)){out.levelPasses.push_back(2.f*255/128);volatile float next=f/4.f;f=next;}
+            else{out.levelPasses.push_back(levelColour(f));f=0;}}}
     float g=std::max(0.f,float(blur));
     const auto colour=[](float v){volatile float c=128.f*v+0.5f;return float(std::min(255,int(float(c))))/128.f;};
     if(g<1.f){out.vertical=colour(g);return out;}
@@ -216,7 +224,7 @@ void NativeDofs::finish(Runtime *rt,const NativeScene &scene,uint32_t stack,uint
             if(workWidth>512 || workHeight<=0 || workHeight>512)throw std::runtime_error("unqualified native glow work size");
             effect.glowWidth=uint32_t(workWidth);effect.glowHeight=uint32_t(workHeight);
             const auto gains=glowGains(finite(rt,object+0xdfc4,0,100));
-            effect.glowLevelGain=gains.level;effect.glowHorizontal=gains.horizontal;effect.glowVertical=gains.vertical;
+            effect.glowLevelGain=gains.level;effect.glowLevelPasses=gains.levelPasses;effect.glowHorizontal=gains.horizontal;effect.glowVertical=gains.vertical;
         }
         ready[object]=std::move(effect);
     }
@@ -292,6 +300,9 @@ void drawDof(const NativeDof &effect){
         auto threshold=image(4,3,effect.width,effect.height);threshold.levels.enabled=true;std::fill_n(threshold.levels.low,3,effect.glowThreshold);quad(threshold);
         const uint32_t width=effect.glowWidth,height=effect.glowHeight;
         auto first=image(3,5,width,height);first.levels.enabled=true;std::fill_n(first.levels.gain,3,effect.glowLevelGain);quad(first);
+        // Strength above 8: each further level pass reads the copy and writes it back (via image 4, free here).
+        for(const float gain:effect.glowLevelPasses){auto pass=image(5,4,width,height);pass.levels.enabled=true;std::fill_n(pass.levels.gain,3,gain);quad(pass);
+            quad(image(4,5,width,height));}
         if(!effect.glowSmall){quad(image(5,2,width/2,height/2));quad(image(2,1,width/4,height/4));}
         if(effect.glowTaps.size()>32)throw std::runtime_error("native glow chain longer than 32 taps");
         const auto chain=[&](float colour,std::array<float,2> step){auto p=std::make_shared<Material::ImageProcessing>();

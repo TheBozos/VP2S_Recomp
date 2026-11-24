@@ -20,7 +20,7 @@ struct NativeDof {
     bool glowSmall=false;
     // 2d6ea0: the levels are the fitted work image (+13204 x +13200), halved;
     // 2d4ca0/2e6360: gains of the level-0 copy and of the two blur passes.
-    uint32_t glowWidth=0,glowHeight=0;float glowLevelGain=1,glowHorizontal=1,glowVertical=1;
+    uint32_t glowWidth=0,glowHeight=0;float glowLevelGain=1,glowHorizontal=1,glowVertical=1;std::vector<float> glowLevelPasses;
     // Effect B (post +130e0, 2d71e0/2d7a30): per rotation, the four corners of
     // the 445 image in the (work+1) x (rows+1) work image, truncated as the
     // game's xy/uv; threshold /255, rotate-in and rotate-back gains.
@@ -51,7 +51,8 @@ public:
     virtual void drawNativeDof(const NativeDof &)=0;
 };
 // Effect A's gains from +dfc4 (2d4ca0, 2e6360): level-0 copy, horizontal and vertical blur passes.
-struct NativeGlowGains{float level=1,horizontal=1,vertical=1;};
+// levelPasses: the gains of 2d5058's further level passes (strength above 8), each over the level copy itself.
+struct NativeGlowGains{float level=1,horizontal=1,vertical=1;std::vector<float> levelPasses;};
 NativeGlowGains glowGains(float strength);
 // Effect A's blur taps for radius r (2e6070), in draw order.
 std::vector<NativeGlowTap> glowChain(float r);

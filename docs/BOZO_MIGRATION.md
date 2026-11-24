@@ -12,6 +12,26 @@ The earlier VP2S face/shading and general brightness comparisons remain open.
 
 ## Build and evidence
 
+### Glow above strength 8: the further level passes (2026-11-24)
+
+- **The case:** 15 maps (359-375, 513, 550, 555) stopped on "glow multi-pass level gain (2d4dc4)". Their glow
+  strength (+dfc4) is above 8, so level = strength / 2 is above 4.
+- **What the game does** (2d4ca0):
+  - Level 0's colour is 255, and f = level / 4 is kept.
+  - 2d5058 then repeats while f > 0. Each pass redraws the level copy over itself, with the same sprite and
+    ALPHA 0x08 (TEX0 is the copy's own buffer, from 2d8ef0 / +13120). Its colour is 255 with f /= 4 while f > 4,
+    then int(64 f + 0.5) and f = 0.
+  - Each pass doubles colour / 128 over the clamped copy, as level 0 does.
+- **Now:** glowGains returns those passes. The effect draws each as copy -> image 4 with its gain, then back.
+
+**Evidence:**
+- **Tests:** the gain schedule at strengths 9 (one pass, 72), 40 (255, 80) and 100 (255, 200), and no pass at 8.
+- **Maps:** none of the 15 stops on the gain. 9 run clean. The others stop at:
+  - 256698: 359, 363;
+  - 29eda4: 360, 364;
+  - a missing module at 0x533460: 372, 374.
+- **Atlas:** 440 of 552 maps clean.
+
 ### General particle emitter: mod003's copy for the field classes 162330 / 163fa0 (2026-11-24)
 
 - **The case:** 17 maps (137-147, 376, 479-561) stopped at 40ea08, in 40e990: the +c of field emitter classes

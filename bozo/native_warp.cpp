@@ -123,6 +123,18 @@ std::optional<bool> nativeWarpInstruction(R5900Context *c,Runtime *rt,uint32_t p
     std::memcpy(fields+0x604,&newArgs,4);std::memcpy(fields+0x18,&rewound,4);c->r[5].uw[0]=kSnippet;
     std::fprintf(stderr,"[vp2s:warp] interpreter %x (script pc %x) runs map change %d at (%d,%d,%d) facing %d entry %d\n",
         object,scriptPc,pending->map,pending->x,pending->y,pending->z,pending->facing,pending->entry);
+    // Debug: VP2S_BOZO_WARP_FLAGS=hex[,hex...] sets those story flags (script variables 2000..4fff, bit n - 2000) with the
+    // warp, so an arrival gated on the story (common script area 61 reads 259a) runs. The bits live in the save block
+    // whose id is 3 in the table at 1d3690 (16 pointers, ids at +40), at +4 + n / 8 (3ed6a0's 2000-4fff case).
+    if(const char *list=std::getenv("VP2S_BOZO_WARP_FLAGS")){
+        uint32_t block=0;
+        for(unsigned i=0;i<16;++i){uint32_t id,p;std::memcpy(&id,rt->memory.hostPointer(0x1d3690+0x40+4*i,4),4);std::memcpy(&p,rt->memory.hostPointer(0x1d3690+4*i,4),4);if(id==3)block=p;}
+        if(!block)throw std::runtime_error("native warp flags: no story flag block (id 3) at 1d3690");
+        for(const char *s=list;*s;){char *end;const auto flag=uint32_t(std::strtoul(s,&end,16));if(end==s)break;
+            if(flag<0x2000 || flag>0x4fff)throw std::runtime_error("native warp flags: outside 2000..4fff");
+            const uint32_t bit=flag-0x2000;auto *b=rt->memory.hostPointer(block+4+bit/8,1);if(!b)throw std::runtime_error("native warp flags outside RAM");
+            *b|=uint8_t(1u<<(bit&7));std::fprintf(stderr,"[vp2s:warp] story flag %x set\n",flag);s=*end==','?end+1:end;}
+    }
     pending.reset();
     return false; // The compiled fetch, dispatch and op 0x3a handler run as the game's own code.
 }

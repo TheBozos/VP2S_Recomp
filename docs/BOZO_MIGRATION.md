@@ -18,17 +18,36 @@ The earlier VP2S face/shading and general brightness comparisons remain open.
   all three.
 - **71 maps (469, 471-479, 481-484, 486, 488, 490-491, 493-495, 497-500, 502, 504-508, 510, 513-519, 521-530, 532-534,
   539-548, 550-561):** the game idles (about 7k library calls to the frame limit, against 25k-35k elsewhere).
-  - The only interpreter (58c660, the common script 9b1e80) takes area 0x61 (op 48 61), calls into it, reads variable
-    0x25e7 (op 80 / 81), branches (op 0d) and idles at op 00 (9b1ec0).
+  - The only interpreter (58c660, the common script 9b1e80) takes area 0x61 (op 48 61) and calls into it. At 9b215c
+    it pushes 0xffff, then variable 0x259a (op 4b), then 0, evaluates operators 8 and 0x11 (op 81), and op 0d jumps
+    past the arrival block (op 26 1, op 27 1, call 0x1f8, op 28 1) to the return at pc 0xc7. The script then ends
+    (op 00 at 9b1ec0).
+  - Script ops (table 48e2c0, 12-byte entries): 00 end, 01 wait, 06 return, 07 call, 0d jump when false (+424 == 0),
+    80 push operand, 81 operator, 4b push variable.
+  - Variables (3ed6a0): 0000-0fff interpreter +428; 1000-1fff +194; 2000-4fff are story flag bits in the save block
+    with id 3 in the table at 1d3690 (bit n - 2000 at +4 + n / 8); 5000-5fff are bits at +184. 0x259a is story flag
+    0x59a, clear in the map-79 save state.
   - The fade 161230 on layer 1 is a black hold (+98 = +9c = 0x80000000, duration 0) that nothing lifts, drawn over a
     full scene.
   - Map 26 (visible) takes area 1, and its script fades in with op 02 (0x80000000, 0, 0x0f, 0).
-  - So these arrivals are gated by story state the map-79 save state does not have: a warp-context artefact like
-    maps 32 / 47.
+  - **Confirmed:** with flag 0x259a set at the warp, map 471 runs the arrival block and shows its harbour scene from
+    frame 63700. So these maps are gated by story state the map-79 save state lacks, not by a port fault.
 - **6 maps (107, 116, 133, 150, 153, 463):** the game is busy. Map 107 captured every 40 frames shows the field ("Head
   outward"), then a random encounter whose black transition precedes a 576 x 416 battle. The sweep's fixed capture
   frames fell on black moments (runs differ in encounters and heap garbage).
 - **Diagnostic:** VP2S_BOZO_TRACE_SCRIPT_OP=100 prints every script op any interpreter fetches (op, address, args).
+- **Debug warp option:** VP2S_BOZO_WARP_FLAGS=hex[,hex...] sets those story flags (2000..4fff) when the warp fires
+  (native_warp.cpp), so a sweep can reach story-gated arrivals.
+- **Per-map gates:** each map's script has its own gate (529: 0x25b5; 541-561: 0x267b..0x2680, and so on). A trace pass
+  (VP2S_BOZO_TRACE_SCRIPT_OP=100) took the flag of every op 4b / 81 8 / 81 11 / taken op 0d sequence. Re-run with
+  259a plus those flags:
+  - 55 of 73 maps reach the frame limit.
+  - 18 stop at new boundaries, code only their arrival scenes reach:
+    - capsule pair caller mismatch at 1fc334 (490, 522, 524, 530, 542, 547, 548, 554);
+    - unported algorithm at 20d7fc (472, 478, 486, 494, 550);
+    - glyph UV extent at 2e83e4 (473, 521, 528);
+    - exponent-255 object-transform input at 249180 (482);
+    - particle ribbon fog variant at 22f160 (558).
 
 ### Maps 32 / 47: the chain diverges after a teleport (2026-11-25, warp artefact)
 

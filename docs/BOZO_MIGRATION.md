@@ -31,7 +31,7 @@ The earlier VP2S face/shading and general brightness comparisons remain open.
 - **Native:** the spot loop has a mode-2 branch (with VU saturation), the light power is read in mode 2, and the
   mode-2 spot refusal is removed.
 - **Test:** bozo_models_main checks a light above vertex 0 (unit dot: 0x602414) and one offset by 2 in x (dot .7071 ->
-  .25: 0x422010; modes 0 / 1 would give 0x482010). Two spot lights with no colour add nothing.
+  .25: 0x422010; modes 0 / 1 would give 0x482111). Two spot lights with no colour add nothing.
 - **Regression:** ctest 99/99; regress4 unchanged.
 
 ### Model lighting mode 2 (2026-11-26)

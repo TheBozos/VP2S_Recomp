@@ -12,6 +12,30 @@ The earlier VP2S face/shading and general brightness comparisons remain open.
 
 ## Build and evidence
 
+### Procedural mesh class 152b40: the second builder 247af0 (2026-11-25)
+
+- **The case (map 558, story-gated arrival):** class 152b40's mesh method +60 (2022a0) calls the header 247f90, the
+  second builder 247af0 (from 202520 / 202928) and the finish 247ec0 (from 202960).
+- **The builder** mirrors 2476b0:
+  - the same frame (SP - b0), projection (published for caller 202308), UV from the projected first point
+    (SP+a8 / ac) and XYZF2 from the second (SP+80);
+  - one difference in its packet: PRIM strip or fan with TME (ABE by s0) and one RGBAQ (s1, Q 1) before the points,
+    then ST and XYZF2 per point.
+- **Its sites:**
+  - 247b40 (after 120fa0), 247e60 (the stored point), 247e90 (after 120f70);
+  - loop head 247d08, VCALLMS 958 at 247d44;
+  - the point index is in a2, and the stores go through r5 / r4;
+  - it loads the second point (247d30) before its WAITQ / MULq.
+- **Native:**
+  - native_procedural.cpp / native_procedural_draws.cpp take a per-builder site table;
+  - builder 2's points take the constant colour;
+  - class 152b40 is admitted;
+  - new non-COP2 sites 247b40 / 247e60 / 247e90 (kernel list, regenerated).
+- **Test:** bozo_procedural_draws: a builder-2 strip of 4 points gives 2 triangles in s1's colour, and a builder-1
+  site cannot add to its mesh.
+- **Evidence:** map 558 reaches the frame limit (an event of light rays over a tree). ctest 99/99; regress4 hashes
+  unchanged.
+
 ### Story-gated arrivals: capsule caller, cone targets, glyph span, ribbon fog (2026-11-25)
 
 The maps reached with their story flags (VP2S_BOZO_WARP_FLAGS) stopped at four kinds of boundary:

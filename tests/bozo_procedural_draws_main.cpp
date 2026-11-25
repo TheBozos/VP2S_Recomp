@@ -35,7 +35,7 @@ void vertexInput(Runtime &rt,R5900Context &c,unsigned index,bool clip=false,uint
     put(rt,stack+0x80,position);put(rt,stack+0xa8,std::array<float,2>{float((corner>>1)&1),float(corner&1)});put(rt,0x1d1000+4*index,colour);
 }
 void end(vp2s::NativeProceduralDraws &draws,R5900Context &c,vp2s::NativeProceduralTransforms &projections){
-    c.pc=c.r[31].uw[0]=0x247ac0;draws.endMesh(&c);c.pc=0x247ec0;c.r[31].uw[0]=0x2038d0;c.r[29].uw[0]=parent;c.r[4].uw[0]=object;draws.finish(&c,projections);projections.finish(parent,object);
+    c.pc=c.r[31].uw[0]=0x247ac0;draws.endMesh(&c,0x247ac0);c.pc=0x247ec0;c.r[31].uw[0]=0x2038d0;c.r[29].uw[0]=parent;c.r[4].uw[0]=object;draws.finish(&c,projections);projections.finish(parent,object);
 }
 #ifdef VP2S_PROCEDURAL_GPU
 void gpu(){
@@ -45,7 +45,7 @@ void gpu(){
     Runtime rt;vp2s::NativeScene scene;vp2s::NativeProceduralTransforms projections;unsigned samples=0;
     for(bool fan:{false,true})for(unsigned alpha:{32u,64u,128u})for(bool occluded:{false,true}){
         const unsigned seed=16+4+(fan?8:0);initialize(rt,scene,projections,seed);vp2s::NativeProceduralDraws draws;vp2s::NativeFeedbackCopies copies;auto c=meshContext(seed,4);
-        draws.beginMesh(&rt,&c,scene,projections);for(unsigned i=0;i<4;++i){vertexInput(rt,c,i,false,0x00808080|(alpha<<24));draws.vertex(&rt,&c);}end(draws,c,projections);
+        draws.beginMesh(&rt,&c,scene,projections,0x247700);for(unsigned i=0;i<4;++i){vertexInput(rt,c,i,false,0x00808080|(alpha<<24));draws.vertex(&rt,&c,0x247a90);}end(draws,c,projections);
         const vp2s::NativeFeedbackCopy copy{0x1d2000,target,0x1d3000,640,448,scene.frameTarget(),0,640,448};copies.published(copy);const auto submission=draws.submission(&rt,scene,copies,object);
         renderer.beginFrame({1728,1824,640,448});auto fill=[&](uint32_t colour,float z,bool write){
             Material m;m.textured=false;m.depthTest=false;m.depthWrite=write;m.alphaBlend=false;m.blend=Material::Blend::Opaque;
@@ -72,8 +72,8 @@ int main(int argc,char **argv){try{
     Runtime rt;vp2s::NativeScene scene;vp2s::NativeProceduralTransforms projections;const auto saved=_mm_getcsr();unsigned cases=0;
     for(unsigned seed=0;seed<128;++seed){initialize(rt,scene,projections,seed);vp2s::NativeProceduralDraws draws;vp2s::NativeFeedbackCopies copies;
         const unsigned count=seed%5;auto c=meshContext(seed,count);const auto before=c;const auto control=(saved&~(_MM_ROUND_MASK|0x8040|0x3f))|((seed%4)<<13)|(seed&8?0x8040:0);_mm_setcsr(control);
-        draws.beginMesh(&rt,&c,scene,projections);check(!std::memcmp(&before,&c,sizeof(c)) && _mm_getcsr()==control);
-        for(unsigned i=0;i<count;++i){vertexInput(rt,c,i,seed&32 && i==2,0x80402010+seed);const auto cpu=c;const auto ram=std::vector<uint8_t>(rt.memory.flat(),rt.memory.flat()+bozo::kFlatBytes);draws.vertex(&rt,&c);check(!std::memcmp(&cpu,&c,sizeof(c)) && !std::memcmp(ram.data(),rt.memory.flat(),ram.size()) && _mm_getcsr()==control);}
+        draws.beginMesh(&rt,&c,scene,projections,0x247700);check(!std::memcmp(&before,&c,sizeof(c)) && _mm_getcsr()==control);
+        for(unsigned i=0;i<count;++i){vertexInput(rt,c,i,seed&32 && i==2,0x80402010+seed);const auto cpu=c;const auto ram=std::vector<uint8_t>(rt.memory.flat(),rt.memory.flat()+bozo::kFlatBytes);draws.vertex(&rt,&c,0x247a90);check(!std::memcmp(&cpu,&c,sizeof(c)) && !std::memcmp(ram.data(),rt.memory.flat(),ram.size()) && _mm_getcsr()==control);}
         end(draws,c,projections);check(_mm_getcsr()==control);_mm_setcsr(saved);
         // No copy published in this frame (battles 0x1e, 0x24, 0x29, 0x37, 0x3e): the same batches sample the previous frame.
         {const auto previous=draws.submission(&rt,scene,copies,object);check(draws.pending()==1);
@@ -87,16 +87,16 @@ int main(int argc,char **argv){try{
     }
     for(unsigned which=0;which<21;++which){initialize(rt,scene,projections,0);vp2s::NativeProceduralDraws draws;vp2s::NativeFeedbackCopies copies;auto c=meshContext(0,4);
         if(which==0)put(rt,object,uint32_t(0));else if(which==1)put(rt,manager+0x1018,uint32_t(0));else if(which==2)c.r[22].uw[0]=2;else if(which==3)c.pc=0;else if(which==16)c.r[16].uw[0]=2;
-        else {draws.beginMesh(&rt,&c,scene,projections);
-            if(which>=10 && which<=14){for(unsigned i=0;i<4;++i){vertexInput(rt,c,i);draws.vertex(&rt,&c);}end(draws,c,projections);
+        else {draws.beginMesh(&rt,&c,scene,projections,0x247700);
+            if(which>=10 && which<=14){for(unsigned i=0;i<4;++i){vertexInput(rt,c,i);draws.vertex(&rt,&c,0x247a90);}end(draws,c,projections);
                 copies.published({0x1d2000,target,0x1d3000,640,448,scene.frameTarget(),0,640,448});if(which==10)draws.consumed(object);   // no ready mesh (a missing copy now samples the previous frame)
                 if(which==11)put(rt,sceneObject+0x40dc,uint8_t(0));else if(which==12)put(rt,object+0x65,uint8_t(2));else if(which==13){scene.finishComposition(0x1e0000);scene.beginComposition(&rt,0x1e0000,target);}else if(which==14)put(rt,object,uint32_t(0));
-            }else if(which==5 || which==6 || which==15 || which==17){vertexInput(rt,c,0);if(which==5)c.r[5].uw[0]=1;else if(which==6)put(rt,stack+0xa8,uint32_t(0x7fa01234));else if(which==15)c.r[21].uw[0]+=16;else draws.vertex(&rt,&c);
+            }else if(which==5 || which==6 || which==15 || which==17){vertexInput(rt,c,0);if(which==5)c.r[5].uw[0]=1;else if(which==6)put(rt,stack+0xa8,uint32_t(0x7fa01234));else if(which==15)c.r[21].uw[0]+=16;else draws.vertex(&rt,&c,0x247a90);
             }else if(which==7 || which==18){c.pc=c.r[31].uw[0]=0x247ac0;if(which==18)c.r[31].uw[0]=0;
             }else if(which==8 || which==19){c.pc=0x247ec0;c.r[31].uw[0]=which==19?0:0x2038d0;c.r[29].uw[0]=parent;c.r[4].uw[0]=object;}}
         const auto before=c;const auto active=draws.pending(),pointCount=projections.pendingPoints();const auto fp=_mm_getcsr();const auto ram=std::vector<uint8_t>(rt.memory.flat(),rt.memory.flat()+bozo::kFlatBytes);bool rejected=false;
-        try{if(which<=4 || which==16)draws.beginMesh(&rt,&c,scene,projections);else if(which==5 || which==6 || which==15 || which==17)draws.vertex(&rt,&c);
-            else if(which==7 || which==18)draws.endMesh(&c);else if(which==8 || which==19)draws.finish(&c,projections);else if(which==20)draws.consumed(object);else draws.submission(&rt,scene,copies,object);
+        try{if(which<=4 || which==16)draws.beginMesh(&rt,&c,scene,projections,0x247700);else if(which==5 || which==6 || which==15 || which==17)draws.vertex(&rt,&c,0x247a90);
+            else if(which==7 || which==18)draws.endMesh(&c,0x247ac0);else if(which==8 || which==19)draws.finish(&c,projections);else if(which==20)draws.consumed(object);else draws.submission(&rt,scene,copies,object);
         }catch(const std::runtime_error &){rejected=true;}
         check(rejected && draws.pending()==active && projections.pendingPoints()==pointCount && _mm_getcsr()==fp && !std::memcmp(&before,&c,sizeof(c)) && !std::memcmp(ram.data(),rt.memory.flat(),ram.size()));
     }
@@ -106,17 +106,29 @@ int main(int argc,char **argv){try{
     unsigned farCases=0;
     for(const auto uv:{std::array<float,2>{-28.2529011f,56.7665977f},std::array<float,2>{2200.4858f,-5682.459f},
                        std::array<float,2>{std::numeric_limits<float>::infinity(),0}}){
-        initialize(rt,scene,projections,0);vp2s::NativeProceduralDraws draws;auto c=meshContext(0,4);draws.beginMesh(&rt,&c,scene,projections);
-        vertexInput(rt,c,0,true);put(rt,stack+0xa8,uv);bool rejected=false;try{draws.vertex(&rt,&c);}catch(const std::runtime_error &){rejected=true;}
+        initialize(rt,scene,projections,0);vp2s::NativeProceduralDraws draws;auto c=meshContext(0,4);draws.beginMesh(&rt,&c,scene,projections,0x247700);
+        vertexInput(rt,c,0,true);put(rt,stack+0xa8,uv);bool rejected=false;try{draws.vertex(&rt,&c,0x247a90);}catch(const std::runtime_error &){rejected=true;}
         check(rejected==(farCases==2));++farCases;
     }
     for(const bool drawn:{false,true}){
-        initialize(rt,scene,projections,0);vp2s::NativeProceduralDraws draws;auto c=meshContext(0,4);draws.beginMesh(&rt,&c,scene,projections);
-        for(unsigned i=0;i<2;++i){vertexInput(rt,c,i);draws.vertex(&rt,&c);}
+        initialize(rt,scene,projections,0);vp2s::NativeProceduralDraws draws;auto c=meshContext(0,4);draws.beginMesh(&rt,&c,scene,projections,0x247700);
+        for(unsigned i=0;i<2;++i){vertexInput(rt,c,i);draws.vertex(&rt,&c,0x247a90);}
         vertexInput(rt,c,2,!drawn);put(rt,stack+0x80,std::array<int32_t,4>{16*21459,16*2000,1000,drawn?16:0x8000});
-        bool rejected=false;try{draws.vertex(&rt,&c);}catch(const std::runtime_error &){rejected=true;}
+        bool rejected=false;try{draws.vertex(&rt,&c,0x247a90);}catch(const std::runtime_error &){rejected=true;}
         check(rejected==drawn);++farCases;
     }
     std::printf("%u far-point cases: finite UVs kept, infinite UV and drawn out-of-range triangles rejected\n",farCases);
+    // Builder 2 (247af0, class 152b40): its own sites (247b40 / 247e60 / 247e90), the point index in a2 and one RGBAQ
+    // (s1) for every point; a builder-1 site cannot add to its mesh.
+    {initialize(rt,scene,projections,0);put(rt,object,uint32_t(0x152b40));vp2s::NativeProceduralDraws draws;auto c=meshContext(0,4);
+        c.pc=c.r[31].uw[0]=0x247b40;c.r[17].uw[0]=0x80406020;draws.beginMesh(&rt,&c,scene,projections,0x247b40);
+        for(unsigned i=0;i<4;++i){vertexInput(rt,c,i,false,0x11111111);c.r[6].uw[0]=i;c.r[5].uw[0]=0x55;c.r[17].uw[0]=0x80406020;
+            if(i==1){bool rejected=false;try{c.pc=c.r[31].uw[0]=0x247700;draws.vertex(&rt,&c,0x247a90);}catch(const std::runtime_error &){rejected=true;}check(rejected);}
+            c.pc=c.r[31].uw[0]=0x247b40;draws.vertex(&rt,&c,0x247e60);}
+        c.pc=c.r[31].uw[0]=0x247e90;draws.endMesh(&c,0x247e90);c.pc=0x247ec0;c.r[31].uw[0]=0x202960;c.r[29].uw[0]=parent;c.r[4].uw[0]=object;
+        draws.finish(&c,projections);projections.finish(parent,object);
+        vp2s::NativeFeedbackCopies copies;const vp2s::NativeFeedbackCopy copy{0x1d2000,target,0x1d3000,640,448,scene.frameTarget(),0,640,448};copies.published(copy);
+        const auto submission=draws.submission(&rt,scene,copies,object);check(submission.batches.size()==1 && submission.batches[0].vertices.size()==6);
+        for(const auto &v:submission.batches[0].vertices)check(v.rgba==0x80406020u);++cases;}
     _mm_setcsr(saved);std::printf("%u native procedural captures: known strips/fans/ADC triangles, UV/colour/depth units, opaque packet words, CPU/RAM/FP, feedback publication/consumption and21 readonly failures passed\n",cases);return 0;
 }catch(const std::exception &e){std::fprintf(stderr,"%s\n",e.what());return 1;}}

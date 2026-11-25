@@ -18,10 +18,19 @@ uint32_t key(uint32_t at){return at>=0x70000000 && at<0x70004000?at:NativeAssets
 // Procedural mesh classes on the shared builder 2476b0 / 247700, finish 247ec0 and pre-enqueue 247650: 152d50 (its
 // mesh method +60 is 203ca0) and 152ca0 (battle 0x1e; +60 is 202b40, another geometry generator, and its own
 // destructor). Both vtables are otherwise the same; both write their ALPHA_1 (+294) with 1207d0 first.
-bool proceduralMeshClass(uint32_t vtable){return vtable==0x152d50 || vtable==0x152ca0;}
+// Class 152b40 (its mesh method +60 2022a0: header 247f90, builder 247af0, finish 247ec0 from 202960) draws with
+// the second builder: PRIM strip / fan with TME (ABE by s0), one RGBAQ (s1, Q 1), then ST and XYZF2 per point.
+bool proceduralMeshClass(uint32_t vtable){return vtable==0x152d50 || vtable==0x152ca0 || vtable==0x152b40;}
+// Builder sites: the return from 120fa0 (mesh start), the point's stored XYZF2 (its LQ of SP+80), the return from
+// 120f70 (mesh end), the loop head and the block after VCALLMS 958; the register holding the point index.
+struct BuilderSites{uint32_t begin,vertex,end,loop,call;unsigned index;bool constantColour;};
+constexpr BuilderSites kBuilders[2]={{0x247700,0x247a90,0x247ac0,0x2478c0,0x247974,5,false},{0x247b40,0x247e60,0x247e90,0x247d08,0x247d44,6,true}};
+const BuilderSites &builderAt(uint32_t pc){for(const auto &b:kBuilders)if(pc==b.begin || pc==b.vertex || pc==b.end)return b;
+    throw std::runtime_error("procedural draw site of no builder");}
 }
-void NativeProceduralDraws::beginMesh(Runtime *rt,const R5900Context *c,const NativeScene &scene,const NativeProceduralTransforms &projections){
-    if(!c || c->pc!=0x247700 || c->r[31].uw[0]!=0x247700)throw std::runtime_error("procedural mesh lacks scalar builder");
+void NativeProceduralDraws::beginMesh(Runtime *rt,const R5900Context *c,const NativeScene &scene,const NativeProceduralTransforms &projections,uint32_t pc){
+    const auto &b=builderAt(pc);
+    if(!c || c->pc!=b.begin || c->r[31].uw[0]!=b.begin)throw std::runtime_error("procedural mesh lacks scalar builder");
     music::CodecRounding arithmetic;const auto frame=key(c->r[29].uw[0]+0xb0),object=c->r[21].uw[0];const auto &projection=projections.projection(frame,object);
     const auto camera=scene.drawingCamera();const auto target=scene.frameTarget();
     if(!target || !camera || camera->object!=projection.camera || !proceduralMeshClass(value<uint32_t>(rt,object)) || ready.contains(object))throw std::runtime_error("unqualified procedural mesh class/frame");
@@ -37,18 +46,20 @@ void NativeProceduralDraws::beginMesh(Runtime *rt,const R5900Context *c,const Na
     const auto count=c->r[20].uw[0],fan=c->r[22].uw[0],blend=c->r[16].uw[0];const auto always=value<uint8_t>(rt,object+0x244),noWrite=value<uint8_t>(rt,object+0x245);
     if(count>65536 || fan>1 || blend>1 || always>1 || noWrite>1)throw std::runtime_error("unported procedural primitive variant");
     auto found=active.find(frame);if(found!=active.end() && (found->second.object!=object || found->second.frame!=target || found->second.camera!=camera || found->second.mesh))throw std::runtime_error("procedural mesh overlaps active owner");
-    Mesh mesh;mesh.count=count;mesh.fan=fan;auto &m=mesh.batch.material;m.fromFrame=1;m.source=5;m.textured=false;m.textureAlpha=false;m.textureFunction=bozo::render::Material::TextureFunction::Modulate;
+    Mesh mesh;mesh.count=count;mesh.fan=fan;mesh.builder=&b-kBuilders;auto &m=mesh.batch.material;m.fromFrame=1;m.source=5;m.textured=false;m.textureAlpha=false;m.textureFunction=bozo::render::Material::TextureFunction::Modulate;
     m.alphaBlend=blend;m.blend=blend?bozo::render::Material::Blend::Alpha:bozo::render::Material::Blend::Opaque;m.depthTest=!always;m.depthWrite=!noWrite;m.alphaTest=false;
     const float width=2*(2048.f-camera->viewport[0]),height=2*(2048.f-camera->viewport[1]);
     if(!std::isfinite(width) || !std::isfinite(height) || width<=16 || height<=16 || width>=4096 || height>=4096)throw std::runtime_error("procedural mesh viewport invalid");
     mesh.batch.matrix={target->width/width,0,0,0,0,target->height/height,0,0,0,0,1,0,(1-target->width/width)*2048.f,(1-target->height/height)*2048.f,0,1};
     if(found==active.end())found=active.emplace(frame,Draw{object,target,camera}).first;found->second.mesh=std::move(mesh);
 }
-void NativeProceduralDraws::vertex(Runtime *rt,const R5900Context *c){
-    if(!c || (c->pc!=0x247700 && c->pc!=0x2478c0 && c->pc!=0x247974) || c->r[31].uw[0]!=0x247700)throw std::runtime_error("procedural vertex escaped scalar builder");
+void NativeProceduralDraws::vertex(Runtime *rt,const R5900Context *c,uint32_t pc){
+    const auto &b=builderAt(pc);
+    if(!c || (c->pc!=b.begin && c->pc!=b.loop && c->pc!=b.call && c->pc!=b.call+4) || c->r[31].uw[0]!=b.begin)throw std::runtime_error("procedural vertex escaped scalar builder");
     music::CodecRounding arithmetic;const auto frame=key(c->r[29].uw[0]+0xb0);auto found=active.find(frame);
-    if(found==active.end() || found->second.object!=c->r[21].uw[0] || !found->second.mesh)throw std::runtime_error("procedural vertex lacks mesh owner");auto &mesh=*found->second.mesh;
-    const auto index=c->r[5].uw[0],stack=c->r[29].uw[0];if(index!=mesh.points.size() || index>=mesh.count || c->r[20].uw[0]!=mesh.count)throw std::runtime_error("procedural vertex order/count mismatch");
+    if(found==active.end() || found->second.object!=c->r[21].uw[0] || !found->second.mesh || found->second.mesh->builder!=unsigned(&b-kBuilders))
+        throw std::runtime_error("procedural vertex lacks mesh owner");auto &mesh=*found->second.mesh;
+    const auto index=c->r[b.index].uw[0],stack=c->r[29].uw[0];if(index!=mesh.points.size() || index>=mesh.count || c->r[20].uw[0]!=mesh.count)throw std::runtime_error("procedural vertex order/count mismatch");
     const auto position=value<std::array<int32_t,4>>(rt,stack+0x80);const auto uv=value<std::array<float,2>>(rt,stack+0xa8);
     // 2478c0..2479c0: UV is affine in the projected first position (scale +24c/+250
     // and offsets). A point projected far off screen or near the camera carries an
@@ -62,8 +73,10 @@ void NativeProceduralDraws::vertex(Runtime *rt,const R5900Context *c){
             out+=std::format(" ({},{} uv {},{})",mesh.points[i].x,mesh.points[i].y,mesh.points[i].v,mesh.points[i].u);
         return out+"]";};
     if(!std::isfinite(uv[0]) || !std::isfinite(uv[1]))throw std::runtime_error(detail("unqualified procedural texture coordinates"));
-    const auto colour64=uint64_t(c->r[17].uw[0])+4ull*index;if(colour64>UINT32_MAX)throw std::runtime_error("procedural colour array overflow");
-    bozo::render::Vertex v;v.x=position[0]/16.f;v.y=position[1]/16.f;v.z=float(uint32_t(position[2]));v.u=uv[1];v.v=uv[0];v.rgba=value<uint32_t>(rt,uint32_t(colour64));
+    // Builder 1 reads a colour per point (s1 + 4 index); builder 2 wrote one RGBAQ, s1 itself, before its points.
+    const auto colour64=uint64_t(c->r[17].uw[0])+4ull*index;if(!b.constantColour && colour64>UINT32_MAX)throw std::runtime_error("procedural colour array overflow");
+    bozo::render::Vertex v;v.x=position[0]/16.f;v.y=position[1]/16.f;v.z=float(uint32_t(position[2]));v.u=uv[1];v.v=uv[0];
+    v.rgba=b.constantColour?c->r[17].uw[0]:value<uint32_t>(rt,uint32_t(colour64));
     mesh.points.push_back(v);if(index>=2 && !(uint32_t(position[3])&0x8000)){
         const unsigned first=mesh.fan?0:index-2,second=index-1;const unsigned order[]={mesh.fan || !(index&1)?first:second,mesh.fan || !(index&1)?second:first,index};
         // A drawn triangle's points must be GS-representable (XYZ2 12.4, 0..4096 px):
@@ -72,8 +85,9 @@ void NativeProceduralDraws::vertex(Runtime *rt,const R5900Context *c){
             throw std::runtime_error(detail("procedural triangle outside the GS coordinate range"));
         for(unsigned i:order)mesh.batch.vertices.push_back(mesh.points[i]);}
 }
-void NativeProceduralDraws::endMesh(const R5900Context *c){
-    if(!c || (c->pc!=0x247ac0 && c->pc!=0x247700) || c->r[31].uw[0]!=0x247ac0)throw std::runtime_error("procedural mesh finish escaped scalar commit");
+void NativeProceduralDraws::endMesh(const R5900Context *c,uint32_t pc){
+    const auto &b=builderAt(pc);
+    if(!c || (c->pc!=b.end && c->pc!=b.begin) || c->r[31].uw[0]!=b.end)throw std::runtime_error("procedural mesh finish escaped scalar commit");
     auto found=active.find(key(c->r[29].uw[0]+0xb0));if(found==active.end() || found->second.object!=c->r[21].uw[0] || !found->second.mesh || found->second.mesh->points.size()!=found->second.mesh->count)throw std::runtime_error("procedural mesh finished incomplete");
     auto &draw=found->second;if(!draw.mesh->batch.vertices.empty())draw.batches.push_back(std::move(draw.mesh->batch));draw.mesh.reset();
 }
@@ -99,14 +113,14 @@ NativeModelSubmission NativeProceduralDraws::submission(Runtime *rt,const Native
 void NativeProceduralDraws::consumed(uint32_t object){if(!ready.erase(object))throw std::runtime_error("procedural draw consumed twice");}
 std::optional<bool> nativeProceduralDrawInstruction(R5900Context *c,Runtime *rt,uint32_t pc){
     if(!nativeProceduralDrawSite(pc))return std::nullopt;   // its sites: native_conditional_sites.h
-    if(pc!=0x247700 && pc!=0x247a90 && pc!=0x247ac0 && pc!=0x247ec0 && pc!=0x24769c)return std::nullopt;
+    if(pc!=0x247700 && pc!=0x247a90 && pc!=0x247ac0 && pc!=0x247b40 && pc!=0x247e60 && pc!=0x247e90 && pc!=0x247ec0 && pc!=0x24769c)return std::nullopt;
     auto *d=rt?vp2s::nativeCast<bozo::ee::Dispatcher>(rt->services):nullptr;auto *owner=d?vp2s::nativeCast<ProceduralDrawOwner>(&d->host()):nullptr;
     if(pc==0x247ec0 && !owner)return std::nullopt;
     auto *projections=d?vp2s::nativeCast<ProceduralOwner>(&d->host()):nullptr;auto *scene=d?vp2s::nativeCast<SceneOwner>(&d->host()):nullptr;
     if(!c || !owner || !projections || !scene)throw std::runtime_error("procedural draw lacks native owners");auto &draws=owner->nativeProceduralDraws();
-    if(pc==0x247700)draws.beginMesh(rt,c,scene->nativeScene(),projections->nativeProceduralTransforms());
-    else if(pc==0x247a90)draws.vertex(rt,c);
-    else if(pc==0x247ac0)draws.endMesh(c);
+    if(pc==0x247700 || pc==0x247b40)draws.beginMesh(rt,c,scene->nativeScene(),projections->nativeProceduralTransforms(),pc);
+    else if(pc==0x247a90 || pc==0x247e60)draws.vertex(rt,c,pc);
+    else if(pc==0x247ac0 || pc==0x247e90)draws.endMesh(c,pc);
     else if(pc==0x247ec0){draws.finish(c,projections->nativeProceduralTransforms());return std::nullopt;}
     else{
         auto *models=vp2s::nativeCast<ModelOwner>(&d->host());auto *feedback=vp2s::nativeCast<FeedbackOwner>(&d->host());

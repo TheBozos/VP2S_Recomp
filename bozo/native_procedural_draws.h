@@ -4,13 +4,14 @@
 #include "native_feedback.h"
 namespace vp2s {
 class NativeProceduralDraws {
-    struct Mesh {uint32_t count=0;bool fan=false;NativeModelBatch batch;std::vector<bozo::render::Vertex> points;};
+    struct Mesh {uint32_t count=0;bool fan=false;unsigned builder=0;NativeModelBatch batch;std::vector<bozo::render::Vertex> points;};
     struct Draw {uint32_t object=0;std::shared_ptr<const NativeFrameTarget> frame;std::shared_ptr<const NativeCamera> camera;std::vector<NativeModelBatch> batches;std::optional<Mesh> mesh;};
     std::map<uint32_t,Draw> active,ready;
 public:
-    void beginMesh(Runtime *,const R5900Context *,const NativeScene &,const NativeProceduralTransforms &);
-    void vertex(Runtime *,const R5900Context *);
-    void endMesh(const R5900Context *);
+    // pc: the builder's site (2476b0's 247700 / 247a90 / 247ac0, 247af0's 247b40 / 247e60 / 247e90).
+    void beginMesh(Runtime *,const R5900Context *,const NativeScene &,const NativeProceduralTransforms &,uint32_t pc);
+    void vertex(Runtime *,const R5900Context *,uint32_t pc);
+    void endMesh(const R5900Context *,uint32_t pc);
     void finish(const R5900Context *,const NativeProceduralTransforms &);
     NativeModelSubmission submission(Runtime *,const NativeScene &,const NativeFeedbackCopies &,uint32_t object)const;
     void consumed(uint32_t object);

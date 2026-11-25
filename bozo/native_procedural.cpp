@@ -19,6 +19,15 @@ uint32_t word(const uint8_t *source){uint32_t out;std::memcpy(&out,source,4);ret
 void producer(const R5900Context *c){
     if(!c || c->pc!=0x2481d0 || c->r[31].uw[0]!=0x2481d0 || c->r[4].uw[0]!=c->r[29].uw[0]+0x130)throw std::runtime_error("procedural projection escaped original producer");
 }
+// The two mesh builders: 2476b0 (classes 152d50 / 152ca0: a colour per point) and 247af0 (class 152b40: one RGBAQ),
+// the same frame and projection, with their own sites. Builder 2 loads the second point (247d30) before its MULq / WAITQ.
+struct BuilderSites{uint32_t begin,loop,call,first,second,publish,fixedConstant,fixedStore;unsigned index,publishReg,fixedReg;};
+constexpr BuilderSites kBuilders[2]={{0x247700,0x2478c0,0x247974,0x2478c8,0x247968,0x24796c,0x247a18,0x247a1c,5,4,3},
+                                     {0x247b40,0x247d08,0x247d44,0x247d10,0x247d30,0x247d3c,0x247de4,0x247de8,6,5,4}};
+const BuilderSites *builderOf(uint32_t pc){
+    if(pc==0x2478c8 || pc==0x2478cc || pc==0x2478d0 || pc==0x2478d4 || pc==0x2478d8 || pc==0x247918 || pc==0x24795c || pc==0x247968 || pc==0x24796c || pc==0x247974 || pc==0x247a18 || pc==0x247a1c)return &kBuilders[0];
+    if(pc==0x247d10 || pc==0x247d14 || pc==0x247d18 || pc==0x247d1c || pc==0x247d20 || pc==0x247d24 || pc==0x247d30 || pc==0x247d34 || pc==0x247d38 || pc==0x247d3c || pc==0x247d44 || pc==0x247de4 || pc==0x247de8)return &kBuilders[1];
+    return nullptr;}
 float normal(float v){const auto b=std::bit_cast<uint32_t>(v);return std::bit_cast<float>((b&0x7f800000)?b:b&0x80000000);}
 float multiply(float a,float b){volatile float v=a*b;return normal(v);}
 float add(float a,float b){volatile float v=a+b;return normal(v);}
@@ -53,38 +62,39 @@ const NativeProceduralProjection &NativeProceduralTransforms::projection(uint32_
 void NativeProceduralTransforms::finish(uint32_t frame,uint32_t object){projection(frame,object);const auto key=address(frame);
     if(points.contains(key))throw std::runtime_error("procedural finish has an unpublished point");draws.erase(key);}
 void NativeProceduralTransforms::point(Runtime *rt,R5900Context *c,uint32_t pc){
-    if(!c || (c->pc!=0x247700 && c->pc!=0x2478c0 && c->pc!=0x247974) || c->r[31].uw[0]!=0x247700)throw std::runtime_error("procedural point escaped original scalar owner");
-    const auto stack=c->r[29].uw[0],key=address(stack+0xb0),object=c->r[21].uw[0],index=c->r[5].uw[0],count=c->r[20].uw[0];
+    const auto *b=builderOf(pc);
+    if(!c || !b || (c->pc!=b->begin && c->pc!=b->loop && c->pc!=b->call && c->pc!=b->call+4) || c->r[31].uw[0]!=b->begin)throw std::runtime_error("procedural point escaped original scalar owner");
+    const auto stack=c->r[29].uw[0],key=address(stack+0xb0),object=c->r[21].uw[0],index=c->r[b->index].uw[0],count=c->r[20].uw[0];
     const auto &input=projection(key,object);if(!count || count>65536 || index>=count)throw std::runtime_error("procedural point index outside scalar array");
     const auto first64=uint64_t(c->r[19].uw[0])+16ull*index,second64=uint64_t(c->r[18].uw[0])+16ull*index;
     if(first64>UINT32_MAX || second64>UINT32_MAX)throw std::runtime_error("procedural point address overflow");
     const auto first=uint32_t(first64),second=uint32_t(second64);
-    if(pc==0x2478c8){
+    if(pc==b->first){
         if(c->r[9].uw[0]!=first || points.contains(key))throw std::runtime_error("procedural point begins twice or at wrong source");
         std::array<float,4> position;std::memcpy(position.data(),record(rt,first,16),16);Point point{index,first,second};point.projected=projected(input.screenFromLocal,position);points.emplace(key,point);return;
     }
     auto found=points.find(key);if(found==points.end() || found->second.index!=index || found->second.first!=first || found->second.second!=second)throw std::runtime_error("procedural point has no matching snapshot");auto &p=found->second;
-    if(pc==0x247968){
+    if(pc==b->second){
         if(p.phase || c->r[9].uw[0]!=second)throw std::runtime_error("procedural second point read out of order");
         std::array<float,4> position;std::memcpy(position.data(),record(rt,second,16),16);p.destination=position;p.phase=1;
-    }else if(pc==0x24796c){
-        if(p.phase!=1 || c->r[4].uw[0]!=stack+0x90)throw std::runtime_error("procedural projected point publication out of order");
+    }else if(pc==b->publish){
+        if(p.phase!=1 || c->r[b->publishReg].uw[0]!=stack+0x90)throw std::runtime_error("procedural projected point publication out of order");
         auto *out=record(rt,stack+0x90,16);std::memcpy(out,p.projected.data(),16);p.phase=2;
-    }else if(pc==0x247974){
+    }else if(pc==b->call){
         if(p.phase!=2)throw std::runtime_error("procedural destination calculation out of order");
         music::CodecRounding rounding;
         const auto position=projected(input.screenFromLocal,p.destination);std::array<int32_t,4> fixed;
         for(unsigned i=0;i<4;++i){const auto scaled=double(position[i])*16;
             fixed[i]=scaled>=INT32_MAX?INT32_MAX:scaled<=INT32_MIN?INT32_MIN:int32_t(scaled);}p.fixed=fixed;p.phase=3;
-    }else if(pc==0x247a18){if(p.phase!=3)throw std::runtime_error("procedural constant read before destination");c->r[9].ud[0]=0;p.phase=4;
-    }else if(pc==0x247a1c){
-        if(p.phase!=4 || c->r[3].uw[0]!=stack+0x80)throw std::runtime_error("procedural fixed destination publication out of order");
+    }else if(pc==b->fixedConstant){if(p.phase!=3)throw std::runtime_error("procedural constant read before destination");c->r[9].ud[0]=0;p.phase=4;
+    }else if(pc==b->fixedStore){
+        if(p.phase!=4 || c->r[b->fixedReg].uw[0]!=stack+0x80)throw std::runtime_error("procedural fixed destination publication out of order");
         auto *out=record(rt,stack+0x80,16);std::memcpy(out,p.fixed.data(),16);points.erase(found);
-    }else if(p.phase)throw std::runtime_error("procedural projection calculation after publication");
+    }else if(p.phase>(b==&kBuilders[1] && (pc==0x247d34 || pc==0x247d38)?1u:0u))throw std::runtime_error("procedural projection calculation after publication");
 }
 std::optional<bool> nativeProceduralInstruction(R5900Context *c,Runtime *rt,uint32_t pc){
     const bool publish=pc>=0x248260 && pc<=0x24826c && !(pc&3);
-    const bool point=pc==0x2478c8 || pc==0x2478cc || pc==0x2478d0 || pc==0x2478d4 || pc==0x2478d8 || pc==0x247918 || pc==0x24795c || pc==0x247968 || pc==0x24796c || pc==0x247974 || pc==0x247a18 || pc==0x247a1c;
+    const bool point=builderOf(pc)!=nullptr;
     if(!publish && !point && pc!=0x247ec0)return std::nullopt;
     auto *d=rt?vp2s::nativeCast<bozo::ee::Dispatcher>(rt->services):nullptr;auto *owner=d?vp2s::nativeCast<ProceduralOwner>(&d->host()):nullptr;auto *scene=d?vp2s::nativeCast<SceneOwner>(&d->host()):nullptr;
     if(!c || !owner || !scene)throw std::runtime_error("procedural projection lacks semantic owner");

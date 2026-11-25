@@ -237,6 +237,9 @@ void NativeModels::publishGeneratedMesh(Runtime *rt,const std::vector<std::pair<
 // +8c0+4i, then its own; then each list child (list +8d4, next +8, ending at
 // the owner's +8cc). Children of that class compose the same way; their draws
 // run inside the owner's, and their completions (21c9a0) leave the scene slot.
+// A level-of-detail model (any class whose +60 is 246f50: 154dc0 and its levels 154ca0) owns the levels in its slots
+// +87c, +880, +884: 246f50 creates them (class 154ca0, 247234..247268) and, while the owner is the scene's pending
+// object, runs each level's +64 and then its draw +11c (247318..247378) before its own.
 bool composedBy(Runtime *rt,uint32_t owner,uint32_t object){
     constexpr uint32_t kComposite=0x1599a0;
     std::vector<uint32_t> stack{owner},seen;
@@ -245,7 +248,11 @@ bool composedBy(Runtime *rt,uint32_t owner,uint32_t object){
         if(node==object)return true;
         if(node<0x100000 || node>0x2000000-0x8d8 || std::find(seen.begin(),seen.end(),node)!=seen.end())continue;
         seen.push_back(node);if(seen.size()>512)throw std::runtime_error("native composite model tree outside bounds");
-        if(value<uint32_t>(rt,node)!=kComposite)continue;
+        const auto type=value<uint32_t>(rt,node);
+        if(type>=0x100000 && type<0x2000000-0x64 && value<uint32_t>(rt,type+0x60)==0x246f50){
+            for(unsigned i=0;i<3;++i)if(const auto level=value<uint32_t>(rt,node+0x87c+4*i))stack.push_back(level);
+            continue;}
+        if(type!=kComposite)continue;
         for(unsigned i=0;i<3;++i)if(const auto slot=value<uint32_t>(rt,node+0x8c0+4*i))stack.push_back(slot);
         unsigned steps=0;
         for(auto child=value<uint32_t>(rt,node+0x8d4);child!=node+0x8cc;child=value<uint32_t>(rt,child+8)){

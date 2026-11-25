@@ -29,6 +29,15 @@ void fixture(const std::filesystem::path &dir,int algorithm,uint32_t mode=2,uint
 }
 int main(int argc,char **argv){try{
     check(argc==2);const std::filesystem::path dir=argv[1];
+    {   // Scene ownership: a level-of-detail owner (class 154dc0, +60 = 246f50) composes its levels in +87c..+884, and a
+        // level of the same family its own; another class's +87c is not followed.
+        Runtime rt;std::memset(rt.memory.flat(),0,bozo::kFlatBytes);
+        constexpr uint32_t lod=0x154dc0,level=0x154ca0,other=0x150000,owner=0x400000,a=0x410000,b=0x420000,c=0x430000,stranger=0x440000;
+        put(rt,lod+0x60,0x246f50u);put(rt,level+0x60,0x246f50u);put(rt,other+0x60,0x23c6c0u);
+        put(rt,owner,lod);put(rt,owner+0x880,a);put(rt,a,level);put(rt,a+0x884,b);put(rt,b,level);put(rt,stranger,other);put(rt,stranger+0x87c,c);
+        check(vp2s::composedBy(&rt,owner,owner) && vp2s::composedBy(&rt,owner,a) && vp2s::composedBy(&rt,owner,b));
+        check(!vp2s::composedBy(&rt,owner,c) && !vp2s::composedBy(&rt,stranger,c) && !vp2s::composedBy(&rt,a,owner));
+    }
     unsigned cases=0,emptyCases=0;
     for(int algorithm:{0,2,4}){
         fixture(dir,algorithm);vp2s::NativeModels models(dir);Runtime rt;vp2s::NativeScene scene;vp2s::NativeAssets assets;vp2s::NativeTextures textures;

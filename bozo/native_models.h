@@ -11,6 +11,9 @@
 #include <optional>
 #include <vector>
 namespace vp2s {
+// Whether the scene's pending object (owner) composes the model object: itself, a composite 1599a0's slots and list
+// children, or a level-of-detail model's levels (+87c..+884); recursively.
+bool composedBy(Runtime *,uint32_t owner,uint32_t object);
 struct NativeModelBatch {
     bozo::render::Material material;
     std::array<float,16> matrix;

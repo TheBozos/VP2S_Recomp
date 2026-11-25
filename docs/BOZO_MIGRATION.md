@@ -12,6 +12,22 @@ The earlier VP2S face/shading and general brightness comparisons remain open.
 
 ## Build and evidence
 
+### Scene ownership of level-of-detail models (2026-11-25)
+
+- **The case:** maps 10, 13, 14 and 280 stopped at "native model has no pending scene ownership". The model (class 154ca0)
+  was drawn while the scene's pending object was a class 154dc0 object, which composedBy did not know.
+- **What the game does:** 154dc0 and 154ca0 share the draw +60 = 246f50, a level-of-detail model.
+  - 246f50 creates up to three levels (class 154ca0, 247234..247268) in the owner's slots +87c, +880 and +884.
+  - While the owner is the pending object, it runs each level's +64 and its draw +11c (247318..247378), then its own.
+- **Natively:** composedBy follows those three slots for any class whose +60 is 246f50, recursively, as it follows a
+  composite 1599a0's slots and list.
+
+**Evidence:**
+- **Tests:** vp2s-bozo-models: an owner composes a level two slots deep; another class's +87c is not followed; a level
+  does not compose its owner.
+- **Maps:** 10, 13, 14 and 280 run clean to the frame limit; map 10's cathedral shows its characters.
+- **Regression:** full ctest; regress4's scenes keep their hashes.
+
 ### Native occlusion culling: occluder leaf 222b10 and VU0 program 0xd58 (2026-11-25)
 
 - **The case:** maps 99, 109, 280 and 471 stopped at 22293c, the clip-row loads of the occluder pass 222850.

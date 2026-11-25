@@ -7607,6 +7607,9 @@ bool nativeSpriteMove(R5900Context *c,Runtime *rt,uint32_t pc){
         if(!particles)throw std::runtime_error("native sprite step box requires its bounds owner");
         const auto frame=c->r[29].uw[0]+0x40,emitter=c->r[4].uw[0];particles->nativeParticles().validateEmitter(frame,emitter);
         std::array<float,4> point;for(unsigned i=0;i<4;++i)point[i]=std::bit_cast<float>(st.result[i].bits);
+        // A particle whose record holds no position the game wrote (map 464: leftover words such as f237f925 f714e940
+        // ff82a22f, exponent 255 or denormal lanes) is skipped (user decision 2026-11-25: "Skip them natively").
+        for(unsigned i=0;i<3;++i){const auto e=st.result[i].bits&0x7f800000u;if(e==0x7f800000u || (!e && (st.result[i].bits&0x7fffffu)))return true;}
         particles->nativeParticles().includePoint(frame,emitter,point);return true;}
     case 'x':return true;
     default:{if(!st.moved)throw std::runtime_error("native sprite motion stored before its step");

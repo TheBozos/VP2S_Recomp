@@ -12,6 +12,19 @@ The earlier VP2S face/shading and general brightness comparisons remain open.
 
 ## Build and evidence
 
+### Sprite step: particles without a written position are skipped (2026-11-25)
+
+- **The case:** map 464's live sprite particles 6..11 hold leftover words in their position (f237f925 f714e940
+  ff82a22f: exponent 255 and other non-positions). The step's box (3ca828) refused them.
+- **User decision (2026-11-25):** "Skip them natively".
+- **Now:** a moved point with an exponent-255 or denormal lane is not included in the driver's box. The particle's
+  records and draw are left as they are.
+
+**Evidence:**
+- **Maps:** map 464 runs clean.
+- **Regression:** full ctest 97/97; the four scenes keep their hashes.
+- **Atlas:** 496 of 552 maps clean.
+
 ### Push-out loop 397780: a pair without objects keeps the registers unknown (2026-11-25)
 
 - **The case:** 4 maps (216, 350, 351, 436) stopped on "object pair spill without registers" at 3984f4.

@@ -39,6 +39,9 @@ public:
     void retire(Runtime *,R5900Context *);
     void flushed(Runtime *,uint32_t stack);
     void complete(uint32_t stack);
+    // The kernel's patched draw (374c00 calls the completion 3757c0, not the flush): the flush's CPU bookkeeping at 374c04
+    // (end tag 0x8000 + 0 after the packet, writer +8 / +c past it), so the lease completes at 374c10.
+    void flushNatively(Runtime *,uint32_t stack);
     size_t outstanding()const{return calls.size();}
 };
 class ScreenZoomOwner {

@@ -549,6 +549,11 @@ def overlay_adaptations(name,data):
                 '003d27b8 8e0509c4 10000121\n'
                 '003d2600 0c044c70 0c087268\n'
                 '003d2604 0007393e 2664ff70\n'
+                # Screen zoom 15d420 (draw 374be0): its flush 120eb0 (whose enqueue is retired) becomes the zoom's own
+                # completion 3757c0(object + 90) -> 374bc0 -> 21c9a0, which clears the scene's pending flag; 374c04 (delay
+                # slot, a0 = object + 90) draws natively and keeps the flush's CPU bookkeeping (native_screen_zoom.cpp).
+                '00374c00 0c0483ac 0c0dd5f0\n'
+                '00374c04 8c840094 24840090\n'
                 # Field map panel 167200: its enqueue enters the completion 454170;
                 # 4541b8 (delay slot) draws the gradient panel and border natively.
                 '004541b4 0c0807c8 0c11505c\n')

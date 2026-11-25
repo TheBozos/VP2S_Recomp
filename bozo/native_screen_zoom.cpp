@@ -118,6 +118,16 @@ void NativeScreenZooms::flushed(Runtime *rt,uint32_t stack){
         throw std::runtime_error("native screen zoom did not finish its scalar flush");
     lease.flushed=true;
 }
+void NativeScreenZooms::flushNatively(Runtime *rt,uint32_t stack){
+    auto &lease=calls.at(stack);
+    if(lease.retired || lease.flushed || value<uint32_t>(rt,lease.writer+8)!=lease.end || value<uint32_t>(rt,lease.writer+12)!=lease.begin)
+        throw std::runtime_error("native screen zoom writer changed before its native flush");
+    // 120eb0: sd 0x8000 / sd 0 at the cursor, both cursors past them (the enqueue itself is retired by the kernel).
+    const uint64_t tag[2]={0x8000,0};auto *p=rt->memory.hostPointer(lease.end,16);if(!p)throw std::runtime_error("native screen zoom end tag outside RAM");
+    std::memcpy(p,tag,16);const uint32_t next=lease.end+16;
+    std::memcpy(rt->memory.hostPointer(lease.writer+8,4),&next,4);std::memcpy(rt->memory.hostPointer(lease.writer+12,4),&next,4);
+    lease.retired=lease.flushed=true;
+}
 void NativeScreenZooms::complete(uint32_t stack){
     auto it=calls.find(stack);if(it==calls.end())return;   // empty writer: nothing was leased
     if(!it->second.flushed)throw std::runtime_error("native screen zoom completed before its flush");
@@ -134,9 +144,15 @@ std::optional<bool> nativeScreenZoomInstruction(R5900Context *c,Runtime *rt,uint
         // The flush call's delay slot, before its writer load: a0 = object, a1 = object+90.
         if((c->pc!=0x374be0 && c->pc!=0x374c00) || c->r[5].uw[0]!=c->r[4].uw[0]+0x90)throw std::runtime_error("native screen zoom requires its complete draw method");
         if(std::getenv("VP2S_BOZO_TRACE_QUEUES")){const auto o=c->r[4].uw[0],w=value<uint32_t>(rt,o+0x94);   // diagnostic: each zoom draw and its writer
-            std::fprintf(stderr,"[vp2s:zoom] draw %x writer %x begin %x end %x +63 %u\n",o,w,w?value<uint32_t>(rt,w+12):0u,w?value<uint32_t>(rt,w+8):0u,unsigned(value<uint8_t>(rt,o+0x63)));}
+            const auto q=value<uint32_t>(rt,0x35dd78);
+            std::fprintf(stderr,"[vp2s:zoom] draw %x writer %x begin %x end %x +63 %u queue %x header %08x %08x\n",o,w,w?value<uint32_t>(rt,w+12):0u,w?value<uint32_t>(rt,w+8):0u,
+                unsigned(value<uint8_t>(rt,o+0x63)),q,q?value<uint32_t>(rt,q+8):0u,q?value<uint32_t>(rt,q+12):0u);}
+        // Patched draw (vp2_bozo_kernel.py, in the generated code; guest RAM keeps the original words): the flush call is the
+        // completion and its delay slot sets a0 = object + 90, so the flush's bookkeeping is done here.
+        const bool patched=value<uint32_t>(rt,0x374c00)==0x0c0483acu && value<uint32_t>(rt,0x374c04)==0x8c840094u;
+        if(!patched)throw std::runtime_error("native screen zoom draw is not the patched 374be0");
         if(const auto zoom=zooms.begin(rt,sp,c->r[4].uw[0])){
-            try{owner->drawNativeScreenZoom(*zoom);}catch(...){zooms.cancel(sp);throw;}
+            try{owner->drawNativeScreenZoom(*zoom);if(patched)zooms.flushNatively(rt,sp);}catch(...){zooms.cancel(sp);throw;}
         }
     }else if(pc==0x374c10){
         if(c->pc!=0x374c08)throw std::runtime_error("native screen zoom completion escaped its return");

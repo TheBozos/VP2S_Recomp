@@ -12,6 +12,24 @@ The earlier VP2S face/shading and general brightness comparisons remain open.
 
 ## Build and evidence
 
+### Screen zoom: its flush becomes its completion (2026-11-25)
+
+- **The case:** maps 160, 199 and 202 stalled: the main thread spun at 221070 on the scene's pending flag +40dd.
+  - Layer 1's pass (221188) had set that flag and called the screen zoom's draw 374be0.
+  - The draw flushes its writer through 120eb0, whose enqueue (120f48) is retired natively. So the zoom's job never
+    "completed": its completion 3757c0 -> 374bc0 -> 21c9a0, which clears +40dd, never ran.
+- **Natively, as for the capture fade and the camp backdrop:**
+  - The kernel turns the draw's flush call (374c00) into the zoom's completion 3757c0, with a0 = object + 90 in the delay
+    slot 374c04.
+  - The native site at 374c04 draws the zoom and does the flush's CPU bookkeeping: end tag 0x8000 / 0 after the packet,
+    writer +8 / +c past it. The lease then completes at 374c10 as before.
+
+**Evidence:**
+- **Maps:** 160, 199 and 202 no longer stall; they now stop at a VU0 block, 3fc50c.
+- **Tests:** test_bozo_kernel pins the two patch words.
+- **Regression:** full ctest; regress4's scenes keep their hashes (the route's town dialogue uses the zoom).
+- **Diagnostic:** VP2S_BOZO_TRACE_QUEUES prints each zoom draw with its writer and the queue header.
+
 ### Map 487: skinned meshes wait for their bone palette; the chain's push starts at zero (2026-11-25)
 
 - **Map 487:** object 9b80b0 (skeleton 9b8970, 17 bones) was drawn with a bone palette (skeleton +4c + 40) that nothing had

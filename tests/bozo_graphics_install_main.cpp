@@ -439,6 +439,15 @@ int main(){try{
         check(vp2s::nativeVisibilityInstruction(&c,&r,0x220c74)==true && c.r[5].ud[0]==0);
         owner.finishVisibility(stack,scene);reject([&]{vp2s::nativeVisibilityInstruction(&c,&r,0x220c74);});
         check(held.angle==0 && held.input[2]==4);
+        // A sphere its object has not set yet (map 408's bytes: exponent-255 x, a negative radius; or only a negative
+        // radius) is outside and not intersecting, and the projected point keeps object +70.
+        const uint32_t unset[2][4]={{0xffffffffu,0xf2ffffffu,0xf1ffffffu,0xf0ffffffu},{0x3f800000u,0,0x40800000u,0xbf800000u}};
+        const float kept[4]={7,8,9,10};std::memcpy(r.memory.flat()+object+0x70,kept,16);
+        for(const auto &u:unset){std::memcpy(r.memory.flat()+source,u,16);
+            owner.beginVisibility(stack,scene);owner.visibilityClip(&r,stack,camera);owner.visibilityView(&r,stack,camera);owner.visibilitySphere(&r,stack,object,source);
+            const auto &s=owner.visibilitySphere(stack,object,source);
+            check(s.outside && !s.intersects && !s.angle && !std::memcmp(s.projected.data(),kept,16));
+            owner.finishVisibility(stack,scene);}
     }
     {   // Zero depth (a sphere in the camera plane): VU0's DIV by zero saturates x and y to
         // +-max (FLT_MAX natively) or keeps a zero; depth, radius and classification stay.

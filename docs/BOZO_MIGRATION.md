@@ -12,6 +12,18 @@ The earlier VP2S face/shading and general brightness comparisons remain open.
 
 ## Build and evidence
 
+### Map 408: a sphere read before it is set counts as outside (2026-11-25)
+
+- **The case:** class 172b40 (mod028) is in the scene before its setter (method +128, 498420: position +20 into +7f0,
+  radius into +7fc) has run. The visibility pass 220b70 reads its sphere through method +5c; a watch run showed the
+  bytes came from an earlier file buffer (x = NaN, radius -6.3e29).
+- **User decision (2026-11-25): not visible until set.** In NativeScene::visibilitySphere, a sphere with a lane of
+  exponent 255 or a negative radius is outside the frustum and not intersecting; the projected point stored at object
+  +70 (220bb4, in the branch's delay slot) keeps the value already there.
+
+**Evidence:** vp2s-bozo-graphics-install (map 408's bytes and a negative radius alone); map 408 runs clean to the frame
+limit; full ctest; regress4's scenes keep their hashes.
+
 ### Native field UI pieces: picture, shadow frame, name tab, symbol, highlight; mod198 camera offset (2026-11-25)
 
 - **The case:** maps 329, 333, 432, 433 and 446 stopped in the field UI layer at classes the native layer capture did not

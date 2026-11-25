@@ -2,6 +2,7 @@
 #include "native_scene.h"
 #include "native_frustum.h"
 #include "bozo/ee/dispatcher.h"
+#include <algorithm>
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
@@ -254,6 +255,16 @@ void NativeScene::visibilitySphere(Runtime *rt,uint32_t stack,uint32_t object,ui
     std::memcpy(&sphere,record(rt,source,16),16);std::memcpy(clip.data(),inputs.clip.data(),64);
     std::memcpy(planes.points.data(),inputs.frustum->points.data(),160);std::memcpy(planes.normals.data(),inputs.frustum->normals.data(),160);
     NativeSphereVisibility result;
+    // A sphere its object has not set yet (user decision 2026-11-25, map 408: class 172b40's +7f0 is read by this pass
+    // before its setter, method +128, writes it; the bytes are an earlier file buffer's): a lane with exponent 255 or a
+    // negative radius means "not visible until set". The pass sees it outside the frustum, not intersecting, and the
+    // projected point stored at object +70 (220bb4, in the branch's delay slot) keeps the value already there.
+    uint32_t lanes[4];std::memcpy(lanes,&sphere,16);float radius;std::memcpy(&radius,&lanes[3],4);
+    if(std::any_of(lanes,lanes+4,[](uint32_t v){return (v&0x7f800000u)==0x7f800000u;}) || radius<0){
+        result.outside=true;result.intersects=false;std::memcpy(result.input.data(),lanes,16);
+        std::memcpy(result.projected.data(),record(rt,object+0x70,16),16);
+        result.object=object;result.source=source;visibilityInputs.at(stack).sphere=std::move(result);return;
+    }
     try{result=sphereVisibility(clip,planes,sphere);}
     catch(const std::runtime_error &e){
         float v[4];std::memcpy(v,&sphere,16);

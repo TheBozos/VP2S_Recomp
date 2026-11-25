@@ -10,7 +10,9 @@ namespace vp2s {
 // else calls 22e650 (with the step at 35dee8 zeroed for that call when +b11 bit 1 is set); destructor 500900.
 // 1781c0 (mod037, field map 142): its producer 5153e0 places the emitter relative to the camera (compiled), then calls
 // 175920's gated producer 3d58e0 (so the base producer 22e650); its draw is the base 22f140, +44 the base 22fa50.
-inline bool particleClass(uint32_t vtable){return vtable==0x154180 || vtable==0x16f680 || vtable==0x1725d0 || vtable==0x175920 || vtable==0x1781c0;}
+// Its siblings 178870 (producer 51bed0) and 178ce0 (51d200) do their own set-up, then call 3d58e0 too; every other slot
+// but destructor and update is shared. 179ee0 / 17a590 / 17aa00 are word-identical copies of these three vtables.
+inline bool particleClass(uint32_t vtable){return vtable==0x154180 || vtable==0x16f680 || vtable==0x1725d0 || vtable==0x175920 || vtable==0x1781c0 || vtable==0x178870 || vtable==0x178ce0 || vtable==0x179ee0 || vtable==0x17a590 || vtable==0x17aa00;}
 struct ParticleBounds {std::array<float,4> minimum{},maximum{};};
 inline constexpr uint32_t particleSphereSites[]={0x22efd8,0x22efdc,0x22efe0,0x22efe4,0x22efe8,0x22efec,0x22eff0,0x22eff4,0x22eff8,0x22effc,0x22f004,0x22f008,0x22f010,0x22f014,0x22f018};
 // A mode-3 emitter publishes explicit point chunks into the game's two RAM

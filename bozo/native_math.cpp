@@ -6805,6 +6805,42 @@ constexpr SimpleSite simpleSites[]={
     {0x295e44,0x4be111ac,'i',1},{0x295e48,0x4be1133c,'i',2},{0x295e4c,0x4bc022bc,'i',3},{0x295e50,0x4bc33108,'i',4},{0x295e54,0xf8440000,'a',5},
     {0x295e58,0x4bc4d6af,'b',6},{0x295e5c,0x4bc4deeb,'b',7}
 };
+// Linear emitter step, mod037 516830 (field map 142's class 1781c0, called from the driver at 22ed38; a leaf, no frame):
+// vf5.x = dt (QMTC2 516870 of *35dee8); per live particle (record = [emitter+14] + t2 * 60): p = record+10 (5168e0),
+// v = record+30 (5168e8), P.xyz = (p + 0) + v dt (ADDA / MADDx), P.w = p.w; P to the output (a2, 516900; the EE copies
+// record+20 to output+10) and back to record+10 (51690c). No box.
+struct LinearState{bool ready=false;uint32_t frame=0,emitter=0,dt=0,record=0;unsigned step=0;VuWords p{},v{},P{};};
+LinearState &linearState(const Runtime *rt){static std::map<const Runtime *,LinearState> states;return states[rt];}
+bool nativeLinearEmitter(R5900Context *c,Runtime *rt,uint32_t pc){
+    if(!rt || (pc&3) || pc<0x516870 || pc>0x51690c)return false;
+    static constexpr std::pair<uint32_t,uint32_t> words[]={{0x516870,0x48ac2800},{0x5168e0,0xd9810000},{0x5168e8,0xd9620000},{0x5168ec,0x4bc00abc},
+        {0x5168f0,0x4bc51048},{0x516900,0xf8c10000},{0x51690c,0xf9810000}};
+    const auto it=std::find_if(std::begin(words),std::end(words),[&](auto &w){return w.first==pc;});
+    if(it==std::end(words))return false;
+    uint32_t word=0;if(const auto *p=rt->memory.hostPointer(pc,4))std::memcpy(&word,p,4);
+    if(word!=it->second)return false;
+    auto *d=vp2s::nativeCast<bozo::ee::Dispatcher>(rt->services);auto *particles=d?vp2s::nativeCast<ParticleOwner>(&d->host()):nullptr;
+    if(!c || !particles)throw std::runtime_error("native linear emitter requires its bounds owner");
+    auto &st=linearState(rt);
+    const auto fail=[&](const char *what){st=LinearState{};throw std::runtime_error(std::format("native linear emitter at {:x}: {}",pc,what));};
+    const auto reg=[&](unsigned r){return c->r[r].uw[0];};
+    const auto field=[&](uint32_t at){const auto *p=rt->memory.hostPointer(at,4);if(!p)fail("scalar field outside RAM");uint32_t v;std::memcpy(&v,p,4);return v;};
+    const auto put=[&](uint32_t at,const VuWords &v){std::memcpy(record(rt,at,16),v.data(),16);};
+    if(pc==0x516870){
+        st=LinearState{};st.emitter=reg(4);st.frame=reg(29);particles->nativeParticles().validateEmitter(st.frame,st.emitter);
+        if(reg(12)!=field(0x35dee8))fail("timestep source");st.dt=reg(12);st.ready=true;return true;}
+    if(!st.ready || reg(4)!=st.emitter || reg(29)!=st.frame)fail("particle outside its emitter's step");
+    const unsigned order=pc==0x5168e0?0:pc==0x5168e8?1:pc==0x5168ec?2:pc==0x5168f0?3:pc==0x516900?4:5;
+    if(order==0){if(st.step!=0 && st.step!=6)fail("particle loads inside a particle");
+        st.record=field(st.emitter+0x14)+reg(10)*0x60u;if(reg(12)!=st.record+0x10)fail("particle record");st.p=vuWords(rt,reg(12));st.step=1;return true;}
+    if(st.step!=order)fail("particle step order");
+    switch(order){
+    case 1:if(reg(11)!=st.record+0x30)fail("velocity address");st.v=vuWords(rt,reg(11));break;
+    case 3:st.P=st.p;for(unsigned i=0;i<3;++i)st.P[i]=vuAdd(vuAdd(st.p[i],0),vuMul(st.v[i],st.dt));break;
+    case 4:put(reg(6),st.P);break;
+    case 5:if(reg(12)!=st.record+0x10)fail("record store address");put(reg(12),st.P);break;}
+    st.step=order+1;return true;
+}
 struct SimpleState{
     unsigned prepare=0,variant=0;uint32_t frame=0,emitter=0,dt=0,stride=0;
     VuWords drift{},gravity{},push{},clamp{};
@@ -7092,6 +7128,12 @@ struct RowState{
 };
 RowState &rowState(const Runtime *rt){static std::map<const Runtime *,RowState> states;return states[rt];}
 bool nativeRowEmitter(R5900Context *c,Runtime *rt,uint32_t pc){
+    // mod037 5220f0 (field map 142's class 178ce0, step under the driver at 22ed38) is the plain emitter 2920e0 word for
+    // word (126 VU0 words, the same frame, registers and records): its sites are the plain ones 290010 higher up to the
+    // particle loads and 290020 higher from them (one EE word more in between). Its helpers 522a40 / 522bd0 are 298dd0 /
+    // 298f60 at +289c70 (retired below).
+    const bool plainCopy=pc>=0x522194 && pc<=0x522934;const uint32_t realPc=pc;
+    if(plainCopy)pc-=pc<0x5222c8?0x290010u:0x290020u;
     if(!rt || (pc&3) || pc<0x2911e0 || pc>0x293ccc)return false;
     const RowSite *site=nullptr;bool plain=false;const bool slim=pc<0x292184;
     if(pc>=0x2933a8){for(const auto &s:rowSites)if(s.pc==pc){site=&s;break;}}
@@ -7100,7 +7142,7 @@ bool nativeRowEmitter(R5900Context *c,Runtime *rt,uint32_t pc){
     else{for(const auto &s:plainSites)if(s.pc==pc){site=&s;break;}
         plain=true;}
     if(!site)return false;
-    uint32_t word=0;if(const auto *p=rt->memory.hostPointer(pc,4))std::memcpy(&word,p,4);
+    uint32_t word=0;if(const auto *p=rt->memory.hostPointer(realPc,4))std::memcpy(&word,p,4);
     if(word!=site->word)return false;   // another overlay at these addresses
     auto *d=vp2s::nativeCast<bozo::ee::Dispatcher>(rt->services);auto *particles=d?vp2s::nativeCast<ParticleOwner>(&d->host()):nullptr;
     if(!c || !particles)throw std::runtime_error("native row emitter requires its bounds owner");
@@ -7569,6 +7611,42 @@ bool nativeQuaternionIdiom(R5900Context *c,Runtime *rt,uint32_t pc){
     }
     return false;
 }
+// Camera-space emitter offset, mod037 5153e0 at 5154f4 (field map 142's particle producer): LQC2 vf5 = the camera's
+// quaternion (s2+30), VCALLMS 0x720 (rows vf8..vf10, W 0), CFC2.I t1; LQC2 vf15 = SP+50 = (0, 0, -320, 1); then
+// vf5.x = ((p.x + p.y) + 1 p.z) + 1 p.w with p = row0 * v, .y = ((q.y + q.x) + 1 q.z) + 1 q.w, .z = ((r.z + r.y) + 1 r.x) + 1 r.w,
+// and SQC2 vf5 to SP+50 (515554), which the camera's +20 then copies to its +20. Its .w comes from vf11, which this
+// code never writes (register state from earlier VU0 work); as for the segment box, only xyz is stored and SP+5c
+// keeps the 1 the CPU wrote.
+struct CameraOffsetCapture{VuWords quaternion{},v{};unsigned loaded=0;};
+CameraOffsetCapture &cameraOffsetCapture(const Runtime *rt){static std::map<const Runtime *,CameraOffsetCapture> captures;return captures[rt];}
+bool nativeCameraOffset(R5900Context *c,Runtime *rt,uint32_t pc){
+    if(!rt || (pc&3) || pc<0x5154f4 || pc>0x515554)return false;
+    static constexpr std::pair<uint32_t,uint32_t> words[]={{0x5154f4,0xd8a50000},{0x5154fc,0x4a003938},{0x515500,0x48490001},{0x51550c,0xd86f0000},
+        {0x515510,0x4bc007c3},{0x515514,0x4bef422a},{0x515518,0x4bef4a6a},{0x51551c,0x4bef52aa},{0x515520,0x4bef5aea},{0x515524,0x4b08403d},{0x515528,0x4b08f8be},
+        {0x51552c,0x4b08f94b},{0x515530,0x4a89483c},{0x515534,0x4a89f8be},{0x515538,0x4a89f94b},{0x51553c,0x4a4a503d},{0x515540,0x4a4af8bc},{0x515544,0x4a4af94b},
+        {0x515548,0x4a2b583d},{0x51554c,0x4a2b00be},{0x515550,0x4a2b0148},{0x515554,0xf8450000}};
+    const auto it=std::find_if(std::begin(words),std::end(words),[&](auto &w){return w.first==pc;});
+    if(it==std::end(words))return false;
+    uint32_t word=0;if(const auto *p=rt->memory.hostPointer(pc,4))std::memcpy(&word,p,4);
+    if(word!=it->second)return false;
+    if(!c)throw std::runtime_error("native camera offset has no CPU record");
+    auto &st=cameraOffsetCapture(rt);const auto stack=c->r[29].uw[0];
+    if(pc==0x5154f4){if(c->r[5].uw[0]!=c->r[18].uw[0]+0x30)throw std::runtime_error("native camera offset quaternion source mismatch");
+        st=CameraOffsetCapture{};st.quaternion=vuWords(rt,c->r[5].uw[0]);st.loaded=1;return true;}
+    if(pc==0x5154fc)return true;
+    if(pc==0x515500){c->r[9].ud[0]=0;return true;}
+    if(pc==0x51550c){if(st.loaded!=1 || c->r[3].uw[0]!=stack+0x50)throw std::runtime_error("native camera offset point out of order");st.v=vuWords(rt,stack+0x50);st.loaded=2;return true;}
+    if(pc!=0x515554)return true;   // arithmetic: folded into the store
+    if(st.loaded!=2 || c->r[2].uw[0]!=stack+0x50)throw std::runtime_error("native camera offset stored without its inputs");
+    float values[4];std::memcpy(values,st.quaternion.data(),16);
+    for(float f:values){const auto m=std::bit_cast<uint32_t>(f)&0x7fffffff;if(m>=0x7f800000 || m>std::bit_cast<uint32_t>(1.e8f))throw std::runtime_error("unqualified 0x720 quaternion");}
+    __m128 input;std::memcpy(&input,values,16);const auto rows=math::quaternionMatrix(input);
+    constexpr uint32_t one=0x3f800000u;VuWords out=vuWords(rt,stack+0x50);
+    for(unsigned r=0;r<3;++r){uint32_t row[4];std::memcpy(row,&rows[r],16);VuWords p{};for(unsigned i=0;i<4;++i)p[i]=vuMul(row[i],st.v[i]);
+        const unsigned a=r==0?0:r==1?1:2,b=r==0?1:r==1?0:1,cc=r==0?2:r==1?2:0;
+        out[r]=vuAdd(vuAdd(vuAdd(p[a],p[b]),vuMul(one,p[cc])),vuMul(one,p[3]));}
+    std::memcpy(record(rt,stack+0x50,16),out.data(),12);st.loaded=0;return true;
+}
 bool nativeInverseIdiom(R5900Context *c,Runtime *rt,uint32_t pc){
     if(!rt || (pc&3))return false;
     const auto word=[&](uint32_t at,uint32_t &out){const auto *p=rt->memory.hostPointer(at,4);if(!p)return false;std::memcpy(&out,p,4);return true;};
@@ -7718,8 +7796,14 @@ bool nativeSpriteMove(R5900Context *c,Runtime *rt,uint32_t pc){
         {0x361f8c,0xda010000,'1'},{0x361f90,0xd8620000,'2'},{0x361fa8,0x4bc00abc,'A'},{0x361fac,0x4bc31048,'M'},{0x361fb8,0xf8610000,'S'},{0x361fbc,0xfa010000,'S'},
         {0x362064,0xd8610000,'1'},{0x362068,0xd9220000,'2'},{0x362080,0x4bc00abc,'A'},{0x362084,0x4bc31048,'M'},{0x362090,0xf9210000,'S'},{0x362094,0xf8610000,'S'},
         {0x362190,0xda610000,'1'},{0x362198,0xdaa20000,'2'},{0x362294,0x4bc00abc,'A'},{0x362298,0x4bc31048,'M'},{0x3622a4,0xfa410000,'S'},{0x3622ac,0xfa610000,'S'},
-        {0x36237c,0xda610000,'1'},{0x362380,0xda020000,'2'},{0x36248c,0x4bc00abc,'A'},{0x362490,0x4bc31048,'M'},{0x36249c,0xfa010000,'S'},{0x3624a4,0xfa610000,'S'}};
-    if(!rt || (pc&3) || !((pc>=0x3ca828 && pc<=0x3cb9b4) || (pc>=0x361f20 && pc<=0x3624a4)))return false;
+        {0x36237c,0xda610000,'1'},{0x362380,0xda020000,'2'},{0x36248c,0x4bc00abc,'A'},{0x362490,0x4bc31048,'M'},{0x36249c,0xfa010000,'S'},{0x3624a4,0xfa610000,'S'},
+        // mod037 51ed80, the same +10 for field map 142's class 178ce0 (other registers; its third and fourth blocks swapped).
+        {0x51ee00,0x48a31800,'T'},{0x51f028,0x48b01800,'T'},
+        {0x51ee7c,0xd9410000,'1'},{0x51ee80,0xd8620000,'2'},{0x51eea8,0x4bc00abc,'A'},{0x51eeac,0x4bc31048,'M'},{0x51eeb8,0xf8610000,'S'},{0x51eebc,0xf9410000,'S'},
+        {0x51ef6c,0xd8610000,'1'},{0x51ef70,0xd9220000,'2'},{0x51ef9c,0x4bc00abc,'A'},{0x51efa0,0x4bc31048,'M'},{0x51efac,0xf9210000,'S'},{0x51efb0,0xf8610000,'S'},
+        {0x51f0d8,0xdac10000,'1'},{0x51f0e0,0xda020000,'2'},{0x51f23c,0x4bc00abc,'A'},{0x51f240,0x4bc31048,'M'},{0x51f24c,0xfa010000,'S'},{0x51f254,0xfac10000,'S'},
+        {0x51f328,0xdaa10000,'1'},{0x51f32c,0xda020000,'2'},{0x51f49c,0x4bc00abc,'A'},{0x51f4a0,0x4bc31048,'M'},{0x51f4ac,0xfa010000,'S'},{0x51f4b4,0xfaa10000,'S'}};
+    if(!rt || (pc&3) || !((pc>=0x3ca828 && pc<=0x3cb9b4) || (pc>=0x361f20 && pc<=0x3624a4) || (pc>=0x51ee00 && pc<=0x51f4b4)))return false;
     const auto site=std::find_if(std::begin(sites),std::end(sites),[&](const auto &s){return s.pc==pc;});
     if(site==std::end(sites))return false;
     uint32_t word=0;if(const auto *p=rt->memory.hostPointer(pc,4))std::memcpy(&word,p,4);
@@ -7895,6 +7979,9 @@ bool retiredEmitterHookWords(R5900Context *,Runtime *rt,uint32_t pc){
         {0x298b6c,0xf8520000},{0x298b70,0xf85d0010},{0x298bb0,0x4bd1033c},{0x298bb4,0x4be00798},{0x298bc8,0x48a32800},{0x298bd0,0xd8720000},{0x298bd4,0xd87d0010},
         {0x2990ac,0xf8520000},{0x2990b0,0xf85d0010},{0x2990ec,0x4bd1033c},{0x2990f0,0x4be00798},{0x299104,0x48a32800},{0x29910c,0xd8720000},{0x299110,0xd87d0010},
         {0x298d3c,0xf8520000},{0x298d40,0xf85d0010},{0x298d7c,0x4bd1033c},{0x298d80,0x4be00798},{0x298d94,0x48a32800},{0x298d9c,0xd8720000},{0x298da0,0xd87d0010},
+        // mod037's plain copy 5220f0: 522a40 / 522bd0, 298dd0 / 298f60 at +289c70.
+        {0x522b4c,0xf8520000},{0x522b50,0xf85d0010},{0x522b90,0x4bd1033c},{0x522b94,0x4be00798},{0x522ba8,0x48a32800},{0x522bb0,0xd8720000},{0x522bb4,0xd87d0010},
+        {0x522d1c,0xf8520000},{0x522d20,0xf85d0010},{0x522d5c,0x4bd1033c},{0x522d60,0x4be00798},{0x522d74,0x48a32800},{0x522d7c,0xd8720000},{0x522d80,0xd87d0010},
         // the slim emitter's helpers (291140): 2994b0 / 299640, 298dd0 / 298f60 at +6e0.
         {0x2995bc,0xf8520000},{0x2995c0,0xf85d0010},{0x299600,0x4bd1033c},{0x299604,0x4be00798},{0x299618,0x48a32800},{0x299620,0xd8720000},{0x299624,0xd87d0010},
         {0x29978c,0xf8520000},{0x299790,0xf85d0010},{0x2997cc,0x4bd1033c},{0x2997d0,0x4be00798},{0x2997e4,0x48a32800},{0x2997ec,0xd8720000},{0x2997f0,0xd87d0010},
@@ -7903,7 +7990,7 @@ bool retiredEmitterHookWords(R5900Context *,Runtime *rt,uint32_t pc){
         // mod003 4102d0 / 410460, 298a60 / 298bf0 again under the field copy of the second emitter class (40c590).
         {0x4103dc,0xf8520000},{0x4103e0,0xf85d0010},{0x410420,0x4bd1033c},{0x410424,0x4be00798},{0x410438,0x48a32800},{0x410440,0xd8720000},{0x410444,0xd87d0010},
         {0x4105ac,0xf8520000},{0x4105b0,0xf85d0010},{0x4105ec,0x4bd1033c},{0x4105f0,0x4be00798},{0x410604,0x48a32800},{0x41060c,0xd8720000},{0x410610,0xd87d0010}};
-    if((pc&3) || !rt || pc<0x24564c || pc>0x410610)return false;
+    if((pc&3) || !rt || pc<0x24564c || pc>0x522d80)return false;
     const auto it=std::find_if(std::begin(words),std::end(words),[&](auto &w){return w.first==pc;});
     if(it==std::end(words))return false;
     uint32_t word=0;if(const auto *p=rt->memory.hostPointer(pc,4))std::memcpy(&word,p,4);
@@ -9707,7 +9794,7 @@ bool nativeMathInstruction(uint8_t *,R5900Context *c,Runtime *rt,uint32_t pc){
     default:
         // Inlined-block recognisers last: they read code around the PC, so
         // only sites no specific handler claimed pay for that scan.
-        return CLAIM(nativeParticleStep) || CLAIM(nativeParticleBox) || CLAIM(nativeTrailEmitter) || CLAIM(nativeProgramEmitter) || CLAIM(nativeSimpleEmitter) || CLAIM(nativeCollisionShape) || CLAIM(nativeHeightNormals) || CLAIM(nativeSpriteMove) || CLAIM(nativeRowPoints) || CLAIM(nativeRowEmitter) || CLAIM(nativeEmitterClock) || CLAIM(nativeConstantStore) || CLAIM(nativeLengthIdiom) || CLAIM(nativeMacroIdiom) || CLAIM(nativeInverseIdiom) || nativeQuaternionIdiom(c,rt,pc);
+        return CLAIM(nativeParticleStep) || CLAIM(nativeParticleBox) || CLAIM(nativeTrailEmitter) || CLAIM(nativeProgramEmitter) || CLAIM(nativeSimpleEmitter) || CLAIM(nativeLinearEmitter) || CLAIM(nativeCameraOffset) || CLAIM(nativeCollisionShape) || CLAIM(nativeHeightNormals) || CLAIM(nativeSpriteMove) || CLAIM(nativeRowPoints) || CLAIM(nativeRowEmitter) || CLAIM(nativeEmitterClock) || CLAIM(nativeConstantStore) || CLAIM(nativeLengthIdiom) || CLAIM(nativeMacroIdiom) || CLAIM(nativeInverseIdiom) || nativeQuaternionIdiom(c,rt,pc);
     }
 }
 #undef CLAIM

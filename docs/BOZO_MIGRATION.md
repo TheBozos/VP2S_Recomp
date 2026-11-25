@@ -12,6 +12,35 @@ The earlier VP2S face/shading and general brightness comparisons remain open.
 
 ## Build and evidence
 
+### Map 142's rain (mod037): linear emitter, camera offset, the sprite and plain emitter copies (2026-11-25)
+
+Map 142 (a forest at night, in the rain) runs mod037 particle classes. Each is now native:
+
+- **Producers:** 1781c0 / 178870 / 178ce0 (and their word-identical vtable copies 179ee0 / 17a590 / 17aa00) do their
+  own set-up, then call 175920's gated producer 3d58e0; the draw is the base 22f140. They are admitted.
+- **Camera offset (5154f4):**
+  - It turns the camera's quaternion (s2+30) into rows with program 0x720, then dots them with (0, 0, −320, 1) in
+    the listing's lane orders, giving SP+50. The camera's +20 copies that to its position.
+  - The w lane comes from vf11, which this code never writes. As for the segment box, only xyz is stored, and SP+5c
+    keeps the 1 the CPU wrote.
+- **Linear emitter step (516830, a leaf):** dt; per 0x60-byte record, P.xyz = (p + 0) + v dt to the output and back
+  into the record. No box.
+- **Sprite motion (51ed80):** 3cb370's four blocks with other registers (two swapped), a third copy in
+  nativeSpriteMove's table.
+- **Plain emitter copy (5220f0):** 2920e0 word for word (126 VU0 words, same frame, registers and records).
+  - Its sites are the plain ones 290010 higher up to the particle loads, and 290020 higher from them.
+  - Its helpers 522a40 / 522bd0 are 298dd0 / 298f60 at +289c70; their spill words are retired.
+
+**Evidence:**
+- **Tests:**
+  - 256 linear-emitter particles through the VU0 reference, plus 2 refusals.
+  - The sprite-motion test runs all three copies (288 moves).
+  - The plain-emitter test runs half its seeds through the mod037 copy's addresses.
+  - Three camera offsets (identity and two quarter turns), w untouched, plus 2 rejections.
+- **Maps:** 142 runs clean (its rain is drawn).
+- **Regression:** full ctest; the four scenes keep their hashes.
+- **Atlas:** 516 of 552 maps clean.
+
 ### Negative particle colours, UI layer admissions by code, colour morph 29b520, mod037 (2026-11-25)
 
 - **Negative particle colours (maps 136, 140, 299, 304):** the lighting pass multiplies by row 13 and clamps to

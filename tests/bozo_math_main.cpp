@@ -3180,6 +3180,31 @@ int main(int argc,char **argv){try{
          const float other=255.f;std::memcpy(r.memory.hostPointer(stack+4,4),&other,4);const float wrong=7.f;std::memcpy(r.memory.hostPointer(stack,4),&wrong,4);rejected=false;
          try{vp2s::nativeMathInstruction(r.memory.flat(),&c,&r,0x29b554);}catch(const std::runtime_error &){rejected=true;}check(rejected);}
         std::printf("%u colour-morph entries (four blocks) match float arithmetic; saturation and 2 rejections\n",morphCases);}
+    // mod037 5154f4: the camera quaternion's rows (program 0x720) times (0, 0, -320, 1) to SP+50 (xyz; w keeps the CPU's 1).
+    {auto &r=native.runtime();std::memset(r.memory.flat(),0,bozo::kFlatBytes);unsigned cameraCases=0;
+        static constexpr std::pair<uint32_t,uint32_t> words[]={{0x5154f4,0xd8a50000},{0x5154fc,0x4a003938},{0x515500,0x48490001},{0x51550c,0xd86f0000},
+            {0x515510,0x4bc007c3},{0x515514,0x4bef422a},{0x515518,0x4bef4a6a},{0x51551c,0x4bef52aa},{0x515520,0x4bef5aea},{0x515524,0x4b08403d},{0x515528,0x4b08f8be},
+            {0x51552c,0x4b08f94b},{0x515530,0x4a89483c},{0x515534,0x4a89f8be},{0x515538,0x4a89f94b},{0x51553c,0x4a4a503d},{0x515540,0x4a4af8bc},{0x515544,0x4a4af94b},
+            {0x515548,0x4a2b583d},{0x51554c,0x4a2b00be},{0x515550,0x4a2b0148},{0x515554,0xf8450000}};
+        for(const auto &[pc,w]:words)std::memcpy(r.memory.hostPointer(pc,4),&w,4);
+        const uint32_t camera=0x1e0000,stack=0x1ffd000;const float h=std::sqrt(.5f);
+        const float quaternions[3][4]={{0,0,0,1},{0,h,0,h},{h,0,0,h}};
+        for(const auto &q:quaternions){
+            std::memcpy(r.memory.hostPointer(camera+0x30,16),q,16);const float v[4]={0,0,-320,1};std::memcpy(r.memory.hostPointer(stack+0x50,16),v,16);
+            R5900Context c{};c.r[29].uw[0]=stack;c.r[18].uw[0]=camera;c.r[5].uw[0]=camera+0x30;c.r[3].uw[0]=stack+0x50;c.r[2].uw[0]=stack+0x50;c.r[9].ud[0]=77;
+            for(const auto &[pc,w]:words)check(vp2s::nativeMathInstruction(r.memory.flat(),&c,&r,pc));
+            check(c.r[9].ud[0]==0);
+            // Expected: v through the rotation rows of q, row k dotted with v (the 0x720 rows as nativeQuaternionIdiom writes them).
+            __m128 in;std::memcpy(&in,q,16);const auto rows=vp2s::math::quaternionMatrix(in);float out[4];std::memcpy(out,r.memory.hostPointer(stack+0x50,16),16);
+            for(unsigned k=0;k<3;++k){float row[4];std::memcpy(row,&rows[k],16);const float e=row[0]*v[0]+row[1]*v[1]+row[2]*v[2];
+                if(std::fabs(out[k]-e)>1e-3f){std::fprintf(stderr,"camera offset lane%u %g/%g\n",k,out[k],e);check(false);}}
+            check(out[3]==1.f);++cameraCases;}
+        // A quaternion from elsewhere, or a store without the point load, is refused.
+        {R5900Context c{};c.r[29].uw[0]=stack;c.r[18].uw[0]=camera;c.r[5].uw[0]=camera+0x40;bool rejected=false;
+         try{vp2s::nativeMathInstruction(r.memory.flat(),&c,&r,0x5154f4);}catch(const std::runtime_error &){rejected=true;}check(rejected);
+         c.r[5].uw[0]=camera+0x30;check(vp2s::nativeMathInstruction(r.memory.flat(),&c,&r,0x5154f4));c.r[2].uw[0]=stack+0x50;rejected=false;
+         try{vp2s::nativeMathInstruction(r.memory.flat(),&c,&r,0x515554);}catch(const std::runtime_error &){rejected=true;}check(rejected);}
+        std::printf("%u camera offsets (identity, two quarter turns) through program 0x720's rows; 2 rejections\n",cameraCases);}
     // Box pair separating-axis test (mod001 1f82c0) against the listing's
     // sequential evaluation (tests/bozo_box_pair_oracle.inc): the first compared
     // pair with separation > radius (FPU compare) returns 0, else 1.

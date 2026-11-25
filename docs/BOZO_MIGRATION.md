@@ -12,6 +12,21 @@ The earlier VP2S face/shading and general brightness comparisons remain open.
 
 ## Build and evidence
 
+### Opaque second pass: the same tags without blending (2026-11-25)
+
+- **The case:** map 109 stopped at "unported native mesh second pass (routine 16)" (object 10e3170, block 10e4860).
+- **What the game does:** rows 19 and 20 are exactly pass 1's GIF tags 13 and 14 (PRIM 3c and 3d, no ABE on either).
+  ALPHA_1 (row 16) is 0, and rows 17 and 18 write pass 2's own TEX0 (slot 4, part 0). Table B's 1720 thus redraws the
+  same triangles opaque with pass 2's texture, after pass 1.
+- **Natively:** nativeSecondPass also admits that form (NativeSecondPass::blended false). The second batch then keeps
+  pass 1's material (no GS blend) and samples its own texture, as a blended pass does.
+
+**Evidence:**
+- **Tests:** vp2s-bozo-native-models: map 109's rows give an opaque pass (slot 4, part 0, TEX0 213137e0); one tag
+  matching that way and the other not is refused; the earlier blended cases are unchanged.
+- **Maps:** 109 runs clean to the frame limit (its tower terrace draws).
+- **Regression:** full ctest; regress4's scenes keep their hashes.
+
 ### Working-copy meshes with animated UVs (2026-11-25)
 
 - **The case:** maps 264, 270, 271 and 535 stopped at "native mesh missing allocation provenance". The object's list

@@ -412,15 +412,18 @@ std::optional<NativeSecondPass> nativeSecondPass(const NativeMaterialRows &rows)
     constexpr uint32_t primBits=0x7ffu<<15;
     for(unsigned r:{17u,18u})if((row(r,2)&0xff)!=6)return std::nullopt;   // TEX0_1 writes, as rows 9 / 10
     if(row(21,2)>=256 || row(21,3)>15)return std::nullopt;
-    for(unsigned r:{13u,14u})if(row(r+6,0)!=row(r,0) || row(r+6,2)!=row(r,2) || (row(r+6,1)&~primBits)!=(row(r,1)&~primBits) || prim(r+6)!=(prim(r)|0x40))
-        return std::nullopt;   // the same tags, PRIM with ABE set (pass 1 may already blend: maps 65, 124)
+    // The same tags, PRIM with ABE set (pass 1 may already blend: maps 65, 124); or (map 109) exactly pass 1's tags with ABE
+    // clear on both: an opaque redraw of the same triangles with pass 2's texture.
+    const bool opaque=prim(19)==prim(13) && prim(20)==prim(14) && !(prim(13)&0x40) && !(prim(14)&0x40);
+    for(unsigned r:{13u,14u})if(row(r+6,0)!=row(r,0) || row(r+6,2)!=row(r,2) || (row(r+6,1)&~primBits)!=(row(r,1)&~primBits) || (!opaque && prim(r+6)!=(prim(r)|0x40)))
+        return std::nullopt;
     const auto alpha=row(16,0);
     // ALPHA_1; .w picks row 65 or 66 for the register between (pass 1's row 8.w does the same; both seen). Pass 2 redraws
     // pass 1's triangles at the same depths, so that register's depth write changes nothing drawn. The high word's low byte
     // is FIX; the GS ignores the rest (maps 459-461 keep routine 34's UV-shift scale there, 0.01).
     if((row(16,2)&0xff)!=0x42 || row(16,3)>1 || alpha>0xff)return std::nullopt;
     for(unsigned f=0;f<4;++f)if(((alpha>>(2*f))&3)==3)return std::nullopt;
-    return NativeSecondPass{alpha,row(21,2),row(21,3),row(18,0),row(16,1)&0xff,row(21,1)!=0};
+    return NativeSecondPass{alpha,row(21,2),row(21,3),row(18,0),row(16,1)&0xff,row(21,1)!=0,!opaque};
 }
 std::vector<NativeShadowDraw> nativeShadowPass(const NativeModelSubmission &s,float width,float height){
     std::vector<NativeShadowDraw> draws;
@@ -966,8 +969,9 @@ NativeModelSubmission NativeModels::capture(Runtime *rt,NativeAssets &assets,Nat
         if(secondPass && !batch.vertices.empty()){
             // The second pass (routine 16, 22 or 50): the same triangles with its UVs and texture, blended with its ALPHA_1, after pass 1.
             auto second=batch;if(emitted.size()!=second.vertices.size())throw std::runtime_error("native second pass lost its vertex order");
-            for(size_t e=0;e<emitted.size();++e){second.vertices[e].u=passUv[emitted[e]][0];second.vertices[e].v=passUv[emitted[e]][1];second.vertices[e].rgba=passRgba[emitted[e]];}auto &m2=second.material;m2.alphaBlend=true;m2.blend=bozo::render::Material::Blend::Alpha;m2.gsBlend=true;
-            const auto a=secondPass->alpha;m2.blendA=a&3;m2.blendB=(a>>2)&3;m2.blendC=(a>>4)&3;m2.blendD=(a>>6)&3;m2.blendFix=m2.blendC==2?secondPass->fix:0x80;
+            for(size_t e=0;e<emitted.size();++e){second.vertices[e].u=passUv[emitted[e]][0];second.vertices[e].v=passUv[emitted[e]][1];second.vertices[e].rgba=passRgba[emitted[e]];}auto &m2=second.material;
+            if(secondPass->blended){m2.alphaBlend=true;m2.blend=bozo::render::Material::Blend::Alpha;m2.gsBlend=true;
+            const auto a=secondPass->alpha;m2.blendA=a&3;m2.blendB=(a>>2)&3;m2.blendC=(a>>4)&3;m2.blendD=(a>>6)&3;m2.blendFix=m2.blendC==2?secondPass->fix:0x80;}
             if(material[1]){
                 if(!manager)throw std::runtime_error("native mesh second pass without the texture manager");
                 const auto index=value<int16_t>(rt,manager+0x2670+2*secondPass->slot);if(index<0)throw std::runtime_error("native mesh second-pass texture not registered");

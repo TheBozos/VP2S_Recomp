@@ -353,7 +353,13 @@ int main(int argc,char **argv){try{
          other=rows;other[9][0]=0xc8;check(!vp2s::nativeSecondPass(other));                    // a reserved blend field (3)
          other=rows;other[11][2]=0x14;check(!vp2s::nativeSecondPass(other));                   // row 18 not a TEX0_1 write
          other=rows;other[6][1]=0x302e4000;other[12][1]=0x302e4000;check(vp2s::nativeSecondPass(other).has_value());   // pass 1 already blended (map 65)
-         other[12][1]=0x30ae4000;check(!vp2s::nativeSecondPass(other));shadowCases+=6;}   // ... and pass 2 changing another PRIM bit
+         other[12][1]=0x30ae4000;check(!vp2s::nativeSecondPass(other));shadowCases+=6;   // ... and pass 2 changing another PRIM bit
+         // Map 109 (object 10e3170): pass 2 is exactly pass 1's tags, both without ABE (PRIM 3c / 3d), ALPHA 0, its own TEX0:
+         // an opaque redraw. Only one of the two tags matching that way is still refused.
+         other=rows;other[6]={0x8000,0x301e4000,0x412,0};other[7]={0x8000,0x301ec000,0x412,0};other[12]=other[6];other[13]=other[7];other[9][0]=0;
+         other[10]={0x21300000,0x4007b786,6,0};other[11]={0x213137e0,0x0007b786,6,0};other[14]={1,1,4,0};
+         {const auto p3=vp2s::nativeSecondPass(other);check(p3 && !p3->blended && p3->tex0==0x213137e0u && p3->slot==4 && p3->part==0 && p3->on && pass->blended);}
+         other[13][1]=0x302ec000;check(!vp2s::nativeSecondPass(other));shadowCases+=2;}
         // Routine 46's projection, Logun's projector rows (object d23280): S = trunc(4096 (-1.7 + -0.0028573 x)), Q = 1;
         // the mask 0x20 turns a vertex facing away from the origin (dot((origin - p), n) < 0) off, and q.z < 0 too.
         {const std::array<float,4> cols[4]{{std::bit_cast<float>(0xbb3b3ee7u),0,0,0},{0,std::bit_cast<float>(0x3aced65cu),0,std::bit_cast<float>(0x3f55691eu)},

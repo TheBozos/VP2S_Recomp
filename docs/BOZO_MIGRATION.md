@@ -12,7 +12,7 @@ The earlier VP2S face/shading and general brightness comparisons remain open.
 
 ## Build and evidence
 
-### Maps 32 / 47: the chain diverges after a teleport (analysis, 2026-11-25, open)
+### Maps 32 / 47: the chain diverges after a teleport (2026-11-25, warp artefact)
 
 - **Chain:** owner 9e7000 (class 163e10), 22 nodes of 0xa0 bytes from +28; +14 is the count. Node byte 0 = 0 marks a
   world-space node tied to its joint (+4, class 15f5d0: +20 local translation, +30 quaternion, +d0 world matrix,
@@ -27,7 +27,11 @@ The earlier VP2S face/shading and general brightness comparisons remain open.
   then gets that position and the collision leaf refuses it.
 - **Ruled out:** dt (35dee8 = 1/30, 35ded8 = 2 substeps, as in other maps); the world update's use of w.
 - **Unknown:** whether the PS2 moves the character before the chain's first step (our debug warp's entry and timing
-  may differ from a normal arrival). Question sent to the user (PCSX2 comparison / warp artefact / saturation).
+  may differ from a normal arrival).
+- **User decision (2026-11-25): B, a warp artefact.** All four warp rows of each map (32: (-1580,-4,200),
+  (270,-5,299), (900,-5,709), (1585,0,550); 47: (-1200,-5,-453), (-450,-5,-249), (239,-130,267), (655,-50,803)) stop
+  the same way: the arrival is entry 0 from the map-79 save state, not the story's arrival. No port change; the map
+  atlas lists both maps as "warp-only".
 
 ### Offscreen draw targets: frame switches 153880 / 1537e0 (2026-11-25)
 

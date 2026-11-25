@@ -1231,6 +1231,67 @@ bool nativePairProjection(R5900Context *c,Runtime *rt,uint32_t pc){
     if(state.loaded!=15 || !state.point)throw std::runtime_error("native pair projection stored without its matrix and point");
     const auto result=program0Projection(state,"pair");std::memcpy(record(rt,base,16),result.data(),16);state.point=false;return true;
 }
+// Colour morph, mod001 29b520(a0 = morph): writes RGBA8 colours (MMI-packed by the EE) into the table at
+// mesh + [mesh+14] + 80 (uncached), mesh = a0+54. vf3 = SP+0 = (t = a0+5c, 255, -, -), loaded at 29b554. Per entry:
+//   A (+66 set, t below 1e-6, 29b59c..29b5ac): out = FTOI0(c1), c1 = a0+48 table;
+//   B (+66 set, 29b624..29b658, an index matching the a0+50 list): out = FTOI0(max(min(c1 * 1 + c2 * t, 255), 0)),
+//     c2 = a0+4c table; otherwise (29b67c..29b68c) FTOI0(c1);
+//   C (+66 clear, 29b718..29b738): the same blend with c1 = ITOF0 of the bytes already in the table (QMTC2 r8 after the
+//     EE's byte unpack) and c2 = a0+4c table.
+// VU0 arithmetic in PS2 words (ps2f, nearest); the QMFC2 sites set r8 (128 bits) and the EE packs and stores it.
+struct ColourMorphState{bool have3=false;std::array<uint32_t,4> v1{},v2{},v3{};char block=0;unsigned step=0;};
+ColourMorphState &colourMorphState(const Runtime *rt){static std::map<const Runtime *,ColourMorphState> states;return states[rt];}
+bool nativeColourMorph(R5900Context *c,Runtime *rt,uint32_t pc){
+    if(pc<0x29b554 || pc>0x29b738 || (pc&3))return false;
+    struct Site{uint32_t pc,word;char block;unsigned step;};
+    static constexpr Site sites[]={{0x29b554,0xd9030000,'3',0},
+        {0x29b59c,0xd8610000,'A',0},{0x29b5a8,0x4be1097c,'A',1},{0x29b5ac,0x48280800,'A',2},
+        {0x29b624,0xd9210000,'B',0},{0x29b628,0xd8e20000,'B',1},{0x29b63c,0x4be009bf,'B',2},{0x29b640,0x4be31048,'B',3},{0x29b644,0x4be30855,'B',4},
+        {0x29b648,0x4be00850,'B',5},{0x29b654,0x4be1097c,'B',6},{0x29b658,0x48280800,'B',7},
+        {0x29b67c,0xd8e10000,'b',0},{0x29b688,0x4be1097c,'b',1},{0x29b68c,0x48280800,'b',2},
+        {0x29b718,0x48a80800,'C',0},{0x29b71c,0xd8a20000,'C',1},{0x29b720,0x4be1093c,'C',2},{0x29b724,0x4be009bf,'C',3},{0x29b728,0x4be31048,'C',4},
+        {0x29b72c,0x4be30855,'C',5},{0x29b730,0x4be00850,'C',6},{0x29b734,0x4be1097c,'C',7},{0x29b738,0x48280800,'C',8}};
+    const auto site=std::find_if(std::begin(sites),std::end(sites),[&](const Site &s){return s.pc==pc;});
+    if(site==std::end(sites))return false;
+    uint32_t word=0;if(const auto *p=rt?rt->memory.hostPointer(pc,4):nullptr)std::memcpy(&word,p,4);
+    if(word!=site->word)return false;
+    if(!c)throw std::runtime_error("native colour morph has no CPU record");
+    auto &st=colourMorphState(rt);
+    const auto fail=[&](const char *what){st=ColourMorphState{};throw std::runtime_error(std::format("native colour morph at {:x}: {}",pc,what));};
+    const auto reg=[&](unsigned r){return c->r[r].uw[0];};
+    const auto load=[&](unsigned r){std::array<uint32_t,4> v;std::memcpy(v.data(),record(rt,reg(r)+uint32_t(int32_t(int16_t(word&0xffff))),16),16);return v;};
+    const auto morph=reg(4),stack=reg(29);
+    const auto field=[&](uint32_t at){const auto *p=rt->memory.hostPointer(at,4);if(!p || at<0x100000 || (at&3))fail("morph field outside RAM");uint32_t v;std::memcpy(&v,p,4);return v;};
+    if(site->block=='3'){
+        if(reg(8)!=stack)fail("constants source");
+        st=ColourMorphState{};st.v3=load(8);
+        if(st.v3[0]!=field(morph+0x5c) || st.v3[1]!=0x437f0000u)fail("constants");
+        st.have3=true;return true;}
+    if(!st.have3)fail("entry outside the morph");
+    if(site->step==0){if(st.block && st.step)fail("entry inside an entry");st.block=site->block;}
+    else if(st.block!=site->block || st.step!=site->step)fail("entry order");
+    st.step=site->step+1;
+    const auto table=[&](uint32_t base,unsigned r){const auto at=reg(r);if(at<field(morph+base) || (at-field(morph+base))&15)fail("table address");return load(r);};
+    switch(site->block){
+    case 'A':if(site->step==0)st.v1=table(0x48,3);break;
+    case 'b':if(site->step==0)st.v1=table(0x48,7);break;
+    case 'B':if(site->step==0)st.v1=table(0x48,9);if(site->step==1)st.v2=table(0x4c,7);break;
+    case 'C':if(site->step==0)for(unsigned i=0;i<4;++i)st.v1[i]=c->r[8].uw[i];if(site->step==1)st.v2=table(0x4c,5);break;}
+    const bool last=(site->block=='A' || site->block=='b')?site->step==2:site->block=='B'?site->step==7:site->step==8;
+    if(!last)return true;
+    uint32_t fl=0;std::array<uint32_t,4> out{};
+    const auto ftoi0=[](uint32_t x){const auto e=(x>>23)&0xff;if(e<127)return 0u;const bool negative=x>>31;
+        if(e>=158)return negative?0x80000000u:0x7fffffffu;const uint32_t m=(x&0x7fffff)|0x800000;const uint32_t v=e>=150?m<<(e-150):m>>(150-e);return negative?uint32_t(-int32_t(v)):v;};
+    const auto key=[](uint32_t v){return int64_t(v>>31?-int64_t(v&0x7fffffff)-1:int64_t(v));};   // VU MINI / MAX: signed magnitudes
+    for(unsigned i=0;i<4;++i){
+        if(site->block=='A' || site->block=='b'){out[i]=ftoi0(st.v1[i]);continue;}
+        const uint32_t c1=site->block=='C'?std::bit_cast<uint32_t>(float(int32_t(st.v1[i]))):st.v1[i];   // ITOF0
+        auto v=bozo::ps2f::addNearest(bozo::ps2f::mul(c1,0x3f800000u,fl),bozo::ps2f::mul(st.v2[i],st.v3[0],fl),fl);
+        if(key(v)>key(st.v3[1]))v=st.v3[1];if(key(v)<key(0u))v=0u;
+        out[i]=ftoi0(v);}
+    for(unsigned i=0;i<4;++i)c->r[8].uw[i]=out[i];
+    st.block=0;st.step=0;return true;
+}
 // Exponential ramp, mod001 2df060 (block 2df0e8). The loads put (1,1,1,1) SP+50
 // in vf23, (255,255,255,128) SP+40 in vf24, s1+13470 in vf1, SP+60 in vf26
 // (X used), the coefficient rows 3578b0 in vf20..vf22 and SP+30 in vf25; vf13 =
@@ -9060,7 +9121,7 @@ bool nativeMathInstruction(uint8_t *,R5900Context *c,Runtime *rt,uint32_t pc){
     if(CLAIM(nativeSkinUpload) || CLAIM(nativeSoftSkin))return true;
     if(CLAIM(nativeFacingPath) || CLAIM(nativeRotationBlocks))return true;
     if(CLAIM(nativeProjectionBlocks) || CLAIM(nativeBoneAim) || CLAIM(nativeChainBlocks) || CLAIM(nativeCapsulePair) || CLAIM(nativePlaneContact) || CLAIM(nativeRangeTest) || CLAIM(nativeMatrixBuild) || CLAIM(nativeCullTransform) || CLAIM(nativeBoxFrustum) || CLAIM(nativeListBoxQuery) || CLAIM(nativeHitFrame) || CLAIM(nativePlaneDistance) || CLAIM(nativeSphereSweep) || CLAIM(nativeSegmentApproach) || CLAIM(nativeWorldPosition) || CLAIM(nativeCameraTarget) || CLAIM(nativeRootLength) || CLAIM(nativeVisibilityLoop) || CLAIM(nativeMarkerProjection) || CLAIM(nativeQuaternionLeaf) || CLAIM(nativeBonePalette))return true;
-    if(CLAIM(nativeLeafSphere) || CLAIM(nativeLeafBox) || CLAIM(nativeSegmentBox) || CLAIM(nativeHitPointTransform) || CLAIM(nativeRaySphere))return true;
+    if(CLAIM(nativeLeafSphere) || CLAIM(nativeLeafBox) || CLAIM(nativeSegmentBox) || CLAIM(nativeHitPointTransform) || CLAIM(nativeRaySphere) || CLAIM(nativeColourMorph))return true;
     if(CLAIM(nativeLengthSite) || CLAIM(nativeRecordDot) || CLAIM(nativePackedQuaternion))return true;
     if(CLAIM(nativeObjectOverlap))return true;
     if(CLAIM(nativeObjectPairSetup))return true;

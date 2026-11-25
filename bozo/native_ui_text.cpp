@@ -37,7 +37,10 @@ void type(Runtime *rt,uint32_t element){const auto actual=value<uint32_t>(rt,ele
 // gates the base update 2ed050 on the battle's pause flags (compiled).
 // 1748d0 (mod028 battle text, a 15a450 subclass) is admitted with its own item callback 4c8fb0, read
 // back at 4c9f78 (NativeUiTexts::battleGlyph); its +24 4ca080 only calls 2e9320 with a1 << 2.
-bool nativeUiTextClass(uint32_t type){return type==0x1748d0 || type==0x15a450 || type==0x15a2f0 || type==0x165ae0 || type==0x15a350 || type==0x15a600 || type==0x16ed70;}
+// 168b30 (map 2's overlay text, a 15a450 subclass): the base emitter, build 2efba0, item callbacks 2e7e90 / 2e76a0 and draw
+// 2f32d0; its +4 / +c / +10 are word-identical copies of 1e8200 / 1e8210 / 1ea760, and its +1c (4908b0) calls the base
+// update 2efce0 first, then only sets the rebuild / reveal flags (+12d, +3c) and calls the base 2ef860 (compiled).
+bool nativeUiTextClass(uint32_t type){return type==0x1748d0 || type==0x15a450 || type==0x15a2f0 || type==0x165ae0 || type==0x15a350 || type==0x15a600 || type==0x16ed70 || type==0x168b30;}
 void NativeUiTexts::enter(Runtime *rt,uint32_t stack,uint32_t element,uint32_t items,int32_t count){
     type(rt,element);
     if(count>8192 || builds.contains(stack))throw std::runtime_error("native UI text count/stack outside admitted lifetime");
@@ -292,8 +295,13 @@ NativeUiLayer NativeUiTexts::layer(Runtime *rt,uint32_t layer)const{
     // (object +18 = thunk 3b31b0): FlushCache(0) (137460, a native kernel call),
     // then the base producer 2ec9c0. Both jal words are checked.
     const auto jal=[&](uint32_t at,uint32_t target){return value<uint32_t>(rt,at)==(0x0c000000u|(target>>2));};
-    const bool flushingProducer=value<uint32_t>(rt,objectType+0x18)==0x3b31b0 && value<uint32_t>(rt,jobType+0x18)==0x3afca0 &&
-        thunk(0x3b31b0,0x3afca0,0xffe0) && jal(0x3afcb0,0x137460) && value<uint32_t>(rt,0x3afcb4)==0x0000202du && jal(0x3afcb8,0x2ec9c0);
+    // Map 446's layer (15fd30/15fd4c/15fdc8) has a second copy of that producer, 3b2fd0 behind thunk 3b3180, word for word:
+    // the producer is admitted by its code (prologue, both calls, the argument moves), wherever it is.
+    const auto flushing=[&](uint32_t at){return value<uint32_t>(rt,at)==0x27bdffe0u && value<uint32_t>(rt,at+4)==0xffbf0010u && value<uint32_t>(rt,at+8)==0x7fb00000u &&
+        value<uint32_t>(rt,at+0xc)==0x0080802du && jal(at+0x10,0x137460) && value<uint32_t>(rt,at+0x14)==0x0000202du && jal(at+0x18,0x2ec9c0) && value<uint32_t>(rt,at+0x1c)==0x0200202du;};
+    const uint32_t producer=value<uint32_t>(rt,jobType+0x18),producerThunk=value<uint32_t>(rt,objectType+0x18);
+    const bool flushingProducer=producer>=0x100000 && producer<0x2000000 && producerThunk>=0x100000 && producerThunk<0x2000000 &&
+        thunk(producerThunk,producer,0xffe0) && flushing(producer);
     // Overlays carry their own copies of these entries (mod010's layer 1693d0:
     // helpers at 494c10.., thunks at 495140..): an entry is admitted by its code,
     // the helper's exact words or a thunk's target and adjustment, wherever it is.
@@ -313,12 +321,24 @@ NativeUiLayer NativeUiTexts::layer(Runtime *rt,uint32_t layer)const{
     // (the same prologue, base call and +678..+680 flags), behind thunk 44d570.
     const auto deferredAt=[&](uint32_t completion){return value<uint32_t>(rt,jobType+0x14)==completion && thunkAt(jobType+0x10,completion,0xffe0) &&
         code(completion,{0x27bdffe0u,0xffbf0010u,0x7fb00000u,0x0c0bb280u,0x0080802du});};
-    const bool deferredCompletion=deferredAt(0x2f2390) || deferredAt(0x3830d0);
+    // Map 446's layer 15fd30 has a third copy, 467f30 behind thunk 3b3190 (its flags at +744..+749): a completion is
+    // admitted by that prologue and base call wherever it is.
+    const uint32_t completionAt=value<uint32_t>(rt,jobType+0x14);
+    const bool deferredCompletion=deferredAt(0x2f2390) || deferredAt(0x3830d0) || (completionAt>=0x100000 && completionAt<0x2000000 && deferredAt(completionAt));
+    // The bracketed completion 44a540 (two 100c90 calls around the base 2eca00, kept compiled; see the layer 165d30 above)
+    // behind thunk 44a710: maps 329, 333, 432, 433's layer 168010/16802c/1680a8, otherwise the pause's entries.
+    const bool bracketedCompletion=value<uint32_t>(rt,jobType+0x14)==0x44a540 && thunkAt(jobType+0x10,0x44a540,0xffe0) && jal(0x44a58c,0x2eca00);
+    // Object +10, the teardown: the base 2ef0f0, or (map 2's overlay layer 168b70) a thunk to a wrapper that only calls
+    // 2ef0f0 on the same object (a0 + 20 undoing the thunk's - 20).
+    const uint32_t teardown=value<uint32_t>(rt,objectType+0x10);uint32_t wrapper=0;
+    if(teardown>=0x100000 && teardown<0x2000000 && (value<uint32_t>(rt,teardown)>>26)==2)wrapper=(teardown&0xf0000000u)|((value<uint32_t>(rt,teardown)&0x3ffffffu)<<2);
+    const bool baseTeardown=teardown==0x2ef0f0 || (wrapper>=0x100000 && wrapper<0x2000000 && thunk(teardown,wrapper,0xffe0) &&
+        code(wrapper,{0x27bdfff0u,0xffbf0000u,0x0c000000u|(0x2ef0f0u>>2),0x24840020u,0xdfbf0000u,0x03e00008u}));
     const bool pause=slots(layerType,{{0xc,0x2c00a0},{0x10,0x2c0070},{0x14,0x2c0040},{0x18,0x2bffe0}}) &&
         returns3(value<uint32_t>(rt,objectType+0xc)) && empty(value<uint32_t>(rt,objectType+0x14)) && colourSetter(value<uint32_t>(rt,objectType+0x1c)) &&
         empty(value<uint32_t>(rt,jobType+0x8)) && value<uint32_t>(rt,jobType+0x1c)==0x2ec9a0 &&
-        (baseProducer || flushingProducer) && value<uint32_t>(rt,objectType+0x10)==0x2ef0f0 &&
-        thunkAt(jobType+0x0c,0x2ec9a0,0xff50) && (baseCompletion || deferredCompletion);
+        (baseProducer || flushingProducer) && baseTeardown &&
+        thunkAt(jobType+0x0c,0x2ec9a0,0xff50) && (baseCompletion || deferredCompletion || bracketedCompletion);
     if(value<uint32_t>(rt,layer)!=0x152060 || (!base && !story && !field && !message && !event && !bracketed && !pause) ||
        value<uint8_t>(rt,layer+0x83)!=1 || value<uint8_t>(rt,layer+0xca)!=2)
         throw std::runtime_error(std::format("unported native UI layer type/build mode: layer={:x} types={:x}/{:x}/{:x}/{:x} mode83={} modeca={}",

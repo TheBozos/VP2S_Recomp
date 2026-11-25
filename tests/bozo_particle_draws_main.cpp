@@ -254,8 +254,10 @@ int main(int argc,char **argv){try{
      const auto result=draws.capture(&rt,assets,textures,scene,particles,object);check(result.batches.size()==1 && result.batches[0].vertices.size()==18);
      const uint32_t expect[3]={0xff401010u,0x00401010u,0xd4401010u};for(unsigned i=0;i<18;++i)check(result.batches[0].vertices[i].rgba==expect[i/6]);
      put(rt,chunk+32+16,std::array<float,4>{16,32,64,-2});const auto two=draws.capture(&rt,assets,textures,scene,particles,object);check(two.batches[0].vertices[0].rgba==0xfe401010u);
-     // Non-identity lighting has its own clamp; a negative channel there stays unqualified.
-     initialize(rt,scene,assets,11);put(rt,0x210000u+0x20+32+16,std::array<float,4>{16,32,64,-1});bool rejected=false;
-     try{draws.capture(&rt,assets,textures,scene,particles,object);}catch(const std::runtime_error &){rejected=true;}check(rejected);}
+     // Non-identity lighting clamps the lit colour to [0, row 0] (images 3-7, checked against their words in the ribbon
+     // test): a negative channel draws as 0 there.
+     initialize(rt,scene,assets,11);put(rt,0x210000u+0x20+32+16,std::array<float,4>{16,32,64,-1});
+     const auto lit=draws.capture(&rt,assets,textures,scene,particles,object);check(lit.batches.size()==1 && !lit.batches[0].vertices.empty());
+     for(unsigned i=0;i<6;++i)check((lit.batches[0].vertices[i].rgba>>24)==0);}
     _mm_setcsr(saved);completionCases(dir);std::printf("%u native particle captures,%u known vertices; axis geometry/UV/two-stage colour/material, opaque transport words, whole RAM/FP, immutable output and28 rejection cases passed\n",cases,vertices);return 0;
 }catch(const std::exception &e){std::fprintf(stderr,"%s\n",e.what());return 1;}}

@@ -157,6 +157,7 @@ bool plain=false;   // image 5 (mode 2) instead of image 7 (mode 4)
 bool dots=false;    // with plain: image 3 (mode 0), GS points
 bool dotsNoFge=false;
 bool dotsNoAbe=false;   // with dots: the tag without ABE (0x20104000, PRIM 0x20: field maps 182-188)
+bool negatives=false;     // point colours from -80 up (lit and unlit): the VU1 images' own clamp / byte wrap
 bool stripsNoAbe=false;   // with strips: FGE without ABE (0x20154000, PRIM 0x2a: field maps 46, 48)
 bool stripsFge=false;   // with strips: the tag with FGE (0x20354000, PRIM 0x6a)   // with dots: the tag without FGE (0x20204000, PRIM 0x40: field maps 61-93)
 bool strips=false;  // with plain and dots: image 4 (mode 1), GS line strips
@@ -200,7 +201,8 @@ void initialize(Runtime &rt,vp2s::NativeScene &scene,vp2s::NativeAssets &assets,
         put(rt,cursor+0x10,uint32_t(count));put(rt,cursor+0x14,uint32_t(count*3+2));put(rt,cursor+0x18,uint32_t(group));put(rt,cursor+0x1c,uint32_t(0));
         for(unsigned i=0;i<count;++i){const auto at=cursor+32+48*i;const bool same=c.coincide && i%group<2;
             put(rt,at,std::array<float,3>{same?.2f:spread(random),same?.1f:spread(random)*.8f,depth(random)});
-            put(rt,at+16,std::array<float,4>{float(colour(random)*4),float(colour(random)*4),float(colour(random)*4),float(colour(random)*2)});
+            const float low=negatives?-80.f:0.f;
+            put(rt,at+16,std::array<float,4>{low+float(colour(random)*4),low+float(colour(random)*4),low+float(colour(random)*4),low+float(colour(random)*2)});
             put(rt,at+32,wide(random));put(rt,at+44,uint32_t((i/group)&1));}
         cursor+=32+48*count;total+=count;}
     put(rt,object+0xabc,uint32_t(total));put(rt,object+0xac4,uint32_t(c.chunks));
@@ -257,7 +259,7 @@ int main(int argc,char **argv){try{
         {{22},1,1,false,true,false},{{8,3},2,2,true,true,false},{{16},3,1,false,false,false},{{48},1,1,true,false,false},{{4},12,1,false,false,false},
         {{5},3,1,false,false,false,true},{{6},2,1,true,false,false,true},{{4},3,1,false,false,false,false,1},{{7},2,1,true,false,false,true,1},{{3},4,1,false,false,false,true,2}};
     for(const bool five:{false,true})for(unsigned round=0;round<8;++round)for(const auto &c:table){
-        plain=five;fogged=five && (round&1);const auto &code=images[five];plainCases+=five;
+        plain=five;fogged=five && (round&1);negatives=round>=6;const auto &code=images[five];plainCases+=five;
         initialize(rt,scene,assets,c,random);const auto cam=scene.drawingCamera();check(bool(cam));
         const auto result=draws.capture(&rt,assets,textures,scene,particles,object);check(result.batches.size()<=1);
         // Expected: per chunk, the GS strip: vertex j (j >= 2) completes (j-2, j-1, j) unless ADC.
@@ -284,7 +286,7 @@ int main(int argc,char **argv){try{
                 cases,n,v.x,v.y,v.z,v.u,v.v,v.rgba,clip[0]/clip[3]*16,clip[1]/clip[3]*16,clip[2]/clip[3]*16,int32_t(o[8]),int32_t(o[9]),int32_t(o[10]),f(0),f(1),qv,rgba));}
         ++cases;
     }
-    check(triangles>500 && culled>50);
+    negatives=false;check(triangles>500 && culled>50);
     // Refusals: the fog variant (row 15.w), lighting pass 1c78 (row 14.w = 2 with 14.z), a screen w row with an x term,
     // a ribbon of one point, a ribbon kind outside the template.
     check(fogSeen>100);
@@ -293,7 +295,7 @@ int main(int argc,char **argv){try{
     unsigned laterChunkFirsts=0;
     unsigned dotsUnfogged=0;
     unsigned dotsOpaque=0;
-    for(unsigned round=0;round<16;++round)for(const auto &c:table){fogged=round&1;dotsNoFge=round>=8 && round<12;dotsNoAbe=round>=12;
+    for(unsigned round=0;round<16;++round)for(const auto &c:table){fogged=round&1;dotsNoFge=round>=8 && round<12;dotsNoAbe=round>=12;negatives=round==7 || round==15;
         initialize(rt,scene,assets,c,random);const auto cam=scene.drawingCamera();check(bool(cam));
         const auto result=draws.capture(&rt,assets,textures,scene,particles,object);check(result.batches.size()<=1);
         std::vector<std::array<uint32_t,12>> expect;uint32_t chunk=chunks;
@@ -317,7 +319,7 @@ int main(int argc,char **argv){try{
      for(unsigned round=0;round<16;++round)for(const auto &c:table){
         // Rounds 8..11: the fog variant (row 15.w) with the FGE tag 0x20354000 (field maps 62, 288); 12..15 the same without
         // ABE (0x20154000, field maps 46, 48).
-        fogged=round>=8;stripsFge=round>=8 && round<12;stripsNoAbe=round>=12;
+        fogged=round>=8;stripsFge=round>=8 && round<12;stripsNoAbe=round>=12;negatives=round%4==3;
         initialize(rt,scene,assets,c,random);const auto cam=scene.drawingCamera();check(bool(cam));
         const auto result=draws.capture(&rt,assets,textures,scene,particles,object);check(result.batches.size()<=1);
         std::vector<std::array<uint32_t,12>> expect;uint32_t chunk=chunks;
@@ -335,7 +337,7 @@ int main(int argc,char **argv){try{
                 (!fogged || std::abs(int(std::lround(v.fog*255))-int((o[11]>>4)&0xff))<=1);
             if(!ok)throw std::runtime_error(std::format("strip case {} vertex {}: native ({} {} {} {:08x}) oracle ({} {} {}) {:08x}",stripCases,n,clip[0]/clip[3]*16,clip[1]/clip[3]*16,clip[2]/clip[3]*16,v.rgba,int32_t(o[8]),int32_t(o[9]),int32_t(o[10]),rgba));}
         segments+=unsigned(got.size()/2);++stripCases;}
-     check(segments>300 && skipped>100 && stripsFogged>20 && stripsOpaque>10);strips=false;stripsFge=false;stripsNoAbe=false;fogged=false;
+     check(segments>300 && skipped>100 && stripsFogged>20 && stripsOpaque>10);strips=false;stripsFge=false;stripsNoAbe=false;fogged=false;negatives=false;
      std::printf("%u line-strip captures equal image 4's words: %u segments drawn, %u vertices with ADC\n",stripCases,segments,skipped);}fogged=false;std::printf("%u point captures equal image 3's words: %u points drawn, %u ADC-culled\n",dotCases,dotsDrawn,dotsCulled);
     dots=plain=fogged=false;
     for(unsigned which=0;which<5;++which){Case c{{3},1,1,false,false,which==2};initialize(rt,scene,assets,c,random);

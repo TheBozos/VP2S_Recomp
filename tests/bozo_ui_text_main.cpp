@@ -277,12 +277,37 @@ int main(int argc,char **argv){try{
             // thunk 3b31b0) that calls FlushCache(0) and then the base producer 2ec9c0.
             entries(0x15fc60u,0x15fc7cu,0x15fcf8u);put(layerRam,0x15fc7cu+0x18,0x3b31b0u);put(layerRam,0x15fcf8u+0x18,0x3afca0u);
             put(layerRam,0x3b31b0u,0x080ebf28u);put(layerRam,0x3b31b4u,0x2484ffe0u);
-            put(layerRam,0x3afcb0u,0x0c04dd18u);put(layerRam,0x3afcb4u,0x0000202du);put(layerRam,0x3afcb8u,0x0c0bb270u);
+            const auto producer=[&](uint32_t at){words(at,{0x27bdffe0u,0xffbf0010u,0x7fb00000u,0x0080802du,0x0c04dd18u,0x0000202du,0x0c0bb270u,0x0200202du});};
+            producer(0x3afca0u);
             types(0x15fc60u,0x15fc7cu,0x15fcf8u);layerAfter.texts.layer(&layerRam,layer);
             for(auto [at,bad]:{std::pair{0x3afcb0u,0x0c04dd1cu},{0x3afcb4u,0x0000282du},{0x3afcb8u,0x0c0bb268u},{0x3b31b0u,0x080ebf2cu}}){
                 uint32_t good;std::memcpy(&good,layerRam.memory.hostPointer(at,4),4);
                 put(layerRam,at,bad);rejects([&]{layerAfter.texts.layer(&layerRam,layer);});put(layerRam,at,good);}                       // another call, argument, producer or thunk
             put(layerRam,0x15fcf8u+0x18,0x2ec9c0u);rejects([&]{layerAfter.texts.layer(&layerRam,layer);});put(layerRam,0x15fcf8u+0x18,0x3afca0u); // half the pair
+            for(auto [at,bad]:{std::pair{0x3afca0u,0x27bdffd0u},{0x3afcacu,0x0080282du},{0x3afcbcu,0x0200282du}}){
+                uint32_t good;std::memcpy(&good,layerRam.memory.hostPointer(at,4),4);
+                put(layerRam,at,bad);rejects([&]{layerAfter.texts.layer(&layerRam,layer);});put(layerRam,at,good);}                       // another frame or argument move
+            // Map 446's layer 15fd30: a second copy of that producer, 3b2fd0 behind thunk 3b3180, admitted by its words.
+            entries(0x15fd30u,0x15fd4cu,0x15fdc8u);put(layerRam,0x15fd4cu+0x18,0x3b3180u);put(layerRam,0x15fdc8u+0x18,0x3b2fd0u);
+            put(layerRam,0x3b3180u,0x080ecbf4u);put(layerRam,0x3b3184u,0x2484ffe0u);producer(0x3b2fd0u);
+            types(0x15fd30u,0x15fd4cu,0x15fdc8u);layerAfter.texts.layer(&layerRam,layer);
+            put(layerRam,0x3b2fe8u,0x0c0bb268u);rejects([&]{layerAfter.texts.layer(&layerRam,layer);});put(layerRam,0x3b2fe8u,0x0c0bb270u);     // another base producer
+            // ... and its own deferred completion 467f30 (job +10 = thunk 3b3190): the base call first, admitted by its prologue.
+            put(layerRam,0x15fdc8u+0x10,0x3b3190u);put(layerRam,0x15fdc8u+0x14,0x467f30u);put(layerRam,0x3b3190u,0x08119fccu);put(layerRam,0x3b3194u,0x2484ffe0u);
+            words(0x467f30u,{0x27bdffe0u,0xffbf0010u,0x7fb00000u,0x0c0bb280u,0x0080802du});layerAfter.texts.layer(&layerRam,layer);
+            put(layerRam,0x467f3cu,0x0c0bb284u);rejects([&]{layerAfter.texts.layer(&layerRam,layer);});put(layerRam,0x467f3cu,0x0c0bb280u);     // another first call
+            // Maps 329-433's layer 168010: the pause's entries with the bracketed completion 44a540 (job +10 = thunk 44a710),
+            // whose base call is checked.
+            entries(0x168010u,0x16802cu,0x1680a8u);put(layerRam,0x1680a8u+0x10,0x44a710u);put(layerRam,0x1680a8u+0x14,0x44a540u);
+            put(layerRam,0x44a710u,0x08112950u);put(layerRam,0x44a714u,0x2484ffe0u);put(layerRam,0x44a58cu,0x0c000000u|(0x2eca00u>>2));
+            types(0x168010u,0x16802cu,0x1680a8u);layerAfter.texts.layer(&layerRam,layer);
+            put(layerRam,0x44a58cu,0u);rejects([&]{layerAfter.texts.layer(&layerRam,layer);});put(layerRam,0x44a58cu,0x0c000000u|(0x2eca00u>>2));   // no base call
+            put(layerRam,0x44a714u,0x2484ff50u);rejects([&]{layerAfter.texts.layer(&layerRam,layer);});put(layerRam,0x44a714u,0x2484ffe0u);       // another adjustment
+            // Map 2's overlay layer 168b70: object +10 = thunk 490ee0 to a wrapper that only calls the base teardown 2ef0f0.
+            entries(0x168b70u,0x168b8cu,0x168c08u);put(layerRam,0x168b8cu+0x10,0x490ee0u);put(layerRam,0x490ee0u,0x08124160u);put(layerRam,0x490ee4u,0x2484ffe0u);
+            words(0x490580u,{0x27bdfff0u,0xffbf0000u,0x0c0bbc3cu,0x24840020u,0xdfbf0000u,0x03e00008u});
+            types(0x168b70u,0x168b8cu,0x168c08u);layerAfter.texts.layer(&layerRam,layer);
+            put(layerRam,0x49058cu,0x24840010u);rejects([&]{layerAfter.texts.layer(&layerRam,layer);});put(layerRam,0x49058cu,0x24840020u);       // another object
             // mod003 layer 15fef0 (map 79): these entries with the mod001 completion 2f2390
             // (base 2eca00 first, then deferred actions; job +10 = thunk 3b3130).
             entries(0x15fef0u,0x15ff0cu,0x15ff88u);put(layerRam,0x15ff88u+0x10,0x3b3130u);put(layerRam,0x15ff88u+0x14,0x2f2390u);

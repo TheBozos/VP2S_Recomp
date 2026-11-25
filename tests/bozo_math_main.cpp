@@ -3136,6 +3136,50 @@ int main(int argc,char **argv){try{
          try{vp2s::nativeMathInstruction(r.memory.flat(),&c,&r,0x3e6c98);}catch(const std::runtime_error &){rejected=true;}check(rejected);
          const uint32_t zero=0;std::memcpy(r.memory.hostPointer(0x3e6c98,4),&zero,4);c.r[31].uw[0]=0x3e7128;check(!vp2s::nativeMathInstruction(r.memory.flat(),&c,&r,0x3e6c98));}
         std::printf("%u ray-sphere tests (%u crossings, %u misses, 1 tangent) match ps2f arithmetic; 2 rejections\n",rayCases,crossings,misses);}
+    // mod001 29b520, the colour morph: FTOI0(max(min(c1 + c2 t, 255), 0)) per lane into r8 (blocks B and C, C with c1 the
+    // integer colour the EE unpacked into r8), FTOI0(c1) in A and b; against float arithmetic.
+    {unsigned morphCases=0;auto &r=native.runtime();
+        static constexpr std::pair<uint32_t,uint32_t> words[]={{0x29b554,0xd9030000},
+            {0x29b59c,0xd8610000},{0x29b5a8,0x4be1097c},{0x29b5ac,0x48280800},
+            {0x29b624,0xd9210000},{0x29b628,0xd8e20000},{0x29b63c,0x4be009bf},{0x29b640,0x4be31048},{0x29b644,0x4be30855},
+            {0x29b648,0x4be00850},{0x29b654,0x4be1097c},{0x29b658,0x48280800},
+            {0x29b67c,0xd8e10000},{0x29b688,0x4be1097c},{0x29b68c,0x48280800},
+            {0x29b718,0x48a80800},{0x29b71c,0xd8a20000},{0x29b720,0x4be1093c},{0x29b724,0x4be009bf},{0x29b728,0x4be31048},
+            {0x29b72c,0x4be30855},{0x29b730,0x4be00850},{0x29b734,0x4be1097c},{0x29b738,0x48280800}};
+        uint64_t state=0x452821e638d01377ull;const auto next=[&](){state^=state<<13;state^=state>>7;state^=state<<17;return state;};
+        const auto real=[&](float lo,float hi){return lo+float(next()%1000001)/1000000.f*(hi-lo);};
+        const auto W=[](float x){return std::bit_cast<uint32_t>(x);};
+        std::memset(r.memory.flat(),0,bozo::kFlatBytes);
+        for(const auto &[pc,w]:words)std::memcpy(r.memory.hostPointer(pc,4),&w,4);
+        const uint32_t morph=0x1e0000,stack=0x1ffd000,c1Table=0x1e1000,c2Table=0x1e2000;
+        std::memcpy(r.memory.hostPointer(morph+0x48,4),&c1Table,4);std::memcpy(r.memory.hostPointer(morph+0x4c,4),&c2Table,4);
+        const auto run=[&](R5900Context &c,uint32_t from,uint32_t to){for(const auto &[pc,w]:words)if(pc>=from && pc<=to)check(vp2s::nativeMathInstruction(r.memory.flat(),&c,&r,pc));};
+        for(unsigned seed=0;seed<256;++seed){
+            const float t=seed%8==0?0:real(-.5f,1.5f);std::memcpy(r.memory.hostPointer(morph+0x5c,4),&t,4);
+            const uint32_t k[4]={W(t),W(255.f),uint32_t(next()),uint32_t(next())};std::memcpy(r.memory.hostPointer(stack,16),k,16);
+            const unsigned i=seed%16,j=(seed*7)%16;float c1[4],c2[4];
+            for(unsigned l=0;l<4;++l){c1[l]=seed%5==0?real(-400,600):real(0,255);c2[l]=real(-300,300);}
+            std::memcpy(r.memory.hostPointer(c1Table+16*i,16),c1,16);std::memcpy(r.memory.hostPointer(c2Table+16*j,16),c2,16);
+            R5900Context c{};c.r[4].uw[0]=morph;c.r[29].uw[0]=stack;c.r[8].uw[0]=stack;run(c,0x29b554,0x29b554);
+            const auto expect=[&](float a,float b){float v=a*1.f+b*t;v=std::min(v,255.f);v=std::max(v,0.f);return uint32_t(int32_t(v));};
+            const unsigned block=seed%4;
+            if(block==0){c.r[3].uw[0]=c1Table+16*i;run(c,0x29b59c,0x29b5ac);for(unsigned l=0;l<4;++l)check(c.r[8].uw[l]==uint32_t(int32_t(c1[l])));}
+            else if(block==1){c.r[7].uw[0]=c1Table+16*i;run(c,0x29b67c,0x29b68c);for(unsigned l=0;l<4;++l)check(c.r[8].uw[l]==uint32_t(int32_t(c1[l])));}
+            else if(block==2){c.r[9].uw[0]=c1Table+16*i;c.r[7].uw[0]=c2Table+16*j;run(c,0x29b624,0x29b658);
+                for(unsigned l=0;l<4;++l)if(c.r[8].uw[l]!=expect(c1[l],c2[l])){std::fprintf(stderr,"morph B seed%u lane%u %u/%u\n",seed,l,c.r[8].uw[l],expect(c1[l],c2[l]));check(false);}}
+            else{int32_t bytes[4];for(auto &b:bytes)b=int32_t(next()%256);for(unsigned l=0;l<4;++l)c.r[8].uw[l]=uint32_t(bytes[l]);c.r[5].uw[0]=c2Table+16*j;run(c,0x29b718,0x29b738);
+                for(unsigned l=0;l<4;++l)if(c.r[8].uw[l]!=expect(float(bytes[l]),c2[l])){std::fprintf(stderr,"morph C seed%u lane%u %u/%u\n",seed,l,c.r[8].uw[l],expect(float(bytes[l]),c2[l]));check(false);}}
+            ++morphCases;}
+        // Saturation of FTOI0 in A: 3e9 -> 0x7fffffff, -3e9 -> 0x80000000.
+        {const float big[4]={3e9f,-3e9f,-0.5f,255.75f};std::memcpy(r.memory.hostPointer(c1Table,16),big,16);
+         R5900Context c{};c.r[4].uw[0]=morph;c.r[29].uw[0]=stack;c.r[8].uw[0]=stack;run(c,0x29b554,0x29b554);c.r[3].uw[0]=c1Table;run(c,0x29b59c,0x29b5ac);
+         check(c.r[8].uw[0]==0x7fffffffu && c.r[8].uw[1]==0x80000000u && c.r[8].uw[2]==0 && c.r[8].uw[3]==255);}
+        // Out of order, or a constant row that is not (t, 255), is refused.
+        {R5900Context c{};c.r[4].uw[0]=morph;c.r[29].uw[0]=stack;c.r[8].uw[0]=stack;run(c,0x29b554,0x29b554);c.r[9].uw[0]=c1Table;bool rejected=false;
+         try{vp2s::nativeMathInstruction(r.memory.flat(),&c,&r,0x29b63c);}catch(const std::runtime_error &){rejected=true;}check(rejected);
+         const float other=255.f;std::memcpy(r.memory.hostPointer(stack+4,4),&other,4);const float wrong=7.f;std::memcpy(r.memory.hostPointer(stack,4),&wrong,4);rejected=false;
+         try{vp2s::nativeMathInstruction(r.memory.flat(),&c,&r,0x29b554);}catch(const std::runtime_error &){rejected=true;}check(rejected);}
+        std::printf("%u colour-morph entries (four blocks) match float arithmetic; saturation and 2 rejections\n",morphCases);}
     // Box pair separating-axis test (mod001 1f82c0) against the listing's
     // sequential evaluation (tests/bozo_box_pair_oracle.inc): the first compared
     // pair with separation > radius (FPU compare) returns 0, else 1.

@@ -196,14 +196,16 @@ NativeModelSubmission NativeParticleDraws::capture(Runtime *rt,NativeAssets &ass
     // The lighting pass before it (subroutine 1400 in image 6, 1670 in image 7, the same
     // words) multiplies by VU row 13 (+300) and clamps to [0, row 0 (+230)] unless +310 is set.
     // Image 5 has no tint and no MINI 255: FTOI0 of the lit colour, low byte per channel.
+    // A negative point colour (a particle fading past zero: maps 136-142, 299, 304) lit by that pass clamps to 0; unlit it
+    // wraps in the GIF byte (-1 -> 0xff). Both checked against images 3, 4, 5 and 7 in the ribbon test.
     const auto pointColour=[&](const uint8_t *point,const uint8_t *shape){
         const auto light=litColour(point);
         if(plain){uint32_t rgba=0;for(unsigned i=0;i<4;++i){auto channel=number(value<float>(point,16+4*i));
-                if(!identity){if(channel<0)throw std::runtime_error("negative native particle colour");channel=std::clamp(channel*light[i],0.f,limit[i]);}
+                if(!identity)channel=std::clamp(channel*light[i],0.f,limit[i]);
                 const int32_t fixed=channel<=-2147483648.f?INT32_MIN:channel>=2147483648.f?INT32_MAX:int32_t(channel);rgba|=(uint32_t(fixed)&0xffu)<<(8*i);}
             return rgba;}
         uint32_t rgba=0;for(unsigned i=0;i<4;++i){auto channel=number(value<float>(point,16+4*i));const auto tint=number(value<float>(shape,64+4*i));
-            if(tint<0 || (!identity && channel<0))throw std::runtime_error("negative native particle colour");
+            if(tint<0)throw std::runtime_error("negative native particle tint");
             if(!identity)channel=std::clamp(channel*light[i],0.f,limit[i]);channel=std::min(channel*tint,255.f);
             const int32_t fixed=channel<=-2147483648.f?INT32_MIN:int32_t(channel);rgba|=(uint32_t(fixed)&0xffu)<<(8*i);}
         return rgba;

@@ -12,6 +12,41 @@ The earlier VP2S face/shading and general brightness comparisons remain open.
 
 ## Build and evidence
 
+### Negative particle colours, UI layer admissions by code, colour morph 29b520, mod037 (2026-11-25)
+
+- **Negative particle colours (maps 136, 140, 299, 304):** the lighting pass multiplies by row 13 and clamps to
+  [0, row 0]. So a negative point colour lit by it draws as 0, and unlit it wraps in the GIF byte (−1 → 0xff).
+  - The refusal that remained for the lit case is gone.
+  - The ribbon test's rounds with colours from −80 up (lit and unlit) match the words of images 3, 4, 5 and 7.
+  - A negative tint is still refused.
+- **UI layers (maps 2, 329, 333, 432, 433, 446):** the pause-kind layer now admits its entries by their code, not
+  their address:
+  - a flushing producer anywhere (map 446's 3b2fd0 behind thunk 3b3180, word for word 3afca0);
+  - the bracketed completion 44a540 behind thunk 44a710 (maps 329-433);
+  - a deferred completion with the 2f2390 prologue anywhere (map 446's 467f30, flags at +744..);
+  - an object teardown that is a thunk to a wrapper calling only the base 2ef0f0 (map 2's 490580).
+  - Text class 168b30 (map 2's overlay, a 15a450 subclass with its own update 4908b0) is admitted. Its update calls
+    the base 2efce0 first and only sets flags.
+- **Colour morph 29b520 (maps 286, 537):** writes MMI-packed RGBA8 colours into a mesh's table. vf3 = (t, 255).
+  - Each entry is FTOI0(c1), or FTOI0(max(min(c1 · 1 + c2 t, 255), 0)). In block C, c1 is the integer colour the EE
+    unpacked into r8 (QMTC2).
+  - The loads capture c1 / c2 / t, and the QMFC2 sites set r8 (128 bits) in ps2f words.
+- **mod037 (map 142):** the overlay at 514080 that map 142 jumps into was captured from end-of-run RAM and
+  registered. Its particle class 1781c0 places the emitter relative to the camera, then calls 175920's gated producer
+  3d58e0; it is admitted.
+
+**Evidence:**
+- **Tests:**
+  - Ribbon test rounds with negative colours, against images 3, 4, 5 and 7.
+  - The particle-draws test's lit negative now draws alpha 0.
+  - UI test: the second flushing producer, the bracketed and the third deferred completion, and the wrapped
+    teardown, each with rejections for another word.
+  - 256 colour-morph entries over four blocks against float arithmetic, plus FTOI0 saturation and 2 rejections.
+- **Maps:** 63, 76, 136, 140, 143, 286, 299, 304, 462, 537 run clean. Maps 329-433 and 446 now stop at the picture
+  elements 167b80 / 167b50. Map 2 runs clean; map 142 reaches mod037's emitter step 516870.
+- **Regression:** full ctest; the four scenes keep their hashes.
+- **Atlas:** 515 of 552 maps clean.
+
 ### Table-B 32 / 34: the emboss redraw; the ray-sphere hit test 3e6c20 (2026-11-25)
 
 - **Routines 32 and 34 (maps 459, 460, 461):** after the kick, table B redraws the mesh with its UVs shifted along the

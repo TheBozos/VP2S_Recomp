@@ -603,6 +603,9 @@ NativeModelSubmission NativeModels::capture(Runtime *rt,NativeAssets &assets,Nat
             if(shown)throw std::runtime_error(std::format("native generated mesh {:x} changed after publication:{}",mesh,detail));
             held=g->second.mesh;}
         const auto &m=*held;
+        // A skinned mesh (2 / 4) whose bone palette the game never built (map 487: the buffer still holds a file read's
+        // bytes): not drawn (user decision 2026-11-25).
+        if(palette && (m.has(2) || m.has(4)) && !nativeBonePaletteBuilt(rt,palette))continue;
         // 22: the library's set-up table entry is a bare JR vi10 (both layouts, 0x499 / 0x483, every copy in EE RAM
         // at the battle's frame 72200), so the routine does nothing, as 46 (and as publishGeneratedMesh admits it).
         // 50, 52, 54 likewise: bare JR vi10 in all eight table copies in EE RAM (battle 0x1c and 0x18, the forest), found as

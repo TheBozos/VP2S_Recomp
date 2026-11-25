@@ -1,5 +1,6 @@
 #include <format>
 #include "native_models.h"
+#include "native_math.h"
 #include "bozo/ops_fpu.h"
 #include <bit>
 #include <fstream>
@@ -63,6 +64,9 @@ int main(int argc,char **argv){try{
         if(algorithm){put(rt,object+0x648,uint32_t(0x1b0000));put(rt,0x1b0034,uint32_t(0x1b0100));put(rt,0x1b0104,uint32_t(2));put(rt,0x1b004c,uint32_t(0x1c0000));
             auto a=identity,b=identity;a[12]=.1f;b[13]=.2f;put(rt,0x1c0040,a);put(rt,0x1c0080,b);}
         assets.discRead(0x140000,1,8);assets.begin(0x1f1000,0x140000,model,1);assets.finish(0x1f1000,true,0x1000);
+        // A skinned mesh draws only once the game built its palette (skeleton +4c + 40, 2 bones; map 487): nothing before.
+        if(algorithm==2)check(models.capture(&rt,assets,textures,scene,object).batches.empty());   // (one runtime address serves both passes)
+        if(algorithm)vp2s::nativeBonePaletteWritten(&rt,0x1c0040);
         // The disc mesh's own VIF codes at +100 (the rest of its RAM is NOPs here): row 0 = (0, 8, 0, 0) (vertices at row
         // 8), STCYCL 4/1, one signed V2-16 unpack of the four UVs to rows 9, 13, 17, 21 (the pack's UVs).
         {const uint32_t codes[11]={0x6c010000u,0,8,0,0,0x01000104u,0x65040009u,0x00000000u,0x00001000u,0x10000000u,0x10001000u};

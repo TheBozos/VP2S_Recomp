@@ -12,6 +12,30 @@ The earlier VP2S face/shading and general brightness comparisons remain open.
 
 ## Build and evidence
 
+### Map 487: skinned meshes wait for their bone palette; the chain's push starts at zero (2026-11-25)
+
+- **Map 487:** object 9b80b0 (skeleton 9b8970, 17 bones) was drawn with a bone palette (skeleton +4c + 40) that nothing had
+  written. A watch run showed its last writer was a file read at frame 63390, so the skinned vertices came out NaN.
+  - The palette builder 237284 / 2372bc writes that buffer for working models; a forest watch run confirmed it.
+  - **User decision (2026-11-25):** a skinned mesh is not drawn until its palette has been built.
+  - **Natively:** the builder's handler records each palette whose last bone it wrote (nativeBonePaletteWritten), and
+    the model capture skips skinned meshes (routines 2 / 4) whose palette is not recorded. A save state does not carry
+    the set, so a palette counts again once its builder runs.
+- **Maps 32 and 47 (still open):** the chain update 1fd110 adds the push SP+4a0 after each collider's +8c. The force
+  field 1fbad0 writes it only in range, and 1fd110 never initialises it.
+  - **User decision (2026-11-25):** no push until a field writes one.
+  - **Natively:** a native site at 1fd114, right after the frame is allocated, zeroes SP+4a0..4af; the original
+    instruction then runs. 1fd110 is signature-checked.
+  - **Not the cause:** a watch run shows the field writes pushes of about 100 every call in these maps. The joint
+    still diverges for another reason, and both maps still stop at the collision leaf.
+
+**Evidence:**
+- **Tests:**
+  - vp2s-bozo-native-models: a skinned fixture draws nothing before its palette is built, and as before afterwards.
+  - vp2s-bozo-math: 1fd114 zeroes only SP+4a0..4af, and only with the chain's own prologue in RAM.
+- **Maps:** 487 runs clean to the frame limit; 32 and 47 unchanged.
+- **Regression:** full ctest; regress4's scenes keep their hashes.
+
 ### Map 535: a collider box whose matrix is not set does not constrain (2026-11-25)
 
 - **The case:** map 535 stopped at "unqualified native full transform input" (1fbe90).

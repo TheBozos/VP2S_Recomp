@@ -11,6 +11,7 @@
 #include "../port/vp2s_math.h"
 #include <cstring>
 #include <map>
+#include <set>
 #include <optional>
 #include <string_view>
 #include <algorithm>
@@ -8992,7 +8993,9 @@ bool mathBlock68(R5900Context *c,Runtime *rt,uint32_t pc){
         for(auto row:result)if(_mm_movemask_ps(_mm_cmpunord_ps(row,row)) ||
             _mm_movemask_ps(_mm_cmpeq_ps(_mm_andnot_ps(_mm_set1_ps(-0.f),row),_mm_set1_ps(INFINITY))))
             throw std::runtime_error("native bone matrix overflow");
-        std::memcpy(record(rt,destination,64),result.data(),64);return true;
+        std::memcpy(record(rt,destination,64),result.data(),64);
+        if(index+1==count)nativeBonePaletteWritten(rt,output&0x1ffffff);   // the palette is complete
+        return true;
     }
     return false;
 }
@@ -9225,6 +9228,17 @@ bool mathBlock72(R5900Context *c,Runtime *rt,uint32_t pc){
     return false;
 }
 #define CLAIM(f) (f(c,rt,pc) && (mathClaimer=&f,true))
+namespace{std::map<const Runtime *,std::set<uint32_t>> &builtPalettes(){static std::map<const Runtime *,std::set<uint32_t>> built;return built;}}
+bool nativeBonePaletteBuilt(const Runtime *rt,uint32_t palette){const auto &b=builtPalettes();const auto it=b.find(rt);return it!=b.end() && it->second.contains(palette&0x1ffffff);}
+void nativeBonePaletteWritten(const Runtime *rt,uint32_t palette){builtPalettes()[rt].insert(palette&0x1ffffff);}
+std::optional<bool> nativeChainPushInstruction(R5900Context *c,Runtime *rt,uint32_t pc){
+    if(pc!=0x1fd114 || !rt)return std::nullopt;
+    uint32_t word=0,entry=0;if(const auto *p=rt->memory.hostPointer(pc,4))std::memcpy(&word,p,4);if(const auto *p=rt->memory.hostPointer(0x1fd110,4))std::memcpy(&entry,p,4);
+    if(word!=0x3c010036u || entry!=0x27bdfb40u)return std::nullopt;   // not the chain update's prologue
+    if(!c)throw std::runtime_error("native chain push has no CPU record");
+    std::memset(record(rt,c->r[29].uw[0]+0x4a0,16),0,16);
+    return false;   // the original lui runs
+}
 bool nativeMathInstruction(uint8_t *,R5900Context *c,Runtime *rt,uint32_t pc){
     mathClaimer=nullptr;
     if(CLAIM(nativeBattleTableScale))return true;

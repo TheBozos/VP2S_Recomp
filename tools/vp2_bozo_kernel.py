@@ -827,6 +827,8 @@ def overlay_adaptations(name,data):
         (0x253770,0x253eac,'e8c03d10342ec727bb5cf194bb6cda599d311041eec9f792cb38c50f22807226'),
         # Occlusion culling (bozo/native_occlusion.cpp): the scene's occluder test loop 2200d0..2202d0, the occluder
         # pass 222850 and its leaf 222b10.
+        # The chain update 1fd110 (its push SP+4a0 zeroed at 1fd114, native_math.cpp).
+        (0x1fd110,0x1fe9bc,'99519d39445c3ea2e6c3b2706ecc9c0fc8da51c813a4d4dbdfaf1080ecca3899'),
         (0x2200d0,0x2202d0,'98c865ae27471e2cd124de94f82b0a48ff3d2f7a79f5cd87238baddd96e85f3c'),
         (0x222850,0x222a98,'08a5f90a1a149c0cc2dc58f7f982b335e213b3733a5c630427115bcd80fdd293'),
         (0x222b10,0x223118,'578809d327c220d5a6659760b526ada3b7f064b5e70f19ff76fab34aa9002df9'),
@@ -1234,6 +1236,8 @@ def overlay_native_sites(name,data):
         0x255b60,0x2550d0,0x2549a0,0x253770,0x256408,0x255b50,
         # Occlusion pass close (bozo/native_occlusion.cpp): 220294, reached after the occluder test loop or its skip.
         0x220294,
+        # Chain push initialisation (native_math.cpp nativeChainPushInstruction): 1fd114, after 1fd110's frame allocation.
+        0x1fd114,
         # Lost Forest haze enqueue 2e0b90, scene scissor 2b5b50, camera job resubmission 2085c4.
         0x2e0b90,0x2b5b50,0x2085c4,
         0x205ab0,0x206808,0x205aa0,0x206830,

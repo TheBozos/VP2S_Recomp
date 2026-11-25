@@ -3217,6 +3217,14 @@ int main(int argc,char **argv){try{
          check(out[3]==2.f);++cameraCases;
          }
         std::printf("%u camera offsets (identity, two quarter turns; mod198) through program 0x720's rows; 2 rejections\n",cameraCases);}
+    // The chain update's push SP+4a0 (maps 32 / 47): zeroed at 1fd114 after the frame is allocated; the original runs.
+    {auto &r=native.runtime();std::memset(r.memory.flat(),0,bozo::kFlatBytes);const uint32_t stack=0x1ffa000;
+        const uint32_t prologue=0x27bdfb40u,lui=0x3c010036u;std::memcpy(r.memory.hostPointer(0x1fd110,4),&prologue,4);std::memcpy(r.memory.hostPointer(0x1fd114,4),&lui,4);
+        std::memset(r.memory.hostPointer(stack+0x490,0x30),0xee,0x30);R5900Context c{};c.r[29].uw[0]=stack;
+        const auto result=vp2s::nativeChainPushInstruction(&c,&r,0x1fd114);check(result && !*result);
+        const uint8_t *p=r.memory.hostPointer(stack+0x490,0x30);bool zero=true,kept=true;for(unsigned k=0;k<0x30;++k){if(k>=0x10 && k<0x20)zero=zero && !p[k];else kept=kept && p[k]==0xee;}
+        check(zero && kept);std::memset(r.memory.hostPointer(0x1fd110,4),0,4);check(!vp2s::nativeChainPushInstruction(&c,&r,0x1fd114));   // another overlay
+        std::printf("chain push SP+4a0 zeroed at 1fd114 (only there)\n");}
     // The box test 1fbe60 at 1fbe90 on a class 1622a0 box whose inverse matrix is not set (map 535's bytes): no box until set,
     // the local point is the box centre; a radius beyond a half extent, another caller or a set box behave otherwise.
     {auto &r=native.runtime();std::memset(r.memory.flat(),0,bozo::kFlatBytes);

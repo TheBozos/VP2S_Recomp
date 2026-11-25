@@ -964,6 +964,7 @@ constexpr NativeStep nativeSteps[]={
     [](uint8_t *ram,R5900Context *ctx,Runtime *rt,uint32_t pc)->std::optional<bool>{return vp2s::nativeFrameInput(ram,ctx,rt,pc)?std::optional(true):std::nullopt;},
     [](uint8_t *ram,R5900Context *ctx,Runtime *rt,uint32_t pc)->std::optional<bool>{(void)ram;return vp2s::nativeFlareInstruction(ctx,rt,pc);},
     [](uint8_t *ram,R5900Context *ctx,Runtime *rt,uint32_t pc)->std::optional<bool>{(void)ram;return vp2s::nativeOcclusionInstruction(ctx,rt,pc);},
+    [](uint8_t *ram,R5900Context *ctx,Runtime *rt,uint32_t pc)->std::optional<bool>{(void)ram;return vp2s::nativeChainPushInstruction(ctx,rt,pc);},
 };
 // The handlers whose decision on a site they list depends on more than the site and its instruction word:
 // state (ScreenRect, ScreenZoom, ColumnCapture, BattleSprite, StateSetup: an active build; ProceduralDraw:

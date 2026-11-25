@@ -59,6 +59,15 @@ public:
 // Game record algorithms shared with the existing native port, through Bozo's
 // memory/CPU ABI. No vector bank, microprogram or transport is provided.
 bool nativeMathInstruction(uint8_t *,R5900Context *,Runtime *,uint32_t pc);
+// The chain update 1fd110 (mod001) adds the push SP+4a0 after each collider's +8c, and the force field 1fbad0 writes it only
+// in range; 1fd110 never initialises it. User decision 2026-11-25 (maps 32, 47): no push until a field writes one. At
+// 1fd114, right after the frame is allocated, the push SP+4a0..4af is zeroed; the original instruction then runs.
+std::optional<bool> nativeChainPushInstruction(R5900Context *,Runtime *,uint32_t pc);
+// Bone palettes (skeleton +4c buffer, +50 selector) the game's palette builder 237284 / 2372bc has written completely
+// (its last bone) in this run. User decision 2026-11-25 (map 487): a skinned mesh whose palette was never built is not
+// drawn. A save state does not carry the set: a palette counts once its builder runs again.
+bool nativeBonePaletteBuilt(const Runtime *,uint32_t palette);
+void nativeBonePaletteWritten(const Runtime *,uint32_t palette);
 // The sub-handler that claimed the site of the last nativeMathInstruction call that returned true (null when
 // an inline block of nativeMathInstruction did): the dispatcher's per-site fast path calls it directly.
 using NativeMathSite=bool(*)(R5900Context *,Runtime *,uint32_t);

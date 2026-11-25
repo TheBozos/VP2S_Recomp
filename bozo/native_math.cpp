@@ -272,11 +272,11 @@ SegmentTerms segmentTerms(Runtime *rt,R5900Context *c){
     result.secondNumerator=sub(mul(result.negativeCross,result.firstProjection),mul(result.firstLength,result.negativeSecondProjection));
     result.firstNumerator=sub(mul(result.negativeCross,result.negativeSecondProjection),mul(result.secondLength,result.firstProjection));return result;
 }
-// Callers in 1fd110: 1fdf68, 1fe024 (after the +90 virtual test) and 1fdc84
-// (after the 1fc300 capsule pair); all pass a0=s2, a1=s1, a2=SP+210 and the
+// Callers in 1fd110: 1fdf68, 1fe024 (after the +90 virtual test), 1fdc84 and 1fdb90
+// (after the 1fc300 capsule pair, its two paths); all pass a0=s2, a1=s1, a2=SP+210 and the
 // parameter/depth that the test wrote to SP+4bc/4b8.
 void collisionPositionResponse(Runtime *rt,R5900Context *c,uint32_t pc){
-    if(c->pc!=0x1fc030 || (c->r[31].uw[0]!=0x1fdf68 && c->r[31].uw[0]!=0x1fe024 && c->r[31].uw[0]!=0x1fdc84))
+    if(c->pc!=0x1fc030 || (c->r[31].uw[0]!=0x1fdf68 && c->r[31].uw[0]!=0x1fe024 && c->r[31].uw[0]!=0x1fdc84 && c->r[31].uw[0]!=0x1fdb90))
         throw std::runtime_error("unqualified collision position-response caller");
     const auto normalAddress=c->r[29].uw[0]+0x210;auto *normal=record(rt,normalAddress,16),*coefficients=record(rt,0x359100,16);
     if(pc==0x1fc038){
@@ -4912,9 +4912,10 @@ bool nativeChainBlocks(R5900Context *c,Runtime *rt,uint32_t pc){
     ps2Publish(rt,stack+0x110,out);return true;
 }
 // mod001 1fc300 capsule pair (virtual +94 of the chain part, called only from
-// 1fdc24 with ra 1fdc2c). a0 = capsule A, a1 = capsule B, a2 = per-axis
+// 1fdc24 with ra 1fdc2c, or from 1fdb10 with ra 1fdb18 when the part's +20 bit 2 is set:
+// the same arguments). a0 = capsule A, a1 = capsule B, a2 = per-axis
 // weights, a3 = separation output. Its VF24..27 are the chain owner's object
-// matrix +190, loaded at 1fda1c on the only path to that call; the caller's s2
+// matrix +190, loaded at 1fda1c on the paths to both calls; the caller's s2
 // is in 1fc300's frame at SP+20.
 //  1fc334..1fc3c4  P = M*(A+250) (with translation) scaled per lane by
 //                  (rA+rB)/(rA + w*rB), to SP+60; D = rows*(A+260) to SP+70.
@@ -4931,7 +4932,7 @@ bool nativeCapsulePair(R5900Context *c,Runtime *rt,uint32_t pc){
     // PS2 words (see Ps2Word): every word is a VU number; zero weights and
     // separations follow DIV/RSQRT (+/-max) as the VU does.
     if(place){
-        if(pc==0x1fc334 && (c->r[2].uw[0]!=a+0x250 || c->r[31].uw[0]!=0x1fdc2c))throw std::runtime_error("native capsule pair caller mismatch");
+        if(pc==0x1fc334 && (c->r[2].uw[0]!=a+0x250 || (c->r[31].uw[0]!=0x1fdc2c && c->r[31].uw[0]!=0x1fdb18)))throw std::runtime_error("native capsule pair caller mismatch");
         if(pc!=0x1fc3c0 && pc!=0x1fc3c4)return true;
         if(c->r[2].uw[0]!=stack+0x60)throw std::runtime_error("native capsule pair destination mismatch");
         const auto m=ps2Rows(rt,word(word(stack+0x20)+4)+0x190,4);Ps2Lanes out;
@@ -9231,6 +9232,43 @@ bool mathBlock72(R5900Context *c,Runtime *rt,uint32_t pc){
 namespace{std::map<const Runtime *,std::set<uint32_t>> &builtPalettes(){static std::map<const Runtime *,std::set<uint32_t>> built;return built;}}
 bool nativeBonePaletteBuilt(const Runtime *rt,uint32_t palette){const auto &b=builtPalettes();const auto it=b.find(rt);return it!=b.end() && it->second.contains(palette&0x1ffffff);}
 void nativeBonePaletteWritten(const Runtime *rt,uint32_t palette){builtPalettes()[rt].insert(palette&0x1ffffff);}
+// mod001 20d760 (a0 = source list, a1 = target list): for each source with +29c set and +2c8 == 6, 257bc0 writes
+// origin o (vf20), direction n (vf21) and cone (vf22: x = cos, y = sin) to SP+90..b0; for each target whose method
+// +5c returns p (vf23, w = its radius R), the VU0 code (ps2f, in order; vf31 = (1,1,1,1)) stores:
+//  20d8c8  SP+70 = (((dx^2 + dy^2) + 1 dz^2), dy^2, dz^2, R^2) with d = p - o (xyz);
+//  20d8ec  SP+70.x = cos^2, .y = t^2, t = (dy ny + dx nx) + 1 dz nz;  20d8f0  SP+80.x = cos^2 |d|^2, .y = t;
+//  20d948  SP+70.x = | |d|^2 - t^2 |, .y = s = t cos + sin sqrt(that);  20d94c  SP+80.y = ((s s) - 1 |d|^2) + 1 R^2.
+// The EE code branches on those lanes (inside: |d|^2 <= R^2; cone: t^2 >= cos^2 |d|^2 and t >= 0; else s >= 0 and
+// the last >= 0) and sets the target's +590 bit. Lanes the program leaves to older VU contents keep RAM's words.
+bool nativeConeTargets(R5900Context *c,Runtime *rt,uint32_t pc){
+    if(!rt || (pc&3) || pc<0x20d7fc || pc>0x20d94c)return false;
+    uint32_t entry=0;if(const auto *p=rt->memory.hostPointer(0x20d760,4))std::memcpy(&entry,p,4);
+    if(entry!=0x27bdff40u)return false;   // another overlay at these addresses
+    if(!c)throw std::runtime_error("native cone targets has no CPU record");
+    const auto stack=c->r[29].uw[0];
+    if(pc<=0x20d804){if(c->r[3].uw[0]!=stack+0x90)throw std::runtime_error("native cone targets source mismatch");return true;}
+    if(pc==0x20d898)return true;
+    const bool store=pc==0x20d8c8 || pc==0x20d8ec || pc==0x20d8f0 || pc==0x20d948 || pc==0x20d94c;
+    if(!store)return true;
+    const uint32_t at=(pc==0x20d8f0 || pc==0x20d94c)?stack+0x80:stack+0x70;
+    if(c->r[3].uw[0]!=stack+0x70)throw std::runtime_error("native cone targets destination mismatch");
+    const auto o=vuWords(rt,stack+0x90),n=vuWords(rt,stack+0xa0),cone=vuWords(rt,stack+0xb0),p=vuWords(rt,c->r[2].uw[0]);
+    const uint32_t one=0x3f800000u;
+    uint32_t d[3],sq[3],dn[3];for(unsigned i=0;i<3;++i){d[i]=vuSub(p[i],o[i]);sq[i]=vuMul(d[i],d[i]);dn[i]=vuMul(d[i],n[i]);}
+    const uint32_t length=vuAdd(vuAdd(sq[0],sq[1]),vuMul(one,sq[2])),radius=vuMul(p[3],p[3]);
+    const uint32_t t=vuAdd(vuAdd(dn[1],dn[0]),vuMul(one,dn[2])),cos2=vuMul(cone[0],cone[0]);
+    auto out=vuWords(rt,at);
+    if(pc==0x20d8c8)out={length,sq[1],sq[2],radius};
+    else if(pc==0x20d8ec){out[0]=cos2;out[1]=vuMul(t,t);}
+    else if(pc==0x20d8f0){out[0]=vuMul(cos2,length);out[1]=t;}
+    else{
+        uint32_t f=0;const uint32_t h=vuSub(length,vuMul(t,t))&0x7fffffffu,root=bozo::ps2f::sqrt(h,f);
+        const uint32_t s=vuAdd(vuMul(t,cone[0]),vuMul(cone[1],root));
+        if(pc==0x20d948){out[0]=h;out[1]=s;}
+        else out[1]=vuAdd(vuSub(vuMul(s,s),vuMul(one,length)),vuMul(one,radius));
+    }
+    std::memcpy(record(rt,at,16),out.data(),16);return true;
+}
 // mod003 3fbbe0 (an emitter step called from the particle driver at 22ed18, frame 0x240, emitter s5): 48 times
 // LQC2 vf1 = a particle position, then MINI.xyz vf26 / MAX.xyz vf27 fold it into the box the driver loaded at 22ec9c /
 // 22eca0. Natively each loaded point joins that emitter's bounds at its MINI (the MAX adds nothing more).
@@ -9855,7 +9893,7 @@ bool nativeMathInstruction(uint8_t *,R5900Context *c,Runtime *rt,uint32_t pc){
     default:
         // Inlined-block recognisers last: they read code around the PC, so
         // only sites no specific handler claimed pay for that scan.
-        return CLAIM(nativeBoundsFold) || CLAIM(nativeParticleStep) || CLAIM(nativeParticleBox) || CLAIM(nativeTrailEmitter) || CLAIM(nativeProgramEmitter) || CLAIM(nativeSimpleEmitter) || CLAIM(nativeLinearEmitter) || CLAIM(nativeCameraOffset) || CLAIM(nativeCollisionShape) || CLAIM(nativeHeightNormals) || CLAIM(nativeSpriteMove) || CLAIM(nativeRowPoints) || CLAIM(nativeRowEmitter) || CLAIM(nativeEmitterClock) || CLAIM(nativeConstantStore) || CLAIM(nativeLengthIdiom) || CLAIM(nativeMacroIdiom) || CLAIM(nativeInverseIdiom) || nativeQuaternionIdiom(c,rt,pc);
+        return CLAIM(nativeBoundsFold) || CLAIM(nativeConeTargets) || CLAIM(nativeParticleStep) || CLAIM(nativeParticleBox) || CLAIM(nativeTrailEmitter) || CLAIM(nativeProgramEmitter) || CLAIM(nativeSimpleEmitter) || CLAIM(nativeLinearEmitter) || CLAIM(nativeCameraOffset) || CLAIM(nativeCollisionShape) || CLAIM(nativeHeightNormals) || CLAIM(nativeSpriteMove) || CLAIM(nativeRowPoints) || CLAIM(nativeRowEmitter) || CLAIM(nativeEmitterClock) || CLAIM(nativeConstantStore) || CLAIM(nativeLengthIdiom) || CLAIM(nativeMacroIdiom) || CLAIM(nativeInverseIdiom) || nativeQuaternionIdiom(c,rt,pc);
     }
 }
 #undef CLAIM

@@ -12,6 +12,38 @@ The earlier VP2S face/shading and general brightness comparisons remain open.
 
 ## Build and evidence
 
+### Story-gated arrivals: capsule caller, cone targets, glyph span, ribbon fog (2026-11-25)
+
+The maps reached with their story flags (VP2S_BOZO_WARP_FLAGS) stopped at four kinds of boundary:
+
+- **Capsule pair 1fc300 and position response 1fc030, second caller (490, 522, 524, 530, 542, 547, 548, 554):**
+  - The chain update also calls them at 1fdb10 (ra 1fdb18) and 1fdb88 (ra 1fdb90), the path taken when the part's
+    +20 bit 2 is set.
+  - These calls pass the same arguments, and VF24..27 are loaded at 1fda1c before both paths. Both callers are
+    admitted; the math and bones tests alternate them.
+- **Cone targets 20d760 (472, 478, 486, 494, 550):** a new native handler, nativeConeTargets.
+  - For each source (+29c set, +2c8 == 6), 257bc0 gives the origin o, the direction n and the cone (cos, sin).
+  - Each target's +5c gives p (w = its radius R); d = p - o.
+  - The test is inside (|d|^2 <= R^2), else cone (t = d.n, t^2 >= cos^2 |d|^2 and t >= 0), else edge
+    (s = t cos + sin sqrt(| |d|^2 - t^2 |), s >= 0 and s^2 - |d|^2 + R^2 >= 0).
+  - The five SQC2 stores the EE branches on are computed with ps2f. Lanes the program leaves to older VU contents
+    keep RAM's words.
+  - Test: math fixture spans 20d898 / 20d8e0 / 20d920 against an independent reference (192 cases, hits and misses).
+- **Glyph UV span (473, 521, 528):** glyphs 0x2f / 0x34 / 0x32 have advances 31 / 35 in a 32-wide image with border 2.
+  - On the GS the extra texels are whatever the glyph cache holds next to the glyph. Natively nothing follows a glyph.
+  - NativeGlyphFont::picture takes a minimum width (part | width << 8; save states keep it in the picture source's
+    part) and pads with transparent texels to the power of two that holds the span.
+  - Test: bozo_glyphs (padded 8-wide picture, own key, plain picture when within its width).
+- **Ribbon fog, image 7 (548, 558):** image 7's fog variant (0f38..1660) forms image 5's F per point
+  (MULAz.w / MADDq.w, MAX 0, MINI 255, FTOI4).
+  - Q comes from the point's first vertex, and its second vertex keeps that F. The middle points' ADDi.w 2048 only
+    sets ADC.
+  - It has no ACC.w clobber, so image 5's guard adjustment stays image-5 only.
+  - Test: the ribbon oracle's fogged rounds now run image 7 too (2580 fogged vertices).
+- **Results:** all of these maps reach the frame limit except 558, which now stops at 247b40.
+- **Regression:** ctest 99/99; regress4 battle 0c9960c8d9f6, forest 912f01332dbe, over 9df948c13063, route
+  a3f2c8f4395d (unchanged).
+
 ### Black atlas pictures: story-gated arrivals and unlucky captures (2026-11-25)
 
 - **The scan:** the last three captures (frames 63600, 63900, 64200) of 77 swept maps are entirely black; 74 are black in

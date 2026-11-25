@@ -161,7 +161,7 @@ bool negatives=false;     // point colours from -80 up (lit and unlit): the VU1 
 bool stripsNoAbe=false;   // with strips: FGE without ABE (0x20154000, PRIM 0x2a: field maps 46, 48)
 bool stripsFge=false;   // with strips: the tag with FGE (0x20354000, PRIM 0x6a)   // with dots: the tag without FGE (0x20204000, PRIM 0x40: field maps 61-93)
 bool strips=false;  // with plain and dots: image 4 (mode 1), GS line strips
-bool fogged=false;  // image 5 with row 15.w: its fog variant (camera fog pair -60, 200; FOGCOL 203040)
+bool fogged=false;  // row 15.w: the fog variant of image 5 or 7 (camera fog pair -60, 200; FOGCOL 203040)
 void initialize(Runtime &rt,vp2s::NativeScene &scene,vp2s::NativeAssets &assets,const Case &c,std::mt19937 &random){
     std::memset(rt.memory.flat(),0,bozo::kFlatBytes);scene=vp2s::NativeScene{};assets=vp2s::NativeAssets{};
     put(rt,0x1c8d00+0xcc84,uint8_t(1));put(rt,0x35ddf8,current);put(rt,current+0x40a8,object);put(rt,current+0x40dc,uint8_t(1));
@@ -252,14 +252,14 @@ int main(int argc,char **argv){try{
     auto images=std::array{image(argv[2],7),image(argv[2],5),image(argv[2],3),image(argv[2],4)};
     for(auto &code:images){check(code.size()>=0x4000);for(uint32_t at:{0x3ff0u,0x3ff8u}){const uint32_t lower=0x8000033c,upper=at==0x3ff0?0x400002ffu:0x000002ffu;
         std::memcpy(code.data()+at,&lower,4);std::memcpy(code.data()+at+4,&upper,4);}}
-    unsigned plainCases=0,fogSeen=0;
+    unsigned plainCases=0,fogSeen=0,fogSeven=0;
     Runtime rt;vp2s::NativeScene scene;vp2s::NativeAssets assets;vp2s::NativeParticles particles;vp2s::NativeParticleDraws draws(dir);vp2s::NativeTextures textures(dir,dir/"manifest.txt");
     std::mt19937 random(0x7a11);unsigned cases=0,triangles=0,culled=0;
     const Case table[]={{{2},1,1,false,false,false},{{3},2,1,false,false,false},{{5},3,1,true,false,false},{{2,4,6},2,3,false,false,false},
         {{22},1,1,false,true,false},{{8,3},2,2,true,true,false},{{16},3,1,false,false,false},{{48},1,1,true,false,false},{{4},12,1,false,false,false},
         {{5},3,1,false,false,false,true},{{6},2,1,true,false,false,true},{{4},3,1,false,false,false,false,1},{{7},2,1,true,false,false,true,1},{{3},4,1,false,false,false,true,2}};
     for(const bool five:{false,true})for(unsigned round=0;round<8;++round)for(const auto &c:table){
-        plain=five;fogged=five && (round&1);negatives=round>=6;const auto &code=images[five];plainCases+=five;
+        plain=five;fogged=round&1;negatives=round>=6;const auto &code=images[five];plainCases+=five;
         initialize(rt,scene,assets,c,random);const auto cam=scene.drawingCamera();check(bool(cam));
         const auto result=draws.capture(&rt,assets,textures,scene,particles,object);check(result.batches.size()<=1);
         // Expected: per chunk, the GS strip: vertex j (j >= 2) completes (j-2, j-1, j) unless ADC.
@@ -274,22 +274,22 @@ int main(int argc,char **argv){try{
         if(!result.batches.empty()){const auto &b=result.batches[0];
             if(plain)check(!b.material.textured && b.material.blendA==0 && b.material.blendB==1 && b.material.blendC==0 && b.material.blendD==1 &&
                 b.material.fog==fogged && (!fogged || b.material.fogColour==0x203040));
-            else check(b.material.blendA==0 && b.material.blendB==2 && b.material.blendD==1);}
+            else check(b.material.blendA==0 && b.material.blendB==2 && b.material.blendD==1 && b.material.fog==fogged && (!fogged || b.material.fogColour==0x203040));}
         for(unsigned n=0;n<got.size();++n){const auto &v=got[n];const auto &o=expect[n];const auto &m=result.batches[0].matrix;
             float clip[4];for(unsigned r=0;r<4;++r)clip[r]=m[r]*v.x+m[4+r]*v.y+m[8+r]*v.z+m[12+r];
             const auto f=[&](unsigned i){return std::bit_cast<float>(o[i]);};const float qv=f(2);
             const bool ok=std::abs(clip[0]/clip[3]*16-int32_t(o[8]))<=1.5f && std::abs(clip[1]/clip[3]*16-int32_t(o[9]))<=1.5f && std::abs(clip[2]/clip[3]*16-int32_t(o[10]))<=2.f &&
                 (plain || std::abs(qv*clip[3]-1)<1.e-5f) &&std::abs(v.u-f(0)/qv)<=1.e-5f && std::abs(v.v-f(1)/qv)<=1.e-5f;
             uint32_t rgba=0;for(unsigned i=0;i<4;++i)rgba|=(o[4+i]&0xff)<<(8*i);
-            const bool fogOk=!plain || std::abs(int(std::lround(v.fog*255))-int((o[11]>>4)&0xff))<=1;fogSeen+=plain && ((o[11]>>4)&0xff)<255;
+            const bool fogOk=(!plain && !fogged) || std::abs(int(std::lround(v.fog*255))-int((o[11]>>4)&0xff))<=1;fogSeen+=(plain || fogged) && ((o[11]>>4)&0xff)<255;fogSeven+=!plain && fogged && ((o[11]>>4)&0xff)<255;
             if(!ok || !fogOk || rgba!=v.rgba)throw std::runtime_error(std::format("case {} vertex {}: native ({} {} {} uv {} {} {:08x}) clip ({} {} {}), oracle XYZ ({} {} {}) STQ ({} {} {}) {:08x}",
                 cases,n,v.x,v.y,v.z,v.u,v.v,v.rgba,clip[0]/clip[3]*16,clip[1]/clip[3]*16,clip[2]/clip[3]*16,int32_t(o[8]),int32_t(o[9]),int32_t(o[10]),f(0),f(1),qv,rgba));}
         ++cases;
     }
     negatives=false;check(triangles>500 && culled>50);
-    // Refusals: the fog variant (row 15.w), lighting pass 1c78 (row 14.w = 2 with 14.z), a screen w row with an x term,
-    // a ribbon of one point, a ribbon kind outside the template.
-    check(fogSeen>100);
+    // Refusals: lighting pass 1c78 (row 14.w = 2 with 14.z), a screen w row with an x term, a ribbon of one point, a
+    // ribbon kind outside the template (image 7's fog variant is drawn: its fogged rounds above).
+    check(fogSeen>100 && fogSeven>50);
     // Image 3 (mode 0): one GS point per particle, drawn as a GS pixel; positions, colours, fog and ADC against its words.
     unsigned dotCases=0,dotsDrawn=0,dotsCulled=0,dotsFogged=0;dots=plain=true;
     unsigned laterChunkFirsts=0;
@@ -340,8 +340,8 @@ int main(int argc,char **argv){try{
      check(segments>300 && skipped>100 && stripsFogged>20 && stripsOpaque>10);strips=false;stripsFge=false;stripsNoAbe=false;fogged=false;negatives=false;
      std::printf("%u line-strip captures equal image 4's words: %u segments drawn, %u vertices with ADC\n",stripCases,segments,skipped);}fogged=false;std::printf("%u point captures equal image 3's words: %u points drawn, %u ADC-culled\n",dotCases,dotsDrawn,dotsCulled);
     dots=plain=fogged=false;
-    for(unsigned which=0;which<5;++which){Case c{{3},1,1,false,false,which==2};initialize(rt,scene,assets,c,random);
-        if(which==0)put(rt,object+0x32c,uint32_t(1));else if(which==1){put(rt,object+0x31c,uint32_t(2));put(rt,object+0x318,uint32_t(1));}
+    for(unsigned which=1;which<5;++which){Case c{{3},1,1,false,false,which==2};initialize(rt,scene,assets,c,random);
+        if(which==1){put(rt,object+0x31c,uint32_t(2));put(rt,object+0x318,uint32_t(1));}
         else if(which==3){put(rt,chunks+0x10,uint32_t(1));put(rt,chunks+0x14,uint32_t(5));put(rt,chunks+0x18,uint32_t(1));put(rt,object+0xabc,uint32_t(1));}
         else if(which==4)put(rt,chunks+0x20+44,uint32_t(2));
         bool refused=false;try{draws.capture(&rt,assets,textures,scene,particles,object);}catch(const std::runtime_error &){refused=true;}check(refused);}
@@ -350,5 +350,5 @@ int main(int argc,char **argv){try{
     for(unsigned which=0;which<2;++which){Case c{{3},1,1,false,false,false};initialize(rt,scene,assets,c,random);
         if(which==0)put(rt,block+0x28,uint32_t(0x43));else put(rt,block+0x74,uint32_t(0x20324000));
         bool refused=false;try{draws.capture(&rt,assets,textures,scene,particles,object);}catch(const std::runtime_error &){refused=true;}check(refused);}
-    std::printf("%u ribbon captures equal images 7 and 5's words (%u plain): %u triangles drawn, %u ADC-culled; %u fogged vertices; 7 refusals passed\n",cases,plainCases,triangles,culled,fogSeen);return 0;
+    std::printf("%u ribbon captures equal images 7 and 5's words (%u plain): %u triangles drawn, %u ADC-culled; %u fogged vertices (%u image 7); 6 refusals passed\n",cases,plainCases,triangles,culled,fogSeen,fogSeven);return 0;
 }catch(const std::exception &e){std::fprintf(stderr,"%s\n",e.what());return 1;}}

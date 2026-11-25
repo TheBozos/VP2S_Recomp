@@ -17,16 +17,23 @@ uint32_t word(Runtime *rt,uint32_t address){
 }
 uint32_t cellSize(uint32_t n){uint32_t result=1;while(result<n)result*=2;return result;}
 }
-std::shared_ptr<const bozo::render::Texture> NativeGlyphFont::picture(uint32_t glyph,uint32_t palettePart)const{
-    if(glyph>=count || palettePart<1 || palettePart>2)throw std::runtime_error("native glyph index/palette part outside converted font");
-    const auto key=palettePart*65536+glyph;
+// `part` is the palette part (1 or 2), plus a minimum picture width << 8: a glyph drawn with a UV span past its image
+// gets a picture padded with transparent texels to the power of two holding that span (nothing follows a glyph natively).
+std::shared_ptr<const bozo::render::Texture> NativeGlyphFont::picture(uint32_t glyph,uint32_t part)const{
+    const uint32_t palettePart=part&0xff,minimum=part>>8;
+    if(glyph>=count || palettePart<1 || palettePart>2 || minimum>1024)throw std::runtime_error("native glyph index/palette part outside converted font");
+    uint32_t width=cellWidth;while(width<minimum)width*=2;
+    const uint32_t stored=palettePart|(width>cellWidth?width<<8:0u);
+    const uint64_t key=uint64_t(stored)<<16|glyph;
     if(auto it=pictures.find(key);it!=pictures.end())if(auto held=it->second.lock())return held;
-    auto texture=std::make_shared<bozo::render::Texture>();texture->width=cellWidth;texture->height=cellHeight;
-    texture->key=(uint64_t(1)<<63)|(identity<<20)|key;texture->version=identity;
+    auto texture=std::make_shared<bozo::render::Texture>();texture->width=width;texture->height=cellHeight;
+    texture->key=(uint64_t(1)<<63)|(identity<<36)|key;texture->version=identity;
     const size_t pixels=size_t(cellWidth)*cellHeight,first=(size_t(palettePart-1)*count+glyph)*pixels;
     if(first>rgba.size() || pixels>rgba.size()-first)throw std::runtime_error("native glyph pixels outside converted font");
-    texture->rgba.assign(rgba.begin()+first,rgba.begin()+first+pixels);pictures[key]=texture;
-    notePicture(texture,PictureSource{.kind=PictureSource::Kind::Glyph,.font=this->key,.index=glyph,.part=palettePart});return texture;
+    texture->rgba.assign(size_t(width)*cellHeight,0);
+    for(uint32_t y=0;y<cellHeight;++y)std::copy_n(rgba.begin()+first+size_t(y)*cellWidth,cellWidth,texture->rgba.begin()+size_t(y)*width);
+    pictures[key]=texture;
+    notePicture(texture,PictureSource{.kind=PictureSource::Kind::Glyph,.font=this->key,.index=glyph,.part=stored});return texture;
 }
 NativeGlyphs::NativeGlyphs(std::filesystem::path directory):root(std::move(directory)){
     if(root.empty())return;

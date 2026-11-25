@@ -15,8 +15,8 @@ struct NativeGlyphFont {
     uint32_t width=0,height=0,count=0,stride=0,cellWidth=0,cellHeight=0,border=0,lineHeight=0;
     uint64_t identity=0;GlyphFontKey key;   // the manifest key it was loaded by (save states)
     std::vector<uint32_t> rgba; // Fully converted offline, palette parts 1 then 2.
-    mutable std::map<uint32_t,std::weak_ptr<const bozo::render::Texture>> pictures;
-    std::shared_ptr<const bozo::render::Texture> picture(uint32_t glyph,uint32_t palettePart)const;
+    mutable std::map<uint64_t,std::weak_ptr<const bozo::render::Texture>> pictures;
+    std::shared_ptr<const bozo::render::Texture> picture(uint32_t glyph,uint32_t part)const;   // part: palette part | minimum width << 8
 };
 class NativeGlyphs {
     std::filesystem::path root;

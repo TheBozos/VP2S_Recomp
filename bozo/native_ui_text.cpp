@@ -75,8 +75,11 @@ void NativeUiTexts::capture(Runtime *rt,NativeGlyphs &glyphs,const NativeAssets 
         result.colour=value<uint32_t>(rt,item+0x20);result.shadowMode=value<uint32_t>(rt,item+0x24);result.shadowColour=value<uint32_t>(rt,item+0x28);
         if(result.shadowMode>2 || result.cellWidth<0)throw std::runtime_error("unported native glyph shadow/width");
         result.font=glyphs.font(rt,assets,value<uint32_t>(rt,item+0x18));
-        result.picture=result.font->picture(result.index,1);
-        if(result.shadowMode)result.shadow=result.font->picture(result.index,result.shadowMode==1?1:2);
+        // The span the draw samples (NativeUiTexts::place): the glyph's advance + both borders, at least its image.
+        const uint32_t span=uint32_t(result.cellWidth)+2*result.font->border,minimum=span>result.font->width?span<<8:0u;
+        if(span>1024)throw std::runtime_error("native glyph advance outside admitted range");
+        result.picture=result.font->picture(result.index,1|minimum);
+        if(result.shadowMode)result.shadow=result.font->picture(result.index,(result.shadowMode==1?1:2)|minimum);
         build.text.glyphs.push_back(std::move(result));
     }
     build.last=index;build.hasLast=true;build.lastIsGlyph=!image;
@@ -92,8 +95,13 @@ void NativeUiTexts::place(uint32_t stack,uint32_t element,const NativeUiGlyphPla
     }
     if(placement.depth>0xffffff)throw std::runtime_error("native glyph depth outside admitted range");
     auto &glyph=build.text.glyphs.back();
-    if(uint64_t(glyph.cellWidth)+2*glyph.font->border>glyph.font->width || uint64_t(glyph.font->lineHeight)+2*glyph.font->border>glyph.font->height)
-        throw std::runtime_error("native glyph UV extent exceeds its converted cell");
+    // A UV span past the glyph's image (31 / 35 + 2 x 2 in a 32-wide glyph, maps 473 / 521 / 528) reads, on the GS, what
+    // the game's glyph cache holds next to it. Natively nothing follows a glyph's image: its picture is padded with
+    // transparent texels to the span (NativeGlyphFont::picture's minimum width, set at capture).
+    const uint64_t span=uint64_t(glyph.cellWidth)+2*glyph.font->border;
+    if(span>glyph.picture->width || (glyph.shadow && span>glyph.shadow->width) || uint64_t(glyph.font->lineHeight)+2*glyph.font->border>glyph.font->height)
+        throw std::runtime_error(std::format("native glyph UV extent exceeds its converted cell (glyph {:x} width {} line {} border {}, cell {}x{})",
+            glyph.index,glyph.cellWidth,glyph.font->lineHeight,glyph.font->border,glyph.font->width,glyph.font->height));
     glyph.placement=placement;glyph.placed=true;
 }
 void NativeUiTexts::beginBattleGlyph(Runtime *rt,uint32_t stack,uint32_t element,uint32_t item,uint32_t index){

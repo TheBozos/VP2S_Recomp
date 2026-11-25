@@ -19,6 +19,13 @@ int main(int argc,char **argv){try{
     check(picture->width==4 && picture->height==2 && picture->rgba[0]==0x20000011 && picture->rgba[3]==0 && picture->rgba[4]==0x20000014 && picture->rgba[7]==0);
     auto shadow=font->picture(1,2);check(shadow->rgba[0]==0x20000027 && shadow->rgba[4]==0x2000002a && shadow->key!=picture->key);
     rejects([&]{font->picture(2,1);});rejects([&]{font->picture(0,0);});rejects([&]{font->picture(0,3);});
+    // A minimum width (part | width << 8, a UV span past the image): the next power of two, image rows first, then
+    // transparent texels; its own key, and the same picture again for the same request.
+    auto padded=font->picture(0,1|(6u<<8));check(padded==font->picture(0,1|(5u<<8)) && padded!=picture && padded->key!=picture->key);
+    check(padded->width==8 && padded->height==2 && padded->rgba.size()==16 && padded->rgba[0]==0x20000011 && padded->rgba[8]==0x20000014);
+    for(unsigned x=4;x<8;++x)check(!padded->rgba[x] && !padded->rgba[8+x]);
+    check(font->picture(0,1|(3u<<8))==picture);   // within its own width: the plain picture
+    rejects([&]{font->picture(0,1|(2000u<<8));});
     rejects([&]{glyphs.load({0x21551000,0,0x81});});
     for(const char *directory:{"bad_header","bad_size","extra"}){
         vp2s::NativeGlyphs invalid(root/directory);rejects([&]{invalid.load(key);});

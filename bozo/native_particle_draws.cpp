@@ -215,13 +215,17 @@ NativeModelSubmission NativeParticleDraws::capture(Runtime *rt,NativeAssets &ass
     if(ribbon){
         // Mode 4 selects VU1 image 7 (table 3141a0 entry 7, mod001 325240): ribbons. The
         // owner's VU rows are owner +230 + 16 row (the +220 REF opens with UNPACK 0x2f
-        // qwords to row 0). Only the path for row 15.w = 0 (0868..0f28) is ported; 15.w set
-        // selects a fog variant (0f38..1660: XYZF2, fog from row 68). Row 14.w = 2 (pass 1a50) is
+        // qwords to row 0). Row 15.w = 0 runs 0868..0f28; 15.w set selects the fog variant
+        // (0f38..1660: XYZF2, fog from row 68, below). Row 14.w = 2 (pass 1a50) is
         // litColour's per-point buffer.
         // Image 5's fog variant (row 15.w, 0ee8..15f8): the same strips, each vertex's F = clamp(row68.z + row68.w Q, 0, 255)
         // (MULAz.w by vf00.w, MADDq.w, MINIi 255, MAXx), Q = 1 / its screen w; FTOI4 keeps the integer F. Row 68 is the
         // camera's +5a0 qword (z, w = the fog pair at +5a8, battle 0x1c: 186, 69000); FOGCOL is the camera's clear colour.
-        if(value<uint32_t>(owner,0x32c)){if(!plain)throw std::runtime_error("unported native particle ribbon fog variant (VU row 15.w)");
+        // Image 7's fog variant (0f38..1660) forms the same F per point: MULAz.w / MADDq.w (Q = 1 / its first vertex's
+        // w, 1198 / 1360 / 1538), MAXx, MINIi 255, FTOI4; its second vertex keeps that F (FTOI4.xyz vf23, vf21 at 1270;
+        // the middle points' ADDi.w 2048 only adds the ADC bit 0x8000 to the w word). With screen w independent of x / y
+        // (checked below) both vertices have that w. Its guard transforms finish before the fog's ACC.w write.
+        if(value<uint32_t>(owner,0x32c)){
             fogged=true;mat.fog=true;mat.fogColour=camera->clearColour;for(float f:camera->fog)number(f);}
         // Image 7 divides a point's second vertex by the first one's Q (0b58, 0d08, 0ea8):
         // that equals a per-vertex projection only while the screen w row ignores x and y.
@@ -368,7 +372,7 @@ NativeModelSubmission NativeParticleDraws::capture(Runtime *rt,NativeAssets &ass
                     outside[2*i]=outsideGuard(a);outside[2*i+1]=outsideGuard(b);
                     // The fog loop (1290..12c0) sets ACC.w to fog.z (MULAz.w at 1298, for vertex a's F) in the middle of
                     // vertex b's guard transform: a middle point's b is judged against w = ((a + g13 y) + g14 z) + g15.
-                    if(fogged && i && i+1<group){const auto clip=transform(camera->guard,{b.x,b.y,b.z,1});
+                    if(fogged && plain && i && i+1<group){const auto clip=transform(camera->guard,{b.x,b.y,b.z,1});
                         const float w=((camera->fog[0]+camera->guard[13]*b.y)+camera->guard[14]*b.z)+camera->guard[15];
                         outside[2*i+1]=std::abs(clip[0])>std::abs(w) || std::abs(clip[1])>std::abs(w) || std::abs(clip[2])>std::abs(w);}
                     if(fogged)for(auto *v:{&a,&b}){

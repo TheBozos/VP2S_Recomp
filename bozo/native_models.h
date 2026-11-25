@@ -63,7 +63,13 @@ std::vector<std::vector<NativeShellVertex>> nativeShells(int routine,const std::
 struct ProjectedTexture {std::array<int32_t,3> stq{};bool off=false;};
 ProjectedTexture projectedTexture(const std::array<float,3> &p,const std::array<float,3> &n,const std::array<float,4> &origin,
                                   const std::array<float,4> (&cols)[4],uint32_t mask);
-struct NativeSecondPass {uint32_t alpha=0,slot=0,part=0,tex0=0;bool on=false;};   // on: row 21.y (each table-B pass clears it)
+struct NativeSecondPass {uint32_t alpha=0,slot=0,part=0,tex0=0,fix=0;bool on=false;};   // on: row 21.y (each table-B pass clears it); fix: ALPHA.FIX (row 16.y)
+// Table-B routine 32/34's UV shift (1bc0..1e48 in set 0), per strip, in VU float words: for each triangle t (vertices t, t+1, t+2)
+// the plane of (p_c, u, v) per axis c gives A = du1 dv2 - dv1 du2, T_c = (dv1 dp2 - dp1 dv2) / A, B_c = (dp1 du2 - du1 dp2) / A;
+// with L = light * scale (point: normalize(p[t+2] - light) * scale), vertex t's UV (12-bit) becomes
+// FTOI12(ITOF12(uv) - (T/|T| . L, B/|B| . L)); a strip's last two vertices take its last triangle's shift.
+void nativeEmbossStrips(std::vector<std::array<int32_t,2>> &uv,const std::vector<std::array<float,3>> &p,const std::vector<uint16_t> &strips,
+                        const std::array<float,3> &light,bool point,float scale);
 std::optional<NativeSecondPass> nativeSecondPass(const NativeMaterialRows &rows);
 void nativeShadowPrisms(const std::vector<std::array<float,3>> &positions,const std::vector<uint16_t> &strips,const std::array<float,3> &light,
                         const std::array<float,16> &top,const std::array<float,16> &flat,

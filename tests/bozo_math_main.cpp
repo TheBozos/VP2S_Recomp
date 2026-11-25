@@ -3073,6 +3073,69 @@ int main(int argc,char **argv){try{
             if(!which){const uint32_t none=0;std::memcpy(r.memory.hostPointer(0x358cd0+8,4),&none,4);}
             try{vp2s::nativeMathInstruction(r.memory.flat(),&c,&r,0x3e716c);}catch(const std::runtime_error &){rejected=true;}check(rejected);}
         std::printf("%u hit-point transforms match the VU0 oracle; 2 rejections\n",hitCases);}
+    // mod003 3e6c20: segment (a2: O, +10 D) against a sphere (a1: centre in the hit object's space, radius w), through the
+    // hit object's rows; disc to SP+0, one or two hit points to a3, against ps2f arithmetic in the listing's order.
+    {unsigned rayCases=0,crossings=0,misses=0;auto &r=native.runtime();
+        const auto M=[](uint32_t a,uint32_t b){uint32_t f=0;return bozo::ps2f::mul(a,b,f);};
+        const auto A=[](uint32_t a,uint32_t b){uint32_t f=0;return bozo::ps2f::addNearest(a,b,f);};
+        const auto S=[](uint32_t a,uint32_t b){uint32_t f=0;return bozo::ps2f::subNearest(a,b,f);};
+        const auto W=[](float x){return std::bit_cast<uint32_t>(x);};const auto F=[](uint32_t x){return std::bit_cast<float>(x);};
+        static constexpr std::pair<uint32_t,uint32_t> words[]={
+            {0x3e6c24,0xd8aa0000},{0x3e6c2c,0x4bea09bc},{0x3e6c30,0x4bea10bd},{0x3e6c34,0x4bea18be},{0x3e6c38,0x4be022cb},{0x3e6c3c,0x4a2a52aa},
+            {0x3e6c40,0xd8cc0000},{0x3e6c44,0xd84e0000},{0x3e6c48,0x4bcb636c},{0x3e6c4c,0x4bce75ea},{0x3e6c50,0x4bc007c3},{0x3e6c54,0x4bc00787},
+            {0x3e6c58,0x4bcd762a},{0x3e6c5c,0x4bcd6e6a},{0x3e6c60,0x4b17b83d},{0x3e6c64,0x4b17fbca},{0x3e6c68,0x4b18c03d},{0x3e6c6c,0x4b18fc0a},
+            {0x3e6c70,0x4b19c83d},{0x3e6c74,0x4a6f03bc},{0x3e6c78,0x4b19f8be},{0x3e6c7c,0x4b0afc4f},{0x3e6c80,0x4b1e85aa},{0x3e6c84,0x4a0002ff},
+            {0x3e6c88,0x4b1082be},{0x3e6c8c,0x4b117cad},{0x3e6c90,0x4b0004e0},{0x3e6c98,0xf8520000},{0x3e6c9c,0x4a1203bd},{0x3e6ccc,0x4a0003bf},
+            {0x3e6cd0,0x4b00b524},{0x3e6cd4,0x4b00b560},{0x3e6cd8,0x4a0002ff},{0x3e6cdc,0x4a0002ff},{0x3e6ce0,0x4b13a52a},{0x3e6ce4,0x4b13ad6a},
+            {0x3e6ce8,0x4bc061bf},{0x3e6cec,0x4bd475c8},{0x3e6cf0,0x4bc061bf},{0x3e6cf4,0x4bd57608},{0x3e6cf8,0xf8f70000},{0x3e6cfc,0xf8f80010},
+            {0x3e6d08,0x4a0fb3bc},{0x3e6d0c,0x4a0003bf},{0x3e6d10,0x4bc061bf},{0x3e6d14,0x4bc075e1},{0x3e6d18,0xf8f70000}};
+        uint64_t state=0x243f6a8885a308d3ull;const auto next=[&](){state^=state<<13;state^=state>>7;state^=state<<17;return state;};
+        const auto real=[&](float range){return float(int64_t(next()%2000001)-1000000)/1000000.f*range;};
+        const auto ulps=[](uint32_t a,uint32_t b){return std::abs(int64_t(int32_t(a))-int64_t(int32_t(b)));};
+        for(unsigned seed=0;seed<513;++seed){
+            std::memset(r.memory.flat(),0x11+seed,bozo::kFlatBytes);
+            for(const auto &[pc,w]:words)std::memcpy(r.memory.hostPointer(pc,4),&w,4);
+            const uint32_t object=0x1d0000+0x400*(seed%16),stack=0x1ffd000,sphereAt=0x1e8000,segment=0x1e8100,out=stack+0x170;
+            uint32_t rows[4][4],sphere[4],O[4],D[4];
+            for(unsigned i=0;i<4;++i)for(unsigned j=0;j<4;++j)rows[i][j]=W(i==j?1.f:0.f);
+            if(seed<512){for(unsigned i=0;i<3;++i)for(unsigned j=0;j<3;++j)rows[i][j]=W((i==j?1.f:0.f)+real(.3f));for(unsigned j=0;j<3;++j)rows[3][j]=W(real(100.f));
+                for(unsigned j=0;j<3;++j){sphere[j]=W(real(5.f));}sphere[3]=W(1+std::fabs(real(4.f)));
+                for(unsigned j=0;j<3;++j){O[j]=W(F(rows[3][j])+real(30.f));D[j]=W(real(1.f));}}
+            else{for(unsigned j=0;j<3;++j)sphere[j]=0;sphere[3]=W(2.f);O[0]=W(-5.f);O[1]=W(2.f);O[2]=0;D[0]=W(1.f);D[1]=0;D[2]=0;}   // tangent: disc 0
+            O[3]=W(1.f);D[3]=0;
+            if(seed<512 && seed%2){   // aim half the segments at the centre
+                uint32_t C[3];for(unsigned j=0;j<3;++j)C[j]=A(A(A(M(rows[0][j],sphere[0]),M(rows[1][j],sphere[1])),M(rows[2][j],sphere[2])),M(rows[3][j],W(1.f)));
+                for(unsigned j=0;j<3;++j)D[j]=W((F(C[j])-F(O[j]))/40.f+real(.01f));}
+            std::memcpy(r.memory.hostPointer(0x358cd0+8,4),&object,4);std::memcpy(r.memory.hostPointer(object+0x150,64),rows,64);
+            std::memcpy(r.memory.hostPointer(sphereAt,16),sphere,16);std::memcpy(r.memory.hostPointer(segment,16),O,16);std::memcpy(r.memory.hostPointer(segment+16,16),D,16);
+            R5900Context c{};c.r[29].uw[0]=stack;c.r[31].uw[0]=seed%3?0x3e7128:0x3e72e8;c.r[5].uw[0]=sphereAt;c.r[6].uw[0]=segment;c.r[7].uw[0]=out;c.r[2].uw[0]=stack;
+            for(const auto &[pc,w]:words){if(pc>0x3e6c9c)break;if(pc==0x3e6c98)c.r[2].uw[0]=stack;check(vp2s::nativeMathInstruction(r.memory.flat(),&c,&r,pc));}
+            // The reference: the listing's order in ps2f words.
+            uint32_t C[3],E[3];for(unsigned j=0;j<3;++j){C[j]=A(A(A(M(rows[0][j],sphere[0]),M(rows[1][j],sphere[1])),M(rows[2][j],sphere[2])),M(rows[3][j],W(1.f)));E[j]=S(O[j],C[j]);}
+            const auto dot=[&](const uint32_t *x,const uint32_t *y){return A(A(M(x[0],y[0]),M(x[1],y[1])),M(W(1.f),M(x[2],y[2])));};
+            const uint32_t a=dot(D,D),b=dot(D,E),cc=S(dot(E,E),M(W(1.f),M(sphere[3],sphere[3]))),disc=S(M(b,b),M(a,cc));
+            uint32_t got;std::memcpy(&got,r.memory.hostPointer(stack,4),4);
+            if(ulps(got,disc)>2){std::fprintf(stderr,"ray-sphere seed%u disc %08x/%08x\n",seed,got,disc);check(false);}
+            uint32_t sentinel[8];std::memcpy(sentinel,r.memory.hostPointer(out,32),32);
+            if(F(got)<0){++misses;++rayCases;continue;}
+            uint32_t f=0;const uint32_t root=bozo::ps2f::sqrt(disc,f),inverse=bozo::ps2f::div(W(1.f),a,f);const uint32_t negB=M(b,W(-1.f));
+            std::vector<std::pair<uint32_t,uint32_t>> hits;
+            if(F(got)==0){c.r[7].uw[0]=out;for(uint32_t pc:{0x3e6d08u,0x3e6d0cu,0x3e6d10u,0x3e6d14u,0x3e6d18u})check(vp2s::nativeMathInstruction(r.memory.flat(),&c,&r,pc));
+                hits.push_back({bozo::ps2f::div(negB,a,f),out});}
+            else{for(uint32_t pc=0x3e6ccc;pc<=0x3e6cfc;pc+=4)check(vp2s::nativeMathInstruction(r.memory.flat(),&c,&r,pc));
+                hits.push_back({M(S(negB,root),inverse),out});hits.push_back({M(A(negB,root),inverse),out+16});++crossings;}
+            for(const auto &[t,at]:hits){uint32_t p[4];std::memcpy(p,r.memory.hostPointer(at,16),16);
+                for(unsigned j=0;j<3;++j){const uint32_t e=A(M(O[j],W(1.f)),M(D[j],t));
+                    if(std::fabs(F(p[j])-F(e))>1e-4f*std::max(1.f,std::fabs(F(e)))){std::fprintf(stderr,"ray-sphere seed%u lane%u %g/%g\n",seed,j,F(p[j]),F(e));check(false);}}
+                check(p[3]==sentinel[at==out?3:7]);}   // w is not written
+            if(seed==512){uint32_t p[4];std::memcpy(p,r.memory.hostPointer(out,16),16);check(F(p[0])==0 && F(p[1])==2 && F(p[2])==0);}
+            ++rayCases;}
+        check(crossings>50 && misses>50);
+        // Another caller, or a changed word, is not this routine.
+        {R5900Context c{};c.r[29].uw[0]=0x1ffd000;c.r[31].uw[0]=0x3e7000;c.r[2].uw[0]=0x1ffd000;bool rejected=false;
+         try{vp2s::nativeMathInstruction(r.memory.flat(),&c,&r,0x3e6c98);}catch(const std::runtime_error &){rejected=true;}check(rejected);
+         const uint32_t zero=0;std::memcpy(r.memory.hostPointer(0x3e6c98,4),&zero,4);c.r[31].uw[0]=0x3e7128;check(!vp2s::nativeMathInstruction(r.memory.flat(),&c,&r,0x3e6c98));}
+        std::printf("%u ray-sphere tests (%u crossings, %u misses, 1 tangent) match ps2f arithmetic; 2 rejections\n",rayCases,crossings,misses);}
     // Box pair separating-axis test (mod001 1f82c0) against the listing's
     // sequential evaluation (tests/bozo_box_pair_oracle.inc): the first compared
     // pair with separation > radius (FPU compare) returns 0, else 1.

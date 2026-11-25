@@ -253,6 +253,25 @@ int main(int argc,char **argv){try{
         ++screenCases;}
      check(screenCases==48);}
     std::printf("%u VU1 routine-40 screen-projected vertices match its lifted microcode\n",screenCases);
+    // Routine 32/34's UV shift against its own microcode, lifted and run as a test-only oracle (tests/bozo_emboss_oracle.inc):
+    // every UV within 1/4096, directional and point lights, strips with repeated vertices (degenerate triangles).
+    unsigned embossCases=0,embossVertices=0;
+    {struct Case{unsigned point;float scale;std::array<float,3> light;std::array<uint16_t,3> counts;std::vector<std::array<float,3>> p;std::vector<std::array<int32_t,2>> in,out;};
+     static const Case cases[]={
+#include "bozo_emboss_oracle.inc"
+     };
+     for(const auto &k:cases){
+        std::vector<uint16_t> strips;for(auto n:k.counts)if(n)strips.push_back(n);
+        auto uv=k.in;vp2s::nativeEmbossStrips(uv,k.p,strips,k.light,k.point!=0,k.scale);
+        for(size_t v=0;v<uv.size();++v)for(unsigned c=0;c<2;++c)if(std::abs(uv[v][c]-k.out[v][c])>1){
+            std::fprintf(stderr,"routine 34 case%u vertex%zu lane%u %d / %d\n",embossCases,v,c,uv[v][c],k.out[v][c]);check(false);}
+        embossVertices+=unsigned(uv.size());++embossCases;}
+     check(embossCases==48);
+     // A strip shorter than a triangle, or one past the mesh, is refused.
+     {std::vector<std::array<int32_t,2>> uv(4);std::vector<std::array<float,3>> p(4);bool refused=false;
+      try{vp2s::nativeEmbossStrips(uv,p,{2,2},{0,0,1},false,1);}catch(const std::runtime_error &){refused=true;}check(refused);refused=false;
+      try{vp2s::nativeEmbossStrips(uv,p,{5},{0,0,1},false,1);}catch(const std::runtime_error &){refused=true;}check(refused);}}
+    std::printf("%u VU1 routine-34 UV-shift strips (%u vertices) match its lifted microcode\n",embossCases,embossVertices);
     // Shadow program 0x6f0 faces (nativeShadowPrisms). top: identity; flat: y -> 0, x += y/2.
     unsigned shadowCases=0;
     {using P=std::array<float,3>;using V=bozo::render::Vertex;

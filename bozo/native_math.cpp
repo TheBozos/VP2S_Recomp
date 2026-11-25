@@ -4428,6 +4428,51 @@ bool nativeHitPointTransform(R5900Context *c,Runtime *rt,uint32_t pc){
     for(float x:out)if(!std::isfinite(x))throw std::runtime_error("native hit-point transform overflow");
     std::memcpy(record(rt,point,16),out.data(),16);return true;
 }
+// mod003 3e6c20 (from 3e6d30 at 3e7120 / 3e72e0, the hit test's sphere follow-up when the hit shape's +c & f is 1): the
+// segment a2 (+0 start O, +10 direction D) against the sphere a1 (centre xyz in the hit object's space, radius w). The
+// centre goes through VF1..VF4 (the hit object's matrix, 358cd8, as for 1f6740): C = ((R1 x + R2 y) + R3 z) + R4.
+// With E = O - C: a = (Dx Dx + Dy Dy) + 1 Dz Dz, b = (Dx Ex + Dy Ey) + 1 Dz Ez, c = ((Ex Ex + Ey Ey) + 1 Ez Ez) - 1 r r,
+// disc = b b - a c, stored to SP+0 (x; the EE branches on it: < 0 none, 0 one, else two). One hit (3e6d18): O 1 + D (-b / a)
+// to a3. Two (3e6cf8 / 3e6cfc): t = (-b -/+ sqrt(disc)) (1 / a), O 1 + D t to a3 and a3+10. Only the lanes the code writes
+// are stored (disc .x, points .xyz); the rest of each quadword is register state the callers never read.
+bool nativeRaySphere(R5900Context *c,Runtime *rt,uint32_t pc){
+    if(pc<0x3e6c24 || pc>0x3e6d18 || (pc&3))return false;
+    static constexpr std::pair<uint32_t,uint32_t> words[]={
+        {0x3e6c24,0xd8aa0000},{0x3e6c2c,0x4bea09bc},{0x3e6c30,0x4bea10bd},{0x3e6c34,0x4bea18be},{0x3e6c38,0x4be022cb},{0x3e6c3c,0x4a2a52aa},
+        {0x3e6c40,0xd8cc0000},{0x3e6c44,0xd84e0000},{0x3e6c48,0x4bcb636c},{0x3e6c4c,0x4bce75ea},{0x3e6c50,0x4bc007c3},{0x3e6c54,0x4bc00787},
+        {0x3e6c58,0x4bcd762a},{0x3e6c5c,0x4bcd6e6a},{0x3e6c60,0x4b17b83d},{0x3e6c64,0x4b17fbca},{0x3e6c68,0x4b18c03d},{0x3e6c6c,0x4b18fc0a},
+        {0x3e6c70,0x4b19c83d},{0x3e6c74,0x4a6f03bc},{0x3e6c78,0x4b19f8be},{0x3e6c7c,0x4b0afc4f},{0x3e6c80,0x4b1e85aa},{0x3e6c84,0x4a0002ff},
+        {0x3e6c88,0x4b1082be},{0x3e6c8c,0x4b117cad},{0x3e6c90,0x4b0004e0},{0x3e6c98,0xf8520000},{0x3e6c9c,0x4a1203bd},{0x3e6ccc,0x4a0003bf},
+        {0x3e6cd0,0x4b00b524},{0x3e6cd4,0x4b00b560},{0x3e6cd8,0x4a0002ff},{0x3e6cdc,0x4a0002ff},{0x3e6ce0,0x4b13a52a},{0x3e6ce4,0x4b13ad6a},
+        {0x3e6ce8,0x4bc061bf},{0x3e6cec,0x4bd475c8},{0x3e6cf0,0x4bc061bf},{0x3e6cf4,0x4bd57608},{0x3e6cf8,0xf8f70000},{0x3e6cfc,0xf8f80010},
+        {0x3e6d08,0x4a0fb3bc},{0x3e6d0c,0x4a0003bf},{0x3e6d10,0x4bc061bf},{0x3e6d14,0x4bc075e1},{0x3e6d18,0xf8f70000}};
+    const auto it=std::find_if(std::begin(words),std::end(words),[&](auto &w){return w.first==pc;});
+    if(it==std::end(words))return false;
+    uint32_t word=0;if(const auto *p=rt?rt->memory.hostPointer(pc,4):nullptr)std::memcpy(&word,p,4);
+    if(word!=it->second)return false;
+    if(!c)throw std::runtime_error("native ray-sphere has no CPU record");
+    if(pc!=0x3e6c98 && pc!=0x3e6cf8 && pc!=0x3e6cfc && pc!=0x3e6d18)return true;
+    const auto stack=c->r[29].uw[0];
+    if(c->r[31].uw[0]!=0x3e7128 && c->r[31].uw[0]!=0x3e72e8)throw std::runtime_error("unqualified native ray-sphere caller");
+    const auto in=leafInputs(rt,false);const auto sphere=leafRecord(rt,c->r[5].uw[0]),O=leafRecord(rt,c->r[6].uw[0]),D=leafRecord(rt,c->r[6].uw[0]+0x10);
+    float disc,a,b;Lanes E{};
+    {music::NearestRounding rounding;
+        const auto centre=leafTransform(in,sphere);const float r2=pairProduct(sphere[3],sphere[3]);
+        for(unsigned i=0;i<3;++i)E[i]=pairSum(O[i],-centre[i]);
+        const auto dot=[&](const Lanes &x,const Lanes &y){return pairSum(pairSum(pairProduct(x[0],y[0]),pairProduct(x[1],y[1])),pairProduct(1.f,pairProduct(x[2],y[2])));};
+        a=dot(D,D);b=dot(D,E);const float cc=pairSum(dot(E,E),-pairProduct(1.f,r2));
+        disc=pairSum(pairProduct(b,b),-pairProduct(a,cc));}
+    for(float x:{disc,a,b})if(!std::isfinite(x))throw std::runtime_error("native ray-sphere overflow");
+    if(pc==0x3e6c98){if(c->r[2].uw[0]!=stack)throw std::runtime_error("native ray-sphere frame mismatch");std::memcpy(record(rt,stack,16),&disc,4);return true;}
+    if(a==0)throw std::runtime_error("native ray-sphere with a zero direction");
+    const auto at=c->r[7].uw[0];
+    const auto hit=[&](float t,uint32_t to){float out[3];{music::NearestRounding rounding;for(unsigned i=0;i<3;++i)out[i]=pairSum(pairProduct(O[i],1.f),pairProduct(D[i],t));}
+        for(float x:out)if(!std::isfinite(x))throw std::runtime_error("native ray-sphere hit overflow");std::memcpy(record(rt,to,16),out,12);};
+    if(pc==0x3e6d18){if(disc!=0)throw std::runtime_error("native ray-sphere tangent order");float t;{music::NearestRounding rounding;t=-b/a;}hit(t,at);return true;}
+    if(!(disc>0))throw std::runtime_error("native ray-sphere crossing order");
+    float t;{music::NearestRounding rounding;const float root=std::sqrt(disc),inverse=1.f/a;t=pc==0x3e6cf8?pairProduct(pairSum(-b,-root),inverse):pairProduct(pairSum(-b,root),inverse);}
+    hit(t,pc==0x3e6cf8?at:at+0x10);return true;
+}
 // mod001 246760: two row.point products of the matrix at SP+130 (points
 // SP+1b0 / SP+1a0 into SP+190 / SP+180), each followed by an in-place divide
 // by its W (Q = 1/w, all four lanes), then a composition of the rows at SP+e0
@@ -9015,7 +9060,7 @@ bool nativeMathInstruction(uint8_t *,R5900Context *c,Runtime *rt,uint32_t pc){
     if(CLAIM(nativeSkinUpload) || CLAIM(nativeSoftSkin))return true;
     if(CLAIM(nativeFacingPath) || CLAIM(nativeRotationBlocks))return true;
     if(CLAIM(nativeProjectionBlocks) || CLAIM(nativeBoneAim) || CLAIM(nativeChainBlocks) || CLAIM(nativeCapsulePair) || CLAIM(nativePlaneContact) || CLAIM(nativeRangeTest) || CLAIM(nativeMatrixBuild) || CLAIM(nativeCullTransform) || CLAIM(nativeBoxFrustum) || CLAIM(nativeListBoxQuery) || CLAIM(nativeHitFrame) || CLAIM(nativePlaneDistance) || CLAIM(nativeSphereSweep) || CLAIM(nativeSegmentApproach) || CLAIM(nativeWorldPosition) || CLAIM(nativeCameraTarget) || CLAIM(nativeRootLength) || CLAIM(nativeVisibilityLoop) || CLAIM(nativeMarkerProjection) || CLAIM(nativeQuaternionLeaf) || CLAIM(nativeBonePalette))return true;
-    if(CLAIM(nativeLeafSphere) || CLAIM(nativeLeafBox) || CLAIM(nativeSegmentBox) || CLAIM(nativeHitPointTransform))return true;
+    if(CLAIM(nativeLeafSphere) || CLAIM(nativeLeafBox) || CLAIM(nativeSegmentBox) || CLAIM(nativeHitPointTransform) || CLAIM(nativeRaySphere))return true;
     if(CLAIM(nativeLengthSite) || CLAIM(nativeRecordDot) || CLAIM(nativePackedQuaternion))return true;
     if(CLAIM(nativeObjectOverlap))return true;
     if(CLAIM(nativeObjectPairSetup))return true;

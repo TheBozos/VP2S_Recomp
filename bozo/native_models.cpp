@@ -4,6 +4,7 @@
 #include "native_models.h"
 #include "native_math.h"
 #include "bozo/ee/dispatcher.h"
+#include "bozo/ops_fpu.h"
 #include <algorithm>
 #include <bit>
 #include <cmath>
@@ -317,6 +318,39 @@ std::vector<std::vector<NativeShellVertex>> nativeShells(int routine,const std::
         out.push_back(v);}
     return out;
 }
+void nativeEmbossStrips(std::vector<std::array<int32_t,2>> &uv,const std::vector<std::array<float,3>> &p,const std::vector<uint16_t> &strips,
+                        const std::array<float,3> &light,bool point,float scale){
+    if(uv.size()!=p.size())throw std::runtime_error("native UV shift: positions and UVs differ in count");
+    uint32_t fl=0;
+    const auto W=[](float x){return std::bit_cast<uint32_t>(x);};
+    const auto M=[&](uint32_t a,uint32_t b){return bozo::ps2f::mul(a,b,fl);};
+    const auto A=[&](uint32_t a,uint32_t b){return bozo::ps2f::addNearest(a,b,fl);};
+    const auto S=[&](uint32_t a,uint32_t b){return bozo::ps2f::subNearest(a,b,fl);};
+    const auto one=W(1.f);const auto uvw=[&](int32_t x){return W(float(x)/4096.f);};   // ITOF12
+    const auto length2=[&](const std::array<uint32_t,3> &x){return A(A(M(x[0],x[0]),M(x[1],x[1])),M(x[2],x[2]));};
+    size_t first=0;
+    for(const auto length:strips){
+        if(length<3 || first+length>uv.size())throw std::runtime_error("native UV shift strip outside its mesh");
+        std::vector<std::array<uint32_t,2>> offset(length-2);
+        for(size_t t=0;t+2<length;++t){
+            const auto a=first+t,b=a+1,c=a+2;
+            const uint32_t du1=S(uvw(uv[b][0]),uvw(uv[a][0])),dv1=S(uvw(uv[b][1]),uvw(uv[a][1])),du2=S(uvw(uv[c][0]),uvw(uv[a][0])),dv2=S(uvw(uv[c][1]),uvw(uv[a][1]));
+            std::array<uint32_t,3> T{},B{};
+            for(unsigned l=0;l<3;++l){
+                const uint32_t p1=S(W(p[b][l]),W(p[a][l])),p2=S(W(p[c][l]),W(p[a][l]));
+                const uint32_t x=S(M(du1,dv2),M(dv1,du2)),y=S(M(dv1,p2),M(p1,dv2)),z=S(M(p1,du2),M(du1,p2));
+                const uint32_t q=bozo::ps2f::div(one,x,fl);T[l]=M(y,q);B[l]=M(z,q);}
+            const uint32_t tl=bozo::ps2f::rsqrt(one,length2(T),fl),bl=bozo::ps2f::rsqrt(one,length2(B),fl);
+            std::array<uint32_t,3> L{W(light[0]),W(light[1]),W(light[2])};
+            if(point){std::array<uint32_t,3> d{};for(unsigned l=0;l<3;++l)d[l]=S(W(p[c][l]),L[l]);
+                const uint32_t r=bozo::ps2f::rsqrt(one,length2(d),fl);for(unsigned l=0;l<3;++l)L[l]=M(d[l],r);}
+            for(auto &x:L)x=M(x,W(scale));
+            offset[t]={A(A(M(M(T[0],tl),L[0]),M(M(T[1],tl),L[1])),M(M(T[2],tl),L[2])),A(A(M(M(B[0],bl),L[0]),M(M(B[1],bl),L[1])),M(M(B[2],bl),L[2]))};}
+        for(size_t k=0;k<length;++k){const auto &o=offset[std::min<size_t>(k,length-3)];
+            for(unsigned c=0;c<2;++c){const double f=double(std::bit_cast<float>(S(uvw(uv[first+k][c]),o[c])))*4096;   // FTOI12
+                uv[first+k][c]=int32_t(std::clamp(std::trunc(f),-2147483648.0,2147483647.0));}}
+        first+=length;}
+}
 std::optional<NativeSecondPass> nativeSecondPass(const NativeMaterialRows &rows){
     const auto row=[&](unsigned r,unsigned c){return rows[r-7][c];};
     const auto prim=[&](unsigned r){return (row(r,1)>>15)&0x7ff;};
@@ -327,10 +361,11 @@ std::optional<NativeSecondPass> nativeSecondPass(const NativeMaterialRows &rows)
         return std::nullopt;   // the same tags, PRIM with ABE set (pass 1 may already blend: maps 65, 124)
     const auto alpha=row(16,0);
     // ALPHA_1; .w picks row 65 or 66 for the register between (pass 1's row 8.w does the same; both seen). Pass 2 redraws
-    // pass 1's triangles at the same depths, so that register's depth write changes nothing drawn.
-    if((row(16,2)&0xff)!=0x42 || row(16,1) || row(16,3)>1 || alpha>0xff)return std::nullopt;
+    // pass 1's triangles at the same depths, so that register's depth write changes nothing drawn. The high word's low byte
+    // is FIX; the GS ignores the rest (maps 459-461 keep routine 34's UV-shift scale there, 0.01).
+    if((row(16,2)&0xff)!=0x42 || row(16,3)>1 || alpha>0xff)return std::nullopt;
     for(unsigned f=0;f<4;++f)if(((alpha>>(2*f))&3)==3)return std::nullopt;
-    return NativeSecondPass{alpha,row(21,2),row(21,3),row(18,0),row(21,1)!=0};
+    return NativeSecondPass{alpha,row(21,2),row(21,3),row(18,0),row(16,1)&0xff,row(21,1)!=0};
 }
 std::vector<NativeShadowDraw> nativeShadowPass(const NativeModelSubmission &s,float width,float height){
     std::vector<NativeShadowDraw> draws;
@@ -521,11 +556,16 @@ NativeModelSubmission NativeModels::capture(Runtime *rt,NativeAssets &assets,Nat
         // reflection map with 28's data row, bal 1178, then 1720) are the same pass with other UVs. Each tests and clears
         // row 21.y, so the first of them in the mesh's routine order draws it.
         // 32, 34, 52, 54 (table B 1bb8, 1ba8, 1e70, 1e60 in set 0; the same code in every set that has them; each entry's
-        // delay slot loads the gate, row 17.w): not ported. No live one in the 362 clean maps; 3 disc meshes with 32 have the
-        // gate set. 34 is 32 with the register packet from rows 16 / 17 / 18 (ALPHA 0x48) instead of 8 / 9 / 10 (1a90); table
-        // A's 34 is a bare JR vi10. Field maps 459-461 draw meshes with 34 and the gate set (row 16.y 0.01: the UV shift scale).
-        if((m.has(32) || m.has(34) || m.has(52) || m.has(54)) && block>=0x100000 && word(block+0x70)==0x8000 && word(block+0x78)==0x412 && word(block+0xbc))
-            throw std::runtime_error(std::format("unported native table-B pass (routine 32/34/52/54): mesh {:x} block {:x}",mesh,block));
+        // delay slot loads the gate, row 17.w). 52 / 54 are not ported (no live one with the gate set). 32 and 34 (below) are
+        // the UV-shift redraw: 32's register packet is pass 1's rows 8 / 9 / 10 (1b00), 34's rows 16 / 17 / 18 (1a90), each
+        // with ALPHA 0x48; table A's 32 and 34 are bare JR vi10. Field maps 459-461 draw meshes with them and the gate set
+        // (row 16.y 0.01: the shift's scale).
+        if((m.has(52) || m.has(54)) && block>=0x100000 && word(block+0x70)==0x8000 && word(block+0x78)==0x412 && word(block+0xbc))
+            {std::string shown;for(unsigned r=7;r<=21;++r)shown+=std::format(" r{}={:08x},{:08x},{:08x},{:08x}",r,word(block+0x10+16*(r-7)),word(block+0x14+16*(r-7)),word(block+0x18+16*(r-7)),word(block+0x1c+16*(r-7)));
+             throw std::runtime_error(std::format("unported native table-B pass (routine 32/52/54): mesh {:x} block {:x} routines {}.{}.{}.{} r40w {:x}{}",mesh,block,
+                m.algorithms[0],m.algorithms[1],m.algorithms[2],m.algorithms[3],word(object+0x230+16*40+12),shown));}
+        const int embossRoutine=block>=0x100000 && word(block+0x70)==0x8000 && word(block+0x78)==0x412 && word(block+0xbc)?(m.has(34)?34:m.has(32)?32:0):0;
+        if(embossRoutine && m.has(32) && m.has(34))throw std::runtime_error("native UV-shift routines 32 and 34 together");
         int passRoutine=0;for(auto a:m.algorithms)if(a==16 || a==18 || a==22 || a==28 || a==50){passRoutine=a;break;}
         std::array<float,2> passScroll{};
         if(passRoutine==50){
@@ -539,6 +579,32 @@ NativeModelSubmission NativeModels::capture(Runtime *rt,NativeAssets &assets,Nat
             if(!secondPass){std::string shown;for(unsigned r:{13u,14u,16u,17u,18u,19u,20u,21u})shown+=std::format(" r{}={:08x},{:08x},{:08x},{:08x}",r,rows[r-7][0],rows[r-7][1],rows[r-7][2],rows[r-7][3]);
                 throw std::runtime_error(std::format("unported native mesh second pass (routine {}): mesh {:x} block {:x}{}",passRoutine,mesh,block,shown));}
             if(!secondPass->on)secondPass.reset();}   // row 21.y clear: the routine skips its pass
+        // 32 with its gate set: pass 1 (its own tags 13 / 14 and rows 8 / 9 / 10, e.g. ALPHA 0x42: Cd - Cs As) drawn again with
+        // the shifted UVs and ALPHA 0x48; no pass routine (16, 18, 22, 28, 50) may run before it (they rewrite the tags).
+        // 34 with its gate (row 17.w) set: after the 16 pass (which left rows 19 / 20, PRIM with ABE, in the tags 13 / 14 and
+        // ALPHA from row 16, e.g. 0x42: Cd - Cs As) the mesh is drawn again (1808 -> the vertex loop 0918) with the same
+        // texture (rows 17 / 18), the UVs shifted along the light in each triangle's tangent frame (nativeEmbossStrips) and
+        // ALPHA 0x48 (Cs As + Cd): emboss bump mapping. Light: mem[37] as the object set-up 0x238 leaves it: row 37 through
+        // O's rigid inverse with table A (mem[14].w) and mem[40].w, else turned by Rn^T; mem[40].w (vi08) makes the routine
+        // take it as a point (maps 459-461: a point light). Scale: row 16.y. The UVs it shifts are the vertices' own (VU row
+        // +1): no UV routine may have rewritten them.
+        std::vector<std::array<float,2>> embossUv;int embossSlot=-1;
+        if(embossRoutine){
+            const auto at16=std::find(m.algorithms.begin(),m.algorithms.end(),16),at34=std::find(m.algorithms.begin(),m.algorithms.end(),embossRoutine);
+            const bool point=word(object+0x230+16*40+12)!=0;
+            const bool order=embossRoutine==34?passRoutine==16 && secondPass && at16<at34:!passRoutine && ((word(block+0x74)>>21)&1);   // 32: pass 1 already blends (row 13 PRIM ABE)
+            if(!order || m.has(20) || m.has(26) || m.has(36) || m.has(40) || m.has(48) || m.has(46) || m.has(12) || m.has(14) || (material[6]&6))
+                throw std::runtime_error(std::format("unqualified native UV-shift pass (routine {}): mesh {:x} routines {}.{}.{}.{} second pass {} point {} tag {:08x}",embossRoutine,mesh,
+                    m.algorithms[0],m.algorithms[1],m.algorithms[2],m.algorithms[3],bool(secondPass),point,word(block+0x74)));
+            const auto l=row(37);std::array<float,3> light{};
+            if(tableA && point)light=rigidInverse(l);
+            else for(unsigned c=0;c<3;++c)light[c]=rotation[0][c]*l[0]+rotation[1][c]*l[1]+rotation[2][c]*l[2];
+            std::vector<std::array<int32_t,2>> uv(m.vertices.size());std::vector<std::array<float,3>> p(m.vertices.size());
+            for(size_t k=0;k<m.vertices.size();++k){const auto &v=m.vertices[k];for(unsigned c=0;c<3;++c)p[k][c]=v.p[c];
+                for(unsigned c=0;c<2;++c)uv[k][c]=int32_t(std::lround(double(v.uv[c])*4096));}
+            nativeEmbossStrips(uv,p,m.strips,light,point,real(block+0xa4));
+            embossUv.resize(uv.size());for(size_t k=0;k<uv.size();++k){embossUv[k]={float(uv[k][0])/4096,float(uv[k][1])/4096};for(auto f:embossUv[k])finite(f);}
+            embossSlot=int(at34-m.algorithms.begin());}
         // 46 (table B 21e0): a texture projected onto the mesh (a darkening pattern in world space: ALPHA 0x46, Cd (1 - As)).
         // Gated by mem[36].z and row 21.x (which it clears; the 16/22/50 pass tests .y, so both may draw). Per vertex,
         // in the object's VU rows: q = ((r46 + r43 x) + r44 y) + r45 z; S, T, Q = FTOI12(q.xyz) to the UV row; the colour
@@ -783,7 +849,7 @@ NativeModelSubmission NativeModels::capture(Runtime *rt,NativeAssets &assets,Nat
             mat.lines=true;const bool strip=material[6]&2;
             for(auto length:m.strips){for(unsigned k=1;k<length;k+=strip?1:2){const auto a=first+k-1,b=first+k;
                 if(outside[a] || outside[b]){++guarded;continue;}batch.vertices.push_back(vertices[a]);batch.vertices.push_back(vertices[b]);
-                if(secondPass || projector){emitted.push_back(uint32_t(a));emitted.push_back(uint32_t(b));}}first+=length;}
+                if(secondPass || projector || embossRoutine){emitted.push_back(uint32_t(a));emitted.push_back(uint32_t(b));}}first+=length;}
         }else
         for(auto length:m.strips){for(unsigned k=2;k<length;++k){const auto a=first+k-2,b=first+k-1,c=first+k;
             if(outside[a] || outside[b] || outside[c]){++guarded;continue;}
@@ -791,7 +857,7 @@ NativeModelSubmission NativeModels::capture(Runtime *rt,NativeAssets &assets,Nat
                 const float area=(p[0]/p[3]-q[0]/q[3])*(q[1]/q[3]-r[1]/r[3])-(p[1]/p[3]-q[1]/q[3])*(q[0]/q[3]-r[0]/r[3]);
                 if(!std::signbit(area*((k&1)?-1.0f:1.0f))){++culled;continue;}}
             batch.vertices.push_back(vertices[a]);batch.vertices.push_back(vertices[(k&1)?c:b]);batch.vertices.push_back(vertices[(k&1)?b:c]);
-            if(secondPass || projector){emitted.push_back(uint32_t(a));emitted.push_back(uint32_t((k&1)?c:b));emitted.push_back(uint32_t((k&1)?b:c));}}first+=length;}
+            if(secondPass || projector || embossRoutine){emitted.push_back(uint32_t(a));emitted.push_back(uint32_t((k&1)?c:b));emitted.push_back(uint32_t((k&1)?b:c));}}first+=length;}
         if(traceModels && batch.vertices.empty())
             std::fprintf(stderr,"[vp2s:model-empty] object=%x mesh=%u/%x vertices=%zu guarded=%u culled=%u textured=%u blend=%u/%u%u%u%u class=%x\n",
                 object,i,mesh,m.vertices.size(),guarded,culled,material[1],material[0],material[7],material[8],material[9],material[10],word(object));
@@ -815,7 +881,7 @@ NativeModelSubmission NativeModels::capture(Runtime *rt,NativeAssets &assets,Nat
             // The second pass (routine 16, 22 or 50): the same triangles with its UVs and texture, blended with its ALPHA_1, after pass 1.
             auto second=batch;if(emitted.size()!=second.vertices.size())throw std::runtime_error("native second pass lost its vertex order");
             for(size_t e=0;e<emitted.size();++e){second.vertices[e].u=passUv[emitted[e]][0];second.vertices[e].v=passUv[emitted[e]][1];second.vertices[e].rgba=passRgba[emitted[e]];}auto &m2=second.material;m2.alphaBlend=true;m2.blend=bozo::render::Material::Blend::Alpha;m2.gsBlend=true;
-            const auto a=secondPass->alpha;m2.blendA=a&3;m2.blendB=(a>>2)&3;m2.blendC=(a>>4)&3;m2.blendD=(a>>6)&3;m2.blendFix=0x80;
+            const auto a=secondPass->alpha;m2.blendA=a&3;m2.blendB=(a>>2)&3;m2.blendC=(a>>4)&3;m2.blendD=(a>>6)&3;m2.blendFix=m2.blendC==2?secondPass->fix:0x80;
             if(material[1]){
                 if(!manager)throw std::runtime_error("native mesh second pass without the texture manager");
                 const auto index=value<int16_t>(rt,manager+0x2670+2*secondPass->slot);if(index<0)throw std::runtime_error("native mesh second-pass texture not registered");
@@ -832,7 +898,16 @@ NativeModelSubmission NativeModels::capture(Runtime *rt,NativeAssets &assets,Nat
                 second.texture=textures.modelImage(key,tex0,meshPart)->picture(secondPass->part);m2.textured=true;}
             secondTextured:
             m2.depthWrite=bool(palette);
-            extra.push_back({passSlot,std::move(second)});}
+            if(!embossUv.empty()){
+                auto third=second;for(size_t e=0;e<emitted.size();++e){third.vertices[e].u=embossUv[emitted[e]][0];third.vertices[e].v=embossUv[emitted[e]][1];}
+                auto &m3=third.material;m3.blendA=0;m3.blendB=2;m3.blendC=0;m3.blendD=1;   // ALPHA 0x48: Cs As + Cd
+                extra.push_back({passSlot,std::move(second)});extra.push_back({embossSlot,std::move(third)});}
+            else extra.push_back({passSlot,std::move(second)});}
+        if(embossRoutine==32 && !batch.vertices.empty()){
+            auto again=batch;if(emitted.size()!=again.vertices.size())throw std::runtime_error("native UV-shift pass lost its vertex order");
+            for(size_t e=0;e<emitted.size();++e){again.vertices[e].u=embossUv[emitted[e]][0];again.vertices[e].v=embossUv[emitted[e]][1];}
+            auto &ma=again.material;ma.alphaBlend=true;ma.blend=bozo::render::Material::Blend::Alpha;ma.gsBlend=true;ma.blendA=0;ma.blendB=2;ma.blendC=0;ma.blendD=1;   // ALPHA 0x48
+            ma.depthWrite=false;extra.push_back({embossSlot,std::move(again)});}
         if(projector && !batch.vertices.empty()){
             // Routine 46's pass: the same triangles with the projected S/T and alpha, the projector's texture, blended with r16's
             // ALPHA. Repeating: Logun's meshes span S, T over several units (-5..5) and each object's r46 offsets the

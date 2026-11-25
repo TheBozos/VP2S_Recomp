@@ -12,6 +12,47 @@ The earlier VP2S face/shading and general brightness comparisons remain open.
 
 ## Build and evidence
 
+### Table-B 32 / 34: the emboss redraw; the ray-sphere hit test 3e6c20 (2026-11-25)
+
+- **Routines 32 and 34 (maps 459, 460, 461):** after the kick, table B redraws the mesh with its UVs shifted along the
+  light. It is emboss bump mapping.
+  - **The shift** (1bc0..1e48 in set 0, shared by 32 and 34):
+    - For each triangle t of a strip, per axis c: the plane through (p_c, u, v) gives T_c = B / A and B_c = C / A.
+    - With L = mem[37] · s (point mode: normalize(p[t+2] − mem[37]) · s), vertex t's 12-bit UV becomes
+      FTOI12(ITOF12(uv) − (T̂·L, B̂·L)). A strip's last two vertices take its last triangle's shift.
+    - The scale s is row 16.y (0.01 here). mem[40].w selects point mode. mem[37] is as the object set-up leaves it:
+      row 37 through O's rigid inverse with table A and mem[40].w, else Rn^T · row 37.
+  - **Its redraw** (1808 → the vertex loop 0918): the mesh again, with the tags that rows 13 / 14 hold then and
+    ALPHA 0x48 (Cs As + Cd).
+    - 32's packet is pass 1's rows 8 / 9 / 10. Map 459's mesh draws pass 1 subtractively (0x42: Cd − Cs As), so 32
+      adds the shifted copy.
+    - 34's packet is rows 16 / 17 / 18. It follows routine 16's pass, which has copied rows 19 / 20 (PRIM with ABE)
+      into the tags and drawn with row 16's 0x42.
+  - **Natively:**
+    - nativeEmbossStrips runs in VU float words (ps2f). A 1 / 0 saturates, so degenerate triangles shift by nothing,
+      as on the VU.
+    - The model path adds the pass after pass 1 (32) or after the 16 pass (34), in routine order.
+    - It is refused when a UV-generating routine, the shells, the projector or lines take part, or when a pass routine
+      precedes 32.
+  - Routine 16's pass now admits a nonzero row 16.y. That is the ALPHA register's high word: FIX is its low byte,
+    used when C = 2. 52 / 54 stay refused behind their gate.
+- **Ray-sphere hit 3e6c20 (map 461):** the hit test's sphere follow-up (from 3e7120 / 3e72e0). It works on the segment
+  a2 (O, D) and the sphere a1 (centre in the hit object's space, radius w).
+  - C = the hit object's VF1..VF4 (358cd8) · centre, E = O − C.
+  - a = D·D, b = D·E, c = E·E − r², disc = b² − a c, written to SP+0. The EE branches on it.
+  - The hit points O + D t (t = −b / a, or (−b ∓ √disc) / a) go to a3 / a3+10. Only the written lanes are stored.
+
+**Evidence:**
+- **Tests:**
+  - The shift against its own microcode, lifted with the PS2Recomp lifter and run as a test-only oracle on random
+    strips (tests/bozo_emboss_oracle.inc): directional, point, and strips with repeated vertices. 48 strips, 651
+    vertices, every UV within 1/4096. The lifted run also showed the result does not depend on incoming registers.
+  - 513 ray-sphere cases match ps2f arithmetic in the listing's order: 261 crossings, 251 misses and an exact tangent.
+    Another caller and a changed word are refused.
+- **Maps:** 459, 460, 461 run clean. Map 459's cave pillars show the relief.
+- **Regression:** full ctest; the four scenes keep their hashes.
+- **Atlas:** 504 of 552 maps clean.
+
 ### Slim emitter 291140; opaque fogged line strips; mesh algorithm 34 behind its gate (2026-11-25)
 
 - **Slim emitter (maps 46, 48, 272, 459, 460, 489, 514):** these stopped at 2911e0, the step of mod001 291140 (frame

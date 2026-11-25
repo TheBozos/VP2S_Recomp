@@ -9231,6 +9231,27 @@ bool mathBlock72(R5900Context *c,Runtime *rt,uint32_t pc){
 namespace{std::map<const Runtime *,std::set<uint32_t>> &builtPalettes(){static std::map<const Runtime *,std::set<uint32_t>> built;return built;}}
 bool nativeBonePaletteBuilt(const Runtime *rt,uint32_t palette){const auto &b=builtPalettes();const auto it=b.find(rt);return it!=b.end() && it->second.contains(palette&0x1ffffff);}
 void nativeBonePaletteWritten(const Runtime *rt,uint32_t palette){builtPalettes()[rt].insert(palette&0x1ffffff);}
+// mod003 3fbbe0 (an emitter step called from the particle driver at 22ed18, frame 0x240, emitter s5): 48 times
+// LQC2 vf1 = a particle position, then MINI.xyz vf26 / MAX.xyz vf27 fold it into the box the driver loaded at 22ec9c /
+// 22eca0. Natively each loaded point joins that emitter's bounds at its MINI (the MAX adds nothing more).
+struct BoundsFoldState{std::array<float,4> point{};bool loaded=false;};
+BoundsFoldState &boundsFoldState(const Runtime *rt){static std::map<const Runtime *,BoundsFoldState> states;return states[rt];}
+bool nativeBoundsFold(R5900Context *c,Runtime *rt,uint32_t pc){
+    if(!rt || (pc&3) || pc<0x3fbbe0 || pc>=0x3fe7b8)return false;
+    uint32_t word=0;if(const auto *p=rt->memory.hostPointer(pc,4))std::memcpy(&word,p,4);
+    const bool load=(word&0xfc1fffffu)==0xd8010000u,mini=word==0x4bc1d6afu,maxi=word==0x4bc1deebu;
+    if(!load && !mini && !maxi)return false;
+    uint32_t entry=0;if(const auto *p=rt->memory.hostPointer(0x3fbbe0,4))std::memcpy(&entry,p,4);
+    if(entry!=0x27bdfdc0u)return false;   // another overlay at these addresses
+    if(!c)throw std::runtime_error("native bounds fold has no CPU record");
+    auto &st=boundsFoldState(rt);
+    if(load){std::memcpy(st.point.data(),record(rt,c->r[(word>>21)&31].uw[0],16),16);st.loaded=true;return true;}
+    if(maxi)return true;
+    if(!st.loaded)throw std::runtime_error("native bounds fold without its point");
+    auto *d=vp2s::nativeCast<bozo::ee::Dispatcher>(rt->services);auto *particles=d?vp2s::nativeCast<ParticleOwner>(&d->host()):nullptr;
+    if(!particles)throw std::runtime_error("native bounds fold requires its bounds owner");
+    particles->nativeParticles().includePoint(c->r[29].uw[0]+0x240,c->r[21].uw[0],st.point);st.loaded=false;return true;
+}
 std::optional<bool> nativeChainPushInstruction(R5900Context *c,Runtime *rt,uint32_t pc){
     if(pc!=0x1fd114 || !rt)return std::nullopt;
     uint32_t word=0,entry=0;if(const auto *p=rt->memory.hostPointer(pc,4))std::memcpy(&word,p,4);if(const auto *p=rt->memory.hostPointer(0x1fd110,4))std::memcpy(&entry,p,4);
@@ -9834,7 +9855,7 @@ bool nativeMathInstruction(uint8_t *,R5900Context *c,Runtime *rt,uint32_t pc){
     default:
         // Inlined-block recognisers last: they read code around the PC, so
         // only sites no specific handler claimed pay for that scan.
-        return CLAIM(nativeParticleStep) || CLAIM(nativeParticleBox) || CLAIM(nativeTrailEmitter) || CLAIM(nativeProgramEmitter) || CLAIM(nativeSimpleEmitter) || CLAIM(nativeLinearEmitter) || CLAIM(nativeCameraOffset) || CLAIM(nativeCollisionShape) || CLAIM(nativeHeightNormals) || CLAIM(nativeSpriteMove) || CLAIM(nativeRowPoints) || CLAIM(nativeRowEmitter) || CLAIM(nativeEmitterClock) || CLAIM(nativeConstantStore) || CLAIM(nativeLengthIdiom) || CLAIM(nativeMacroIdiom) || CLAIM(nativeInverseIdiom) || nativeQuaternionIdiom(c,rt,pc);
+        return CLAIM(nativeBoundsFold) || CLAIM(nativeParticleStep) || CLAIM(nativeParticleBox) || CLAIM(nativeTrailEmitter) || CLAIM(nativeProgramEmitter) || CLAIM(nativeSimpleEmitter) || CLAIM(nativeLinearEmitter) || CLAIM(nativeCameraOffset) || CLAIM(nativeCollisionShape) || CLAIM(nativeHeightNormals) || CLAIM(nativeSpriteMove) || CLAIM(nativeRowPoints) || CLAIM(nativeRowEmitter) || CLAIM(nativeEmitterClock) || CLAIM(nativeConstantStore) || CLAIM(nativeLengthIdiom) || CLAIM(nativeMacroIdiom) || CLAIM(nativeInverseIdiom) || nativeQuaternionIdiom(c,rt,pc);
     }
 }
 #undef CLAIM

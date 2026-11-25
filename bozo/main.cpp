@@ -315,7 +315,12 @@ public:
             material.gsBlend=true;material.blendA=rect.alpha&3;material.blendB=(rect.alpha>>2)&3;material.blendC=(rect.alpha>>4)&3;material.blendD=(rect.alpha>>6)&3;
             material.blendFix=(rect.alpha>>32)&0xff;}
         const float identity[16]={1,0,0,0,0,1,0,0,0,0,1,0,0,0,0,1};
-        if(rect.wipe){
+        if(rect.fan){
+            // Mode 2's fan (PRIM 24d): triangles (centre, k, k + 1).
+            std::vector<bozo::render::Vertex> triangles;for(unsigned k=1;k+1<rect.fanVertices.size();++k){
+                triangles.push_back(rect.fanVertices[0]);triangles.push_back(rect.fanVertices[k]);triangles.push_back(rect.fanVertices[k+1]);}
+            bozo::render::Renderer::instance().draw(material,identity,triangles.data(),triangles.size());
+        }else if(rect.wipe){
             // The fade's Gouraud strip (PRIM 24c) as triangles: 10 for the wipe, 2 for mode 1.
             std::vector<bozo::render::Vertex> triangles;for(unsigned k=0;k+2<rect.stripVertices && k+2<rect.strip.size();++k)for(unsigned j=0;j<3;++j)triangles.push_back(rect.strip[k+j]);
             bozo::render::Renderer::instance().draw(material,identity,triangles.data(),triangles.size());

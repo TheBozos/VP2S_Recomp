@@ -12,6 +12,23 @@ The earlier VP2S face/shading and general brightness comparisons remain open.
 
 ## Build and evidence
 
+### Fade mode 2 (a circle) and the emitter bounds fold (2026-11-25)
+
+- **Fade mode 2:** after the zoom fix, maps 160, 199 and 202 stopped at the fade 161230 with +f3 = 2 ("no completed flat builder").
+  - Its builder (3d4178..3d44a4) writes one PRIM 24d fan: the centre (+c8, +cc) and 17 ring vertices, angle step pi/8 (add.s).
+  - Ring k: x = c8 + float(trunc(cos(a) (0.9375 +b8 + |c8|)) + 0x800), y = cc + float(trunc(-sin(a) (0.9375 +bc + |cc|)) + 0x800).
+    The full cosine 214210 and sine 2143e0 are the native ones (native_trig.cpp); XYZ2 keeps trunc(16 v).
+  - Colours as mode 1: +f2 = 0 gives centre +a0, ring +98; otherwise centre +9c, ring +a0. Packet: 384 bytes (352 + 32).
+  - Native: nativeFadeCircle in native_screen_rect.cpp; main.cpp draws the fan as triangles (centre, k, k + 1).
+- **Bounds fold:** the emitter step 3fbbe0 (mod003, from the particle driver 22ed18) loads 48 particle points (LQC2 vf1)
+  and folds each into the driver's box with MINI vf26 / MAX vf27. Natively each point joins that emitter's bounds at
+  its MINI (nativeBoundsFold in native_math.cpp, first in the CLAIM chain). The entry word 27bdfdc0 guards against
+  another overlay at the same addresses.
+- **Tests:** bozo_font_main (mode 2: centre, ring 1/5/9/17, length, blend and GS range rejects);
+  bozo_particles_main (the 3fbbe0 triple, another overlay).
+- **Evidence:** maps 160, 199 and 202 reach the frame limit (202 continues into its forest-entrance event).
+  ctest 99/99; regress4 battle 0c9960c8d9f6, forest 912f01332dbe, over 9df948c13063, route a3f2c8f4395d (unchanged).
+
 ### Screen zoom: its flush becomes its completion (2026-11-25)
 
 - **The case:** maps 160, 199 and 202 stalled: the main thread spun at 221070 on the scene's pending flag +40dd.

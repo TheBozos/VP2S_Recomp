@@ -1,5 +1,6 @@
 #pragma once
 #include "native_scene.h"
+#include "native_trig.h"
 #include "bozo/render/renderer.h"
 namespace vp2s {
 struct NativeScreenRect {
@@ -12,7 +13,15 @@ struct NativeScreenRect {
     // two-colour gradient quad, 4 vertices): drawn as this Gouraud strip.
     bool wipe=false;uint8_t stripVertices=12;
     std::array<bozo::render::Vertex,12> strip{};
+    // Fade mode 2 (+f3 = 2, a circle): PRIM 24d, a Gouraud fan of the centre and 17 ring vertices.
+    bool fan=false;std::array<bozo::render::Vertex,18> fanVertices{};
 };
+// Fade 161230 mode 2, builder 3d4178..3d44a4: vertex 0 is the centre (+c8, +cc, floats) in colour `inner`; ring
+// vertex k (1..17) at angle a = (k-1) x 0.3927 (accumulated with add.s) has
+// x = c8 + float(trunc(cos(a) (0.9375 float(+b8) + |c8|)) + 0x800), y = cc + float(trunc(-sin(a) (0.9375 float(+bc) + |cc|)) + 0x800),
+// colour `outer`; 214210 / 2143e0 are the full cosine / sine. XYZ2 keeps trunc(16 v) (centre: (trunc(c) + 0x800) << 4).
+struct NativeFadeCircleInputs {uint32_t centreX=0,centreY=0;int32_t width=0,height=0;uint32_t inner=0,outer=0,depth=0;};
+std::array<bozo::render::Vertex,18> nativeFadeCircle(const NativeFadeCircleInputs &,const TrigCoefficients &);
 std::array<bozo::render::Vertex,6> nativeScreenRectangleVertices(const NativeScreenRect &);
 // Fade 161230 mode 4, builder 3d3ad0..3d4170: progress p = +a4 / +a8 moves a band
 // of 6 edge pairs across the screen (+9c's alpha byte 0x80 moves it left from

@@ -456,6 +456,8 @@ def overlay_adaptations(name,data):
                                (0x46c3a0,0x46cae0,'ad97bc4896b147fb4e067f8175fd5c9a0d3efeb786652338a80479bb7f69a6a8'),
                                (0x3d4fe0,0x3d5440,'47f9e7eef188cdc0272759f3c39581686cbc360f4bf56d1dbe6c6735b8f1b4f5'),
                                (0x4683a0,0x468620,'89f24ebdd576981aaafd04b87a3928bd4de77bff96b83f7cfab6141206764837'),
+                               # Emitter step 3fbbe0: its 48 point loads folded into the driver's box (native_math.cpp nativeBoundsFold).
+                               (0x3fbbe0,0x3fe7b8,'e6cc2353561be991e16e1469d59180257fce4c5093786d2f032e7585d43fa09a'),
                                # Family 168010's name-tab writer 46cb50 (both paths: B at 46d080 / 46d538, A's strip at 46cfdc).
                                (0x46cb50,0x46d580,'f7e33bbc5412867caeff3987e28a35bdae9495014a19f6b4431a491b01f909c9'),
                                # Field pause logo 166ef0 (build 451450 -> 4514f0) and bar 1670a0 (451960 -> 451a60).

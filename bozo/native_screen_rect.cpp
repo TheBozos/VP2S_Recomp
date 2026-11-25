@@ -3,6 +3,7 @@
 #include "native_screen_rect.h"
 #include "bozo/ee/dispatcher.h"
 #include "bozo/ops_fpu.h"
+#include <bit>
 #include <cstring>
 #include <format>
 #include <stdexcept>
@@ -78,7 +79,55 @@ std::array<bozo::render::Vertex,12> nativeFadeWipe(const NativeFadeWipeInputs &i
     }
     return strip;
 }
+std::array<bozo::render::Vertex,18> nativeFadeCircle(const NativeFadeCircleInputs &in,const TrigCoefficients &trig){
+    namespace F=bozo::ps2f;uint32_t flags=0;
+    const auto A=[&](uint32_t a,uint32_t b){return F::add(a,b,flags);};
+    const auto M=[&](uint32_t a,uint32_t b){return F::mul(a,b,flags);};
+    const auto I=[](uint32_t f){return int32_t(F::toInt(f));};
+    const auto W=[](int32_t v){return F::fromInt(uint32_t(v));};
+    // The 16-bit XYZ2 fields (the builder ORs the sign-extended words, so a negative x would spill into y).
+    const auto gs=[](int32_t v){if(v<0 || v>0xffff)throw std::runtime_error("native circle fade vertex outside the GS range");return float(v)/16.f;};
+    const uint32_t scale=0x3f700000u,sixteen=0x41800000u,step=0x3ec90fdbu;   // 0.9375, 16, pi/8
+    const uint32_t radiusX=A(M(scale,W(in.width)),in.centreX&0x7fffffffu),radiusY=A(M(scale,W(in.height)),in.centreY&0x7fffffffu);
+    std::array<bozo::render::Vertex,18> fan{};
+    fan[0]={.x=gs((I(in.centreX)+0x800)<<4),.y=gs((I(in.centreY)+0x800)<<4),.z=float(in.depth),.rgba=in.inner};
+    uint32_t angle=0;
+    for(unsigned k=1;k<18;++k){
+        const float a=std::bit_cast<float>(angle);
+        const uint32_t sine=std::bit_cast<uint32_t>(fullSine(a,trig).value),cosine=std::bit_cast<uint32_t>(fullCosine(a,trig).value);
+        const int32_t y=I(M(sixteen,A(in.centreY,W(I(M(radiusY,sine^0x80000000u))+0x800))));
+        const int32_t x=I(M(sixteen,A(in.centreX,W(I(M(radiusX,cosine))+0x800))));
+        fan[k]={.x=gs(x),.y=gs(y),.z=float(in.depth),.rgba=in.outer};
+        angle=A(angle,step);
+    }
+    return fan;
+}
 NativeScreenRect NativeScreenRects::beginFade(Runtime *rt,uint32_t stack,uint32_t object){
+    if(value<uint32_t>(rt,object)==0x161230 && value<uint8_t>(rt,object+0xf3)==2){
+        // Mode 2 (3d4178): ALPHA_2 from the +f4 = 0 entry 3140f0 (0x44), then 120fa0's packet: a 6-register
+        // REGLIST (PRIM 24d, centre, ring 1, NOP) and two 8-pair RGBAQ/XYZ2 REGLISTs (352 bytes; with 120fa0 / 120f70's 32, 384). Colours as mode 1
+        // (+f2 = 0: centre +a0, ring +98; otherwise centre +9c, ring +a0).
+        if(calls.contains(stack))throw std::runtime_error("native fade publication stack reused");
+        if(!value<uint8_t>(rt,object+0x63) || value<uint8_t>(rt,object+0x64)!=1 || value<uint8_t>(rt,object+0xf4) ||
+           (value<uint8_t>(rt,object+0xf5)&kFadeDrawFlags) || value<uint64_t>(rt,0x3140f0)!=0x44)
+            throw std::runtime_error("native circle fade has no completed builder");
+        const auto scene=value<uint32_t>(rt,0x35ddf8);const auto layer=value<uint8_t>(rt,object+0x65);
+        if(layer>1 || value<uint32_t>(rt,scene+0x40a8+layer*4)!=object || value<uint8_t>(rt,scene+0x40dc+layer)!=1)
+            throw std::runtime_error("native fade has no pending scene owner");
+        const bool swapped=value<uint8_t>(rt,object+0xf2)!=0;
+        NativeFadeCircleInputs in{.centreX=value<uint32_t>(rt,object+0xc8),.centreY=value<uint32_t>(rt,object+0xcc),
+            .width=value<int32_t>(rt,object+0xb8),.height=value<int32_t>(rt,object+0xbc),
+            .inner=value<uint32_t>(rt,object+(swapped?0x9c:0xa0)),.outer=value<uint32_t>(rt,object+(swapped?0xa0:0x98)),
+            .depth=value<uint32_t>(rt,object+0xc0)+value<uint8_t>(rt,object+0xf1)};
+        if(in.depth>0xffffff)throw std::runtime_error("native circle fade depth outside 24 bits");
+        const auto buffer=value<uint32_t>(rt,object+0xc4),base=value<uint32_t>(rt,buffer),begin=value<uint32_t>(rt,buffer+12),end=value<uint32_t>(rt,buffer+8);
+        if(uint64_t(base)+0x40!=begin || uint64_t(begin)+384!=end || uint64_t(end)+16>uint64_t(base)+uint64_t(value<uint32_t>(rt,buffer+16))*8)
+            throw std::runtime_error(std::format("native circle fade writer has additional/unowned content (base {:x} begin {:x} end {:x} qwords {:x})",
+                base,begin,end,value<uint32_t>(rt,buffer+16)));
+        auto trig=nativeTrigCoefficients(rt);std::memcpy(&trig.halfPi,rt->memory.hostPointer(0x35da9c,4),4);   // 214210's own pi/2
+        NativeScreenRect rect{.object=object,.colour=in.inner,.depth=in.depth,.fan=true,.fanVertices=nativeFadeCircle(in,trig)};
+        calls.emplace(stack,Lease{rect,buffer,begin,end});return rect;
+    }
     if(value<uint32_t>(rt,object)==0x161230 && value<uint8_t>(rt,object+0xf3)==4){
         // Mode 4 (wipe): the builder's whole packet is the blend (ALPHA_2 from the
         // +f4 = 0 table entry 3140f0 = 0x44), PRIM 24c and the 6-pair strip: 256 bytes.

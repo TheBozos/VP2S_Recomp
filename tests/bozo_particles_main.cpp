@@ -197,6 +197,12 @@ int main(){try{
         const auto fifth=now.particles.bounds(frame,0x190000);
         check(fifth.minimum[0]==-13 && fifth.maximum[1]==14 && fifth.minimum[2]==-6 && fifth.maximum[2]==12);
         order=false;try{fmath(0x284f58);}catch(const std::runtime_error &){order=true;}check(order);   // MINI without its load
+        // mod003 3fbbe0 (maps 160 / 199 / 202; frame 0x240, emitter s5, 48 triplets): its first, at 3fbd34 / 3fbd8c / 3fbd90.
+        {for(const auto &[pc,w]:{std::pair{0x3fbbe0u,0x27bdfdc0u},{0x3fbd34u,0xd8610000u},{0x3fbd8cu,0x4bc1d6afu},{0x3fbd90u,0x4bc1deebu}})write(rt,pc,w);
+         f.r[3].uw[0]=0x1d0040;write(rt,0x1d0040,std::array<float,4>{3,-15,20,1});
+         check(fmath(0x3fbd34) && fmath(0x3fbd8c) && fmath(0x3fbd90));
+         const auto sixth=now.particles.bounds(frame,0x190000);check(sixth.minimum[1]==-15 && sixth.maximum[2]==20 && sixth.minimum[0]==-13);
+         write(rt,0x3fbbe0,uint32_t(0));check(!fmath(0x3fbd34));write(rt,0x3fbbe0,uint32_t(0x27bdfdc0u));}   // another overlay
         // mod001 23fa40 (the general emitter's +14, same frame and emitter register): three of its 48
         // triplets, one per source register r3, r6, r7.
         for(const auto &[pc,w]:{std::pair{0x23fb94u,0xd8610000u},{0x23fbecu,0x4bc1d6afu},{0x23fbf0u,0x4bc1deebu},{0x241fbcu,0xd8c10000u},{0x242008u,0x4bc1d6afu},{0x24200cu,0x4bc1deebu},

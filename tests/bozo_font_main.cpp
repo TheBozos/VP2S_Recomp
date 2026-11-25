@@ -282,6 +282,21 @@ int main(int argc,char **argv){try{
         rejects(object+0xf5,uint8_t(0x10),uint8_t(1));                 // hidden
         rejects(object+0xd0,int32_t(0x800),int32_t(-256));             // past the GS range
         rejects(scene+0x40a8,uint32_t(0),object);                      // not the pending owner
+        // Mode 2 (3d4178): the centre +c8/+cc and 17 ring vertices, radius 0.9375 +b8/+bc + |centre|; 384 bytes.
+        // 35da70: pi, 1/pi, the sine polynomial x^3..x^9 at [2]..[5], pi/2 at [10]/[11], x^11 / x^13 at [12] / [13].
+        {const float table[16]={3.14159274f,0.318309873f,-1.66666672e-1f,8.33333377e-3f,-1.98412701e-4f,2.75573143e-6f,0,0,0,0,1.57079637f,1.57079637f,-2.50521079e-8f,1.60590444e-10f,0,0};
+            for(unsigned i=0;i<16;++i)put(u,0x35da70+4*i,table[i]);}
+        put(u,object+0xf3,uint8_t(2));put(u,buffer+8,base+0x40+384);put(u,object+0xc8,0.f);put(u,object+0xcc,0.f);
+        put(u,object+0xb8,int32_t(256));put(u,object+0xbc,int32_t(128));
+        {const auto q=rects.beginFade(&u,9,object);check(q.fan && !q.wipe && rects.active(9));rects.cancel(9);
+            check(q.fanVertices[0].x==2048 && q.fanVertices[0].y==2048 && q.fanVertices[0].rgba==0x80000000u && q.fanVertices[0].z==float(0xffff67));
+            // Ring 1 at angle 0: (0x800 + 240, 0x800), x within 1 (the truncation of cos(0) ~ 1); ring 5 near pi/2: (about 0x800, 0x800 - 120); ring 17 closes on ring 1.
+            check(std::abs(q.fanVertices[1].x-(2048+240))<=1 && q.fanVertices[1].y==2048 && q.fanVertices[1].rgba==0x11223344u);
+            check(std::abs(q.fanVertices[5].x-2048)<=1 && std::abs(q.fanVertices[5].y-(2048-120))<=1 && std::abs(q.fanVertices[9].x-(2048-240))<=1);
+            check(std::abs(q.fanVertices[17].x-q.fanVertices[1].x)<=1 && std::abs(q.fanVertices[17].y-q.fanVertices[1].y)<=1);}
+        rejects(buffer+8,uint32_t(base+0xc0),uint32_t(base+0x40+384)); // mode 1's length: unowned content
+        rejects(object+0xf4,uint8_t(1),uint8_t(0));                    // another blend
+        rejects(object+0xc8,-3000.f,0.f);                              // ring past the GS range
         put(u,object+0xf3,uint8_t(4));put(u,buffer+8,base+0x140);put(u,object+0xf1,uint8_t(0));++cases;}
     auto &rt=b.runtime();put<uint32_t>(rt,0x35df10,0x30180000);put<uint32_t>(rt,0x35df20,0x1000);put<uint32_t>(rt,0x35df1c,0x30180040);put<uint32_t>(rt,0x35df18,0x30180100);
     now.setups.beginDefaults(&rt,1);bool duplicate=false;

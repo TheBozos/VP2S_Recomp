@@ -12,6 +12,34 @@ The earlier VP2S face/shading and general brightness comparisons remain open.
 
 ## Build and evidence
 
+### Model lighting mode 2 (2026-11-26)
+
+- **The case:** map 484 (story-gated arrival) stopped at "point/spot lights in mode 2". Mode 2 itself was never
+  computed: its meshes drew with factor 1 (unlit), and only point or spot lights made it refuse.
+- **The microcode:** table D (0x562 in image 02a71b3e) gives each mode two pairs, so mode 2 is the entry at +4
+  (2b30: b 2f10). The routine is the same words in all four model program sets (02a71b3e, 2ca2f707, 5ee6d921,
+  6bdcaefb):
+  - mode 1's four dots of the normal with the light directions (vf05..07), clamped at 0 for all four (MAXx.xyzw);
+  - each squared header 9.w times (the MUL vf31 loop at 2f60). Its 16-bit counter is decremented before the test,
+    so 0 runs 65536 squarings: a dot ends at 0, 1 or +max;
+  - factor = (((C0 d0 + C1 d1) + C2 d2) + C3 d3) + ambient (mem 19), w from mem 13.
+- **Native:**
+  - lightFactor computes mode 2 in that order, saturating as the VU does;
+  - point lights (table B, routine 0x3150, modes 0-2) now apply in mode 2;
+  - spot lights (table C) in mode 2 still refuse (not decoded);
+  - a mode-2 mesh without a mesh block refuses.
+- **Test:** bozo_models_main. The fixture's mode-2 mesh has ambient 1 (factor 1, as before). Light 0 along +z / 2
+  with power 2 gives 0x442010; power 0 gives 0x402010 (squared to 0); a unit dot gives 0x802818. Point lights with
+  no colour add nothing.
+- **Scope:**
+  - A sample of 31 maps (every 18th) all reach the frame limit; 5 use mode 2 (169, 187, 277, 313, 331; up to 68
+    meshes).
+  - Their scenes give ambient 0.2-0.57 and power 2, so those meshes are now lit, darker than before.
+  - Map 277 before and after: the same scene, its lit surfaces shaded.
+  - The battle, game-over and forest scenes have no mode-2 mesh.
+- **Evidence:** map 484 reaches the frame limit (a dark interior, two figures). ctest 99/99; regress4 battle
+  0c9960c8d9f6, forest 912f01332dbe, over 9df948c13063, route a3f2c8f4395d (unchanged; RAM hashes).
+
 ### Second-level story gates, the ribbon tag without FGE, map 482 (2026-11-25)
 
 - **Gate semantics:**

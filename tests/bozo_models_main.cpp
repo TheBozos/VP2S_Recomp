@@ -60,6 +60,7 @@ int main(int argc,char **argv){try{
         put(rt,object+0x90,identity);put(rt,object+0x7bc,model);put(rt,model+0x34,uint32_t(1));put(rt,model+0x64,int16_t(0x200));
         put(rt,model+0x74,uint32_t(1));put(rt,model+0x60+0x40+0x90,uint32_t(1));
         put(rt,object+0x300,std::array<float,4>{1,1,1,1}); // Object colour row13.
+        put(rt,object+0x230+16*19,std::array<float,4>{1,1,1,0}); // Ambient row 19: this fixture's mode 2 lights to factor 1.
         put(rt,object+0x310,uint32_t(1));
         if(algorithm){put(rt,object+0x648,uint32_t(0x1b0000));put(rt,0x1b0034,uint32_t(0x1b0100));put(rt,0x1b0104,uint32_t(2));put(rt,0x1b004c,uint32_t(0x1c0000));
             auto a=identity,b=identity;a[12]=.1f;b[13]=.2f;put(rt,0x1c0040,a);put(rt,0x1c0080,b);}
@@ -121,7 +122,19 @@ int main(int argc,char **argv){try{
                 for(uint32_t at:{0x70u,0x74u,0x78u})put(rt,block+at,uint32_t(0));}
             if(seed%8==3){put(rt,object+0x31c,uint32_t(1));
                 {const auto lit=models.capture(&rt,assets,textures,scene,object);check(lit.batches.size()==1 && lit.batches[0].vertices[0].rgba==0x402010u);} // alpha cleared above
-                put(rt,object+0x314,uint32_t(1));rejects([&]{models.capture(&rt,assets,textures,scene,object);});put(rt,object+0x314,uint32_t(0));
+                // Point lights (table B) serve mode 2 as modes 0 / 1: lights with no colour add nothing.
+                put(rt,object+0x314,uint32_t(1));put(rt,model+0x60+0x40+0x3c,int32_t(1));
+                {const auto lit=models.capture(&rt,assets,textures,scene,object);check(lit.batches.size()==1 && lit.batches[0].vertices[0].rgba==0x402010u);}
+                put(rt,object+0x314,uint32_t(0));put(rt,model+0x60+0x40+0x3c,int32_t(0));
+                // Mode 2 itself (VU1 2f10): ambient + sum colour * max(0, n . dir)^(2^power); the normal is +z. Light 0 along
+                // +z / 2, colour (.5, .25, 1): power 2 gives d = .5^4; power 0 runs 65536 squarings (.5 -> 0, 1 stays 1).
+                if(algorithm==0){const uint32_t block=model+0x60+0x40;
+                    put(rt,object+0x230+16*1,std::array<float,4>{0,0,.5f,0});put(rt,object+0x230+16*5,std::array<float,4>{.5f,.25f,1,0});
+                    const auto lit=[&]{const auto r=models.capture(&rt,assets,textures,scene,object);check(r.batches.size()==1);return r.batches[0].vertices[0].rgba;};
+                    put(rt,block+0x3c,int32_t(2));check(lit()==0x442010u);          // (16, 32, 64) x (1.03125, 1.015625, 1.0625)
+                    put(rt,block+0x3c,int32_t(0));check(lit()==0x402010u);          // .5 squared away to 0
+                    put(rt,object+0x230+16*1,std::array<float,4>{0,0,1,0});check(lit()==0x802818u);   // 1 stays 1: factor (1.5, 1.25, 2)
+                    put(rt,object+0x230+16*1,std::array<float,4>{});put(rt,object+0x230+16*5,std::array<float,4>{});put(rt,block+0x3c,int32_t(0));}
                 put(rt,object+0x318,uint32_t(2));rejects([&]{models.capture(&rt,assets,textures,scene,object);});put(rt,object+0x318,uint32_t(0));
                 put(rt,object+0x31c,uint32_t(0));
                 // Mode 0 keeps the object colour (row 13) with plain clear and no table A

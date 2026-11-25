@@ -828,6 +828,16 @@ NativeModelSubmission NativeModels::capture(Runtime *rt,NativeAssets &assets,Nat
             // that case; it was drawn black.
             if(material[4]==0)factor=objectColour;
             else if(material[4]==1){for(unsigned c=0;c<3;++c){factor[c]=ambient[c];for(unsigned l=0;l<4;++l)factor[c]+=colours[l][c]*std::max(0.0f,dot(directions[l],n));}}
+            else if(material[4]==2){
+                // Mode 2 (table D entry +4: 2f10 in image 02a71b3e, the same words in every model program set): mode 1's
+                // four dots clamped at 0 (MAXx.xyzw: all four), each squared header 9.w times (MUL vf31 loop; its 16-bit
+                // counter is decremented before the test, so 0 runs 65536 squarings: 0, 1 or +max), then
+                // ((C0 d0 + C1 d1) + C2 d2) + C3 d3 + ambient * 1 (mem 19) in that order.
+                if(!block)throw std::runtime_error("native light mode 2 without a mesh block");                const uint32_t raw=uint32_t(value<int32_t>(rt,block+0x3c))&0xffffu,squarings=raw?raw:65536u;
+                float dots[4];for(unsigned l=0;l<4;++l){float d=std::max(0.0f,dot(directions[l],n));
+                    for(uint32_t r=0;r<squarings;++r){const float next=vuSaturate(d*d);if(next==d)break;d=next;}dots[l]=d;}
+                for(unsigned c=0;c<3;++c){float acc=colours[0][c]*dots[0];for(unsigned l=1;l<4;++l)acc=vuSaturate(acc+colours[l][c]*dots[l]);
+                    factor[c]=vuSaturate(acc+ambient[c]);}}
             else if(material[4]==3){
                 if(!block)throw std::runtime_error("native specular light table without a mesh block");
                 // The fourth light depends on the VU1 program set that builder 23a950
@@ -852,7 +862,9 @@ NativeModelSubmission NativeModels::capture(Runtime *rt,NativeAssets &assets,Nat
                 if(material[4]==3 || pointLights){if(!block)throw std::runtime_error("native point/spot lights without a mesh block");
                     power=value<int32_t>(rt,block+0x3c);if(power<0 || power>16)throw std::runtime_error("native light power outside bounds");}
                 if(material[4]==3){if(power<=0)throw std::runtime_error("unported native point/spot light with specular power 0");weights=value<std::array<float,4>>(rt,block+0x50);}
-                else if(material[4]!=0 && material[4]!=1)throw std::runtime_error(std::format("unported native point/spot lights in mode {}",material[4]));
+                // Table B (point lights, routine 0x3150) serves modes 0-2 alike; table C's spot lights in mode 2 are not decoded.
+                else if(material[4]!=0 && material[4]!=1 && !(material[4]==2 && spots.empty()))
+                    throw std::runtime_error(std::format("unported native point/spot lights in mode {} ({} spots)",material[4],spots.size()));
                 if(pointLights && material[4]==3){
                     // Mode 3's table B (code image 02a71b3e, routine 0x3350, pipelined one vertex
                     // behind): per light d = L - p scaled by S / |d|^2 (DIV, then MULQ); diffuse

@@ -12,6 +12,31 @@ The earlier VP2S face/shading and general brightness comparisons remain open.
 
 ## Build and evidence
 
+### Working-copy meshes with animated UVs (2026-11-25)
+
+- **The case:** maps 264, 270, 271 and 535 stopped at "native mesh missing allocation provenance". The object's list
+  (+77c, +7c2 set) named meshes that are neither a decoded file nor a published generated mesh.
+- **What the game does:** the object keeps two byte copies of its model, +630 and +634, used in turn. The list names one
+  copy's meshes, at the model's own mesh offsets. Compared with the disc model, only V2-16 words differ (map 264:
+  762 words, every one a UV lane); the game animates the copy's texture coordinates (a waterfall).
+- **Natively:**
+  - A list mesh inside either copy, at one of the model's mesh offsets, is converted from the disc mesh at that offset.
+  - Its positions and normals (the editable path) and its UVs are read live from the copy.
+  - The UV bytes are found by running the disc mesh's own VIF codes as tools/vp2_meshes.py does (STCYCL addressing,
+    STMASK / STROW, every unpack format). Vertex k's UV is row vertices + 4k + 1, and each pair must come from one V2-16
+    unpack.
+  - Every other word of the copy must still equal the disc mesh, or the model is refused.
+
+**Evidence:**
+- **Tests:** vp2s-bozo-native-models:
+  - the walker finds the four UVs of a VIF stream in the fixture's disc mesh, and refuses a vertex without one;
+  - listed captures through +630 and through +634 alone draw the copy's animated UVs;
+  - a changed non-vertex word is refused.
+- **Maps:**
+  - 264, 270 and 271 run clean to the frame limit; map 264's waterfall draws.
+  - 535 now stops later, in the collider chain 1fbe60 (via 1fe210).
+- **Regression:** full ctest; regress4's scenes keep their hashes.
+
 ### Scene ownership of level-of-detail models (2026-11-25)
 
 - **The case:** maps 10, 13, 14 and 280 stopped at "native model has no pending scene ownership". The model (class 154ca0)

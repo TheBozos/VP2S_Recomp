@@ -232,6 +232,53 @@ void NativeModels::publishGeneratedMesh(Runtime *rt,const std::vector<std::pair<
     const auto *bytes=rt->memory.hostPointer(mesh,size);if(!bytes)throw std::runtime_error("native generated mesh unmapped");
     generated[mesh]=Generated{std::move(m),std::vector<uint8_t>(bytes,bytes+size)};
 }
+// Where each vertex's UV pair sits in a mesh packet: its VIF codes run as tools/vp2_meshes.py runs them (STCYCL
+// addressing, STMASK / STROW, every unpack format), tracking the byte that fills each 16-bit lane. Vertex k's UV is VU
+// row (vertices + 4k + 1), lanes x and y, vertices = row 0.y. Each pair must come from one V2-16 unpack (u then v).
+std::vector<NativeMeshUv> nativeMeshUvSources(const uint8_t *bytes,uint32_t size,size_t count){
+    struct Lane{int64_t value=0;uint32_t source=UINT32_MAX;bool unsignedLane=false;};
+    std::vector<std::array<Lane,4>> mem(1024);
+    unsigned cl=1,wl=1;uint32_t mask=0;std::array<uint32_t,4> row{};
+    const auto u32=[&](uint32_t at){if(at+4>size)throw std::runtime_error("native mesh VIF code outside its packet");uint32_t v;std::memcpy(&v,bytes+at,4);return v;};
+    for(uint32_t p=0;p+4<=size;){
+        const uint32_t w=u32(p),cmd=(w>>24)&0x7f,num=(w>>16)&0xff,imm=w&0xffff;p+=4;
+        if((cmd&0x60)==0x60){
+            const unsigned vn=(cmd>>2)&3,vl=cmd&3,n=num?num:256,comps=vn+1;const bool uns=(imm>>14)&1,masked=(cmd>>4)&1;const unsigned addr=imm&0x3ff;
+            const uint32_t nbytes=vl==3?2*n:comps*(32>>vl)/8*n;if(p+nbytes>size)throw std::runtime_error("native mesh unpack outside its packet");
+            for(unsigned k=0;k<n;++k){
+                const unsigned qw=(addr+(k/wl)*cl+k%wl)%1024;std::array<Lane,4> values{};
+                if(vl==3){uint16_t v;std::memcpy(&v,bytes+p+2*k,2);values[0].value=(v&0x1f)<<3;values[1].value=((v>>5)&0x1f)<<3;values[2].value=((v>>10)&0x1f)<<3;values[3].value=((v>>15)&1)<<7;}
+                else{
+                    const unsigned bits=32>>vl;
+                    for(unsigned c=0;c<comps;++c){const uint32_t at=p+(k*comps+c)*bits/8;int64_t raw=0;
+                        if(bits==32)raw=u32(at);else if(bits==16){uint16_t v;std::memcpy(&v,bytes+at,2);raw=v;}else raw=bytes[at];
+                        if(bits<32 && !uns && (raw>>(bits-1)))raw-=int64_t(1)<<bits;
+                        values[c].value=raw;values[c].source=bits==16?at:UINT32_MAX;values[c].unsignedLane=uns;}
+                    if(comps==1)for(unsigned c=1;c<4;++c)values[c]=values[0];
+                    else for(unsigned c=comps;c<4;++c)values[c]=mem[qw][c];
+                }
+                for(unsigned c=0;c<4;++c){
+                    if(masked){const unsigned m=(mask>>(2*c+8*std::min(k%wl,3u)))&3;
+                        if(m==1){mem[qw][c]=Lane{int64_t(row[c]),UINT32_MAX,false};continue;}
+                        if(m==2 || m==3)continue;}
+                    mem[qw][c]=values[c];}
+            }
+            p+=(nbytes+3)/4*4;continue;
+        }
+        if(cmd==0x01){cl=imm&0xff;wl=(imm>>8)&0xff;if(!wl)wl=1;}
+        else if(cmd==0x20){mask=u32(p);p+=4;}
+        else if(cmd==0x30){for(unsigned c=0;c<4;++c)row[c]=u32(p+4*c);p+=16;}
+        else if(cmd==0x31)p+=16;
+        else if(cmd!=0x00 && cmd!=0x02 && cmd!=0x03 && cmd!=0x04 && cmd!=0x05 && cmd!=0x06 && cmd!=0x07 && cmd!=0x10 && cmd!=0x11 && cmd!=0x13)
+            throw std::runtime_error(std::format("native mesh VIF code {:02x} unknown",cmd));
+    }
+    const auto vertices=int32_t(mem[0][1].value);std::vector<NativeMeshUv> out(count);
+    for(size_t k=0;k<count;++k){const auto &lanes=mem[(uint32_t(vertices)+4*k+1)%1024];
+        if(lanes[0].source==UINT32_MAX || lanes[1].source!=lanes[0].source+2 || lanes[0].unsignedLane!=lanes[1].unsignedLane)
+            throw std::runtime_error(std::format("native mesh vertex {} UV not from one V2-16 unpack",k));
+        out[k]={lanes[0].source,lanes[0].unsignedLane};}
+    return out;
+}
 // The scene's pending object owns a model it is, or one its composite draw
 // (class 1599a0, method 2b7ab0) reaches: for slot 2..0, each list child's slot
 // +8c0+4i, then its own; then each list child (list +8d4, next +8, ending at
@@ -507,10 +554,33 @@ NativeModelSubmission NativeModels::capture(Runtime *rt,NativeAssets &assets,Nat
             if(word(mesh+0x14)&1){block=mesh+0x40;const auto entry=word(block+0x5c);if(entry){if(entry>4096)throw std::runtime_error("native material palette index outside bounds");block=word(object+0x734)+256*(entry-1);}}}
         if(!mesh)continue;
         if(byte(model+0x59) && (value<uint16_t>(rt,mesh+0x36)&value<uint16_t>(rt,object+0x7a4)))continue;
-        const auto origin=assets.origin(mesh);std::shared_ptr<const Pack> pack;std::shared_ptr<const Mesh> held;
+        // A mesh of one of the object's two working copies (+630 and +634, byte copies of the model whose UVs the game
+        // animates, used in turn; maps 264, 270, 271, 535): the list names it at one of the model's own mesh offsets. Its
+        // source is the disc mesh at that offset; its positions, normals and UVs are read live from the copy (below, as for
+        // an editable mesh); every other word of it must still be the disc mesh's.
+        uint32_t live=0,lookup=mesh;std::vector<std::array<float,2>> liveUv;
+        if(!assets.origin(mesh))for(const uint32_t slot:{0x630u,0x634u}){
+            const auto c=word(object+slot),cs=c&0xf0000000u,co=c&0x0fffffffu;
+            if(!(cs==0 || cs==0x20000000u || cs==0x30000000u || cs==0x80000000u || cs==0xa0000000u) || (co&15) || co<0x100000 || co>0x2000000-0x68)continue;
+            const auto copy=NativeAssets::address(c);
+            if(copy==model || mesh<copy || word(copy+0x34)!=count || word(copy+0x60)!=word(model+0x60) || word(copy+0x64)!=word(model+0x64))continue;
+            for(uint32_t at=model+0x60,k=0;k<count;++k){if(mesh-copy==at-model){live=mesh;lookup=at;break;}
+                const auto size=value<int16_t>(rt,at+4);if(size<=0)break;at+=uint32_t(size);}
+            if(live)break;}
+        const auto origin=assets.origin(lookup);std::shared_ptr<const Pack> pack;std::shared_ptr<const Mesh> held;
         if(origin){pack=load(*origin);const auto found=pack->find(origin->offset);
             if(found==pack->end())throw std::runtime_error(std::format("native mesh not converted: {:x}/{}+{:x}",origin->disc,origin->part,origin->offset));
-            held=found->second;}
+            held=found->second;
+            if(live){
+                // The game animates the copy's UVs (maps 264..535: only V2-16 words differ): read them live.
+                const auto size=uint32_t(value<int16_t>(rt,lookup+4));std::vector<bool> moving(size/4+1,false);
+                for(const auto &s:held->sources)for(auto at:{s.normal,s.position})if(at!=UINT32_MAX)for(unsigned c=0;c<3;++c)if(at/4+c<moving.size())moving[at/4+c]=true;
+                const auto *disc=rt->memory.hostPointer(lookup,size);if(!disc)throw std::runtime_error("native working-copy disc mesh unmapped");
+                const auto uvs=nativeMeshUvSources(disc,size,held->vertices.size());liveUv.resize(uvs.size());
+                for(size_t k=0;k<uvs.size();++k){for(uint32_t b:{uvs[k].offset,uvs[k].offset+3})if(b/4<moving.size())moving[b/4]=true;
+                    for(unsigned c=0;c<2;++c){const auto raw=value<uint16_t>(rt,live+uvs[k].offset+2*c);liveUv[k][c]=float(uvs[k].unsignedLane?int32_t(raw):int32_t(int16_t(raw)))/4096.f;}}
+                for(uint32_t at=0;at+4<=size;at+=4)if(!moving[at/4] && word(live+at)!=word(lookup+at))
+                    throw std::runtime_error(std::format("native working-copy mesh {:x} differs from its disc mesh {:x} outside its vertices (+{:x}: {:08x} / {:08x})",live,lookup,at,word(live+at),word(lookup+at)));}}
         else{
             // A run-time mesh: only one the sprite batcher published, with every
             // byte as it was published.
@@ -609,7 +679,7 @@ NativeModelSubmission NativeModels::capture(Runtime *rt,NativeAssets &assets,Nat
             else for(unsigned c=0;c<3;++c)light[c]=rotation[0][c]*l[0]+rotation[1][c]*l[1]+rotation[2][c]*l[2];
             std::vector<std::array<int32_t,2>> uv(m.vertices.size());std::vector<std::array<float,3>> p(m.vertices.size());
             for(size_t k=0;k<m.vertices.size();++k){const auto &v=m.vertices[k];for(unsigned c=0;c<3;++c)p[k][c]=v.p[c];
-                for(unsigned c=0;c<2;++c)uv[k][c]=int32_t(std::lround(double(v.uv[c])*4096));}
+                for(unsigned c=0;c<2;++c)uv[k][c]=int32_t(std::lround(double(liveUv.empty()?v.uv[c]:liveUv[k][c])*4096));}
             nativeEmbossStrips(uv,p,m.strips,light,point,real(block+0xa4));
             embossUv.resize(uv.size());for(size_t k=0;k<uv.size();++k){embossUv[k]={float(uv[k][0])/4096,float(uv[k][1])/4096};for(auto f:embossUv[k])finite(f);}
             embossSlot=int(at34-m.algorithms.begin());}
@@ -694,8 +764,9 @@ NativeModelSubmission NativeModels::capture(Runtime *rt,NativeAssets &assets,Nat
         // The GS draws an untextured vertex colour as it is (0..255), not as 0x80 = 1
         // modulation: the inn's save-point light column (3e/3f/61) was twice as bright.
         mat.directColour=!mat.textured && !feedbackTexture;
-        const bool editable=working && mesh>=model && !m.has(6) && !m.has(8);
-        const auto source=editable?work+mesh-model:0;
+        const bool editable=(live || (working && mesh>=model)) && !m.has(6) && !m.has(8);
+        if(live && !editable)throw std::runtime_error("native working-copy mesh with fixed-point vertices (routines 6 / 8)");
+        const auto source=editable?(live?live:work+mesh-model):0;
         std::array<std::array<float,4>,2> screenRows{};if(m.has(40))screenRows={row(38),row(39)};
         std::array<float,2> scroll{};if(m.has(48)){if(m.scroll<0 || m.scroll>=16)throw std::runtime_error("native UV scroll index outside bounds");const auto q=row(38+m.scroll);scroll={q[2],q[3]};}
         // A generated mesh without normals (NaN, see publishGeneratedMesh) may only take paths
@@ -793,7 +864,8 @@ NativeModelSubmission NativeModels::capture(Runtime *rt,NativeAssets &assets,Nat
         for(size_t k=0;k<m.vertices.size();++k){const auto &v=m.vertices[k];std::array<float,3> p{v.p[0],v.p[1],v.p[2]},n{v.n[0],v.n[1],v.n[2]};
             if(editable){if(m.sources[k].position!=UINT32_MAX)for(unsigned c=0;c<3;++c)p[c]=real(source+m.sources[k].position+4*c);
                 if(m.sources[k].normal!=UINT32_MAX)for(unsigned c=0;c<3;++c)n[c]=real(source+m.sources[k].normal+4*c);}
-            p=skinned(k,p,1);n=skinned(k,n,0);auto &vout=vertices[k];vout.x=p[0];vout.y=p[1];vout.z=p[2];vout.u=v.uv[0]+scroll[0];vout.v=v.uv[1]+scroll[1];
+            const auto &uvk=liveUv.empty()?std::array<float,2>{v.uv[0],v.uv[1]}:liveUv[k];
+            p=skinned(k,p,1);n=skinned(k,n,0);auto &vout=vertices[k];vout.x=p[0];vout.y=p[1];vout.z=p[2];vout.u=uvk[0]+scroll[0];vout.v=uvk[1]+scroll[1];
             const auto clip=apply(screen,{p[0],p[1],p[2],1}),g=apply(guard,{p[0],p[1],p[2],1});projected.push_back(clip);
             outside.push_back(std::fabs(g[0])>std::fabs(g[3]) || std::fabs(g[1])>std::fabs(g[3]) || std::fabs(g[2])>std::fabs(g[3]));
             if(mat.fog && clip[3]>0)vout.fog=std::clamp(camera->fog[0]+camera->fog[1]/clip[3],0.0f,255.0f)/255;

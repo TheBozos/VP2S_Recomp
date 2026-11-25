@@ -1,3 +1,4 @@
+#include <format>
 #include "native_models.h"
 #include "bozo/ops_fpu.h"
 #include <bit>
@@ -62,6 +63,13 @@ int main(int argc,char **argv){try{
         if(algorithm){put(rt,object+0x648,uint32_t(0x1b0000));put(rt,0x1b0034,uint32_t(0x1b0100));put(rt,0x1b0104,uint32_t(2));put(rt,0x1b004c,uint32_t(0x1c0000));
             auto a=identity,b=identity;a[12]=.1f;b[13]=.2f;put(rt,0x1c0040,a);put(rt,0x1c0080,b);}
         assets.discRead(0x140000,1,8);assets.begin(0x1f1000,0x140000,model,1);assets.finish(0x1f1000,true,0x1000);
+        // The disc mesh's own VIF codes at +100 (the rest of its RAM is NOPs here): row 0 = (0, 8, 0, 0) (vertices at row
+        // 8), STCYCL 4/1, one signed V2-16 unpack of the four UVs to rows 9, 13, 17, 21 (the pack's UVs).
+        {const uint32_t codes[11]={0x6c010000u,0,8,0,0,0x01000104u,0x65040009u,0x00000000u,0x00001000u,0x10000000u,0x10001000u};
+         for(unsigned k=0;k<11;++k)put(rt,model+0x60+0x100+4*k,codes[k]);
+         const uint8_t *disc=rt.memory.hostPointer(model+0x60,0x200);const auto uvs=vp2s::nativeMeshUvSources(disc,0x200,4);
+         for(unsigned k=0;k<4;++k)check(uvs[k].offset==0x11c+4*k && !uvs[k].unsignedLane);
+         rejects([&]{vp2s::nativeMeshUvSources(disc,0x200,5);});}   // a fifth vertex has no UV unpack
         std::shared_ptr<const bozo::render::Texture> unused;
         for(unsigned seed=0;seed<128;++seed){
             const float alpha=float(seed)/128;put(rt,object+0x30c,alpha);put(rt,object+0x230+16*38,std::array<float,4>{0,0,.125f,.25f});
@@ -70,8 +78,20 @@ int main(int argc,char **argv){try{
                 for(unsigned k=0;k<4;++k)put(rt,0x1d0060+0xc0+12*k,std::array<float,3>{(k&1)?.4f:-.4f,(k>>1)?.4f:-.4f,.5f});}
             else {const uint32_t nonModels[10]={0,0x3f7ffffeu,0x10003000u,0xffffffffu,0x01fffff0u,0x00100001u,0x80000000u,model,0x1e0000u,0x01ffff90u};
                 put(rt,object+0x630,nonModels[(seed/2)%10]);put(rt,0x1e0034,uint32_t(2));}
+            // Every other morph seed names the working copy's own mesh through the object's list (+77c, +7c2), as maps 264,
+            // 270, 271 and 535 do: the disc mesh at the same offset, its vertices read from the copy.
+            const bool listed=morph && seed%8==7;constexpr uint32_t list=0x1d8000,entry=0x1d8100;   // seed%8 == 7: clear of the seed%8 == 3 / 5 sections, which edit the disc block
+            put(rt,object+0x77c,listed?list:0u);put(rt,object+0x7c2,uint8_t(listed?1:0));put(rt,list+12,entry);put(rt,entry,uint32_t(0x1d0060));put(rt,entry+4,model+0xa0);
+            // Every other listed seed names the copy only through the second slot +634 (the copies are used in turn).
+            put(rt,object+0x634,0u);if(listed && seed%16==15){put(rt,object+0x634,uint32_t(0x1d0000));put(rt,object+0x630,uint32_t(0x01ffff90u));}
+            // The game animates the copy's UVs: (0.25 or 0.75, 0 or 0.5) here, read live.
+            if(listed)for(unsigned k=0;k<4;++k)put(rt,0x1d0060+0x11c+4*k,uint32_t((k&1)?0x0c00u:0x0400u)|uint32_t((k>>1)?0x0800u:0u)<<16);
+            if(listed){const auto saved=*reinterpret_cast<uint32_t *>(rt.memory.hostPointer(0x1d0060+0x10,4));put(rt,0x1d0060+0x10,saved^1u);
+                rejects([&]{models.capture(&rt,assets,textures,scene,object);});put(rt,0x1d0060+0x10,saved);}
             const auto before=std::vector<uint8_t>(rt.memory.flat(),rt.memory.flat()+bozo::kFlatBytes);
-            const auto result=models.capture(&rt,assets,textures,scene,object);check(result.batches.size()==1);
+            const auto result=[&]{try{return models.capture(&rt,assets,textures,scene,object);}
+                catch(const std::runtime_error &e){throw std::runtime_error(std::format("algorithm {} seed {}: {}",algorithm,seed,e.what()));}}();
+            check(result.batches.size()==1);
             const auto &batch=result.batches[0];check(batch.vertices.size()==6 && !batch.texture && !batch.material.textured && batch.material.directColour && batch.material.depthWrite);
             check(batch.matrix[0]==100 && batch.matrix[5]==100 && batch.matrix[12]==2048 && batch.matrix[13]==2048);
             const unsigned indices[6]={0,1,2,1,3,2};const float extent=morph?.4f:.5f;
@@ -79,7 +99,8 @@ int main(int argc,char **argv){try{
                 const float x=(k&1?extent:-extent)+(algorithm==2?.1f:algorithm==4?.025f:0);
                 const float y=(k>>1?extent:-extent)+(algorithm==4?.15f:0);
                 check(std::fabs(v.x-x)<1e-6f && std::fabs(v.y-y)<1e-6f && v.z==.5f);
-                check(v.u==float(k&1)+.125f && v.v==float(k>>1)+.25f);
+                if(listed)check(v.u==((k&1)?.75f:.25f)+.125f && v.v==((k>>1)?.5f:0.f)+.25f);
+                else check(v.u==float(k&1)+.125f && v.v==float(k>>1)+.25f);
                 check(v.rgba==((seed<<24)|0x402010));}
             check(!std::memcmp(before.data(),rt.memory.flat(),before.size()));
             put(rt,object+0x30c,0.f);check(batch.vertices[0].rgba==((seed<<24)|0x402010)); // immutable captured data
@@ -141,6 +162,7 @@ int main(int argc,char **argv){try{
             put(rt,current+0x40dc,uint8_t(0));rejects([&]{models.capture(&rt,assets,textures,scene,object);});put(rt,current+0x40dc,uint8_t(1));
             ++cases;
         }
+        put(rt,object+0x7c2,uint8_t(0));put(rt,object+0x77c,0u);put(rt,object+0x634,0u);
         {constexpr uint32_t empty=0x1e1000;std::vector<uint8_t> saved(rt.memory.flat()+object,rt.memory.flat()+object+0x800);
             std::memset(rt.memory.hostPointer(empty-0x10,0x70),0x7f,0x70);put(rt,empty-0x10,uint32_t(0x00535046));put(rt,empty+0x34,uint32_t(0));put(rt,object+0x7bc,empty);
             const auto provenance=[&]{assets.begin(0x1f2000,0x140000,empty-0x10,1);assets.finish(0x1f2000,true,0x70);};provenance();

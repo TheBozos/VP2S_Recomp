@@ -3,6 +3,7 @@
 #include "native_screen_zoom.h"
 #include "bozo/ee/dispatcher.h"
 #include "bozo/ops_fpu.h"
+#include <cstdio>
 #include <bit>
 #include <cstring>
 #include <format>
@@ -132,6 +133,8 @@ std::optional<bool> nativeScreenZoomInstruction(R5900Context *c,Runtime *rt,uint
     if(pc==0x374c04){
         // The flush call's delay slot, before its writer load: a0 = object, a1 = object+90.
         if((c->pc!=0x374be0 && c->pc!=0x374c00) || c->r[5].uw[0]!=c->r[4].uw[0]+0x90)throw std::runtime_error("native screen zoom requires its complete draw method");
+        if(std::getenv("VP2S_BOZO_TRACE_QUEUES")){const auto o=c->r[4].uw[0],w=value<uint32_t>(rt,o+0x94);   // diagnostic: each zoom draw and its writer
+            std::fprintf(stderr,"[vp2s:zoom] draw %x writer %x begin %x end %x +63 %u\n",o,w,w?value<uint32_t>(rt,w+12):0u,w?value<uint32_t>(rt,w+8):0u,unsigned(value<uint8_t>(rt,o+0x63)));}
         if(const auto zoom=zooms.begin(rt,sp,c->r[4].uw[0])){
             try{owner->drawNativeScreenZoom(*zoom);}catch(...){zooms.cancel(sp);throw;}
         }

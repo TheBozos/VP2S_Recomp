@@ -906,7 +906,7 @@ NativeModelSubmission NativeModels::capture(Runtime *rt,NativeAssets &assets,Nat
                 const auto st=screenTexture(n,p,m.screen,{screenRows[0][0],screenRows[0][1]},{screenRows[1][0],screenRows[1][1]},guard);
                 vout.u=float(st[0])/4096;vout.v=float(st[1])/4096;}
             const auto factor=lightFactor(p,n);
-            for(unsigned c=0;c<4;++c)if(!std::isfinite(factor[c]))throw std::runtime_error(std::format("nonfinite native model light factor {} {} {} {} (mode {}, point lights {}, spots {}, normal {} {} {}, position {} {} {})",factor[0],factor[1],factor[2],factor[3],material[4],pointLights,spots.size(),n[0],n[1],n[2],p[0],p[1],p[2]));
+            for(unsigned c=0;c<4;++c)if(!std::isfinite(factor[c]))throw std::runtime_error(std::format("nonfinite native model light factor {} {} {} {} (mode {}, point lights {}, spots {}, normal {} {} {}, position {} {} {}; vertex {} of mesh {:x}, routines {}.{}.{}.{}, palette {:x}, editable {}, source {:x})",factor[0],factor[1],factor[2],factor[3],material[4],pointLights,spots.size(),n[0],n[1],n[2],p[0],p[1],p[2],k,mesh,m.algorithms[0],m.algorithms[1],m.algorithms[2],m.algorithms[3],palette,editable,source));
             vout.rgba=0;for(unsigned c=0;c<4;++c){finite(factor[c]);const auto lit=uint32_t(std::clamp((c==3?alphaRow:float(v.colour[c]))*factor[c],0.0f,limit[c]>0?std::min(limit[c],255.0f):255.0f));vout.rgba|=lit<<(8*c);}
             {const float lanes[6]={vout.x,vout.y,vout.z,vout.u,vout.v,vout.fog};
              for(unsigned i=0;i<6;++i)if(!std::isfinite(lanes[i])){std::string order;for(const auto r:m.algorithms)order+=std::format(" {}",int(r));

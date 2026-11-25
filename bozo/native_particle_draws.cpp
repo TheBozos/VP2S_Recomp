@@ -70,13 +70,14 @@ NativeModelSubmission NativeParticleDraws::capture(Runtime *rt,NativeAssets &ass
     if(plain){
         const auto block=value<uint32_t>(owner,0x624);if(!block)throw std::runtime_error("native particle draw has no GS row block (+624)");
         auto *rows=record(rt,block,0x100);
-        // Battle 0x1c: tag 0x2036400000008000 / 0x41 (PRE, PRIM 0x6c: Gouraud strip, FGE, ABE, context 1; RGBAQ, XYZF2).
+        // Battle 0x1c: tag 0x2036400000008000 / 0x41 (PRE, PRIM 0x6c: Gouraud strip, FGE, ABE, context 1; RGBAQ, XYZF2);
+        // map 559 (story-gated arrival): 0x20264000, PRIM 0x4c without FGE: the GS never fogs it (its fog variant still runs).
         // The strip's F is 0xff (no fog); the program writes the tag's NLOOP / EOP itself.
         const auto tagHigh=value<uint32_t>(rows,0x74);
         // Line strips: 0x20254000 (PRIM 0x4a) or with FGE 0x20354000 (PRIM 0x6a; field maps 62, 288 with the fog variant), or
         // with FGE and without ABE 0x20154000 (PRIM 0x2a; field maps 46, 48): written opaque, as the points without ABE.
         const bool tagKnown=points?(tagHigh==0x20304000u || tagHigh==0x20204000u || tagHigh==0x20104000u):
-                            lineStrips?(tagHigh==0x20254000u || tagHigh==0x20354000u || tagHigh==0x20154000u):tagHigh==0x20364000u;
+                            lineStrips?(tagHigh==0x20254000u || tagHigh==0x20354000u || tagHigh==0x20154000u):(tagHigh==0x20364000u || tagHigh==0x20264000u);
         if(value<uint32_t>(rows,0xc)!=0x6c0f0060 || value<uint32_t>(rows,0x28)!=0x42 || !tagKnown || value<uint64_t>(rows,0x78)!=0x41)
             throw std::runtime_error(std::format("unported native particle image 3/5 GS state (ALPHA reg {:x}, tag {:08x}:{:x})",value<uint32_t>(rows,0x28),value<uint32_t>(rows,0x74),value<uint64_t>(rows,0x78)));
         const auto alpha=value<uint64_t>(rows,0x20);
@@ -226,7 +227,8 @@ NativeModelSubmission NativeParticleDraws::capture(Runtime *rt,NativeAssets &ass
         // the middle points' ADDi.w 2048 only adds the ADC bit 0x8000 to the w word). With screen w independent of x / y
         // (checked below) both vertices have that w. Its guard transforms finish before the fog's ACC.w write.
         if(value<uint32_t>(owner,0x32c)){
-            fogged=true;mat.fog=true;mat.fogColour=camera->clearColour;for(float f:camera->fog)number(f);}
+            fogged=true;mat.fog=!plain || ((value<uint32_t>(record(rt,value<uint32_t>(owner,0x624),0x100),0x74)>>20)&1);
+            mat.fogColour=camera->clearColour;for(float f:camera->fog)number(f);}
         // Image 7 divides a point's second vertex by the first one's Q (0b58, 0d08, 0ea8):
         // that equals a per-vertex projection only while the screen w row ignores x and y.
         if(!plain && (camera->screen[12]!=0 || camera->screen[13]!=0))throw std::runtime_error("unported native particle ribbon projection (screen w depends on x/y)");

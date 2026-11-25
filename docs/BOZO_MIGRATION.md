@@ -12,6 +12,31 @@ The earlier VP2S face/shading and general brightness comparisons remain open.
 
 ## Build and evidence
 
+### Second-level story gates, the ribbon tag without FGE, map 482 (2026-11-25)
+
+- **Gate semantics:**
+  - The common script's gate is: push 0xffff, op 4b flag, push C, op 81 8, op 81 0x11, op 0d past the block. A trace
+    shows it passes when the flag differs from C.
+  - So a map's arrival wants each flag set where C = 0 and clear where C = 1. Setting every flag found closes some
+    paths (map 559 has two arrival paths with opposite needs).
+- **Map results:**
+  - Second-level gates 0x25de / 0x25df open 483, 529, 534 (now visible).
+  - 559 opens with 0x2679 and 0x25de set and 0x25df clear.
+  - 484 now stops at model lighting mode 2 with point / spot lights (not ported: the mode-2 VU1 program's point-light
+    path).
+- **Ribbon tag without FGE (map 559):** a mode-2 ribbon block with tag 0x20264000 (PRIM 0x4c: Gouraud strip and ABE,
+  no FGE) is admitted. Its fog variant still runs (F, image 5's guard quirk) but the material is not fogged.
+  - Test: ribbon rounds with that tag, material unfogged, vertices equal to image 5's words.
+- **Map 482 (forced story flags), classed as a warp artefact (as 32 / 47):**
+  - Hair chain owner a45040 (class 163e10, 17 nodes) has two world-space nodes (15 and 16, byte 0 = 0) tied to the
+    same joint a53ba0.
+  - Each writes the joint's local offset from its own position and then takes its world position back. The two fight
+    and the chain diverges to +-max.
+  - The chain and its node table come from the game's own mod003 code (constructor near 3f3104), with no native
+    code involved.
+- **Atlas:** 549 + 4 clean (483, 529, 534, 559), 3 warp-only (32, 47, 482), 484 open.
+- **Regression:** ctest 99/99; regress4 unchanged.
+
 ### Procedural mesh class 152b40: the second builder 247af0 (2026-11-25)
 
 - **The case (map 558, story-gated arrival):** class 152b40's mesh method +60 (2022a0) calls the header 247f90, the

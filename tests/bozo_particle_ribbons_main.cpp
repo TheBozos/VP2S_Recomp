@@ -156,6 +156,7 @@ struct Case {unsigned groups[4],perChunk,chunks;bool lit,coincide,tilt,ambient=f
 bool plain=false;   // image 5 (mode 2) instead of image 7 (mode 4)
 bool dots=false;    // with plain: image 3 (mode 0), GS points
 bool dotsNoFge=false;
+bool ribbonNoFge=false;   // image 5 with the strip tag without FGE (0x20264000, PRIM 0x4c: map 559)
 bool dotsNoAbe=false;   // with dots: the tag without ABE (0x20104000, PRIM 0x20: field maps 182-188)
 bool negatives=false;     // point colours from -80 up (lit and unlit): the VU1 images' own clamp / byte wrap
 bool stripsNoAbe=false;   // with strips: FGE without ABE (0x20154000, PRIM 0x2a: field maps 46, 48)
@@ -184,7 +185,7 @@ void initialize(Runtime &rt,vp2s::NativeScene &scene,vp2s::NativeAssets &assets,
     put(rt,object+0x624,block);put(rt,block+0xc,uint32_t(0x6c0f0060));put(rt,block+0x24,uint32_t(c.ambient?0x40:0));put(rt,block+0x54,.5f);
     // Image 5's GS state (battle 0x1c's block): row 97 ALPHA_1 = 0x44 (normal alpha), row 102 the Gouraud strip tag.
     put(rt,block+0x20,uint32_t(0x44));put(rt,block+0x28,uint32_t(0x42));put(rt,block+0x10,uint32_t(0x8004));put(rt,block+0x14,uint32_t(0x10000000));
-    put(rt,block+0x18,uint32_t(0xeeeeeeee));put(rt,block+0x70,uint32_t(0x8000));put(rt,block+0x74,uint32_t(strips?(stripsNoAbe?0x20154000:stripsFge?0x20354000:0x20254000):dots?(dotsNoAbe?0x20104000:dotsNoFge?0x20204000:0x20304000):0x20364000));put(rt,block+0x78,uint64_t(0x41));
+    put(rt,block+0x18,uint32_t(0xeeeeeeee));put(rt,block+0x70,uint32_t(0x8000));put(rt,block+0x74,uint32_t(strips?(stripsNoAbe?0x20154000:stripsFge?0x20354000:0x20254000):dots?(dotsNoAbe?0x20104000:dotsNoFge?0x20204000:0x20304000):ribbonNoFge?0x20264000:0x20364000));put(rt,block+0x78,uint64_t(0x41));
     if(c.ambient){put(rt,object+0x230+16*5,std::array<float,4>{.25f,.5f,.125f,0});put(rt,object+0x230+16*6,std::array<float,4>{.25f,.25f,.25f,0});
         put(rt,object+0x230+16*8,std::array<float,4>{-.01f,-.06f,-.002f,0});put(rt,object+0x230+16*19,std::array<float,4>{.85f,.64f,.47f,1});}
     if(c.lights){put(rt,object+0x31c,uint32_t(2));put(rt,object+0x314,uint32_t(1));
@@ -237,7 +238,7 @@ Strip oracle(const std::vector<uint8_t> &code,Runtime &rt,const vp2s::NativeCame
     if(std::getenv("RIBBON_COLOURS"))for(unsigned i=0;i<count;++i){float in[4],out[4];std::memcpy(in,rt.memory.hostPointer(chunk+0x30+48*i,16),16);std::memcpy(out,&vu.row(0x101+3*i+1),16);
         std::fprintf(stderr,"point %u colour %g %g %g %g -> %g %g %g %g\n",i,in[0],in[1],in[2],in[3],out[0],out[1],out[2],out[3]);}
     if(plain){   // image 5: the tag at the kick, then RGBAQ and XYZF2 per vertex (the RGBAQ in the first four words)
-        const auto tag=vu.row(0x1a0);check(tag.u[0]==0x8000+2*count && tag.u[1]==0x20364000u && tag.u[2]==0x41);
+        const auto tag=vu.row(0x1a0);check(tag.u[0]==0x8000+2*count && tag.u[1]==(ribbonNoFge?0x20264000u:0x20364000u) && tag.u[2]==0x41);
         Strip s;for(unsigned v=0;v<2*count;++v){std::array<uint32_t,12> out{};std::memcpy(out.data()+4,&vu.row(0x1a1+2*v),16);std::memcpy(out.data()+8,&vu.row(0x1a2+2*v),16);
             out[2]=0x3f800000;s.vertices.push_back(out);}
         return s;}
@@ -252,14 +253,14 @@ int main(int argc,char **argv){try{
     auto images=std::array{image(argv[2],7),image(argv[2],5),image(argv[2],3),image(argv[2],4)};
     for(auto &code:images){check(code.size()>=0x4000);for(uint32_t at:{0x3ff0u,0x3ff8u}){const uint32_t lower=0x8000033c,upper=at==0x3ff0?0x400002ffu:0x000002ffu;
         std::memcpy(code.data()+at,&lower,4);std::memcpy(code.data()+at+4,&upper,4);}}
-    unsigned plainCases=0,fogSeen=0,fogSeven=0;
+    unsigned plainCases=0,fogSeen=0,fogSeven=0,ribbonNoFgeCases=0;
     Runtime rt;vp2s::NativeScene scene;vp2s::NativeAssets assets;vp2s::NativeParticles particles;vp2s::NativeParticleDraws draws(dir);vp2s::NativeTextures textures(dir,dir/"manifest.txt");
     std::mt19937 random(0x7a11);unsigned cases=0,triangles=0,culled=0;
     const Case table[]={{{2},1,1,false,false,false},{{3},2,1,false,false,false},{{5},3,1,true,false,false},{{2,4,6},2,3,false,false,false},
         {{22},1,1,false,true,false},{{8,3},2,2,true,true,false},{{16},3,1,false,false,false},{{48},1,1,true,false,false},{{4},12,1,false,false,false},
         {{5},3,1,false,false,false,true},{{6},2,1,true,false,false,true},{{4},3,1,false,false,false,false,1},{{7},2,1,true,false,false,true,1},{{3},4,1,false,false,false,true,2}};
     for(const bool five:{false,true})for(unsigned round=0;round<8;++round)for(const auto &c:table){
-        plain=five;fogged=round&1;negatives=round>=6;const auto &code=images[five];plainCases+=five;
+        plain=five;fogged=round&1;ribbonNoFge=five && (round==3 || round==5);ribbonNoFgeCases+=ribbonNoFge && fogged;negatives=round>=6;const auto &code=images[five];plainCases+=five;
         initialize(rt,scene,assets,c,random);const auto cam=scene.drawingCamera();check(bool(cam));
         const auto result=draws.capture(&rt,assets,textures,scene,particles,object);check(result.batches.size()<=1);
         // Expected: per chunk, the GS strip: vertex j (j >= 2) completes (j-2, j-1, j) unless ADC.
@@ -273,7 +274,7 @@ int main(int argc,char **argv){try{
         if(got.size()!=expect.size())throw std::runtime_error(std::format("case {}: {} native vertices, oracle {}",cases,got.size(),expect.size()));
         if(!result.batches.empty()){const auto &b=result.batches[0];
             if(plain)check(!b.material.textured && b.material.blendA==0 && b.material.blendB==1 && b.material.blendC==0 && b.material.blendD==1 &&
-                b.material.fog==fogged && (!fogged || b.material.fogColour==0x203040));
+                b.material.fog==(fogged && !ribbonNoFge) && (!fogged || b.material.fogColour==0x203040));
             else check(b.material.blendA==0 && b.material.blendB==2 && b.material.blendD==1 && b.material.fog==fogged && (!fogged || b.material.fogColour==0x203040));}
         for(unsigned n=0;n<got.size();++n){const auto &v=got[n];const auto &o=expect[n];const auto &m=result.batches[0].matrix;
             float clip[4];for(unsigned r=0;r<4;++r)clip[r]=m[r]*v.x+m[4+r]*v.y+m[8+r]*v.z+m[12+r];
@@ -289,7 +290,7 @@ int main(int argc,char **argv){try{
     negatives=false;check(triangles>500 && culled>50);
     // Refusals: lighting pass 1c78 (row 14.w = 2 with 14.z), a screen w row with an x term, a ribbon of one point, a
     // ribbon kind outside the template (image 7's fog variant is drawn: its fogged rounds above).
-    check(fogSeen>100 && fogSeven>50);
+    check(fogSeen>100 && fogSeven>50 && ribbonNoFgeCases>10);ribbonNoFge=false;
     // Image 3 (mode 0): one GS point per particle, drawn as a GS pixel; positions, colours, fog and ADC against its words.
     unsigned dotCases=0,dotsDrawn=0,dotsCulled=0,dotsFogged=0;dots=plain=true;
     unsigned laterChunkFirsts=0;

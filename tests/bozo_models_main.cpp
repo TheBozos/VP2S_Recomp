@@ -134,8 +134,21 @@ int main(int argc,char **argv){try{
                     put(rt,block+0x3c,int32_t(2));check(lit()==0x442010u);          // (16, 32, 64) x (1.03125, 1.015625, 1.0625)
                     put(rt,block+0x3c,int32_t(0));check(lit()==0x402010u);          // .5 squared away to 0
                     put(rt,object+0x230+16*1,std::array<float,4>{0,0,1,0});check(lit()==0x802818u);   // 1 stays 1: factor (1.5, 1.25, 2)
-                    put(rt,object+0x230+16*1,std::array<float,4>{});put(rt,object+0x230+16*5,std::array<float,4>{});put(rt,block+0x3c,int32_t(0));}
-                put(rt,object+0x318,uint32_t(2));rejects([&]{models.capture(&rt,assets,textures,scene,object);});put(rt,object+0x318,uint32_t(0));
+                    put(rt,object+0x230+16*1,std::array<float,4>{});put(rt,object+0x230+16*5,std::array<float,4>{});
+                    // Mode 2's spot light (table C, VU1 36a8): (max(0, u . n)^(2^power) * strength) * cone, colour (.5, .25, 1),
+                    // direction +z, cone offset 0 / scale 1 / strength 1. Straight above vertex 0: u . n = 1, strength .5,
+                    // cone 1 -> factor 1 + colour / 2. Offset by 2 in x: u . n = .7071 -> .25, strength 1 / 2.828, cone .5 -> lit
+                    // .0442 (modes 0 / 1 would give .125).
+                    put(rt,object+0x318,uint32_t(1));put(rt,block+0x3c,int32_t(2));
+                    put(rt,object+0x230+16*30,std::array<float,4>{0,0,1,0});put(rt,object+0x230+16*32,std::array<float,4>{.5f,.25f,1,0});
+                    put(rt,object+0x230+16*34,std::array<float,4>{0,1,1,0});
+                    put(rt,object+0x230+16*28,std::array<float,4>{-extent,-extent,2.5f,1});check(lit()==0x602414u);
+                    put(rt,object+0x230+16*28,std::array<float,4>{-extent+2,-extent,2.5f,1});check(lit()==0x422010u);
+                    for(unsigned r:{28u,30u,32u,34u})put(rt,object+0x230+16*r,std::array<float,4>{});
+                    put(rt,object+0x318,uint32_t(0));put(rt,block+0x3c,int32_t(0));}
+                // Spot lights (table C, two of them) in mode 2: with no colour they add nothing.
+                put(rt,object+0x318,uint32_t(2));{const auto lit=models.capture(&rt,assets,textures,scene,object);check(lit.batches.size()==1 && lit.batches[0].vertices[0].rgba==0x402010u);}
+                put(rt,object+0x318,uint32_t(0));
                 put(rt,object+0x31c,uint32_t(0));
                 // Mode 0 keeps the object colour (row 13) with plain clear and no table A
                 // (VU1 2b68: colour * mem[13], min mem[0]), with plain set, and with table A.

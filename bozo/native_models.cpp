@@ -859,12 +859,10 @@ NativeModelSubmission NativeModels::capture(Runtime *rt,NativeAssets &assets,Nat
                     for(const unsigned l:{0u,3u,1u,2u})factor[c]=vuSaturate(factor[c]+vuSaturate(colours[l][c]*specular[l]));}}
             if(pointLights || !spots.empty()){
                 int32_t power=0;std::array<float,4> weights{};
-                if(material[4]==3 || pointLights){if(!block)throw std::runtime_error("native point/spot lights without a mesh block");
+                if(material[4]==3 || material[4]==2 || pointLights){if(!block)throw std::runtime_error("native point/spot lights without a mesh block");
                     power=value<int32_t>(rt,block+0x3c);if(power<0 || power>16)throw std::runtime_error("native light power outside bounds");}
                 if(material[4]==3){if(power<=0)throw std::runtime_error("unported native point/spot light with specular power 0");weights=value<std::array<float,4>>(rt,block+0x50);}
-                // Table B (point lights, routine 0x3150) serves modes 0-2 alike; table C's spot lights in mode 2 are not decoded.
-                else if(material[4]!=0 && material[4]!=1 && !(material[4]==2 && spots.empty()))
-                    throw std::runtime_error(std::format("unported native point/spot lights in mode {} ({} spots)",material[4],spots.size()));
+                // Table B (point lights, routine 0x3150) serves modes 0-2 alike; table C has its own mode-2 routine (below).
                 if(pointLights && material[4]==3){
                     // Mode 3's table B (code image 02a71b3e, routine 0x3350, pipelined one vertex
                     // behind): per light d = L - p scaled by S / |d|^2 (DIV, then MULQ); diffuse
@@ -886,6 +884,14 @@ NativeModelSubmission NativeModels::capture(Runtime *rt,NativeAssets &assets,Nat
                     const float dl=std::sqrt(dot(d,d)),inverse=dl!=0?1/dl:0;std::array<float,3> unit{d[0]*inverse,d[1]*inverse,d[2]*inverse};
                     const float cosine=dot(l.direction,unit),cone=cosine>0?std::clamp((cosine*cosine-l.cone[0])*l.cone[1],0.0f,1.0f):0.0f;
                     const float strength=l.cone[2]*inverse;float diffuse=std::max(0.0f,(unit[0]*n[0]+unit[1]*n[1]+unit[2]*n[2])*strength*cone);
+                    if(material[4]==2){
+                        // Mode 2's spot routine (table C entry +4: 36a8, beside modes 0 / 1's 3580): the raw dot max(0, u . n)
+                        // squared header 9.w times (the 3728 loop, 0 = 65536), then times the strength (3750) and the cone (3788).
+                        float d=std::max(0.0f,(unit[0]*n[0]+unit[1]*n[1])+unit[2]*n[2]);
+                        const uint32_t raw=uint32_t(power)&0xffffu,squarings=raw?raw:65536u;
+                        for(uint32_t r=0;r<squarings;++r){const float next=vuSaturate(d*d);if(next==d)break;d=next;}
+                        const float lit=vuSaturate(vuSaturate(d*strength)*cone);
+                        for(unsigned c=0;c<3;++c)factor[c]=vuSaturate(l.colour[c]*lit+factor[c]);continue;}
                     if(material[4]!=3){for(unsigned c=0;c<3;++c)factor[c]+=l.colour[c]*diffuse;continue;}
                     const float el=std::sqrt(dot(e,e)),q=el!=0?1/el:std::numeric_limits<float>::max();
                     std::array<float,3> half{};for(unsigned c=0;c<3;++c)half[c]=(e[c]*q+unit[c])*weights[2];

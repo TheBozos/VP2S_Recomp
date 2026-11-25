@@ -12,6 +12,28 @@ The earlier VP2S face/shading and general brightness comparisons remain open.
 
 ## Build and evidence
 
+### Spot lights in model lighting mode 2 (2026-11-26)
+
+- **Dispatch:** table C (spot lights, 0x55a in image 02a71b3e) gives each mode two pairs:
+  - modes 0 and 1: 2ad0 / 2ae0 -> 3580;
+  - mode 2: 2af0 -> 36a8;
+  - mode 3: 2b00 -> 37d0.
+  Table B (point lights, 0x552) sends modes 0-2 to 3200 and mode 3 to 3350, as decoded before.
+- **Mode 2's routine 36a8** keeps 3580's unit vector u to the light (ERLENG), its cosine and its cone factor
+  clamp((cos^2 - cone.x) cone.y, 0, 1), which is 0 when cos <= 0 (FMAND).
+  - Its dot is the raw max(0, u . n) (3708), squared header 9.w times (the 3728 loop; 0 runs 65536).
+  - It is then multiplied by the strength cone.z / |d| (3750) and by the cone factor (3788), and the factor gains
+    colour times that.
+  - Modes 0 / 1 instead take max(0, u . (n strength) cone) with no power.
+- **Confidence:** the routine is software-pipelined. The per-vertex reading follows 3580's, which the HLE check
+  validated on recorded runs. No recorded run has a mode-2 spot light, so this one is not checked against the
+  microcode itself.
+- **Native:** the spot loop has a mode-2 branch (with VU saturation), the light power is read in mode 2, and the
+  mode-2 spot refusal is removed.
+- **Test:** bozo_models_main checks a light above vertex 0 (unit dot: 0x602414) and one offset by 2 in x (dot .7071 ->
+  .25: 0x422010; modes 0 / 1 would give 0x482010). Two spot lights with no colour add nothing.
+- **Regression:** ctest 99/99; regress4 unchanged.
+
 ### Model lighting mode 2 (2026-11-26)
 
 - **The case:** map 484 (story-gated arrival) stopped at "point/spot lights in mode 2". Mode 2 itself was never

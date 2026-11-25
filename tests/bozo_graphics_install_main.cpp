@@ -470,5 +470,46 @@ int main(){try{
         auto invalid=planes;invalid.normals[6]=_mm_setr_ps(std::numeric_limits<float>::quiet_NaN(),0,0,0);bad=false;
         try{vp2s::sphereAngleVisibility(invalid,_mm_setr_ps(0,0,4,1));}catch(const std::runtime_error &){bad=true;}check(bad);
     }
+    {   // Frame switches (native_scene.cpp): 153880's offscreen target and 1537e0's return to the main frame.
+        auto &r=native.runtime();auto *ram=r.memory.flat();
+        const auto q=[&](uint32_t at,uint64_t v){std::memcpy(ram+at,&v,8);};const auto w=[&](uint32_t at,uint32_t v){std::memcpy(ram+at,&v,4);};
+        constexpr uint32_t scene=0x5a1210,object=0x5a69f0,source=0x69f080,main=0x5a99f0;
+        w(0x35ddf8,scene);w(0x35de60,source);w(source+0x1e0,0x800c6);const int16_t size[2]={512,512};std::memcpy(ram+source+0x3c6c,size,4);
+        // Target 1: 256 x 256 CT16 at FBP 1d7 (Z16 at 198), cleared to 0 by four 64-pixel columns, inset 1..254.
+        w(object,0x153880);w(object+0x10,scene);ram[object+0x68]=1;
+        const uint32_t ref=scene+0xe320,clear=scene+0xc320;
+        q(object+0xe0,uint64_t(ref)<<32|0x30000006u);q(object+0xf0,uint64_t(clear)<<32|0x10u);
+        const uint64_t head[4]={0x0000000011000000ull,0x5100000500000000ull,0x1000000000008004ull,0xe};for(unsigned i=0;i<4;++i)q(ref+8*i,head[i]);
+        const uint64_t regs[8]={0x020401d7,0x4c,0x32000198,0x4e,uint64_t(1920*16)|uint64_t(1920*16)<<32,0x18,0xff0000ull|0xffull<<48,0x40};
+        for(unsigned i=0;i<8;++i)q(ref+0x20+8*i,regs[i]);
+        q(clear,0);q(clear+8,0x5100000f11000000ull);q(clear+16,0x100000000000800eull);q(clear+24,0xe);
+        const auto pair=[&](unsigned i,uint64_t data,uint64_t reg){q(clear+32+16*i,data);q(clear+40+16*i,reg);};
+        pair(0,0x30000,0x47);pair(1,0,0x4a);pair(2,6,0);pair(3,0x11223344,1);
+        for(unsigned c=0;c<4;++c){pair(4+2*c,uint64_t((1920+64*c)*16)|uint64_t(1920*16)<<16|7ull<<32,5);pair(5+2*c,uint64_t((1984+64*c)*16)|uint64_t(2176*16)<<16|7ull<<32,5);}
+        pair(12,0x50000,0x47);pair(13,0x1ull|0xfeull<<16|1ull<<32|0xfeull<<48,0x40);
+        const auto t=vp2s::nativeOffscreenTarget(&r,object);
+        check(t.width==256 && t.height==256 && t.block()==0x3ae0 && t.bufferWidth()==4 && t.format()==2 && t.clearColour==0x11223344 && t.clearDepth==7 &&
+              t.clip==std::array<int32_t,4>{1,1,0xfe,0xfe});
+        const auto rejects=[&](uint32_t at,uint64_t bad){uint64_t good;std::memcpy(&good,ram+at,8);q(at,bad);bool thrown=false;
+            try{vp2s::nativeOffscreenTarget(&r,object);}catch(const std::runtime_error &){thrown=true;}check(thrown);q(at,good);};
+        rejects(ref+0x40,uint64_t(1792*16)|uint64_t(1792*16)<<32);              // XYOFFSET not centred on the target
+        rejects(clear+32+16*6,uint64_t(1990*16)|uint64_t(1920*16)<<16|7ull<<32); // a gap between the clear's columns
+        rejects(clear+32+16*5,uint64_t(1984*16)|uint64_t(2176*16)<<16|8ull<<32); // another Z in the clear
+        rejects(ref+0x20,0x020401d7ull|1ull<<32);                                 // a FRAME mask
+        rejects(object+0xf0,uint64_t(clear+0x100)<<32|0x10u);                    // another target's clear
+        // 1537e0: the main frame (source +1e0, 512 x 512, XYOFFSET 1792), then TEXFLUSH.
+        w(main,0x1537e0);const uint32_t back=0x5b0130;q(main+0xe0,uint64_t(back)<<32|0x30000006u);for(unsigned i=0;i<4;++i)q(back+8*i,head[i]);
+        const uint64_t mainRegs[8]={0x800c6,0x4c,0x01000000,0x4e,uint64_t(1792*16)|uint64_t(1792*16)<<32,0x18,0x1ff0000ull|0x1ffull<<48,0x40};
+        for(unsigned i=0;i<8;++i)q(back+0x20+8*i,mainRegs[i]);
+        const uint64_t tail[9]={0x10000003,0,0,0x5100000200000000ull,0x1000000000008001ull,0xe,0,0x3f,0x70000000};for(unsigned i=0;i<9;++i)q(main+0xf0+8*i,tail[i]);
+        check(vp2s::nativeFrameSwitchSelectsMain(&r,main,source));
+        q(back+0x20,0x800c7);check(!vp2s::nativeFrameSwitchSelectsMain(&r,main,source));q(back+0x20,0x800c6);   // another frame
+        q(main+0x118,0x3e);check(!vp2s::nativeFrameSwitchSelectsMain(&r,main,source));q(main+0x118,0x3f);      // not TEXFLUSH
+        // Scene state: the target's block keeps its last draw; a second selection without the return fails.
+        vp2s::NativeScene state;auto image=t;image.image=9;state.beginOffscreen(image);
+        check(state.offscreenTarget() && state.targetTexture(0x3ae0) && state.targetTexture(0x3ae0)->image==9 && !state.targetTexture(0x3560));
+        bool twice=false;try{state.beginOffscreen(image);}catch(const std::runtime_error &){twice=true;}check(twice);
+        state.endOffscreen();check(!state.offscreenTarget() && state.targetTexture(0x3ae0));
+    }
     std::printf("704 graphics cases,%u sphere geometry,%u angle geometry,256 complete CPU/RAM consumers (%u angle branches): immutable typed classification, no VU state\n",sphereCases,angleCases,angled);return 0;
 }catch(const std::exception &e){std::fprintf(stderr,"%s\n",e.what());return 1;}}

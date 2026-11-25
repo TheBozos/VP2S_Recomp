@@ -928,6 +928,10 @@ def overlay_adaptations(name,data):
         (0x2088d0,0x208900,'3c660370520146baad6bedd158b3039156ae25383c9800729cb3dbc2905f9978'),
         (0x208870,0x2088c0,'fbb3c497f42aeff52417da1a45846ac4bf98fdc8672b658f606d0bf1880408d4'),
         (0x21c9a0,0x21ca50,'70968fdcfc854775bb720d5a3059caae2c7bd6f5b7ecfda8be9750aab68f0ef6'),
+        # Frame switch 1537e0: start 21d820, completion 21d860, enqueue 21d880 (patched, native site 21d8a0).
+        # Frame switch 153880: start 21dab0, completion 21daf0, enqueue 21db10 (patched, native site 21db30).
+        (0x21dab0,0x21db40,'6d74ecdec9cba32ea0513ade070ba37a14581fc3865bed98b1d66550d632c228'),
+        (0x21d820,0x21d8b0,'6d74ecdec9cba32ea0513ade070ba37a14581fc3865bed98b1d66550d632c228'),
         (0x2cb470,0x2cb4a0,'d75aad57b1cf26127f35bdf8a0eec8259d79c6b1cb8cbbabe269467dac4546ef'),
         (0x2cb400,0x2cb450,'d5a82a827e14f659ff760bf50123311b26c433680f853e9caa6ba6ccbccaaada'),
         (0x2cb640,0x2cb8d0,'9707a3c9db31f1d7e805ec29ccb2ce31bd6922b8dc52da460a8ce41b381919da'),
@@ -984,6 +988,16 @@ def overlay_adaptations(name,data):
             # 201f20, the delay slot keeping a0 = object (21c9a0 clears +64 as the start's 1 would be).
             '0023508c 0c0807c8 0c08d414\n'
             '00235090 8c24dde0 00000000\n'
+            # Frame switch 1537e0 (re-selects the main frame; its start 21d820 kicks that chain on VIF1): its enqueue
+            # 21d880 calls the job's completion 21d860(object) instead of 201f20, a0 = object kept in the delay slot;
+            # native site 21d8a0 checks the chain selects the main frame (native_scene.cpp nativeFrameSwitchInstruction).
+            '0021d89c 0c0807c8 0c087618\n'
+            '0021d8a0 8c24dde0 0080202d\n'
+            # Frame switch 153880 (an offscreen target: its start 21dab0 kicks the REF / REFE chain that sets FRAME, ZBUF,
+            # XYOFFSET, SCISSOR and clears it): its enqueue 21db10 calls the completion 21daf0(object) the same way; native
+            # site 21db30 selects the engine image for the draws until 1537e0 (native_scene.cpp nativeOffscreenTarget).
+            '0021db2c 0c0807c8 0c0876bc\n'
+            '0021db30 8c24dde0 0080202d\n'
             # Lens flare 155b50: its draw's enqueue 255b4c calls the job's completion 255b10(object) instead of the VIF1
             # queue (whose start 255ad0 kicks the built packet), a0 = a1 - 210 in the delay slot; native site 255b4c draws
             # (its delay slot 255b50) the triangles its build recorded (bozo/native_flare.cpp).
@@ -1243,6 +1257,7 @@ def overlay_native_sites(name,data):
         0x255b60,0x2550d0,0x2549a0,0x253770,0x256408,0x255b50,
         # Occlusion pass close (bozo/native_occlusion.cpp): 220294, reached after the occluder test loop or its skip.
         0x220294,
+        0x21d8a0,0x21db30,
         # Chain push initialisation (native_math.cpp nativeChainPushInstruction): 1fd114, after 1fd110's frame allocation.
         0x1fd114,
         # Lost Forest haze enqueue 2e0b90, scene scissor 2b5b50, camera job resubmission 2085c4.

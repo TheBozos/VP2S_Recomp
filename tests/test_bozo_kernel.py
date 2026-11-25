@@ -546,6 +546,8 @@ class KernelGuardTests(unittest.TestCase):
             '00308c4c 0c0807c8 0c0c2304','00308c50 8c24dde0 24a4ff70',
             # Screen effect 1545f0: its enqueue 235070 enters the job's completion (draw skipped).
             '0023508c 0c0807c8 0c08d414','00235090 8c24dde0 00000000',
+            '0021d89c 0c0807c8 0c087618','0021d8a0 8c24dde0 0080202d',  # frame switch 1537e0: enqueue -> completion 21d860
+            '0021db2c 0c0807c8 0c0876bc','0021db30 8c24dde0 0080202d',  # offscreen switch 153880: enqueue -> completion 21daf0
             '00255b4c 0c0807c8 0c0956c4','00255b50 8c24dde0 24a4fdf0',  # lens flare: enqueue -> completion 255b10
             '00307190 0c0483ac 0c0c1c4c','00307194 8c840094 00000000',
             '0030a050 0c0c1e34 00000000','0030a060 fc220090 00000000','0030a0f0 0c048330 00000000',
@@ -614,6 +616,7 @@ class KernelGuardTests(unittest.TestCase):
         0x2d9360,0x2cd020,0x2d18a0,0x2da980,0x2d9350,0x2da9b0,
         0x255b60,0x2550d0,0x2549a0,0x253770,0x256408,0x255b50,   # lens flare (native_flare.cpp)
         0x220294,   # occlusion pass close (native_occlusion.cpp)
+        0x21d8a0,0x21db30,   # frame switches 1537e0 / 153880 (native_scene.cpp)
         0x1fd114,   # chain push initialisation (native_math.cpp)
         0x2e0b90,0x2b5b50,0x2085c4,
         0x205ab0,0x206808,0x205aa0,0x206830,

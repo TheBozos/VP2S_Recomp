@@ -159,6 +159,13 @@ std::shared_ptr<const NativeTextureAsset> NativeTextures::blockImage(uint32_t pi
         slot=std::move(derived);}
     return slot;
 }
+bool NativeTextures::hasModelImage(TextureKey key,uint64_t tex0,std::optional<std::pair<uint64_t,uint32_t>> meshPart)const{
+    if(files.contains(key))return true;
+    if(meshPart)for(auto it=provenance.lower_bound({meshPart->first,meshPart->second,0u});it!=provenance.end() && std::get<0>(it->first)==meshPart->first && std::get<1>(it->first)==meshPart->second;++it)
+        if(it->second.tag==key.tag && (it->second.index&0xffff)==key.index)return true;
+    const auto pixels=blockAsset(uint32_t(tex0)&0x3fff,false);
+    return pixels && pixels->key.tag==key.tag && (pixels->key.index&0xffff)==key.index;
+}
 std::shared_ptr<const NativeTextureAsset> NativeTextures::modelImage(TextureKey key,uint64_t tex0,std::optional<std::pair<uint64_t,uint32_t>> meshPart){
     if(files.contains(key))return load(key);
     if(meshPart){

@@ -12,6 +12,39 @@ The earlier VP2S face/shading and general brightness comparisons remain open.
 
 ## Build and evidence
 
+### Offscreen draw targets: frame switches 153880 / 1537e0 (2026-11-25)
+
+- **The case:** maps 26, 27 and 546 stopped at a VIF1 device write (10009020) from 21dab0 / 21d820. These are the starts of
+  two GS jobs (queue dispatcher 202094) that kick their own chain at +e0:
+  - **153880 (start 21dab0, enqueue 21db10, completion 21daf0):** an offscreen target n = +68. REF 6 qwords at scene
+    + e320 + (n - 1) x 60 set FRAME_1, ZBUF_1, XYOFFSET_1 and SCISSOR_1. REFE 16 qwords at scene + c320 + (n - 1) x 100
+    clear it: TEST Z always, four 64-pixel sprite columns in one colour and Z, then TEST Z GEQUAL and SCISSOR inset by 1.
+    Built by 21db40 (21df10 fills the scene's target packets).
+  - **1537e0 (start 21d820, enqueue 21d880, completion 21d860):** the same register packet for the main frame (source
+    +1e0, centred XYOFFSET, the whole +3c6c x +3c6e), then TEXFLUSH.
+- **Map 26 (village):** two targets, 256 x 256 CT16 at FBP 1d7 (block 3ae0) and FBP 1ab (block 3560), each with its own
+  Z16. Cameras 11a8400 and 1187c00 draw 4 models into each; model 10df930 then samples both through manager entries
+  with no loaded copy ('sPlM' 1 at 3ae0). A loaded texture shares block 3ae0 (model 995e10 samples it as PSMT8), so the
+  target is chosen only when the entry has no loaded copy (NativeTextures::hasModelImage).
+- **Native:**
+  - Both enqueues call their completions at once (kernel patches 21d89c / 21db2c, a0 kept as the object).
+  - Native sites in the delay slots: 21db30 parses and checks the target (nativeOffscreenTarget), 21d8a0 checks the
+    return to the main frame (nativeFrameSwitchSelectsMain).
+  - The host claims an engine image (the capture pool 9..15) and draws the clear into it. Model batches until the
+    return go to that image, remapped from the target's GS window onto the main screen rectangle, clipped to the inset.
+  - Any other draw, shadow or deferred model while a target is selected fails loudly ("unported native draw into an
+    offscreen target"), as does a target still selected at the next frame.
+  - A mesh texture at a target's block, with no loaded copy, samples the image (TEX0 buffer width, format and size must
+    match the target's).
+  - The colour stays at the engine's precision (no CT16 quantisation). The sampled alpha is the drawn alpha, not
+    TEXA's TA0 / TA1.
+- **Tests:** bozo_graphics_install_main: target parse (size, block, format, clear colour and Z, inset), rejects (XYOFFSET,
+  a gap in the clear, another clear Z, a FRAME mask, another target's clear), main-frame check, scene state.
+  test_bozo_kernel: the patches and sites.
+- **Evidence:** maps 26, 27 and 546 reach the frame limit. 26 and 27 show the village. 546 stays under a full black
+  fade (161230, colour 0x80000000) with its 3D and offscreen pass drawn beneath.
+  ctest 99/99; regress4 battle 0c9960c8d9f6, forest 912f01332dbe, over 9df948c13063, route a3f2c8f4395d (unchanged).
+
 ### Fade mode 2 (a circle) and the emitter bounds fold (2026-11-25)
 
 - **Fade mode 2:** after the zoom fix, maps 160, 199 and 202 stopped at the fade 161230 with +f3 = 2 ("no completed flat builder").

@@ -67,6 +67,83 @@ const NativeFrameTarget &NativeScene::composition(uint32_t stack)const{
 void NativeScene::finishComposition(uint32_t stack){
     if(compositions.erase(stack)!=1)throw std::runtime_error("native frame return has no invocation");
 }
+bool nativeFrameSwitchSelectsMain(Runtime *rt,uint32_t object,uint32_t source){
+    const auto q=[&](uint32_t at){uint64_t v;std::memcpy(&v,record(rt,at,8),8);return v;};
+    if(word(rt,object)!=0x1537e0 || q(object+0xe0)>>32==0 || uint32_t(q(object+0xe0))!=0x30000006u)return false;
+    const uint32_t ref=uint32_t(q(object+0xe0)>>32);
+    const int64_t width=int16_t(word(rt,source+0x3c6c)),height=int16_t(word(rt,source+0x3c6e));
+    if(width<1 || width>2048 || height<1 || height>2048)return false;
+    const uint64_t xy=uint64_t((2048-width/2)*16)|(uint64_t((2048-height/2)*16)<<32);
+    const uint64_t scissor=uint64_t(width-1)<<16|uint64_t(height-1)<<48;
+    const uint64_t head[4]={0x0000000011000000ull,0x5100000500000000ull,0x1000000000008004ull,0xe};
+    for(unsigned i=0;i<4;++i)if(q(ref+8*i)!=head[i])return false;
+    if(q(ref+0x20)!=word(rt,source+0x1e0) || q(ref+0x28)!=0x4c || q(ref+0x38)!=0x4e ||
+       q(ref+0x40)!=xy || q(ref+0x48)!=0x18 || q(ref+0x50)!=scissor || q(ref+0x58)!=0x40)return false;
+    // +f0 CNT 3 (its VIF half NOP), +100 NOP x3 + DIRECTHL 2, +110 GIF A+D x1, +120 TEXFLUSH, +130 END.
+    const uint64_t tail[9]={0x10000003,0,0,0x5100000200000000ull,0x1000000000008001ull,0xe,0,0x3f,0x70000000};
+    for(unsigned i=0;i<9;++i)if(q(object+0xf0+8*i)!=tail[i])return false;
+    return true;
+}
+NativeDrawTarget nativeOffscreenTarget(Runtime *rt,uint32_t object){
+    const auto q=[&](uint32_t at){uint64_t v;std::memcpy(&v,record(rt,at,8),8);return v;};
+    const auto fail=[&](const char *what){return std::runtime_error(std::format("unported native offscreen target (object {:x}): {}",object,what));};
+    const auto scene=word(rt,0x35ddf8);const uint32_t n=*record(rt,object+0x68,1);
+    if(word(rt,object)!=0x153880 || word(rt,object+0x10)!=scene || n<1 || n>16)throw fail("class, scene or target index");
+    const uint32_t ref=scene+0xe320+(n-1)*0x60,clear=scene+0xc320+(n-1)*0x100;
+    if(q(object+0xe0)!=(uint64_t(ref)<<32|0x30000006u) || q(object+0xf0)!=(uint64_t(clear)<<32|0x10u))throw fail("chain (REF 6, REFE 16)");
+    const uint64_t head[4]={0x0000000011000000ull,0x5100000500000000ull,0x1000000000008004ull,0xe};
+    for(unsigned i=0;i<4;++i)if(q(ref+8*i)!=head[i])throw fail("register packet header");
+    if(q(ref+0x28)!=0x4c || q(ref+0x38)!=0x4e || q(ref+0x48)!=0x18 || q(ref+0x58)!=0x40)throw fail("register packet registers");
+    NativeDrawTarget t;t.object=object;
+    const uint64_t frame=q(ref+0x20),zbuf=q(ref+0x30),xy=q(ref+0x40),scissor=q(ref+0x50);
+    if(frame>>32)throw fail("FRAME mask");
+    t.frame=uint32_t(frame);t.depthBuffer=uint32_t(zbuf);
+    if((zbuf>>32)&1)throw fail("ZBUF without writes");
+    if((scissor&0x7ff) || ((scissor>>32)&0x7ff))throw fail("SCISSOR origin");
+    t.width=int32_t((scissor>>16)&0x7ff)+1;t.height=int32_t((scissor>>48)&0x7ff)+1;
+    if(t.width<2 || t.height<2 || t.width>1024 || t.height>1024 || (t.width&1) || (t.height&1) || uint32_t(t.width)>t.bufferWidth()*64)
+        throw fail("size");
+    const int32_t left=2048-t.width/2,top=2048-t.height/2;
+    if(xy!=(uint64_t(left*16)|uint64_t(top*16)<<32))throw fail("XYOFFSET not centred");
+    // The clear: VIF FLUSH + DIRECTHL 15, GIF A+D x 14.
+    if(q(clear)!=0 || q(clear+8)!=0x5100000f11000000ull || q(clear+16)!=0x100000000000800eull || q(clear+24)!=0xe)throw fail("clear header");
+    const auto pair=[&](unsigned i,uint64_t reg){if(q(clear+32+16*i+8)!=reg)throw fail("clear register");return q(clear+32+16*i);};
+    if(pair(0,0x47)!=0x30000 || pair(1,0x4a)!=0 || pair(2,0)!=6)throw fail("clear TEST / SCANMSK / PRIM");
+    t.clearColour=uint32_t(pair(3,1));
+    // Four sprites, full height, columns left to right without gaps, one Z.
+    int32_t x=left*16;
+    for(unsigned s=0;s<4;++s){const auto a=pair(4+2*s,5),b=pair(5+2*s,5);
+        const int32_t ax=int32_t(a&0xffff),ay=int32_t((a>>16)&0xffff),bx=int32_t(b&0xffff),by=int32_t((b>>16)&0xffff);
+        if(s==0)t.clearDepth=uint32_t(a>>32);
+        if(uint32_t(a>>32)!=t.clearDepth || uint32_t(b>>32)!=t.clearDepth)throw fail("clear depth differs");
+        if(ay!=top*16 || by!=(top+t.height)*16 || ax!=x || bx<=ax)throw fail("clear sprite");
+        x=bx;}
+    if(x!=(left+t.width)*16)throw fail("clear does not cover the target");
+    if(pair(12,0x47)!=0x50000)throw fail("TEST after the clear");
+    const auto inset=pair(13,0x40);
+    t.clip={int32_t(inset&0x7ff),int32_t((inset>>32)&0x7ff),int32_t((inset>>16)&0x7ff),int32_t((inset>>48)&0x7ff)};
+    if(t.clip[0]>t.clip[2] || t.clip[1]>t.clip[3] || t.clip[2]>=t.width || t.clip[3]>=t.height)throw fail("SCISSOR inset");
+    return t;
+}
+std::optional<bool> nativeFrameSwitchInstruction(R5900Context *c,Runtime *rt,uint32_t pc){
+    if((pc!=0x21d8a0 && pc!=0x21db30) || !rt)return std::nullopt;
+    // The kernel's patched enqueues: 21d89c / 21db2c call the completions 21d860 / 21daf0 (RAM keeps the original words).
+    const uint32_t entry=pc==0x21d8a0?0x21d880:0x21db10;
+    if(word(rt,entry)!=0x27bdfff0u || word(rt,pc-4)!=0x0c0807c8u || word(rt,pc)!=0x8c24dde0u)return std::nullopt;
+    auto *d=vp2s::nativeCast<bozo::ee::Dispatcher>(rt->services);
+    auto *owner=d?vp2s::nativeCast<SceneOwner>(&d->host()):nullptr;
+    if(!c || !owner)throw std::runtime_error("native frame switch has no CPU record or scene owner");
+    const auto object=c->r[4].uw[0];
+    if(pc==0x21db30){
+        const auto target=nativeOffscreenTarget(rt,object);
+        if(std::getenv("VP2S_BOZO_TRACE_QUEUES"))std::fprintf(stderr,"[vp2s:scene] native offscreen target object=%x frame=%x %dx%d\n",object,target.frame,target.width,target.height);
+        owner->beginNativeDrawTarget(target);return false;}
+    if(!nativeFrameSwitchSelectsMain(rt,object,word(rt,0x35de60)))
+        throw std::runtime_error(std::format("unported native frame switch to another target (object {:x} class {:x})",object,word(rt,object)));
+    if(std::getenv("VP2S_BOZO_TRACE_QUEUES"))std::fprintf(stderr,"[vp2s:scene] native main target object=%x\n",object);
+    if(owner->nativeScene().offscreenTarget())owner->endNativeDrawTarget();
+    return false;
+}
 std::optional<bool> nativeCompositionInstruction(uint8_t *,R5900Context *c,Runtime *rt,uint32_t pc){
     if(pc!=0x114550 && pc!=0x1145bc && pc!=0x114da0 && pc!=0x1145f8 && pc!=0x114634 && pc!=0x114714 && pc!=0x114a78 && pc!=0x114774 && pc!=0x1147ac)return std::nullopt;
     auto *d=rt?vp2s::nativeCast<bozo::ee::Dispatcher>(rt->services):nullptr;

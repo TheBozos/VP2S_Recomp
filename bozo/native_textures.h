@@ -89,6 +89,9 @@ public:
     // own decoded part (`meshPart`: disc, part), when that part holds one; else the battle image the
     // game published at TEX0's pixel block (TBP0), with the palette at its CBP, when it is this key's.
     std::shared_ptr<const NativeTextureAsset> modelImage(TextureKey key,uint64_t tex0,std::optional<std::pair<uint64_t,uint32_t>> meshPart={});
+    // True when modelImage finds a loaded copy of `key` (its file, its mesh part's copy or the one published at TEX0's block);
+    // a manager entry without one at an offscreen target's block is that target's picture.
+    bool hasModelImage(TextureKey key,uint64_t tex0,std::optional<std::pair<uint64_t,uint32_t>> meshPart={})const;
     // Saved apart, at the end of VP2S's section: states older than these records end before them.
     void serializeBlocks(bozo::state::Archive &);
     void finish(uint32_t stack);

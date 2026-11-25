@@ -181,14 +181,57 @@ public:
     // NativeModelSubmission::deferUntil); any other draw or a frame boundary
     // draws them first, so nothing else changes order.
     std::vector<vp2s::NativeModelSubmission> deferredModels;uint32_t deferredOwner=0;
+    // The engine maps every target through the main screen rectangle; an offscreen target's GS window (its own size,
+    // centred on 2048) is remapped onto that rectangle: x' = main origin + (x - target origin) * main / target size.
+    std::array<float,4> offscreenRemap(const vp2s::NativeDrawTarget &t)const{
+        const auto main=scene.frameTarget();if(!main)throw std::runtime_error("native offscreen target has no main frame");
+        const float kx=main->width/float(t.width),ky=main->height/float(t.height);
+        return {kx,ky,(2048.f-float(main->width/2))-(2048.f-float(t.width/2))*kx,(2048.f-float(main->height/2))-(2048.f-float(t.height/2))*ky};}
     void drawModelBatches(const vp2s::NativeModelSubmission &submission){
-        for(const auto &batch:submission.batches)bozo::render::Renderer::instance().draw(batch.material,batch.matrix.data(),batch.vertices.data(),batch.vertices.size(),batch.texture);
+        const auto &offscreen=scene.offscreenTarget();
+        for(const auto &batch:submission.batches){
+            if(!offscreen){bozo::render::Renderer::instance().draw(batch.material,batch.matrix.data(),batch.vertices.data(),batch.vertices.size(),batch.texture);continue;}
+            auto material=batch.material;material.target=offscreen->image;material.targetWidth=uint16_t(offscreen->width);material.targetHeight=uint16_t(offscreen->height);
+            if(material.fromFrame && material.source==offscreen->image)throw std::runtime_error("native offscreen target samples itself");
+            const auto r=offscreenRemap(*offscreen);auto m=batch.matrix;
+            for(unsigned j=0;j<4;++j){m[4*j]=r[0]*m[4*j]+r[2]*m[4*j+3];m[4*j+1]=r[1]*m[4*j+1]+r[3]*m[4*j+3];}
+            bozo::render::Renderer::instance().draw(material,m.data(),batch.vertices.data(),batch.vertices.size(),batch.texture);
+        }
+    }
+    // 153880's chain: its clear (one colour and Z over the whole target, no test), then later draws clipped to its inset.
+    void beginNativeDrawTarget(const vp2s::NativeDrawTarget &selected)override{flushDeferredModels();
+        auto t=selected;t.image=captureFades.capture(t.object);captureFades.pendingCopy(t.object);
+        scene.beginOffscreen(t);const auto r=offscreenRemap(t);const auto main=scene.frameTarget();
+        auto &renderer=bozo::render::Renderer::instance();renderer.setTargetSize(t.image,uint16_t(t.width),uint16_t(t.height));
+        bozo::render::Material m;m.textured=false;m.directColour=true;m.alphaBlend=false;m.blend=bozo::render::Material::Blend::Opaque;
+        m.alphaTest=false;m.depthTest=false;m.depthWrite=true;m.target=t.image;m.targetWidth=uint16_t(t.width);m.targetHeight=uint16_t(t.height);
+        const float x0=2048.f-float(main->width/2),y0=2048.f-float(main->height/2),x1=x0+main->width,y1=y0+main->height,z=float(t.clearDepth);
+        const bozo::render::Vertex v[6]={{.x=x0,.y=y0,.z=z,.rgba=t.clearColour},{.x=x1,.y=y0,.z=z,.rgba=t.clearColour},{.x=x0,.y=y1,.z=z,.rgba=t.clearColour},
+            {.x=x1,.y=y0,.z=z,.rgba=t.clearColour},{.x=x1,.y=y1,.z=z,.rgba=t.clearColour},{.x=x0,.y=y1,.z=z,.rgba=t.clearColour}};
+        const float identity[16]={1,0,0,0,0,1,0,0,0,0,1,0,0,0,0,1};
+        renderer.clearClip();renderer.draw(m,identity,v,6);
+        const float ox=2048.f-float(t.width/2),oy=2048.f-float(t.height/2);
+        renderer.setClip(r[0]*(ox+float(t.clip[0]))+r[2],r[1]*(oy+float(t.clip[1]))+r[3],r[0]*(ox+float(t.clip[2]+1))+r[2],r[1]*(oy+float(t.clip[3]+1))+r[3]);
+    }
+    void endNativeDrawTarget()override{
+        if(!deferredModels.empty())throw std::runtime_error("native offscreen target ends with deferred models");
+        scene.endOffscreen();auto &renderer=bozo::render::Renderer::instance();
+        if(sceneClip[2]>sceneClip[0])renderer.setClip(sceneClip[0],sceneClip[1],sceneClip[2],sceneClip[3]);else renderer.clearClip();
     }
     void flushDeferredModels(){
+        // Every native draw but a plain model's (drawNativeModel) passes here first: none is ported into an offscreen target.
+        if(scene.offscreenTarget())throw std::runtime_error("unported native draw into an offscreen target");
         for(const auto &s:deferredModels)drawModelBatches(s);
         deferredModels.clear();deferredOwner=0;
     }
     void drawNativeModel(const vp2s::NativeModelSubmission &submission)override{
+        if(scene.offscreenTarget()){
+            if(submission.shadow || submission.deferUntil)throw std::runtime_error("unported native shadow / deferred model in an offscreen target");
+            drawModelBatches(submission);
+            if(std::getenv("VP2S_BOZO_TRACE_QUEUES"))std::fprintf(stderr,"[vp2s:models] native object=%x camera=%x batches=%zu offscreen image=%u\n",submission.object,submission.camera,
+                submission.batches.size(),unsigned(scene.offscreenTarget()->image));
+            return;
+        }
         if(submission.shadow){
             if(deferredOwner && deferredOwner!=submission.object)flushDeferredModels();
             const auto target=scene.frameTarget();if(!target)throw std::runtime_error("native shadow has no active frame");
@@ -568,7 +611,9 @@ public:
     vp2s::NativeScene scene;
     vp2s::NativeScene &nativeScene()override{return scene;}
     vp2s::NativeFramePublisher publisher;
-    void beginNativeFrame(const vp2s::NativeFrameTarget &target)override{flushDeferredModels();
+    void beginNativeFrame(const vp2s::NativeFrameTarget &target)override{
+        if(scene.offscreenTarget())throw std::runtime_error("native offscreen target still selected at the next frame");
+        flushDeferredModels();
         publisher.next(target);bozo::render::Renderer::instance().clearClip();sceneClip={};
     }
     void drawNativeBrightness(const vp2s::NativeBrightness &effect)override{flushDeferredModels();
@@ -970,6 +1015,7 @@ constexpr NativeStep nativeSteps[]={
     [](uint8_t *ram,R5900Context *ctx,Runtime *rt,uint32_t pc)->std::optional<bool>{(void)ram;return vp2s::nativeFlareInstruction(ctx,rt,pc);},
     [](uint8_t *ram,R5900Context *ctx,Runtime *rt,uint32_t pc)->std::optional<bool>{(void)ram;return vp2s::nativeOcclusionInstruction(ctx,rt,pc);},
     [](uint8_t *ram,R5900Context *ctx,Runtime *rt,uint32_t pc)->std::optional<bool>{(void)ram;return vp2s::nativeChainPushInstruction(ctx,rt,pc);},
+    [](uint8_t *ram,R5900Context *ctx,Runtime *rt,uint32_t pc)->std::optional<bool>{(void)ram;return vp2s::nativeFrameSwitchInstruction(ctx,rt,pc);},
 };
 // The handlers whose decision on a site they list depends on more than the site and its instruction word:
 // state (ScreenRect, ScreenZoom, ColumnCapture, BattleSprite, StateSetup: an active build; ProceduralDraw:

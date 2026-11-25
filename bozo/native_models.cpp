@@ -760,6 +760,20 @@ NativeModelSubmission NativeModels::capture(Runtime *rt,NativeAssets &assets,Nat
                 if(!image || image->mode!=1 || image->width!=512 || image->height!=512 || ((lo>>26)&15)!=9 || ((lo>>30)|(hi&3)<<2)!=9 || word(block+0x9c))
                     throw std::runtime_error("native mesh samples the screen feedback picture without its current 512 x 512 image");
                 mat.fromFrame=1;mat.source=5;feedbackTexture=true;}
+            else if(const auto *rendered=scene.targetTexture(word(manager+0x1010+16*index)&0x3fff);rendered &&
+                    !textures.hasModelImage(key,word(manager+0x1010+16*index)|uint64_t(word(manager+0x1014+16*index))<<32,
+                        origin && origin->kind==AssetOrigin::Kind::Part?std::optional(std::pair{origin->disc,origin->part}):std::nullopt)){
+                // A manager entry with no loaded copy at an offscreen target's block (153880, e.g. 'sPlM' 1 at 3ae0; a
+                // loaded texture may share that block): the target's engine image, TEX0's buffer width, format and
+                // power-of-two size as the target's.
+                const auto lo=word(manager+0x1010+16*index),hi=word(manager+0x1014+16*index);
+                const auto log2=[](int32_t v){uint32_t n=0;while((1<<n)<v)++n;return (1<<n)==v?n:99u;};
+                if(((lo>>14)&0x3f)!=rendered->bufferWidth() || ((lo>>20)&0x3f)!=rendered->format() || ((lo>>26)&15)!=log2(rendered->width) ||
+                   ((lo>>30)|(hi&3)<<2)!=log2(rendered->height) || word(block+0x9c) || scene.offscreenTarget())
+                    throw std::runtime_error(std::format("native mesh samples offscreen target {:x} with another layout (TEX0 {:08x}{:08x})",rendered->block(),hi,lo));
+                mat.fromFrame=1;mat.source=rendered->image;feedbackTexture=true;
+                if(std::getenv("VP2S_BOZO_TRACE_QUEUES"))std::fprintf(stderr,"[vp2s:models] object=%x samples target %x image %u tcc=%u tfx=%u blend=%u test=%u\n",object,rendered->block(),
+                    unsigned(rendered->image),unsigned(material[2]),unsigned(material[3]),unsigned(material[0]),unsigned(mat.alphaTest));}
             else{
                 // A texture whose disc copies differ ('vp18' 1a5, battle frame 74880): the copy in the mesh's
                 // own pack, else the one the battle loader published at the entry's TEX0 blocks.

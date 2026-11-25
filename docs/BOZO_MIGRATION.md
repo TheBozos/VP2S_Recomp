@@ -12,6 +12,23 @@ The earlier VP2S face/shading and general brightness comparisons remain open.
 
 ## Build and evidence
 
+### Maps 32 / 47: the chain diverges after a teleport (analysis, 2026-11-25, open)
+
+- **Chain:** owner 9e7000 (class 163e10), 22 nodes of 0xa0 bytes from +28; +14 is the count. Node byte 0 = 0 marks a
+  world-space node tied to its joint (+4, class 15f5d0: +20 local translation, +30 quaternion, +d0 world matrix,
+  +208 parent).
+  - 1fe730: the joint's +20 = (parent world)^-1 x node position (216d60's "inverse" is a full transpose, so its row 3
+    is (t, 1) and the written w lane is large. Harmless: the world update 248fc0 / 0x728 takes 1 x t, ignoring w).
+  - 1fe840: the node position = the joint's world translation (+dc, +ec, +fc) after its method +64.
+- **The case (map 32):** the map load places the character (root 9d6e20, class 154f90) at (2341, -5, -39) at frame
+  63423. Six frames later mod003 43bd60 (set position through +108's method +20, then +64) moves it to (-108, -5, 58).
+  Node 20 (joint 9ded10) keeps its old world position: its local offset becomes about -2450 and the chain integrates
+  it to 1e18 by frame ~63440. The force field 1fbad0 (a wind: +260 direction x +270 strength with random jitter, ~100)
+  then gets that position and the collision leaf refuses it.
+- **Ruled out:** dt (35dee8 = 1/30, 35ded8 = 2 substeps, as in other maps); the world update's use of w.
+- **Unknown:** whether the PS2 moves the character before the chain's first step (our debug warp's entry and timing
+  may differ from a normal arrival). Question sent to the user (PCSX2 comparison / warp artefact / saturation).
+
 ### Offscreen draw targets: frame switches 153880 / 1537e0 (2026-11-25)
 
 - **The case:** maps 26, 27 and 546 stopped at a VIF1 device write (10009020) from 21dab0 / 21d820. These are the starts of

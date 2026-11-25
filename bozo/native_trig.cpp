@@ -165,6 +165,7 @@ std::array<float,4> sineCosineTerms(float angle,const TrigCoefficients &c,unsign
 }
 }
 std::array<float,4> sineCosine(float angle,const TrigCoefficients &c){return sineCosineTerms(angle,c,0);}
+TrigCoefficients nativeTrigCoefficients(Runtime *rt){return coefficients(rt);}
 std::array<float,4> shortSineCosine(float angle,const TrigCoefficients &c){return sineCosineTerms(angle,c,2);}
 NativeCosine shortCosine(float angle,const TrigCoefficients &c){
     qualified(angle);qualified(c.pi);qualified(c.inversePi);qualified(c.halfPi);

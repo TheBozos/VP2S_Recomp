@@ -48,6 +48,7 @@
 #include "native_spr_writer.h"
 #include "native_ui_text.h"
 #include "native_screen_zoom.h"
+#include "native_flare.h"
 #include "native_depth_blur.h"
 #include "native_depth_probe.h"
 #include "native_column_capture.h"
@@ -91,7 +92,7 @@ namespace {
 uint32_t lastImageEnqueue[4]={}; // diagnostic: ra, source, count, owner of the last type-1 enqueue
 class StrictHost final : public bozo::ee::Host,public vp2s::TimerOwner,public vp2s::SettingsOwner,public vp2s::SeedOwner,
     public vp2s::ModuleOwner,public vp2s::BootstrapOwner,public vp2s::RandomOwner,public vp2s::TextureOwner,public vp2s::SceneOwner,
-    public vp2s::AssetOwner,public vp2s::DebugFontOwner,public vp2s::StateSetupOwner,public vp2s::ScreenRectOwner,public vp2s::CaptureFadeOwner,public vp2s::EntryCaptureOwner,public vp2s::ScreenZoomOwner,public vp2s::UiTextOwner,
+    public vp2s::AssetOwner,public vp2s::DebugFontOwner,public vp2s::StateSetupOwner,public vp2s::ScreenRectOwner,public vp2s::CaptureFadeOwner,public vp2s::EntryCaptureOwner,public vp2s::ScreenZoomOwner,public vp2s::FlareOwner,public vp2s::UiTextOwner,
     public vp2s::UiSpriteOwner,public vp2s::BattleSpriteOwner,public vp2s::MediaBufferOwner,public vp2s::ModelOwner,public vp2s::FrameFilterOwner,public vp2s::MusicOwner,
     public vp2s::UiWindowOwner,public vp2s::LoadProgressOwner,public vp2s::MotionOwner,public vp2s::FrameCopyOwner,public vp2s::DofOwner,public vp2s::FeedbackOwner,public vp2s::SquadOwner,
     public vp2s::ParticleOwner,public vp2s::ParticleUpdateOwner,public vp2s::ParticleDrawOwner,public vp2s::ProceduralOwner,public vp2s::ProceduralDrawOwner,public vp2s::DepthBlurOwner,public vp2s::DepthProbeOwner,public vp2s::ColumnCaptureOwner,public vp2s::HazeOwner,public vp2s::SceneClipOwner,public vp2s::MapPanelOwner {
@@ -421,6 +422,17 @@ public:
         }
     }
     vp2s::NativeScreenZooms screenZooms;
+    vp2s::NativeFlares flares;
+    vp2s::NativeFlares &nativeFlares()override{return flares;}
+    // The lens flare's triangles, in GS window pixels: untextured, Gouraud, ALPHA_1 0x48 (Cs As + Cd), depth test always,
+    // no depth write (its ZBUF_1 has ZMSK).
+    void drawNativeFlare(const std::vector<bozo::render::Vertex> &vertices)override{flushDeferredModels();
+        if(vertices.empty())return;
+        bozo::render::Material material;material.textured=false;material.alphaBlend=true;material.blend=bozo::render::Material::Blend::Alpha;material.gsBlend=true;
+        material.blendA=0;material.blendB=2;material.blendC=0;material.blendD=1;material.depthTest=false;material.depthWrite=false;material.alphaTest=false;
+        const float identity[16]={1,0,0,0,0,1,0,0,0,0,1,0,0,0,0,1};
+        bozo::render::Renderer::instance().draw(material,identity,vertices.data(),vertices.size());
+    }
     unsigned screenZoomDraws=0;
     vp2s::NativeScreenZooms &nativeScreenZooms()override{return screenZooms;}
     void drawNativeScreenZoom(const vp2s::NativeScreenZoom &zoom)override{flushDeferredModels();
@@ -949,6 +961,7 @@ constexpr NativeStep nativeSteps[]={
     [](uint8_t *ram,R5900Context *ctx,Runtime *rt,uint32_t pc)->std::optional<bool>{return vp2s::nativeMathInstruction(ram,ctx,rt,pc)?std::optional(true):std::nullopt;},
     [](uint8_t *,R5900Context *ctx,Runtime *rt,uint32_t pc)->std::optional<bool>{if(vp2s::nativeWorkStackSite(pc)){vp2s::nativeWorkStack(ctx,rt,pc);return false;}return std::nullopt;},
     [](uint8_t *ram,R5900Context *ctx,Runtime *rt,uint32_t pc)->std::optional<bool>{return vp2s::nativeFrameInput(ram,ctx,rt,pc)?std::optional(true):std::nullopt;},
+    [](uint8_t *ram,R5900Context *ctx,Runtime *rt,uint32_t pc)->std::optional<bool>{(void)ram;return vp2s::nativeFlareInstruction(ctx,rt,pc);},
 };
 // The handlers whose decision on a site they list depends on more than the site and its instruction word:
 // state (ScreenRect, ScreenZoom, ColumnCapture, BattleSprite, StateSetup: an active build; ProceduralDraw:

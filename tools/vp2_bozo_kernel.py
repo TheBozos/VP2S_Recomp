@@ -813,6 +813,13 @@ def overlay_adaptations(name,data):
         (0x201600,0x201940,'d31efc31821541021ce658c97747442d2c391ecc100b98d989c2fbfbb471be08'),
         # Flare light projection block (rows SP+360, light SP+340, VCALLMS 0, SP+2c0).
         (0x256038,0x25618c,'c65f06f9d7ca33f1c91b0f973c0cfe55da9738717453529a243e5bae6aab78e9'),
+        # Lens flare 155b50 (bozo/native_flare.cpp): its element writers (rays 253770, rings 2549a0, disc 2550d0), its
+        # completion / draw 255b10..255b60 and its build 255b60, each ported as it is here.
+        (0x253770,0x253eac,'e8c03d10342ec727bb5cf194bb6cda599d311041eec9f792cb38c50f22807226'),
+        (0x2549a0,0x2550c8,'6aa1c286a1e1490b26c1b108fba5ce22b630670f732411539c447f70db3ad2ea'),
+        (0x2550d0,0x255a78,'f50b6e007e8e43fd85b0f44870bfd2f61a1d5ab8906c0e823bb2c7f9550c22ee'),
+        (0x255b10,0x255b60,'7db44c497fd60965ab19950a50690006069a538487a472327b64582540268868'),
+        (0x255b60,0x25682c,'558ada8c23e34deeed10aa2f51ad1ec1d9176ce161cebebd9413d7f6325c0a69'),
         (0x306950,0x306f84,'1d86e9d29099ea34987865d5e92e9912b090428d65f9c26e8e2b9ba62d18f156'),
         (0x30ce70,0x30ceb0,'953419ce510a7ca81e1955b302db4fe8eb4b944b91967725615a3ebbb8d3c2f6'),
         (0x239f70,0x239fa8,'c3849227f4e9e451d7b72f6b758661de4ed53015868faa6d5fb18a88f95167f9'),
@@ -954,6 +961,11 @@ def overlay_adaptations(name,data):
             # 201f20, the delay slot keeping a0 = object (21c9a0 clears +64 as the start's 1 would be).
             '0023508c 0c0807c8 0c08d414\n'
             '00235090 8c24dde0 00000000\n'
+            # Lens flare 155b50: its draw's enqueue 255b4c calls the job's completion 255b10(object) instead of the VIF1
+            # queue (whose start 255ad0 kicks the built packet), a0 = a1 - 210 in the delay slot; native site 255b4c draws
+            # (its delay slot 255b50) the triangles its build recorded (bozo/native_flare.cpp).
+            '00255b4c 0c0807c8 0c0956c4\n'
+            '00255b50 8c24dde0 24a4fdf0\n'
             # Its readback group 15a7a0 (+a4): the frame copy and readbacks are the native
             # snapshot, so its submit 307170 runs the completion 307130(group) at once.
             '00307190 0c0483ac 0c0c1c4c\n'
@@ -1204,6 +1216,8 @@ def overlay_native_sites(name,data):
         0x247700,0x247a90,0x247ac0,0x24769c,
         0x2dbde0,0x2dbeb4,0x2dc6c8,0x2dbdd0,0x2dc700,
         0x2d9360,0x2cd020,0x2d18a0,0x2da980,0x2d9350,0x2da9b0,
+        # Lens flare build / elements / flash / draw (bozo/native_flare.cpp).
+        0x255b60,0x2550d0,0x2549a0,0x253770,0x256408,0x255b50,
         # Lost Forest haze enqueue 2e0b90, scene scissor 2b5b50, camera job resubmission 2085c4.
         0x2e0b90,0x2b5b50,0x2085c4,
         0x205ab0,0x206808,0x205aa0,0x206830,

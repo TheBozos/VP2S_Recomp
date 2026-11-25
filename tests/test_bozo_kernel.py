@@ -546,6 +546,7 @@ class KernelGuardTests(unittest.TestCase):
             '00308c4c 0c0807c8 0c0c2304','00308c50 8c24dde0 24a4ff70',
             # Screen effect 1545f0: its enqueue 235070 enters the job's completion (draw skipped).
             '0023508c 0c0807c8 0c08d414','00235090 8c24dde0 00000000',
+            '00255b4c 0c0807c8 0c0956c4','00255b50 8c24dde0 24a4fdf0',  # lens flare: enqueue -> completion 255b10
             '00307190 0c0483ac 0c0c1c4c','00307194 8c840094 00000000',
             '0030a050 0c0c1e34 00000000','0030a060 fc220090 00000000','0030a0f0 0c048330 00000000',
             '0030ce84 3c011000 00000000','0030ce8c 8c230000 00000000','0030ce90 00621021 00000000',
@@ -611,6 +612,7 @@ class KernelGuardTests(unittest.TestCase):
         0x247700,0x247a90,0x247ac0,0x24769c,
         0x2dbde0,0x2dbeb4,0x2dc6c8,0x2dbdd0,0x2dc700,
         0x2d9360,0x2cd020,0x2d18a0,0x2da980,0x2d9350,0x2da9b0,
+        0x255b60,0x2550d0,0x2549a0,0x253770,0x256408,0x255b50,   # lens flare (native_flare.cpp)
         0x2e0b90,0x2b5b50,0x2085c4,
         0x205ab0,0x206808,0x205aa0,0x206830,
         *range(0x252ec8,0x252f24,4),0x252fdc,0x252fe0,0x252fe4,0x252fec,0x252ff0,0x252ff8,

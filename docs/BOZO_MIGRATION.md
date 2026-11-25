@@ -12,6 +12,45 @@ The earlier VP2S face/shading and general brightness comparisons remain open.
 
 ## Build and evidence
 
+### Native lens flare: its three element writers and the flash (2026-11-25)
+
+- **The case:** 9 maps (108, 358-364, 504, 519) stopped at the lens flare's DMA kick 255ad0 (class 155b50).
+  - Its build 255b60 writes one GIF packet each frame: ALPHA_1 0x48 (Cs As + Cd), depth test always, no depth
+    write.
+  - When +23e is set and the intensity f21 > 0, a flash: screen-width / 64 sprites of 64 × height from
+    (0x800 − w / 2, 0x800 − h / 2), colour +230 with alpha FTOI(128 f21).
+  - Then each element's +c, called with the light's window position f12 / f13, scale f14, angle offset f15,
+    intensity f16 and stretch f17 / f18.
+- **The three writers, ported in their EE float order (ps2f):**
+  - **2550d0 (disc):** a fan (centre +14, rim +18 at +24 · f14). Then a strip to (+24 + +28) · f14 in the element's own
+    words +18 / +1c; the writer does not scale these by the owner's colour as it does elsewhere. Then a strip to
+    (+24 + (+28 + +2c)) · f14, ending in +20 at alpha 0.
+  - **2549a0 (four rings):** ring k from R_k to R_k + w_k (R_0 = +28, w_k = +2c + 4k), colours +14 + 4k inside and
+    +18 + 4k outside. The innermost and outermost edges are at alpha 0.
+  - **253770 (rays):** per ray of the +44 table and per segment of angular width +3c, the triangles (centre, A, B) and
+    (A, B, C). The tip C is at the mid angle, with alpha 0.
+  - **Shared:**
+    - Alpha min(FTOI(128 · f16 · +10), 128), with the compiler's unsigned clamp.
+    - FTOI(0.2 r) + 9 points (at most 48), at angles f15 + 2πi / (n − 1) through 213fd0's sin/cos.
+    - Nothing is drawn when the outer radius leaves the window.
+    - Colours are (c · o · 0x80808081 >> 32) >> 7.
+- **Natively:**
+  - Sites at the build's entry, at each writer's entry (from the build's loop) and at the flash (256408, a delay
+    slot) record the triangles.
+  - The kernel turns the draw's enqueue 255b4c into the job's completion 255b10. Its delay slot 255b50 is the native
+    site that draws them: untextured, Gouraud, GS blend 0x48, in GS window pixels.
+  - The compiled writers still build their packet, which is never kicked or decoded.
+  - The writers, the completion and the build are signature-checked in vp2_bozo_kernel.py.
+- **Note:** native sites cannot sit on a `jal`; the recompiler fails silently. They go on its delay slot.
+
+**Evidence:**
+- **Tests:** vp2s-bozo-flare. The three writers are restated in double precision from the listings: 300 cases,
+  34,402 triangles; positions within the 12.4 truncation, colours and counts exact. Also off-screen culling, the
+  flash's sprites and alpha, and the colour scale.
+- **Maps:** all 9 run clean. Map 360's sun shows its glow through the trees.
+- **Regression:** full ctest; the four scenes keep their hashes.
+- **Atlas:** 525 of 552 maps clean.
+
 ### Map 142's rain (mod037): linear emitter, camera offset, the sprite and plain emitter copies (2026-11-25)
 
 Map 142 (a forest at night, in the rain) runs mod037 particle classes. Each is now native:

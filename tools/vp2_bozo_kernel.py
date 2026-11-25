@@ -825,6 +825,11 @@ def overlay_adaptations(name,data):
         # Lens flare 155b50 (bozo/native_flare.cpp): its element writers (rays 253770, rings 2549a0, disc 2550d0), its
         # completion / draw 255b10..255b60 and its build 255b60, each ported as it is here.
         (0x253770,0x253eac,'e8c03d10342ec727bb5cf194bb6cda599d311041eec9f792cb38c50f22807226'),
+        # Occlusion culling (bozo/native_occlusion.cpp): the scene's occluder test loop 2200d0..2202d0, the occluder
+        # pass 222850 and its leaf 222b10.
+        (0x2200d0,0x2202d0,'98c865ae27471e2cd124de94f82b0a48ff3d2f7a79f5cd87238baddd96e85f3c'),
+        (0x222850,0x222a98,'08a5f90a1a149c0cc2dc58f7f982b335e213b3733a5c630427115bcd80fdd293'),
+        (0x222b10,0x223118,'578809d327c220d5a6659760b526ada3b7f064b5e70f19ff76fab34aa9002df9'),
         (0x2549a0,0x2550c8,'6aa1c286a1e1490b26c1b108fba5ce22b630670f732411539c447f70db3ad2ea'),
         (0x2550d0,0x255a78,'f50b6e007e8e43fd85b0f44870bfd2f61a1d5ab8906c0e823bb2c7f9550c22ee'),
         (0x255b10,0x255b60,'7db44c497fd60965ab19950a50690006069a538487a472327b64582540268868'),
@@ -1227,6 +1232,8 @@ def overlay_native_sites(name,data):
         0x2d9360,0x2cd020,0x2d18a0,0x2da980,0x2d9350,0x2da9b0,
         # Lens flare build / elements / flash / draw (bozo/native_flare.cpp).
         0x255b60,0x2550d0,0x2549a0,0x253770,0x256408,0x255b50,
+        # Occlusion pass close (bozo/native_occlusion.cpp): 220294, reached after the occluder test loop or its skip.
+        0x220294,
         # Lost Forest haze enqueue 2e0b90, scene scissor 2b5b50, camera job resubmission 2085c4.
         0x2e0b90,0x2b5b50,0x2085c4,
         0x205ab0,0x206808,0x205aa0,0x206830,

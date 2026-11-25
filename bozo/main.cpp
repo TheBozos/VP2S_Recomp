@@ -49,6 +49,7 @@
 #include "native_ui_text.h"
 #include "native_screen_zoom.h"
 #include "native_flare.h"
+#include "native_occlusion.h"
 #include "native_depth_blur.h"
 #include "native_depth_probe.h"
 #include "native_column_capture.h"
@@ -962,6 +963,7 @@ constexpr NativeStep nativeSteps[]={
     [](uint8_t *,R5900Context *ctx,Runtime *rt,uint32_t pc)->std::optional<bool>{if(vp2s::nativeWorkStackSite(pc)){vp2s::nativeWorkStack(ctx,rt,pc);return false;}return std::nullopt;},
     [](uint8_t *ram,R5900Context *ctx,Runtime *rt,uint32_t pc)->std::optional<bool>{return vp2s::nativeFrameInput(ram,ctx,rt,pc)?std::optional(true):std::nullopt;},
     [](uint8_t *ram,R5900Context *ctx,Runtime *rt,uint32_t pc)->std::optional<bool>{(void)ram;return vp2s::nativeFlareInstruction(ctx,rt,pc);},
+    [](uint8_t *ram,R5900Context *ctx,Runtime *rt,uint32_t pc)->std::optional<bool>{(void)ram;return vp2s::nativeOcclusionInstruction(ctx,rt,pc);},
 };
 // The handlers whose decision on a site they list depends on more than the site and its instruction word:
 // state (ScreenRect, ScreenZoom, ColumnCapture, BattleSprite, StateSetup: an active build; ProceduralDraw:
@@ -1233,6 +1235,7 @@ int main(int argc,char **argv) {
                     {"screen rectangle",host.screenRects.outstanding()},{"battle sprite flush",host.battleSprites.outstanding()},{"screen zoom",host.screenZooms.outstanding()},
                     {"state setup",host.stateSetups.outstanding()},{"debug font",host.fonts.outstanding()}};
                 for(const auto &[name,count]:open)if(count)return std::format("a native {} is in flight",name);
+                if(vp2s::nativeOcclusionOpen(&dispatcher.runtime()))return std::string("a native occlusion pass is in flight");
                 return std::string();}});
         // A state that fails to load ends the run: going on from boot would replay the
         // route silently (a model-section change once made every named state fail).

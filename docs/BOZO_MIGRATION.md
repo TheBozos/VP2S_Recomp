@@ -12,6 +12,44 @@ The earlier VP2S face/shading and general brightness comparisons remain open.
 
 ## Build and evidence
 
+### Native occlusion culling: occluder leaf 222b10 and VU0 program 0xd58 (2026-11-25)
+
+- **The case:** maps 99, 109, 280 and 471 stopped at 22293c, the clip-row loads of the occluder pass 222850.
+- **What the game does (mod001):**
+  - The scene pass 2200d0 asks 222850 for the occluders in front of its camera (at most 26). Their leaf 222b10 runs
+    on VU0 with the clip rows camera +3f0 in vf24..vf27.
+  - Each leaf writes a 9-qword record into VU0 data memory at vi1 = 8 + 9k:
+    - the four corners (+220..+250) through the world rows +90, as program 0x1f0's transpose leaves them;
+    - five unit plane normals: the camera position and each edge, n_k = (p_k+1 - p_k) x (p_k - e), and the face,
+      n4 = (p0 - p1) x (p2 - p0), each scaled by RSQRT(|n|^2).
+  - The normals are negated when the undivided clip face normal (c1 - c0) x (c2 - c0) has z > 0. A single-sided
+    occluder (+21c) facing away is rejected first.
+  - The leaf stores to its stack the clip corners, the face normal and the corners divided by their clip z. The compiled
+    code turns these into outcodes, and +218 is the nearest clip z.
+  - Then, per object sphere and per occluder no nearer than it, program 0xd58 (VU0 image uploaded from 312aac) computes
+    the five distances (s - p_k) . n_k and (s - p0) . n4. It sets VI2 from the sticky sign of each distance minus the
+    radius. When no sign is set, the object is occluded (+6a |= 0x10).
+- **Natively (bozo/native_occlusion.cpp):**
+  - The leaf's VU0 work is restated on PS2 float words in the listings' order.
+  - Its stack stores land at their own sites.
+  - The records live in a native per-pass array indexed like VU0 data memory.
+  - 0xd58's verdict is read back through CFC2 at 220218.
+  - A pass is open from 22293c to 220294 (a native site reached after the test loop or its skip), and a save waits for
+    it.
+  - The scene loop 2200d0, the pass 222850 and the leaf are signature-checked.
+- **Note:** the orientation follows an orthographic winding (undivided clip x, y). A quad seen nearly edge-on can get the
+  opposite orientation from its perspective view; that is the game's own rule, kept as it is.
+
+**Evidence:**
+- **Tests:** vp2s-bozo-occlusion: 200 occluders against a double-precision restatement (corners, unit normals, clip
+  corners, projections, face normal). Program 0xd58 matches its restatement for spheres behind, in front, beside and
+  4000 random spheres. 120 spheres straight behind a facing occluder are occluded.
+- **Maps:**
+  - 99 and 471 run clean to the frame limit.
+  - 109 now stops at mesh second-pass routine 16.
+  - 280 now stops at the scene-ownership boundary (with 10, 13 and 14).
+- **Regression:** full ctest (99); regress4's scenes keep their hashes.
+
 ### Map 408: a sphere read before it is set counts as outside (2026-11-25)
 
 - **The case:** class 172b40 (mod028) is in the scene before its setter (method +128, 498420: position +20 into +7f0,

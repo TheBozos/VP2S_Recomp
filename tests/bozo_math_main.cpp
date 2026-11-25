@@ -3217,6 +3217,29 @@ int main(int argc,char **argv){try{
          check(out[3]==2.f);++cameraCases;
          }
         std::printf("%u camera offsets (identity, two quarter turns; mod198) through program 0x720's rows; 2 rejections\n",cameraCases);}
+    // The box test 1fbe60 at 1fbe90 on a class 1622a0 box whose inverse matrix is not set (map 535's bytes): no box until set,
+    // the local point is the box centre; a radius beyond a half extent, another caller or a set box behave otherwise.
+    {auto &r=native.runtime();std::memset(r.memory.flat(),0,bozo::kFlatBytes);
+        const uint32_t object=0x1e0000,stack=0x1ffd000,point=0x1f0000;const uint32_t word=0xf8450000u;std::memcpy(r.memory.hostPointer(0x1fbe90,4),&word,4);
+        const uint32_t garbage[16]={1,0x40400000,0x418ffff8,0x3f800000,0,0,0x9c2950,5,0x310,0x40580011,0x9c3390,0x9c3010,0x68e2a0,0x9cffa0,0x9aefd0,0x4d655279};
+        std::memcpy(r.memory.hostPointer(object+0x190,64),garbage,64);const float half[4]={2.5f,2.75f,2.5f,1};std::memcpy(r.memory.hostPointer(object+0x220,16),half,16);
+        const float p[4]={4492.56f,-144.33f,29.86f,1};std::memcpy(r.memory.hostPointer(point,16),p,16);const uint32_t boxClass=0x1622a0;std::memcpy(r.memory.hostPointer(object,4),&boxClass,4);
+        R5900Context c{};c.r[4].uw[0]=object;c.r[3].uw[0]=object+0x190;c.r[5].uw[0]=point;c.r[2].uw[0]=stack;c.r[29].uw[0]=stack;c.r[31].uw[0]=0x1fe210;c.f[12]=0.5f;
+        check(vp2s::nativeMathInstruction(r.memory.flat(),&c,&r,0x1fbe90));float out[4];std::memcpy(out,r.memory.hostPointer(stack,16),16);
+        check(out[0]==0 && out[1]==0 && out[2]==0 && out[3]==1);
+        const auto refused=[&](R5900Context k){bool bad=false;try{vp2s::nativeMathInstruction(r.memory.flat(),&k,&r,0x1fbe90);}catch(const std::runtime_error &){bad=true;}return bad;};
+        {auto k=c;k.f[12]=2.6f;check(refused(k));}   // the radius exceeds the half extent 2.5
+        {auto k=c;k.r[31].uw[0]=0x1fd668;check(refused(k));}   // another caller
+        // Finite junk without an affine w column (map 535's second box): still the centre.
+        {const float junk[16]={-.0933f,-10.06f,.0785f,1,0,0,0,1,0,0,0,1,0,0,0,1};std::memcpy(r.memory.hostPointer(object+0x190,64),junk,64);
+         check(vp2s::nativeMathInstruction(r.memory.flat(),&c,&r,0x1fbe90));std::memcpy(out,r.memory.hostPointer(stack,16),16);check(out[0]==0 && out[1]==0 && out[2]==0);}
+        // A set (affine, identity) matrix transforms the point as before.
+        const float identity[16]={1,0,0,0,0,1,0,0,0,0,1,0,0,0,0,1};std::memcpy(r.memory.hostPointer(object+0x190,64),identity,64);*r.memory.hostPointer(object+0x20e,1)=8;
+        check(vp2s::nativeMathInstruction(r.memory.flat(),&c,&r,0x1fbe90));std::memcpy(out,r.memory.hostPointer(stack,16),16);check(out[0]==p[0] && out[1]==p[1] && out[2]==p[2]);
+        // Another class keeps the qualified transform.
+        *r.memory.hostPointer(object+0x20e,1)=0;{const uint32_t other=0x163c40;std::memcpy(r.memory.hostPointer(object,4),&other,4);}
+        check(vp2s::nativeMathInstruction(r.memory.flat(),&c,&r,0x1fbe90));std::memcpy(out,r.memory.hostPointer(stack,16),16);check(out[0]==p[0] && out[1]==p[1] && out[2]==p[2]);
+        std::printf("unset class 1622a0 box (invalid or non-affine junk): the point stays at the box centre; 2 refusals; a set matrix transforms\n");}
     // Box pair separating-axis test (mod001 1f82c0) against the listing's
     // sequential evaluation (tests/bozo_box_pair_oracle.inc): the first compared
     // pair with separation > radius (FPU compare) returns 0, else 1.

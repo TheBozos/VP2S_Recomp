@@ -8698,8 +8698,24 @@ bool mathBlock53(R5900Context *c,Runtime *rt,uint32_t pc){
         math::Matrix matrix;__m128 vector;
         std::memcpy(matrix.data(),record(rt,c->r[matrixRegister].uw[0],64),64);std::memcpy(&vector,record(rt,c->r[vectorRegister].uw[0],16),16);
         float rows[4][4],point[4];std::memcpy(rows,matrix.data(),64);std::memcpy(point,&vector,16);
-        const auto qualified=[](float v){const auto b=std::bit_cast<uint32_t>(v),e=b&0x7f800000;
-            if(e==0x7f800000 || (!e && (b&0x7fffff)))throw std::runtime_error("unqualified native full transform input");};
+        const auto invalid=[](float v){const auto b=std::bit_cast<uint32_t>(v),e=b&0x7f800000;return e==0x7f800000 || (!e && (b&0x7fffff));};
+        uint32_t boxClass=0;if(pc==0x1fbe90)std::memcpy(&boxClass,record(rt,c->r[4].uw[0],16),4);
+        // An affine inverse matrix's w column is (0, 0, 0, 1) (every set class 1622a0 box in the regression scenes, 49 of them).
+        const bool affine=std::bit_cast<uint32_t>(rows[0][3])==0 && std::bit_cast<uint32_t>(rows[1][3])==0 && std::bit_cast<uint32_t>(rows[2][3])==0 &&
+                          std::bit_cast<uint32_t>(rows[3][3])==0x3f800000u;
+        if(pc==0x1fbe90 && boxClass==0x1622a0 && (!affine || std::any_of(&rows[0][0],&rows[0][0]+16,invalid))){
+            // The box test 1fbe60 (from the chain 1fe210) on a class 1622a0 box (mod003, constructor 3f49c0) whose inverse matrix
+            // (+190) is not set yet (map 535: heap leftovers, NaN words in one box, finite junk without an affine w column in
+            // another; +20e's bit 3 is no guide: set boxes have it clear for a while). User decision 2026-11-25: no box until
+            // set. The box then does not constrain the point: the local point is its centre, so 1fbe9c..1fbf6c clamp nothing
+            // (radius f12 within each half extent +220) and 1fbf70 returns 0 (1fbf78's transform back to world is skipped).
+            const auto object=c->r[4].uw[0];float half[3];std::memcpy(half,record(rt,object+0x220,16),12);const float radius=c->f[12];
+            if(std::getenv("VP2S_BOZO_TRACE_BOXES")){uint32_t m[8];std::memcpy(m,record(rt,object+0x190,32),32);   // diagnostic: each unset-box query
+                std::fprintf(stderr,"[vp2s:box] unset box %x radius %g +190 %08x %08x %08x %08x %08x %08x %08x %08x\n",object,radius,m[0],m[1],m[2],m[3],m[4],m[5],m[6],m[7]);}
+            if(c->r[31].uw[0]!=0x1fe210 || c->r[3].uw[0]!=object+0x190 || !std::isfinite(radius))throw std::runtime_error("unqualified native box test on an unset matrix");
+            for(float h:half)if(!(radius<=h) || -radius<-h)throw std::runtime_error("native unset box: the radius exceeds a half extent");
+            const float centre[4]={0,0,0,1};std::memcpy(record(rt,c->r[destinationRegister].uw[0],16),centre,16);return true;}
+        const auto qualified=[&](float v){if(invalid(v))throw std::runtime_error("unqualified native full transform input");};
         for(auto &row:rows)for(float v:row)qualified(v);for(float v:point)qualified(v);
         {music::CodecRounding validation;
             for(unsigned lane=0;lane<4;++lane){double bound=0;for(unsigned row=0;row<4;++row)bound+=std::abs(double(rows[row][lane])*point[row]);

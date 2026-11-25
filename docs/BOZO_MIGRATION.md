@@ -12,6 +12,28 @@ The earlier VP2S face/shading and general brightness comparisons remain open.
 
 ## Build and evidence
 
+### Map 535: a collider box whose matrix is not set does not constrain (2026-11-25)
+
+- **The case:** map 535 stopped at "unqualified native full transform input" (1fbe90).
+  - The hair / cloth chain (1fe210) calls each collider's +8c. For class 1622a0 (mod003, constructor 3f49c0) that is the
+    box test 1fbe60.
+  - The box test moves a point into the box's space through the inverse matrix +190, clamps it inside the half extents
+    +220 (allowing for radius f12), and when it moved it, transforms it back through +150 and returns 1.
+  - Two boxes there had never been set. One held NaN heap words; a watch run saw no write after its creation. The other
+    held finite junk.
+- **User decision (2026-11-25): no box until set.** For class 1622a0, an inverse matrix with an invalid word, or without
+  the affine w column (0, 0, 0, 1), is "not set". The local point is then the box centre, so nothing is clamped and
+  1fbf70 returns 0 (the transform back is skipped); a radius beyond a half extent is refused.
+- **Rejected:** +20e bit 3 (set by the box setters 1fb120 / 1fb240 / 1fb330) is no guide. In the forest scene, set
+  boxes keep it clear for a while, and a rule based on it changed the forest and route hashes.
+
+**Evidence:**
+- **Real boxes:** all 49 set class 1622a0 boxes in the four regression scenes have the affine w column; map 535's two do not.
+- **Tests:** vp2s-bozo-math: NaN and finite junk give the centre. A large radius or another caller is refused. A set
+  matrix and another class transform as before.
+- **Maps:** 535 runs clean to the frame limit.
+- **Regression:** full ctest; regress4's scenes keep their hashes.
+
 ### Opaque second pass: the same tags without blending (2026-11-25)
 
 - **The case:** map 109 stopped at "unported native mesh second pass (routine 16)" (object 10e3170, block 10e4860).

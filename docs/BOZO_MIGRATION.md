@@ -12,6 +12,43 @@ The earlier VP2S face/shading and general brightness comparisons remain open.
 
 ## Build and evidence
 
+### Slim emitter 291140; opaque fogged line strips; mesh algorithm 34 behind its gate (2026-11-25)
+
+- **Slim emitter (maps 46, 48, 272, 459, 460, 489, 514):** these stopped at 2911e0, the step of mod001 291140 (frame
+  0x150, called from the driver at 22ed38).
+  - It is the plain emitter 2920e0 compiled again for records of 0x60 bytes, with no colour, rate or change.
+    - Setup: dt and the drift only.
+    - Loads: p +10, v +30, A +50, acc +40.
+    - The same curve and main block, minus the colour.
+    - Three record stores: A, P, V.
+    - Kind 2's squares go to sp+140 and kind 5's rows to sp+130.
+  - Its trail tails are the plain emitter's 48 words in order. Its hook helpers 2994b0 / 299640 are 298dd0 / 298f60 at
+    +6e0, and their spill words are retired as theirs are.
+  - nativeRowEmitter now takes it as a third variant. All 99 of its VU words are sites.
+- **Opaque fogged line strips (maps 46, 48):** next they drew line strips with tag 0x20154000 (PRIM 0x2a: FGE, no
+  ABE). This is admitted as the points' 0x20104000 is: ABE and FGE are read from the tag, so the strips are drawn opaque
+  and fogged.
+- **Mesh algorithm 34 (maps 459, 460, 461):**
+  - Table A's 34 is a bare JR vi10. Table B's 34 (1ba8 in set 0) is the same code in every VU1 set that has it.
+  - It is 32's routine with the register packet from rows 16 / 17 / 18 and ALPHA 0x48, instead of rows 8 / 9 / 10.
+    The delay slot of its table entry loads the gate, row 17.w, as for 32 / 52 / 54.
+  - 34 is now admitted with them: it is refused only when the live row 17.w is set.
+  - The three maps have the gate set. Row 16.y = 0.01 is the scale of 32's UV shift (1bc0..1e48: a tangent frame from
+    the strip's positions and UVs, the UVs moved along the light, then redrawn through 16's tail). They now stop at that
+    named boundary.
+  - The second-pass refusal prints its material rows.
+
+**Evidence:**
+- **Tests:**
+  - 300 slim-emitter particles (450 trail points, five store kinds, curves, three trail kinds) through the VU0
+    reference, word by word. A wrong record and a foreign word are refused.
+  - The ribbon test's strips with tag 0x20154000: drawn opaque and fogged, equal to image 4's words.
+- **Maps:**
+  - 46, 48, 272, 489, 514 run clean.
+  - 459, 460, 461 stop at routine 34's pass.
+- **Regression:** full ctest; the four scenes keep their hashes.
+- **Atlas:** 501 of 552 maps clean.
+
 ### Sprite step: particles without a written position are skipped (2026-11-25)
 
 - **The case:** map 464's live sprite particles 6..11 hold leftover words in their position (f237f925 f714e940

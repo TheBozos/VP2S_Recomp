@@ -491,7 +491,7 @@ NativeModelSubmission NativeModels::capture(Runtime *rt,NativeAssets &assets,Nat
         // at the battle's frame 72200), so the routine does nothing, as 46 (and as publishGeneratedMesh admits it).
         // 50, 52, 54 likewise: bare JR vi10 in all eight table copies in EE RAM (battle 0x1c and 0x18, the forest), found as
         // the tables whose entry 40 branches to the screen-UV routine (0x4000076f) and whose 22 and 46 return.
-        for(auto algorithm:m.algorithms)if(algorithm!=-1 && algorithm!=0 && algorithm!=2 && algorithm!=4 && algorithm!=6 && algorithm!=8 && algorithm!=12 && algorithm!=14 && algorithm!=16 && algorithm!=18 && algorithm!=22 && algorithm!=28 && algorithm!=32 && algorithm!=36 && algorithm!=20 && algorithm!=26 && algorithm!=40 && algorithm!=44 && algorithm!=46 && algorithm!=48 && algorithm!=50 && algorithm!=52 && algorithm!=54)
+        for(auto algorithm:m.algorithms)if(algorithm!=-1 && algorithm!=0 && algorithm!=2 && algorithm!=4 && algorithm!=6 && algorithm!=8 && algorithm!=12 && algorithm!=14 && algorithm!=16 && algorithm!=18 && algorithm!=22 && algorithm!=28 && algorithm!=32 && algorithm!=34 && algorithm!=36 && algorithm!=20 && algorithm!=26 && algorithm!=40 && algorithm!=44 && algorithm!=46 && algorithm!=48 && algorithm!=50 && algorithm!=52 && algorithm!=54)
             throw std::runtime_error(std::format("unported native mesh algorithm {}",algorithm));
         // 16: table A's entry is a bare JR vi10 in every copy (0x483 / 0x4ab / 0x499 / 0x42c / 0x454 / 0x442, map 107's
         // EE RAM); table B's, which the mesh program runs after the mesh's kick (0f28: base A + 0x32), is a second
@@ -520,6 +520,12 @@ NativeModelSubmission NativeModels::capture(Runtime *rt,NativeAssets &assets,Nat
         // .zw, bal 2398, then 1720), 18 (1870: its data's per-vertex UV pairs copied in, then 1748) and 28 (1138: routine 26's
         // reflection map with 28's data row, bal 1178, then 1720) are the same pass with other UVs. Each tests and clears
         // row 21.y, so the first of them in the mesh's routine order draws it.
+        // 32, 34, 52, 54 (table B 1bb8, 1ba8, 1e70, 1e60 in set 0; the same code in every set that has them; each entry's
+        // delay slot loads the gate, row 17.w): not ported. No live one in the 362 clean maps; 3 disc meshes with 32 have the
+        // gate set. 34 is 32 with the register packet from rows 16 / 17 / 18 (ALPHA 0x48) instead of 8 / 9 / 10 (1a90); table
+        // A's 34 is a bare JR vi10. Field maps 459-461 draw meshes with 34 and the gate set (row 16.y 0.01: the UV shift scale).
+        if((m.has(32) || m.has(34) || m.has(52) || m.has(54)) && block>=0x100000 && word(block+0x70)==0x8000 && word(block+0x78)==0x412 && word(block+0xbc))
+            throw std::runtime_error(std::format("unported native table-B pass (routine 32/34/52/54): mesh {:x} block {:x}",mesh,block));
         int passRoutine=0;for(auto a:m.algorithms)if(a==16 || a==18 || a==22 || a==28 || a==50){passRoutine=a;break;}
         std::array<float,2> passScroll{};
         if(passRoutine==50){
@@ -530,7 +536,8 @@ NativeModelSubmission NativeModels::capture(Runtime *rt,NativeAssets &assets,Nat
             if(block<0x100000 || word(block+0x70)!=0x8000 || word(block+0x78)!=0x412)throw std::runtime_error("native mesh second pass without its live material rows");
             NativeMaterialRows rows;for(unsigned r=0;r<16;++r)for(unsigned c=0;c<4;++c)rows[r][c]=word(block+0x10+16*r+4*c);
             secondPass=nativeSecondPass(rows);
-            if(!secondPass)throw std::runtime_error(std::format("unported native mesh second pass (routine {}): mesh {:x} block {:x}",passRoutine,mesh,block));
+            if(!secondPass){std::string shown;for(unsigned r:{13u,14u,16u,17u,18u,19u,20u,21u})shown+=std::format(" r{}={:08x},{:08x},{:08x},{:08x}",r,rows[r-7][0],rows[r-7][1],rows[r-7][2],rows[r-7][3]);
+                throw std::runtime_error(std::format("unported native mesh second pass (routine {}): mesh {:x} block {:x}{}",passRoutine,mesh,block,shown));}
             if(!secondPass->on)secondPass.reset();}   // row 21.y clear: the routine skips its pass
         // 46 (table B 21e0): a texture projected onto the mesh (a darkening pattern in world space: ALPHA 0x46, Cd (1 - As)).
         // Gated by mem[36].z and row 21.x (which it clears; the 16/22/50 pass tests .y, so both may draw). Per vertex,
@@ -562,10 +569,6 @@ NativeModelSubmission NativeModels::capture(Runtime *rt,NativeAssets &assets,Nat
                 pr.texture=textures.modelImage(key,tex0,std::nullopt)->picture((hi>>24)&0xf);   // CSA
                 pr.textureAlpha=(hi>>2)&1;pr.textureFunction=(hi>>3)&3;   // TCC, TFX
                 projector=pr;}}
-        // 32, 52, 54 (table B 1bb8, 1e70, 1e60; gated by row 17.w): not ported. No live one in the 362 clean maps; 3 disc meshes
-        // with 32 have the gate set.
-        if((m.has(32) || m.has(52) || m.has(54)) && block>=0x100000 && word(block+0x70)==0x8000 && word(block+0x78)==0x412 && word(block+0xbc))
-            throw std::runtime_error(std::format("unported native table-B pass (routine 32/52/54): mesh {:x} block {:x}",mesh,block));
         // 12 and 14 (table B 1488 and 1590, lifted with vu1_lift): shell redraws. Each step, over the vertices in order:
         // colour = FTOI0(min(max(ITOF0(colour) + data row 1, 0), 255)); position = position + normal * data0.x; and in 14's part
         // UV = FTOI12(ITOF12(uv) + (R - 1.5) * data0.z), R two RNEXTs a vertex (2 (n + 1) a step: the pipeline draws one pair

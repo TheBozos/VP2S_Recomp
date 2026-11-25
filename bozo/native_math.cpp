@@ -6950,8 +6950,34 @@ constexpr RowSite plainSites[]={
     {0x292890,0x4bc4deeb,'b',14},{0x2928c8,0xd8810000,'h',3},{0x2928d8,0x48a21800,'n',3},{0x2928dc,0x4be40b3c,'t',3},{0x2928f8,0xd8420000,'p',3},{0x2928fc,0x4be111ac,'i',1},
     {0x292900,0x4be1133c,'i',2},{0x292904,0x4bc022bc,'i',3},{0x292908,0x4bc33108,'i',4},{0x29290c,0xf8440000,'a',5},{0x292910,0x4bc4d6af,'b',6},{0x292914,0x4bc4deeb,'b',7},
 };
+// Slim emitter (mod001 291140, the step under 22ed38 of seven field maps' emitters): the plain emitter compiled again for
+// records of 0x60 bytes with no colour, rate or change: frame 0x150, emitter s5, index s3 (record = [emitter+14] + s3*60),
+// output s4 (P, then the EE copies the record's +20 to output+10). Setup is dt (vf5.x) and the drift (emitter+c0) only;
+// p +10, then v +30, A +50, acc +40; the curve row index is a1 and its fraction v0; the main block is the plain one without
+// the colour (P, A, V; A.w + dt, V.w - dt); three record stores A, P, V; kind 2's squares go to sp+140, kind 5's rows * P
+// to sp+130. The trail tails are the plain emitter's word for word (2916c0.. = 292788..); its hook helpers 2994b0 / 299640
+// are 298dd0 / 298f60 at +6e0 (retired below).
+constexpr RowSite slimSites[]={
+    {0x2911e0,0x48a22800,'d',0},{0x2911e8,0xd8540000,'g',0},{0x2912c0,0xda210000,'L',0},{0x2912c8,0xda020000,'M',0},{0x2912d0,0xd9040000,'M',1},{0x2912d8,0xdac30000,'M',2},
+    {0x291368,0xd84b0000,'e',0},{0x291374,0x48a26000,'F',0},{0x291378,0x4bc00abc,'-',0},{0x29137c,0x4bcc5848,'E',0},{0x2913b4,0x4bc00abc,'k',0},{0x2913b8,0x4bc0a0bf,'k',1},
+    {0x2913bc,0x4bc51048,'k',2},{0x2913c0,0x4bc022bc,'k',3},{0x2913c4,0x4bc51108,'k',4},{0x2913c8,0x4bc012bc,'k',5},{0x2913cc,0x4bc51888,'k',6},{0x2913d0,0x4a251084,'k',7},
+    {0x2913d4,0x4a252100,'k',8},{0x2913e4,0x4bc1d6af,'k',9},{0x2913e8,0x4bc1deeb,'k',10},{0x2913ec,0xfa810000,'O',0},{0x291448,0xf9040000,'R',0},{0x29144c,0xfa210000,'R',1},
+    {0x291450,0xfa020000,'R',2},{0x2914b8,0x4bc007c3,'s',0},{0x2914bc,0xf9040000,'R',0},{0x2914c0,0x4bc4212a,'s',1},{0x2914c4,0xfa210000,'R',1},{0x2914c8,0xfa020000,'R',2},
+    {0x2914cc,0x4b04203d,'s',2},{0x2914d0,0x4b04f90a,'s',3},{0x2914dc,0xf8440000,'S',0},{0x29154c,0xd8480000,'x',0},{0x291550,0xd8490010,'x',1},{0x291554,0xd84a0020,'x',2},
+    {0x291558,0xd84b0030,'x',3},{0x29155c,0x4be141bc,'x',4},{0x291560,0x4be148bd,'x',5},{0x291564,0x4be150be,'x',6},{0x291568,0x4be05c8b,'x',7},{0x291570,0xf9040000,'R',0},
+    {0x291574,0xfa210000,'R',1},{0x291578,0xfa020000,'R',2},{0x29157c,0xf8520000,'X',0},{0x2915e8,0xf9040000,'R',0},{0x2915ec,0xfa210000,'R',1},{0x2915f0,0xfa020000,'R',2},
+    {0x291680,0xf9040000,'R',0},{0x291684,0xfa210000,'R',1},{0x291688,0xfa020000,'R',2},{0x2916c0,0xd8810000,'h',2},{0x2916d0,0x48a21800,'n',2},{0x2916d4,0x4be40b3c,'t',2},
+    {0x2916f0,0xd8420000,'p',2},{0x2916f4,0x4be111ac,'i',1},{0x2916f8,0x4be1133c,'i',2},{0x2916fc,0x4bc007c3,'i',3},{0x291700,0x4bc631ea,'i',4},{0x291704,0x4b07383d,'i',5},
+    {0x291708,0x4b07f9ca,'i',6},{0x29170c,0x4a6703be,'i',7},{0x291710,0x4a0003bf,'i',8},{0x291714,0x4bc0321c,'i',9},{0x291718,0x4bc022bc,'i',10},{0x29171c,0x4bc030bf,'i',11},
+    {0x291720,0x4bc34108,'i',12},{0x291724,0xf8440000,'a',13},{0x291728,0x4bc4d6af,'b',14},{0x29172c,0x4bc4deeb,'b',15},{0x291760,0xd8810000,'h',1},{0x291770,0x48a21800,'n',1},
+    {0x291774,0x4be40b3c,'t',1},{0x291790,0xd8420000,'p',1},{0x291794,0x4be111ac,'i',1},{0x291798,0x4be1133c,'i',2},{0x29179c,0x4bc007c3,'i',3},{0x2917a0,0x4bc631ea,'i',4},
+    {0x2917a4,0x4b07383d,'i',5},{0x2917a8,0x4b07f9ca,'i',6},{0x2917ac,0x4a6703be,'i',7},{0x2917b0,0x4a0003bf,'i',8},{0x2917b4,0x4bc0319c,'i',9},{0x2917b8,0x4bc022bc,'i',10},
+    {0x2917bc,0x4bc33108,'i',11},{0x2917c0,0xf8440000,'a',12},{0x2917c4,0x4bc4d6af,'b',13},{0x2917c8,0x4bc4deeb,'b',14},{0x291800,0xd8810000,'h',3},{0x291810,0x48a21800,'n',3},
+    {0x291814,0x4be40b3c,'t',3},{0x291830,0xd8420000,'p',3},{0x291834,0x4be111ac,'i',1},{0x291838,0x4be1133c,'i',2},{0x29183c,0x4bc022bc,'i',3},{0x291840,0x4bc33108,'i',4},
+    {0x291844,0xf8440000,'a',5},{0x291848,0x4bc4d6af,'b',6},{0x29184c,0x4bc4deeb,'b',7},
+};
 struct RowState{
-    bool setup=false,plain=false;unsigned setupStep=0;uint32_t frame=0,emitter=0,dt=0;VuWords drift{},clamp{};
+    bool setup=false,plain=false,slim=false;unsigned setupStep=0;uint32_t frame=0,emitter=0,dt=0;VuWords drift{},clamp{};
     unsigned phase=0;   // 0 between particles, 1 rows, 2 loading, 3 loaded, 4 main, 5 output, 6 stored
     char block=0;unsigned blockStep=0;unsigned loads=0,main=0,stored=0;uint32_t record=0,output=0,fraction=0;
     VuWords p{},b{},a{},e{},f{},v{},A{},acc{},colour{},rate{},change{},offset{},g{},h{},row{},P{},C{},V{},R{};
@@ -6960,9 +6986,11 @@ struct RowState{
 };
 RowState &rowState(const Runtime *rt){static std::map<const Runtime *,RowState> states;return states[rt];}
 bool nativeRowEmitter(R5900Context *c,Runtime *rt,uint32_t pc){
-    if(!rt || (pc&3) || pc<0x292184 || pc>0x293ccc)return false;
-    const RowSite *site=nullptr;bool plain=false;
+    if(!rt || (pc&3) || pc<0x2911e0 || pc>0x293ccc)return false;
+    const RowSite *site=nullptr;bool plain=false;const bool slim=pc<0x292184;
     if(pc>=0x2933a8){for(const auto &s:rowSites)if(s.pc==pc){site=&s;break;}}
+    else if(slim){for(const auto &s:slimSites)if(s.pc==pc){site=&s;break;}
+        plain=true;}
     else{for(const auto &s:plainSites)if(s.pc==pc){site=&s;break;}
         plain=true;}
     if(!site)return false;
@@ -6980,20 +7008,21 @@ bool nativeRowEmitter(R5900Context *c,Runtime *rt,uint32_t pc){
     constexpr uint32_t one=0x3f800000u;
     const auto include=[&](const VuWords &v){std::array<float,4> f;for(unsigned i=0;i<4;++i)f[i]=std::bit_cast<float>(v[i]);particles->nativeParticles().includePoint(st.frame,st.emitter,f);};
     const auto sumSquares=[&](const VuWords &v){return vuAdd(vuAdd(vuMul(v[0],v[0]),vuMul(v[1],v[1])),vuMul(one,vuMul(v[2],v[2])));};
+    const uint32_t frameSize=slim?0x150:plain?0x170:0x1e0;
     const auto stepped=[&](const VuWords &base,const VuWords &rate){VuWords out=base;for(unsigned i=0;i<3;++i)out[i]=vuAdd(vuAdd(base[i],0),vuMul(rate[i],st.dt));return out;};
     // Setup (the step's own constants).
     if(std::string_view("dgoc").find(site->role)!=std::string_view::npos){
         if(site->role=='d'){
-            st=RowState{};st.plain=plain;st.emitter=reg(21);st.frame=reg(29)+(plain?0x170:0x1e0);particles->nativeParticles().validateEmitter(st.frame,st.emitter);
+            st=RowState{};st.plain=plain;st.slim=slim;st.emitter=reg(21);st.frame=reg(29)+frameSize;particles->nativeParticles().validateEmitter(st.frame,st.emitter);
             if(reg(2)!=field(0x35dee8))fail("timestep source");st.dt=reg(2);st.setupStep=1;return true;}
         constexpr std::string_view order="dgoc";
-        if(st.setupStep!=order.find(site->role) || st.plain!=plain || reg(21)!=st.emitter || reg(29)+(plain?0x170:0x1e0)!=st.frame)fail("setup order");
-        if(site->role=='g'){if(address()!=st.emitter+0xc0)fail("drift source");st.drift=vuWords(rt,address());}
+        if(st.setupStep!=order.find(site->role) || st.plain!=plain || st.slim!=slim || reg(21)!=st.emitter || reg(29)+frameSize!=st.frame)fail("setup order");
+        if(site->role=='g'){if(address()!=st.emitter+0xc0)fail("drift source");st.drift=vuWords(rt,address());if(slim)st.setup=true;}
         if(site->role=='c'){if(address()!=reg(29)+(plain?0x160:0x1d0))fail("clamp source");st.clamp=vuWords(rt,address());st.setup=true;}
         ++st.setupStep;return true;
     }
-    if(!st.setup || st.plain!=plain || reg(21)!=st.emitter || reg(29)+(plain?0x170:0x1e0)!=st.frame)fail("particle outside its emitter's step");
-    const unsigned recordStores=plain?5:7;
+    if(!st.setup || st.plain!=plain || st.slim!=slim || reg(21)!=st.emitter || reg(29)+frameSize!=st.frame)fail("particle outside its emitter's step");
+    const unsigned recordStores=slim?3:plain?5:7;
     switch(site->role){
     case 'L':{
         constexpr uint32_t offsets[5]={0x10,0xb0,0x80,0xc0,0x90};
@@ -7001,7 +7030,7 @@ bool nativeRowEmitter(R5900Context *c,Runtime *rt,uint32_t pc){
             if(st.phase==6 && st.trail && st.trailStep!=(st.trail==2?16u:st.trail==1?15u:8u))fail("particle inside a trail");
             if((st.phase!=0 && st.phase!=6) || st.block)fail("particle loads inside a particle's step");
             st.record=address()-0x10;
-            if(st.record!=field(st.emitter+0x14)+reg(20)*(plain?0x80u:0xf0u))fail("particle record");
+            if(st.record!=field(st.emitter+0x14)+(slim?reg(19)*0x60u:reg(20)*(plain?0x80u:0xf0u)))fail("particle record");
             st.phase=1;st.loads=0;st.main=0;st.stored=0;st.output=0;st.trail=0;}
         else if(st.phase!=1 || st.loads!=site->param)fail("row load order");
         if(address()!=st.record+offsets[site->param])fail("row address");
@@ -7021,12 +7050,12 @@ bool nativeRowEmitter(R5900Context *c,Runtime *rt,uint32_t pc){
         if(st.phase!=2 || st.loads!=site->param)fail("particle load order");
         if(address()!=(site->param==6?reg(29)+0x1a0:st.record+offsets[site->param]))fail("particle field address");
         VuWords *targets[11]={&st.v,&st.A,&st.acc,&st.colour,&st.rate,&st.change,&st.offset,&st.g,&st.h,&st.e,&st.f};*targets[site->param]=vuWords(rt,address());
-        if(++st.loads==(plain?6u:11u))st.phase=3;return true;}
+        if(++st.loads==(slim?3u:plain?6u:11u))st.phase=3;return true;}
     case 'e':
-        if(st.phase!=3 || st.block || address()!=field(st.emitter+0x68)+reg(plain?9:7)*16)fail("curve row");
+        if(st.phase!=3 || st.block || address()!=field(st.emitter+0x68)+reg(slim?5:plain?9:7)*16)fail("curve row");
         st.row=vuWords(rt,address());st.block='e';st.blockStep=1;return true;
     case 'F':
-        if(st.block!='e' || st.blockStep!=1 || reg(4)!=std::bit_cast<uint32_t>(c->f[1]))fail("curve fraction");st.fraction=reg(4);st.blockStep=2;return true;
+        if(st.block!='e' || st.blockStep!=1 || reg(slim?2:4)!=std::bit_cast<uint32_t>(c->f[1]))fail("curve fraction");st.fraction=reg(slim?2:4);st.blockStep=2;return true;
     case '-':
         if(st.block!='e' || st.blockStep!=2)fail("curve step order");st.blockStep=3;return true;
     case 'E':
@@ -7050,9 +7079,9 @@ bool nativeRowEmitter(R5900Context *c,Runtime *rt,uint32_t pc){
             if(!plain){st.e=stepped(st.e,st.g);st.f=stepped(st.f,st.h);}
             st.phase=4;st.main=0;}
         if(word==0x4bc1d6af)include(st.P);
-        if(++st.main==(plain?17u:23u))st.phase=5;return true;
+        if(++st.main==(slim?11u:plain?17u:23u))st.phase=5;return true;
     case 'O':
-        if(st.phase!=5 || st.output || address()!=(plain?reg(23):field(reg(29)+0x160)))fail("output order");st.output=address();put(st.output,st.P);return true;
+        if(st.phase!=5 || st.output || address()!=(slim?reg(20):plain?reg(23):field(reg(29)+0x160)))fail("output order");st.output=address();put(st.output,st.P);return true;
     case 'U':
         if(st.phase!=5 || !st.output || st.stored || address()!=st.output+0x10)fail("output colour order");put(address(),st.C);return true;
     case 'R':{
@@ -7071,7 +7100,7 @@ bool nativeRowEmitter(R5900Context *c,Runtime *rt,uint32_t pc){
         if(st.phase!=5 || st.stored!=(site->param==0?0u:site->param==1?1u:recordStores) || (site->param?(st.block!='s' || st.blockStep!=site->param):st.block!=0))fail("square order");
         st.block='s';st.blockStep=site->param+1;return true;
     case 'S':{
-        if(st.block!='s' || st.blockStep!=4 || st.stored!=recordStores || address()!=reg(29)+(plain?0x150:0x190))fail("square store order");
+        if(st.block!='s' || st.blockStep!=4 || st.stored!=recordStores || address()!=reg(29)+(slim?0x140:plain?0x150:0x190))fail("square store order");
         const VuWords out{sumSquares(st.A),vuMul(st.A[1],st.A[1]),vuMul(st.A[2],st.A[2]),st.A[3]};put(address(),out);
         st.block=0;st.phase=6;st.trail=0;return true;}
     case 'x':
@@ -7079,7 +7108,7 @@ bool nativeRowEmitter(R5900Context *c,Runtime *rt,uint32_t pc){
         if(site->param<4){if(address()!=st.emitter+0x80+0x10*site->param)fail("rows address");st.rows[site->param]=vuWords(rt,address());}
         st.block='x';st.blockStep=site->param+1;if(site->param==7)st.block='X';return true;
     case 'X':{
-        if(st.block!='X' || st.stored!=recordStores || address()!=reg(29)+(plain?0x140:0x180))fail("rows store order");
+        if(st.block!='X' || st.stored!=recordStores || address()!=reg(29)+(slim?0x130:plain?0x140:0x180))fail("rows store order");
         VuWords out;for(unsigned i=0;i<4;++i)out[i]=vuAdd(vuAdd(vuAdd(vuMul(st.rows[0][i],st.P[0]),vuMul(st.rows[1][i],st.P[1])),vuMul(st.rows[2][i],st.P[2])),vuMul(st.rows[3][i],one));
         put(address(),out);st.block=0;st.phase=6;st.trail=0;return true;}
     case 'h':
@@ -7760,6 +7789,9 @@ bool retiredEmitterHookWords(R5900Context *,Runtime *rt,uint32_t pc){
         {0x298b6c,0xf8520000},{0x298b70,0xf85d0010},{0x298bb0,0x4bd1033c},{0x298bb4,0x4be00798},{0x298bc8,0x48a32800},{0x298bd0,0xd8720000},{0x298bd4,0xd87d0010},
         {0x2990ac,0xf8520000},{0x2990b0,0xf85d0010},{0x2990ec,0x4bd1033c},{0x2990f0,0x4be00798},{0x299104,0x48a32800},{0x29910c,0xd8720000},{0x299110,0xd87d0010},
         {0x298d3c,0xf8520000},{0x298d40,0xf85d0010},{0x298d7c,0x4bd1033c},{0x298d80,0x4be00798},{0x298d94,0x48a32800},{0x298d9c,0xd8720000},{0x298da0,0xd87d0010},
+        // the slim emitter's helpers (291140): 2994b0 / 299640, 298dd0 / 298f60 at +6e0.
+        {0x2995bc,0xf8520000},{0x2995c0,0xf85d0010},{0x299600,0x4bd1033c},{0x299604,0x4be00798},{0x299618,0x48a32800},{0x299620,0xd8720000},{0x299624,0xd87d0010},
+        {0x29978c,0xf8520000},{0x299790,0xf85d0010},{0x2997cc,0x4bd1033c},{0x2997d0,0x4be00798},{0x2997e4,0x48a32800},{0x2997ec,0xd8720000},{0x2997f0,0xd87d0010},
         // mod003 40f420, 245540 again under the field copy of the general emitter (40d1b0, classes 162330 / 163fa0).
         {0x40f52c,0xf8520000},{0x40f530,0xf85d0010},{0x40f570,0x4bd1033c},{0x40f574,0x4be00798},{0x40f588,0x48a32800},{0x40f590,0xd8720000},{0x40f594,0xd87d0010},
         // mod003 4102d0 / 410460, 298a60 / 298bf0 again under the field copy of the second emitter class (40c590).

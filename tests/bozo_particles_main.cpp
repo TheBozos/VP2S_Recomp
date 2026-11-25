@@ -946,6 +946,80 @@ int main(){try{
             try{vp2s::nativeMathInstruction(y.memory.flat(),&m,&y,0x2922a8);}catch(const std::runtime_error &){refused=true;}check(refused);
             write(y,0x2923b4,uint32_t(0));check(!vp2s::nativeMathInstruction(y.memory.flat(),&m,&y,0x2923b4));
             std::printf("%u plain emitter particles (%u trail points, six store kinds, curves, three trail kinds) match the VU0 reference\n",plainCases,plainPoints);}
+        // mod001 291140, the slim emitter (the plain emitter for records of 0x60 bytes: no colour, rate or change; frame 0x150,
+        // index s3, output s4): its constants, the four loads, curves, the main step, output, the three stores of each +d0 kind
+        // and the three trails, against the same VU0 reference.
+        {const std::pair<uint32_t,uint32_t> words[]={
+                {0x2911e0,0x48a22800},{0x2911e8,0xd8540000},{0x2912c0,0xda210000},{0x2912c8,0xda020000},{0x2912d0,0xd9040000},{0x2912d8,0xdac30000},
+                {0x291368,0xd84b0000},{0x291374,0x48a26000},{0x291378,0x4bc00abc},{0x29137c,0x4bcc5848},{0x2913b4,0x4bc00abc},{0x2913b8,0x4bc0a0bf},
+                {0x2913bc,0x4bc51048},{0x2913c0,0x4bc022bc},{0x2913c4,0x4bc51108},{0x2913c8,0x4bc012bc},{0x2913cc,0x4bc51888},{0x2913d0,0x4a251084},
+                {0x2913d4,0x4a252100},{0x2913e4,0x4bc1d6af},{0x2913e8,0x4bc1deeb},{0x2913ec,0xfa810000},{0x291448,0xf9040000},{0x29144c,0xfa210000},
+                {0x291450,0xfa020000},{0x2914b8,0x4bc007c3},{0x2914bc,0xf9040000},{0x2914c0,0x4bc4212a},{0x2914c4,0xfa210000},{0x2914c8,0xfa020000},
+                {0x2914cc,0x4b04203d},{0x2914d0,0x4b04f90a},{0x2914dc,0xf8440000},{0x29154c,0xd8480000},{0x291550,0xd8490010},{0x291554,0xd84a0020},
+                {0x291558,0xd84b0030},{0x29155c,0x4be141bc},{0x291560,0x4be148bd},{0x291564,0x4be150be},{0x291568,0x4be05c8b},{0x291570,0xf9040000},
+                {0x291574,0xfa210000},{0x291578,0xfa020000},{0x29157c,0xf8520000},{0x2915e8,0xf9040000},{0x2915ec,0xfa210000},{0x2915f0,0xfa020000},
+                {0x291680,0xf9040000},{0x291684,0xfa210000},{0x291688,0xfa020000},{0x2916c0,0xd8810000},{0x2916d0,0x48a21800},{0x2916d4,0x4be40b3c},
+                {0x2916f0,0xd8420000},{0x2916f4,0x4be111ac},{0x2916f8,0x4be1133c},{0x2916fc,0x4bc007c3},{0x291700,0x4bc631ea},{0x291704,0x4b07383d},
+                {0x291708,0x4b07f9ca},{0x29170c,0x4a6703be},{0x291710,0x4a0003bf},{0x291714,0x4bc0321c},{0x291718,0x4bc022bc},{0x29171c,0x4bc030bf},
+                {0x291720,0x4bc34108},{0x291724,0xf8440000},{0x291728,0x4bc4d6af},{0x29172c,0x4bc4deeb},{0x291760,0xd8810000},{0x291770,0x48a21800},
+                {0x291774,0x4be40b3c},{0x291790,0xd8420000},{0x291794,0x4be111ac},{0x291798,0x4be1133c},{0x29179c,0x4bc007c3},{0x2917a0,0x4bc631ea},
+                {0x2917a4,0x4b07383d},{0x2917a8,0x4b07f9ca},{0x2917ac,0x4a6703be},{0x2917b0,0x4a0003bf},{0x2917b4,0x4bc0319c},{0x2917b8,0x4bc022bc},
+                {0x2917bc,0x4bc33108},{0x2917c0,0xf8440000},{0x2917c4,0x4bc4d6af},{0x2917c8,0x4bc4deeb},{0x291800,0xd8810000},{0x291810,0x48a21800},
+                {0x291814,0x4be40b3c},{0x291830,0xd8420000},{0x291834,0x4be111ac},{0x291838,0x4be1133c},{0x29183c,0x4bc022bc},{0x291840,0x4bc33108},
+                {0x291844,0xf8440000},{0x291848,0x4bc4d6af},{0x29184c,0x4bc4deeb},
+            };
+            for(const auto &[pc,w]:words){write(y,pc,w);write(x,pc,w);}
+            constexpr uint32_t kindStores[4][3]={{0x291448,0x29144c,0x291450},{0x2914bc,0x2914c4,0x2914c8},{0x2915e8,0x2915ec,0x2915f0},{0x291680,0x291684,0x291688}};
+            constexpr uint32_t mainBlock[11]={0x2913b4,0x2913b8,0x2913bc,0x2913c0,0x2913c4,0x2913c8,0x2913cc,0x2913d0,0x2913d4,0x2913e4,0x2913e8};
+            const uint32_t S5=frame-0x150;unsigned slimCases=0,slimPoints=0;
+            const auto both=[&](uint32_t at,uint32_t v){write(y,at,v);write(x,at,v);};
+            for(unsigned seed=0;seed<100;++seed){
+                uint32_t state=seed*2654435761u+17;const auto rnd=[&](){state=state*1664525u+1013904223u;return state>>8;};
+                const auto value=[&](unsigned lo=105,unsigned span=40){return (rnd()&0x807fffffu)|((lo+rnd()%span)<<23);};
+                const auto vec=[&](uint32_t at){for(unsigned i=0;i<4;++i)both(at+4*i,value());};
+                const uint32_t dt=value(118,6)&0x7fffffffu;both(0x35dee8,dt);vec(E+0xc0);both(E+0x54,value(122,6));
+                both(E+0x14,B);both(E+0x68,T);
+                for(unsigned i=0;i<4;++i)vec(E+0x80+16*i);for(unsigned i=0;i<16;++i)vec(T+16*i);
+                for(uint32_t at=B;at<B+0x60*12;at+=16)vec(at);for(uint32_t at=O;at<O+0x30*8;at+=16)vec(at);
+                vec(S5+0x130);vec(S5+0x140);
+                const auto random=[&](unsigned r,uint32_t low){m.r[r].uw[0]=low;for(unsigned i=1;i<4;++i)m.r[r].uw[i]=rnd();};
+                m=R5900Context{};m.r[29].uw[0]=S5;m.r[21].uw[0]=E;
+                random(2,dt);run(0x2911e0);m.r[2].uw[0]=E+0xc0;run(0x2911e8);
+                const unsigned kind=seed%5,trail=(seed/5)%4,rows=(seed/3)%3,n=2+seed%3;
+                for(unsigned k=0;k<3;++k){
+                    const unsigned index=seed%4+3*k;const uint32_t rec=B+index*0x60,out=O+(k%2)*0x30*4;
+                    m.r[19].uw[0]=index;m.r[17].uw[0]=rec+0x10;run(0x2912c0);m.r[16].uw[0]=rec+0x30;run(0x2912c8);m.r[8].uw[0]=rec+0x50;run(0x2912d0);
+                    m.r[22].uw[0]=rec+0x40;run(0x2912d8);
+                    for(unsigned j=0;j<rows;++j){const unsigned a1=j+seed%5;m.r[5].uw[0]=a1;m.r[2].uw[0]=T+16*a1;run(0x291368);
+                        const auto fraction=value(115,8)&0x7fffffffu;m.f[1]=std::bit_cast<float>(fraction);random(2,fraction);run(0x291374);run(0x291378);run(0x29137c);}
+                    for(const auto pc:mainBlock)run(pc);
+                    m.r[20].uw[0]=out;run(0x2913ec);
+                    if(kind==4){m.r[2].uw[0]=E+0x80;for(uint32_t pc=0x29154c;pc<=0x291568;pc+=4)run(pc);
+                        for(uint32_t pc=0x291570;pc<=0x291578;pc+=4)run(pc);m.r[2].uw[0]=S5+0x130;run(0x29157c);}
+                    else{const auto &st=kindStores[kind];
+                        if(kind==1)run(0x2914b8);
+                        for(unsigned i=0;i<3;++i){run(st[i]);if(kind==1 && i==0)run(0x2914c0);}
+                        if(kind==1){run(0x2914cc);run(0x2914d0);m.r[2].uw[0]=S5+0x140;run(0x2914dc);}}
+                    if(trail){
+                        const uint32_t head=trail==2?0x2916c0:trail==1?0x291760:0x291800,first=trail==2?0x2916f0:trail==1?0x291790:0x291830,last=trail==2?0x29172c:trail==1?0x2917c8:0x29184c;
+                        m.r[4].uw[0]=out;run(head);random(2,read<uint32_t>(y,E+0x54));run(head+0x10);run(head+0x14);
+                        for(unsigned i=1;i<n;++i){m.r[3].uw[0]=i;m.r[2].uw[0]=out+i*0x30;for(uint32_t pc=first;pc<=last;pc+=4)run(pc);++slimPoints;}
+                    }
+                }
+                check(!std::memcmp(x.memory.hostPointer(B,0x60*12),y.memory.hostPointer(B,0x60*12),0x60*12));
+                check(!std::memcmp(x.memory.hostPointer(O,0x30*8),y.memory.hostPointer(O,0x30*8),0x30*8));
+                check(!std::memcmp(x.memory.hostPointer(S5+0x130,0x20),y.memory.hostPointer(S5+0x130,0x20),0x20));
+                const auto box=now.particles.bounds(frame,E);
+                for(unsigned i=0;i<3;++i)check(std::bit_cast<uint32_t>(box.minimum[i])==o.vu0_vf[26].u[i] && std::bit_cast<uint32_t>(box.maximum[i])==o.vu0_vf[27].u[i]);
+                slimCases+=3;
+            }
+            // A wrong record (index 2 at record 1) rejects; another word at a site is not this emitter.
+            bool refused=false;m=R5900Context{};m.r[29].uw[0]=S5;m.r[21].uw[0]=E;m.r[2].uw[0]=read<uint32_t>(y,0x35dee8);check(vp2s::nativeMathInstruction(y.memory.flat(),&m,&y,0x2911e0));
+            m.r[2].uw[0]=E+0xc0;check(vp2s::nativeMathInstruction(y.memory.flat(),&m,&y,0x2911e8));
+            m.r[19].uw[0]=2;m.r[17].uw[0]=B+0x60+0x10;
+            try{vp2s::nativeMathInstruction(y.memory.flat(),&m,&y,0x2912c0);}catch(const std::runtime_error &){refused=true;}check(refused);
+            write(y,0x2913b4,uint32_t(0));check(!vp2s::nativeMathInstruction(y.memory.flat(),&m,&y,0x2913b4));
+            std::printf("%u slim emitter particles (%u trail points, five store kinds, curves, three trail kinds) match the VU0 reference\n",slimCases,slimPoints);}
         // mod001 23f3f0, the general emitter's frame clock: vf3.x = dt, then per particle clock +140
         // += rate +150 * dt (.xyz) to the output's +20 and back, in both branches, against the reference.
         {const std::pair<uint32_t,uint32_t> clock[]={{0x23f47c,0x48b01800},

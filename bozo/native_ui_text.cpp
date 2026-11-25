@@ -30,6 +30,9 @@ template<class T>T value(Runtime *rt,uint32_t at){T result;std::memcpy(&result,r
 // destructor 2f2780 (type back to 15a2f0, then 2eeb00) and the hooks +3c..+54,
 // which only set request flags (+678..+681) on the owning layer at +3b0; the
 // layer's completion 2f2390 acts on them (scalar, compiled). Map 79's layer 15fef0.
+// 167ac0 (mod003, map 446) is 15a600's pattern on 15a2f0: the same methods but for its destructor 3b0bf0 (type back to
+// itself, then 2eeb00) and the hooks +3c..+50 (4682f0..468390), which only set request flags (+744..+74a, +730..+73a)
+// on the owning layer at +3b0, the layer 15fd30 whose completion 467f30 acts on them (scalar, compiled).
 void type(Runtime *rt,uint32_t element){const auto actual=value<uint32_t>(rt,element);if(!nativeUiTextClass(actual))throw std::runtime_error(std::format("unported native UI text class {:x} at {:x}",actual,element));}
 }
 // 16ed70 is mod028's battle copy of 15a600: the same build 2ecfa0 and text core (2e9320..2e75c0,
@@ -40,7 +43,7 @@ void type(Runtime *rt,uint32_t element){const auto actual=value<uint32_t>(rt,ele
 // 168b30 (map 2's overlay text, a 15a450 subclass): the base emitter, build 2efba0, item callbacks 2e7e90 / 2e76a0 and draw
 // 2f32d0; its +4 / +c / +10 are word-identical copies of 1e8200 / 1e8210 / 1ea760, and its +1c (4908b0) calls the base
 // update 2efce0 first, then only sets the rebuild / reveal flags (+12d, +3c) and calls the base 2ef860 (compiled).
-bool nativeUiTextClass(uint32_t type){return type==0x1748d0 || type==0x15a450 || type==0x15a2f0 || type==0x165ae0 || type==0x15a350 || type==0x15a600 || type==0x16ed70 || type==0x168b30;}
+bool nativeUiTextClass(uint32_t type){return type==0x1748d0 || type==0x15a450 || type==0x15a2f0 || type==0x165ae0 || type==0x15a350 || type==0x15a600 || type==0x16ed70 || type==0x168b30 || type==0x167ac0;}
 void NativeUiTexts::enter(Runtime *rt,uint32_t stack,uint32_t element,uint32_t items,int32_t count){
     type(rt,element);
     if(count>8192 || builds.contains(stack))throw std::runtime_error("native UI text count/stack outside admitted lifetime");
@@ -368,7 +371,8 @@ NativeUiLayer NativeUiTexts::layer(Runtime *rt,uint32_t layer)const{
             result.texts.push_back(std::move(item));continue;
         }
         if(value<uint32_t>(rt,element)==0x167820 || value<uint32_t>(rt,element)==0x165e00 || value<uint32_t>(rt,element)==0x165c30 || value<uint32_t>(rt,element)==0x168e10 ||
-           value<uint32_t>(rt,element)==0x166ef0 || value<uint32_t>(rt,element)==0x1670a0){
+           value<uint32_t>(rt,element)==0x166ef0 || value<uint32_t>(rt,element)==0x1670a0 || value<uint32_t>(rt,element)==0x167b50 || value<uint32_t>(rt,element)==0x167b80 ||
+           value<uint32_t>(rt,element)==0x167fe0 || value<uint32_t>(rt,element)==0x167b20){
             auto captured=plate(element);if(!captured)throw std::runtime_error("native name plate has no finished snapshot");
             result.texts.push_back(std::move(captured));continue;
         }
@@ -554,6 +558,201 @@ NativeUiText nativePauseLogo(const NativePauseLogoInputs &in,std::shared_ptr<con
     s.uv={float(t[0])/texW,float(t[1])/texH,float(t[2])/texW,float(t[3])/texH};out.icons.push_back(std::move(s));
     return out;
 }
+std::array<int32_t,4> nativePictureUv(const std::array<uint16_t,6> &r,unsigned log2Width,unsigned log2Height){
+    namespace F=bozo::ps2f;uint32_t flags=0;
+    const auto M=[&](uint32_t a,uint32_t b){return F::mul(a,b,flags);};
+    const auto I=[](uint32_t x){return int32_t(F::toInt(x));};
+    const auto U=[](uint32_t v){return F::fromInt(v);};
+    const uint32_t k256=std::bit_cast<uint32_t>(256.f);
+    const auto su=F::div(F::fromInt(1u<<log2Width),k256,flags),sv=F::div(F::fromInt(1u<<log2Height),k256,flags);
+    // 410c30 stores each with sh: the low 16 bits, read back by lh.
+    const auto h=[](int32_t v){return int32_t(int16_t(v));};
+    return {h(I(M(su,U(r[0])))),h(I(M(sv,U(r[1])))),h(I(M(su,U(r[2])))),h(I(M(sv,U(r[3]))))};
+}
+// Picture 4689f0 on PS2 float words, in its order.
+NativeUiText nativePicture(const NativePictureInputs &in,std::shared_ptr<const bozo::render::Texture> picture){
+    namespace F=bozo::ps2f;uint32_t flags=0;
+    const auto A=[&](uint32_t a,uint32_t b){return F::add(a,b,flags);};
+    const auto S=[&](uint32_t a,uint32_t b){return F::sub(a,b,flags);};
+    const auto M=[&](uint32_t a,uint32_t b){return F::mul(a,b,flags);};
+    const auto D=[&](uint32_t a,uint32_t b){return F::div(a,b,flags);};
+    const auto I=[](uint32_t x){return int32_t(F::toInt(x));};
+    const auto U=[](uint32_t v){return F::fromInt(v);};
+    constexpr uint32_t k08=0x3f4ccccdu,kY=0x3f88ca11u,k16=0x41800000u,k128=0x43000000u,k2p31=0x4f000000u;
+    const auto half=[](int32_t v){return v>=0?v>>1:(v+1)>>1;};
+    const auto ox=U(uint32_t(0x800-half(in.frameWidth))),oy=U(uint32_t(0x800-half(in.frameHeight)));
+    const auto x=A(in.layerX,in.x),y=A(in.layerY,in.y);
+    const auto w=M(U(in.rect[4]),in.scale),h=M(U(in.rect[5]),in.scale);
+    const auto x1=A(ox,M(k08,A(x,w))),y1=A(oy,M(kY,A(y,h)));
+    const auto x0=A(ox,M(k08,x)),y0=A(oy,M(kY,y));
+    // Alpha: (element +28 x layer +e0) / 128, converted unsigned (c.ole 2^31), its low byte in the top of the colour.
+    const auto a=D(M(in.alpha,in.layerAlpha),k128);
+    const uint32_t alpha=std::bit_cast<float>(k2p31)<=std::bit_cast<float>(a)?uint32_t(I(S(a,k2p31)))|0x80000000u:uint32_t(I(a));
+    const auto t=nativePictureUv(in.rect,in.log2Width,in.log2Height);
+    const float texW=float(1u<<in.log2Width)*16,texH=float(1u<<in.log2Height)*16;
+    NativeUiText out;NativeUiSprite s;s.colour=0x808080u|alpha<<24;s.depth=in.depth;s.picture=std::move(picture);
+    const auto X0=I(M(k16,x0)),Y0=I(M(k16,y0)),X1=I(M(k16,x1)),Y1=I(M(k16,y1));
+    if(X0<0 || Y0<0 || X1<0 || Y1<0 || X0>0xffff || Y0>0xffff || X1>0xffff || Y1>0xffff)throw std::runtime_error("native picture element outside the GS window");
+    s.fixedCorners={std::array<int32_t,2>{X0,Y0},{X1,Y0},{X0,Y1},{X1,Y1}};
+    s.uv={float(t[0])/texW,float(t[1])/texH,float(t[2])/texW,float(t[3])/texH};out.icons.push_back(std::move(s));
+    return out;
+}
+NativeNameTabEdges nativeNameTabEdges(const NativeNameTabInputs &in){
+    namespace F=bozo::ps2f;uint32_t flags=0;
+    const auto A=[&](uint32_t a,uint32_t b){return F::add(a,b,flags);};
+    const auto M=[&](uint32_t a,uint32_t b){return F::mul(a,b,flags);};
+    const auto D=[&](uint32_t a,uint32_t b){return F::div(a,b,flags);};
+    constexpr uint32_t k512=0x44000000u,k640=0x44200000u;
+    const auto half=[](int32_t v){return v>=0?v>>1:(v+1)>>1;};
+    const auto ox=F::fromInt(uint32_t(0x800-half(in.frameWidth)));
+    const auto right=A(in.extra,A(in.layerX,in.width));
+    return {A(D(M(k512,in.layerX),k640),ox),A(ox,D(M(k512,right),k640))};
+}
+std::vector<bozo::render::Vertex> nativeNameTabStrip(const NativeNameTabInputs &in){
+    namespace F=bozo::ps2f;uint32_t flags=0;
+    const auto A=[&](uint32_t a,uint32_t b){return F::add(a,b,flags);};
+    const auto S=[&](uint32_t a,uint32_t b){return F::sub(a,b,flags);};
+    const auto M=[&](uint32_t a,uint32_t b){return F::mul(a,b,flags);};
+    const auto D=[&](uint32_t a,uint32_t b){return F::div(a,b,flags);};
+    const auto I=[](uint32_t x){return int32_t(F::toInt(x));};
+    constexpr uint32_t k16=0x41800000u,k24=0x41c00000u,k48=0x42400000u,k384=0x43c00000u,kY=0x44003d70u,k480=0x43f00000u,k2p31=0x4f000000u;
+    const auto half=[](int32_t v){return v>=0?v>>1:(v+1)>>1;};
+    const auto oy=F::fromInt(uint32_t(0x800-half(in.frameHeight)));
+    const auto e=nativeNameTabEdges(in);const auto L=e.left,R=e.right;
+    const auto Yf=A(D(M(kY,in.layerY),k480),oy);
+    const uint32_t a=in.alpha;
+    const uint32_t alpha=std::bit_cast<float>(k2p31)<=std::bit_cast<float>(a)?uint32_t(I(S(a,k2p31)))|0x80000000u:uint32_t(I(a));
+    const uint32_t inner=(alpha<<24)|0x2b41adu,outer=0x2b41adu;
+    const auto left=M(k16,S(L,k24)),top=M(k16,A(k24,Yf));
+    const int32_t xs[4]={I(left),I(A(k384,left)),I(M(k16,R)),I(M(k16,A(k24,R)))},yt=I(top),yb=I(A(k48,top));
+    for(auto v:{xs[0],xs[1],xs[2],xs[3],yt,yb})if(v<0 || v>0xffff)throw std::runtime_error("native name tab strip outside the GS window");
+    bozo::render::Vertex v[8]{};
+    for(unsigned k=0;k<8;++k){v[k].x=float(xs[k/2])/16;v[k].y=float(k&1?yb:yt)/16;v[k].z=float(in.depth);v[k].rgba=k<2 || k>=6?outer:inner;}
+    std::vector<bozo::render::Vertex> out;for(unsigned i=0;i+2<8;++i)out.insert(out.end(),{v[i],v[i+1],v[i+2]});
+    return out;
+}
+// 46cb50 path B on PS2 float words, in its order.
+NativeUiText nativeNameTab(const NativeNameTabInputs &in,std::shared_ptr<const bozo::render::Texture> picture){
+    namespace F=bozo::ps2f;uint32_t flags=0;
+    const auto A=[&](uint32_t a,uint32_t b){return F::add(a,b,flags);};
+    const auto S=[&](uint32_t a,uint32_t b){return F::sub(a,b,flags);};
+    const auto M=[&](uint32_t a,uint32_t b){return F::mul(a,b,flags);};
+    const auto D=[&](uint32_t a,uint32_t b){return F::div(a,b,flags);};
+    const auto I=[](uint32_t x){return int32_t(F::toInt(x));};
+    const auto U=[](uint32_t v){return F::fromInt(v);};
+    constexpr uint32_t k16=0x41800000u,k2=0x40000000u,k128=0x43000000u,kY=0x44003d70u,k480=0x43f00000u,k2p31=0x4f000000u;
+    const auto half=[](int32_t v){return v>=0?v>>1:(v+1)>>1;};
+    const auto oy=U(uint32_t(0x800-half(in.frameHeight)));
+    const auto e=nativeNameTabEdges(in);const auto L=e.left,R=e.right;
+    const auto Yf=A(D(M(kY,in.layerY),k480),oy);
+    const uint32_t a=in.alpha;
+    const uint32_t alpha=std::bit_cast<float>(k2p31)<=std::bit_cast<float>(a)?uint32_t(I(S(a,k2p31)))|0x80000000u:uint32_t(I(a));
+    const auto top=M(k16,S(Yf,k2));const auto Y0=I(top),Y1=I(A(top,M(k16,U(in.cap[5]))));
+    const auto wA=U(in.cap[4]);
+    int32_t ax0,ax1,bx0,bx1;
+    if(in.mirrored){ax0=I(M(k16,A(R,wA)));ax1=I(M(k16,R));bx0=ax1;bx1=I(M(k16,L));}
+    else{ax0=I(M(k16,S(L,wA)));ax1=I(M(k16,L));bx0=ax1;bx1=I(M(k16,A(k128,R)));}
+    for(auto v:{ax0,ax1,bx1,Y0,Y1})if(v<0 || v>0xffff)throw std::runtime_error("native name tab outside the GS window");
+    const float texW=float(1u<<in.log2Width)*16,texH=float(1u<<in.log2Height)*16;
+    NativeUiText out;
+    const auto sprite=[&](int32_t x0,int32_t x1,const std::array<uint16_t,6> &r){
+        const auto t=nativePictureUv(r,in.log2Width,in.log2Height);NativeUiSprite s;s.colour=0x808080u|alpha<<24;s.depth=in.depth;s.picture=picture;
+        s.fixedCorners={std::array<int32_t,2>{x0,Y0},{x1,Y0},{x0,Y1},{x1,Y1}};
+        s.uv={float(t[0])/texW,float(t[1])/texH,float(t[2])/texW,float(t[3])/texH};out.icons.push_back(std::move(s));};
+    sprite(ax0,ax1,in.cap);sprite(bx0,bx1,in.body);
+    return out;
+}
+NativeSymbolEdges nativeSymbolEdges(const NativeSymbolInputs &in){
+    namespace F=bozo::ps2f;uint32_t flags=0;
+    const auto A=[&](uint32_t a,uint32_t b){return F::add(a,b,flags);};
+    const auto M=[&](uint32_t a,uint32_t b){return F::mul(a,b,flags);};
+    const auto U=[](uint32_t v){return F::fromInt(v);};
+    constexpr uint32_t k16=0x41800000u;
+    const auto half=[](int32_t v){return v>=0?v>>1:(v+1)>>1;};
+    const auto ox=U(uint32_t(0x800-half(in.frameWidth))),oy=U(uint32_t(0x800-half(in.frameHeight)));
+    const auto zero=[](uint32_t v){return (v&0x7fffffffu)==0;};   // c.eq.s with 0
+    const auto w=zero(in.width)?U(in.rect[4]):in.width,h=zero(in.height)?U(in.rect[5]):in.height;
+    const uint32_t sx=in.wide?0x3f800000u:0x3f4ccccdu,sy=in.wide?0x3f6eeeefu:0x3f88ca11u;
+    const auto x=A(in.layerX,in.x),y=A(in.layerY,in.y);
+    const auto y0=A(oy,M(sy,y)),y1=A(oy,M(sy,A(h,y))),x0=A(ox,M(sx,x)),x1=A(ox,M(sx,A(w,x)));
+    const bool flipped=in.type==1;
+    return {sx,M(k16,x0),M(k16,x1),M(k16,flipped?y1:y0),M(k16,flipped?y0:y1)};
+}
+NativeUiText nativeSymbol(const NativeSymbolInputs &in,std::shared_ptr<const bozo::render::Texture> picture){
+    namespace F=bozo::ps2f;uint32_t flags=0;
+    const auto S=[&](uint32_t a,uint32_t b){return F::sub(a,b,flags);};
+    const auto M=[&](uint32_t a,uint32_t b){return F::mul(a,b,flags);};
+    const auto D=[&](uint32_t a,uint32_t b){return F::div(a,b,flags);};
+    const auto I=[](uint32_t x){return int32_t(F::toInt(x));};
+    constexpr uint32_t k128=0x43000000u,k2p31=0x4f000000u;
+    const auto e=nativeSymbolEdges(in);
+    const auto a=D(M(in.alpha,in.layerAlpha),k128);
+    const uint32_t alpha=std::bit_cast<float>(k2p31)<=std::bit_cast<float>(a)?uint32_t(I(S(a,k2p31)))|0x80000000u:uint32_t(I(a));
+    const uint32_t tint=in.type==1?0x804040u:in.type==0?0x404080u:0x808080u;
+    const int32_t X0=I(e.x0),X1=I(e.x1),Ya=I(e.ya),Yb=I(e.yb);
+    for(auto v:{X0,X1,Ya,Yb})if(v<0 || v>0xffff)throw std::runtime_error("native symbol outside the GS window");
+    const auto t=nativePictureUv(in.rect,in.log2Width,in.log2Height);
+    const float texW=float(1u<<in.log2Width)*16,texH=float(1u<<in.log2Height)*16;
+    NativeUiText out;NativeUiSprite s;s.colour=tint|alpha<<24;s.depth=in.depth;s.picture=std::move(picture);
+    s.fixedCorners={std::array<int32_t,2>{X0,Ya},{X1,Ya},{X0,Yb},{X1,Yb}};
+    s.uv={float(t[0])/texW,float(t[1])/texH,float(t[2])/texW,float(t[3])/texH};out.icons.push_back(std::move(s));
+    return out;
+}
+NativeHighlight nativeHighlightEdges(const NativeHighlightInputs &in){
+    namespace F=bozo::ps2f;uint32_t flags=0;
+    const auto A=[&](uint32_t a,uint32_t b){return F::add(a,b,flags);};
+    const auto M=[&](uint32_t a,uint32_t b){return F::mul(a,b,flags);};
+    const auto D=[&](uint32_t a,uint32_t b){return F::div(a,b,flags);};
+    const auto I=[](uint32_t x){return int32_t(F::toInt(x));};
+    constexpr uint32_t k128=0x43000000u,kFifth=0x3e4ccccdu,kQuarter=0x3e800000u;
+    const auto a=I(D(M(in.layerAlpha,in.alpha),k128));const auto outer=I(M(kFifth,F::fromInt(uint32_t(a))));
+    const auto y=A(in.layerY,in.y),x=A(in.layerX,in.x);
+    NativeHighlight out;
+    out.y={I(A(in.offsetY,M(in.scaleY,A(y,in.height)))),I(A(in.offsetY,M(y,in.scaleY)))};
+    out.x={I(A(in.offsetX,M(x,in.scaleX))),I(A(in.offsetX,M(in.scaleX,A(x,M(kQuarter,in.width))))),I(A(in.offsetX,M(in.scaleX,A(x,in.width))))};
+    out.outer=uint32_t(outer)<<24|0x2b51bdu;out.inner=uint32_t(a)<<24|0x2b51bdu;
+    return out;
+}
+std::vector<bozo::render::Vertex> nativeHighlight(const NativeHighlightInputs &in){
+    const auto e=nativeHighlightEdges(in);
+    for(auto v:{e.x[0],e.x[1],e.x[2],e.y[0],e.y[1]})if(v<0 || v>0xffff)throw std::runtime_error("native highlight outside the GS window");
+    bozo::render::Vertex v[6]{};
+    for(unsigned k=0;k<6;++k){v[k].x=float(e.x[k/2])/16;v[k].y=float(e.y[k&1])/16;v[k].z=float(in.depth);v[k].rgba=k/2==1?e.inner:e.outer;}
+    std::vector<bozo::render::Vertex> out;for(unsigned i=0;i+2<6;++i)out.insert(out.end(),{v[i],v[i+1],v[i+2]});
+    return out;
+}
+NativeShadowFrame nativeShadowFrameEdges(const NativeShadowFrameInputs &in){
+    namespace F=bozo::ps2f;uint32_t flags=0;
+    const auto A=[&](uint32_t a,uint32_t b){return F::add(a,b,flags);};
+    const auto S=[&](uint32_t a,uint32_t b){return F::sub(a,b,flags);};
+    const auto M=[&](uint32_t a,uint32_t b){return F::mul(a,b,flags);};
+    const auto D=[&](uint32_t a,uint32_t b){return F::div(a,b,flags);};
+    const auto I=[](uint32_t x){return int32_t(F::toInt(x));};
+    constexpr uint32_t k8=0x41000000u,kHalf=0x3f000000u,k128=0x43000000u;
+    const auto x=A(in.layerX,in.x),y=A(in.layerY,in.y),right=A(x,in.width),bottom=A(y,in.height);
+    NativeShadowFrame out;
+    out.x={I(A(in.offsetX,M(S(x,k8),in.scaleX))),I(A(in.offsetX,M(x,in.scaleX))),I(A(in.offsetX,M(in.scaleX,right))),I(A(in.offsetX,M(in.scaleX,A(k8,right))))};
+    out.y={I(A(in.offsetY,M(S(y,k8),in.scaleY))),I(A(in.offsetY,M(y,in.scaleY))),I(A(in.offsetY,M(in.scaleY,bottom))),I(A(in.offsetY,M(in.scaleY,A(k8,bottom))))};
+    out.alpha=uint32_t(I(M(kHalf,D(M(in.layerAlpha,in.alpha),k128))))<<24;
+    return out;
+}
+// 468620's strips, from its table 48dd50: per vertex (x index, y index, colour index), colour 0 transparent black and
+// 1 the frame's alpha. Each strip of four is two triangles.
+NativeUiText nativeShadowFrame(const NativeShadowFrameInputs &in){
+    static constexpr uint8_t table[9][4][3]={
+        {{1,0,0},{0,0,0},{1,1,1},{0,1,0}},{{0,1,0},{1,1,1},{0,2,0},{1,2,1}},{{0,2,0},{1,2,1},{0,3,0},{1,3,0}},
+        {{1,0,0},{2,0,0},{1,1,1},{2,1,1}},{{1,1,1},{2,1,1},{1,2,1},{2,2,1}},{{1,2,1},{2,2,1},{1,3,0},{2,3,0}},
+        {{2,0,0},{3,0,0},{2,1,1},{3,1,0}},{{2,1,1},{3,1,0},{2,2,1},{3,2,0}},{{3,2,0},{2,2,1},{3,3,0},{2,3,0}}};
+    const auto e=nativeShadowFrameEdges(in);
+    for(unsigned k=0;k<4;++k)if(e.x[k]<0 || e.y[k]<0 || e.x[k]>0xffff || e.y[k]>0xffff)throw std::runtime_error("native shadow frame outside the GS window");
+    NativeUiText out;
+    for(const auto &strip:table){
+        bozo::render::Vertex v[4]{};
+        for(unsigned k=0;k<4;++k){v[k].x=float(e.x[strip[k][0]])/16;v[k].y=float(e.y[strip[k][1]])/16;v[k].z=float(in.depth);v[k].rgba=strip[k][2]?e.alpha:0u;}
+        out.alphaTriangles.insert(out.alphaTriangles.end(),{v[0],v[1],v[2],v[1],v[2],v[3]});
+    }
+    return out;
+}
 // Pause bar 451a60 on PS2 float words. The rectangle writer 475050 (ABE):
 // black 0x80000000 from (int x, int y) to (512, int(128 + y)), plus the origin,
 // at the layer's depth. Then a Gouraud strip (PRIM 24c) at depth 0xffffaa with
@@ -678,6 +877,8 @@ std::optional<bool> nativeTimerInstruction(R5900Context *c,Runtime *rt,uint32_t 
     }
     return false;   // every original instruction stays compiled; its packet is never sent
 }
+// Path A of family 168010's writer: the ornament element whose 449580 call came from 46cc3c, until its strip (46cfdc).
+static std::map<const Runtime *,uint32_t> &nameTabPending(){static std::map<const Runtime *,uint32_t> pending;return pending;}
 std::optional<bool> nativeNamePlateInstruction(R5900Context *c,Runtime *rt,uint32_t pc){
     if(auto timer=nativeTimerInstruction(c,rt,pc))return timer;
     if(pc==0x448d70){
@@ -706,6 +907,9 @@ std::optional<bool> nativeNamePlateInstruction(R5900Context *c,Runtime *rt,uint3
         auto *d=rt?vp2s::nativeCast<bozo::ee::Dispatcher>(rt->services):nullptr;
         auto *owner=d?vp2s::nativeCast<UiTextOwner>(&d->host()):nullptr;auto *textures=d?vp2s::nativeCast<TextureOwner>(&d->host()):nullptr;
         if(!c || !owner || !textures || c->r[20].uw[0]<0x100040)throw std::runtime_error("native ornament requires its builder");
+        // Family 168010's writer 46cb50 calls this base (path A, 46cc3c; its return address is 449580's saved ra, SP+a0) and
+        // then adds a strip of its own, captured at 46cfdc onto this plate.
+        if(value<uint32_t>(rt,c->r[29].uw[0]+0xa0)==0x46cc44)nameTabPending()[rt]=c->r[20].uw[0]-0x40;
         const auto layer=c->r[21].uw[0],element=c->r[20].uw[0]-0x40,resource=c->r[17].uw[0];
         record(rt,element,0x60);record(rt,layer,0x290);record(rt,resource,0x240);
         if(value<uint32_t>(rt,element)!=0x165e00 || value<uint32_t>(rt,element+0x54)!=layer || value<uint32_t>(rt,resource)!=0x165b40 ||
@@ -760,6 +964,162 @@ std::optional<bool> nativeNamePlateInstruction(R5900Context *c,Runtime *rt,uint3
             owner->nativeUiTexts().plates[element]=std::move(bar);
         }
         return false; // The original builder continues; its packet is never sent.
+    }
+    if(pc==0x46caa4 || pc==0x468614){
+        // The "built" flag store of the symbol sprite 167fe0 (46caa4: s5 element; f8 its x scale, f6 / f5 / f3 / f2 its
+        // edges times 16, the UVs on the stack) or the highlight bar 167b20 (468614: a0 element; t0 the outer colour, t8 / a2
+        // two XYZ words; a1 and v1 are reloaded before it).
+        if(value<uint32_t>(rt,pc)!=(pc==0x46caa4?0xa2a5003bu:0xa08a003bu))return std::nullopt;   // another overlay
+        auto *d=rt?vp2s::nativeCast<bozo::ee::Dispatcher>(rt->services):nullptr;
+        auto *owner=d?vp2s::nativeCast<UiTextOwner>(&d->host()):nullptr;auto *textures=d?vp2s::nativeCast<TextureOwner>(&d->host()):nullptr;
+        if(!c || !owner || !textures)throw std::runtime_error("native symbol/highlight element requires its builder");
+        const auto element=c->r[pc==0x46caa4?21:4].uw[0],sp=c->r[29].uw[0];record(rt,element,0x70);
+        const auto layer=value<uint32_t>(rt,element+0x14);record(rt,layer,0xe0);
+        if(value<uint32_t>(rt,element)!=(pc==0x46caa4?0x167fe0u:0x167b20u) || value<uint32_t>(rt,layer)!=0x152060)
+            throw std::runtime_error("native symbol/highlight element escaped its class or layer");
+        std::shared_ptr<NativeUiText> result;
+        if(pc==0x468614){
+            const auto display=value<uint32_t>(rt,0x35e170);record(rt,display+0x840,0x10);
+            NativeHighlightInputs in;in.layerX=value<uint32_t>(rt,layer+0x40);in.layerY=value<uint32_t>(rt,layer+0x44);
+            in.x=value<uint32_t>(rt,element+0x18);in.y=value<uint32_t>(rt,element+0x1c);in.width=value<uint32_t>(rt,element+0x20);in.height=value<uint32_t>(rt,element+0x24);
+            in.alpha=value<uint32_t>(rt,element+0x28);in.layerAlpha=value<uint32_t>(rt,layer+0xe0);in.depth=value<uint32_t>(rt,layer+0xc4)+value<uint32_t>(rt,element+0x2c);
+            in.scaleX=value<uint32_t>(rt,display+0x840);in.scaleY=value<uint32_t>(rt,display+0x844);in.offsetX=value<uint32_t>(rt,display+0x848);in.offsetY=value<uint32_t>(rt,display+0x84c);
+            const auto e=nativeHighlightEdges(in);
+            const auto xyz=[&](int32_t x,int32_t y){return uint64_t(in.depth)<<32|uint32_t(x)|uint32_t(y)<<16;};
+            if(c->r[8].uw[0]!=e.outer || c->r[24].ud[0]!=xyz(e.x[0],e.y[0]) || c->r[6].ud[0]!=xyz(e.x[2],e.y[0]))
+                throw std::runtime_error(std::format("native highlight bar differs from its build (t0 {:x}/{:x}, t8 {:x}/{:x}, a2 {:x}/{:x})",
+                    c->r[8].uw[0],e.outer,c->r[24].ud[0],xyz(e.x[0],e.y[0]),c->r[6].ud[0],xyz(e.x[2],e.y[0])));
+            result=std::make_shared<NativeUiText>();result->alphaTriangles=nativeHighlight(in);
+        }else{
+            const auto type=value<int8_t>(rt,element+0x64);
+            if(value<uint32_t>(rt,element+0x58))throw std::runtime_error("unported native symbol sprite from an uploader entry (element +58)");
+            const auto resource=value<uint32_t>(rt,value<uint32_t>(rt,0x48e048)+0x5c);record(rt,resource,0x240);
+            if(value<uint32_t>(rt,resource)!=0x165b40)throw std::runtime_error("native symbol sprite escaped its resource");
+            const auto image=textures->nativeTextures().imageAsset(resource);
+            NativeSymbolInputs in;in.layerX=value<uint32_t>(rt,layer+0x40);in.layerY=value<uint32_t>(rt,layer+0x44);
+            in.x=value<uint32_t>(rt,element+0x18);in.y=value<uint32_t>(rt,element+0x1c);in.width=value<uint32_t>(rt,element+0x20);in.height=value<uint32_t>(rt,element+0x24);
+            in.alpha=value<uint32_t>(rt,element+0x28);in.layerAlpha=value<uint32_t>(rt,layer+0xe0);in.depth=value<uint32_t>(rt,layer+0xc4);in.type=type;
+            in.wide=(value<uint8_t>(rt,value<uint32_t>(rt,0x48e048)+0xde)>>5)&1;
+            const auto context=value<uint32_t>(rt,0x35de60);in.frameWidth=value<int16_t>(rt,context+0x3c6c);in.frameHeight=value<int16_t>(rt,context+0x3c6e);
+            in.log2Width=value<uint8_t>(rt,resource+0x238);in.log2Height=value<uint8_t>(rt,resource+0x239);
+            if(!image || in.log2Width>10 || in.log2Height>10 || image->width!=(1u<<in.log2Width) || image->height!=(1u<<in.log2Height))
+                throw std::runtime_error("native symbol sprite has no published resource image");
+            const auto rect=value<uint32_t>(rt,resource+0x224)+(type==2?0x50u:type==3?0x1d0u:type==4?0x1e0u:0x40u);record(rt,rect,12);
+            for(unsigned i=0;i<6;++i)in.rect[i]=value<uint16_t>(rt,rect+2*i);
+            const auto e=nativeSymbolEdges(in);const auto uv=nativePictureUv(in.rect,in.log2Width,in.log2Height);
+            if(c->fu[8]!=e.scaleX || c->fu[6]!=e.x0 || c->fu[5]!=e.x1 || c->fu[3]!=e.ya || c->fu[2]!=e.yb)throw std::runtime_error("native symbol sprite edges differ from its build");
+            if(value<int16_t>(rt,sp+0xb8)!=uv[0] || value<int16_t>(rt,sp+0xba)!=uv[1] || value<int16_t>(rt,sp+0xbc)!=uv[2] || value<int16_t>(rt,sp+0xbe)!=uv[3])
+                throw std::runtime_error("native symbol sprite UVs differ from its build");
+            result=std::make_shared<NativeUiText>(nativeSymbol(in,image->picture(0)));
+        }
+        result->element=element;result->iconsCaptured=true;owner->nativeUiTexts().plates[element]=std::move(result);
+        return false;   // the original builder continues; its packet is never sent
+    }
+    if(pc==0x46cfdc){
+        // Path A's last store: the strip after the ornament (NativeNameTabInputs). The ornament's plate was captured at 449790
+        // in this same call (pending); s2 still holds the text bounds, f6 R, a1 / a0 the outer column's two XYZ words.
+        if(value<uint32_t>(rt,pc)!=0xfd430000u)return std::nullopt;   // another overlay
+        auto *d=rt?vp2s::nativeCast<bozo::ee::Dispatcher>(rt->services):nullptr;auto *owner=d?vp2s::nativeCast<UiTextOwner>(&d->host()):nullptr;
+        if(!c || !owner)throw std::runtime_error("native name tab strip requires its builder");
+        const auto layer=c->r[21].uw[0],element=c->r[20].uw[0]-0x40,text=c->r[18].uw[0];
+        auto &pending=nameTabPending();const auto it=pending.find(rt);
+        if(it==pending.end() || it->second!=element)throw std::runtime_error("native name tab strip without its ornament");
+        pending.erase(it);
+        record(rt,element,0x60);record(rt,layer,0x370);
+        if(value<uint32_t>(rt,element)!=0x165e00 || value<uint32_t>(rt,element+0x54)!=layer || value<uint32_t>(rt,layer+0x10)!=0x168010 || value<uint8_t>(rt,layer+0x365))
+            throw std::runtime_error("native name tab strip escaped its element/layer");
+        NativeNameTabInputs in;in.layerX=value<uint32_t>(rt,layer+0x40);in.layerY=value<uint32_t>(rt,layer+0x44);in.extra=value<uint32_t>(rt,layer+0x288);
+        in.width=value<uint32_t>(rt,text+8);in.alpha=value<uint32_t>(rt,layer+0xe0);in.depth=value<uint32_t>(rt,layer+0x224);
+        const auto context=value<uint32_t>(rt,0x35de60);in.frameWidth=value<int16_t>(rt,context+0x3c6c);in.frameHeight=value<int16_t>(rt,context+0x3c6e);
+        auto strip=nativeNameTabStrip(in);
+        const auto xyz=[](const bozo::render::Vertex &v){return uint32_t(int32_t(v.x*16))|uint32_t(int32_t(v.y*16))<<16;};
+        if(c->fu[6]!=nativeNameTabEdges(in).right || c->r[5].uw[0]!=xyz(strip[16]) || c->r[4].uw[0]!=xyz(strip[17]))
+            throw std::runtime_error("native name tab strip differs from its build");
+        const auto ornament=owner->nativeUiTexts().plate(element);
+        if(!ornament || ornament->icons.empty())throw std::runtime_error("native name tab strip has no ornament plate");
+        auto merged=std::make_shared<NativeUiText>(*ornament);merged->alphaTriangles.insert(merged->alphaTriangles.end(),strip.begin(),strip.end());
+        owner->nativeUiTexts().plates[element]=std::move(merged);
+        return false;   // the original writer continues; its packet is never sent
+    }
+    if(pc==0x46d080 || pc==0x46d538){
+        // Family 168010's writer 46cb50, path B (see NativeNameTabInputs): 46d080 reads the text bounds' width (s2, 2ef860's
+        // result); 46d538 stores the finished cursor, every input still live (layer s5, writer s4 = element + 40,
+        // resource s3, L / R in f23 / f21, rect +210's UVs on the stack).
+        if(value<uint32_t>(rt,pc)!=(pc==0x46d080?0xc6420008u:0xae92000cu))return std::nullopt;   // another overlay
+        auto *d=rt?vp2s::nativeCast<bozo::ee::Dispatcher>(rt->services):nullptr;
+        auto *owner=d?vp2s::nativeCast<UiTextOwner>(&d->host()):nullptr;auto *textures=d?vp2s::nativeCast<TextureOwner>(&d->host()):nullptr;
+        if(!c || !owner || !textures)throw std::runtime_error("native name tab requires its builder");
+        static std::map<const Runtime *,std::pair<uint32_t,uint32_t>> bounds;   // writer -> text bounds, from 46d080 to 46d538
+        const auto layer=c->r[21].uw[0],writer=c->r[20].uw[0];
+        if(pc==0x46d080){bounds[rt]={writer,c->r[18].uw[0]};return false;}
+        const auto it=bounds.find(rt);if(it==bounds.end() || it->second.first!=writer)throw std::runtime_error("native name tab finished without its text bounds");
+        const auto text=it->second.second;bounds.erase(it);
+        const auto element=writer-0x40,sp=c->r[29].uw[0];record(rt,element,0x60);record(rt,layer,0x370);
+        const auto resource=value<uint32_t>(rt,value<uint32_t>(rt,0x48e048)+0x5c);record(rt,resource,0x240);
+        if(value<uint32_t>(rt,element)!=0x165e00 || value<uint32_t>(rt,element+0x54)!=layer || value<uint32_t>(rt,layer+0x10)!=0x168010 ||
+           !value<uint8_t>(rt,layer+0x365) || c->r[19].uw[0]!=resource || value<uint32_t>(rt,resource)!=0x165b40)
+            throw std::runtime_error("native name tab escaped its element/layer/resource");
+        const auto image=textures->nativeTextures().imageAsset(resource);
+        NativeNameTabInputs in;in.layerX=value<uint32_t>(rt,layer+0x40);in.layerY=value<uint32_t>(rt,layer+0x44);in.extra=value<uint32_t>(rt,layer+0x288);
+        in.width=value<uint32_t>(rt,text+8);in.alpha=value<uint32_t>(rt,layer+0xe0);in.depth=value<uint32_t>(rt,layer+0x224);
+        in.mirrored=(value<uint8_t>(rt,layer+0x367)&15)==3;
+        const auto context=value<uint32_t>(rt,0x35de60);in.frameWidth=value<int16_t>(rt,context+0x3c6c);in.frameHeight=value<int16_t>(rt,context+0x3c6e);
+        in.log2Width=value<uint8_t>(rt,resource+0x238);in.log2Height=value<uint8_t>(rt,resource+0x239);
+        if(!image || in.log2Width>10 || in.log2Height>10 || image->width!=(1u<<in.log2Width) || image->height!=(1u<<in.log2Height))
+            throw std::runtime_error("native name tab has no published resource image");
+        const auto table=value<uint32_t>(rt,resource+0x224);record(rt,table+0x200,0x20);
+        for(unsigned i=0;i<6;++i){in.cap[i]=value<uint16_t>(rt,table+0x200+2*i);in.body[i]=value<uint16_t>(rt,table+0x210+2*i);}
+        const auto edges=nativeNameTabEdges(in);const auto uv=nativePictureUv(in.body,in.log2Width,in.log2Height);
+        if(c->fu[23]!=edges.left || c->fu[21]!=edges.right)throw std::runtime_error("native name tab edges differ from its build");
+        if(value<int16_t>(rt,sp+0xb8)!=uv[0] || value<int16_t>(rt,sp+0xba)!=uv[1] || value<int16_t>(rt,sp+0xbc)!=uv[2] || value<int16_t>(rt,sp+0xbe)!=uv[3])
+            throw std::runtime_error("native name tab UVs differ from its build");
+        auto tab=std::make_shared<NativeUiText>(nativeNameTab(in,image->picture(0)));tab->element=element;tab->iconsCaptured=true;
+        owner->nativeUiTexts().plates[element]=std::move(tab);
+        return false;   // the original writer continues; its packet is never sent
+    }
+    if(pc==0x468950 || pc==0x468e58){
+        // The "built" flag store of the shadow frame 167b50 (468950: a0 element, sp its frame) or the picture 167b80
+        // (468e58: s5 element). Every scalar is recomputed from the element, its layer, the display records and the
+        // resource; the build's own stack results (edges, alpha; UVs) are cross-checked.
+        if(value<uint32_t>(rt,pc)!=(pc==0x468950?0xa083003bu:0xa2a4003bu))return std::nullopt;   // another overlay
+        auto *d=rt?vp2s::nativeCast<bozo::ee::Dispatcher>(rt->services):nullptr;
+        auto *owner=d?vp2s::nativeCast<UiTextOwner>(&d->host()):nullptr;auto *textures=d?vp2s::nativeCast<TextureOwner>(&d->host()):nullptr;
+        if(!c || !owner || !textures)throw std::runtime_error("native picture/frame element requires its builder");
+        const auto element=c->r[pc==0x468950?4:21].uw[0],sp=c->r[29].uw[0];record(rt,element,0x60);
+        const auto layer=value<uint32_t>(rt,element+0x14);record(rt,layer,0xe0);
+        if(value<uint32_t>(rt,element)!=(pc==0x468950?0x167b50u:0x167b80u) || value<uint32_t>(rt,layer)!=0x152060)
+            throw std::runtime_error("native picture/frame element escaped its class or layer");
+        std::shared_ptr<NativeUiText> result;
+        if(pc==0x468950){
+            const auto display=value<uint32_t>(rt,0x35e170);record(rt,display+0x840,0x10);
+            NativeShadowFrameInputs in;in.layerX=value<uint32_t>(rt,layer+0x40);in.layerY=value<uint32_t>(rt,layer+0x44);
+            in.x=value<uint32_t>(rt,element+0x18);in.y=value<uint32_t>(rt,element+0x1c);in.width=value<uint32_t>(rt,element+0x20);in.height=value<uint32_t>(rt,element+0x24);
+            in.alpha=value<uint32_t>(rt,element+0x28);in.layerAlpha=value<uint32_t>(rt,layer+0xe0);in.depth=value<uint32_t>(rt,layer+0xc4);
+            in.scaleX=value<uint32_t>(rt,display+0x840);in.scaleY=value<uint32_t>(rt,display+0x844);in.offsetX=value<uint32_t>(rt,display+0x848);in.offsetY=value<uint32_t>(rt,display+0x84c);
+            const auto e=nativeShadowFrameEdges(in);
+            for(unsigned k=0;k<4;++k)if(value<int32_t>(rt,sp+8*k)!=e.x[k] || value<int32_t>(rt,sp+8*k+4)!=e.y[k])throw std::runtime_error("native shadow frame edges differ from its build");
+            if(value<uint32_t>(rt,sp+0x28) || value<uint32_t>(rt,sp+0x2c)!=e.alpha)throw std::runtime_error("native shadow frame colours differ from its build");
+            result=std::make_shared<NativeUiText>(nativeShadowFrame(in));
+        }else{
+            const auto resource=value<uint32_t>(rt,value<uint32_t>(rt,0x48e048)+0x5c);record(rt,resource,0x240);
+            if(c->r[19].uw[0]!=resource || value<uint32_t>(rt,resource)!=0x165b40)throw std::runtime_error("native picture element escaped its resource");
+            const auto image=textures->nativeTextures().imageAsset(resource);
+            NativePictureInputs in;in.layerX=value<uint32_t>(rt,layer+0x40);in.layerY=value<uint32_t>(rt,layer+0x44);
+            in.x=value<uint32_t>(rt,element+0x18);in.y=value<uint32_t>(rt,element+0x1c);in.scale=value<uint32_t>(rt,element+0x54);
+            in.alpha=value<uint32_t>(rt,element+0x28);in.layerAlpha=value<uint32_t>(rt,layer+0xe0);in.depth=value<uint32_t>(rt,layer+0xc4);
+            const auto context=value<uint32_t>(rt,0x35de60);in.frameWidth=value<int16_t>(rt,context+0x3c6c);in.frameHeight=value<int16_t>(rt,context+0x3c6e);
+            in.log2Width=value<uint8_t>(rt,resource+0x238);in.log2Height=value<uint8_t>(rt,resource+0x239);
+            if(!image || in.log2Width>10 || in.log2Height>10 || image->width!=(1u<<in.log2Width) || image->height!=(1u<<in.log2Height))
+                throw std::runtime_error("native picture element has no published resource image");
+            const auto rect=value<uint32_t>(rt,resource+0x224)+0x1f0;record(rt,rect,12);
+            for(unsigned i=0;i<6;++i)in.rect[i]=value<uint16_t>(rt,rect+2*i);
+            const auto uv=nativePictureUv(in.rect,in.log2Width,in.log2Height);
+            if(c->r[17].uw[0]!=rect || value<int16_t>(rt,sp+0x98)!=uv[0] || value<int16_t>(rt,sp+0x9a)!=uv[1] || value<int16_t>(rt,sp+0x9c)!=uv[2] || value<int16_t>(rt,sp+0x9e)!=uv[3])
+                throw std::runtime_error("native picture element UVs differ from its build");
+            result=std::make_shared<NativeUiText>(nativePicture(in,image->picture(0)));
+        }
+        result->element=element;result->iconsCaptured=true;owner->nativeUiTexts().plates[element]=std::move(result);
+        return false;   // the original builder continues; its packet is never sent
     }
     if(pc!=0x4653e8 && pc!=0x465b38 && pc!=0x465f08)return std::nullopt;
     if(pc==0x465f08){

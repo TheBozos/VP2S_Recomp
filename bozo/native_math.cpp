@@ -7611,41 +7611,51 @@ bool nativeQuaternionIdiom(R5900Context *c,Runtime *rt,uint32_t pc){
     }
     return false;
 }
-// Camera-space emitter offset, mod037 5153e0 at 5154f4 (field map 142's particle producer): LQC2 vf5 = the camera's
-// quaternion (s2+30), VCALLMS 0x720 (rows vf8..vf10, W 0), CFC2.I t1; LQC2 vf15 = SP+50 = (0, 0, -320, 1); then
-// vf5.x = ((p.x + p.y) + 1 p.z) + 1 p.w with p = row0 * v, .y = ((q.y + q.x) + 1 q.z) + 1 q.w, .z = ((r.z + r.y) + 1 r.x) + 1 r.w,
-// and SQC2 vf5 to SP+50 (515554), which the camera's +20 then copies to its +20. Its .w comes from vf11, which this
-// code never writes (register state from earlier VU0 work); as for the segment box, only xyz is stored and SP+5c
-// keeps the 1 the CPU wrote.
+// Camera-space offset blocks: LQC2 vf5 = a quaternion, VCALLMS 0x720 (rows vf8..vf10, W 0), CFC2.I t1; LQC2 vf15 = a
+// point v; then vf5.x = ((p.x + p.y) + 1 p.z) + 1 p.w with p = row0 * v, .y = ((q.y + q.x) + 1 q.z) + 1 q.w,
+// .z = ((r.z + r.y) + 1 r.x) + 1 r.w, and SQC2 vf5 back over the point. Its .w comes from vf11, which this code never
+// writes (register state from earlier VU0 work); as for the segment box, only xyz is stored and the point's w keeps
+// what the CPU wrote. The same 25 words (offsets +0 .. +60) in:
+// - mod037 5153e0 at 5154f4 (field map 142's particle producer): the camera's quaternion (s2+30, through a1), the
+//   point SP+50 = (0, 0, -320, 1) through v1, stored through v0; the camera's +20 then copies it to its +20;
+// - mod198 53a6f0 at 53aa74 (map 215): the quaternion SP+90 (through v0, written by 215640 just before), the point
+//   SP+b0 (through v0), stored through a1.
 struct CameraOffsetCapture{VuWords quaternion{},v{};unsigned loaded=0;};
 CameraOffsetCapture &cameraOffsetCapture(const Runtime *rt){static std::map<const Runtime *,CameraOffsetCapture> captures;return captures[rt];}
 bool nativeCameraOffset(R5900Context *c,Runtime *rt,uint32_t pc){
-    if(!rt || (pc&3) || pc<0x5154f4 || pc>0x515554)return false;
-    static constexpr std::pair<uint32_t,uint32_t> words[]={{0x5154f4,0xd8a50000},{0x5154fc,0x4a003938},{0x515500,0x48490001},{0x51550c,0xd86f0000},
-        {0x515510,0x4bc007c3},{0x515514,0x4bef422a},{0x515518,0x4bef4a6a},{0x51551c,0x4bef52aa},{0x515520,0x4bef5aea},{0x515524,0x4b08403d},{0x515528,0x4b08f8be},
-        {0x51552c,0x4b08f94b},{0x515530,0x4a89483c},{0x515534,0x4a89f8be},{0x515538,0x4a89f94b},{0x51553c,0x4a4a503d},{0x515540,0x4a4af8bc},{0x515544,0x4a4af94b},
-        {0x515548,0x4a2b583d},{0x51554c,0x4a2b00be},{0x515550,0x4a2b0148},{0x515554,0xf8450000}};
-    const auto it=std::find_if(std::begin(words),std::end(words),[&](auto &w){return w.first==pc;});
-    if(it==std::end(words))return false;
+    struct Variant{uint32_t base,quaternionWord,pointWord,storeWord;unsigned quaternionReg,pointReg,storeReg;uint32_t quaternionAt,point;};
+    // quaternionAt: a stack offset, or ~0 for mod037's camera (s2 + 30).
+    static constexpr Variant variants[]={{0x5154f4,0xd8a50000,0xd86f0000,0xf8450000,5,3,2,~0u,0x50},{0x53aa74,0xd8450000,0xd84f0000,0xf8a50000,2,2,5,0x90,0xb0}};
+    if(!rt || (pc&3))return false;
+    const auto v=std::find_if(std::begin(variants),std::end(variants),[&](const Variant &x){return pc>=x.base && pc<=x.base+0x60;});
+    if(v==std::end(variants))return false;
+    static constexpr std::pair<uint32_t,uint32_t> arithmetic[]={{0x8,0x4a003938},{0xc,0x48490001},
+        {0x1c,0x4bc007c3},{0x20,0x4bef422a},{0x24,0x4bef4a6a},{0x28,0x4bef52aa},{0x2c,0x4bef5aea},{0x30,0x4b08403d},{0x34,0x4b08f8be},
+        {0x38,0x4b08f94b},{0x3c,0x4a89483c},{0x40,0x4a89f8be},{0x44,0x4a89f94b},{0x48,0x4a4a503d},{0x4c,0x4a4af8bc},{0x50,0x4a4af94b},
+        {0x54,0x4a2b583d},{0x58,0x4a2b00be},{0x5c,0x4a2b0148}};
+    const auto offset=pc-v->base;uint32_t expected=0;
+    if(offset==0)expected=v->quaternionWord;else if(offset==0x18)expected=v->pointWord;else if(offset==0x60)expected=v->storeWord;
+    else{const auto it=std::find_if(std::begin(arithmetic),std::end(arithmetic),[&](auto &w){return w.first==offset;});if(it==std::end(arithmetic))return false;expected=it->second;}
     uint32_t word=0;if(const auto *p=rt->memory.hostPointer(pc,4))std::memcpy(&word,p,4);
-    if(word!=it->second)return false;
+    if(word!=expected)return false;   // another overlay at these addresses
     if(!c)throw std::runtime_error("native camera offset has no CPU record");
     auto &st=cameraOffsetCapture(rt);const auto stack=c->r[29].uw[0];
-    if(pc==0x5154f4){if(c->r[5].uw[0]!=c->r[18].uw[0]+0x30)throw std::runtime_error("native camera offset quaternion source mismatch");
-        st=CameraOffsetCapture{};st.quaternion=vuWords(rt,c->r[5].uw[0]);st.loaded=1;return true;}
-    if(pc==0x5154fc)return true;
-    if(pc==0x515500){c->r[9].ud[0]=0;return true;}
-    if(pc==0x51550c){if(st.loaded!=1 || c->r[3].uw[0]!=stack+0x50)throw std::runtime_error("native camera offset point out of order");st.v=vuWords(rt,stack+0x50);st.loaded=2;return true;}
-    if(pc!=0x515554)return true;   // arithmetic: folded into the store
-    if(st.loaded!=2 || c->r[2].uw[0]!=stack+0x50)throw std::runtime_error("native camera offset stored without its inputs");
+    if(offset==0){const auto source=c->r[v->quaternionReg].uw[0];
+        if(source!=(v->quaternionAt==~0u?c->r[18].uw[0]+0x30:stack+v->quaternionAt))throw std::runtime_error("native camera offset quaternion source mismatch");
+        st=CameraOffsetCapture{};st.quaternion=vuWords(rt,source);st.loaded=1;return true;}
+    if(offset==0x8)return true;
+    if(offset==0xc){c->r[9].ud[0]=0;return true;}
+    if(offset==0x18){if(st.loaded!=1 || c->r[v->pointReg].uw[0]!=stack+v->point)throw std::runtime_error("native camera offset point out of order");st.v=vuWords(rt,stack+v->point);st.loaded=2;return true;}
+    if(offset!=0x60)return true;   // arithmetic: folded into the store
+    if(st.loaded!=2 || c->r[v->storeReg].uw[0]!=stack+v->point)throw std::runtime_error("native camera offset stored without its inputs");
     float values[4];std::memcpy(values,st.quaternion.data(),16);
     for(float f:values){const auto m=std::bit_cast<uint32_t>(f)&0x7fffffff;if(m>=0x7f800000 || m>std::bit_cast<uint32_t>(1.e8f))throw std::runtime_error("unqualified 0x720 quaternion");}
     __m128 input;std::memcpy(&input,values,16);const auto rows=math::quaternionMatrix(input);
-    constexpr uint32_t one=0x3f800000u;VuWords out=vuWords(rt,stack+0x50);
+    constexpr uint32_t one=0x3f800000u;VuWords out=vuWords(rt,stack+v->point);
     for(unsigned r=0;r<3;++r){uint32_t row[4];std::memcpy(row,&rows[r],16);VuWords p{};for(unsigned i=0;i<4;++i)p[i]=vuMul(row[i],st.v[i]);
         const unsigned a=r==0?0:r==1?1:2,b=r==0?1:r==1?0:1,cc=r==0?2:r==1?2:0;
         out[r]=vuAdd(vuAdd(vuAdd(p[a],p[b]),vuMul(one,p[cc])),vuMul(one,p[3]));}
-    std::memcpy(record(rt,stack+0x50,16),out.data(),12);st.loaded=0;return true;
+    std::memcpy(record(rt,stack+v->point,16),out.data(),12);st.loaded=0;return true;
 }
 bool nativeInverseIdiom(R5900Context *c,Runtime *rt,uint32_t pc){
     if(!rt || (pc&3))return false;

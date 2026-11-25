@@ -70,7 +70,8 @@ Mat product(const Mat &a,const Mat &b){Mat out{};for(unsigned r=0;r<4;++r)for(un
 std::array<float,4> apply(const Mat &m,const std::array<float,4> &p){std::array<float,4> out{};
     for(unsigned r=0;r<4;++r)for(unsigned c=0;c<4;++c)out[r]+=m[4*r+c]*p[c];return out;}
 float dot(const std::array<float,3> &a,const std::array<float,3> &b){return a[0]*b[0]+a[1]*b[1]+a[2]*b[2];}
-void finite(float f){if(!std::isfinite(f))throw std::runtime_error("nonfinite native model input/result");}
+void finite(float f,std::source_location at=std::source_location::current()){
+    if(!std::isfinite(f))throw std::runtime_error(std::format("nonfinite native model input/result (native_models.cpp:{})",at.line()));}
 }
 // r = 2(n.e)n - e; v = Rn r; q = sqrt(8 - 8 v.y); (S, T, Q) = (v.x + q/2,
 // v.z + q/2, q) as 12-bit fixed point (FTOI12 truncates). The GS divides S
@@ -715,6 +716,9 @@ NativeModelSubmission NativeModels::capture(Runtime *rt,NativeAssets &assets,Nat
         if(projector){projectedUv.assign(m.vertices.size(),{});projectedRgba.assign(m.vertices.size(),0);}projected.clear();projected.reserve(m.vertices.size());outside.clear();outside.reserve(m.vertices.size());
         // The vertex loop's lighting factor at position p, normal n (its own e = eye - p): the shell redraws (12 / 14) light
         // their moved vertices the same way, as the VU's redraw (08b8) runs the lighting again.
+        // The VU saturates an overflow at +-max instead of infinity: the specular term squared power times
+        // (x^(2^power), power up to 16) overflows for |n . h| > 1 (map 487), and the lit colour then clamps at 255.
+        const auto vuSaturate=[](float v){return std::isinf(v)?std::copysign(std::numeric_limits<float>::max(),v):v;};
         const auto lightFactor=[&](const std::array<float,3> &p,const std::array<float,3> &n){
             std::array<float,3> e{eye[0]-p[0],eye[1]-p[1],eye[2]-p[2]};const auto length=std::sqrt(dot(e,e));
             std::array<float,4> factor{1,1,1,objectColour[3]};
@@ -742,9 +746,9 @@ NativeModelSubmission NativeModels::capture(Runtime *rt,NativeAssets &assets,Nat
                 float diffuse[4],specular[4];for(unsigned l=0;l<4;++l){const bool plain=l==3 && plainFourth;
                     diffuse[l]=plain?wa*dot(directions[l],n):std::max(0.0f,wd*dot(directions[l],n));
                     std::array<float,3> h{};for(unsigned c=0;c<3;++c)h[c]=directions[l][c]*ws+e[c]*ws*(length?1/length:0);
-                    specular[l]=dot(h,n);for(int j=0;j<power;++j)specular[l]*=specular[l];if(plain)specular[l]=0;}
+                    specular[l]=dot(h,n);for(int j=0;j<power;++j)specular[l]=vuSaturate(specular[l]*specular[l]);if(plain)specular[l]=0;}
                 for(unsigned c=0;c<3;++c){factor[c]=ambient[c]*wa;for(unsigned l=0;l<4;++l)factor[c]+=colours[l][c]*diffuse[l];
-                    factor[c]+=colours[0][c]*specular[0];factor[c]+=colours[3][c]*specular[3];factor[c]+=colours[1][c]*specular[1];factor[c]+=colours[2][c]*specular[2];}}
+                    for(const unsigned l:{0u,3u,1u,2u})factor[c]=vuSaturate(factor[c]+vuSaturate(colours[l][c]*specular[l]));}}
             if(pointLights || !spots.empty()){
                 int32_t power=0;std::array<float,4> weights{};
                 if(material[4]==3 || pointLights){if(!block)throw std::runtime_error("native point/spot lights without a mesh block");
@@ -820,8 +824,11 @@ NativeModelSubmission NativeModels::capture(Runtime *rt,NativeAssets &assets,Nat
                 const auto st=screenTexture(n,p,m.screen,{screenRows[0][0],screenRows[0][1]},{screenRows[1][0],screenRows[1][1]},guard);
                 vout.u=float(st[0])/4096;vout.v=float(st[1])/4096;}
             const auto factor=lightFactor(p,n);
+            for(unsigned c=0;c<4;++c)if(!std::isfinite(factor[c]))throw std::runtime_error(std::format("nonfinite native model light factor {} {} {} {} (mode {}, point lights {}, spots {}, normal {} {} {}, position {} {} {})",factor[0],factor[1],factor[2],factor[3],material[4],pointLights,spots.size(),n[0],n[1],n[2],p[0],p[1],p[2]));
             vout.rgba=0;for(unsigned c=0;c<4;++c){finite(factor[c]);const auto lit=uint32_t(std::clamp((c==3?alphaRow:float(v.colour[c]))*factor[c],0.0f,limit[c]>0?std::min(limit[c],255.0f):255.0f));vout.rgba|=lit<<(8*c);}
-            for(auto f:{vout.x,vout.y,vout.z,vout.u,vout.v,vout.fog})finite(f);
+            {const float lanes[6]={vout.x,vout.y,vout.z,vout.u,vout.v,vout.fog};
+             for(unsigned i=0;i<6;++i)if(!std::isfinite(lanes[i])){std::string order;for(const auto r:m.algorithms)order+=std::format(" {}",int(r));
+                 throw std::runtime_error(std::format("nonfinite native model vertex {} (vertex {}, position {} {} {}; routines{})","x\0y\0z\0u\0v\0fog"+2*i,k,p[0],p[1],p[2],order));}}
             if(secondPass)passRgba[k]=vout.rgba;
             if(shellRoutine){shellP[k]=p;shellN[k]=n;shellFactor[k]=factor;}
             if(secondPass){auto &uv=passUv[k];uv={vout.u,vout.v};

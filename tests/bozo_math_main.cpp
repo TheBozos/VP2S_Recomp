@@ -3204,7 +3204,19 @@ int main(int argc,char **argv){try{
          try{vp2s::nativeMathInstruction(r.memory.flat(),&c,&r,0x5154f4);}catch(const std::runtime_error &){rejected=true;}check(rejected);
          c.r[5].uw[0]=camera+0x30;check(vp2s::nativeMathInstruction(r.memory.flat(),&c,&r,0x5154f4));c.r[2].uw[0]=stack+0x50;rejected=false;
          try{vp2s::nativeMathInstruction(r.memory.flat(),&c,&r,0x515554);}catch(const std::runtime_error &){rejected=true;}check(rejected);}
-        std::printf("%u camera offsets (identity, two quarter turns) through program 0x720's rows; 2 rejections\n",cameraCases);}
+        // mod198 53aa74 (map 215): the same words, the quaternion SP+90 and the point SP+b0 (both through v0), stored through a1.
+        {std::memset(r.memory.flat(),0,bozo::kFlatBytes);
+         for(const auto &[pc,w]:words){const uint32_t at=pc-0x5154f4+0x53aa74;const uint32_t word=pc==0x5154f4?0xd8450000u:pc==0x51550c?0xd84f0000u:pc==0x515554?0xf8a50000u:w;
+             std::memcpy(r.memory.hostPointer(at,4),&word,4);}
+         const float q[4]={0,h,0,h},v[4]={3,-5,7,2};std::memcpy(r.memory.hostPointer(stack+0x90,16),q,16);std::memcpy(r.memory.hostPointer(stack+0xb0,16),v,16);
+         R5900Context c{};c.r[29].uw[0]=stack;c.r[2].uw[0]=stack+0x90;c.r[5].uw[0]=stack+0xb0;
+         for(const auto &[pc,w]:words){const uint32_t at=pc-0x5154f4+0x53aa74;if(at==0x53aa8c)c.r[2].uw[0]=stack+0xb0;check(vp2s::nativeMathInstruction(r.memory.flat(),&c,&r,at));}
+         __m128 in;std::memcpy(&in,q,16);const auto rows=vp2s::math::quaternionMatrix(in);float out[4];std::memcpy(out,r.memory.hostPointer(stack+0xb0,16),16);
+         for(unsigned k=0;k<3;++k){float row[4];std::memcpy(row,&rows[k],16);const float e=row[0]*v[0]+row[1]*v[1]+row[2]*v[2]+row[3]*v[3];
+             if(std::fabs(out[k]-e)>1e-3f){std::fprintf(stderr,"mod198 camera offset lane%u %g/%g\n",k,out[k],e);check(false);}}
+         check(out[3]==2.f);++cameraCases;
+         }
+        std::printf("%u camera offsets (identity, two quarter turns; mod198) through program 0x720's rows; 2 rejections\n",cameraCases);}
     // Box pair separating-axis test (mod001 1f82c0) against the listing's
     // sequential evaluation (tests/bozo_box_pair_oracle.inc): the first compared
     // pair with separation > radius (FPU compare) returns 0, else 1.

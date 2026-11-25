@@ -453,6 +453,89 @@ int main(int argc,char **argv){try{
             check(s.fixedCorners[0][0]==int32_t(16*x) && s.fixedCorners[0][1]==int32_t(16*y) && s.fixedCorners[3][0]==int32_t(16*(x+40)) && s.fixedCorners[3][1]==int32_t(16*(y+20)));
             check(s.uv[0]==0x100/4096.f && s.uv[1]==0x200/4096.f && s.uv[2]==0x300/4096.f && s.uv[3]==0x400/4096.f && s.colour==0x40808080u && s.depth==0xffff10u);
         }
+        {   // Picture element 167b80 (4689f0), map 433's: layer (632, 96), element (-8, -10) at scale 0.8, rect +1f0
+            // (u 0x548..0x858, v 0x3f8..0x788, 50 x 58) of a 256 x 256 sheet, a 640 x 448 frame.
+            vp2s::NativePictureInputs p;p.layerX=W(632.f);p.layerY=W(96.f);p.x=W(-8.f);p.y=W(-10.f);p.scale=W(0.8f);p.alpha=W(128.f);p.layerAlpha=W(128.f);
+            p.depth=0xffff32u;p.rect={0x548,0x3f8,0x858,0x788,0x32,0x3a};
+            const auto t=vp2s::nativePicture(p,nullptr);check(t.icons.size()==1 && t.alphaTriangles.empty());const auto &s=t.icons[0];
+            // The listing in single precision (round to nearest; the game truncates, so a 12.4 edge may move by one).
+            const float k08=std::bit_cast<float>(0x3f4ccccdu),kY=std::bit_cast<float>(0x3f88ca11u),x=632.f-8.f,y=96.f-10.f;
+            const int32_t want[4]={int32_t(16*(1728+k08*x)),int32_t(16*(1824+kY*y)),int32_t(16*(1728+k08*(x+50*0.8f))),int32_t(16*(1824+kY*(y+58*0.8f)))};
+            const auto close=[](int32_t a,int32_t b){return a-b<=1 && b-a<=1;};
+            check(close(s.fixedCorners[0][0],want[0]) && close(s.fixedCorners[0][1],want[1]) && close(s.fixedCorners[3][0],want[2]) && close(s.fixedCorners[3][1],want[3]));
+            check(s.fixedCorners[1][0]==s.fixedCorners[3][0] && s.fixedCorners[1][1]==s.fixedCorners[0][1] && s.fixedCorners[2][0]==s.fixedCorners[0][0] && s.fixedCorners[2][1]==s.fixedCorners[3][1]);
+            check(s.uv[0]==0x548/4096.f && s.uv[1]==0x3f8/4096.f && s.uv[2]==0x858/4096.f && s.uv[3]==0x788/4096.f && s.colour==0x80808080u && s.depth==0xffff32u);
+            // A 128 x 128 sheet (log2 7) halves the UVs as 410c30 does; alpha 64; a negative alpha converts to -1 (byte ff).
+            p.log2Width=p.log2Height=7;p.alpha=W(64.f);const auto h=vp2s::nativePicture(p,nullptr).icons[0];
+            check(h.uv[0]==float(0x548/2)/2048.f && h.uv[3]==float(0x788/2)/2048.f && h.colour==0x40808080u);
+            check(vp2s::nativePictureUv(p.rect,7,7)==std::array<int32_t,4>{0x2a4,0x1fc,0x42c,0x3c4});
+            p.alpha=W(-1.f);check(vp2s::nativePicture(p,nullptr).icons[0].colour==0xff808080u);
+        }
+        {   // Name tab of family 168010 (46cb50 path B), map 433's layer: x -248, y 199.6, +288 206.5, text width 100,
+            // rects +200 (53 x 28) and +210 (50 x 28), depth +224; mirrored (+367 = 0x23) and not.
+            vp2s::NativeNameTabInputs n;n.layerX=W(-248.f);n.layerY=W(199.6f);n.extra=W(206.5f);n.width=W(100.f);n.alpha=W(128.f);n.depth=0xffff32u;
+            n.cap={0x998,0x4a8,0xcd8,0x658,0x35,0x1c};n.body={0xce8,0x4a8,0xff8,0x658,0x32,0x1c};
+            const float L=1728.f+512.f*-248.f/640.f,R=1728.f+512.f*(206.5f+(-248.f+100.f))/640.f,Y=512.96f*199.6f/480.f+1824.f;
+            const auto e=vp2s::nativeNameTabEdges(n);
+            check(std::fabs(std::bit_cast<float>(e.left)-L)<1e-3f && std::fabs(std::bit_cast<float>(e.right)-R)<1e-3f);
+            const auto close=[](int32_t a,float b){return std::fabs(float(a)-b)<=1.f;};
+            for(bool mirrored:{true,false}){n.mirrored=mirrored;const auto t=vp2s::nativeNameTab(n,nullptr);check(t.icons.size()==2 && t.alphaTriangles.empty());
+                const auto &a=t.icons[0],&b=t.icons[1];
+                const float ax0=mirrored?16*(R+53):16*(L-53),ax1=mirrored?16*R:16*L,bx1=mirrored?16*L:16*(128+R);
+                check(close(a.fixedCorners[0][0],ax0) && close(a.fixedCorners[1][0],ax1) && b.fixedCorners[0][0]==a.fixedCorners[1][0] && close(b.fixedCorners[1][0],bx1));
+                check(close(a.fixedCorners[0][1],16*(Y-2)) && close(a.fixedCorners[2][1],16*(Y-2)+16*28) && b.fixedCorners[0][1]==a.fixedCorners[0][1] && b.fixedCorners[2][1]==a.fixedCorners[2][1]);
+                check(a.uv[0]==0x998/4096.f && a.uv[2]==0xcd8/4096.f && b.uv[0]==0xce8/4096.f && b.uv[2]==0xff8/4096.f && a.uv[1]==0x4a8/4096.f && b.uv[3]==0x658/4096.f);
+                check(a.colour==0x80808080u && b.colour==0x80808080u && a.depth==0xffff32u);}
+            // Mirrored, both sprites run right to left (the GS draws them flipped).
+            n.mirrored=true;const auto t=vp2s::nativeNameTab(n,nullptr);check(t.icons[0].fixedCorners[0][0]>t.icons[0].fixedCorners[1][0] && t.icons[1].fixedCorners[0][0]>t.icons[1].fixedCorners[1][0]);
+            // Path A's strip: columns 16 (L - 24), 384 + that, 16 R, 16 (24 + R); rows 16 (24 + Y) and 48 + that; colour 2b41ad
+            // with alpha 0 outside and the layer's (128) inside; six triangles of the eight-vertex strip.
+            const auto strip=vp2s::nativeNameTabStrip(n);check(strip.size()==18);
+            const float xs[4]={16*(L-24)/16,(384+16*(L-24))/16,16*R/16,16*(24+R)/16},yt=16*(24+Y)/16,yb=(48+16*(24+Y))/16;
+            const auto near=[](float a,float b){return std::fabs(a-b)<=1.f/16+1e-3f;};
+            for(unsigned i=0;i<6;++i)for(unsigned j=0;j<3;++j){const unsigned k=i+j;const auto &v=strip[3*i+j];
+                check(near(v.x,xs[k/2]) && near(v.y,k&1?yb:yt) && v.z==float(0xffff32u) && v.rgba==(k<2 || k>=6?0x2b41adu:0x802b41adu));}
+        }
+        {   // Symbol sprite 167fe0 (46c3a0): layer (100, 50), element (0, 1), size 18 x 20 (or the rect's 30 x 40 when 0),
+            // alpha 128; type 1 flips the rows and tints 804040, type 0 tints 404080, type 2 is neutral; the wide scales.
+            vp2s::NativeSymbolInputs y;y.layerX=W(100.f);y.layerY=W(50.f);y.x=W(0.f);y.y=W(1.f);y.width=W(18.f);y.height=W(20.f);y.alpha=W(128.f);y.layerAlpha=W(128.f);
+            y.depth=0xffff40u;y.rect={0x100,0x200,0x2e0,0x480,30,40};
+            const float sx=std::bit_cast<float>(0x3f4ccccdu),sy=std::bit_cast<float>(0x3f88ca11u);
+            const auto close=[](int32_t a,float b){return std::fabs(float(a)-b)<=1.f;};
+            for(int8_t type:{0,1,2}){y.type=type;const auto t=vp2s::nativeSymbol(y,nullptr);check(t.icons.size()==1);const auto &q=t.icons[0];
+                const float y0=16*(1824+sy*51),y1=16*(1824+sy*71);
+                check(close(q.fixedCorners[0][0],16*(1728+sx*100)) && close(q.fixedCorners[1][0],16*(1728+sx*118)));
+                check(close(q.fixedCorners[0][1],type==1?y1:y0) && close(q.fixedCorners[2][1],type==1?y0:y1));
+                check(q.colour==((type==1?0x804040u:type==0?0x404080u:0x808080u)|0x80000000u) && q.depth==0xffff40u && q.uv[0]==0x100/4096.f && q.uv[3]==0x480/4096.f);}
+            y.type=0;y.width=W(0.f);y.height=W(-0.f);y.wide=true;const auto q=vp2s::nativeSymbol(y,nullptr).icons[0];
+            check(close(q.fixedCorners[1][0],16*(1728+130.f)) && close(q.fixedCorners[2][1],16*(1824+std::bit_cast<float>(0x3f6eeeefu)*91)));
+        }
+        {   // Highlight bar 167b20 (4683a0), map 446's: element (48, 374) 544 x 3, layer (0, 0), alpha 128 x 128 / 128 = 128
+            // (inner) and int(0.2 x 128) = 25 (outer); display scale (12.8, 17.0667), offset (28672, 28672).
+            vp2s::NativeHighlightInputs h;h.x=W(48.f);h.y=W(374.f);h.width=W(544.f);h.height=W(3.f);h.alpha=W(128.f);h.layerAlpha=W(128.f);h.depth=0xffffc0u;
+            h.scaleX=W(12.8f);h.scaleY=W(17.066667f);h.offsetX=h.offsetY=W(28672.f);
+            const auto e=vp2s::nativeHighlightEdges(h);check(e.inner==0x802b51bdu && e.outer==0x192b51bdu);
+            const float xs[3]={48,48+136,592},ys[2]={377,374};
+            for(unsigned k=0;k<3;++k)check(std::abs(e.x[k]-int32_t(28672+12.8f*xs[k]))<=1);
+            for(unsigned k=0;k<2;++k)check(std::abs(e.y[k]-int32_t(28672+17.066667f*ys[k]))<=1);
+            const auto v=vp2s::nativeHighlight(h);check(v.size()==12);
+            check(v[0].x==float(e.x[0])/16 && v[0].y==float(e.y[0])/16 && v[0].rgba==e.outer && v[2].x==float(e.x[1])/16 && v[2].rgba==e.inner && v[11].x==float(e.x[2])/16 && v[11].y==float(e.y[1])/16 && v[11].rgba==e.outer && v[0].z==float(0xffffc0u));
+        }
+        {   // Shadow frame 167b50 (468620), map 446's: rectangle (20, 344) 600 x 92, display scale (12.8, 17.0667),
+            // offset (28672, 28672), alpha int(0.5 x 128 x 128 / 128) = 64.
+            vp2s::NativeShadowFrameInputs f;f.x=W(20.f);f.y=W(344.f);f.width=W(600.f);f.height=W(92.f);f.alpha=W(128.f);f.layerAlpha=W(128.f);f.depth=0xffffbeu;
+            f.scaleX=W(12.8f);f.scaleY=W(17.066667f);f.offsetX=f.offsetY=W(28672.f);
+            const auto e=vp2s::nativeShadowFrameEdges(f);const float xs[4]={12,20,620,628},ys[4]={336,344,436,444};
+            for(unsigned k=0;k<4;++k){const auto wx=int32_t(28672+12.8f*xs[k]),wy=int32_t(28672+17.066667f*ys[k]);
+                check(e.x[k]-wx<=1 && wx-e.x[k]<=1 && e.y[k]-wy<=1 && wy-e.y[k]<=1);}
+            check(e.alpha==0x40000000u);
+            const auto t=vp2s::nativeShadowFrame(f);check(t.icons.empty() && t.alphaTriangles.size()==54);
+            const auto &v=t.alphaTriangles;
+            // Strip 0 = (x1, y0) transparent, (x0, y0), (x1, y1) shaded, (x0, y1); strip 4 (the centre) is all shaded.
+            check(v[0].x==float(e.x[1])/16 && v[0].y==float(e.y[0])/16 && v[0].rgba==0 && v[2].x==float(e.x[1])/16 && v[2].y==float(e.y[1])/16 && v[2].rgba==0x40000000u && v[0].z==float(0xffffbeu));
+            for(unsigned i=24;i<30;++i)check(v[i].rgba==0x40000000u);
+            check(v[53].x==float(e.x[2])/16 && v[53].y==float(e.y[3])/16 && v[53].rgba==0);
+        }
         {   // Countdown timer HUD (168e10, mod008 48fea0): a REGLIST sprite from its stored words over a 256 x 64 texture
             // (UV 10.4: U 0x400 = texel 64 = 0.25; XYZ2 12.4 with Z above), and its six-vertex Gouraud strip.
             const uint64_t uv0=0x0100u|(uint64_t(0x0200u)<<16),uv1=0x0400u|(uint64_t(0x0300u)<<16);

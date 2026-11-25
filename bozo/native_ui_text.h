@@ -117,6 +117,81 @@ struct NativePauseBarInputs {
     int32_t originX=0x700,originY=0x700;
 };
 NativeUiText nativePauseBar(const NativePauseBarInputs &);
+// Picture element 167b80 (build 4689f0, built once per +3b clear): one SPRITE (PRIM 356, context 2) over the field
+// resource image (TEX0 as the pause logo's), colour 808080 with alpha (element +28 x layer +e0 / 128, unsigned
+// conversion), depth layer +c4. Its rect (u0, v0, u1, v1, w, h) is the resource table's +1f0, UVs as 410c30. With
+// x = layer +40 + element +18, y = layer +44 + element +1c, w, h scaled by element +54, and the origin
+// (0x800 - frame width / 2, 0x800 - frame height / 2): X = 16 (ox + 0.8 x), Y = 16 (oy + 1.0687 y), up to
+// x + w, y + h. All inputs are PS2 float words except the frame size, depth and rect.
+struct NativePictureInputs {
+    uint32_t layerX=0,layerY=0,x=0,y=0,scale=0,alpha=0,layerAlpha=0,depth=0;
+    int16_t frameWidth=640,frameHeight=448;
+    std::array<uint16_t,6> rect{};
+    unsigned log2Width=8,log2Height=8;
+};
+NativeUiText nativePicture(const NativePictureInputs &,std::shared_ptr<const bozo::render::Texture> picture);
+// Its UVs as 410c30 writes them (u0, v0, u1, v1): (1 << log2) / 256 times the rect, truncated.
+std::array<int32_t,4> nativePictureUv(const std::array<uint16_t,6> &rect,unsigned log2Width,unsigned log2Height);
+// Shadow frame 167b50 (build 468620, built once per +3b clear): nine Gouraud quads (PRIM 24c, REGLIST strips of four)
+// in black, around the rectangle x = layer +40 + element +18, y = layer +44 + element +1c, w = +20, h = +24, 8 units
+// wide; the frame mapping of the display record [35e170] (+840 / +844 scale, +848 / +84c offset) truncated to 12.4.
+// The outer edge has alpha 0, the inner one alpha int(0.5 (layer +e0 x element +28) / 128). Depth layer +c4.
+// Name tab of layer family 168010 (maps 329, 333, 432, 433): its ornament element 165e00's build 4494f0 calls the
+// family's writer 46cb50, which (layer +365 set, path 46cff0) writes two SPRITEs (PRIM 356, context 2, ALPHA_2 0x44)
+// over the field resource image, colour 808080 with alpha (layer +e0, unsigned conversion), depth layer +224:
+// L = ox + 512 x / 640, R = ox + 512 (+288 + (x + W)) / 640, Y = 512.96 y / 480 + oy (W the width of the layer's text
+// +108, as 2ef860 returns it at +8). Both span 16 (Y - 2) .. that + 16 h of rect +200; sprite A has rect +200, B +210.
+// Mode 3 (+367 & f, mirrored): A from 16 (R + w) to 16 R, B from 16 R to 16 L; otherwise A from 16 (L - w) to 16 L,
+// B from 16 L to 16 (128 + R). UVs as 410c30. Inputs are PS2 float words except the ints and rects.
+struct NativeNameTabInputs {
+    uint32_t layerX=0,layerY=0,extra=0,width=0,alpha=0,depth=0;
+    int16_t frameWidth=640,frameHeight=448;
+    bool mirrored=false;
+    std::array<uint16_t,6> cap{},body{};   // rects +200, +210
+    unsigned log2Width=8,log2Height=8;
+};
+struct NativeNameTabEdges {uint32_t left=0,right=0;};   // L and R (f23, f21) as PS2 words
+// Path A (layer +365 clear): the base ornament 449580, then one Gouraud strip (PRIM 24c) of eight vertices at depth
+// layer +224, colour 2b41ad: (16 (L - 24), 384 + that, 16 R, 16 (24 + R)) by (16 (24 + Y), 48 + that), alpha 0 at the
+// two outer columns and the layer's alpha (unsigned conversion of +e0) at the inner two.
+std::vector<bozo::render::Vertex> nativeNameTabStrip(const NativeNameTabInputs &);
+NativeNameTabEdges nativeNameTabEdges(const NativeNameTabInputs &);
+NativeUiText nativeNameTab(const NativeNameTabInputs &,std::shared_ptr<const bozo::render::Texture> picture);
+// Symbol sprite 167fe0 (build 46c3a0, built once per +3b clear; type +64 = 5 is never built): one SPRITE (PRIM 356,
+// context 2) of the field resource image (element +58 clear; rect +40, or +50 / +1d0 / +1e0 for types 2 / 3 / 4) at
+// depth layer +c4. Its size is element +20 / +24, or the rect's w / h where those are 0. With x = layer +40 + element +18,
+// y = layer +44 + element +1c and the scales (sx, sy) = (1, 0.9333) when bit 5 of byte [*48e048] +de is set (3d4fe0 with
+// mask 8), else (0.8, 1.0687): X = 16 (ox + sx x) .. 16 (ox + sx (x + w)), Y = 16 (oy + sy y) .. 16 (oy + sy (y + h)), the
+// rows swapped for type 1. Colour 804040 (type 1), 404080 (type 0) or 808080, alpha (element +28 x layer +e0) / 128 converted
+// unsigned. Inputs are PS2 float words except the ints and the rect.
+struct NativeSymbolInputs {
+    uint32_t layerX=0,layerY=0,x=0,y=0,width=0,height=0,alpha=0,layerAlpha=0,depth=0;
+    int8_t type=0;bool wide=false;
+    int16_t frameWidth=640,frameHeight=448;
+    std::array<uint16_t,6> rect{};
+    unsigned log2Width=8,log2Height=8;
+};
+struct NativeSymbolEdges {uint32_t scaleX=0,x0=0,x1=0,ya=0,yb=0;};   // the build's f8, f6, f5, f3, f2 (16 x, as PS2 words)
+NativeSymbolEdges nativeSymbolEdges(const NativeSymbolInputs &);
+NativeUiText nativeSymbol(const NativeSymbolInputs &,std::shared_ptr<const bozo::render::Texture> picture);
+// Highlight bar 167b20 (build 4683a0, once per +3b clear): one Gouraud strip (PRIM 24c) of six vertices in colour 2b51bd,
+// at depth layer +c4 + element +2c, mapped by the display record [35e170] (+840 / +844 scale, +848 / +84c offset) and
+// truncated: columns x, x + w / 4, x + w (x = layer +40 + element +18, w = +20) by rows y + h, y (y = layer +44 + element
+// +1c, h = +24); the quarter column has alpha a = int((layer +e0 x element +28) / 128), the outer ones int(0.2 a).
+struct NativeHighlightInputs {
+    uint32_t layerX=0,layerY=0,x=0,y=0,width=0,height=0,alpha=0,layerAlpha=0,depth=0;
+    uint32_t scaleX=0,scaleY=0,offsetX=0,offsetY=0;
+};
+struct NativeHighlight {std::array<int32_t,3> x{};std::array<int32_t,2> y{};uint32_t outer=0,inner=0;};   // y: rows y + h, y
+NativeHighlight nativeHighlightEdges(const NativeHighlightInputs &);
+std::vector<bozo::render::Vertex> nativeHighlight(const NativeHighlightInputs &);
+struct NativeShadowFrameInputs {
+    uint32_t layerX=0,layerY=0,x=0,y=0,width=0,height=0,alpha=0,layerAlpha=0,depth=0;
+    uint32_t scaleX=0,scaleY=0,offsetX=0,offsetY=0;
+};
+struct NativeShadowFrame {std::array<int32_t,4> x{},y{};uint32_t alpha=0;};
+NativeShadowFrame nativeShadowFrameEdges(const NativeShadowFrameInputs &);
+NativeUiText nativeShadowFrame(const NativeShadowFrameInputs &);
 // Name-plate geometry from the scalars builder 465150 computed when it enters
 // path A (465e3e8): X (f24), Y (f23), length L (f28), all PS2 float words; the
 // colour (s6), depth (fp), the frame size and the resource image's sub-image

@@ -449,6 +449,15 @@ def overlay_adaptations(name,data):
                                # Field pause frozen frame 1670d0 (fade subclass): +9c copies 452040, update 4523f0.
                                (0x452040,0x4523f0,'7cec9a2bcda7e797857fac18535678abca12297a21fee1650ba5fc3b3c748888'),
                                (0x4523f0,0x452498,'3ad73a9f1dcdb3404d8b22630a94ce04d49359906e82ca7b5595ccbc7af7ad20'),
+                               # Shadow frame 167b50 (build 468620), picture 167b80 (build 4689f0); the UV helper 410c30 is signed above.
+                               (0x468620,0x468968,'49de9111a8f32f0c140b84aa930546c20525a682fabeeac7674c040a3de333e4'),
+                               (0x4689f0,0x468e90,'b4a6895e2dcbecd621fc0e3559952f776810db7774eb2d91326fe7fd6830af42'),
+                               # Symbol sprite 167fe0 (build 46c3a0, its scale test 3d4fe0) and highlight bar 167b20 (build 4683a0).
+                               (0x46c3a0,0x46cae0,'ad97bc4896b147fb4e067f8175fd5c9a0d3efeb786652338a80479bb7f69a6a8'),
+                               (0x3d4fe0,0x3d5440,'47f9e7eef188cdc0272759f3c39581686cbc360f4bf56d1dbe6c6735b8f1b4f5'),
+                               (0x4683a0,0x468620,'89f24ebdd576981aaafd04b87a3928bd4de77bff96b83f7cfab6141206764837'),
+                               # Family 168010's name-tab writer 46cb50 (both paths: B at 46d080 / 46d538, A's strip at 46cfdc).
+                               (0x46cb50,0x46d580,'f7e33bbc5412867caeff3987e28a35bdae9495014a19f6b4431a491b01f909c9'),
                                # Field pause logo 166ef0 (build 451450 -> 4514f0) and bar 1670a0 (451960 -> 451a60).
                                (0x451450,0x4514f0,'d253bf4abb6654cd0929b0799d22723f0fb67674d245ae3274d5c5c1c7637e3b'),
                                (0x4514f0,0x451958,'38f9d686777a41e881d242e5d36b11112a63a82bbd52a7927ca5d3296b4ba9cc'),
@@ -1123,7 +1132,7 @@ def overlay_native_sites(name,data):
         # Debug teleport (bozo/native_warp.cpp): event-script step 3ee150's instruction fetch.
         lo,hi=0x3ee264,0x3ee2a8;s=next(s for s in segments if s[0]==1 and s[2]<=lo<hi<=s[2]+s[4]);at=s[1]+lo-s[2]
         if hashlib.sha256(data[at:at+hi-lo]).hexdigest()!='f5cb38bd71c57c60fea1adf529e82defd6edd8fa8ead633b9d3076bb5af22002':raise ValueError('USA event-script fetch mismatch')
-        return 'native 0x3ee288\nnative 0x374c04\nnative 0x374c10\nnative 0x40b040\nnative 0x3d93f4\nnative 0x3d38d4\nnative 0x3d363c\nnative 0x3d364c\nnative 0x3d49b0\nnative 0x447af0\nnative 0x447b84\nnative 0x447d60\nnative 0x447a48\nnative 0x447f50\nnative 0x443238\nnative 0x45e870\nnative 0x45ea18\nnative 0x45e594\nnative 0x460050\nnative 0x460f24\nnative 0x462a60\nnative 0x47a1c0\nnative 0x4653e8\nnative 0x465b38\nnative 0x465f08\nnative 0x449790\nnative 0x448d70\nnative 0x4516f0\nnative 0x451b64\nnative 0x3d2d7c\nnative 0x3d2630\nnative 0x3d2698\nnative 0x3d2520\nnative 0x4541b8\n'+''.join(f'native 0x{pc:x}\n' for pc in (0x3e5ca4,0x3e5ca8,0x3e5cac,0x3e5cb4,0x3e5cb8,0x3e5cc0,*range(0x3e7edc,0x3e7f38,4),*range(0x3e7fa0,0x3e7ffc,4)))
+        return 'native 0x3ee288\nnative 0x374c04\nnative 0x374c10\nnative 0x40b040\nnative 0x3d93f4\nnative 0x3d38d4\nnative 0x3d363c\nnative 0x3d364c\nnative 0x3d49b0\nnative 0x447af0\nnative 0x447b84\nnative 0x447d60\nnative 0x447a48\nnative 0x447f50\nnative 0x443238\nnative 0x45e870\nnative 0x45ea18\nnative 0x45e594\nnative 0x460050\nnative 0x460f24\nnative 0x462a60\nnative 0x47a1c0\nnative 0x4653e8\nnative 0x465b38\nnative 0x465f08\nnative 0x449790\nnative 0x448d70\nnative 0x4516f0\nnative 0x451b64\nnative 0x468950\nnative 0x468e58\nnative 0x46d080\nnative 0x46d538\nnative 0x46cfdc\nnative 0x46caa4\nnative 0x468614\nnative 0x3d2d7c\nnative 0x3d2630\nnative 0x3d2698\nnative 0x3d2520\nnative 0x4541b8\n'+''.join(f'native 0x{pc:x}\n' for pc in (0x3e5ca4,0x3e5ca8,0x3e5cac,0x3e5cb4,0x3e5cb8,0x3e5cc0,*range(0x3e7edc,0x3e7f38,4),*range(0x3e7fa0,0x3e7ffc,4)))
     if name=='mod028':
         # Scratchpad writer subclass 174f90's kick (4d75f0, +d0 set): mod001 20148c..2014d0's
         # poll and fromSPR start, 2d6a20 higher (bozo/native_spr_writer.cpp).

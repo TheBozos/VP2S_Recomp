@@ -12,6 +12,45 @@ The earlier VP2S face/shading and general brightness comparisons remain open.
 
 ## Build and evidence
 
+### Native field UI pieces: picture, shadow frame, name tab, symbol, highlight; mod198 camera offset (2026-11-25)
+
+- **The case:** maps 329, 333, 432, 433 and 446 stopped in the field UI layer at classes the native layer capture did not
+  admit (167b80, then 165e00 under layer family 168010, then 167fe0); map 446 at 167b50, then 167ac0, then 167b20; map 215
+  at a VU0 block of overlay mod198.
+- **Ported (bozo/native_ui_text.cpp), each from its build's listing in PS2 float order (ps2f), captured at the build's
+  "built" flag store (+3b) or last packet store and drawn by the native UI layer; the packets are never sent or decoded:**
+  - **Picture 167b80 (4689f0):** one sprite of the field resource sheet (TEX0 as the pause logo's), rect +1f0, scaled by
+    element +54, placed by 0.8 / 1.0687 from the frame origin; alpha converted unsigned.
+  - **Shadow frame 167b50 (468620):** nine Gouraud quads in black from its vertex table 48dd50, 8 units around the element's
+    rectangle through the display record's frame mapping; inner alpha int(0.5 (layer +e0 x element +28) / 128).
+  - **Name tab of layer family 168010 (writer 46cb50, called by ornament 165e00's build):** path B (layer +365 set) is two
+    sprites, rects +200 / +210, placed from the width of the layer's text (+108, as 2ef860 returns it) and drawn right to
+    left in mode 3 (+367 & f); path A is the ported ornament 449580 plus an eight-vertex strip in 2b41ad (alpha 0 at its
+    ends), appended to the ornament's plate. The ornament site notes path A from 449580's saved return address.
+  - **Symbol sprite 167fe0 (46c3a0):** one sprite, rect by type +64, tinted 804040 (type 1, rows swapped), 404080 (type 0)
+    or 808080; scales (1, 0.9333) when bit 5 of [*48e048] +de is set (3d4fe0 with mask 8), else (0.8, 1.0687). The uploader
+    path (element +58 set) is refused until a map uses it.
+  - **Highlight bar 167b20 (4683a0):** a six-vertex strip in 2b51bd, alpha a at the quarter column and int(0.2 a) at the ends.
+  - **Text class 167ac0:** admitted like 15a600: the base text methods, a destructor that calls 2eeb00, and hooks that only
+    set request flags on the owning layer 15fd30.
+- **Cross-checks at each site:** the build's own registers or stack results (edges, colours, XYZ words, UVs) must equal
+  the native computation; two registers (a1, v1) reloaded before 468614 were found this way and are not compared.
+- **mod198 53aa74 (map 215):** the program-0x720 camera-offset block of mod037 5154f4 at other addresses and registers
+  (quaternion SP+90, point SP+b0, stored through a1); nativeCameraOffset now serves both from one table.
+- **Model light factor (map 487 diagnosis):** mode 3's specular term is squared `power` times; the VU saturates an overflow
+  at +-max, so the native code now does too. Map 487 still stops: a vertex position and normal are already NaN before
+  lighting; the model checks now name the failing value.
+- **Signatures:** 468620, 4689f0, 46cb50, 46c3a0, 3d4fe0 and 4683a0 are checked in vp2_bozo_kernel.py.
+
+**Evidence:**
+- **Tests:** vp2s-bozo-ui-text: the picture with map 433's values (UVs at log2 8 and 7, alpha conversions), the shadow
+  frame with map 446's, the name tab (both modes and path A's strip) with map 433's layer and rects, the symbol (types 0, 1,
+  2, rect-sized and wide), the highlight with map 446's; vp2s-bozo-math: the mod198 camera offset.
+- **Maps:** 329, 333, 432, 433, 446 and 215 run clean to the frame limit; 142 (mod037) stays clean.
+- **Map 408 (open, asked):** class 172b40's sphere (+7f0) is read by the visibility pass before its setter (method +128)
+  runs; a watch run shows the bytes come from an earlier file buffer. The user is asked how to define it.
+- **Regression:** full ctest; regress4's scenes keep their hashes (frame limit reached).
+
 ### Native lens flare: its three element writers and the flash (2026-11-25)
 
 - **The case:** 9 maps (108, 358-364, 504, 519) stopped at the lens flare's DMA kick 255ad0 (class 155b50).

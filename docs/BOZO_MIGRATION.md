@@ -12,6 +12,24 @@ The earlier VP2S face/shading and general brightness comparisons remain open.
 
 ## Build and evidence
 
+### Black atlas pictures: story-gated arrivals and unlucky captures (2026-11-25)
+
+- **The scan:** the last three captures (frames 63600, 63900, 64200) of 77 swept maps are entirely black; 74 are black in
+  all three.
+- **71 maps (469, 471-479, 481-484, 486, 488, 490-491, 493-495, 497-500, 502, 504-508, 510, 513-519, 521-530, 532-534,
+  539-548, 550-561):** the game idles (about 7k library calls to the frame limit, against 25k-35k elsewhere).
+  - The only interpreter (58c660, the common script 9b1e80) takes area 0x61 (op 48 61), calls into it, reads variable
+    0x25e7 (op 80 / 81), branches (op 0d) and idles at op 00 (9b1ec0).
+  - The fade 161230 on layer 1 is a black hold (+98 = +9c = 0x80000000, duration 0) that nothing lifts, drawn over a
+    full scene.
+  - Map 26 (visible) takes area 1, and its script fades in with op 02 (0x80000000, 0, 0x0f, 0).
+  - So these arrivals are gated by story state the map-79 save state does not have: a warp-context artefact like
+    maps 32 / 47.
+- **6 maps (107, 116, 133, 150, 153, 463):** the game is busy. Map 107 captured every 40 frames shows the field ("Head
+  outward"), then a random encounter whose black transition precedes a 576 x 416 battle. The sweep's fixed capture
+  frames fell on black moments (runs differ in encounters and heap garbage).
+- **Diagnostic:** VP2S_BOZO_TRACE_SCRIPT_OP=100 prints every script op any interpreter fetches (op, address, args).
+
 ### Maps 32 / 47: the chain diverges after a teleport (2026-11-25, warp artefact)
 
 - **Chain:** owner 9e7000 (class 163e10), 22 nodes of 0xa0 bytes from +28; +14 is the count. Node byte 0 = 0 marks a

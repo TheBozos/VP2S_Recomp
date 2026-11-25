@@ -73,15 +73,15 @@ std::array<uint32_t,8> warpInstruction(const WarpRequest &r){
 // the step advances by 1 + count after a handler that returns 1 (op 0x3a does).
 std::optional<bool> nativeWarpInstruction(R5900Context *c,Runtime *rt,uint32_t pc){
     if(pc!=0x3ee288)return std::nullopt;
-    // Diagnostic: VP2S_BOZO_TRACE_SCRIPT_OP=HEX prints every instruction of that op any interpreter fetches.
+    // Diagnostic: VP2S_BOZO_TRACE_SCRIPT_OP=HEX prints every instruction of that op any interpreter fetches (100: all ops).
     static const int traced=[]{const char *v=std::getenv("VP2S_BOZO_TRACE_SCRIPT_OP");return v?int(std::strtol(v,nullptr,16)):-1;}();
     if(traced>=0 && rt)if(const auto *word=rt->memory.hostPointer(c->r[5].uw[0],4)){
         uint32_t w;std::memcpy(&w,word,4);
-        if(int((w>>8)&0xff)==traced){
+        if(int((w>>8)&0xff)==traced || traced==0x100){   // 100: every op
             std::string args;const unsigned count=w&0xff;
             for(unsigned i=0;i<count && i<8;++i)if(const auto *p=rt->memory.hostPointer(c->r[5].uw[0]+4+4*i,4)){uint32_t a;std::memcpy(&a,p,4);args+=std::format(" {:08x}",a);}
             uint32_t type=0;if(const auto *p=rt->memory.hostPointer(c->r[16].uw[0],4))std::memcpy(&type,p,4);
-            std::fprintf(stderr,"[vp2s:script] interpreter %x (class %x) op %x at %x:%s\n",c->r[16].uw[0],type,traced,c->r[5].uw[0],args.c_str());
+            std::fprintf(stderr,"[vp2s:script] interpreter %x (class %x) op %x at %x:%s\n",c->r[16].uw[0],type,unsigned((w>>8)&0xff),c->r[5].uw[0],args.c_str());
         }
     }
     if(c->r[5].uw[0]==kSnippet+12)if(auto *resume=rt->memory.hostPointer(kSnippet+12,8)){

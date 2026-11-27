@@ -85,11 +85,18 @@ static void applyExp(Runtime *rt){
     }
     primed=true;
 }
-// Weak enemies: each enemy unit in the combatant table ([*1d366c + cb88] +44..+60) whose record (+818) is a live
+// The scene's pointer to the running battle (class 16f7a0): its address in the scene, or 0 outside battle.
+static uint32_t battleSlot(Runtime *rt){
+    uint32_t scene,object,vtable;if(!readWord(rt,0x1d366c,scene) || scene<0x100000 || scene>=0x2000000)return 0;
+    for(uint32_t at=scene+party::kBattleSearchFrom;at<scene+party::kBattleSearchTo;at+=4)
+        if(readWord(rt,at,object) && object>=0x100000 && object<0x2000000 && readWord(rt,object,vtable) && vtable==party::kBattleClass)return at;
+    return 0;
+}
+// Weak enemies: each enemy unit in the combatant table (the battle's +44..+60) whose record (+818) is a live
 // enemy (kind 2, valid HP checksum, not fallen) drops to 1 HP, its checksum rewritten as the HP setter does.
 static void weakenEnemies(Runtime *rt){
-    uint32_t battle,table;
-    if(!readWord(rt,0x1d366c,battle) || !readWord(rt,battle+party::kCombatants,table) || !readWord(rt,table,battle) || battle!=0x16f7a0)return;
+    uint32_t table;const auto slot=battleSlot(rt);
+    if(!slot || !readWord(rt,slot,table))return;
     for(unsigned i=0;i<8;++i){
         uint32_t unit,record,base,maxHp,hp,check,salt;
         if(!readWord(rt,table+0x44+4*i,unit) || !unit || !readWord(rt,unit+party::kUnitRecord,record))continue;
@@ -107,8 +114,7 @@ void applyNativeCheats(Runtime *rt){
     applyMoney(rt);applyItems(rt);applyExp(rt);
     if(nativeCheats().weakEnemies)weakenEnemies(rt);
     if(!nativeCheats().infiniteHealth)return;
-    // Battle: the party's battle records, [*1d366c + cbcc] (4 slots, -1 or empty outside battle).
-    uint32_t battle;
-    if(readWord(rt,0x1d366c,battle))for(unsigned i=0;i<4;++i){uint32_t record;if(readWord(rt,battle+0xcbcc+4*i,record) && record>=0x100000 && record<0x2000000)restoreHealth(rt,record);}
+    // Battle: the party's battle records, 4 slots after the battle pointer (-1 or empty when unused).
+    if(const auto slot=battleSlot(rt))for(unsigned i=0;i<4;++i){uint32_t record;if(readWord(rt,slot+party::kPartySlots+4*i,record) && record>=0x100000 && record<0x2000000)restoreHealth(rt,record);}
 }
 }

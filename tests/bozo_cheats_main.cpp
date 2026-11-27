@@ -36,9 +36,10 @@ int main(){try{
     member(rt,alicia,63,100,0,0);member(rt,rufus,0,100,0,0x20);   // Rufus fallen
     put(rt,0x1d3694,persistent);member(rt,persistent,100,100,120,0);member(rt,persistent+0x140,100,100,80,0);
     put(rt,0x1d3690,general);put(rt,general+4,0x12345678);put(rt,general+0x6c,500^kMoneyKey);put(rt,general+0x18,generalHash(rt,general));
-    // Combatants [*1d366c + cb88] (class 16f7a0): enemy units from +44, each record at +818; a live enemy and a fallen one.
+    // Combatants: the battle (class 16f7a0) at [*1d366c + cb88] (map-79 layout), enemy units from +44, each record at
+    // +818; a live enemy and a fallen one.
     constexpr uint32_t combatants=0x5a0000,live=0x5a1000,fallen=0x5a2000,liveRecord=0x5a3000,fallenRecord=0x5a3200;
-    put(rt,battle+kCombatants,combatants);put(rt,combatants,0x16f7a0u);put(rt,combatants+0x44,live);put(rt,combatants+0x48,fallen);
+    put(rt,battle+0xcb88,combatants);put(rt,combatants,0x16f7a0u);put(rt,combatants+0x44,live);put(rt,combatants+0x48,fallen);
     put(rt,live+kUnitRecord,liveRecord);put(rt,fallen+kUnitRecord,fallenRecord);
     member(rt,liveRecord,600,816,0,0);member(rt,fallenRecord,0,816,0,0x20);
     for(const uint32_t r:{liveRecord,fallenRecord})*rt.memory.hostPointer(r+0x5a,1)=kKindKey^2;
@@ -53,6 +54,13 @@ int main(){try{
     cheats.infiniteHealth=true;vp2s::applyNativeCheats(&rt);cheats.infiniteHealth=false;
     check((word(rt,alicia+0x10)^kHpKey)==100 && hpCheck(rt,alicia)==word(rt,alicia+0x18),"Alicia healed under her checksum");
     check((word(rt,rufus+0x10)^kHpKey)==0,"a fallen member is not revived");
+    // A battle started from a dungeon map: the scene's battle pointer and party slots 0x60 lower (+cb28 / +cb6c).
+    {const std::vector<uint8_t> saved(rt.memory.flat(),rt.memory.flat()+0x2000000);
+     for(uint32_t at=0xcb88;at<=0xcbd8;at+=4)put(rt,battle+at,0);
+     put(rt,battle+0xcb28,combatants);put(rt,battle+0xcb6c,alicia);member(rt,alicia,40,100,0,0);
+     cheats.infiniteHealth=true;vp2s::applyNativeCheats(&rt);cheats.infiniteHealth=false;
+     check((word(rt,alicia+0x10)^kHpKey)==100 && hpCheck(rt,alicia)==word(rt,alicia+0x18),"healed with the dungeon layout");
+     std::memcpy(rt.memory.flat(),saved.data(),saved.size());}
     // Weak enemies: the live enemy drops to 1 HP under its checksum; the fallen one stays at 0; party records untouched.
     cheats.weakEnemies=true;vp2s::applyNativeCheats(&rt);cheats.weakEnemies=false;
     check((word(rt,liveRecord+0x10)^kHpKey)==1 && hpCheck(rt,liveRecord)==word(rt,liveRecord+0x18),"a live enemy at 1 HP under its checksum");

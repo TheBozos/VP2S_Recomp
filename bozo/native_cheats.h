@@ -29,9 +29,11 @@ constexpr uint32_t kMoneyKey=0x37ce67a3,kMoneyMax=99999999;
 // 0x38 bytes per item, +30 its stack limit (99 for most).
 constexpr uint32_t kExpKey=0x6cdf397e;   // +04, under the flags checksum +14
 constexpr uint32_t kInventory=0x35ec18,kItemTable=0x35ec08;
-// Battle combatants: [*1d366c + cb88] (class 16f7a0): party units +34..+40, enemy units +44..+60; each unit's
-// record at +818.
-constexpr uint32_t kCombatants=0xcb88,kUnitRecord=0x818;
+// Battle combatants: the scene [1d366c] holds a pointer to the battle (class 16f7a0) at +cb88 when started from map 79,
+// but a variable-length block earlier in the scene moves it (+cb28 from a dungeon map: field encounters), so it is
+// found by its class in +c800..+cd00. Party units +34..+40, enemy units +44..+60 of the battle, each unit's record at
+// +818; the party's battle records also sit in four slots 0x44 after the battle pointer.
+constexpr uint32_t kBattleClass=0x16f7a0,kBattleSearchFrom=0xc800,kBattleSearchTo=0xcd00,kPartySlots=0x44,kUnitRecord=0x818;
 }
 // At each frame's end (the game's thread, between frames): live party members in battle back to full HP, and a
 // money request applied.

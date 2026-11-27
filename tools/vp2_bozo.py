@@ -146,7 +146,9 @@ def main():
                                         # scripted battles (battle sweep 2026-11-27): 18 enemy / stage modules
                                         'mod033,mod036,mod039,mod041,mod042,mod045,mod048,mod153,mod155,mod156,mod159,mod162,mod163,mod164,mod204,mod207,mod210,mod286,'
                                         # field encounters (encounter sweep 2026-11-27): slot 0x542a80 modules
-                                        'mod279,mod281,mod288')
+                                        'mod279,mod281,mod288,'
+                                        # field encounters from their dungeon maps (2026-11-27): enemy / stage modules
+                                        'mod031,mod143,mod148,mod166,mod177,mod187,mod194,mod195,mod199,mod211,mod214,mod222,mod223,mod224,mod242,mod277,mod284')
     ap.add_argument('--stage', choices=['tools', 'generate', 'build', 'run', 'all'], default='build')
     ap.add_argument('--jobs', type=int, default=4)
     ap.add_argument('--ffmpeg', default=os.environ.get('BOZO_FFMPEG_ROOT', 'D:/tmb_kit/kit/ffmpeg'))

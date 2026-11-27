@@ -6949,16 +6949,19 @@ constexpr SimpleSite simpleSites[]={
 // Linear emitter step, mod037 516830 (field map 142's class 1781c0, called from the driver at 22ed38; a leaf, no frame):
 // vf5.x = dt (QMTC2 516870 of *35dee8); per live particle (record = [emitter+14] + t2 * 60): p = record+10 (5168e0),
 // v = record+30 (5168e8), P.xyz = (p + 0) + v dt (ADDA / MADDx), P.w = p.w; P to the output (a2, 516900; the EE copies
-// record+20 to output+10) and back to record+10 (51690c). No box.
+// record+20 to output+10) and back to record+10 (51690c). No box. mod042 (class 17ae30, scripted battle 0x5f) carries the
+// same step word for word 0x1010 lower (515860 .. 5158fc).
 struct LinearState{bool ready=false;uint32_t frame=0,emitter=0,dt=0,record=0;unsigned step=0;VuWords p{},v{},P{};};
 LinearState &linearState(const Runtime *rt){static std::map<const Runtime *,LinearState> states;return states[rt];}
-bool nativeLinearEmitter(R5900Context *c,Runtime *rt,uint32_t pc){
-    if(!rt || (pc&3) || pc<0x516870 || pc>0x51690c)return false;
+bool nativeLinearEmitter(R5900Context *c,Runtime *rt,uint32_t actual){
+    if(!rt || (actual&3))return false;
+    const uint32_t pc=actual>=0x516870-0x1010 && actual<=0x51690c-0x1010?actual+0x1010:actual;
+    if(pc<0x516870 || pc>0x51690c)return false;
     static constexpr std::pair<uint32_t,uint32_t> words[]={{0x516870,0x48ac2800},{0x5168e0,0xd9810000},{0x5168e8,0xd9620000},{0x5168ec,0x4bc00abc},
         {0x5168f0,0x4bc51048},{0x516900,0xf8c10000},{0x51690c,0xf9810000}};
     const auto it=std::find_if(std::begin(words),std::end(words),[&](auto &w){return w.first==pc;});
     if(it==std::end(words))return false;
-    uint32_t word=0;if(const auto *p=rt->memory.hostPointer(pc,4))std::memcpy(&word,p,4);
+    uint32_t word=0;if(const auto *p=rt->memory.hostPointer(actual,4))std::memcpy(&word,p,4);
     if(word!=it->second)return false;
     auto *d=vp2s::nativeCast<bozo::ee::Dispatcher>(rt->services);auto *particles=d?vp2s::nativeCast<ParticleOwner>(&d->host()):nullptr;
     if(!c || !particles)throw std::runtime_error("native linear emitter requires its bounds owner");
@@ -7769,12 +7772,13 @@ bool nativeQuaternionIdiom(R5900Context *c,Runtime *rt,uint32_t pc){
 //   point SP+50 = (0, 0, -320, 1) through v1, stored through v0; the camera's +20 then copies it to its +20;
 // - mod198 53a6f0 at 53aa74 (map 215): the quaternion SP+90 (through v0, written by 215640 just before), the point
 //   SP+b0 (through v0), stored through a1.
+// - mod042 514460 at 514574 (particle class 17ae30, scripted battle 0x5f): as mod037's, word for word.
 struct CameraOffsetCapture{VuWords quaternion{},v{};unsigned loaded=0;};
 CameraOffsetCapture &cameraOffsetCapture(const Runtime *rt){static std::map<const Runtime *,CameraOffsetCapture> captures;return captures[rt];}
 bool nativeCameraOffset(R5900Context *c,Runtime *rt,uint32_t pc){
     struct Variant{uint32_t base,quaternionWord,pointWord,storeWord;unsigned quaternionReg,pointReg,storeReg;uint32_t quaternionAt,point;};
     // quaternionAt: a stack offset, or ~0 for mod037's camera (s2 + 30).
-    static constexpr Variant variants[]={{0x5154f4,0xd8a50000,0xd86f0000,0xf8450000,5,3,2,~0u,0x50},{0x53aa74,0xd8450000,0xd84f0000,0xf8a50000,2,2,5,0x90,0xb0}};
+    static constexpr Variant variants[]={{0x5154f4,0xd8a50000,0xd86f0000,0xf8450000,5,3,2,~0u,0x50},{0x514574,0xd8a50000,0xd86f0000,0xf8450000,5,3,2,~0u,0x50},{0x53aa74,0xd8450000,0xd84f0000,0xf8a50000,2,2,5,0x90,0xb0}};
     if(!rt || (pc&3))return false;
     const auto v=std::find_if(std::begin(variants),std::end(variants),[&](const Variant &x){return pc>=x.base && pc<=x.base+0x60;});
     if(v==std::end(variants))return false;
@@ -9663,23 +9667,30 @@ bool nativeSlotCarry(R5900Context *c,Runtime *rt,uint32_t pc){
 // rows in vf8..vf10 (as at mod028 48c9bc; CFC2 t1 = VI0 = 0); LQC2 vf15 = p ([v1] = sp+50); rows vf8..vf11 times p with
 // the row-point lane orders (x ((x+y)+z)+w, y ((y+x)+z)+w, z ((z+y)+x)+w); SQC2 vf5 to sp+60 at 53aa94. vf11 is a register
 // this function never writes, so only x, y and z are defined: w is left as memory has it.
+// The same 25 words (offsets +0 .. +60, same registers) in mod117 (slot 0x532200, field encounter 0x20 on map 106) at
+// 532bf8: the quaternion through v0, the point sp+50 through v1, stored through v0 to sp+60; and in mod242 (slot
+// 0x53d800, encounter 0xa9 on map 354) at 53e0a8: the quaternion sp+d0, the point sp+e0, stored over it.
 bool nativeSlotTurnPoint(R5900Context *c,Runtime *rt,uint32_t pc){
-    if((pc&3) || !rt || pc<0x53aa34 || pc>0x53aa94)return false;
-    static constexpr std::pair<uint32_t,uint32_t> sites[]={{0x53aa34,0xd8450000},{0x53aa3c,0x4a003938},{0x53aa40,0x48490001},{0x53aa4c,0xd86f0000},
-        {0x53aa50,0x4bc007c3},{0x53aa54,0x4bef422a},{0x53aa58,0x4bef4a6a},{0x53aa5c,0x4bef52aa},{0x53aa60,0x4bef5aea},{0x53aa64,0x4b08403d},
-        {0x53aa68,0x4b08f8be},{0x53aa6c,0x4b08f94b},{0x53aa70,0x4a89483c},{0x53aa74,0x4a89f8be},{0x53aa78,0x4a89f94b},{0x53aa7c,0x4a4a503d},
-        {0x53aa80,0x4a4af8bc},{0x53aa84,0x4a4af94b},{0x53aa88,0x4a2b583d},{0x53aa8c,0x4a2b00be},{0x53aa90,0x4a2b0148},{0x53aa94,0xf8450000}};
-    const auto site=std::find_if(std::begin(sites),std::end(sites),[&](const auto &x){return x.first==pc;});
+    static constexpr uint32_t bases[]={0x53aa34,0x532bf8,0x53e0a8};
+    if((pc&3) || !rt)return false;
+    const auto base=std::find_if(std::begin(bases),std::end(bases),[&](uint32_t b){return pc>=b && pc<=b+0x60;});
+    if(base==std::end(bases))return false;
+    static constexpr std::pair<uint32_t,uint32_t> sites[]={{0x00,0xd8450000},{0x08,0x4a003938},{0x0c,0x48490001},{0x18,0xd86f0000},
+        {0x1c,0x4bc007c3},{0x20,0x4bef422a},{0x24,0x4bef4a6a},{0x28,0x4bef52aa},{0x2c,0x4bef5aea},{0x30,0x4b08403d},
+        {0x34,0x4b08f8be},{0x38,0x4b08f94b},{0x3c,0x4a89483c},{0x40,0x4a89f8be},{0x44,0x4a89f94b},{0x48,0x4a4a503d},
+        {0x4c,0x4a4af8bc},{0x50,0x4a4af94b},{0x54,0x4a2b583d},{0x58,0x4a2b00be},{0x5c,0x4a2b0148},{0x60,0xf8450000}};
+    const uint32_t offset=pc-*base;
+    const auto site=std::find_if(std::begin(sites),std::end(sites),[&](const auto &x){return x.first==offset;});
     if(site==std::end(sites))return false;
     uint32_t word=0;if(const auto *p=rt->memory.hostPointer(pc,4))std::memcpy(&word,p,4);
     if(word!=site->second)return false;   // another module in the slot
     if(!c)throw std::runtime_error("native slot turn point has no CPU record");
     struct State{VuWords q{},p{};bool q_=false,p_=false;};static std::map<const Runtime *,State> states;auto &st=states[rt];
     const auto at=[&]{return c->r[(word>>21)&31].uw[0]+uint32_t(int32_t(int16_t(word&0xffff)));};
-    if(pc==0x53aa34){st.q=vuWords(rt,at());st.q_=true;return true;}
-    if(pc==0x53aa40){c->r[9].ud[0]=0;c->r[9].ud[1]=0;return true;}   // VI0 is the constant zero
-    if(pc==0x53aa4c){st.p=vuWords(rt,at());st.p_=true;return true;}
-    if(pc!=0x53aa94)return true;
+    if(offset==0x00){st.q=vuWords(rt,at());st.q_=true;return true;}
+    if(offset==0x0c){c->r[9].ud[0]=0;c->r[9].ud[1]=0;return true;}   // VI0 is the constant zero
+    if(offset==0x18){st.p=vuWords(rt,at());st.p_=true;return true;}
+    if(offset!=0x60)return true;
     if(!st.q_ || !st.p_)throw std::runtime_error("native slot turn point stored without its loads");
     float values[4];std::memcpy(values,st.q.data(),16);
     for(float f:values){const auto m=std::bit_cast<uint32_t>(f)&0x7fffffff;if(m>=0x7f800000 || m>std::bit_cast<uint32_t>(1.e8f))throw std::runtime_error("unqualified 0x720 quaternion");}

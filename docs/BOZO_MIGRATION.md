@@ -12,6 +12,34 @@ The earlier VP2S face/shading and general brightness comparisons remain open.
 
 ## Build and evidence
 
+### Field encounters from their dungeons; party wipes (2026-11-27)
+
+- **Finding each encounter's map:** the encounter tables are searched for in saved map RAM (the map sweep's boundary
+  dumps, plus fresh dumps of 50 candidate maps warped to with their story gates). Asset files are in disc order, so
+  the maps already found bracket the rest. All 14 early faults have a map: 0x1e 100, 0x20 106, 0x4f 137, 0x35 277,
+  0x89 323, 0x8a 324, 0xa9 354, 0xa7 368, 0xa4 373, 0xbf 381, 0xd2 415, 0xd6 416, 0xd7 423, 0xd5 438. Scripted 0x5f
+  is also on 416.
+- **The cause was not residency:** launched from their map, the battles still jumped into slots 0x532200 / 0x53a380 /
+  0x53d800 / 0x542a80. The modules there were ones never captured (mod031, 143, 148, 166, 177, 187, 194, 195, 199,
+  211, 214, 222, 223, 224, 242, 277, 284), not the known ones the earlier note named. Captured from RAM at the fault and
+  registered.
+- **Ports:**
+  - the 0x720 turn point's copies in mod117 532bf8 and mod242 53e0a8 (nativeSlotTurnPoint takes a base list);
+  - mod042's camera offset at 514574, mod037's word for word (nativeCameraOffset variant);
+  - VRNEXT draws in mod166 5335dc and mod211 53b75c (native_random sites);
+  - particle class 17ae30 (mod042, producer 514460, like 1781c0) qualified;
+  - mod042's linear emitter step 515860, mod037's 516870 copied 0x1010 lower (nativeLinearEmitter maps the copy).
+- **Result:** all 14 encounters and scripted 0x5f run to their frame limit without missing code. Encounters with no
+  missing code: 139 of 139 bar the 4 chain-signature artefacts. Scripted: 40 of 42 (0x23 x2 artefacts).
+- **Cheats fixed:** infinite health and weak enemies read the battle at a fixed offset in the scene ([1d366c] +cb88,
+  party slots +cbcc). A variable-length block earlier in the scene moves it 0x60 lower when a battle starts from a
+  dungeon map, so both cheats now find the battle by its class (16f7a0) in +c800..+cd00. tests/bozo_cheats_main
+  covers both layouts.
+- **Party wipes:** the map-79 save's party has 100 max HP. In 134 of the 175 non-artefact battles it is one-shot
+  within 1-3k frames, and the game-over Data screen follows. Healing every frame cannot stop a one-hit kill, and
+  weak enemies does not help when they act first. Those battles ran without missing code only up to the wipe. The
+  atlas shows them as "Party fell" (bgallery.py compares captures with the Data screen).
+
 ### Field encounters: the visible enemies' battles (2026-11-27)
 
 - **How the game picks them:** a visible enemy (mod003 388900) finds its encounter record with 3eda30, walking its own

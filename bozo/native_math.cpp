@@ -7027,7 +7027,8 @@ bool nativeSimpleEmitter(R5900Context *c,Runtime *rt,uint32_t pc){
     case 'L':{
         constexpr uint32_t offsets[7]={0x10,0x30,0x50,0x40,0x20,0x60,0x70};
         if(site->param==0){
-            if(st.phase==5 && st.trail && st.trailStep!=(st.trail==2?16u:st.trail==1?15u:8u))fail("particle inside a trail");
+            // A one-point trail (count s6 <= 1) runs no point step: it ends right after its anchor (step 0; battles 0xba, 0xbb).
+            if(st.phase==5 && st.trail && st.trailStep && st.trailStep!=(st.trail==2?16u:st.trail==1?15u:8u))fail("particle inside a trail");
             if((st.phase!=0 && st.phase!=5) || st.block)fail("particle loads inside a particle's step");
             st.record=address()-0x10;
             if(st.record!=field(st.emitter+0x14)+reg(20)*st.stride)fail("particle record");
@@ -7255,10 +7256,15 @@ struct RowState{
 RowState &rowState(const Runtime *rt){static std::map<const Runtime *,RowState> states;return states[rt];}
 bool nativeRowEmitter(R5900Context *c,Runtime *rt,uint32_t pc){
     // mod037 5220f0 (field map 142's class 178ce0, step under the driver at 22ed38) is the plain emitter 2920e0 word for
-    // word (126 VU0 words, the same frame, registers and records): its sites are the plain ones 290010 higher up to the
-    // particle loads and 290020 higher from them (one EE word more in between). Its helpers 522a40 / 522bd0 are 298dd0 /
+    // word (126 VU0 words, the same frame, registers and record layout): its sites are the plain ones 290010 higher up to the
+    // particle loads and 290020 higher from them. The EE words in between differ: its records are 0xb0 apart (s4 * 11 * 16,
+    // battle 0x54 index 1 at base + b0), the plain ones 0x80 (s4 << 7). Its helpers 522a40 / 522bd0 are 298dd0 /
     // 298f60 at +289c70 (retired below).
-    const bool plainCopy=pc>=0x522194 && pc<=0x522934;const uint32_t realPc=pc;
+    // mod036 5198f0 (battle 0x2f, class 177c00) and mod045 51a310 (0x30, class 17c2d0) carry 5220f0 word for word, 0x8800 /
+    // 0x7de0 lower (only their calls to the helpers differ); their sites map onto mod037's first.
+    const uint32_t realPc=pc;
+    for(const uint32_t delta:{0x8800u,0x7de0u})if(pc+delta>=0x522194 && pc+delta<=0x522934){pc+=delta;break;}
+    const bool plainCopy=pc>=0x522194 && pc<=0x522934;
     if(plainCopy)pc-=pc<0x5222c8?0x290010u:0x290020u;
     if(!rt || (pc&3) || pc<0x2911e0 || pc>0x293ccc)return false;
     const RowSite *site=nullptr;bool plain=false;const bool slim=pc<0x292184;
@@ -7301,10 +7307,12 @@ bool nativeRowEmitter(R5900Context *c,Runtime *rt,uint32_t pc){
     case 'L':{
         constexpr uint32_t offsets[5]={0x10,0xb0,0x80,0xc0,0x90};
         if(site->param==0){
-            if(st.phase==6 && st.trail && st.trailStep!=(st.trail==2?16u:st.trail==1?15u:8u))fail("particle inside a trail");
+            // A one-point trail runs no point step: it ends right after its anchor (step 0).
+            if(st.phase==6 && st.trail && st.trailStep && st.trailStep!=(st.trail==2?16u:st.trail==1?15u:8u))fail("particle inside a trail");
             if((st.phase!=0 && st.phase!=6) || st.block)fail("particle loads inside a particle's step");
             st.record=address()-0x10;
-            if(st.record!=field(st.emitter+0x14)+(slim?reg(19)*0x60u:reg(20)*(plain?0x80u:0xf0u)))fail("particle record");
+            {const auto base=field(st.emitter+0x14);if(st.record!=base+(slim?reg(19)*0x60u:reg(20)*(plainCopy?0xb0u:plain?0x80u:0xf0u))){
+                const auto why=std::format("particle record {:x} (base {:x}, s3 {:x}, s4 {:x})",st.record,base,reg(19),reg(20));fail(why.c_str());}}
             st.phase=1;st.loads=0;st.main=0;st.stored=0;st.output=0;st.trail=0;}
         else if(st.phase!=1 || st.loads!=site->param)fail("row load order");
         if(address()!=st.record+offsets[site->param])fail("row address");
@@ -7939,11 +7947,17 @@ bool nativeSpriteMove(R5900Context *c,Runtime *rt,uint32_t pc){
         {0x51ef6c,0xd8610000,'1'},{0x51ef70,0xd9220000,'2'},{0x51ef9c,0x4bc00abc,'A'},{0x51efa0,0x4bc31048,'M'},{0x51efac,0xf9210000,'S'},{0x51efb0,0xf8610000,'S'},
         {0x51f0d8,0xdac10000,'1'},{0x51f0e0,0xda020000,'2'},{0x51f23c,0x4bc00abc,'A'},{0x51f240,0x4bc31048,'M'},{0x51f24c,0xfa010000,'S'},{0x51f254,0xfac10000,'S'},
         {0x51f328,0xdaa10000,'1'},{0x51f32c,0xda020000,'2'},{0x51f49c,0x4bc00abc,'A'},{0x51f4a0,0x4bc31048,'M'},{0x51f4ac,0xfa010000,'S'},{0x51f4b4,0xfaa10000,'S'}};
-    if(!rt || (pc&3) || !((pc>=0x3ca828 && pc<=0x3cb9b4) || (pc>=0x361f20 && pc<=0x3624a4) || (pc>=0x51ee00 && pc<=0x51f4b4)))return false;
-    const auto site=std::find_if(std::begin(sites),std::end(sites),[&](const auto &s){return s.pc==pc;});
-    if(site==std::end(sites))return false;
+    if(!rt || (pc&3))return false;
+    // Battle stage modules carry 51ed80 word for word: mod036 at 516580 (battle 0x2f, class 177c00) and mod045 at 516fa0
+    // (0x30, class 17c2d0); their sites are 51ed80's less 0x8800 / 0x7de0.
     uint32_t word=0;if(const auto *p=rt->memory.hostPointer(pc,4))std::memcpy(&word,p,4);
-    if(word!=site->word)return false;   // another overlay at these addresses
+    const std::remove_reference_t<decltype(sites[0])> *site=nullptr;
+    for(const uint32_t delta:{0u,0x8800u,0x7de0u}){const auto canonical=pc+delta;
+        if(delta && !(canonical>=0x51ee00 && canonical<=0x51f4b4))continue;
+        if(!((canonical>=0x3ca828 && canonical<=0x3cb9b4) || (canonical>=0x361f20 && canonical<=0x3624a4) || (canonical>=0x51ee00 && canonical<=0x51f4b4)))continue;
+        const auto it=std::find_if(std::begin(sites),std::end(sites),[&](const auto &s){return s.pc==canonical;});
+        if(it!=std::end(sites) && it->word==word){site=it;break;}}
+    if(!site)return false;   // another overlay at these addresses
     if(!c)throw std::runtime_error("native sprite motion has no CPU record");
     struct ArithmeticScope{unsigned saved=_mm_getcsr();~ArithmeticScope(){_mm_setcsr(saved);}} arithmetic;
     auto &st=spriteMoveState(rt);
@@ -8118,6 +8132,12 @@ bool retiredEmitterHookWords(R5900Context *,Runtime *rt,uint32_t pc){
         // mod037's plain copy 5220f0: 522a40 / 522bd0, 298dd0 / 298f60 at +289c70.
         {0x522b4c,0xf8520000},{0x522b50,0xf85d0010},{0x522b90,0x4bd1033c},{0x522b94,0x4be00798},{0x522ba8,0x48a32800},{0x522bb0,0xd8720000},{0x522bb4,0xd87d0010},
         {0x522d1c,0xf8520000},{0x522d20,0xf85d0010},{0x522d5c,0x4bd1033c},{0x522d60,0x4be00798},{0x522d74,0x48a32800},{0x522d7c,0xd8720000},{0x522d80,0xd87d0010},
+        // mod036's copies of those helpers (87d0 lower).
+        {0x51a37c,0xf8520000},{0x51a380,0xf85d0010},{0x51a3c0,0x4bd1033c},{0x51a3c4,0x4be00798},{0x51a3d8,0x48a32800},{0x51a3e0,0xd8720000},{0x51a3e4,0xd87d0010},
+        {0x51a54c,0xf8520000},{0x51a550,0xf85d0010},{0x51a58c,0x4bd1033c},{0x51a590,0x4be00798},{0x51a5a4,0x48a32800},{0x51a5ac,0xd8720000},{0x51a5b0,0xd87d0010},
+        // mod045's copies of those helpers (7db0 lower).
+        {0x51ad9c,0xf8520000},{0x51ada0,0xf85d0010},{0x51ade0,0x4bd1033c},{0x51ade4,0x4be00798},{0x51adf8,0x48a32800},{0x51ae00,0xd8720000},{0x51ae04,0xd87d0010},
+        {0x51af6c,0xf8520000},{0x51af70,0xf85d0010},{0x51afac,0x4bd1033c},{0x51afb0,0x4be00798},{0x51afc4,0x48a32800},{0x51afcc,0xd8720000},{0x51afd0,0xd87d0010},
         // the slim emitter's helpers (291140): 2994b0 / 299640, 298dd0 / 298f60 at +6e0.
         {0x2995bc,0xf8520000},{0x2995c0,0xf85d0010},{0x299600,0x4bd1033c},{0x299604,0x4be00798},{0x299618,0x48a32800},{0x299620,0xd8720000},{0x299624,0xd87d0010},
         {0x29978c,0xf8520000},{0x299790,0xf85d0010},{0x2997cc,0x4bd1033c},{0x2997d0,0x4be00798},{0x2997e4,0x48a32800},{0x2997ec,0xd8720000},{0x2997f0,0xd87d0010},
@@ -9548,6 +9568,57 @@ bool nativeSegmentPair(R5900Context *c,Runtime *rt,uint32_t pc){
     else for(unsigned i=0;i<3;++i)out[i]=vuAdd(vuAdd(P1[i],0),vuMul(d1[i],t));
     out[3]=one;put(out,4);return true;
 }
+// mod164 (slot 0x532200, battles 0xba / 0xbb) 533830 leaves VU registers to its only caller (532d60): it ends with LQC2
+// vf5 = [sp+50] (533940, only on its 4ab9a0 path) and vf12 = [sp+60] (53394c, always: on the other path a stack word of
+// an earlier frame). The caller: vf1 = [s1]; QMTC2 t0 = k; vf1.xyz = vf1*1 + vf12*k; SQC2 vf1 to s4 and to s1
+// (532d80 / 532d88); unless the CPU branches away at 532da0: vf2 = vf1 - vf5 (xyz), ADDw.xyz vf5 = 1 (532db0; that is
+// vf5 for a later pass that skips the load), SQC2 {0 + SQRT((x2 + y2) + 1*z2), y2, z2} at 532dcc (vf2.w is not set).
+// The step (532ac0, frame 0x130 under the producer, emitter s5) puts each particle in the box at 533010 / 533014 (MINI / MAX
+// of vf1, which on every path equals the record point [s1]); on its spawn path the normalise at 532ef8 (the normalize25
+// idiom) uses vf26, the box minimum, as scratch: from 532f0c the minimum is (|v|^2, y2, z2), as the game leaves it.
+bool nativeSlotCarry(R5900Context *c,Runtime *rt,uint32_t pc){
+    struct Site{uint32_t pc,word;char role;};
+    static constexpr Site sites[]={{0x533940,0xd8850000,'5'},{0x53394c,0xd86c0000,'c'},{0x532d68,0xda210000,'p'},{0x532d74,0x48a81800,'k'},
+        {0x532d78,0x4bc009bf,'-'},{0x532d7c,0x4bc36048,'m'},{0x532d80,0xfa810000,'s'},{0x532d88,0xfa210000,'s'},{0x532da8,0x4bc508ac,'d'},
+        {0x532dac,0x4bc210aa,'-'},{0x532db0,0x4bc00143,'o'},{0x532db4,0x4b02103d,'-'},{0x532db8,0x4b02288a,'-'},{0x532dbc,0x4a0203bd,'-'},
+        {0x532dc4,0x4a0003bf,'-'},{0x532dc8,0x4b0000a0,'-'},{0x532dcc,0xf8420000,'r'},{0x532f0c,0x4b1afe8a,'z'},{0x532f8c,0xd8610000,'-'},{0x532fc8,0xda210000,'-'},{0x533010,0x4bc1d6af,'b'},
+        {0x533014,0x4bc1deeb,'-'}};
+    if((pc&3) || !rt || pc<0x532d68 || pc>0x53394c)return false;
+    const auto site=std::find_if(std::begin(sites),std::end(sites),[&](const Site &x){return x.pc==pc;});
+    if(site==std::end(sites))return false;
+    uint32_t word=0;if(const auto *p=rt->memory.hostPointer(pc,4))std::memcpy(&word,p,4);
+    if(word!=site->word)return false;   // another module in the slot
+    if(!c)throw std::runtime_error("native slot carry has no CPU record");
+    struct Regs{VuWords vf1{},vf2{},vf5{},vf12{};uint32_t k=0;bool has5=false,has12=false,has1=false;};
+    static std::map<const Runtime *,Regs> states;auto &st=states[rt];
+    const uint32_t one=0x3f800000u;
+    const auto at=[&]{return c->r[(word>>21)&31].uw[0]+uint32_t(int32_t(int16_t(word&0xffff)));};
+    switch(site->role){
+    case '5':st.vf5=vuWords(rt,at());st.has5=true;return true;
+    case 'c':st.vf12=vuWords(rt,at());st.has12=true;return true;
+    case 'p':st.vf1=vuWords(rt,at());st.has1=true;return true;
+    case 'k':st.k=c->r[8].uw[0];return true;
+    case 'm':{if(!st.has1 || !st.has12)throw std::runtime_error("native slot carry moved without its registers");
+        for(unsigned i=0;i<3;++i)st.vf1[i]=vuAdd(vuMul(st.vf1[i],one),vuMul(st.vf12[i],st.k));return true;}
+    case 's':std::memcpy(record(rt,at(),16),st.vf1.data(),16);return true;
+    case 'd':{if(!st.has5)throw std::runtime_error("native slot carry measured without vf5");
+        for(unsigned i=0;i<3;++i)st.vf2[i]=vuSub(st.vf1[i],st.vf5[i]);return true;}
+    case 'o':for(unsigned i=0;i<3;++i)st.vf5[i]=vuAdd(0,one);return true;
+    case 'z':case 'b':{
+        auto *d=vp2s::nativeCast<bozo::ee::Dispatcher>(rt->services);auto *particles=d?vp2s::nativeCast<ParticleOwner>(&d->host()):nullptr;
+        if(!particles)throw std::runtime_error("native slot carry requires its bounds owner");
+        const auto frame=c->r[29].uw[0]+0x130,emitter=c->r[21].uw[0];std::array<float,4> f{};
+        if(site->role=='b'){const auto v=vuWords(rt,c->r[17].uw[0]);for(unsigned i=0;i<4;++i)f[i]=std::bit_cast<float>(v[i]);
+            particles->nativeParticles().includePoint(frame,emitter,f);return true;}
+        const auto v=vuWords(rt,c->r[2].uw[0]);uint32_t sq[3];for(unsigned i=0;i<3;++i)sq[i]=vuMul(v[i],v[i]);
+        const uint32_t m[3]={vuAdd(vuAdd(sq[0],sq[1]),vuMul(one,sq[2])),sq[1],sq[2]};for(unsigned i=0;i<3;++i)f[i]=std::bit_cast<float>(m[i]);
+        particles->nativeParticles().replaceMinimum(frame,emitter,f);return true;}
+    case 'r':{uint32_t sq[3];for(unsigned i=0;i<3;++i)sq[i]=vuMul(st.vf2[i],st.vf2[i]);
+        const uint32_t saved=_mm_getcsr();uint32_t f=0;const auto root=bozo::ps2f::sqrt(vuAdd(vuAdd(sq[0],sq[1]),vuMul(one,sq[2])),f);_mm_setcsr(saved);
+        const uint32_t out[3]={vuAdd(0,root),sq[1],sq[2]};std::memcpy(record(rt,at(),12),out,12);return true;}
+    default:return true;
+    }
+}
 // mod147 (slot 0x532200, battle 0x6e) 533700 colour blend: rows A = [a1], B = [a1+10], C = [a2+20] (a table at
 // 0x533f80); QMTC2 t0 / t1 bring the FPU weights (x lane). vf2 = A*k0 + B*k1 (533718 / 53371c, xyzw); after new weights
 // vf1 = C*k0' + vf2*k1' (533768 / 53376c); SQC2 vf1 to a0 at 533770. Every site's word is checked (other modules use the
@@ -10280,7 +10351,7 @@ bool nativeMathInstruction(uint8_t *,R5900Context *c,Runtime *rt,uint32_t pc){
     default:
         // Inlined-block recognisers last: they read code around the PC, so
         // only sites no specific handler claimed pay for that scan.
-        return CLAIM(nativeBoundsFold) || CLAIM(nativeConeTargets) || CLAIM(nativeBattleBox) || CLAIM(nativeSlotBlend) || CLAIM(nativeSolverRegisters) || CLAIM(nativeSegmentPair) || CLAIM(nativeTriangleProject) || CLAIM(nativeTriangleOverlap) || CLAIM(nativeParticleStep) || CLAIM(nativeParticleBox) || CLAIM(nativeTrailEmitter) || CLAIM(nativeProgramEmitter) || CLAIM(nativeSimpleEmitter) || CLAIM(nativeLinearEmitter) || CLAIM(nativeCameraOffset) || CLAIM(nativeCollisionShape) || CLAIM(nativeHeightNormals) || CLAIM(nativeSpriteMove) || CLAIM(nativeRowPoints) || CLAIM(nativeRowEmitter) || CLAIM(nativeEmitterClock) || CLAIM(nativeConstantStore) || CLAIM(nativeLengthIdiom) || CLAIM(nativeMacroIdiom) || CLAIM(nativeInverseIdiom) || nativeQuaternionIdiom(c,rt,pc);
+        return CLAIM(nativeBoundsFold) || CLAIM(nativeConeTargets) || CLAIM(nativeBattleBox) || CLAIM(nativeSlotBlend) || CLAIM(nativeSlotCarry) || CLAIM(nativeSolverRegisters) || CLAIM(nativeSegmentPair) || CLAIM(nativeTriangleProject) || CLAIM(nativeTriangleOverlap) || CLAIM(nativeParticleStep) || CLAIM(nativeParticleBox) || CLAIM(nativeTrailEmitter) || CLAIM(nativeProgramEmitter) || CLAIM(nativeSimpleEmitter) || CLAIM(nativeLinearEmitter) || CLAIM(nativeCameraOffset) || CLAIM(nativeCollisionShape) || CLAIM(nativeHeightNormals) || CLAIM(nativeSpriteMove) || CLAIM(nativeRowPoints) || CLAIM(nativeRowEmitter) || CLAIM(nativeEmitterClock) || CLAIM(nativeConstantStore) || CLAIM(nativeLengthIdiom) || CLAIM(nativeMacroIdiom) || CLAIM(nativeInverseIdiom) || nativeQuaternionIdiom(c,rt,pc);
     }
 }
 #undef CLAIM

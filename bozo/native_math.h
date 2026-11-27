@@ -78,6 +78,8 @@ bool nativeSolverRegisters(R5900Context *,Runtime *,uint32_t pc);
 bool nativeSlotBlend(R5900Context *,Runtime *,uint32_t pc);
 // mod028 490380's ray / sphere terms and 490480's closest points of two segments (native_math.cpp).
 bool nativeSegmentPair(R5900Context *,Runtime *,uint32_t pc);
+// mod164 533830's vf5 / vf12 carried to its caller 532d60 (slot 0x532200; native_math.cpp).
+bool nativeSlotCarry(R5900Context *,Runtime *,uint32_t pc);
 // Bone palettes (skeleton +4c buffer, +50 selector) the game's palette builder 237284 / 2372bc has written completely
 // (its last bone) in this run. User decision 2026-11-25 (map 487): a skinned mesh whose palette was never built is not
 // drawn. A save state does not carry the set: a palette counts once its builder runs again.

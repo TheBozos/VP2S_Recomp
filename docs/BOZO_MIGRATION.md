@@ -12,6 +12,39 @@ The earlier VP2S face/shading and general brightness comparisons remain open.
 
 ## Build and evidence
 
+### Battle sweep, round 4: stage-module particles (2026-11-27)
+
+- **Particle classes:** 177c00 (mod036, battle 0x2f), 17c2d0 (mod045, 0x30) and 18a6e0 (mod164, 0xbb) are admitted.
+  The first two call 3d58e0 like 1781c0; the third keeps the base producer 22e650. All three keep the base draw and
+  +4c..+5c slots.
+- **Word-for-word copies:**
+  - mod036 / mod045 carry mod037's sprite motion 51ed80 (at 516580 / 516fa0) and its plain-emitter step 5220f0 (at
+    5198f0 / 51a310), 0x8800 / 0x7de0 lower, with its helpers 0x30 further on;
+  - their sites map onto mod037's;
+  - mod037's copy (so all three) steps its records 0xb0 apart (s4 * 11 * 16), not the plain emitter's 0x80. Battle
+    0x54's index 1 showed it; map 142 had only index 0. The particles check runs the copy with 0xb0 records.
+- **Particle draw:** the image 9 angle offsets read camera +5d4 / +5d0 through the 16-byte record helper, which
+  refused (0x592ec4 is not aligned). They are plain words now. The draw test that expected a refusal there checks the
+  offset instead (ay .5 - .25).
+- **Bounds under PS2 float rules (battle 0x54):** unset particle records give ffedc1b8 x3 or 7ffffffe fffffffe ff8f16b5.
+  Following the user's rule for this battle (2026-11-24, "Yes, PS2 float rules"), includePoint now keeps the box as
+  MINI / MAX of VU0 words: exponent 255 is a number, a denormal reads as zero, order by sign and magnitude, bits kept.
+  The empty-box check uses the same order; the sphere's PS2 path takes it from there.
+- **Simple emitter trails (0xba, 0xbb):** a one-point trail (count <= 1) runs no point step (the loop starts at 1). It
+  now ends at its anchor in the simple and row emitters, as the program emitter already allowed.
+- **mod164 (0xba, 0xbb):**
+  - its 21 RNEXT draws (each target read only by the next mtc1) are random sites;
+  - 533830 leaves vf5 / vf12 to its only caller 532d60, which moves the point, stores it twice and measures it
+    against vf5 (set to 1 at 532db0 for a pass that skips the load): nativeSlotCarry;
+  - its step 532ac0 puts each particle in the box at 533010 (always the record point [s1]);
+  - on its spawn path the normalise at 532ef8 uses vf26, the box minimum, as scratch, and from 532f0c the minimum is
+    (|v|^2, y2, z2) as the game leaves it (NativeParticles::replaceMinimum).
+- **Standing (42 rows):** 37 clean. Left:
+  - 0x23 (x2): chain divergence;
+  - 0x11 (stage 4, 0x0100): resume label;
+  - 0x5f / 0x74: event context.
+- **Regression:** ctest 99/99; regress4 unchanged.
+
 ### Battle sweep, round 3: slot-module sites and the solver's sibling (2026-11-27)
 
 - **Slot modules (0x532200):**
@@ -30,7 +63,7 @@ The earlier VP2S face/shading and general brightness comparisons remain open.
     segments: s = 0 when the denominator is 0) are nativeSegmentPair.
 - **Marker transpose guard:** mod010's marker claim at 491f90 trusted its rows-loaded flag, left set by the field.
   In a battle it threw on mod028's code; it now also checks its code block.
-- **Standing (42 rows):** 32 clean. Left:
+- **Standing (42 rows):** 31 clean. Left:
   - particle producer mode 6 (0x2f, 0x30) and mode 3 (0xbb); simple emitter inside a trail (0xba); row emitter
     record (0x54 x2);
   - 0x23's chain divergence (x2); 0x11 (stage 4)'s resume label; 0x5f / 0x74 (event context).

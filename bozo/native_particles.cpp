@@ -89,12 +89,22 @@ void NativeParticles::validateDraw(uint32_t object)const{
 }
 void NativeParticles::includePoint(uint32_t frame,uint32_t emitter,const std::array<float,4> &point){
     validateEmitter(frame,emitter);auto it=builds.find(frame);
-    for(unsigned i=0;i<3;++i){const auto bits=std::bit_cast<uint32_t>(point[i]),magnitude=bits&0x7fffffff;
-        if(magnitude>=0x7f800000 || (magnitude && magnitude<0x00800000))throw std::runtime_error(std::format("unqualified native particle bounds point ({:08x} {:08x} {:08x})",std::bit_cast<uint32_t>(point[0]),std::bit_cast<uint32_t>(point[1]),std::bit_cast<uint32_t>(point[2])));}
     // Earlier simulation substeps do not publish bounds. The final substep's
     // explicit source observation starts the box used by the original caller.
     auto &build=it->second;if(!build.boundsReady)return;
-    for(unsigned i=0;i<3;++i){if(point[i]<build.bounds.minimum[i])build.bounds.minimum[i]=point[i];if(point[i]>build.bounds.maximum[i])build.bounds.maximum[i]=point[i];}
+    // The box is MINI / MAX of VU0 words under the PS2 float rules (user 2026-11-24 for battle 0x54, "Yes, PS2 float
+    // rules"; there its unset particle records give ffedc1b8 x3 or 7ffffffe fffffffe ff8f16b5): a denormal reads as zero,
+    // exponent 255 is a number, order by sign and magnitude. The words are kept bit for bit (publishSphere's PS2 path
+    // reads them back).
+    const auto ps2=[](uint32_t bits){if(!(bits&0x7f800000u))bits&=0x80000000u;return bits;};
+    const auto key=[](uint32_t bits){const int64_t m=bits&0x7fffffffu;return bits&0x80000000u?-m:m;};
+    for(unsigned i=0;i<3;++i){const auto p=ps2(std::bit_cast<uint32_t>(point[i]));
+        if(key(p)<key(ps2(std::bit_cast<uint32_t>(build.bounds.minimum[i]))))build.bounds.minimum[i]=std::bit_cast<float>(p);
+        if(key(p)>key(ps2(std::bit_cast<uint32_t>(build.bounds.maximum[i]))))build.bounds.maximum[i]=std::bit_cast<float>(p);}
+}
+void NativeParticles::replaceMinimum(uint32_t frame,uint32_t emitter,const std::array<float,4> &value){
+    validateEmitter(frame,emitter);auto &build=builds.find(frame)->second;if(!build.boundsReady)return;   // as includePoint
+    for(unsigned i=0;i<3;++i){auto b=std::bit_cast<uint32_t>(value[i]);if(!(b&0x7f800000u))b&=0x80000000u;build.bounds.minimum[i]=std::bit_cast<float>(b);}
 }
 const ParticleBounds &NativeParticles::bounds(uint32_t frame,uint32_t emitter)const{
     const auto it=builds.find(frame);if(it==builds.end() || it->second.emitter!=emitter || !it->second.boundsReady)throw std::runtime_error("native particle bounds have no completed source");return it->second.bounds;
@@ -107,7 +117,8 @@ void NativeParticles::publishSphere(Runtime *rt,R5900Context *c){
        word(owner,0xa90)!=build.emitter || !record(rt,build.emitter,16)[4] || word(owner,0xabc)!=build.points || word(owner,0xac0+build.index*4)!=build.chunks || word(frame,0xe0)!=build.next)
         throw std::runtime_error("native particle sphere ownership mismatch");
     float padding;std::memcpy(&padding,frame+0xf0,4);
-    for(unsigned i=0;i<3;++i)if(build.bounds.minimum[i]>build.bounds.maximum[i])throw std::runtime_error("empty native particle sphere bounds");
+    {const auto key=[](float v){auto b=std::bit_cast<uint32_t>(v);if(!(b&0x7f800000u))b&=0x80000000u;const int64_t m=b&0x7fffffffu;return b&0x80000000u?-m:m;};
+     for(unsigned i=0;i<3;++i)if(key(build.bounds.minimum[i])>key(build.bounds.maximum[i]))throw std::runtime_error("empty native particle sphere bounds");}
     // Inputs in the qualified range (finite normal, |v| <= 1e8) keep the host arithmetic this sphere has always used
     // (nearest sums and products, denormal results to zero, a correctly rounded root). Others follow the user's rule
     // (2026-11-24, "Yes, PS2 float rules": battle 0x54 pushes a particle to -4.27e29, its parent reading DMA-tag words

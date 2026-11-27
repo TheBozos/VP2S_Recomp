@@ -15,7 +15,7 @@
 namespace vp2s {
 namespace {
 uint8_t *record(Runtime *rt,uint32_t at,uint32_t bytes){
-    if(!rt || (at&15) || at<0x100000 || at>=0x2000000 || uint64_t(at)+bytes>0x2000000)throw std::runtime_error("native particle draw record outside EE RAM");
+    if(!rt || (at&15) || at<0x100000 || at>=0x2000000 || uint64_t(at)+bytes>0x2000000)throw std::runtime_error(std::format("native particle draw record outside EE RAM ({:x}, {:x} bytes)",at,bytes));
     auto *p=rt->memory.hostPointer(at,bytes);if(!p)throw std::runtime_error("native particle draw record outside owned memory");return p;
 }
 template<class T>T value(const uint8_t *p,unsigned offset){T v;std::memcpy(&v,p+offset,sizeof(v));return v;}
@@ -189,8 +189,8 @@ NativeModelSubmission NativeParticleDraws::capture(Runtime *rt,NativeAssets &ass
     float angleOffset[2]={0,0};
     if(tilted && (owner[0xafb] || owner[0xafc])){
         // (nativeParticleDrawInstruction has run the camera's +64 update first when +61 was clear, as 22f268 does.)
-        if(owner[0xafb])angleOffset[0]=-number(value<float>(record(rt,camera->object+0x5d4,4),0));
-        if(owner[0xafc])angleOffset[1]=-number(value<float>(record(rt,camera->object+0x5d0,4),0));}
+        if(owner[0xafb])angleOffset[0]=-number(std::bit_cast<float>(word(rt,camera->object+0x5d4)));
+        if(owner[0xafc])angleOffset[1]=-number(std::bit_cast<float>(word(rt,camera->object+0x5d0)));}
     // VU1 particle program (0x6e0, image c8e40f07): MUL tint*colour (0b60), MINIi 255
     // (0b80), FTOI0 (0ba8); no clamp at zero. FTOI0 truncates toward zero (saturating),
     // and GIF PACKED RGBAQ keeps each word's low byte: a channel of -1 draws as 0xff.

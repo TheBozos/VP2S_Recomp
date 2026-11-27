@@ -195,8 +195,12 @@ int main(int argc,char **argv){try{
      const unsigned strip[]={0,1,2,1,3,2};const float xs[2]={-.25f,.25f},ys[2]={-.25f,.25f},zs[2]={.1f,.3f};
      for(unsigned j=0;j<6;++j){const auto k=strip[j];const auto &v=tilted.batches[0].vertices[j];
         check(std::abs(v.x-xs[k&1])<1.e-6f && std::abs(v.y-std::cos(.5f)*ys[k>>1])<1.e-6f && std::abs(v.z-(.5f+std::sin(.5f)*ys[k>>1]+std::cos(.5f)*zs[k>>1]))<1.e-6f);}
-     // Camera angle offsets (+afb / +afc) are not ported.
-     put(rt,object+0xafb,uint8_t(1));bool refused=false;try{draws.capture(&rt,assets,textures,scene,particles,object);}catch(const std::runtime_error &){refused=true;}check(refused);}
+     // Camera angle offsets: with +afc the draw adds -camera +5d0 to ay (row 37's y), read as a plain word (battles 0x2f /
+     // 0x30: camera +5d4 / +5d0 are not 16-byte aligned): ay .5 - .25.
+     put(rt,camera+0x5d0,.25f);put(rt,object+0xafc,uint8_t(1));
+     const auto offset=draws.capture(&rt,assets,textures,scene,particles,object);check(offset.batches.size()==1 && offset.batches[0].vertices.size()==6);
+     for(unsigned j=0;j<6;++j){const auto k=strip[j];const auto &v=offset.batches[0].vertices[j];
+        check(std::abs(v.x-xs[k&1])<1.e-6f && std::abs(v.y-std::cos(.25f)*ys[k>>1])<1.e-6f && std::abs(v.z-(.5f+std::sin(.25f)*ys[k>>1]+std::cos(.25f)*zs[k>>1]))<1.e-6f);}}
     for(unsigned which=0;which<28;++which){initialize(rt,scene,assets,1);particles=vp2s::NativeParticles{};constexpr uint32_t chunk=0x210020,point=chunk+32;
         if(which==0)put(rt,object,uint32_t(0));else if(which==1)put(rt,object+0xaff,uint8_t(2));else if(which==2)put(rt,object+0xb04,uint8_t(1));
         else if(which==3)put(rt,current+0x40dd,uint8_t(0));else if(which==4)put(rt,object+0xabc,uint32_t(2));else if(which==5)put(rt,chunk+0x10,uint32_t(49));else if(which==6)put(rt,chunk+0x18,uint32_t(0));

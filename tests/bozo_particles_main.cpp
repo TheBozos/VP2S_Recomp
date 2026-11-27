@@ -911,7 +911,8 @@ int main(){try{
             const uint32_t S7=frame-0x170;unsigned plainCases=0,plainPoints=0;
             const auto both=[&](uint32_t at,uint32_t v){write(y,at,v);write(x,at,v);};
             for(unsigned seed=0;seed<120;++seed){
-                // Odd seeds run mod037's copy 5220f0 (the same words 290010 / 290020 higher, from the particle loads on).
+                // Odd seeds run mod037's copy 5220f0 (the same words 290010 / 290020 higher, from the particle loads on; its records
+                // are 0xb0 apart, the plain ones 0x80).
                 const auto go=[&](uint32_t pc){run(seed&1?(pc<0x2922a8?pc+0x290010u:pc+0x290020u):pc);};
                 uint32_t state=seed*2246822519u+31;const auto rnd=[&](){state=state*1664525u+1013904223u;return state>>8;};
                 const auto value=[&](unsigned lo=105,unsigned span=40){return (rnd()&0x807fffffu)|((lo+rnd()%span)<<23);};
@@ -919,7 +920,7 @@ int main(){try{
                 const uint32_t dt=value(118,6)&0x7fffffffu;both(0x35dee8,dt);vec(E+0xc0);both(E+0x54,value(122,6));
                 both(E+0x14,B);both(E+0x68,T);
                 for(unsigned i=0;i<4;++i)vec(E+0x80+16*i);for(unsigned i=0;i<16;++i)vec(T+16*i);
-                for(uint32_t at=B;at<B+0x80*12;at+=16)vec(at);for(uint32_t at=O;at<O+0x30*8;at+=16)vec(at);
+                for(uint32_t at=B;at<B+0xb0*12;at+=16)vec(at);for(uint32_t at=O;at<O+0x30*8;at+=16)vec(at);
                 vec(S7+0x140);vec(S7+0x150);
                 const auto random=[&](unsigned r,uint32_t low){m.r[r].uw[0]=low;for(unsigned i=1;i<4;++i)m.r[r].uw[i]=rnd();};
                 m=R5900Context{};m.r[29].uw[0]=S7;m.r[21].uw[0]=E;
@@ -927,7 +928,7 @@ int main(){try{
                 for(unsigned i=0;i<4;++i)both(S7+0x160+4*i,0x437f0000u);m.r[2].uw[0]=S7+0x160;go(0x2921d0);
                 const unsigned kind=seed%6,trail=(seed/6)%4,rows=(seed/3)%3,n=2+seed%3;
                 for(unsigned k=0;k<3;++k){
-                    const unsigned index=seed%4+3*k;const uint32_t rec=B+index*0x80,out=O+(k%2)*0x30*4;
+                    const unsigned index=seed%4+3*k;const uint32_t rec=B+index*(seed&1?0xb0u:0x80u),out=O+(k%2)*0x30*4;
                     m.r[20].uw[0]=index;m.r[18].uw[0]=rec+0x10;go(0x2922a8);m.r[17].uw[0]=rec+0x30;go(0x2922b0);m.r[8].uw[0]=rec+0x50;go(0x2922b8);
                     m.r[22].uw[0]=rec+0x40;go(0x2922c0);m.r[16].uw[0]=rec+0x20;go(0x2922c8);m.r[3].uw[0]=rec+0x60;go(0x2922d0);m.r[2].uw[0]=rec+0x70;go(0x2922d8);
                     for(unsigned j=0;j<rows;++j){const unsigned t1=j+seed%5;m.r[9].uw[0]=t1;m.r[4].uw[0]=T+16*t1;go(0x292368);
@@ -947,7 +948,7 @@ int main(){try{
                         for(unsigned i=1;i<n;++i){m.r[3].uw[0]=i;m.r[2].uw[0]=out+i*0x30;for(uint32_t pc=first;pc<=last;pc+=4)go(pc);++plainPoints;}
                     }
                 }
-                check(!std::memcmp(x.memory.hostPointer(B,0x80*12),y.memory.hostPointer(B,0x80*12),0x80*12));
+                check(!std::memcmp(x.memory.hostPointer(B,0xb0*12),y.memory.hostPointer(B,0xb0*12),0xb0*12));
                 check(!std::memcmp(x.memory.hostPointer(O,0x30*8),y.memory.hostPointer(O,0x30*8),0x30*8));
                 check(!std::memcmp(x.memory.hostPointer(S7+0x140,0x20),y.memory.hostPointer(S7+0x140,0x20),0x20));
                 const auto box=now.particles.bounds(frame,E);
@@ -1108,8 +1109,14 @@ int main(){try{
             now.particles.includePoint(frame,0x190000,{std::bit_cast<float>(0x80000000u),1,2,0});now.particles.includePoint(frame,0x190000,{0,0,3,0});
             const auto box=now.particles.bounds(frame,0x190000);check(std::bit_cast<uint32_t>(box.minimum[0])==0x80000000 && std::bit_cast<uint32_t>(box.maximum[0])==0x80000000);
             check(box.minimum[1]==0 && box.maximum[1]==1 && box.minimum[2]==2 && box.maximum[2]==3 && std::bit_cast<uint32_t>(box.minimum[3])==0x7fa01234 && box.maximum[3]==.5f);
-            bool invalid=false;try{now.particles.includePoint(frame,0x190000,{5,std::bit_cast<float>(0x7fc01234u),6,0});}catch(const std::runtime_error &){invalid=true;}
-            const auto unchanged=now.particles.bounds(frame,0x190000);check(invalid && !std::memcmp(&box,&unchanged,sizeof(box)) && _mm_getcsr()==fp);c=context;
+            // PS2 float rules (user 2026-11-24 for battle 0x54): exponent 255 is a number, ordered by sign and magnitude and
+            // kept bit for bit; a denormal reads as zero (its sign kept).
+            const auto keep=now.particles;   // the later sphere checks use the narrow box
+            now.particles.includePoint(frame,0x190000,{5,std::bit_cast<float>(0x7fc01234u),6,0});
+            now.particles.includePoint(frame,0x190000,{std::bit_cast<float>(0x80000001u),std::bit_cast<float>(0xffc01234u),std::bit_cast<float>(0x00000005u),0});
+            const auto wide=now.particles.bounds(frame,0x190000);
+            check(std::bit_cast<uint32_t>(wide.minimum[0])==0x80000000 && wide.maximum[0]==5 && std::bit_cast<uint32_t>(wide.minimum[1])==0xffc01234 &&
+                std::bit_cast<uint32_t>(wide.maximum[1])==0x7fc01234 && wide.minimum[2]==0 && wide.maximum[2]==6 && _mm_getcsr()==fp);now.particles=keep;c=context;
         }
         c.r[16].uw[0]=0x70000000;c.r[2].uw[0]=3;c.r[18].uw[0]=1;c.r[5].uw[0]=11;c.r[4].uw[0]=176;c.r[3].uw[0]=0x200020;c.r[19].uw[0]=1;
         for(unsigned i=0;i<44;++i)write(rt,0x70000000+i*4,uint32_t(0x12340000+i));

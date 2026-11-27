@@ -9870,6 +9870,17 @@ std::optional<bool> nativeChainPushInstruction(R5900Context *c,Runtime *rt,uint3
     if(word!=0x3c010036u || entry!=0x27bdfb40u)return std::nullopt;   // not the chain update's prologue
     if(!c)throw std::runtime_error("native chain push has no CPU record");
     std::memset(record(rt,c->r[29].uw[0]+0x4a0,16),0,16);
+    // Diagnostic only (VP2S_BOZO_TRACE_CHAIN=<joint hex>): for a chain whose nodes include that joint, the owner, its
+    // reset byte +1c, its +24, and the +34 object's flags +6a (any of 0x59 sets +1c and skips the update).
+    static const uint32_t tracedJoint=[]{const char *v=std::getenv("VP2S_BOZO_TRACE_CHAIN");return v?uint32_t(std::strtoul(v,nullptr,16)):0u;}();
+    if(tracedJoint){
+        const auto word32=[&](uint32_t at){uint32_t v=0;if(const auto *p=rt->memory.hostPointer(at,4))std::memcpy(&v,p,4);return v;};
+        const auto owner=c->r[4].uw[0];const auto nodes=word32(owner+0x28);uint16_t count=0;if(const auto *p=rt->memory.hostPointer(owner+0x14,2))std::memcpy(&count,p,2);
+        bool mine=false;for(unsigned k=0;k<count && k<64;++k)if(word32(nodes+k*0xa0+4)==tracedJoint)mine=true;
+        if(mine){const auto actor=word32(owner+0x34);uint16_t flags=0;if(actor)if(const auto *p=rt->memory.hostPointer(actor+0x6a,2))std::memcpy(&flags,p,2);
+            const auto *reset=rt->memory.hostPointer(owner+0x1c,1);
+            std::fprintf(stderr,"[vp2s:chain] owner=%x class=%x nodes=%u reset=%u +24=%08x actor=%x flags=%04x\n",owner,word32(owner),count,reset?*reset:0u,word32(owner+0x24),actor,flags);}
+    }
     return false;   // the original lui runs
 }
 bool nativeMathInstruction(uint8_t *,R5900Context *c,Runtime *rt,uint32_t pc){

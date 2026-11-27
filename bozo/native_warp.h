@@ -39,7 +39,8 @@ BattleRequest parseBattle(const std::string &text);
 void armNativeBattle(const BattleRequest &request);
 bool nativeBattlePending();
 // Arming may come from another thread (the window's F2 panel): the requests are guarded by a lock.
-// The 3 words the handler reads: (0x38 << 8) | 2, arg0, arg1.
-std::array<uint32_t,3> battleInstruction(const BattleRequest &request);
+// The words the handler reads: (0x38 << 8) | 2, arg0, arg1; or, for flags whose low byte is 0xff (a field
+// encounter's form), (0x38 << 8) | 6 with a one-entry inline formation.
+std::vector<uint32_t> battleInstruction(const BattleRequest &request);
 std::optional<bool> nativeWarpInstruction(R5900Context *,Runtime *,uint32_t pc);
 }

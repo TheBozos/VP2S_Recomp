@@ -12,6 +12,44 @@ The earlier VP2S face/shading and general brightness comparisons remain open.
 
 ## Build and evidence
 
+### The hair-chain stops: investigation (2026-11-27)
+
+The case is encounter 0x4f, Phantom Lurker, started from its own dungeon (map 137). The chain node is d92fe0, its parent
+d92db0, its owner da6260 (class 16f780, 16 nodes) and its model root 8819e0.
+
+- **Not frame pacing.** The battle's dt is clamp(vblanks since the last frame, 1, 4) x speed / 60, written at 36ca88.
+  - Counts are 1 on almost every frame, with rare spikes (4, 7, 11, 12, 14 before the clamp).
+  - Holding the count at 2 or at 1 (VP2S_BOZO_DEBUG_BATTLE_VSYNCS) still blows the chain up; only the frame moves.
+- **The order, all game code, frame 63737:**
+  1. The enemy is built with its root at the origin.
+  2. The chain initialises from that pose (ra 1fed14); the parent's world tx is about -85.
+  3. Battle unit placement (3b7f.., ra 3b8074) sets the root to (1300, -65, 1200), through the model's method +20.
+  4. From frame 63738 the parent's own transform (ra 248ff8) is about 1400 units from where the nodes were left. The
+     chain's bone aim turns the parent toward its far nodes, its orientation swings every frame, and the update
+     diverges.
+  The object transform 248fc0 is a lazy dirty-flag update (+50 / +51 / +61, the parent's +64 first). The port replaces
+  only its two store sites, so the order is the original's.
+- **The game has two ways to absorb such a jump:**
+  - **Base chain reset:** owner +1c set (the update skips while the owner's actor +34 has a +6a flag in 0x59). The
+    next update then snaps every node to its joint (1fd1a8..1fd23c). This owner's actor is 0 and +1c stays 0.
+  - **Battle owner mode +6c** (class 16f780, update 3d5a00): 0 updates, 1 / 2 blend, 3 frozen, 4 resets (every node to
+    its joint, then 0). The chain command function 43dab0(model, command, arg): 0 freezes (mode 3), 1 turns a
+    frozen chain into mode 4, 2 / 3 / 4 set modes 0 / 1 / 2. 0xa / 0xb set the model's +61 / +62. 29 call sites
+    pair a freeze with an unfreeze (3e3884 / 3e3624, 3f372c / 3f3264, 41c8c4 / 41cc58, wrappers 43da90 / 43da60, ...).
+  - In this battle the owner's mode is written once, to 0 at construction, and never changes, so no command reaches it.
+- **Not the launch form either:** the launcher now also takes an encounter's 0xff form (a one-entry inline
+  formation, --battle 0x4f,0,0x060000ff). It blows up identically.
+- **A real encounter on map 137:** walking into the ghost runs the enemy's own op 0x38 (inline table, default 0x4d).
+  The battle drawn was 0x4d (Tear Soul) on every seed tried, so it does not separate the cases. Forcing 0x4f by
+  poking the table and the enemy's drawn ids (+984 / +988 of objects 690150 / 690b10, class 15f030) still gave 0x4d:
+  the record has four groups and the choice among them was not traced.
+- **Open:** whether a real 0x4f encounter (or the PS2) issues a freeze / unfreeze for this enemy. The next step is to
+  trace the group choice so a real encounter can draw 0x4f, or to find which 43dab0 caller a battle start uses.
+- **Diagnostics added (all off by default):**
+  - VP2S_BOZO_TRACE_BATTLE_VSYNCS / VP2S_BOZO_DEBUG_BATTLE_VSYNCS: mod027 native site 36ca00;
+  - VP2S_BOZO_TRACE_CHAIN=<joint>: at 1fd114, the owner, its reset byte and its actor's flags;
+  - VP2S_BOZO_DEBUG_POKE=addr:word,...: guest words written between frames.
+
 ### Battle re-sweep with a strong party (2026-11-27)
 
 - **Strong party** (`VP2S_CHEAT_STRONG_PARTY=<hp>`, environment only, no menu entry): a live party member's battle

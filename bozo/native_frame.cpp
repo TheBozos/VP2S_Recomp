@@ -7,6 +7,17 @@
 #include <cstdlib>
 #include <cstring>
 namespace vp2s {
+// Battle timestep (mod027 36c9e8..36ca88): count = 11f590(the frame object) = vblanks since the last battle frame,
+// clamped to 1..4 after `cvt.s.w f2, f1` at 36ca00, then dt = count * speed / 60 to 35dee8. Diagnostics only, off by
+// default: VP2S_BOZO_TRACE_BATTLE_VSYNCS=1 prints each count; VP2S_BOZO_DEBUG_BATTLE_VSYNCS=n replaces it (a pacing
+// experiment). The original conversion always runs after.
+void nativeBattleVsyncs(R5900Context *ctx,Runtime *rt){
+    uint32_t word=0;if(const auto *p=rt?rt->memory.hostPointer(0x36ca00,4):nullptr)std::memcpy(&word,p,4);
+    if(!ctx || word!=0x468008a0u)return;
+    static const char *trace=std::getenv("VP2S_BOZO_TRACE_BATTLE_VSYNCS");static const char *force=std::getenv("VP2S_BOZO_DEBUG_BATTLE_VSYNCS");
+    if(trace && *trace=='1')std::fprintf(stderr,"[vp2s:battle-vsyncs] %d\n",int32_t(ctx->fu[1]));
+    if(force && *force)ctx->fu[1]=uint32_t(std::atoi(force));
+}
 bool nativeFrameInput(uint8_t *,R5900Context *ctx,Runtime *rt,uint32_t pc){
     if(pc==0x11f62c){
         if(!ctx || !rt || !rt->port)throw std::runtime_error("native game frame boundary requires its port host");

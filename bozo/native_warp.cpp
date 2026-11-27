@@ -17,7 +17,7 @@ std::mutex requests;   // the F2 panel arms from the window's thread; the game's
 std::optional<WarpRequest> pending;
 std::optional<BattleRequest> battlePending;
 // After the battle words the snippet holds kResumeTag and the interpreter's own pc: the handler
-// leaves the pc on kSnippet + 12, whose fetch restores it. Guest RAM, so save states keep it.
+// leaves the pc after the battle words (kSnippet + 4 * snippetWords), whose fetch restores it. Guest RAM, so save states keep it.
 constexpr uint32_t kResumeTag=0x42325056u;   // "VP2B"
 // Below the game's image (0x100000): the PS2 kernel's RAM, unused by the native kernel.
 constexpr uint32_t kSnippet=0x80000;
@@ -31,12 +31,20 @@ BattleRequest parseBattle(const std::string &text){
     if(v[0]>0xfffe)throw std::runtime_error("--battle id outside 0..0xfffe");
     BattleRequest r;r.battle=v[0];
     if(v.size()>1){if(v[1]>0x7fff)throw std::runtime_error("--battle stage outside 0..0x7fff");r.stage=v[1];}
-    if(v.size()>2){if((v[2]&0xff)==0xff)throw std::runtime_error("--battle flags 0xff need an inline formation");r.flags=v[2];}
+    if(v.size()>2){if((v[2]&0xff)==0xff && ((v[2]>>24)<1 || (v[2]>>24)>7))throw std::runtime_error("--battle flags 0xff take an enemy count 1..7 in the top byte");r.flags=v[2];}
     return r;
 }
 void armNativeBattle(const BattleRequest &request){std::lock_guard lock(requests);battlePending=request;}
 bool nativeBattlePending(){std::lock_guard lock(requests);return battlePending.has_value();}
-std::array<uint32_t,3> battleInstruction(const BattleRequest &r){return {0x3802u,(r.stage<<16)|r.battle,r.flags};}
+std::vector<uint32_t> battleInstruction(const BattleRequest &r){
+    if((r.flags&0xff)!=0xff)return {0x3802u,(r.stage<<16)|r.battle,r.flags};
+    // A field encounter's record (tools/vp2_encounters.py): one group of four entries, here the battle alone with
+    // weight 1 in the first pool and the count from the flags' top byte; the other ids empty (0xffff).
+    const uint32_t count=r.flags>>24;
+    return {0x3806u,(r.stage<<16)|r.battle,r.flags,0xffff0000u|r.battle,0xffffffffu,count,1u};
+}
+// Words in the last injected snippet (the resume tag follows them).
+uint32_t snippetWords=3;
 WarpRequest parseWarp(const std::string &text,const std::string &table){
     std::vector<int32_t> v;std::stringstream in(text);std::string item;
     while(std::getline(in,item,',')){size_t used=0;long long n=0;
@@ -84,7 +92,7 @@ std::optional<bool> nativeWarpInstruction(R5900Context *c,Runtime *rt,uint32_t p
             std::fprintf(stderr,"[vp2s:script] interpreter %x (class %x) op %x at %x:%s\n",c->r[16].uw[0],type,unsigned((w>>8)&0xff),c->r[5].uw[0],args.c_str());
         }
     }
-    if(c->r[5].uw[0]==kSnippet+12)if(auto *resume=rt->memory.hostPointer(kSnippet+12,8)){
+    if(c->r[5].uw[0]==kSnippet+4*snippetWords)if(auto *resume=rt->memory.hostPointer(kSnippet+4*snippetWords,8)){
         uint32_t tag,resumePc;std::memcpy(&tag,resume,4);std::memcpy(&resumePc,resume+4,4);
         if(tag==kResumeTag){
             // The battle handler advanced the injected pc and yielded; resume the script.
@@ -97,12 +105,13 @@ std::optional<bool> nativeWarpInstruction(R5900Context *c,Runtime *rt,uint32_t p
     std::unique_lock lock(requests);
     if(battlePending){
         const uint32_t object=c->r[16].uw[0],at=c->r[5].uw[0];
-        auto *snippet=rt->memory.hostPointer(kSnippet,20);auto *fields=rt->memory.hostPointer(object,0x608);
+        auto *snippet=rt->memory.hostPointer(kSnippet,40);auto *fields=rt->memory.hostPointer(object,0x608);
         if(!snippet || !fields)throw std::runtime_error("native battle outside owned RAM");
         uint32_t args,scriptPc,blob;std::memcpy(&args,fields+0x604,4);std::memcpy(&scriptPc,fields+0x18,4);std::memcpy(&blob,fields+0x600,4);
         if(args!=at+4 || at!=blob+0x20+4*scriptPc)throw std::runtime_error("native battle: interpreter fetch escaped step 3ee150's layout");
-        const auto words=battleInstruction(*battlePending);std::memcpy(snippet,words.data(),12);
-        std::memcpy(snippet+12,&kResumeTag,4);std::memcpy(snippet+16,&scriptPc,4);
+        const auto words=battleInstruction(*battlePending);snippetWords=uint32_t(words.size());
+        std::memcpy(snippet,words.data(),4*words.size());
+        std::memcpy(snippet+4*words.size(),&kResumeTag,4);std::memcpy(snippet+4*words.size()+4,&scriptPc,4);
         // pc such that blob + 0x20 + 4*pc = the snippet (32-bit wrap, as the handler's addu).
         const uint32_t snippetPc=(kSnippet-blob-0x20)/4,newArgs=kSnippet+4;
         if(blob+0x20+4*snippetPc!=kSnippet)throw std::runtime_error("native battle: blob not word aligned");

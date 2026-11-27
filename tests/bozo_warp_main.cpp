@@ -35,8 +35,11 @@ int main(){
     {   // Battle launcher: parsing, the op-0x38 words, then the injection and resume.
         const auto b=vp2s::parseBattle("0x12");check(b.battle==0x12 && b.stage==0 && b.flags==0x01000100,"battle id, default stage and flags");
         const auto full=vp2s::parseBattle("190,38,0x01000300");check(full.battle==190 && full.stage==38 && full.flags==0x01000300,"battle id, stage, flags");
-        for(const char *bad:{"","x","-1","65535","1,0x8000","1,2,0x010000ff","1,2,3,4","1,,2"})check(rejectsBattle(bad),bad);
-        const auto words=vp2s::battleInstruction(full);check(words[0]==0x3802 && words[1]==((38u<<16)|190) && words[2]==0x01000300,"instruction: op 0x38 with 2 arguments");
+        for(const char *bad:{"","x","-1","65535","1,0x8000","1,2,0x000000ff","1,2,0x080000ff","1,2,3,4","1,,2"})check(rejectsBattle(bad),bad);
+        const auto words=vp2s::battleInstruction(full);check(words.size()==3 && words[0]==0x3802 && words[1]==((38u<<16)|190) && words[2]==0x01000300,"instruction: op 0x38 with 2 arguments");
+        // A field encounter's form (flags low byte 0xff): op 0x38 with 6 arguments, a one-entry inline formation.
+        const auto inline_=vp2s::battleInstruction(vp2s::parseBattle("0x4f,0,0x060000ff"));
+        check(inline_==std::vector<uint32_t>{0x3806u,0x4fu,0x060000ffu,0xffff004fu,0xffffffffu,6u,1u},"instruction: inline formation");
         Runtime rt;R5900Context c{};constexpr uint32_t object=0x200000,blob=0x300000,pc=0x10;
         const auto put=[&](uint32_t at,uint32_t v){std::memcpy(rt.memory.hostPointer(at,4),&v,4);};
         const auto get=[&](uint32_t at){uint32_t v;std::memcpy(&v,rt.memory.hostPointer(at,4),4);return v;};

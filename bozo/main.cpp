@@ -1016,6 +1016,7 @@ constexpr NativeStep nativeSteps[]={
     [](uint8_t *ram,R5900Context *ctx,Runtime *rt,uint32_t pc)->std::optional<bool>{return vp2s::nativeMathInstruction(ram,ctx,rt,pc)?std::optional(true):std::nullopt;},
     [](uint8_t *,R5900Context *ctx,Runtime *rt,uint32_t pc)->std::optional<bool>{if(vp2s::nativeWorkStackSite(pc)){vp2s::nativeWorkStack(ctx,rt,pc);return false;}return std::nullopt;},
     [](uint8_t *ram,R5900Context *ctx,Runtime *rt,uint32_t pc)->std::optional<bool>{return vp2s::nativeFrameInput(ram,ctx,rt,pc)?std::optional(true):std::nullopt;},
+    [](uint8_t *,R5900Context *ctx,Runtime *rt,uint32_t pc)->std::optional<bool>{if(pc!=0x36ca00)return std::nullopt;vp2s::nativeBattleVsyncs(ctx,rt);return false;},
     [](uint8_t *ram,R5900Context *ctx,Runtime *rt,uint32_t pc)->std::optional<bool>{(void)ram;return vp2s::nativeFlareInstruction(ctx,rt,pc);},
     [](uint8_t *ram,R5900Context *ctx,Runtime *rt,uint32_t pc)->std::optional<bool>{(void)ram;return vp2s::nativeOcclusionInstruction(ctx,rt,pc);},
     [](uint8_t *ram,R5900Context *ctx,Runtime *rt,uint32_t pc)->std::optional<bool>{(void)ram;return vp2s::nativeChainPushInstruction(ctx,rt,pc);},
@@ -1257,7 +1258,15 @@ int main(int argc,char **argv) {
         vp2s::installNativeEntryCapture(dispatcher.runtime());
         // Cheats (F2 > Cheats; VP2S_CHEAT_* for tests): applied between frames on the game's thread.
         {auto previous=host.native.onFrame;Runtime *rt=&dispatcher.runtime();
-            host.native.onFrame=[previous,rt](uint64_t frame,const R5900Context *ctx){if(previous)previous(frame,ctx);vp2s::applyNativeCheats(rt);};}
+            host.native.onFrame=[previous,rt](uint64_t frame,const R5900Context *ctx){if(previous)previous(frame,ctx);vp2s::applyNativeCheats(rt);
+                // Debug only, off by default: VP2S_BOZO_DEBUG_POKE=addr:word[,addr:word...] (hex) writes those words
+                // between frames, every frame (an experiment's fixed guest data, e.g. an enemy's encounter table).
+                static const std::vector<std::pair<uint32_t,uint32_t>> pokes=[]{std::vector<std::pair<uint32_t,uint32_t>> v;
+                    if(const char *list=std::getenv("VP2S_BOZO_DEBUG_POKE")){std::stringstream in(list);std::string item;
+                        while(std::getline(in,item,','))if(const auto colon=item.find(':');colon!=std::string::npos)
+                            v.emplace_back(uint32_t(std::stoul(item.substr(0,colon),nullptr,16)),uint32_t(std::stoul(item.substr(colon+1),nullptr,16)));}
+                    return v;}();
+                for(const auto &[at,word]:pokes)if(auto *p=rt->memory.hostPointer(at,4))std::memcpy(p,&word,4);};}
         // Save states (--save-state FILE --save-state-at N, --load-state FILE [--load-state-at N]):
         // VP2S's own part. The engine saves EE memory, the dispatcher, the kernel, its libraries
         // and its host; VP2S adds the IOP modules' host, the SDK clock and the native owners that

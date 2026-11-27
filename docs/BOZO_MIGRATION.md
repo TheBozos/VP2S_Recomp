@@ -28,7 +28,9 @@ The earlier VP2S face/shading and general brightness comparisons remain open.
     code; only the w lane it feeds is wrong, and the object transform reads xyz;
   - the step integrator (1fcb08), the bone aim (1fe598) and the row-point transform match their listings;
   - starting the battle from map 13's state (the stage's own map) gives the same blow-up on the same kind of object.
-- **Open:** whether the real game places this skeleton after its chain starts too (it would then diverge on a PS2 as
+- **Decision (user 2026-11-27, "Classify as artefact"):** both 0x23 rows are launcher artefacts, as maps 32 / 47 / 482
+  were for the warp. The battle sweep stands at 38 clean, 2 artefacts, 2 needing their event.
+- **Was open:** whether the real game places this skeleton after its chain starts too (it would then diverge on a PS2 as
   well), or whether our timing reorders the first updates. That needs the battle reached through its own event (scripts
   0078719880 / 00b9868070) on PCSX2.
 - **Diagnostics (off by default):** VP2S_BOZO_TRACE_MOTION=<record> (step inputs, constraint pairs),

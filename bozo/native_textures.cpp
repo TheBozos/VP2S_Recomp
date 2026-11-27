@@ -74,7 +74,10 @@ TextureKey NativeTextures::resolve(TextureKey key,const AssetOrigin &header)cons
     const auto found=provenance.find({header.disc,header.part,header.offset});
     if(header.kind!=AssetOrigin::Kind::Part || found==provenance.end())
         throw std::runtime_error(std::format("native texture {:08x}:{:x} requires offline conversion/load provenance (header {:010x}_{:03} +{:x})",key.tag,key.index,header.disc,header.part,header.offset));
-    if(found->second.tag!=key.tag || (found->second.index&0xffff)!=key.index)
+    // The copy is the texture header the game loaded, so its location identifies the data; its index is the game's own
+    // registration (battle 0x1c registers stage 9's 'BM01', listed as index 1 by its pack, as 31304d42:2). Another tag
+    // there is refused.
+    if(found->second.tag!=key.tag)
         throw std::runtime_error(std::format("native texture copy at {:010x}_{:03} +{:x} is not {:08x}:{:x}",header.disc,header.part,header.offset,key.tag,key.index));
     return found->second;
 }

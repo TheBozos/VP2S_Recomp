@@ -63,6 +63,8 @@ bool nativeMathInstruction(uint8_t *,R5900Context *,Runtime *,uint32_t pc);
 // in range; 1fd110 never initialises it. User decision 2026-11-25 (maps 32, 47): no push until a field writes one. At
 // 1fd114, right after the frame is allocated, the push SP+4a0..4af is zeroed; the original instruction then runs.
 std::optional<bool> nativeChainPushInstruction(R5900Context *,Runtime *,uint32_t pc);
+// mod028 48f1f0's box (a - b + p, a + b + p) to s2+40 / 50 (native_math.cpp).
+bool nativeBattleBox(R5900Context *,Runtime *,uint32_t pc);
 // Bone palettes (skeleton +4c buffer, +50 selector) the game's palette builder 237284 / 2372bc has written completely
 // (its last bone) in this run. User decision 2026-11-25 (map 487): a skinned mesh whose palette was never built is not
 // drawn. A save state does not carry the set: a palette counts once its builder runs again.

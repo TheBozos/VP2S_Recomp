@@ -3279,6 +3279,20 @@ int main(int argc,char **argv){try{
         const uint8_t *p=r.memory.hostPointer(stack+0x490,0x30);bool zero=true,kept=true;for(unsigned k=0;k<0x30;++k){if(k>=0x10 && k<0x20)zero=zero && !p[k];else kept=kept && p[k]==0xee;}
         check(zero && kept);std::memset(r.memory.hostPointer(0x1fd110,4),0,4);check(!vp2s::nativeChainPushInstruction(&c,&r,0x1fd114));   // another overlay
         std::printf("chain push SP+4a0 zeroed at 1fd114 (only there)\n");}
+    // mod028 48f1f0 (battle 0x55): s2+40 = (a - b) + p, s2+50 = (a + b) + p in xyz, both w = a.w; a = [s0] = [s1 + 10],
+    // b = [s1], p = [v0]; the other sites only check their registers; another overlay leaves the sites alone.
+    {auto &r=native.runtime();std::memset(r.memory.flat(),0,bozo::kFlatBytes);
+        const uint32_t entry=0x27bdffc0u,b=0x1e0000,p=0x1e1000,out=0x1e2000;std::memcpy(r.memory.hostPointer(0x48f1f0,4),&entry,4);
+        const float A[4]={3,-2,.5f,7},B[4]={1,1,4,9},P[4]={10,20,30,40};
+        std::memcpy(r.memory.hostPointer(b+0x10,16),A,16);std::memcpy(r.memory.hostPointer(b,16),B,16);std::memcpy(r.memory.hostPointer(p,16),P,16);
+        std::memset(r.memory.hostPointer(out+0x40,32),0x77,32);
+        R5900Context c{};c.r[16].uw[0]=b+0x10;c.r[17].uw[0]=b;c.r[2].uw[0]=p;c.r[18].uw[0]=out;c.r[4].uw[0]=out+0x40;c.r[3].uw[0]=out+0x50;
+        for(uint32_t pc=0x48f268;pc<=0x48f298;pc+=4)check(vp2s::nativeMathInstruction(r.memory.flat(),&c,&r,pc));
+        float lo[4],hi[4];std::memcpy(lo,r.memory.hostPointer(out+0x40,16),16);std::memcpy(hi,r.memory.hostPointer(out+0x50,16),16);
+        check(lo[0]==12 && lo[1]==17 && lo[2]==26.5f && lo[3]==7 && hi[0]==14 && hi[1]==19 && hi[2]==34.5f && hi[3]==7);
+        c.r[4].uw[0]=out;bool thrown=false;try{vp2s::nativeMathInstruction(r.memory.flat(),&c,&r,0x48f294);}catch(const std::runtime_error &){thrown=true;}check(thrown);
+        std::memset(r.memory.hostPointer(0x48f1f0,4),0,4);check(!vp2s::nativeBattleBox(&c,&r,0x48f294));   // another overlay
+        std::printf("mod028 48f1f0 box: corners, destination check, overlay guard\n");}
     // The box test 1fbe60 at 1fbe90 on a class 1622a0 box whose inverse matrix is not set (map 535's bytes): no box until set,
     // the local point is the box centre; a radius beyond a half extent, another caller or a set box behave otherwise.
     {auto &r=native.runtime();std::memset(r.memory.flat(),0,bozo::kFlatBytes);

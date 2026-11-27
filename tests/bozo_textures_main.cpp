@@ -99,7 +99,8 @@ int main(int argc,char **argv){try{
         const auto refused=[&](auto f){try{f();}catch(const std::runtime_error &){return true;}return false;};
         check(refused([&]{t.resolve(bm,at(0xed10d830,0x12dd10));}) && refused([&]{t.load(bm);}));                    // another offset; the bare key
         check(refused([&]{t.resolve(bm,vp2s::AssetOrigin{vp2s::AssetOrigin::Kind::Disc,0xed10d830,0,0x12dd00});})); // not a decoded part
-        check(refused([&]{t.resolve(vp2s::TextureKey{0x31304d42,2},at(0xed10d830,0x12dd00));}));                    // another key's copy there
+        check(t.resolve(vp2s::TextureKey{0x31304d42,2},at(0xed10d830,0x12dd00))==a);                                // the same header, another game index
+        check(refused([&]{t.resolve(vp2s::TextureKey{0x31304d43,1},at(0xed10d830,0x12dd00));}));                    // another tag's copy there
         check(refused([&]{vp2s::NativeTextures bad(dir,manifest("31304d42 1 c_00000000000000aa.tex\n31304d42 1 c_00000000000000bb.tex 00ed10d830_000 12dd00\n"));}));
         check(refused([&]{vp2s::NativeTextures bad(dir,manifest("31304d42 1 c_00000000000000bb.tex 00ed10d830_00 12dd00\n"));}));
         // A model's texture (the manager's key and TEX0): a plain key loads as itself; a key whose copies

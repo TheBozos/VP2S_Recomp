@@ -12,6 +12,41 @@ The earlier VP2S face/shading and general brightness comparisons remain open.
 
 ## Build and evidence
 
+### Battle sweep, round 1: 18 modules, routine 22's pass, a random draw, a box, a texture index (2026-11-27)
+
+- **The battle list:** tools/vp2_battles.py scans the extracted assets for event-script op 0x38 (word 0x3802,
+  (stage << 16) | id, flags). Plausible instructions have a count byte 1..7 on top of the flags and a zero low byte;
+  other data holding 0x3802 is rejected. The result is build_usa/bozo/battles.tsv: 35 battle ids, 42 (id, stage,
+  flags) rows. Inline formations (2) and the area table (id 0xffff) are counted, not listed.
+- **The sweep:** each row runs from the map-79 state with --battle ID,STAGE,FLAGS, the attack4 pad and infinite health,
+  to frame 80000 (about 3 minutes each). Round 1: 12 of 42 clean.
+- **Modules:** 20 battles jumped into code no module provided. From end-of-run RAM at each fault, 18 unknown module
+  headers were captured (load address +4 id, +8 load, +c text, +10 data, +1c end; file = load .. load + 0x40 + text +
+  data): mod033, 036, 039, 041, 042, 045, 048 (0x514080); 153, 155, 156, 159, 162, 163, 164 (0x532200); 204, 207, 210
+  (0x53a380); 286 (0x542a80). They are registered in vp2_bozo.py / vp2_bozo_prepare.py and run through the pipeline
+  (wrap, ghidra, sdk, entries) and the regeneration; the files are game data and stay out of git.
+- **Routine 22's second pass over an untextured pass 1 (battles 0x11, 0x18, 0x1600):**
+  - pass 1's tags have PRIM 0c / 0d (Gouraud strip, no TME);
+  - pass 2's have 5c / 5d, the same plus ABE and TME;
+  - nativeSecondPass admits that (textures = true); the second pass takes its texture through its slot and draws it
+    modulated (directColour off).
+- **A random draw (battle 0x18 with flags 0x0300):** mod028 48d7e4 RNEXT / QMFC2 into v1. v1 is read only by the mtc1
+  at 48d800 (sp+34 = sp+44 - 0.25 (r - 1)) before the lui at 48d86c; added to nativeRandomNext's sites.
+- **A box (battle 0x55):** mod028 48f1f0, after its matrix, stores (a - b + p) and (a + b + p) with w = a.w to s2+40 / 50
+  (a = [s1 + 10], b = [s1], p = the object's +7c position): nativeBattleBox, tested directly.
+- **Texture index (battle 0x1c):**
+  - stage 9's 'BM01' header (pack 00ed895030_000 +159380) is index 1 in the pack's own table, but the game registers
+    it as 31304d42:2;
+  - the header carries no index, and the game loaded that very header, so the location identifies the data;
+  - resolve now accepts a copy whose tag matches whatever its index, and still refuses another tag there.
+- **Round 2 (with the modules, routine 22, the random site and the box):** 20 of 42 clean. The next boundaries (texture
+  index not yet in that run):
+  - VU0 sites at 49065c (0x18, 0x55), 533700 (0x6e), 1fc1b4 (0x75, 0xb9), 22459c (0xba, 0xbb), 53468c, 533b4c, 4918f8;
+  - particle producer mode 6 for classes 177c00 / 17c2d0 (0x2f, 0x30); a row emitter record (0x54);
+  - three more missing modules (0x5f, 0x74, 0xb7); a resume label in 0x11's module;
+  - battle 0x23's chain divergence (an object of class 154f90 at +-max).
+- **Regression:** ctest 99/99; regress4 unchanged.
+
 ### Spot lights in model lighting mode 2 (2026-11-26)
 
 - **Dispatch:** table C (spot lights, 0x55a in image 02a71b3e) gives each mode two pairs:

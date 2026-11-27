@@ -9232,6 +9232,26 @@ bool mathBlock72(R5900Context *c,Runtime *rt,uint32_t pc){
 namespace{std::map<const Runtime *,std::set<uint32_t>> &builtPalettes(){static std::map<const Runtime *,std::set<uint32_t>> built;return built;}}
 bool nativeBonePaletteBuilt(const Runtime *rt,uint32_t palette){const auto &b=builtPalettes();const auto it=b.find(rt);return it!=b.end() && it->second.contains(palette&0x1ffffff);}
 void nativeBonePaletteWritten(const Runtime *rt,uint32_t palette){builtPalettes()[rt].insert(palette&0x1ffffff);}
+// mod028 48f1f0 (battle 0x55's caller; a0 = s2 the output, a2 the descriptor): after its matrix (VCALLMS 0x2d0 into
+// s2+0..30), s1 = *(a2+14), s0 = s1+10 and v0 = the object's +7c position; then (ps2f, in order)
+//   48f27c SUB.xyz vf10 = a - b, 48f280 ADD.xyz vf20 = a + b, 48f284 / 48f288 MULw.w = a.w * 1,
+//   48f28c / 48f290 ADD.xyz += p, 48f294 SQC2 vf10 -> s2+40, 48f298 SQC2 vf20 -> s2+50,
+// with a = [s0], b = [s1], p = [v0]: the box (a - b + p, a + b + p) around p.
+bool nativeBattleBox(R5900Context *c,Runtime *rt,uint32_t pc){
+    if(!rt || (pc&3) || pc<0x48f268 || pc>0x48f298)return false;
+    uint32_t entry=0;if(const auto *e=rt->memory.hostPointer(0x48f1f0,4))std::memcpy(&entry,e,4);
+    if(entry!=0x27bdffc0u)return false;   // another overlay at these addresses
+    if(!c)throw std::runtime_error("native battle box has no CPU record");
+    if(c->r[16].uw[0]!=c->r[17].uw[0]+0x10)throw std::runtime_error("native battle box sources mismatch");
+    if(pc!=0x48f294 && pc!=0x48f298)return true;
+    const auto out=c->r[18].uw[0];
+    if(c->r[4].uw[0]!=out+0x40 || c->r[3].uw[0]!=out+0x50)throw std::runtime_error("native battle box destination mismatch");
+    const auto a=vuWords(rt,c->r[16].uw[0]),b=vuWords(rt,c->r[17].uw[0]),p=vuWords(rt,c->r[2].uw[0]);
+    const bool low=pc==0x48f294;VuWords o;
+    for(unsigned i=0;i<3;++i)o[i]=vuAdd(low?vuSub(a[i],b[i]):vuAdd(a[i],b[i]),p[i]);
+    o[3]=vuMul(a[3],0x3f800000u);
+    std::memcpy(record(rt,low?out+0x40:out+0x50,16),o.data(),16);return true;
+}
 // mod001 20d760 (a0 = source list, a1 = target list): for each source with +29c set and +2c8 == 6, 257bc0 writes
 // origin o (vf20), direction n (vf21) and cone (vf22: x = cos, y = sin) to SP+90..b0; for each target whose method
 // +5c returns p (vf23, w = its radius R), the VU0 code (ps2f, in order; vf31 = (1,1,1,1)) stores:
@@ -9893,7 +9913,7 @@ bool nativeMathInstruction(uint8_t *,R5900Context *c,Runtime *rt,uint32_t pc){
     default:
         // Inlined-block recognisers last: they read code around the PC, so
         // only sites no specific handler claimed pay for that scan.
-        return CLAIM(nativeBoundsFold) || CLAIM(nativeConeTargets) || CLAIM(nativeParticleStep) || CLAIM(nativeParticleBox) || CLAIM(nativeTrailEmitter) || CLAIM(nativeProgramEmitter) || CLAIM(nativeSimpleEmitter) || CLAIM(nativeLinearEmitter) || CLAIM(nativeCameraOffset) || CLAIM(nativeCollisionShape) || CLAIM(nativeHeightNormals) || CLAIM(nativeSpriteMove) || CLAIM(nativeRowPoints) || CLAIM(nativeRowEmitter) || CLAIM(nativeEmitterClock) || CLAIM(nativeConstantStore) || CLAIM(nativeLengthIdiom) || CLAIM(nativeMacroIdiom) || CLAIM(nativeInverseIdiom) || nativeQuaternionIdiom(c,rt,pc);
+        return CLAIM(nativeBoundsFold) || CLAIM(nativeConeTargets) || CLAIM(nativeBattleBox) || CLAIM(nativeParticleStep) || CLAIM(nativeParticleBox) || CLAIM(nativeTrailEmitter) || CLAIM(nativeProgramEmitter) || CLAIM(nativeSimpleEmitter) || CLAIM(nativeLinearEmitter) || CLAIM(nativeCameraOffset) || CLAIM(nativeCollisionShape) || CLAIM(nativeHeightNormals) || CLAIM(nativeSpriteMove) || CLAIM(nativeRowPoints) || CLAIM(nativeRowEmitter) || CLAIM(nativeEmitterClock) || CLAIM(nativeConstantStore) || CLAIM(nativeLengthIdiom) || CLAIM(nativeMacroIdiom) || CLAIM(nativeInverseIdiom) || nativeQuaternionIdiom(c,rt,pc);
     }
 }
 #undef CLAIM

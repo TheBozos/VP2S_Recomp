@@ -378,6 +378,11 @@ int main(int argc,char **argv){try{
          {auto glow=rows;glow[2]={0x21300000,0x4007b406,6,0};glow[3]={0x65423380,0x0007b406,6,0xa35};glow[10]={0x21300000,0x4007b786,6,0};glow[11]={0x21413a40,0x0007b786,6,0};
           glow[14]={1,1,1,0};glow[9][0]=0x44;const auto p2=vp2s::nativeSecondPass(glow);check(p2 && p2->alpha==0x44 && p2->slot==1 && p2->part==0 && p2->tex0==0x21413a40u);++shadowCases;}
          other=rows;other[12][1]=0x30ae4000;check(!vp2s::nativeSecondPass(other));             // PRIM differs beyond ABE
+         // Battle 0x18 (object feaca0, routine 22): pass 1 untextured (PRIM 0c / 0d), pass 2 its tags with ABE and TME (5c / 5d).
+         other=rows;other[6][1]=0x30064000;other[7][1]=0x3006c000;other[12][1]=0x302e4000;other[13][1]=0x302ec000;
+         {const auto p=vp2s::nativeSecondPass(other);check(p && p->textures && p->blended);}
+         other[13][1]=0x306ec000;check(!vp2s::nativeSecondPass(other));                       // ... a third PRIM bit as well
+         other=rows;check(!vp2s::nativeSecondPass(other)->textures);shadowCases+=3;           // textured pass 1: TME is not added
          other=rows;other[9][3]=0;check(vp2s::nativeSecondPass(other).has_value());            // row 65 selected (map 124)
          other=rows;other[9][3]=2;check(!vp2s::nativeSecondPass(other));                       // .w neither 0 nor 1
          other=rows;other[9][0]=0xc8;check(!vp2s::nativeSecondPass(other));                    // a reserved blend field (3)

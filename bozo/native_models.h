@@ -69,8 +69,9 @@ std::vector<std::vector<NativeShellVertex>> nativeShells(int routine,const std::
 struct ProjectedTexture {std::array<int32_t,3> stq{};bool off=false;};
 ProjectedTexture projectedTexture(const std::array<float,3> &p,const std::array<float,3> &n,const std::array<float,4> &origin,
                                   const std::array<float,4> (&cols)[4],uint32_t mask);
-struct NativeSecondPass {uint32_t alpha=0,slot=0,part=0,tex0=0,fix=0;bool on=false,blended=true;};   // on: row 21.y (each table-B pass clears it); fix: ALPHA.FIX (row 16.y);
-// blended: pass 2's PRIM sets ABE (else it is pass 1's tags exactly, both opaque: map 109)
+struct NativeSecondPass {uint32_t alpha=0,slot=0,part=0,tex0=0,fix=0;bool on=false,blended=true,textures=false;};   // on: row 21.y (each table-B pass clears it); fix: ALPHA.FIX (row 16.y);
+// blended: pass 2's PRIM sets ABE (else it is pass 1's tags exactly, both opaque: map 109); textures: pass 1 is untextured
+// and pass 2's PRIM adds TME as well as ABE (battles 0x11, 0x18, 0x1600: a Gouraud strip with a sphere map over it)
 // Table-B routine 32/34's UV shift (1bc0..1e48 in set 0), per strip, in VU float words: for each triangle t (vertices t, t+1, t+2)
 // the plane of (p_c, u, v) per axis c gives A = du1 dv2 - dv1 du2, T_c = (dv1 dp2 - dp1 dv2) / A, B_c = (dp1 du2 - du1 dp2) / A;
 // with L = light * scale (point: normalize(p[t+2] - light) * scale), vertex t's UV (12-bit) becomes

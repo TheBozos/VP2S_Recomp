@@ -12,6 +12,40 @@ The earlier VP2S face/shading and general brightness comparisons remain open.
 
 ## Build and evidence
 
+### Battle sweep, round 2: a module's lost tail, the triangle test, the solver, a sphere pair, a disc (2026-11-27)
+
+- **Module text past the header (battles 0xb7, 0xb9):** mod163 (0x532200) declares text 0x2c0 and no data, but two
+  methods follow up to 0x5324f8. The main ELF's vtable at 0x18a040 calls 0x5324c0 (+10). wrap_elf cut .text at
+  load + text, so Ghidra and the entry finder never saw them: "jump to 0x5324c0: no generated code". A module without
+  data now keeps whole functions after its text, up to the last jr ra and its delay slot. That fixes mod163 and
+  mod011; no other module changes.
+- **Triangle test (battles 0x18, 0x55):**
+  - mod028 490630 is a separating-axis test of two triangles: both normals, the parallel test, nine edge-pair axes,
+    the six coplanar axes;
+  - 4905b0 projects a triangle onto an axis, giving (min, max);
+  - nativeTriangleOverlap / nativeTriangleProject store each vector the game stores, in its lane orders, re-reading
+    the vertices through s1 / s0. Tested directly.
+- **The rigid-body solver (same battles):**
+  - new idioms: rowdots (4925b0, 492950, 493394, 48f6a8: lane k = row k . v), length24, spin (490570: v + w x (p - c)),
+    sub21, summul, negone1, diffpair;
+  - nativeSolverRegisters carries vf30 / vf6 / vf8 across the calls (4926a8, 492a64, 4927d0, 492b88, 4931e4, 4931fc),
+    with vf8 from nativeBattleGrab's plane hit;
+  - 0x18 and 0x55 now reach frame 80000.
+- **Sphere pair (battles 0x75, 0xb9):** mod001 1fc180 is the sphere sibling of the 1fc300 capsule pair (chain part
+  virtual +94). It takes the same matrix and weights; its delta has no second direction term. 0x75 is clean.
+- **Disc hit (battles 0xba, 0xbb):** mod001 224590 projects the point onto the disc plane (+220 centre, w = r^2; +250
+  normal) and measures |q - c|^2 - r^2. a1 is reused by the random draws in between, so the point carries from
+  2245cc to 2247bc.
+- **Not a module problem (0x5f, 0x74):** the slot they call (0x532200 / 0x542a80) is never loaded. In 0x5f's script,
+  op 0x38 follows event ops (0x75 0x652 ..., 0x73, 0x72) that the launcher does not run. Both need their event
+  context; they are left for the story route.
+- **Round 3 standing (42 rows):** 26 clean. Left:
+  - particle producer mode 6 (0x2f, 0x30) and mode 3 (0xbb); simple emitter inside a trail (0xba); row emitter
+    record (0x54 x2);
+  - slot-module VU0 sites 533700 (0x6e x2), 53468c (0xa0), 533b4c (0xc2), 4918f8 (0x1600);
+  - 0x23's chain divergence (x2); 0x11 (stage 4, 0x0100)'s resume label; 0x5f / 0x74 (event context).
+- **Regression:** ctest 99/99; regress4 unchanged.
+
 ### Battle sweep, round 1: 18 modules, routine 22's pass, a random draw, a box, a texture index (2026-11-27)
 
 - **The battle list:** tools/vp2_battles.py scans the extracted assets for event-script op 0x38 (word 0x3802,

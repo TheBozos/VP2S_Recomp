@@ -65,6 +65,15 @@ bool nativeMathInstruction(uint8_t *,R5900Context *,Runtime *,uint32_t pc);
 std::optional<bool> nativeChainPushInstruction(R5900Context *,Runtime *,uint32_t pc);
 // mod028 48f1f0's box (a - b + p, a + b + p) to s2+40 / 50 (native_math.cpp).
 bool nativeBattleBox(R5900Context *,Runtime *,uint32_t pc);
+// mod028 4905b0's triangle projection and 490630's separating-axis triangle test (native_math.cpp).
+bool nativeTriangleProject(R5900Context *,Runtime *,uint32_t pc);
+bool nativeTriangleOverlap(R5900Context *,Runtime *,uint32_t pc);
+// mod001 1fc180's sphere / capsule pair (native_math.cpp).
+bool nativeSpherePair(R5900Context *,Runtime *,uint32_t pc);
+// mod001 224590's disc hit test (native_math.cpp).
+bool nativeDiscHit(R5900Context *,Runtime *,uint32_t pc);
+// mod028 solver sites whose VU registers cross a call or a loop (native_math.cpp).
+bool nativeSolverRegisters(R5900Context *,Runtime *,uint32_t pc);
 // Bone palettes (skeleton +4c buffer, +50 selector) the game's palette builder 237284 / 2372bc has written completely
 // (its last bone) in this run. User decision 2026-11-25 (map 487): a skinned mesh whose palette was never built is not
 // drawn. A save state does not carry the set: a palette counts once its builder runs again.

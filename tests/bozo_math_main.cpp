@@ -1672,6 +1672,27 @@ int main(int argc,char **argv){try{
             for(unsigned i=0;i<std::size(words);++i)check(vp2s::nativeMathInstruction(rt.memory.flat(),&c,&rt,0x2234f8+4*i));
             float o[4];std::memcpy(o,rt.memory.hostPointer(out,16),16);check(o[0]==11 && o[1]==24 && o[2]==42 && o[3]==2);   // (1+10, 4+20, 12+30, 0+2)
         }
+        {   // mod028 4925b0 rowdots idiom (battles 0x18, 0x55): lane k of vf15 = row k . v (lane-ordered sums).
+            constexpr uint32_t words[]={0xdbcf0000,0xda010000,0xda020010,0xda030020,0xda040030,0x4bc00183,0x4bef0aea,0x4bef132a,0x4bef1b6a,0x4bef23aa,
+                0x4b0b583d,0x4b0b30be,0x4b0b33cb,0x4a8c603c,0x4a8c30be,0x4a8c33cb,0x4a4d683d,0x4a4d30bc,0x4a4d33cb,0x4a2e703d,0x4a2e00be,0x4a2e03c8,0xf86f0000};
+            std::memcpy(rt.memory.hostPointer(0x4925b0,sizeof(words)),words,sizeof(words));
+            constexpr uint32_t v=0x1b0000,rows=0x1b1000,out=0x1b2000;
+            const float p[4]={1,2,3,4},m[16]={1,0,0,0, 0,1,0,0, 1,1,1,1, 0,0,0,2};
+            std::memcpy(rt.memory.hostPointer(v,16),p,16);std::memcpy(rt.memory.hostPointer(rows,64),m,64);
+            R5900Context c{};c.r[29].uw[0]=0x1fff000;c.r[30].uw[0]=v;c.r[16].uw[0]=rows;c.r[3].uw[0]=out;
+            for(unsigned i=0;i<std::size(words);++i)check(vp2s::nativeMathInstruction(rt.memory.flat(),&c,&rt,0x4925b0+4*i));
+            float o[4];std::memcpy(o,rt.memory.hostPointer(out,16),16);check(o[0]==1 && o[1]==2 && o[2]==10 && o[3]==8);
+        }
+        {   // mod028 490570 spin idiom: v + w x (p - c), w = 1; p = (1,0,0), c = 0, w = (0,0,2), v = (0,0,5) -> (0,2,5,1).
+            constexpr uint32_t words[]={0xd8a10000,0xd9020000,0xd8e30000,0xd8640000,0x4a20019b,0x4bc2096c,0x4bc51afe,0x4bc329ae,0x4bc621a8,0x03e00008,0xf8c60000};
+            std::memcpy(rt.memory.hostPointer(0x49057c,sizeof(words)),words,sizeof(words));
+            constexpr uint32_t body=0x1b0000,pt=0x1b1000,out=0x1b2000;std::memset(rt.memory.hostPointer(body,0x800),0,0x800);
+            const float P[4]={1,0,0,9},W[4]={0,0,2,0},V[4]={0,0,5,0};
+            std::memcpy(rt.memory.hostPointer(pt,16),P,16);std::memcpy(rt.memory.hostPointer(body+0x5e0,16),W,16);std::memcpy(rt.memory.hostPointer(body+0x5c0,16),V,16);
+            R5900Context c{};c.r[29].uw[0]=0x1fff000;c.r[5].uw[0]=pt;c.r[8].uw[0]=body+0x730;c.r[7].uw[0]=body+0x5e0;c.r[3].uw[0]=body+0x5c0;c.r[6].uw[0]=out;
+            for(unsigned i=0;i<std::size(words);++i)if(i!=9)check(vp2s::nativeMathInstruction(rt.memory.flat(),&c,&rt,0x49057c+4*i));
+            float o[4];std::memcpy(o,rt.memory.hostPointer(out,16),16);check(o[0]==0 && o[1]==2 && o[2]==5 && o[3]==1);
+        }
         {   // mod028 47ae40 battle colour pair: (128, 64, 255, 128) and (0, 1, 2, 3) widened by the CPU.
             constexpr uint32_t words[]={0x48a80800,0x48a91000,0x48aa1800,0x4be1093c,0x4be2113c,0x248309a0,0x4bc30858,0x4bc31098,0xf8610000,0xf8620010};
             std::memcpy(rt.memory.hostPointer(0x47ae78,sizeof(words)),words,sizeof(words));
@@ -3293,6 +3314,28 @@ int main(int argc,char **argv){try{
         c.r[4].uw[0]=out;bool thrown=false;try{vp2s::nativeMathInstruction(r.memory.flat(),&c,&r,0x48f294);}catch(const std::runtime_error &){thrown=true;}check(thrown);
         std::memset(r.memory.hostPointer(0x48f1f0,4),0,4);check(!vp2s::nativeBattleBox(&c,&r,0x48f294));   // another overlay
         std::printf("mod028 48f1f0 box: corners, destination check, overlay guard\n");}
+    // mod028 490630 / 4905b0 (battles 0x18, 0x55): triangle A = (0,0,0) (1,0,0) (0,1,0), B = (0,0,1) (0,2,1) (2,0,1):
+    // nA = e1 x e2 = (0,0,1), nA . p0 = 0, nB = f1 x f2 = (0,0,-4), the parallel test (|nA x nB|^2 = 0, |nA|^2 |nB|^2 =
+    // 16, |nB|^2 = 16), e1 x f1 = (0,0,2), the coplanar axis nA x e1 = (0,1,0); 4905b0 projects B on (1,1,0): (0, 2).
+    {auto &r=native.runtime();std::memset(r.memory.flat(),0,bozo::kFlatBytes);
+        const uint32_t e0=0x27bdff40u,e1=0x8cc90000u;std::memcpy(r.memory.hostPointer(0x490630,4),&e0,4);std::memcpy(r.memory.hostPointer(0x4905b0,4),&e1,4);
+        const uint32_t la=0x1e0000,lb=0x1e0010,v=0x1e1000,out=0x1e2000,axis=0x1e3000;
+        const float V[6][4]={{0,0,0,1},{1,0,0,1},{0,1,0,1},{0,0,1,1},{0,2,1,1},{2,0,1,1}};
+        for(unsigned i=0;i<6;++i){std::memcpy(r.memory.hostPointer(v+16*i,16),V[i],16);const uint32_t at=v+16*i;std::memcpy(r.memory.hostPointer((i<3?la:lb)+4*(i%3),4),&at,4);}
+        R5900Context c{};c.r[17].uw[0]=la;c.r[16].uw[0]=lb;c.r[2].uw[0]=out;c.r[3].uw[0]=out+0x10;c.r[5].uw[0]=out+0x20;
+        const auto vec=[&](uint32_t at,unsigned n){std::array<float,4> f{};std::memcpy(f.data(),r.memory.hostPointer(at,16),4*n);return f;};
+        check(vp2s::nativeMathInstruction(r.memory.flat(),&c,&r,0x49065c));
+        check(vp2s::nativeMathInstruction(r.memory.flat(),&c,&r,0x490694) && vp2s::nativeMathInstruction(r.memory.flat(),&c,&r,0x490698));
+        auto n=vec(out,3);auto d=vec(out+0x10,1);check(n[0]==0 && n[1]==0 && n[2]==1 && d[0]==0);
+        check(vp2s::nativeMathInstruction(r.memory.flat(),&c,&r,0x49071c));n=vec(out+0x20,3);check(n[0]==0 && n[1]==0 && n[2]==-4);
+        check(vp2s::nativeMathInstruction(r.memory.flat(),&c,&r,0x49074c));n=vec(out,3);check(n[0]==0 && n[1]==16 && n[2]==16);
+        check(vp2s::nativeMathInstruction(r.memory.flat(),&c,&r,0x4908a4));n=vec(out,3);check(n[0]==0 && n[1]==0 && n[2]==2);
+        check(vp2s::nativeMathInstruction(r.memory.flat(),&c,&r,0x490b7c));n=vec(out,3);check(n[0]==0 && n[1]==1 && n[2]==0);
+        const float ax[4]={1,1,0,0};std::memcpy(r.memory.hostPointer(axis,16),ax,16);
+        c.r[5].uw[0]=axis;c.r[6].uw[0]=lb;c.r[3].uw[0]=out+0x30;check(vp2s::nativeMathInstruction(r.memory.flat(),&c,&r,0x49060c));
+        n=vec(out+0x30,3);check(n[0]==0 && n[1]==2 && n[2]==1);
+        std::memset(r.memory.hostPointer(0x490630,4),0,4);check(!vp2s::nativeTriangleOverlap(&c,&r,0x490694));   // another overlay
+        std::printf("mod028 490630 triangle test: normals, parallel test, edge and coplanar axes; 4905b0 projection\n");}
     // The box test 1fbe60 at 1fbe90 on a class 1622a0 box whose inverse matrix is not set (map 535's bytes): no box until set,
     // the local point is the box centre; a radius beyond a half extent, another caller or a set box behave otherwise.
     {auto &r=native.runtime();std::memset(r.memory.flat(),0,bozo::kFlatBytes);

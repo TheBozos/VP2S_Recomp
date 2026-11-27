@@ -4957,6 +4957,69 @@ bool nativeCapsulePair(R5900Context *c,Runtime *rt,uint32_t pc){
     for(unsigned i=0;i<3;++i)delta[i]=delta[i]*q;
     ps2Publish(rt,target,delta,3);return true;
 }
+// mod001 1fc180 sphere / capsule pair (virtual +94 of another chain part kind, same callers and arguments as
+// 1fc300 above: a0 = sphere A (+230 centre, +220 radius), a1 = capsule B, a2 = per-axis weights, a3 = separation
+// output; VF24..27 = the owner's matrix +190, the caller's s2 at SP+20):
+//  1fc1b4..1fc230  P = M*(A+230) (translation by vf0.w) scaled per lane by (rB+rA)/((0+rA) + w*rB), to SP+60;
+//  (211fb0, native, gives t at SP+7c; the radius test and the FPU square root stay in the generated code)
+//  1fc270..1fc2c4  delta = ((B+230 + 0) + B+240*t) - P*1, normalized with RSQRT; XYZ to a3 (W inherited).
+bool nativeSpherePair(R5900Context *c,Runtime *rt,uint32_t pc){
+    const bool place=pc>=0x1fc1b4 && pc<=0x1fc230,separate=pc>=0x1fc270 && pc<=0x1fc2c4;
+    if(!(place || separate) || (pc&3))return false;
+    if(!c)throw std::runtime_error("native sphere pair has no CPU record");
+    const auto stack=c->r[29].uw[0],a=c->r[20].uw[0],b=c->r[19].uw[0];
+    const auto word=[&](uint32_t at){if(at&3)throw std::runtime_error("native sphere pair word misaligned");
+        uint32_t v;std::memcpy(&v,rt->memory.hostPointer(at,4),4);return v;};
+    const auto lane=[&](uint32_t at){return Ps2Word{word(at)};};
+    if(place){
+        if(pc==0x1fc1b4 && (c->r[2].uw[0]!=a+0x230 || (c->r[31].uw[0]!=0x1fdc2c && c->r[31].uw[0]!=0x1fdb18)))throw std::runtime_error("native sphere pair caller mismatch");
+        if(pc!=0x1fc230)return true;
+        if(c->r[2].uw[0]!=stack+0x60)throw std::runtime_error("native sphere pair destination mismatch");
+        const auto m=ps2Rows(rt,word(word(stack+0x20)+4)+0x190,4);
+        const auto weights=ps2Record(rt,c->r[6].uw[0]);const auto ra=lane(a+0x220),rb=lane(b+0x220);
+        auto out=ps2Transform(m,ps2Record(rt,a+0x230));const auto sum=rb+ra;
+        for(unsigned i=0;i<3;++i)out[i]=out[i]*(sum/((kPs2Zero+ra)+weights[i]*rb));
+        ps2Publish(rt,stack+0x60,out);return true;
+    }
+    if(pc==0x1fc270 && (c->r[4].uw[0]!=b+0x230 || c->r[2].uw[0]!=b+0x240 || c->r[3].uw[0]!=stack+0x60))
+        throw std::runtime_error("native sphere separation sources mismatch");
+    if(pc!=0x1fc2c4)return true;
+    const auto target=c->r[18].uw[0];if(target&15)throw std::runtime_error("native sphere separation destination misaligned");
+    const auto p0=ps2Record(rt,b+0x230),p1=ps2Record(rt,b+0x240),q0=ps2Record(rt,stack+0x60);
+    const auto t=lane(stack+0x7c);Ps2Lanes delta{};
+    for(unsigned i=0;i<3;++i)delta[i]=((p0[i]+kPs2Zero)+p1[i]*t)-q0[i]*kPs2One;
+    const auto q=Ps2Word::reciprocalRoot(kPs2One,(delta[0]*delta[0]+delta[1]*delta[1])+kPs2One*(delta[2]*delta[2]));
+    for(unsigned i=0;i<3;++i)delta[i]=delta[i]*q;
+    ps2Publish(rt,target,delta,3);return true;
+}
+// mod001 224590 disc hit (a0 = disc object: +220 centre, w = radius^2; +250 normal; a1 = point):
+//  22459c..2245cc  m = (p - c) * n, d = (m.x + m.y) + 1*m.z; SQC2 (d, m.y, m.z) to SP+0; q = (p + 0) - n*d;
+//  2245f0..2247bc  s = (q - c)^2, (((s.x + s.y) + 1*s.z) - c.w, s.y, s.z) to SP+0 (the caller's random draws and
+//                  the +290 hit point stay in the generated code). a1 is reused by the draws, so the point read at
+//                  2245cc carries to 2247bc (same object and frame).
+bool nativeDiscHit(R5900Context *c,Runtime *rt,uint32_t pc){
+    if(pc<0x22459c || pc>0x2247bc || (pc&3))return false;
+    if(!c)throw std::runtime_error("native disc hit has no CPU record");
+    const auto object=c->r[4].uw[0],stack=c->r[29].uw[0];
+    static struct{uint32_t object=0,stack=0;Ps2Lanes q{};bool set=false;}st;
+    if(pc==0x22459c && (c->r[3].uw[0]!=object+0x220 || c->r[2].uw[0]!=object+0x250))throw std::runtime_error("native disc hit sources mismatch");
+    if(pc==0x2245cc){
+        if(c->r[2].uw[0]!=stack)throw std::runtime_error("native disc hit destination mismatch");
+        const auto p=ps2Record(rt,c->r[5].uw[0]),centre=ps2Record(rt,object+0x220),n=ps2Record(rt,object+0x250);
+        Ps2Word m[3];for(unsigned i=0;i<3;++i)m[i]=(p[i]-centre[i])*n[i];
+        const auto d=(m[0]+m[1])+kPs2One*m[2];
+        Ps2Lanes out=ps2Record(rt,stack);out[0]=d;out[1]=m[1];out[2]=m[2];ps2Publish(rt,stack,out,3);
+        for(unsigned i=0;i<3;++i)st.q[i]=(p[i]+kPs2Zero)-n[i]*d;
+        st.object=object;st.stack=stack;st.set=true;return true;
+    }
+    if(pc!=0x2247bc)return true;
+    if(!st.set || st.object!=object || st.stack!=stack || c->r[2].uw[0]!=stack)throw std::runtime_error("native disc hit lost its point");
+    st.set=false;
+    const auto centre=ps2Record(rt,object+0x220);Ps2Word sq[3];
+    for(unsigned i=0;i<3;++i){const auto v=st.q[i]-centre[i];sq[i]=v*v;}
+    Ps2Lanes out=ps2Record(rt,stack);out[0]=((sq[0]+sq[1])+kPs2One*sq[2])-centre[3];out[1]=sq[1];out[2]=sq[2];
+    ps2Publish(rt,stack,out,3);return true;
+}
 // mod001 1fbd60 plane contact (virtual +8c, a0 = plane object, a1 = point,
 // a2 = output, f12 = radius); all inputs are explicit:
 //  1fbd6c..1fbda0  d = ((m.x + m.y) + 1*m.z) - r, m = (p - a0+230) * a0+220,
@@ -5725,6 +5788,27 @@ constexpr MacroIdiom macroIdioms[]={
     // plane through three points, second form (mod028 494530; its store the jr ra's delay slot): LQC2 vf1..vf3; ADDw.xyz vf31
     // = 1; SUB.xyz e1 = p1 - p2, e2 = p2 - p3; SUBw.w vf31 = 1 - 1; n = e1 x e2; RSQRT((x2 + y2) + 1 z2); n *= Q;
     // d = (n p1).x-y + 1 z; SUBx.w vf12.w = 0 - d; SQC2 vf12 -> {n, 0 - d}.
+    // mod028 rigid-body solver (battles 0x18, 0x55), row dots (4925b0, 492950, 493394, 48f6a8): LQC2 vf15 (v), vf1..vf4
+    // (rows); ADDw.xyz vf6 = 1; MUL.xyzw vf11..14 = row_k * v; per lane k of vf15 the row-k products summed
+    // x ((x + y) + z) + w, y ((y + x) + z) + w, z ((z + y) + x) + w, w ((w + y) + z) + x; SQC2 vf15.
+    {"rowdots",{-16,-2,-3,-4,-5,0x4bc00183,0x4bef0aea,0x4bef132a,0x4bef1b6a,0x4bef23aa,0x4b0b583d,0x4b0b30be,0x4b0b33cb,0x4a8c603c,
+        0x4a8c30be,0x4a8c33cb,0x4a4d683d,0x4a4d30bc,0x4a4d33cb,0x4a2e703d,0x4a2e00be,0x4a2e03c8,-115},23},
+    // its length (4927e4, 492b9c): LQC2 vf24; MUL.xyz vf24^2; ADDw.xyz vf25 = 1; (x + y) + 1*z; SQRT; ADDq.x
+    // -> {0 + root, y2, z2, w}.
+    {"length24",{-25,0x4bd8c62a,0x4bc00643,0x4b18c03d,0x4b18ce0a,0x4a1803bd,0x4a0003bf,0x4b000620,-124},9},
+    // the point velocity 490570 (a0 = body: +730 centre, +5e0 spin, +5c0 velocity; a1 = point; a2 = out):
+    // MULw.w vf6 = 1; vf5 = p - c; OPMULA / OPMSUB vf6 = spin x vf5; ADD.xyz vf6 = v + vf6; jr ra; SQC2 vf6.
+    {"spin",{-2,-3,-4,-5,0x4a20019b,0x4bc2096c,0x4bc51afe,0x4bc329ae,0x4bc621a8,-106},10},
+    // a difference (4931bc): LQC2 vf21 (a), vf22 (b); SUB.xyz vf21 = a - b; SQC2 vf21 -> {a - b, a.w}.
+    {"sub21",{-22,-23,0x4bd6ad6c,-121},4},
+    // a scaled sum (492f5c, 493160): LQC2 vf1 (a), vf2 (b), vf3 (c); ADD.xyz vf1 = a + b; MUL.xyz vf3 = c * vf1;
+    // SQC2 vf3 -> {c * (a + b), c.w}.
+    {"summul",{-2,-3,-4,0x4bc20868,0x4bc118ea,-103},6},
+    // a negation with w = 1 (492c20): LQC2 vf1; SUB.xyz vf1 = 0 - v; MULw.w vf1 = 1; SQC2 vf1.
+    {"negone1",{-2,0x4bc1006c,0x4a20005b,-101},4},
+    // two differences from one point (493210, 4932c4): LQC2 vf21 (p), vf22 (a), vf23 (b); SUB.xyz vf22 = p - a,
+    // vf23 = p - b; MULw.w vf22 / vf23 = p.w * 1; SQC2 vf22, SQC2 vf23.
+    {"diffpair",{-22,-23,-24,0x4bd6adac,0x4bd7adec,0x4a20ad9b,0x4a20addb,-122,-123},9},
     {"plane3b",{-2,-3,-4,0x4bc007c3,0x4bc2092c,0x4bc3116c,0x4a2007c7,0x4bc522fe,0x4bc42aae,0x4bca532a,0x4b0c603d,0x4b0cfaca,0x4a6b03be,0x4a0003bf,
         0x4bc0531c,0x4bc1636a,0x4b0d683d,0x4b0dfb8a,0x4a2efb04,-112},20},
     // pair sum (mod028 4947a0 at 49480c): LQC2 vf1 (a), vf2 (b); ADD.xyz vf1 += vf2; SQC2 vf1 -> {a + b, a.w}.
@@ -5787,6 +5871,10 @@ constexpr MacroIdiom macroIdioms[]={
     // SQC2 vf1..vf4 (each store publishes its row; the capture lives to the last).
     {"compose",{-2,-3,-4,-5,-6,-7,-8,-9,0x4be129bc,0x4be130bd,0x4be138be,0x4be1404b,0x4be229bc,0x4be230bd,0x4be238be,0x4be2408b,
         0x4be329bc,0x4be330bd,0x4be338be,0x4be340cb,0x4be429bc,0x4be430bd,0x4be438be,0x4be4410b,-101,-102,-103,-104},28}};
+// The mod028 solver keeps VU registers across its calls: vf6 is the point velocity 490570 leaves (also stored to
+// its a2), vf8 the plane hit 4944e0 returns in the register only, vf30 a vector loaded before a call or a loop.
+struct SolverRegisters{VuWords vf6{},vf8{},vf30{};uint32_t ra8=0;bool has6=false,has8=false,has30=false;};
+SolverRegisters &solverRegisters(const Runtime *rt){static std::map<const Runtime *,SolverRegisters> regs;return regs[rt];}
 struct MacroCapture{std::array<VuWords,32> vf{};uint32_t valid=0,block=0;};
 MacroCapture &macroCapture(const Runtime *rt){static std::map<const Runtime *,MacroCapture> captures;return captures[rt];}
 // SQC2 vf0: VU0's vf0 is hard-wired to (0, 0, 0, 1.0), so storing it is that
@@ -5896,6 +5984,22 @@ bool nativeMacroIdiom(R5900Context *c,Runtime *rt,uint32_t pc){
                 out[3]=vuSub(vuSub(one,one),vuAdd(vuAdd(m[0],m[1]),vuMul(one,m[2])));}
             else if(kind=="impulse"){const auto v=need(1),k=need(2);for(unsigned i=0;i<3;++i)out[i]=vuMul(v[i],k[0]);out[3]=vuMul(v[3],0);}
             else if(kind=="negate1"){const auto v=need(1);const auto m=vuSub(0,one);for(unsigned i=0;i<3;++i)out[i]=vuMul(v[i],m);out[3]=v[3];}
+            else if(kind=="rowdots"){const auto v=need(15);uint32_t m[4][4];
+                for(unsigned r=0;r<4;++r){const auto row=need(1+r);for(unsigned i=0;i<4;++i)m[r][i]=vuMul(row[i],v[i]);}
+                constexpr unsigned order[4][4]={{0,1,2,3},{1,0,2,3},{2,1,0,3},{3,1,2,0}};
+                for(unsigned k=0;k<4;++k)out[k]=vuAdd(vuAdd(vuAdd(m[k][order[k][0]],m[k][order[k][1]]),vuMul(one,m[k][order[k][2]])),vuMul(one,m[k][order[k][3]]));}
+            else if(kind=="length24"){const auto v=need(24);uint32_t sq[3];for(unsigned i=0;i<3;++i)sq[i]=vuMul(v[i],v[i]);
+                uint32_t f=0;const auto root=bozo::ps2f::sqrt(vuAdd(vuAdd(sq[0],sq[1]),vuMul(one,sq[2])),f);_mm_setcsr(savedCsr);
+                out={vuAdd(0,root),sq[1],sq[2],v[3]};}
+            else if(kind=="spin"){const auto p=need(1),c0=need(2),w=need(3),v=need(4);uint32_t d[3];for(unsigned i=0;i<3;++i)d[i]=vuSub(p[i],c0[i]);
+                const uint32_t x[3]={vuSub(vuMul(w[1],d[2]),vuMul(d[1],w[2])),vuSub(vuMul(w[2],d[0]),vuMul(d[2],w[0])),vuSub(vuMul(w[0],d[1]),vuMul(d[0],w[1]))};
+                for(unsigned i=0;i<3;++i)out[i]=vuAdd(v[i],x[i]);out[3]=one;
+                auto &regs=solverRegisters(rt);regs.vf6=out;regs.has6=true;}
+            else if(kind=="sub21"){const auto a=need(21),b=need(22);for(unsigned i=0;i<3;++i)out[i]=vuSub(a[i],b[i]);out[3]=a[3];}
+            else if(kind=="summul"){const auto a=need(1),b=need(2),c3=need(3);for(unsigned i=0;i<3;++i)out[i]=vuMul(c3[i],vuAdd(a[i],b[i]));out[3]=c3[3];}
+            else if(kind=="negone1"){const auto v=need(1);for(unsigned i=0;i<3;++i)out[i]=vuSub(0,v[i]);out[3]=vuMul(one,one);}
+            else if(kind=="diffpair"){const auto p=need(21),o=need(want==-122?22:23);for(unsigned i=0;i<3;++i)out[i]=vuSub(p[i],o[i]);out[3]=vuMul(p[3],one);
+                _mm_setcsr(savedCsr);std::memcpy(record(rt,address(self),16),out.data(),16);if(want==-123)capture.valid=0;return true;}
             else if(kind=="dot26"){const auto a=need(26),b=need(27);out=a;out[0]=vuAdd(vuAdd(vuMul(a[0],b[0]),vuMul(a[1],b[1])),vuMul(one,vuMul(a[2],b[2])));}
             else if(kind=="offsetpair"){const auto p=need(1),d=need(2),s=need(k==6?3:4);
                 for(unsigned i=0;i<3;++i)out[i]=vuSub(vuMul(p[i],one),vuMul(d[i],s[0]));out[3]=p[3];
@@ -9237,6 +9341,104 @@ void nativeBonePaletteWritten(const Runtime *rt,uint32_t palette){builtPalettes(
 //   48f27c SUB.xyz vf10 = a - b, 48f280 ADD.xyz vf20 = a + b, 48f284 / 48f288 MULw.w = a.w * 1,
 //   48f28c / 48f290 ADD.xyz += p, 48f294 SQC2 vf10 -> s2+40, 48f298 SQC2 vf20 -> s2+50,
 // with a = [s0], b = [s1], p = [v0]: the box (a - b + p, a + b + p) around p.
+// mod028 4905b0 (a1 = axis, a2 = list of three vertex pointers, a3 = out): the three projections
+// d_i = a . v_i (lanes x, y: (x + y) + z; lane z: (z + x) + y), then MINI / MAX into vf29.x / .y (vf29.xyz = 1
+// before), SQC2 vf29 -> sp at 49060c; the caller reads (min, max) back.
+// mod028 490630 (a1 = triangle A's vertex pointers, a2 = triangle B's): the separating-axis triangle test.
+// A = p0..p2 (vf4..6), edges e1 = p1 - p0, e2 = p2 - p1, e3 = p0 - p2 (vf1..3); B = q0..q2 (vf7..9), edges
+// f1..f3 (vf10..12); nA = e1 x e2 (vf14), nB = f1 x f2 (vf15); OPMULA / OPMSUB a, b = a x b with
+// x = a.y b.z - b.y a.z. Each SQC2 stores (to its base register's address):
+//   490694 nA; 490698 .x = nA . p0; 49071c nB; 49074c (|nA x nB|^2, |nA|^2 |nB|^2, |nB|^2) with the lane orders
+//   (x + y) + z, (y + x) + z then * z, (z + x) + y; 490780 .x = nB . q0;
+//   4907d4..490b14 e_i x f_j (vf29) for (1,2) (2,2) (1,1) (2,1) (3,1) (3,2) (1,3) (2,3) (3,3);
+//   490b7c..490d84 (the coplanar branch) nA x e1, nA x e2, nA x e3, nB x f1, nB x f2, nB x f3.
+// The vertices are re-read through s1 / s0 (callee-saved, unchanged across the 4905b0 calls).
+namespace {
+VuWords triVertex(Runtime *rt,uint32_t list,unsigned i){
+    const auto *p=rt->memory.hostPointer(list+4*i,4);if(!p)throw std::runtime_error("native triangle list outside memory");
+    uint32_t at=0;std::memcpy(&at,p,4);return vuWords(rt,at);}
+VuWords triCross(const VuWords &a,const VuWords &b){VuWords r{};
+    r[0]=vuSub(vuMul(a[1],b[2]),vuMul(b[1],a[2]));r[1]=vuSub(vuMul(a[2],b[0]),vuMul(b[2],a[0]));r[2]=vuSub(vuMul(a[0],b[1]),vuMul(b[0],a[1]));return r;}
+VuWords triSub(const VuWords &a,const VuWords &b){VuWords r{};for(unsigned i=0;i<3;++i)r[i]=vuSub(a[i],b[i]);return r;}
+uint32_t triDot(const VuWords &a,const VuWords &b,unsigned lane){
+    const uint32_t m[3]={vuMul(a[0],b[0]),vuMul(a[1],b[1]),vuMul(a[2],b[2])};const uint32_t one=0x3f800000u;
+    if(lane==2)return vuAdd(vuAdd(m[2],m[0]),vuMul(one,m[1]));
+    return vuAdd(vuAdd(m[lane],m[lane^1]),vuMul(one,m[2]));}
+}
+bool nativeTriangleProject(R5900Context *c,Runtime *rt,uint32_t pc){
+    if(!rt || (pc&3) || pc<0x4905c4 || pc>0x49060c)return false;
+    uint32_t entry=0;if(const auto *e=rt->memory.hostPointer(0x4905b0,4))std::memcpy(&entry,e,4);
+    if(entry!=0x8cc90000u)return false;   // another overlay at these addresses
+    if(!c)throw std::runtime_error("native triangle projection has no CPU record");
+    if(pc!=0x49060c)return true;
+    const auto axis=vuWords(rt,c->r[5].uw[0]);const auto list=c->r[6].uw[0];
+    const uint32_t d[3]={triDot(axis,triVertex(rt,list,0),0),triDot(axis,triVertex(rt,list,1),1),triDot(axis,triVertex(rt,list,2),2)};
+    using bozo::ps2f::min;using bozo::ps2f::max;
+    const uint32_t o[3]={min(min(d[0],d[1]),d[2]),max(max(d[1],d[0]),d[2]),0x3f800000u};
+    std::memcpy(record(rt,c->r[3].uw[0],12),o,12);return true;
+}
+bool nativeTriangleOverlap(R5900Context *c,Runtime *rt,uint32_t pc){
+    if(!rt || (pc&3) || pc<0x49065c || pc>0x490d84)return false;
+    uint32_t entry=0;if(const auto *e=rt->memory.hostPointer(0x490630,4))std::memcpy(&entry,e,4);
+    if(entry!=0x27bdff40u)return false;   // another overlay at these addresses
+    if(!c)throw std::runtime_error("native triangle overlap has no CPU record");
+    const auto A=c->r[17].uw[0],B=c->r[16].uw[0];
+    const auto p0=triVertex(rt,A,0),p1=triVertex(rt,A,1),p2=triVertex(rt,A,2),q0=triVertex(rt,B,0),q1=triVertex(rt,B,1),q2=triVertex(rt,B,2);
+    const VuWords e[3]={triSub(p1,p0),triSub(p2,p1),triSub(p0,p2)},f[3]={triSub(q1,q0),triSub(q2,q1),triSub(q0,q2)};
+    const auto nA=triCross(e[0],e[1]),nB=triCross(f[0],f[1]);
+    const auto store=[&](unsigned base,const uint32_t *w,unsigned lanes){std::memcpy(record(rt,c->r[base].uw[0],4*lanes),w,4*lanes);};
+    static const struct{uint32_t pc;unsigned a,b;}edges[]={{0x4907d4,0,1},{0x49083c,1,1},{0x4908a4,0,0},{0x49090c,1,0},{0x490974,2,0},
+        {0x4909dc,2,1},{0x490a44,0,2},{0x490aac,1,2},{0x490b14,2,2}};
+    for(const auto &k:edges)if(pc==k.pc){const auto v=triCross(e[k.a],f[k.b]);store(2,v.data(),3);return true;}
+    static const uint32_t coplanar[6]={0x490b7c,0x490be4,0x490c4c,0x490cb4,0x490d1c,0x490d84};
+    for(unsigned i=0;i<6;++i)if(pc==coplanar[i]){const auto v=i<3?triCross(nA,e[i]):triCross(nB,f[i-3]);store(2,v.data(),3);return true;}
+    switch(pc){
+    case 0x490694:store(2,nA.data(),3);break;
+    case 0x490698:{const uint32_t x=triDot(p0,nA,0);store(3,&x,1);break;}
+    case 0x49071c:store(5,nB.data(),3);break;
+    case 0x49074c:{const auto n=triCross(nA,nB);const uint32_t sb=triDot(nB,nB,2);
+        const uint32_t w[3]={triDot(n,n,0),vuMul(triDot(nA,nA,1),sb),sb};store(2,w,3);break;}
+    case 0x490780:{const uint32_t x=triDot(nB,q0,0);store(2,&x,1);break;}
+    default:break;
+    }
+    return true;
+}
+// mod028 solver sites whose VU registers cross a call (battles 0x18, 0x55; see SolverRegisters). The plane hit 4944e0
+// returns its point in vf8 only; nativeBattleGrab computes it there (BattleGrab::vf8, ray set):
+//  49268c / 492a48 LQC2 vf30; 490570 (the "spin" idiom) leaves vf6; 4926a4 / 492a60 SUB.xyz vf30 -= vf6; SQC2.
+//  4927b4 LQC2 vf30 = [fp]; 4944e0; 4927cc SUB.xyz vf8 = vf8 - vf30; SQC2 vf8 at 4927d0.
+//  492b6c LQC2 vf30 = [fp]; 4944e0; 492b84 SUB.xyz vf30 = vf30 - vf8; SQC2 vf30 at 492b88.
+//  4931e4 / 4931fc SQC2 vf8 straight after a 4944e0 call.
+bool nativeSolverRegisters(R5900Context *c,Runtime *rt,uint32_t pc){
+    if(!rt || (pc&3))return false;
+    static constexpr uint32_t loads30[]={0x49268c,0x492a48,0x4927b4,0x492b6c};
+    static constexpr uint32_t plain[]={0x4926a4,0x492a60,0x4927cc,0x492b84};
+    const bool load=std::find(std::begin(loads30),std::end(loads30),pc)!=std::end(loads30);
+    const bool folded=std::find(std::begin(plain),std::end(plain),pc)!=std::end(plain);
+    if(!load && !folded && pc!=0x4926a8 && pc!=0x492a64 && pc!=0x4927d0 && pc!=0x492b88 && pc!=0x4931e4 && pc!=0x4931fc)return false;
+    uint32_t a=0,b=0;
+    if(const auto *e=rt->memory.hostPointer(0x4944e0,4))std::memcpy(&a,e,4);
+    if(const auto *e=rt->memory.hostPointer(0x490570,4))std::memcpy(&b,e,4);
+    if(a!=0xd8a10000u || b!=0x24880730u)return false;   // another overlay at these addresses
+    if(!c)throw std::runtime_error("native solver site has no CPU record");
+    auto &regs=solverRegisters(rt);
+    const auto store=[&](unsigned base,const VuWords &v){std::memcpy(record(rt,c->r[base].uw[0],16),v.data(),16);};
+    if(load){uint32_t w;std::memcpy(&w,rt->memory.hostPointer(pc,4),4);
+        regs.vf30=vuWords(rt,c->r[(w>>21)&31].uw[0]+uint32_t(int32_t(int16_t(w&0xffff))));regs.has30=true;return true;}
+    if(folded)return true;
+    const auto need8=[&]{const auto &g=battleGrabs()[rt];if(!g.ray)throw std::runtime_error(std::format("native solver site {:x} without its plane hit",pc));return g.vf8;};
+    const auto need30=[&]{if(!regs.has30)throw std::runtime_error(std::format("native solver site {:x} without its vf30",pc));regs.has30=false;return regs.vf30;};
+    VuWords out{};
+    switch(pc){
+    case 0x4926a8:case 0x492a64:{if(!regs.has6)throw std::runtime_error("native solver site without its point velocity");
+        out=need30();for(unsigned i=0;i<3;++i)out[i]=vuSub(out[i],regs.vf6[i]);store(2,out);return true;}
+    case 0x4927d0:{const auto v=need8(),q=need30();out=v;for(unsigned i=0;i<3;++i)out[i]=vuSub(v[i],q[i]);store(2,out);return true;}
+    case 0x492b88:{const auto v=need8();out=need30();for(unsigned i=0;i<3;++i)out[i]=vuSub(out[i],v[i]);store(2,out);return true;}
+    case 0x4931e4:store(2,need8());return true;
+    case 0x4931fc:store(3,need8());return true;
+    default:return true;
+    }
+}
 bool nativeBattleBox(R5900Context *c,Runtime *rt,uint32_t pc){
     if(!rt || (pc&3) || pc<0x48f268 || pc>0x48f298)return false;
     uint32_t entry=0;if(const auto *e=rt->memory.hostPointer(0x48f1f0,4))std::memcpy(&entry,e,4);
@@ -9326,7 +9528,7 @@ bool nativeMathInstruction(uint8_t *,R5900Context *c,Runtime *rt,uint32_t pc){
     if(CLAIM(nativeParticleTrailInstruction))return true;   // ahead of the generic idioms, which would take its blocks
     if(CLAIM(nativeSkinUpload) || CLAIM(nativeSoftSkin))return true;
     if(CLAIM(nativeFacingPath) || CLAIM(nativeRotationBlocks))return true;
-    if(CLAIM(nativeProjectionBlocks) || CLAIM(nativeBoneAim) || CLAIM(nativeChainBlocks) || CLAIM(nativeCapsulePair) || CLAIM(nativePlaneContact) || CLAIM(nativeRangeTest) || CLAIM(nativeMatrixBuild) || CLAIM(nativeCullTransform) || CLAIM(nativeBoxFrustum) || CLAIM(nativeListBoxQuery) || CLAIM(nativeHitFrame) || CLAIM(nativePlaneDistance) || CLAIM(nativeSphereSweep) || CLAIM(nativeSegmentApproach) || CLAIM(nativeWorldPosition) || CLAIM(nativeCameraTarget) || CLAIM(nativeRootLength) || CLAIM(nativeVisibilityLoop) || CLAIM(nativeMarkerProjection) || CLAIM(nativeQuaternionLeaf) || CLAIM(nativeBonePalette))return true;
+    if(CLAIM(nativeProjectionBlocks) || CLAIM(nativeBoneAim) || CLAIM(nativeChainBlocks) || CLAIM(nativeCapsulePair) || CLAIM(nativeSpherePair) || CLAIM(nativeDiscHit) || CLAIM(nativePlaneContact) || CLAIM(nativeRangeTest) || CLAIM(nativeMatrixBuild) || CLAIM(nativeCullTransform) || CLAIM(nativeBoxFrustum) || CLAIM(nativeListBoxQuery) || CLAIM(nativeHitFrame) || CLAIM(nativePlaneDistance) || CLAIM(nativeSphereSweep) || CLAIM(nativeSegmentApproach) || CLAIM(nativeWorldPosition) || CLAIM(nativeCameraTarget) || CLAIM(nativeRootLength) || CLAIM(nativeVisibilityLoop) || CLAIM(nativeMarkerProjection) || CLAIM(nativeQuaternionLeaf) || CLAIM(nativeBonePalette))return true;
     if(CLAIM(nativeLeafSphere) || CLAIM(nativeLeafBox) || CLAIM(nativeSegmentBox) || CLAIM(nativeHitPointTransform) || CLAIM(nativeRaySphere) || CLAIM(nativeColourMorph))return true;
     if(CLAIM(nativeLengthSite) || CLAIM(nativeRecordDot) || CLAIM(nativePackedQuaternion))return true;
     if(CLAIM(nativeObjectOverlap))return true;
@@ -9913,7 +10115,7 @@ bool nativeMathInstruction(uint8_t *,R5900Context *c,Runtime *rt,uint32_t pc){
     default:
         // Inlined-block recognisers last: they read code around the PC, so
         // only sites no specific handler claimed pay for that scan.
-        return CLAIM(nativeBoundsFold) || CLAIM(nativeConeTargets) || CLAIM(nativeBattleBox) || CLAIM(nativeParticleStep) || CLAIM(nativeParticleBox) || CLAIM(nativeTrailEmitter) || CLAIM(nativeProgramEmitter) || CLAIM(nativeSimpleEmitter) || CLAIM(nativeLinearEmitter) || CLAIM(nativeCameraOffset) || CLAIM(nativeCollisionShape) || CLAIM(nativeHeightNormals) || CLAIM(nativeSpriteMove) || CLAIM(nativeRowPoints) || CLAIM(nativeRowEmitter) || CLAIM(nativeEmitterClock) || CLAIM(nativeConstantStore) || CLAIM(nativeLengthIdiom) || CLAIM(nativeMacroIdiom) || CLAIM(nativeInverseIdiom) || nativeQuaternionIdiom(c,rt,pc);
+        return CLAIM(nativeBoundsFold) || CLAIM(nativeConeTargets) || CLAIM(nativeBattleBox) || CLAIM(nativeSolverRegisters) || CLAIM(nativeTriangleProject) || CLAIM(nativeTriangleOverlap) || CLAIM(nativeParticleStep) || CLAIM(nativeParticleBox) || CLAIM(nativeTrailEmitter) || CLAIM(nativeProgramEmitter) || CLAIM(nativeSimpleEmitter) || CLAIM(nativeLinearEmitter) || CLAIM(nativeCameraOffset) || CLAIM(nativeCollisionShape) || CLAIM(nativeHeightNormals) || CLAIM(nativeSpriteMove) || CLAIM(nativeRowPoints) || CLAIM(nativeRowEmitter) || CLAIM(nativeEmitterClock) || CLAIM(nativeConstantStore) || CLAIM(nativeLengthIdiom) || CLAIM(nativeMacroIdiom) || CLAIM(nativeInverseIdiom) || nativeQuaternionIdiom(c,rt,pc);
     }
 }
 #undef CLAIM

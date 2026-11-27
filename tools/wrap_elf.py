@@ -53,6 +53,13 @@ def text_end(module: bytes, text: int) -> int:
         while thunk(aligned):
             aligned += 16
             end = aligned
+    # A module without data whose file runs past its text keeps whole functions there (module 163 at 0x532200:
+    # text ends 0x5324c0, two methods follow up to 0x5324f8, called through a vtable in the main ELF at 0x18a040;
+    # module 11 likewise): the text runs to the last jr ra and its delay slot.
+    if struct.unpack_from("<I", module, 0x10)[0] == 0:
+        last = max((off for off in range(end, len(module) - 7, 4) if word(off) == JR_RA), default=None)
+        if last is not None:
+            end = last + 8
     return end
 
 

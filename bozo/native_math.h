@@ -74,6 +74,10 @@ bool nativeSpherePair(R5900Context *,Runtime *,uint32_t pc);
 bool nativeDiscHit(R5900Context *,Runtime *,uint32_t pc);
 // mod028 solver sites whose VU registers cross a call or a loop (native_math.cpp).
 bool nativeSolverRegisters(R5900Context *,Runtime *,uint32_t pc);
+// mod147 533700's colour blend and mod159 533b4c's orthonormal frame (slot 0x532200; native_math.cpp).
+bool nativeSlotBlend(R5900Context *,Runtime *,uint32_t pc);
+// mod028 490380's ray / sphere terms and 490480's closest points of two segments (native_math.cpp).
+bool nativeSegmentPair(R5900Context *,Runtime *,uint32_t pc);
 // Bone palettes (skeleton +4c buffer, +50 selector) the game's palette builder 237284 / 2372bc has written completely
 // (its last bone) in this run. User decision 2026-11-25 (map 487): a skinned mesh whose palette was never built is not
 // drawn. A save state does not carry the set: a palette counts once its builder runs again.

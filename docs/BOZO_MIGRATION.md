@@ -12,6 +12,30 @@ The earlier VP2S face/shading and general brightness comparisons remain open.
 
 ## Build and evidence
 
+### Battle sweep, round 3: slot-module sites and the solver's sibling (2026-11-27)
+
+- **Slot modules (0x532200):**
+  - mod147 533700 (battle 0x6e) blends three colour rows of its table at 0x533f80 with two pairs of FPU weights
+    (QMTC2);
+  - mod156 53468c (0xa0) has the guarded normalise words already ported at mod028 3e8a34 (added to its sites);
+  - mod159 533b4c (0xc2) builds an orthonormal frame around two calls: n = unit(a x b), s = unit(n x v),
+    u = unit(s x n), w = 0. Its 533f2c two-row blend is the new blend2 idiom;
+  - nativeSlotBlend checks every site's word, since other modules share the slot.
+- **The solver's sibling, mod028 491xxx (battle 0x1600):**
+  - the box (a - b + p, a + b + p; xyz only): boxpair idiom; negdiff and subpair idioms;
+  - the cross-call stores (vf30 - vf6 at 491a34 / 491ce0, vf8 at 4919e4);
+  - three guarded blocks in nativeSolverRegisters: 491a70 direction, 491eb8 unit difference stored only when non-zero,
+    491d88 offset point.
+  - 490380 (ray against sphere: the quadratic's terms, then both hit points) and 490480 (closest points of two
+    segments: s = 0 when the denominator is 0) are nativeSegmentPair.
+- **Marker transpose guard:** mod010's marker claim at 491f90 trusted its rows-loaded flag, left set by the field.
+  In a battle it threw on mod028's code; it now also checks its code block.
+- **Standing (42 rows):** 32 clean. Left:
+  - particle producer mode 6 (0x2f, 0x30) and mode 3 (0xbb); simple emitter inside a trail (0xba); row emitter
+    record (0x54 x2);
+  - 0x23's chain divergence (x2); 0x11 (stage 4)'s resume label; 0x5f / 0x74 (event context).
+- **Regression:** ctest 99/99; regress4 unchanged.
+
 ### Battle sweep, round 2: a module's lost tail, the triangle test, the solver, a sphere pair, a disc (2026-11-27)
 
 - **Module text past the header (battles 0xb7, 0xb9):** mod163 (0x532200) declares text 0x2c0 and no data, but two

@@ -48,7 +48,7 @@ NativeGlyphs::NativeGlyphs(std::filesystem::path directory):root(std::move(direc
     if(!input.eof())throw std::runtime_error("native glyph manifest read failed");
 }
 std::shared_ptr<const NativeGlyphFont> NativeGlyphs::load(GlyphFontKey key){
-    const auto found=files.find(key);if(found==files.end())throw std::runtime_error("font provenance requires offline glyph conversion");
+    const auto found=files.find(key);if(found==files.end())throw std::runtime_error(std::format("font provenance requires offline glyph conversion ({:x}/{:x}+{:x})",key.disc,key.part,key.offset));
     if(auto it=loaded.find(found->second);it!=loaded.end())return it->second;
     std::ifstream input(root/found->second,std::ios::binary);char magic[8];uint32_t h[9];
     if(!input.read(magic,8) || std::memcmp(magic,"VPGF0001",8) || !input.read(reinterpret_cast<char *>(h),sizeof(h)))
@@ -80,7 +80,9 @@ std::shared_ptr<const NativeGlyphFont> NativeGlyphs::font(Runtime *rt,const Nati
         throw std::runtime_error(std::format("native glyph font has no complete decompressed-file provenance: object={:x} base={:x} ({}) pixels={:x} ({})",
             object,base,describe(source),pixels,describe(origin)));
     }
-    auto result=load({origin->disc,origin->part,origin->offset});
+    std::shared_ptr<const NativeGlyphFont> result;
+    try{result=load({origin->disc,origin->part,origin->offset});}
+    catch(const std::runtime_error &e){throw std::runtime_error(std::format("{}: font at {:x} (part offset {:x}), pixels at {:x}",e.what(),base,source->offset,pixels));}
     if(word(rt,object+0x14)!=result->lineHeight || word(rt,object+0x18)!=result->count || word(rt,object+0x20)!=result->stride ||
        word(rt,object+0x24)!=result->width || word(rt,object+0x28)!=result->height || word(rt,object+0x2c)!=result->border)
         throw std::runtime_error("native font metrics differ from converted provenance");

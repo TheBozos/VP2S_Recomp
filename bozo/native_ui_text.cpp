@@ -43,7 +43,9 @@ void type(Runtime *rt,uint32_t element){const auto actual=value<uint32_t>(rt,ele
 // 168b30 (map 2's overlay text, a 15a450 subclass): the base emitter, build 2efba0, item callbacks 2e7e90 / 2e76a0 and draw
 // 2f32d0; its +4 / +c / +10 are word-identical copies of 1e8200 / 1e8210 / 1ea760, and its +1c (4908b0) calls the base
 // update 2efce0 first, then only sets the rebuild / reveal flags (+12d, +3c) and calls the base 2ef860 (compiled).
-bool nativeUiTextClass(uint32_t type){return type==0x1748d0 || type==0x15a450 || type==0x15a2f0 || type==0x165ae0 || type==0x15a350 || type==0x15a600 || type==0x16ed70 || type==0x168b30 || type==0x167ac0;}
+// 176510 (mod030, stage 4: battle 0x11) is the battle label 16ed70 with its module copies: +1c 519fd0 = 3837c0 (the same flag gate,
+// then the base 2ed050).
+bool nativeUiTextClass(uint32_t type){return type==0x1748d0 || type==0x15a450 || type==0x15a2f0 || type==0x165ae0 || type==0x15a350 || type==0x15a600 || type==0x16ed70 || type==0x176510 || type==0x168b30 || type==0x167ac0;}
 void NativeUiTexts::enter(Runtime *rt,uint32_t stack,uint32_t element,uint32_t items,int32_t count){
     type(rt,element);
     if(count>8192 || builds.contains(stack))throw std::runtime_error("native UI text count/stack outside admitted lifetime");
@@ -367,8 +369,8 @@ NativeUiLayer NativeUiTexts::layer(Runtime *rt,uint32_t layer)const{
         if(value<uint32_t>(rt,element)==0x15a1b0 || value<uint32_t>(rt,element)==0x15ac30 ||
            value<uint32_t>(rt,element)==0x15aa20 || value<uint32_t>(rt,element)==0x167560 || value<uint32_t>(rt,element)==0x15a200 || value<uint32_t>(rt,element)==0x15a660 ||
            value<uint32_t>(rt,element)==0x168410 || value<uint32_t>(rt,element)==0x168440 || value<uint32_t>(rt,element)==0x15a420 ||
-           value<uint32_t>(rt,element)==0x15a4e0 || value<uint32_t>(rt,element)==0x15ac60 || (value<uint32_t>(rt,element)==0x16edd0 && value<uint32_t>(rt,0x16edf0)==0x2f1230) ||
-           (value<uint32_t>(rt,element)==0x16ee00 && value<uint32_t>(rt,0x16ee20)==0x2e9640)){   // the battle window (base builder 2e9640)
+           value<uint32_t>(rt,element)==0x15a4e0 || value<uint32_t>(rt,element)==0x15ac60 || ((value<uint32_t>(rt,element)==0x16edd0 || value<uint32_t>(rt,element)==0x176570) && value<uint32_t>(rt,value<uint32_t>(rt,element)+0x20)==0x2f1230) ||
+           ((value<uint32_t>(rt,element)==0x16ee00 || value<uint32_t>(rt,element)==0x1765a0) && value<uint32_t>(rt,value<uint32_t>(rt,element)+0x20)==0x2e9640)){   // the battle window, stage 4's 1765a0 (base builder 2e9640)
             auto *d=vp2s::nativeCast<bozo::ee::Dispatcher>(rt->services);auto *o=d?vp2s::nativeCast<UiWindowOwner>(&d->host()):nullptr;
             const auto captured=o?o->nativeUiWindows().window(element):nullptr;
             if(!captured)throw std::runtime_error("native window has no finished scalar snapshot");

@@ -93,7 +93,8 @@ void NativeUiSprites::finishSprite(uint32_t stack){
 // The tutorial window's button element: 15a4e0, or mod028's battle copy 16edd0 (its +20 build is
 // the base 2f1230; its +1c only gates the base update 2f1310 on the battle's pause flags).
 bool nativeButtonElementClass(Runtime *rt,uint32_t type){
-    return type==0x15a4e0 || (type==0x16edd0 && value<uint32_t>(rt,0x16edf0)==0x2f1230);
+    // mod030's stage-4 copy 176570 (battle 0x11) likewise: +20 2f1230, +1c 51a0e0 gates 2f1310.
+    return type==0x15a4e0 || ((type==0x16edd0 || type==0x176570) && value<uint32_t>(rt,type+0x20)==0x2f1230);
 }
 std::optional<bool> nativeUiSpriteInstruction(R5900Context *c,Runtime *rt,uint32_t pc){
     if(!nativeUiSpriteSite(pc))return std::nullopt;   // its sites: native_conditional_sites.h

@@ -222,7 +222,9 @@ namespace
 
     void captureUnknownModule(uint8_t *rdram, uint32_t slot)
     {
-        // A module image: header +8 load address (the slot), +4 id, +12 text end, +16 data size.
+        // A module image: header +8 load address (the slot), +4 id, +12 text size, +16 data size, +1c end. The image runs
+        // from the slot to 0x40 + text + data (or the end, if further): text + data alone dropped the last 0x40 bytes,
+        // where mod030 keeps the jump table of its switch at 51a148 (battle 0x11).
         if (slot < 0x00100000u || slot >= 0x01000000u || load32(rdram, slot + 8u) != slot)
             return;
         // Known when a registered module loaded at this very address is resident (a module of another slot may
@@ -230,7 +232,10 @@ namespace
         if (const ps2_overlays::Module *known = ps2_overlays::residentModuleFor(rdram, slot + 0x80u);
             known && known->loadAddress == slot)
             return;
-        const uint32_t id = load32(rdram, slot + 4u), size = load32(rdram, slot + 12u) + load32(rdram, slot + 16u);
+        const uint32_t id = load32(rdram, slot + 4u), end = load32(rdram, slot + 0x1cu);
+        uint32_t size = 0x40u + load32(rdram, slot + 12u) + load32(rdram, slot + 16u);
+        if (end > slot && end - slot > size && end - slot <= 0x200000u)
+            size = end - slot;
         if (id == 0u || id > 0xFFFFu || size < 0x100u || size > 0x200000u)
             return;
         char name[96];

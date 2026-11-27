@@ -123,6 +123,37 @@ class Image:
                 break
         return targets
 
+    def addressed_tables(self) -> list[list[int]]:
+        """Jump tables the code builds the address of (lui r, hi; addiu r, r, lo within five words): two or more
+        consecutive words, outside the code, each pointing into the code, within 0x1000 of each other."""
+        refs = set()
+        for lo, hi in self.code:
+            for a in range(lo, hi - 4, 4):
+                w = self.word(a)
+                if w is None or w >> 26 != 0x0F:
+                    continue
+                r = (w >> 16) & 31
+                for k in range(1, 6):
+                    x = self.word(a + 4 * k)
+                    if x is not None and x >> 26 == 0x09 and (x >> 21) & 31 == r:
+                        imm = x & 0xFFFF
+                        refs.add((((w & 0xFFFF) << 16) + (imm - 0x10000 if imm & 0x8000 else imm)) & 0xFFFFFFFF)
+                        break
+        tables = []
+        for t in sorted(refs):
+            if self.in_code(t) or not self.load <= t < self.load + len(self.bytes):
+                continue
+            run, a = [], t
+            while True:
+                w = self.word(a)
+                if w is None or w & 3 or not self.in_code(w):
+                    break
+                run.append(w)
+                a += 4
+            if len(run) >= 2 and max(run) - min(run) <= 0x1000:
+                tables.append(run)
+        return tables
+
     def pointers(self):
         """Candidate code addresses referenced from this image."""
         words = struct.unpack_from(f"<{len(self.bytes) // 4}I", self.bytes)
@@ -261,6 +292,15 @@ def find_entry_points(images: dict[str, Image], csvs: dict[str, Path]) -> dict[s
                                 and target not in result[name]):
                             result[name].add(target)
                 run = []
+
+        # A switch whose table the code addresses (lui / addiu of the table, outside the code) needs every case as an
+        # entry, even when all cases sit inside one function: the generator labels only entries, and a jr to a case
+        # that is not one fails to resume (battle 0x11: mod030 51a148 jumps through 51b5d0 to 51a150..51a3c8).
+        for name, image in images.items():
+            for target in image.addressed_tables():
+                for case in target:
+                    if case not in known.get(name, set()) and case not in result[name]:
+                        result[name].add(case)
 
         # Routines Ghidra missed call others it missed too: follow the jal of every new entry, up
         # to its first jr ra, until no new target appears.

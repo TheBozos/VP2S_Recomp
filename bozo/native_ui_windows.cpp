@@ -18,9 +18,10 @@ template<class T>T value(Runtime *rt,uint32_t at){
     T v;std::memcpy(&v,rt->memory.hostPointer(at,sizeof(v)),sizeof(v));return v;
 }
 // 15a1b0, or the battle window 16ee00 (mod028): its +20 build is the base 2e9640 itself and its
-// destructor 383660 inlines 2e95d0's body after setting its own class, so the capture is the same.
+// destructor 383660 inlines 2e95d0's body after setting its own class, so the capture is the same. Stage 4's window
+// 1765a0 (mod030, battle 0x11) is built the same way: +20 the base 2e9640, destructor 519ee0 = its class, then 2e95d0.
 void windowType(Runtime *rt,uint32_t element){const auto type=value<uint32_t>(rt,element);
-    if(type!=0x15a1b0 && !(type==0x16ee00 && value<uint32_t>(rt,0x16ee20)==0x2e9640))throw std::runtime_error("unported native window class");}
+    if(type!=0x15a1b0 && !((type==0x16ee00 || type==0x1765a0) && value<uint32_t>(rt,type+0x20)==0x2e9640))throw std::runtime_error("unported native window class");}
 }
 void NativeUiWindows::begin(Runtime *rt,uint32_t stack,uint32_t element){
     windowType(rt,element);

@@ -12,6 +12,38 @@ The earlier VP2S face/shading and general brightness comparisons remain open.
 
 ## Build and evidence
 
+### Battle sweep, round 5: module tails, switch cases, stage 4's UI (2026-11-27)
+
+- **Module tails:**
+  - 60 modules captured by the old capture were 0x40 bytes short: it saved text + data, but an image runs to
+    0x40 + text + data (the header's end). Among them are the battle cores mod027 / mod028 and mod030;
+  - mod030 keeps the jump table of its switch at 51a148 (table 51b5d0) in those bytes, so Ghidra and the entry finder
+    never saw it;
+  - the 13 whose tails sit in the sweep's RAM dumps are repaired (their code checked against the dump first):
+    mod027, 028, 030, 060, 068, 112, 133, 134, 138, 141, 147, 169, 197;
+  - the capture now saves the header's full extent;
+  - 47 remain short until a RAM dump holds them (D:/BozoScratch/VP2S/bsw/tails.py repairs them).
+- **Switch cases:** the generator labels only entry points. A switch whose table the code addresses (lui / addiu
+  of a table outside the code) now gets every case as an entry (find_entry_points: Image.addressed_tables). That
+  adds 31 entries in mod001, 003, 014, 017, 028, 030. Battle 0x11's jr 51a148 resumes.
+- **Stage 4's UI (mod030, battle 0x11):**
+  - window 1765a0 (+20 the base 2e9640, destructor = its class then 2e95d0);
+  - label 176510 (the battle label 16ed70's shape, +1c 519fd0 = 3837c0);
+  - button 176570 (16edd0's shape, +20 2f1230);
+  - these are admitted like mod028's battle copies.
+- **Encrypted stage resources:**
+  - disc file 0x1054e3000 is stream-encrypted under a key vp2_encrypted_assets.py does not cover;
+  - its decoded part 0 (0x4960 bytes: a font at +80, texture 646f6e6f:5f at +2800) is captured from the game's own RAM
+    into the build tree as asset 01054e3000_000, then converted offline (glyphs, texture index);
+  - the font and texture refusals now name their addresses.
+- **Object transform refusals** name the object, its class and parent. Battle 0x23's exponent-255 input is the hair-chain
+  object dd7d30 (class 154f90, parent dd7b00), the family the map sweep classed as a warp artefact (user decision B).
+- **Standing (42 rows):** 37 clean. Left:
+  - 0x11 (stage 4, 0x0100): a battle sprite writer with unowned content (a stage-module sprite producer);
+  - 0x23 x2: hair chain;
+  - 0x5f / 0x74: event context.
+- **Regression:** ctest 99/99; regress4 unchanged.
+
 ### Battle sweep, round 4: stage-module particles (2026-11-27)
 
 - **Particle classes:** 177c00 (mod036, battle 0x2f), 17c2d0 (mod045, 0x30) and 18a6e0 (mod164, 0xbb) are admitted.

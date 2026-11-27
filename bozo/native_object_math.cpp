@@ -107,7 +107,9 @@ bool nativeObjectMathInstruction(uint8_t *,R5900Context *c,Runtime *rt,uint32_t 
     if(parent)std::memcpy(in.parent.data(),record(rt,parent+0xd0,48),48);
     // Snapshot every input before writing either output; self-parent and
     // attachment/output aliases cannot observe partially written matrices.
-    const auto out=objectWorld(in);
+    ObjectWorldResult out;
+    try{out=objectWorld(in);}catch(const std::runtime_error &e){uint32_t cls;std::memcpy(&cls,source,4);
+        throw std::runtime_error(std::format("{} (object {:x} class {:x} parent {:x})",e.what(),object,cls,parent));}
     std::memcpy(source+0xd0,out.local.data(),64);std::memcpy(source+0x90,out.world.data(),64);return true;
 }
 }

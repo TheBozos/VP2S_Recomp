@@ -12,6 +12,38 @@ The earlier VP2S face/shading and general brightness comparisons remain open.
 
 ## Build and evidence
 
+### Field encounters: the visible enemies' battles (2026-11-27)
+
+- **How the game picks them:** a visible enemy (mod003 388900) finds its encounter record with 3eda30, walking its own
+  event script from its +1c offset to the first op 0x38. That op carries an inline table (arg1's low byte 0xff), which
+  tools/vp2_encounters.py reads:
+  - 1 or 4 groups of 16 bytes: 4 battle ids, 4 enemy counts, 4 weights;
+  - weight bit 7 puts an entry in the second pool;
+  - the enemy draws one battle from each pool (393630, weighted) into +984 / +988, and op 0x38's handler (3a0b90) uses
+    them for an enemy with flag 0x20;
+  - the stage is arg0's (0 here: the field's own +ae);
+  - no script uses battle id 0xffff (the per-area list at field +428 / +194).
+- **The list:** 531 tables, 139 battle ids (one overlaps the scripted list) -> build_usa/bozo/encounters.tsv, one row per
+  id with its largest enemy count as the flags' top byte. That is arg1 without its 0xff byte, with no 0x0100 bit (the
+  scripted battles' bit).
+- **Sweep:** bsw/battlesweep.sh with LIST / OUT (esw/), from the map-79 state to frame 68000 (about 50 s of battle).
+  First pass 107 of 139.
+- **Ports:**
+  - 49205c..4920c8, the solver sibling's guarded unit difference and offset point (vf25 kept unnormalised when the
+    guard skips);
+  - mod120 5326a0, a cross product (crossstore idiom);
+  - mod174 53aa34, program 0x720's rotation applied to a point (nativeSlotTurnPoint; vf11 is never written, so only
+    xyz).
+- **Modules:** mod279, mod281, mod288 (slot 0x542a80) captured from end-of-run RAM and registered. mod281 was also
+  scripted battle 0x74's missing code, not its event: 0x74 now runs clean, and the scripted battles stand at 39 of 42.
+- **Standing:** 121 of 139 encounters clean.
+  - **14 need their field:** the enemy code they call (e.g. 0x53e220 in mod218 / 219 / 225 / 236, slot 0x53d800) is in
+    known modules that are not resident at the battle's first frame (63395/6). The visible enemy's dungeon map loads
+    them; the launcher starts from map 79. Scripted 0x5f jumps to the same 0x534550 as encounter 0xd6, the same case.
+  - **4 have 0x23's signature:** a class 154f90 chain diverges from its first update (2 at the object transform, 2 in
+    the chain's collision leaf, ra 1fd668).
+- **Atlas:** both kinds on one page (Scripted / Encounters filter).
+
 ### Battle 0x23's hair chain: what the evidence shows (2026-11-27)
 
 - **Where it starts:** chain record de37d0 (node object dd7d30, parent dd7b00, class 154f90) is initialised at frame

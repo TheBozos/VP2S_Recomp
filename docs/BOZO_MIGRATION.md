@@ -12,6 +12,28 @@ The earlier VP2S face/shading and general brightness comparisons remain open.
 
 ## Build and evidence
 
+### Battle 0x23's hair chain: what the evidence shows (2026-11-27)
+
+- **Where it starts:** chain record de37d0 (node object dd7d30, parent dd7b00, class 154f90) is initialised at frame
+  63395 at its node's world point (121, -335, -61). On the first chain update (63396) the point jumps by 240 units, and
+  then grows each frame (velocity 3584, then -10249, ...) until exponent 255 reaches the object transform.
+- **Why the jump:** the chain update converts the point into its parent's space with the inverse (216d60) of the
+  parent's world matrix (+90, through 1fae30), then composes it back. At 63395 the parent's world matrix had
+  translation 106.75 (set by the chain-init transform, ra 1fed14). At 63396 the parent's own transform (ra 248ff8) runs
+  first and gives a different pose (translation 38.28, other axes), and the chain update's transform (ra 1fd0a4) another
+  (43.4). The skeleton is placed or turned one frame after the chain started, which is the map sweep's warp-artefact
+  pattern. dt then alternates 4, 1, 4, 2 vsyncs (0.067 ... 0.033) with damping 0.01, so the kick is never absorbed.
+- **Ruled out:**
+  - 216d60's "inverse" leaves (tx, ty, tz, 1) in its last row (an MMI transpose of all four rows). That is the game's
+    code; only the w lane it feeds is wrong, and the object transform reads xyz;
+  - the step integrator (1fcb08), the bone aim (1fe598) and the row-point transform match their listings;
+  - starting the battle from map 13's state (the stage's own map) gives the same blow-up on the same kind of object.
+- **Open:** whether the real game places this skeleton after its chain starts too (it would then diverge on a PS2 as
+  well), or whether our timing reorders the first updates. That needs the battle reached through its own event (scripts
+  0078719880 / 00b9868070) on PCSX2.
+- **Diagnostics (off by default):** VP2S_BOZO_TRACE_MOTION=<record> (step inputs, constraint pairs),
+  VP2S_BOZO_TRACE_AIM=<node object>, VP2S_BOZO_TRACE_ROWPOINT=<store pc>, VP2S_BOZO_TRACE_BATTLE_SPRITES=<writer>.
+
 ### Battle sweep, round 6: battle 0x11's gauge (2026-11-27)
 
 - **mod028 had not been regenerated since 00:36:** the generator refused a new native site placed on a call (sites cannot

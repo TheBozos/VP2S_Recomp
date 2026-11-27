@@ -4622,6 +4622,11 @@ bool nativeBoneAim(R5900Context *c,Runtime *rt,uint32_t pc){
     const Ps2Word cross[3]={ub[1]*ua[2]-ua[1]*ub[2],ub[2]*ua[0]-ua[2]*ub[0],ub[0]*ua[1]-ua[0]*ub[1]};
     const Ps2Word two{0x40000000u};const auto q=kPs2One*((kPs2Zero+two)+dot*two).root(),reciprocal=kPs2One/q;
     Ps2Lanes quaternion;for(unsigned i=0;i<3;++i)quaternion[i]=cross[i]*reciprocal;quaternion[3]=q*Ps2Word{0x3f000000u};
+    {static const uint32_t traced=[]{const char *v=std::getenv("VP2S_BOZO_TRACE_AIM");return v?uint32_t(std::strtoul(v,nullptr,16)):0u;}();
+     if(traced && c->r[17].uw[0]==traced){const auto f=[](const Ps2Word &w){return std::bit_cast<float>(w.bits);};
+        std::fprintf(stderr,"[vp2s:aim] node %x partner %x a=(%g %g %g %g) b=(%g %g %g %g) ua=(%g %g %g) ub=(%g %g %g) dot=%g q=(%g %g %g %g)\n",traced,partner,
+            f(a[0]),f(a[1]),f(a[2]),f(a[3]),f(b[0]),f(b[1]),f(b[2]),f(b[3]),f(ua[0]),f(ua[1]),f(ua[2]),f(ub[0]),f(ub[1]),f(ub[2]),f(dot),
+            f(quaternion[0]),f(quaternion[1]),f(quaternion[2]),f(quaternion[3]));}}
     ps2Publish(rt,stack+0x160,quaternion);return true;
 }
 // mod001 248a00 (a chain solver: per link, aim it from P toward T; called from mod068 527d54),
@@ -6073,7 +6078,12 @@ bool nativeMacroIdiom(R5900Context *c,Runtime *rt,uint32_t pc){
                 _mm_setcsr(savedCsr);std::memcpy(record(rt,address(self),16),out.data(),16);if(row==3)capture.valid=0;return true;}
             else if(kind=="rowpoint"){const auto v=need(15);constexpr unsigned order[4][4]={{0,1,2,3},{1,0,2,3},{2,1,0,3},{3,1,2,0}};
                 for(unsigned row=0;row<4;++row){const auto m=need(11+row);uint32_t t[4];for(unsigned i=0;i<4;++i)t[i]=vuMul(m[i],v[i]);
-                    out[row]=vuAdd(vuAdd(vuAdd(t[order[row][0]],t[order[row][1]]),vuMul(one,t[order[row][2]])),vuMul(one,t[order[row][3]]));}}
+                    out[row]=vuAdd(vuAdd(vuAdd(t[order[row][0]],t[order[row][1]]),vuMul(one,t[order[row][2]])),vuMul(one,t[order[row][3]]));}
+                // Diagnostic only (VP2S_BOZO_TRACE_ROWPOINT=<pc hex>): the inputs and result of that store.
+                static const uint32_t tracedRow=[]{const char *v=std::getenv("VP2S_BOZO_TRACE_ROWPOINT");return v?uint32_t(std::strtoul(v,nullptr,16)):0u;}();
+                if(tracedRow==pc){const auto f=[](uint32_t b){return std::bit_cast<float>(b);};std::fprintf(stderr,"[vp2s:rowpoint] %x p=(%g %g %g %g)",pc,f(v[0]),f(v[1]),f(v[2]),f(v[3]));
+                    for(unsigned row=0;row<4;++row){const auto m=need(11+row);std::fprintf(stderr," r%u=(%g %g %g %g)",row,f(m[0]),f(m[1]),f(m[2]),f(m[3]));}
+                    std::fprintf(stderr," -> (%g %g %g %g) s0=%x\n",f(out[0]),f(out[1]),f(out[2]),f(out[3]),c->r[16].uw[0]);}}
             else if(kind=="homogeneous"){const auto v=need(20);uint32_t f=0;const auto q=bozo::ps2f::div(one,v[3],f);_mm_setcsr(savedCsr);
                 for(unsigned i=0;i<4;++i)out[i]=vuMul(v[i],q);}
             else if(kind=="scaledsum"){const auto a=need(1),b=need(2),k=need(3);
@@ -8765,6 +8775,11 @@ bool mathBlock47(R5900Context *c,Runtime *rt,uint32_t pc){
             (Ps2Word::load(second+4*i)*kPs2One-direction[i]*secondWeight).store(outB.data()+4*i);}
         // Both original stores precede the next dispatch checkpoint, including
         // the symmetric branch's delay slot. Capture both before either write.
+        static const uint32_t tracedPair=[]{const char *v=std::getenv("VP2S_BOZO_TRACE_MOTION");return v?uint32_t(std::strtoul(v,nullptr,16)):0u;}();
+        if(tracedPair && (c->r[5].uw[0]==tracedPair+0x30 || c->r[4].uw[0]==tracedPair+0x30)){float a[3],b[3],na[3],nb[3];
+            std::memcpy(a,first,12);std::memcpy(b,second,12);std::memcpy(na,outA.data(),12);std::memcpy(nb,outB.data(),12);
+            std::fprintf(stderr,"[vp2s:pair] pc=%x a=%x (%g %g %g)->(%g %g %g) b=%x (%g %g %g)->(%g %g %g) d=%g w=%g/%g\n",pc,c->r[5].uw[0],a[0],a[1],a[2],na[0],na[1],na[2],
+                c->r[4].uw[0],b[0],b[1],b[2],nb[0],nb[1],nb[2],std::bit_cast<float>(geometry.distance.bits),std::bit_cast<float>(firstWeight.bits),std::bit_cast<float>(secondWeight.bits));}
         std::memcpy(first,outA.data(),16);std::memcpy(second,outB.data(),16);return true;
     }
     return false;
@@ -8801,6 +8816,10 @@ bool mathBlock49(R5900Context *c,Runtime *rt,uint32_t pc){
             if(acceleration)value=value+Ps2Word::load(acceleration+4*i)*dt;
             if(flags&2)value=value-velocity*drag;
             out[i]=(value+velocity*dt).bits;}
+        // Diagnostic only (VP2S_BOZO_TRACE_MOTION=<record hex>): that record's step inputs and output.
+        static const uint32_t tracedMotion=[]{const char *v=std::getenv("VP2S_BOZO_TRACE_MOTION");return v?uint32_t(std::strtoul(v,nullptr,16)):0u;}();
+        if(tracedMotion==object){float p[4],v[4],o[4];std::memcpy(p,source+0x30,16);std::memcpy(v,source+0x50,16);std::memcpy(o,out.data(),16);
+            std::fprintf(stderr,"[vp2s:motion] %x flags=%x dt=%g damping=%g p=(%g %g %g) v=(%g %g %g) -> (%g %g %g)\n",object,flags,c->f[12],flags&2?c->f[0]:0.f,p[0],p[1],p[2],v[0],v[1],v[2],o[0],o[1],o[2]);}
         owner->nativeMotion().prepare(frame,object,out);return true;
     }
     return false;

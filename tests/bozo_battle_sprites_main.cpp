@@ -251,6 +251,20 @@ int main(){try{
       rejects([&]{blended.blend(&rt,w6,0x99);});
       check(blended.blend(&rt,w6,0x148));put(rt,writer6+8,B6+0xc0);quad(base6+0xc0);blended.flatQuad(&rt,w6,B6+0xc0+64);
       const auto *bb=blended.build(w6);check(bb && bb->sprites.size()==2 && !bb->sprites[0].additive && bb->sprites[1].additive && bb->accountedBytes()==32+32+128); }
+    // 430340's TEST_2 at the open end (battle 0x11's gauge): 0x5200d (AFAIL ZB_ONLY) marks the sprites after it as depth
+    // masks, 0x5000d (KEEP) ends that; each write's 32 bytes are accounted; another value is unported, and a write
+    // that is not at the build's open end is refused.
+    { constexpr uint32_t writer8=0x1a8000,base8=0x2f0000,B8=base8|0x30000000u;const uint32_t w8=writer8|0x30000000u;
+      put(rt,writer8,B8);put(rt,writer8+8,B8+0x40);put(rt,writer8+12,B8+0x40);put(rt,writer8+16,0x198u);
+      vp2s::NativeBattleSprites masked;check(masked.begin(&rt,w8));
+      const auto quad=[&](uint32_t at){put(rt,at,0x6400000000000001ull);put(rt,at+8,0x555510ull);put(rt,at+16,0x244ull);put(rt,at+24,uint64_t(0x40ffffffu));
+          for(unsigned i=0;i<4;++i)put(rt,at+32+8*i,uint64_t(0x6e00+0x200*(i&1))|uint64_t(0x7300+0x1a00*(i>>1))<<16|0x10ull<<32);};
+      put(rt,writer8+8,B8+0x70);rejects([&]{masked.test(&rt,w8,0x5200du);});   // cursor past the content
+      put(rt,writer8+8,B8+0x40+32);rejects([&]{masked.test(&rt,w8,0x7000du);});
+      masked.test(&rt,w8,0x5200du);put(rt,writer8+8,B8+0x80);quad(base8+0x80);masked.flatQuad(&rt,w8,B8+0x80+64);
+      put(rt,writer8+8,B8+0xc0);masked.test(&rt,w8,0x5000du);put(rt,writer8+8,B8+0xe0);quad(base8+0xe0);masked.flatQuad(&rt,w8,B8+0xe0+64);
+      const auto *mb=masked.build(w8);
+      check(mb && mb->sprites.size()==2 && mb->sprites[0].depthMask && !mb->sprites[1].depthMask && mb->testWrites==2 && mb->accountedBytes()==32+64+128); }
     // A reset writer opened with 0x148 (the gauge bars of class 16f0a0): an additive build from the start.
     { constexpr uint32_t writer7=0x1a7000,base7=0x2e0000,B7=base7|0x30000000u;const uint32_t w7=writer7|0x30000000u;
       put(rt,writer7,B7);put(rt,writer7+8,B7+0x40);put(rt,writer7+12,B7+0x40);put(rt,writer7+16,0x198u);

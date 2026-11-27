@@ -332,6 +332,10 @@ public:
             const auto blend=sprite.additive?bozo::render::Material::Blend::Additive:bozo::render::Material::Blend::Alpha;
             if(build.spriteTextures.at(i)==vp2s::NativeBattleSpriteBuild::kPreviousFrame){lens.blend=blend;bozo::render::Renderer::instance().draw(lens,identity,vertices.data(),vertices.size());continue;}
             material.textured=bool(sprite.picture);material.blend=blend;
+            // TEST_2 AFAIL ZB_ONLY (battle 0x11's gauge face): every texel writes its depth, those failing the alpha
+            // test only that; so a depth-only pass of the whole quad first, then the sprite as usual.
+            if(sprite.depthMask){auto depth=material;depth.alphaTest=false;depth.colourMask=0;
+                bozo::render::Renderer::instance().draw(depth,identity,vertices.data(),vertices.size(),sprite.picture);}
             bozo::render::Renderer::instance().draw(material,identity,vertices.data(),vertices.size(),sprite.picture);}
     }
     // Screen shockwave 1746d0: the frame presented last, redrawn displaced. TEX1_2 61 (bilinear) or 1; TEXA 80 with a
@@ -1278,6 +1282,7 @@ int main(int argc,char **argv) {
                     host.procedural.seed(uint32_t(std::stoul(seed,nullptr,16)));std::fprintf(stderr,"[state] vp2s random stream set to %06x\n",host.procedural.bits());}
                 step("battle blends");if(!a.loading() || !a.atEnd())host.battleSprites.serializeBlends(a);
                 step("battle uvs");if(!a.loading() || !a.atEnd())host.battleSprites.serializeUvs(a);
+                step("battle tests");if(!a.loading() || !a.atEnd())host.battleSprites.serializeTests(a);
                 step("done");},
             [&]{for(auto why:{host.dbc->unsaveable(),host.sprites.unsaveable(),host.windows.unsaveable(),host.uiTexts.unsaveable()})
                     if(!why.empty())return why;

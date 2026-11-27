@@ -23,9 +23,11 @@ struct NativeBattleSpriteBuild {
     std::vector<NativeUiSprite> sprites;    // pictures set at the flush
     uint32_t polygonBytes=0,polygons=0;     // the recorded polygons (42df80, among the sprites) and what they wrote
     uint32_t blendWrites=0;                 // ALPHA_2 writes after the opening one (32 bytes each)
+    uint32_t testWrites=0;                  // TEST_2 writes (430340, 32 bytes each)
+    bool zbOnly=false;                      // the current TEST_2 fails alpha to depth only (0x5200d), else keep (0x5000d)
     bool additive=false;                    // the current ALPHA_2: 0x44 blending, 0x148 additive (Cs As + Cd)
     // The bytes the recorded content wrote after the writer's header.
-    uint64_t accountedBytes()const{uint64_t n=32+uint64_t(polygonBytes)+32ull*blendWrites;for(const auto &t:textures)n+=t.bytes;return n+64ull*(sprites.size()-polygons);}
+    uint64_t accountedBytes()const{uint64_t n=32+uint64_t(polygonBytes)+32ull*blendWrites+32ull*testWrites;for(const auto &t:textures)n+=t.bytes;return n+64ull*(sprites.size()-polygons);}
     static constexpr uint32_t kUntextured=~0u;
     // Sampling the frame presented last (the display buffer the GS reads at the record's +670 page): screen lenses.
     static constexpr uint32_t kPreviousFrame=~1u;
@@ -52,6 +54,10 @@ public:
     // 120860 on a writer whose build is open at exactly its recorded content: a later ALPHA_2
     // (0x44 or 0x148) for the sprites after it (false: not an open build's writer).
     bool blend(Runtime *,uint32_t writer,uint64_t alpha);
+    void test(Runtime *,uint32_t writer,uint64_t value);   // 430340's TEST_2 write
+    void inlineSprite(Runtime *,uint32_t object,uint32_t writer,uint32_t packet);
+    void rotatedRectangle(Runtime *,const R5900Context *);   // 42ed50's rotated paths, read back at 42fe70   // 4cbf50's own sprite packet
+    void serializeTests(bozo::state::Archive &);   // appended after the UVs
     NativeBattleSpriteBuild &bind(Runtime *,uint32_t object,uint32_t writer);
     void texture(uint32_t writer,const NativeBattleTexture &);
     void sprite(Runtime *,const R5900Context *);

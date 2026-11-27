@@ -387,10 +387,14 @@ std::optional<bool> nativeBattleTextureSetInstruction(R5900Context *c,Runtime *r
         if(!packet){if(qwc!=7)throw std::runtime_error("native battle texture set packet is not an image packet");packet=address;continue;}
         record(rt,packet,0x70);
         const auto bitblt=read<uint64_t>(rt,packet+0x10),trxreg=read<uint64_t>(rt,packet+0x30);
-        if(read<uint64_t>(rt,packet+0x18)!=0x50 || read<uint64_t>(rt,packet+0x38)!=0x52 || ((bitblt>>56)&0x3f))
-            throw std::runtime_error("native battle texture set packet is not a CT32 image upload");
+        // CT32, or the pixels in their own format: stage 4's set (battle 0x11, file 01054e3000) uploads a 16x2 CT32
+        // palette, then 64x64 PSMT4 pixels. The block names the image either way; its format is the converted file's.
+        const unsigned dpsm=unsigned(bitblt>>56)&0x3f;
+        if(read<uint64_t>(rt,packet+0x18)!=0x50 || read<uint64_t>(rt,packet+0x38)!=0x52 || (dpsm!=0 && dpsm!=0x13 && dpsm!=0x14))
+            throw std::runtime_error(std::format("native battle texture set packet is not an image upload (DPSM {:x})",dpsm));
         const auto block=uint32_t(bitblt>>32)&0x3fff,width=uint32_t(trxreg&0xfff),height=uint32_t(trxreg>>32)&0xfff;
-        if(uint64_t(width)*height*4!=uint64_t(qwc)*16)throw std::runtime_error("native battle texture set rectangle differs from its data");
+        const uint64_t bits=dpsm==0?32:dpsm==0x13?8:4;
+        if(uint64_t(width)*height*bits!=uint64_t(qwc)*128)throw std::runtime_error("native battle texture set rectangle differs from its data");
         // The file: the one before (its pixels follow its palette) or the nearest FIS header
         // below the data; the data must then be its palette or its pixels exactly.
         const auto paletteOf=[&](uint32_t f){const auto o=read<uint32_t>(rt,f+0x24);return o?f+0x10+o+0x80:0u;};

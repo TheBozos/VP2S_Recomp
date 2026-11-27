@@ -12,6 +12,26 @@ The earlier VP2S face/shading and general brightness comparisons remain open.
 
 ## Build and evidence
 
+### Battle sweep, round 6: battle 0x11's gauge (2026-11-27)
+
+- **mod028 had not been regenerated since 00:36:** the generator refused a new native site placed on a call (sites cannot
+  be instructions with a delay slot), and regen.sh still printed gen=0. Earlier rounds' mod028 changes (its module tail,
+  switch-case entries) only reached the build now. Check bozo/logs/<module>_generate.log after each regeneration.
+- **The AP gauge of the battle tutorial (stage 4, draw 4cb7xx, object ecae80):**
+  - 430340 writes TEST_2 into the build: 0x5200d (alpha GREATER 0, AFAIL ZB_ONLY, Z GEQUAL) before the face, 0x5000d
+    (KEEP) after. It is recorded at 4303b4 (packet checked) and accounted 32 bytes per write;
+  - sprites drawn under ZB_ONLY carry depthMask: the renderer draws a depth-only pass of the whole quad (colour mask 0,
+    no alpha test) before the sprite, since texels failing the alpha test still write depth;
+  - the face is written inline at 4cbf50 in 42db50's layout (PRIM 256): read back at 4cc144;
+  - its cells come from main 1208f0, a sibling of 120a80 (corners not frame-offset): flatQuad at its commit 120a58.
+- **The stage draw 4cc6f0:** 42ed50's rotated paths (rotation +2c not zero) skip the 42efe0 hook. They are read back at
+  the commit 42fe70 like 42df80's rotated polygons; colours and ST are checked against the game's.
+- **Stage 4's texture set** uploads its pixels as PSMT4 (a 16x2 CT32 palette, then 64x64 4-bit). Texture-set uploads now
+  admit CT32, PSMT8 and PSMT4, sized by their format.
+- **Battle 0x11 (both rows) is clean:** 38 of 42. Left: 0x23 x2 (hair chain), 0x5f / 0x74 (event context).
+- **Tests:** a TEST_2 case in the battle sprites check; the kernel signature test lists 120a58. ctest 99/99; regress4
+  unchanged.
+
 ### Battle sweep, round 5: module tails, switch cases, stage 4's UI (2026-11-27)
 
 - **Module tails:**

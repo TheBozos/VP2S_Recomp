@@ -12,6 +12,30 @@ The earlier VP2S face/shading and general brightness comparisons remain open.
 
 ## Build and evidence
 
+### Battle re-sweep with a strong party (2026-11-27)
+
+- **Strong party** (`VP2S_CHEAT_STRONG_PARTY=<hp>`, environment only, no menu entry): a live party member's battle
+  record gets that base and max HP, and is held full, with the +18 checksum rewritten. The battle pointer is found by
+  its class in the scene's +c000..+d800. Three layouts were seen: +cb88 from map 79, +cb28 and +cd68 from dungeons. The
+  party slots stay at the pointer + 0x44.
+- **Sweep:** all 181 rows (scripted to frame 80000, encounters to 68400; the 15 that need their dungeon start from it).
+  Scratch sw2/sweep.sh, on a copied exe.
+- **Ports:**
+  - VRNEXT draws: mod157 53373c / 533774 / 5337ac (0x73), mod139 532c48 / 532c8c / 532d84 (0x79);
+  - mod164's scratchpad work stack 5342fc / 534300 (0xba, 0xbb; vp2_bozo_kernel.py overlay sites);
+  - the 0x720 turn point recognised by its 22 words anywhere in the slot modules (mod117 5328b4, mod137 53ad78, mod143
+    5328f4 with other base registers). mod037 / mod042 / mod198's camera-offset copies stay nativeCameraOffset's;
+  - mod028 4ab870, a vector turned toward another by t of their angle (nativeVectorSlerp): 4ab9a0's tail with other
+    registers (0x92);
+  - modules mod270 and mod292 (slot 0x542a80; 0xbf, 0x74 / 0x92 / 0xdd).
+- **Result: 160 of 181 clean** to their frame limit.
+  - **9 party falls:** instant-kill or status attacks fell the party with HP to spare (0x63: a skull spell at frame
+    65100, hits of 1108-1846 before it). The battle ran without missing code until then.
+  - **10 hair-chain stops** (0x8c, and encounters 0x4e, 0x4f, 0x50, 0x5d, 0x96, 0xae, 0xd0, 0xd1, 0xd9): battle 0x23's
+    signature. 0x4f shows it even when started from its own dungeon (map 137). This weakens the reading that the
+    map-79 launch causes it, so these are not classed as artefacts.
+  - **2 launcher artefacts:** 0x23 (user decision).
+
 ### Field encounters from their dungeons; party wipes (2026-11-27)
 
 - **Finding each encounter's map:** the encounter tables are searched for in saved map RAM (the map sweep's boundary

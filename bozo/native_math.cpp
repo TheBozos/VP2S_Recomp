@@ -4717,6 +4717,33 @@ bool nativeVectorTurn(R5900Context *c,Runtime *rt,uint32_t pc){
         out=unitOf(out);out[3]=kPs2One;ps2Publish(rt,c->r[18].uw[0],out);st.aimed=false;return true;}
     return true;   // loads and arithmetic: folded into the stores and the QMFC2
 }
+// mod028 4ab870(a0 = b, a1 = a, a2 = out, f12 = t) (scripted battle 0x92): a turned toward b by t of the angle between
+// them. 214e40 gives the angle of a.b, then t = 0 copies b and t = 1 copies a (EE code); otherwise 214100(out, -t angle)
+// leaves (k4, k5, cos, sin) at out, and 4ab924..4ab97c is 4ab9a0's tail word for word with vf14 = [s1] (a, its n),
+// vf16 = [s2] (b, its v) and out = s0: c = v x n; d = (c.x v.x + c.y v.y) + c.z v.z; ((v x c) sin + c d) + (v - c d)
+// cos, normalized, w = 1.
+bool nativeVectorSlerp(R5900Context *c,Runtime *rt,uint32_t pc){
+    static constexpr std::pair<uint32_t,uint32_t> sites[]={{0x4ab924,0xda2e0000},{0x4ab928,0xda500000},{0x4ab92c,0x4a20032b},{0x4ab930,0x4bce82fe},{0x4ab934,0x4bd073ae},
+        {0x4ab938,0x4bc007c3},{0x4ab93c,0x4bd073ea},{0x4ab940,0x4bce82fe},{0x4ab944,0x4bd0732e},{0x4ab948,0x4b0f783d},{0x4ab94c,0x4b0ffbca},{0x4ab950,0x4bcd631b},
+        {0x4ab954,0x4bcf7398},{0x4ab958,0x4bce842c},{0x4ab95c,0x4bce62bc},{0x4ab960,0x4bcd830a},{0x4ab964,0x4bcc636a},{0x4ab968,0x4b0d683d},{0x4ab96c,0x4b0dfb4a},
+        {0x4ab970,0x4a6d03be},{0x4ab974,0x4a0003bf},{0x4ab978,0x4bc0631c},{0x4ab97c,0xfa0c0000}};
+    if((pc&3) || !rt || pc<0x4ab924 || pc>0x4ab97c)return false;
+    const auto site=std::find_if(std::begin(sites),std::end(sites),[&](const auto &x){return x.first==pc;});
+    if(site==std::end(sites))return false;
+    uint32_t word=0;if(const auto *p=rt->memory.hostPointer(pc,4))std::memcpy(&word,p,4);
+    if(word!=site->second)return false;   // another overlay at these addresses
+    if(!c)throw std::runtime_error("native vector slerp has no CPU record");
+    if(pc!=0x4ab97c)return true;   // loads and arithmetic: folded into the store
+    const auto out=c->r[16].uw[0];
+    const auto n=ps2Record(rt,c->r[17].uw[0]),v=ps2Record(rt,c->r[18].uw[0]),t=ps2Record(rt,out);
+    const auto unitOf=[](const Ps2Lanes &x){
+        const auto q=Ps2Word::reciprocalRoot(kPs2One,(x[0]*x[0]+x[1]*x[1])+kPs2One*(x[2]*x[2]));Ps2Lanes u=x;for(unsigned i=0;i<3;++i)u[i]=x[i]*q;return u;};
+    const Ps2Word cr[3]={v[1]*n[2]-n[1]*v[2],v[2]*n[0]-n[2]*v[0],v[0]*n[1]-n[0]*v[1]};
+    const Ps2Word vc[3]={v[1]*cr[2]-cr[1]*v[2],v[2]*cr[0]-cr[2]*v[0],v[0]*cr[1]-cr[0]*v[1]};
+    const auto d=(cr[0]*v[0]+cr[1]*v[1])+kPs2One*(cr[2]*v[2]);
+    Ps2Lanes r{};for(unsigned i=0;i<3;++i){const auto turned=vc[i]*t[3],along=cr[i]*d,rest=v[i]-along;r[i]=(turned+along)+rest*t[2];}
+    r=unitOf(r);r[3]=kPs2One;ps2Publish(rt,out,r);return true;
+}
 // mod028 4a41b0 (a battle effect spawn, class 172dd0/172e18; a0 = the position kept in s5):
 // with a3 set, a random offset: sp+e0 = three (0.5 - (r - 1)) draws, then
 //   4a43d8/4a43dc  vf25 = sp+e0, vf24 = position (s5)
@@ -9670,20 +9697,28 @@ bool nativeSlotCarry(R5900Context *c,Runtime *rt,uint32_t pc){
 // The same 25 words (offsets +0 .. +60, same registers) in mod117 (slot 0x532200, field encounter 0x20 on map 106) at
 // 532bf8: the quaternion through v0, the point sp+50 through v1, stored through v0 to sp+60; and in mod242 (slot
 // 0x53d800, encounter 0xa9 on map 354) at 53e0a8: the quaternion sp+d0, the point sp+e0, stored over it.
+// Since the strong-party sweep (mod117 5328b4, mod137 53ad78, mod143 5328f4 with the point through v0 and the store
+// through a1) the block is recognised by its 22 words wherever it stands: the three memory words by opcode, vf register
+// and zero offset (any base register), the other 19 exactly; in the slot modules (0x514080..0x560000) only.
 bool nativeSlotTurnPoint(R5900Context *c,Runtime *rt,uint32_t pc){
-    static constexpr uint32_t bases[]={0x53aa34,0x532bf8,0x53e0a8};
-    if((pc&3) || !rt)return false;
-    const auto base=std::find_if(std::begin(bases),std::end(bases),[&](uint32_t b){return pc>=b && pc<=b+0x60;});
-    if(base==std::end(bases))return false;
-    static constexpr std::pair<uint32_t,uint32_t> sites[]={{0x00,0xd8450000},{0x08,0x4a003938},{0x0c,0x48490001},{0x18,0xd86f0000},
+    if((pc&3) || !rt || pc<0x514080 || pc>=0x560000)return false;   // the slot modules only
+    static constexpr std::pair<uint32_t,uint32_t> sites[]={{0x00,0xd8050000},{0x08,0x4a003938},{0x0c,0x48490001},{0x18,0xd80f0000},
         {0x1c,0x4bc007c3},{0x20,0x4bef422a},{0x24,0x4bef4a6a},{0x28,0x4bef52aa},{0x2c,0x4bef5aea},{0x30,0x4b08403d},
         {0x34,0x4b08f8be},{0x38,0x4b08f94b},{0x3c,0x4a89483c},{0x40,0x4a89f8be},{0x44,0x4a89f94b},{0x48,0x4a4a503d},
-        {0x4c,0x4a4af8bc},{0x50,0x4a4af94b},{0x54,0x4a2b583d},{0x58,0x4a2b00be},{0x5c,0x4a2b0148},{0x60,0xf8450000}};
-    const uint32_t offset=pc-*base;
-    const auto site=std::find_if(std::begin(sites),std::end(sites),[&](const auto &x){return x.first==offset;});
-    if(site==std::end(sites))return false;
-    uint32_t word=0;if(const auto *p=rt->memory.hostPointer(pc,4))std::memcpy(&word,p,4);
-    if(word!=site->second)return false;   // another module in the slot
+        {0x4c,0x4a4af8bc},{0x50,0x4a4af94b},{0x54,0x4a2b583d},{0x58,0x4a2b00be},{0x5c,0x4a2b0148},{0x60,0xf8050000}};
+    const auto masked=[](uint32_t offset,uint32_t w){return offset==0 || offset==0x18 || offset==0x60?w&0xfc1fffffu:w;};
+    const auto fetch=[&](uint32_t at,uint32_t &w){const auto *p=rt->memory.hostPointer(at,4);if(!p)return false;std::memcpy(&w,p,4);return true;};
+    uint32_t word=0;if(!fetch(pc,word))return false;
+    uint32_t base=0;const std::pair<uint32_t,uint32_t> *site=nullptr;
+    for(const auto &x:sites){
+        if(masked(x.first,word)!=x.second || pc<x.first)continue;
+        const uint32_t b=pc-x.first;bool all=true;
+        for(const auto &y:sites){uint32_t v;if(!fetch(b+y.first,v) || masked(y.first,v)!=y.second){all=false;break;}}
+        if(all){base=b;site=&x;break;}
+    }
+    if(!site)return false;   // not this block (another module in the slot, or other code)
+    if(base==0x5154f4 || base==0x53aa74 || base==0x514574)return false;   // nativeCameraOffset's copies (their sources checked)
+    const uint32_t offset=site->first;
     if(!c)throw std::runtime_error("native slot turn point has no CPU record");
     struct State{VuWords q{},p{};bool q_=false,p_=false;};static std::map<const Runtime *,State> states;auto &st=states[rt];
     const auto at=[&]{return c->r[(word>>21)&31].uw[0]+uint32_t(int32_t(int16_t(word&0xffff)));};
@@ -10432,7 +10467,7 @@ bool nativeMathInstruction(uint8_t *,R5900Context *c,Runtime *rt,uint32_t pc){
     default:
         // Inlined-block recognisers last: they read code around the PC, so
         // only sites no specific handler claimed pay for that scan.
-        return CLAIM(nativeBoundsFold) || CLAIM(nativeConeTargets) || CLAIM(nativeBattleBox) || CLAIM(nativeSlotBlend) || CLAIM(nativeSlotCarry) || CLAIM(nativeSlotTurnPoint) || CLAIM(nativeSolverRegisters) || CLAIM(nativeSegmentPair) || CLAIM(nativeTriangleProject) || CLAIM(nativeTriangleOverlap) || CLAIM(nativeParticleStep) || CLAIM(nativeParticleBox) || CLAIM(nativeTrailEmitter) || CLAIM(nativeProgramEmitter) || CLAIM(nativeSimpleEmitter) || CLAIM(nativeLinearEmitter) || CLAIM(nativeCameraOffset) || CLAIM(nativeCollisionShape) || CLAIM(nativeHeightNormals) || CLAIM(nativeSpriteMove) || CLAIM(nativeRowPoints) || CLAIM(nativeRowEmitter) || CLAIM(nativeEmitterClock) || CLAIM(nativeConstantStore) || CLAIM(nativeLengthIdiom) || CLAIM(nativeMacroIdiom) || CLAIM(nativeInverseIdiom) || nativeQuaternionIdiom(c,rt,pc);
+        return CLAIM(nativeBoundsFold) || CLAIM(nativeConeTargets) || CLAIM(nativeBattleBox) || CLAIM(nativeSlotBlend) || CLAIM(nativeSlotCarry) || CLAIM(nativeSlotTurnPoint) || CLAIM(nativeVectorSlerp) || CLAIM(nativeSolverRegisters) || CLAIM(nativeSegmentPair) || CLAIM(nativeTriangleProject) || CLAIM(nativeTriangleOverlap) || CLAIM(nativeParticleStep) || CLAIM(nativeParticleBox) || CLAIM(nativeTrailEmitter) || CLAIM(nativeProgramEmitter) || CLAIM(nativeSimpleEmitter) || CLAIM(nativeLinearEmitter) || CLAIM(nativeCameraOffset) || CLAIM(nativeCollisionShape) || CLAIM(nativeHeightNormals) || CLAIM(nativeSpriteMove) || CLAIM(nativeRowPoints) || CLAIM(nativeRowEmitter) || CLAIM(nativeEmitterClock) || CLAIM(nativeConstantStore) || CLAIM(nativeLengthIdiom) || CLAIM(nativeMacroIdiom) || CLAIM(nativeInverseIdiom) || nativeQuaternionIdiom(c,rt,pc);
     }
 }
 #undef CLAIM

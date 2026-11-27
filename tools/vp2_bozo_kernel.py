@@ -1225,6 +1225,14 @@ def overlay_native_sites(name,data):
         if hashlib.sha256(data[at:at+hi-lo]).hexdigest()!='6d87622143495b5e67a67c1a1655a2eef28d48c7c1d78309ea18a3ad3e6f45ed':raise ValueError('USA debug-font publication caller mismatch')
         overlay_adaptations(name,data)
         return 'native 0x362328\nnative 0x3721a4\nnative 0x3721b0\n'
+    if name=='mod164':
+        # Battles 0xba / 0xbb (slot 0x532200): 5342e0 calls 533970 on the scratchpad work stack (bozo/native_kernel.cpp
+        # nativeWorkStack): `move sp, t0` in the call's delay slot 5342fc, `move sp, s0` back at 534300.
+        _,segments,_=elf_parts(data)
+        for pc,expected in ((0x5342f0,0x3c087000),(0x5342f4,0x35083ff0),(0x5342f8,0x0c14ce5c),(0x5342fc,0x0100e821),(0x534300,0x0200e821)):
+            s=next(s for s in segments if s[0]==1 and s[2]<=pc<pc+4<=s[2]+s[4])
+            if int.from_bytes(data[s[1]+pc-s[2]:s[1]+pc-s[2]+4],'little')!=expected:raise ValueError('USA mod164 work-stack site mismatch')
+        return 'native 0x5342fc\nnative 0x534300\n'
     if name!='mod001':return ''
     overlay_adaptations(name,data)
     # Depth blur publication: draw method 1ffe70 at its enqueue call 1ffe84 (delay slot 1ffe88)

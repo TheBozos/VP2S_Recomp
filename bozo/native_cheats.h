@@ -8,6 +8,9 @@ namespace vp2s {
 struct NativeCheats {
     std::atomic<bool> infiniteHealth{false};   // party HP held at its maximum in battle
     std::atomic<bool> weakEnemies{false};      // live enemies in battle held at 1 HP (one hit wins)
+    // Test sweeps only (VP2S_CHEAT_STRONG_PARTY=<hp>, no menu entry): live party members' battle records get this base
+    // and max HP and are held full, so a late battle can be run with an early save's party (0: off).
+    std::atomic<uint32_t> strongParty{0};
     std::atomic<int64_t> setMoney{-1};          // a request: the party's money (OTH) becomes this, then -1
     std::atomic<int64_t> money{-1};             // the money last read (-1: not known yet)
     // EXP: gains multiplied by this (1: off). Each party member's EXP is watched between frames; a rise of d becomes

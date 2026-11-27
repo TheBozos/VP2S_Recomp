@@ -54,6 +54,13 @@ int main(){try{
     cheats.infiniteHealth=true;vp2s::applyNativeCheats(&rt);cheats.infiniteHealth=false;
     check((word(rt,alicia+0x10)^kHpKey)==100 && hpCheck(rt,alicia)==word(rt,alicia+0x18),"Alicia healed under her checksum");
     check((word(rt,rufus+0x10)^kHpKey)==0,"a fallen member is not revived");
+    // Strong party: Alicia's base / max / HP become 30000 under the HP checksum; fallen Rufus untouched.
+    {const std::vector<uint8_t> saved(rt.memory.flat(),rt.memory.flat()+0x2000000);
+     cheats.strongParty=30000;vp2s::applyNativeCheats(&rt);cheats.strongParty=0;
+     check((word(rt,alicia+8)^kBaseMaxHpKey)==30000 && (word(rt,alicia+0xc)^kMaxHpKey)==30000 && (word(rt,alicia+0x10)^kHpKey)==30000 &&
+           hpCheck(rt,alicia)==word(rt,alicia+0x18),"strong party under the HP checksum");
+     check((word(rt,rufus+0xc)^kMaxHpKey)==100,"strong party leaves the fallen alone");
+     std::memcpy(rt.memory.flat(),saved.data(),saved.size());}
     // A battle started from a dungeon map: the scene's battle pointer and party slots 0x60 lower (+cb28 / +cb6c).
     {const std::vector<uint8_t> saved(rt.memory.flat(),rt.memory.flat()+0x2000000);
      for(uint32_t at=0xcb88;at<=0xcbd8;at+=4)put(rt,battle+at,0);

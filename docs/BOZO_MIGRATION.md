@@ -39,9 +39,14 @@ The earlier VP2S face/shading and general brightness comparisons remain open.
 - **Object transform refusals** name the object, its class and parent. Battle 0x23's exponent-255 input is the hair-chain
   object dd7d30 (class 154f90, parent dd7b00), the family the map sweep classed as a warp artefact (user decision B).
 - **Standing (42 rows):** 37 clean. Left:
-  - 0x11 (stage 4, 0x0100): a battle sprite writer with unowned content (a stage-module sprite producer);
+  - 0x11 (stage 4, 0x0100): a gauge object whose draw 4cc6f0 calls mod028 430340, which writes an A+D TEST_2 into
+    the battle sprite writer. Its value is 0x5200d (alpha test GREATER 0, AFAIL ZB_ONLY, Z test GEQUAL), then 0x5000d (AFAIL
+    KEEP): a depth mask from a textured sprite in front of nine flat rectangles. The native battle sprites account for no
+    TEST_2 writes and carry no depth write, so the flush refuses;
   - 0x23 x2: hair chain;
   - 0x5f / 0x74: event context.
+- **Full re-sweep after the regeneration:** the same 37 clean, no new stop. Battle atlas: D:/BozoScratch/VP2S/bsw/bgallery.py
+  writes .atlas/battles/cards.json for the page .atlas/battles/vp2s-battles.html (three frames and the stop reason per row).
 - **Regression:** ctest 99/99; regress4 unchanged.
 
 ### Battle sweep, round 4: stage-module particles (2026-11-27)

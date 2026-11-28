@@ -8932,11 +8932,16 @@ bool mathBlock53(R5900Context *c,Runtime *rt,uint32_t pc){
             if(c->r[31].uw[0]!=0x1fe210 || c->r[3].uw[0]!=object+0x190 || !std::isfinite(radius))throw std::runtime_error("unqualified native box test on an unset matrix");
             for(float h:half)if(!(radius<=h) || -radius<-h)throw std::runtime_error("native unset box: the radius exceeds a half extent");
             const float centre[4]={0,0,0,1};std::memcpy(record(rt,c->r[destinationRegister].uw[0],16),centre,16);return true;}
-        const auto qualified=[&](float v){if(invalid(v))throw std::runtime_error("unqualified native full transform input");};
-        for(auto &row:rows)for(float v:row)qualified(v);for(float v:point)qualified(v);
-        {music::CodecRounding validation;
+        bool ps2=std::any_of(&rows[0][0],&rows[0][0]+16,invalid) || std::any_of(point,point+4,invalid);
+        if(!ps2){music::CodecRounding validation;
             for(unsigned lane=0;lane<4;++lane){double bound=0;for(unsigned row=0;row<4;++row)bound+=std::abs(double(rows[row][lane])*point[row]);
-                if(bound>std::numeric_limits<float>::max())throw std::runtime_error("native full transform overflow");}}
+                if(bound>std::numeric_limits<float>::max())ps2=true;}}
+        if(ps2){
+            // PS2 rules (exponent-255 or denormal words, or products past the host float range; e.g. a hair-chain tip run
+            // away, map 482): VU words in matrixVectorProduct's order, ((m0 p.x + m1 p.y) + m2 p.z) + m3 p.w.
+            uint32_t m[4][4],q[4],o[4];std::memcpy(m,rows,64);std::memcpy(q,point,16);
+            for(unsigned lane=0;lane<4;++lane)o[lane]=vuAdd(vuAdd(vuAdd(vuMul(m[0][lane],q[0]),vuMul(m[1][lane],q[1])),vuMul(m[2][lane],q[2])),vuMul(m[3][lane],q[3]));
+            std::memcpy(record(rt,c->r[destinationRegister].uw[0],16),o,16);return true;}
         const auto result=math::matrixVectorProduct(matrix,vector);
         std::memcpy(record(rt,c->r[destinationRegister].uw[0],16),&result,16);return true;
     }

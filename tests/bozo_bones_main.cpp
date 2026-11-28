@@ -612,9 +612,17 @@ int main(){try{
         auto reject=[&]{const auto saved=c;std::vector<uint8_t> ram(r.memory.flat(),r.memory.flat()+bozo::kFlatBytes);bool bad=false;
             try{vp2s::nativeMathInstruction(r.memory.flat(),&c,&r,0x1fb610);}catch(const std::runtime_error &){bad=true;}
             check(bad && !std::memcmp(&saved,&c,sizeof(c)) && !std::memcmp(ram.data(),r.memory.flat(),ram.size()));};
-        c.r[3].ud[0]+=4;reject();c.r[3].ud[0]-=4;put(r,vector+12,0x7fc00000u);reject();put(r,vector+12,0x3f800000u);
-        put(r,matrix+12,0x7fc00000u);reject();put(r,matrix+12,0u);put(r,vector,1u);reject();
-        put(r,vector,0x40000000u);put(r,matrix,0x7f7fffffu);reject();
+        c.r[3].ud[0]+=4;reject();c.r[3].ud[0]-=4;
+        // PS2 rules (2026-11-28, hair-chain tips run away): NaN-pattern, denormal and overflowing inputs are VU numbers;
+        // the result is ((m0 p.x + m1 p.y) + m2 p.z) + m3 p.w in ps2f words.
+        auto ps2=[&]{uint32_t m[16],v[4];for(unsigned i=0;i<16;++i)m[i]=word(r,matrix+4*i);for(unsigned i=0;i<4;++i)v[i]=word(r,vector+4*i);
+            bool bad=false;try{vp2s::nativeMathInstruction(r.memory.flat(),&c,&r,0x1fb610);}catch(const std::runtime_error &){bad=true;}check(!bad);
+            for(unsigned lane=0;lane<4;++lane){uint32_t f=0,acc=bozo::ps2f::mul(m[lane],v[0],f);
+                for(unsigned k=1;k<4;++k)acc=bozo::ps2f::addNearest(acc,bozo::ps2f::mul(m[4*k+lane],v[k],f),f);
+                check(word(r,destination+4*lane)==acc);}};
+        put(r,vector+12,0x7fc00000u);ps2();put(r,vector+12,0x3f800000u);
+        put(r,matrix+12,0x7fc00000u);ps2();put(r,matrix+12,0u);put(r,vector,1u);ps2();
+        put(r,vector,0x40000000u);put(r,matrix,0x7f7fffffu);ps2();check(word(r,destination)==0x7fffffffu);
     }
     {auto &r=b.runtime();constexpr uint32_t matrix=0x180000,vector=0x190000,destination=0x1a0000;R5900Context c{};c.r[5].ud[0]=matrix;c.r[4].ud[0]=vector;c.r[3].ud[0]=destination;
         for(unsigned i=0;i<12;++i)put(r,matrix+i*4,i%5==0?0x3f800000u:0u);for(unsigned i=0;i<4;++i)put(r,vector+i*4,0x3f800000u);

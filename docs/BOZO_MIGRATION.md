@@ -38,6 +38,11 @@ The earlier VP2S face/shading and general brightness comparisons remain open.
   - tests/bozo_world_main checks an exponent-255 position.
 - **Result:** all 11 hair-chain rows run to their frame limit, 0x23 x2 included (no longer an artefact). The atlas
   stands at 172 of 181 clean; the other 9 are instant-kill party falls.
+- **The chain's collider transforms too:** the six full-transform sites (mathBlock53: 1fb418, 1fb610, 1fb8a0,
+  1fbdf0, 1fbe90, 1fbf9c) take the same rule. NaN-pattern, denormal or exponent-255 words and overflowing products
+  are now computed in ps2f words instead of refused. tests/bozo_bones_main checks four such cases against ps2f.
+- **Map sweep:** maps 32, 47 and 482, the three "warp-only" maps (user decision 2026-11-25), were the same runaway
+  hair chains. All three now run clean: **552 of 552 maps clean**.
 
 ### The hair-chain stops: investigation (2026-11-27)
 

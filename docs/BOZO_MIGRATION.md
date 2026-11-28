@@ -73,10 +73,29 @@ d92db0, its owner da6260 (class 16f780, 16 nodes) and its model root 8819e0.
     starts at placement, but the stop comes about 2000 frames later.
   - **Left:** either the PS2 diverges too, or a chain or transform port deviates. Saturated PS2 floats on a common
     enemy would show stretched polygons, so a port deviation is the likelier one.
+- **Hunting a port deviation (2026-11-28):**
+  - **Checked against the original listing, all matching:**
+    - 216d60, the parent inverse: rows 0..2 are a true rigid inverse (Rt, -Rt t); only row 3 is (t, 1), which xyz
+      ignores;
+    - 1fcfc0..1fd018, the joint's local position (row dots in the original order). This block and the pair
+      constraint's equal branch (1fc970..1fc98c) are the only chain-area sites the Lurker runs and battle 0x4d
+      does not;
+    - mathBlock47, the pair constraint (direction (second - first) / distance; the equal and weighted branches
+      move each point by the right share);
+    - mathBlock49, the step integrator (p + g dt^2 + a dt - v (damping dt) + v dt, the original ACC order).
+  - **The velocity update** (1fe8f0..1fe934): v = (p - previous p) / dt, times a friction factor. It amplifies when
+    dt jumps; the battle's first frames have vsync counts 4, 1, 4, 2.
+  - **Inconclusive experiments:** a constant vsync count (1 or 2) plus a mode-4 snap at frame 63737 still diverges.
+    The snap is not clean, though: the reset sends node +40 (a world position from initialisation) through the
+    joint's method +20, which put node 13 about 1100 units off.
+  - **Not compared yet:** the friction factor (an FPU MIN at 1fe914), the bone aim and rotation blocks, and joint
+    method +20 for world-space nodes.
 - **Diagnostics added (all off by default):**
   - VP2S_BOZO_TRACE_BATTLE_VSYNCS / VP2S_BOZO_DEBUG_BATTLE_VSYNCS: mod027 native site 36ca00;
   - VP2S_BOZO_TRACE_CHAIN=<joint>: at 1fd114, the owner, its reset byte and its actor's flags;
-  - VP2S_BOZO_DEBUG_POKE=addr:word,...: guest words written between frames.
+  - VP2S_BOZO_DEBUG_POKE=addr:word[@from[-to]],...: guest words written between frames (optionally only in a
+    frame window);
+  - VP2S_BOZO_TRACE_CHAIN also prints each node's distance to its joint ([vp2s:chain-nodes]).
 
 ### Battle re-sweep with a strong party (2026-11-27)
 

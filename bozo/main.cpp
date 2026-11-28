@@ -1261,12 +1261,17 @@ int main(int argc,char **argv) {
             host.native.onFrame=[previous,rt](uint64_t frame,const R5900Context *ctx){if(previous)previous(frame,ctx);vp2s::applyNativeCheats(rt);
                 // Debug only, off by default: VP2S_BOZO_DEBUG_POKE=addr:word[,addr:word...] (hex) writes those words
                 // between frames, every frame (an experiment's fixed guest data, e.g. an enemy's encounter table).
-                static const std::vector<std::pair<uint32_t,uint32_t>> pokes=[]{std::vector<std::pair<uint32_t,uint32_t>> v;
+                // An item may end in @from-to (decimal frames, inclusive): written only in that window.
+                struct Poke{uint32_t at,word;uint64_t from=0,to=~0ull;};
+                static const std::vector<Poke> pokes=[]{std::vector<Poke> v;
                     if(const char *list=std::getenv("VP2S_BOZO_DEBUG_POKE")){std::stringstream in(list);std::string item;
-                        while(std::getline(in,item,','))if(const auto colon=item.find(':');colon!=std::string::npos)
-                            v.emplace_back(uint32_t(std::stoul(item.substr(0,colon),nullptr,16)),uint32_t(std::stoul(item.substr(colon+1),nullptr,16)));}
+                        while(std::getline(in,item,','))if(const auto colon=item.find(':');colon!=std::string::npos){
+                            Poke p{uint32_t(std::stoul(item.substr(0,colon),nullptr,16)),uint32_t(std::stoul(item.substr(colon+1),nullptr,16))};
+                            if(const auto at=item.find('@');at!=std::string::npos){const auto dash=item.find('-',at);
+                                p.from=std::stoull(item.substr(at+1,dash-at-1));p.to=dash==std::string::npos?p.from:std::stoull(item.substr(dash+1));}
+                            v.push_back(p);}}
                     return v;}();
-                for(const auto &[at,word]:pokes)if(auto *p=rt->memory.hostPointer(at,4))std::memcpy(p,&word,4);};}
+                for(const auto &p:pokes)if(frame>=p.from && frame<=p.to)if(auto *q=rt->memory.hostPointer(p.at,4))std::memcpy(q,&p.word,4);};}
         // Save states (--save-state FILE --save-state-at N, --load-state FILE [--load-state-at N]):
         // VP2S's own part. The engine saves EE memory, the dispatcher, the kernel, its libraries
         // and its host; VP2S adds the IOP modules' host, the SDK clock and the native owners that

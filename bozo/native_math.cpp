@@ -9879,7 +9879,14 @@ std::optional<bool> nativeChainPushInstruction(R5900Context *c,Runtime *rt,uint3
         bool mine=false;for(unsigned k=0;k<count && k<64;++k)if(word32(nodes+k*0xa0+4)==tracedJoint)mine=true;
         if(mine){const auto actor=word32(owner+0x34);uint16_t flags=0;if(actor)if(const auto *p=rt->memory.hostPointer(actor+0x6a,2))std::memcpy(&flags,p,2);
             const auto *reset=rt->memory.hostPointer(owner+0x1c,1);
-            std::fprintf(stderr,"[vp2s:chain] owner=%x class=%x nodes=%u reset=%u +24=%08x actor=%x flags=%04x\n",owner,word32(owner),count,reset?*reset:0u,word32(owner+0x24),actor,flags);}
+            std::fprintf(stderr,"[vp2s:chain] owner=%x class=%x nodes=%u reset=%u +24=%08x actor=%x flags=%04x\n",owner,word32(owner),count,reset?*reset:0u,word32(owner+0x24),actor,flags);
+            // Per node: type byte, position +30, and its distance to the joint's world translation (+dc, +ec, +fc).
+            const auto f32=[&](uint32_t at){const auto v=word32(at);float x;std::memcpy(&x,&v,4);return x;};
+            std::string line;
+            for(unsigned k=0;k<count && k<64;++k){const auto node=nodes+k*0xa0,joint=word32(node+4);const auto *type=rt->memory.hostPointer(node,1);
+                const float dx=f32(node+0x30)-f32(joint+0xdc),dy=f32(node+0x34)-f32(joint+0xec),dz=f32(node+0x38)-f32(joint+0xfc);
+                line+=std::format(" {}:{:.3g}",type?unsigned(*type):9u,std::sqrt(dx*dx+dy*dy+dz*dz));}
+            std::fprintf(stderr,"[vp2s:chain-nodes]%s\n",line.c_str());}
     }
     return false;   // the original lui runs
 }

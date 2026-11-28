@@ -12,6 +12,31 @@ The earlier VP2S face/shading and general brightness comparisons remain open.
 
 ## Build and evidence
 
+### Victory sweep: what runs after a battle is won (2026-11-28)
+
+- **Sweep:** every scripted battle and encounter, strong party, undying, enemies at 1 HP (`VP2S_CHEAT_WEAK_ENEMIES`).
+  - 41 of 181 battles reached the field again.
+  - 120 still fought at frame 72000. The test pad script often never reaches the enemy, or a tutorial box waits for
+    input (0x11). That is a limit of the script, not of the port.
+  - The rest stopped at the boundaries below.
+- **Test-only `VP2S_CHEAT_DEFEAT_ENEMIES=1`:** live enemies drop to 0 HP under their HP checksum, with no menu entry.
+  - The game's own death check and victory flow then run without the party reaching the enemy. Encounter 0x71 returns
+    to the field this way.
+  - Bosses such as 0x23's Wyvern keep fighting; not looked into yet.
+- **48571c (mod028, 11 battles), `nativeBattleUnitFrame`:** a unit's quaternion goes through VU0 program 0x720, and
+  its rows stay in vf8..vf10 across a method call. They are composed with the object's rows at `[+208] + d0`, as
+  `nativeBattleBurst` does, B3 being the vf0 row the CPU stores at sp+e0. The optional pull before it
+  (`sp+100 -= [513860] * f20`, MULAw / MSUBx) is ported too.
+- **5330a8 (mod137, battles 0x34 / 0x4c, encounter 0xe1), `nativeSlotBlend`:** a lerp,
+  `vf5 = A (1 - t) + B t` (MULAx / MADDx, xyzw) with `t = +17c4 / +17c0`. The words are checked because the slot is
+  shared.
+- **Jump to 0x5431b0 (18 battles):** slot-0x542a80 module mod275 (0x880 bytes) was not captured. It is now captured,
+  wrapped, put through Ghidra / sdk / entries and registered.
+- **Missing mesh packs `01060c8c00_000` and `01059a3e00_000` (victory models):** both come from disc file 2592, whose
+  encryption neither `extract.py` nor `vp2_archives.py` opens. No pack key decodes its table.
+  - They were captured with `VP2S_BOZO_CAPTURE_ASSETS` and converted with `tools/vp2_meshes.py`.
+  - The offline route for file 2592 is still to be found.
+
 ### Hair-chain stops: the game's runaway tips, PS2 float rules (2026-11-28)
 
 - **Cause (Phantom Lurker, battle 0x4f; real and launched encounters alike):**

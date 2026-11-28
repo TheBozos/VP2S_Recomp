@@ -14,6 +14,9 @@ struct NativeCheats {
     // Test sweeps only (VP2S_CHEAT_UNDYING=1, no menu entry): party battle records lose the incapacitating flags
     // 0x0002 / 0x0800 (statuses, battles 0x63 / 0xcb) and 0x0020 (fallen) each frame and get their HP back, so a battle runs on.
     std::atomic<bool> undying{false};
+    // Test sweeps only (VP2S_CHEAT_DEFEAT_ENEMIES=1, no menu entry): live enemies drop to 0 HP under their checksum, so
+    // the game's own death check and victory flow run without the party having to reach them.
+    std::atomic<bool> defeatEnemies{false};
     std::atomic<int64_t> setMoney{-1};          // a request: the party's money (OTH) becomes this, then -1
     std::atomic<int64_t> money{-1};             // the money last read (-1: not known yet)
     // EXP: gains multiplied by this (1: off). Each party member's EXP is watched between frames; a rise of d becomes

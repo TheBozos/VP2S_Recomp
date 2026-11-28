@@ -81,6 +81,11 @@ int main(){try{
     check((word(rt,liveRecord+0x10)^kHpKey)==1 && hpCheck(rt,liveRecord)==word(rt,liveRecord+0x18),"a live enemy at 1 HP under its checksum");
     check((word(rt,fallenRecord+0x10)^kHpKey)==0,"a fallen enemy is left alone");
     check((word(rt,alicia+0x10)^kHpKey)==100,"party records are not enemies");
+    // Defeat enemies (test sweeps): the live enemy drops to 0 HP under its checksum; the party is untouched.
+    member(rt,liveRecord,600,816,0,0);*rt.memory.hostPointer(liveRecord+0x5a,1)=kKindKey^2;
+    cheats.defeatEnemies=true;vp2s::applyNativeCheats(&rt);cheats.defeatEnemies=false;
+    check((word(rt,liveRecord+0x10)^kHpKey)==0 && hpCheck(rt,liveRecord)==word(rt,liveRecord+0x18),"a live enemy at 0 HP under its checksum");
+    check((word(rt,alicia+0x10)^kHpKey)==100,"defeat leaves the party alone");
     // Money: 123456 under the general record's hash; above the cap clamps to 99 999 999.
     cheats.setMoney=123456;vp2s::applyNativeCheats(&rt);
     check((word(rt,general+0x6c)^kMoneyKey)==123456 && generalHash(rt,general)==word(rt,general+0x18) && cheats.money==123456,"money under its hash");

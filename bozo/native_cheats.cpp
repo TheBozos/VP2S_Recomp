@@ -11,6 +11,7 @@ NativeCheats &nativeCheats(){
         if(const char *v=std::getenv("VP2S_CHEAT_WEAK_ENEMIES"))cheats.weakEnemies=v[0]=='1';
         if(const char *v=std::getenv("VP2S_CHEAT_STRONG_PARTY"))cheats.strongParty=uint32_t(std::clamp(std::atol(v),0L,99999L));
         if(const char *v=std::getenv("VP2S_CHEAT_UNDYING"))cheats.undying=v[0]=='1';
+        if(const char *v=std::getenv("VP2S_CHEAT_DEFEAT_ENEMIES"))cheats.defeatEnemies=v[0]=='1';
         if(const char *v=std::getenv("VP2S_CHEAT_MONEY"))cheats.setMoney=std::strtoll(v,nullptr,10);
         if(const char *v=std::getenv("VP2S_CHEAT_EXP"))cheats.expMultiplier=std::atoi(v);
         if(const char *v=std::getenv("VP2S_CHEAT_GIVE")){char *end=nullptr;cheats.giveItem=int(std::strtol(v,&end,0));
@@ -124,7 +125,7 @@ static uint32_t battleSlot(Runtime *rt){
 }
 // Weak enemies: each enemy unit in the combatant table (the battle's +44..+60) whose record (+818) is a live
 // enemy (kind 2, valid HP checksum, not fallen) drops to 1 HP, its checksum rewritten as the HP setter does.
-static void weakenEnemies(Runtime *rt){
+static void weakenEnemies(Runtime *rt,uint32_t target){
     uint32_t table;const auto slot=battleSlot(rt);
     if(!slot || !readWord(rt,slot,table))return;
     for(unsigned i=0;i<8;++i){
@@ -135,14 +136,15 @@ static void weakenEnemies(Runtime *rt){
         if(!readWord(rt,record+0x8,base) || !readWord(rt,record+0xc,maxHp) || !readWord(rt,record+0x10,hp) || !readWord(rt,record+0x18,check) || !readWord(rt,record+0x1c,salt))continue;
         if(hpChecksum(base,maxHp,hp,salt)!=check)continue;
         uint16_t f;std::memcpy(&f,flags,2);if((f^party::kFlagsKey)&0x20)continue;
-        if((hp^party::kHpKey)<=1)continue;
-        const uint32_t one=1u^party::kHpKey;writeWord(rt,record+0x10,one);writeWord(rt,record+0x18,hpChecksum(base,maxHp,one,salt));
+        if((hp^party::kHpKey)<=target)continue;
+        const uint32_t low=target^party::kHpKey;writeWord(rt,record+0x10,low);writeWord(rt,record+0x18,hpChecksum(base,maxHp,low,salt));
     }
 }
 void applyNativeCheats(Runtime *rt){
     if(!rt)return;
     applyMoney(rt);applyItems(rt);applyExp(rt);
-    if(nativeCheats().weakEnemies)weakenEnemies(rt);
+    if(nativeCheats().defeatEnemies)weakenEnemies(rt,0);
+    else if(nativeCheats().weakEnemies)weakenEnemies(rt,1);
     // Diagnostic only (VP2S_BOZO_TRACE_PARTY_FLAGS=1): each party battle record's flags (+62 ^ a9c3) and HP when they change.
     static const bool traceFlags=std::getenv("VP2S_BOZO_TRACE_PARTY_FLAGS")!=nullptr;
     if(traceFlags)if(const auto slot=battleSlot(rt)){static uint64_t frame=0;++frame;static std::array<uint32_t,4> last{};

@@ -12,6 +12,33 @@ The earlier VP2S face/shading and general brightness comparisons remain open.
 
 ## Build and evidence
 
+### Hair-chain stops: the game's runaway tips, PS2 float rules (2026-11-28)
+
+- **Cause (Phantom Lurker, battle 0x4f; real and launched encounters alike):**
+  - the chain owner (class 16f780, 16 nodes) has 4 pinned roots (type 1, nodes 0..3) and 12 dynamic nodes;
+  - its constraint lists tie roots to level 1 (0..3 to 4..7) and level 1 to level 2 (4..7 to 8..11), but nothing ties
+    the 4 strand tips (12..15), whose records have no list;
+  - the update computes a joint's local as (parent world +90)^-1 x node (1fcfc0, the parent's method +68 returns
+    +90), but the joint's transform (248fc0) composes it with the parent's +d0;
+  - the parents' +90 carries their bone pivot (attachment +110 from +1d0 / +1e0 / +1f0, e.g. z -18.5), so the round
+    trip node -> joint local -> joint position (1fe840) does not close. The tips are pushed every frame, the bone
+    aim follows them, and they run off to the largest floats within about ten updates;
+  - segments 1..11 keep their lengths throughout.
+- **Port checked against the original, all matching:** 216d60, the rowpoint idiom at 1fcfc0, the pair constraint,
+  the step integrator, the velocity update (factor 1 - min(1.9, +1c)), micro 0x728 (position W column from xyz only),
+  method +20 (a plain store), the attachment product at 249318 and the object transform's composition orders.
+- **Effect:** none visible. The captures with the tips past 1e10 show the Lurker drawn normally, so a PS2 carries
+  the saturated words along. Only our natives refused them:
+  - the object transform 249180 (objectWorld);
+  - the force field's range test 1fbb00 / 1fbb40 / 1fbb88 (nativeRangeTest).
+- **Fix: PS2 float rules there.**
+  - When an input has an exponent-255 word (or, for the range test, is out of the host path's range), these natives
+    compute in ps2f words in the host path's order instead of refusing.
+  - Every other input keeps the host path bit for bit (regress4 unchanged).
+  - tests/bozo_world_main checks an exponent-255 position.
+- **Result:** all 11 hair-chain rows run to their frame limit, 0x23 x2 included (no longer an artefact). The atlas
+  stands at 172 of 181 clean; the other 9 are instant-kill party falls.
+
 ### The hair-chain stops: investigation (2026-11-27)
 
 The case is encounter 0x4f, Phantom Lurker, started from its own dungeon (map 137). The chain node is d92fe0, its parent

@@ -1,4 +1,6 @@
 #include "native_object_math.h"
+#include "bozo/ops_vu0.h"
+#include <bit>
 #include <algorithm>
 #include <array>
 #include <cstring>
@@ -42,6 +44,46 @@ constexpr std::array<uint32_t,64> sites{
     0x24920c,0x249210,0x249214,0x249218,0x24921c,0x249220,0x249224,0x249228,
     0x24922c,0x249230,0x249234,0x249238,0x24923c,0x249240,0x249244,0x249248};
 }
+namespace {
+// PS2 rules for exponent-255 words. On the VU they are ordinary numbers (no infinity or NaN; results saturate), so an
+// input that reaches them is computed in ps2f words in the host path's order instead of refused. Battle 0x4f's
+// Phantom Lurker (and 0x23, 0x8c, ...): its four strand tips have no constraint, and the chain computes their joints
+// against the parent's pivoted matrix (+90) while composing them against the unpivoted one (+d0). The game's own
+// code, so they run away to the largest floats; nothing draws them, and the PS2 carries the saturated words along.
+bool exponent255(__m128 v,unsigned mask=15){
+    alignas(16) uint32_t bits[4];std::memcpy(bits,&v,16);
+    for(unsigned i=0;i<4;++i)if((mask&(1u<<i)) && (bits[i]&0x7f800000)==0x7f800000)return true;return false;
+}
+uint32_t lane(__m128 v,unsigned i){alignas(16) uint32_t bits[4];std::memcpy(bits,&v,16);return bits[i];}
+__m128 lanes(const uint32_t (&w)[4]){__m128 v;std::memcpy(&v,w,16);return v;}
+uint32_t pmul(uint32_t a,uint32_t b){uint32_t f=0;return bozo::ps2f::mul(a,b,f);}
+uint32_t padd(uint32_t a,uint32_t b){uint32_t f=0;return bozo::ps2f::addNearest(a,b,f);}
+ObjectWorldResult objectWorldPs2(const ObjectWorldInput &in){
+    const auto saved=_mm_getcsr();
+    auto rotation=math::quaternionMatrix(in.quaternion);
+    for(unsigned i=0;i<3;++i)rotation[i]=_mm_blend_ps(rotation[i],_mm_castsi128_ps(_mm_set1_epi32(int(lane(in.position,i)))),8);
+    const auto scale=_mm_blend_ps(in.scale,_mm_set1_ps(1),8);
+    ObjectWorldResult out{};
+    const auto product4=[&](const math::Matrix &rows,__m128 weights){uint32_t r[4];   // ((m0*w.x + m1*w.y) + m2*w.z) + m3*w.w
+        for(unsigned j=0;j<4;++j){uint32_t acc=pmul(lane(rows[0],j),lane(weights,0));
+            for(unsigned k=1;k<4;++k)acc=padd(acc,pmul(lane(rows[k],j),lane(weights,k)));r[j]=acc;}return lanes(r);};
+    const auto scaled=[&](__m128 v){uint32_t r[4];for(unsigned j=0;j<4;++j)r[j]=pmul(lane(scale,j),lane(v,j));return lanes(r);};
+    if(in.hasParent){
+        for(unsigned i=0;i<3;++i)out.local[i]=scaled(product4(rotation,in.parent[i]));
+        if(in.normalizeParent){
+            uint32_t factors[4]={0,0,0,0x3f800000u};
+            for(unsigned j=0;j<3;++j){const auto a=lane(out.local[0],j),b=lane(out.local[1],j),c=lane(out.local[2],j);
+                uint32_t f=0;const auto root=bozo::ps2f::sqrt(padd(padd(pmul(a,a),pmul(b,b)),pmul(c,c)),f);
+                factors[j]=bozo::ps2f::div(0x3f800000u,root,f);}
+            for(unsigned i=0;i<3;++i){uint32_t r[4];for(unsigned j=0;j<4;++j)r[j]=j<3?pmul(lane(out.local[i],j),factors[j]):lane(out.local[i],3);
+                out.local[i]=scaled(lanes(r));}
+        }
+    }else for(unsigned i=0;i<3;++i)out.local[i]=scaled(rotation[i]);
+    out.local[3]=_mm_setr_ps(0,0,0,1);
+    for(unsigned i=0;i<3;++i)out.world[i]=product4(in.attachment,out.local[i]);
+    out.world[3]=in.attachment[3];_mm_setcsr(saved);return out;
+}
+}
 // VU0 reads a denormal operand as signed zero, so denormal input words are
 // flushed before any host arithmetic (mod001 249180 met an authored
 // near-identity quaternion {-9e-22, 1e-21, 80000554, 1}). Exponent-255 words
@@ -51,8 +93,10 @@ ObjectWorldResult objectWorld(const ObjectWorldInput &original){
     in.quaternion=normal(in.quaternion);in.position=normal(in.position);in.scale=normal(in.scale);
     for(auto &v:in.attachment)v=normal(v);
     for(auto &v:in.parent)v=normal(v);
-    qualified(in.quaternion,"quaternion");qualified(in.position,"position",7);qualified(in.scale,"scale",7);
-    for(auto v:in.attachment)qualified(v,"attachment row");
+    qualified(in.quaternion,"quaternion");qualified(in.scale,"scale",7);for(auto v:in.attachment)qualified(v,"attachment row");
+    if(exponent255(in.position,7) || (in.hasParent && std::any_of(in.parent.begin(),in.parent.end(),[](__m128 v){return exponent255(v);})))
+        return objectWorldPs2(in);
+    qualified(in.position,"position",7);
     if(in.hasParent)for(auto v:in.parent)qualified(v,"parent row");
     auto rotation=math::quaternionMatrix(in.quaternion);
     for(unsigned i=0;i<3;++i)rotation[i]=_mm_blend_ps(rotation[i],_mm_set1_ps(music::laneValue(in.position,i)),8);

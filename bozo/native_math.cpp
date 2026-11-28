@@ -5090,6 +5090,13 @@ bool nativePlaneContact(R5900Context *c,Runtime *rt,uint32_t pc){
 //  1fbb40..1fbb54  SP+20 (= SP+30 with Y cleared by EE code): squared length
 //                  ((x2+y2)+1*z2, y2, z2, raw W) to SP+10.
 //  1fbb88..1fbb9c  the same for SP+30, to SP+0.
+// Whether every word of these records passes leafLane (no exponent 255, in range) and the host path's results stay
+// finite; otherwise the range test runs in VU words (PS2 rules), as the hardware does.
+bool rangeQualified(Runtime *rt,std::initializer_list<uint32_t> records){
+    for(const auto at:records){float v[4];std::memcpy(v,record(rt,at,16),16);
+        for(float x:v){const auto bits=std::bit_cast<uint32_t>(x);if((bits&0x7f800000)==0x7f800000 || beyondRange(x))return false;}}
+    return true;
+}
 bool nativeRangeTest(R5900Context *c,Runtime *rt,uint32_t pc){
     const bool transform=pc>=0x1fbb00 && pc<=0x1fbb24,flat=pc>=0x1fbb40 && pc<=0x1fbb54,full=pc>=0x1fbb88 && pc<=0x1fbb9c;
     if(!(transform || flat || full) || (pc&3))return false;
@@ -5099,6 +5106,11 @@ bool nativeRangeTest(R5900Context *c,Runtime *rt,uint32_t pc){
         if(pc==0x1fbb00 && (c->r[6].uw[0]!=object+0x220 || c->r[3].uw[0]!=stack+0x30))throw std::runtime_error("native range test source mismatch");
         if(pc!=0x1fbb24)return true;
         if(c->r[3].uw[0]!=stack+0x30)throw std::runtime_error("native range test destination mismatch");
+        if(!rangeQualified(rt,{object+0x220,object+0x230,object+0x240,object+0x250,c->r[5].uw[0]})){
+            // PS2 rules (an exponent-255 or far point, e.g. a hair-chain tip run away): VU words in the same order.
+            VuWords rows[4];for(unsigned i=0;i<4;++i)rows[i]=vuWords(rt,object+0x220+16*i);const auto q=vuWords(rt,c->r[5].uw[0]);VuWords o;
+            for(unsigned i=0;i<4;++i)o[i]=vuAdd(vuAdd(vuAdd(vuMul(rows[0][i],q[0]),vuMul(rows[1][i],q[1])),vuMul(rows[2][i],q[2])),vuMul(rows[3][i],q[3]));
+            std::memcpy(record(rt,stack+0x30,16),o.data(),16);return true;}
         LeafInputs m;for(unsigned i=0;i<4;++i)m.rows[i]=leafRecord(rt,object+0x220+16*i);
         const auto p=leafRecord(rt,c->r[5].uw[0]);Lanes out;
         {music::NearestRounding rounding;for(unsigned i=0;i<4;++i)out[i]=pairSum(pairSum(pairSum(pairProduct(m.rows[0][i],p[0]),pairProduct(m.rows[1][i],p[1])),pairProduct(m.rows[2][i],p[2])),pairProduct(m.rows[3][i],p[3]));}
@@ -5110,6 +5122,10 @@ bool nativeRangeTest(R5900Context *c,Runtime *rt,uint32_t pc){
     if((pc==0x1fbb40 || pc==0x1fbb88) && c->r[sourceRegister].uw[0]!=source)throw std::runtime_error("native range test length source mismatch");
     if(pc!=0x1fbb54 && pc!=0x1fbb9c)return true;
     if(c->r[targetRegister].uw[0]!=target)throw std::runtime_error("native range test length destination mismatch");
+    if(!rangeQualified(rt,{source})){
+        VuWords v=vuWords(rt,source),o=v;uint32_t sq[3];for(unsigned i=0;i<3;++i)sq[i]=vuMul(v[i],v[i]);
+        o[0]=vuAdd(vuAdd(sq[0],sq[1]),vuMul(0x3f800000u,sq[2]));o[1]=sq[1];o[2]=sq[2];
+        std::memcpy(record(rt,target,16),o.data(),16);return true;}
     const auto v=leafRecord(rt,source);Lanes out;std::memcpy(out.data(),record(rt,source,16),16);
     {music::NearestRounding rounding;Lanes sq;for(unsigned i=0;i<3;++i)sq[i]=pairProduct(v[i],v[i]);
         out[0]=pairSum(pairSum(sq[0],sq[1]),pairProduct(1.f,sq[2]));out[1]=sq[1];out[2]=sq[2];}
@@ -9886,7 +9902,13 @@ std::optional<bool> nativeChainPushInstruction(R5900Context *c,Runtime *rt,uint3
             for(unsigned k=0;k<count && k<64;++k){const auto node=nodes+k*0xa0,joint=word32(node+4);const auto *type=rt->memory.hostPointer(node,1);
                 const float dx=f32(node+0x30)-f32(joint+0xdc),dy=f32(node+0x34)-f32(joint+0xec),dz=f32(node+0x38)-f32(joint+0xfc);
                 line+=std::format(" {}:{:.3g}",type?unsigned(*type):9u,std::sqrt(dx*dx+dy*dy+dz*dz));}
-            std::fprintf(stderr,"[vp2s:chain-nodes]%s\n",line.c_str());}
+            std::fprintf(stderr,"[vp2s:chain-nodes]%s\n",line.c_str());
+            // Segment lengths |node k - node k-1| and node 0's world position.
+            line.clear();
+            for(unsigned k=1;k<count && k<64;++k){const auto a=nodes+k*0xa0,b=nodes+(k-1)*0xa0;
+                const float dx=f32(a+0x30)-f32(b+0x30),dy=f32(a+0x34)-f32(b+0x34),dz=f32(a+0x38)-f32(b+0x38);
+                line+=std::format(" {:.3g}",std::sqrt(dx*dx+dy*dy+dz*dz));}
+            std::fprintf(stderr,"[vp2s:chain-segments] root=(%.4g %.4g %.4g)%s\n",f32(nodes+0x30),f32(nodes+0x34),f32(nodes+0x38),line.c_str());}
     }
     return false;   // the original lui runs
 }

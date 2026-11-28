@@ -385,5 +385,15 @@ int main(){try{
     check(same(vp2s::objectWorld(input),vp2s::objectWorld(flushed)));
     input=flushed;input.quaternion=_mm_setr_ps(word(0x7f800000),0,0,1);bool rejected=false;
     try{vp2s::objectWorld(input);}catch(const std::runtime_error &){rejected=true;}check(rejected);
+    // PS2 rules: an exponent-255 position is a VU number (a strand tip run away, battle 0x4f). It is computed, not
+    // refused, and saturates: no infinity or NaN reaches the world rows.
+    {vp2s::ObjectWorldInput tip{};tip.quaternion=_mm_setr_ps(0,0,0,1);tip.scale=_mm_set1_ps(1);
+     tip.position=_mm_setr_ps(word(0x7f80af3e),2.f,word(0xff823003),0);
+     tip.attachment={_mm_setr_ps(1,0,0,0),_mm_setr_ps(0,1,0,0),_mm_setr_ps(0,0,1,0),_mm_setr_ps(0,0,0,1)};
+     tip.hasParent=true;tip.parent={_mm_setr_ps(1,0,0,0),_mm_setr_ps(0,1,0,0),_mm_setr_ps(0,0,1,0)};
+     bool computed=true;vp2s::ObjectWorldResult r{};try{r=vp2s::objectWorld(tip);}catch(const std::runtime_error &){computed=false;}
+     check(computed);uint32_t w[12];std::memcpy(w,r.world.data(),48);
+     // Identity rotation, parent and attachment: the translation lanes carry the PS2 words through unchanged.
+     check(w[3]==0x7f80af3eu && w[11]==0xff823003u && std::bit_cast<float>(w[7])==2.f && std::bit_cast<float>(w[0])==1.f);}
     std::printf("%u generated game-record CPU/RAM and scalar math comparisons; aliases, FP modes, tiny terms and resumed callbacks passed\n",cases);return 0;
 }catch(const std::exception &e){std::fprintf(stderr,"%s\n",e.what());return 1;}}

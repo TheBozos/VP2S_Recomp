@@ -59,6 +59,20 @@ d92db0, its owner da6260 (class 16f780, 16 nodes) and its model root 8819e0.
     unfreeze (3e3550) resets it (mode 4, frame 64758).
   - So the launched Lurker formations (16-node chains with +24 = 0.2, placed about 1800 units from the origin) may
     not occur in real encounters on that map. That is still unproven for a map whose visible enemy is a Lurker.
+- **A real Phantom Lurker encounter stops the same way (2026-11-28): not a launcher artefact.**
+  - **Setup:** warp from the map-79 save to map 137, with the ghost's encounter record patched before it spawns
+    (VP2S_BOZO_DEBUG_POKE 9b330c..9b332c: every id 0x4f, every count byte 6), then walk into it (touch.txt).
+  - **What decides the enemies:**
+    - the visible enemy draws its battle when it spawns, and that draw loads the battle's enemies; patching +984 /
+      +988 later changes only the battle number;
+    - the entry's count byte picks the formation: 4 gives {Tear Soul x2, 18dc60 x2} or {187210, 18dc60 x3};
+    - 6 gives {187440 (Phantom Lurker), 18e230 x2}, the launched 0x4f's formation;
+    - the visible enemy's +100 (0xc351.., 19 values over the maps) does not change them.
+  - **Result:** the real encounter has the Lurker and stops with the same exponent-255 chain input (object d92c40,
+    class 154f90) between frames 66000 and 66500. The launched 0x4f also lasts until about 66600: the divergence
+    starts at placement, but the stop comes about 2000 frames later.
+  - **Left:** either the PS2 diverges too, or a chain or transform port deviates. Saturated PS2 floats on a common
+    enemy would show stretched polygons, so a port deviation is the likelier one.
 - **Diagnostics added (all off by default):**
   - VP2S_BOZO_TRACE_BATTLE_VSYNCS / VP2S_BOZO_DEBUG_BATTLE_VSYNCS: mod027 native site 36ca00;
   - VP2S_BOZO_TRACE_CHAIN=<joint>: at 1fd114, the owner, its reset byte and its actor's flags;

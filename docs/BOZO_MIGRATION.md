@@ -45,6 +45,20 @@ d92db0, its owner da6260 (class 16f780, 16 nodes) and its model root 8819e0.
   the record has four groups and the choice among them was not traced.
 - **Open:** whether a real 0x4f encounter (or the PS2) issues a freeze / unfreeze for this enemy. The next step is to
   trace the group choice so a real encounter can draw 0x4f, or to find which 43dab0 caller a battle start uses.
+- **Real encounters (2026-11-28), map 137, walking into the ghost (class 15f030, objects 690150 / 690b10):**
+  - The battle id is at +18 of the transition object (class 15d5d0, +4 / +8 its methods' words 15d5ec / 15d600, +14
+    the touched enemy). Poking the enemy's drawn ids (+984 / +988) to 0x4f makes the real encounter start battle 0x4f.
+    It runs clean to frame 70000.
+  - Its enemies are not the launched 0x4f's, though: Tear Souls and an Electrical Chip, 5 chain owners, none with 16
+    nodes. The launched 0x4f has 17 chain owners, among them the Phantom Lurker's. Poking the counts (+994 / +995,
+    arg1's top byte, the entry counts) did not change the formation. A real encounter's enemies follow the touched
+    enemy, not only the battle id.
+  - A real encounter's enemy is placed the same way (built at the origin, then moved by the same placement code,
+    ra 3b8074), about 480 units here. Its chain (owner dd0e10, 6 nodes, +24 = 0) survives. Later in the battle the
+    unit's state 11 (state step 41e6d0, table 5103d0) freezes it (3e3750: command 0, mode 3, frame 64301), and the
+    unfreeze (3e3550) resets it (mode 4, frame 64758).
+  - So the launched Lurker formations (16-node chains with +24 = 0.2, placed about 1800 units from the origin) may
+    not occur in real encounters on that map. That is still unproven for a map whose visible enemy is a Lurker.
 - **Diagnostics added (all off by default):**
   - VP2S_BOZO_TRACE_BATTLE_VSYNCS / VP2S_BOZO_DEBUG_BATTLE_VSYNCS: mod027 native site 36ca00;
   - VP2S_BOZO_TRACE_CHAIN=<joint>: at 1fd114, the owner, its reset byte and its actor's flags;

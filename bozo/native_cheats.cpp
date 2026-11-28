@@ -10,6 +10,7 @@ NativeCheats &nativeCheats(){
         if(const char *v=std::getenv("VP2S_CHEAT_INFINITE_HEALTH"))cheats.infiniteHealth=v[0]=='1';
         if(const char *v=std::getenv("VP2S_CHEAT_WEAK_ENEMIES"))cheats.weakEnemies=v[0]=='1';
         if(const char *v=std::getenv("VP2S_CHEAT_STRONG_PARTY"))cheats.strongParty=uint32_t(std::clamp(std::atol(v),0L,99999L));
+        if(const char *v=std::getenv("VP2S_CHEAT_UNDYING"))cheats.undying=v[0]=='1';
         if(const char *v=std::getenv("VP2S_CHEAT_MONEY"))cheats.setMoney=std::strtoll(v,nullptr,10);
         if(const char *v=std::getenv("VP2S_CHEAT_EXP"))cheats.expMultiplier=std::atoi(v);
         if(const char *v=std::getenv("VP2S_CHEAT_GIVE")){char *end=nullptr;cheats.giveItem=int(std::strtol(v,&end,0));
@@ -33,6 +34,22 @@ void restoreHealth(Runtime *rt,uint32_t record){
     const uint32_t full=(maxHp^party::kMaxHpKey)^party::kHpKey;
     if(full==hp)return;
     writeWord(rt,record+0x10,full);writeWord(rt,record+0x18,hpChecksum(base,maxHp,full,salt));
+}
+// Undying (test sweeps): a party battle record with flag 0x0002, 0x0800 (incapacitating statuses: battles 0x63, 0xcb)
+// or 0x0020 (fallen) loses them, under the flags checksum
+// +14 = +1c ^ (+04 ^ (+62 + +30)) (the raw +62 halfword), and its HP is back at its maximum under +18.
+void undie(Runtime *rt,uint32_t record){
+    const auto *kind=rt->memory.hostPointer(record+0x5a,1);auto *flags=rt->memory.hostPointer(record+0x62,2);
+    if(!kind || !flags || ((*kind^party::kKindKey)&3)!=1)return;
+    uint32_t exp,check,salt,extra,base,maxHp,hp,hpCheck;
+    if(!readWord(rt,record+4,exp) || !readWord(rt,record+0x14,check) || !readWord(rt,record+0x1c,salt) || !readWord(rt,record+0x30,extra) ||
+       !readWord(rt,record+0x8,base) || !readWord(rt,record+0xc,maxHp) || !readWord(rt,record+0x10,hp) || !readWord(rt,record+0x18,hpCheck))return;
+    uint16_t raw;std::memcpy(&raw,flags,2);
+    if((salt^(exp^(uint32_t(raw)+extra)))!=check || hpChecksum(base,maxHp,hp,salt)!=hpCheck)return;   // not consistent: leave it
+    const uint16_t f=raw^party::kFlagsKey;if(!(f&0x822))return;
+    const uint16_t cleared=uint16_t((f&~0x822)^party::kFlagsKey);std::memcpy(flags,&cleared,2);
+    writeWord(rt,record+0x14,salt^(exp^(uint32_t(cleared)+extra)));
+    const uint32_t full=(maxHp^party::kMaxHpKey)^party::kHpKey;writeWord(rt,record+0x10,full);writeWord(rt,record+0x18,hpChecksum(base,maxHp,full,salt));
 }
 // Strong party (test sweeps): a live party member's battle record gets base and max HP `value` and full HP, the +18
 // checksum rewritten over all three (it sums +08 and +0c).
@@ -126,10 +143,19 @@ void applyNativeCheats(Runtime *rt){
     if(!rt)return;
     applyMoney(rt);applyItems(rt);applyExp(rt);
     if(nativeCheats().weakEnemies)weakenEnemies(rt);
+    // Diagnostic only (VP2S_BOZO_TRACE_PARTY_FLAGS=1): each party battle record's flags (+62 ^ a9c3) and HP when they change.
+    static const bool traceFlags=std::getenv("VP2S_BOZO_TRACE_PARTY_FLAGS")!=nullptr;
+    if(traceFlags)if(const auto slot=battleSlot(rt)){static uint64_t frame=0;++frame;static std::array<uint32_t,4> last{};
+        for(unsigned i=0;i<4;++i){uint32_t record,hp=0;if(!readWord(rt,slot+party::kPartySlots+4*i,record) || record<0x100000 || record>=0x2000000)continue;
+            const auto *flags=rt->memory.hostPointer(record+0x62,2);if(!flags)continue;uint16_t f;std::memcpy(&f,flags,2);f^=party::kFlagsKey;readWord(rt,record+0x10,hp);
+            const uint32_t key=(uint32_t(f)<<16)^(hp^party::kHpKey);
+            if(key!=last[i]){last[i]=key;std::fprintf(stderr,"[vp2s:party] update %llu member %u record %x flags %04x hp %u\n",(unsigned long long)frame,i,record,f,hp^party::kHpKey);}}}
     const uint32_t strong=nativeCheats().strongParty;
-    if(!nativeCheats().infiniteHealth && !strong)return;
+    const bool undying=nativeCheats().undying;
+    if(!nativeCheats().infiniteHealth && !strong && !undying)return;
     // Battle: the party's battle records, 4 slots after the battle pointer (-1 or empty when unused).
     if(const auto slot=battleSlot(rt))for(unsigned i=0;i<4;++i){uint32_t record;if(!readWord(rt,slot+party::kPartySlots+4*i,record) || record<0x100000 || record>=0x2000000)continue;
-        if(strong)strengthen(rt,record,strong);else restoreHealth(rt,record);}
+        if(undying)undie(rt,record);
+        if(strong)strengthen(rt,record,strong);else if(nativeCheats().infiniteHealth)restoreHealth(rt,record);}
 }
 }

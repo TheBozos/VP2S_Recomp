@@ -61,6 +61,14 @@ int main(){try{
            hpCheck(rt,alicia)==word(rt,alicia+0x18),"strong party under the HP checksum");
      check((word(rt,rufus+0xc)^kMaxHpKey)==100,"strong party leaves the fallen alone");
      std::memcpy(rt.memory.flat(),saved.data(),saved.size());}
+    // Undying: fallen Rufus (0x20) and a 0x0002 status lose those flags under the flags checksum, HP back to max.
+    {const std::vector<uint8_t> saved(rt.memory.flat(),rt.memory.flat()+0x2000000);
+     member(rt,alicia,70,100,0,0x0402);
+     cheats.undying=true;vp2s::applyNativeCheats(&rt);cheats.undying=false;
+     const auto flagsOf=[&](uint32_t r){uint16_t f;std::memcpy(&f,rt.memory.hostPointer(r+0x62,2),2);return uint16_t(f^kFlagsKey);};
+     check(flagsOf(rufus)==0 && (word(rt,rufus+0x10)^kHpKey)==100 && hpCheck(rt,rufus)==word(rt,rufus+0x18) && flagsCheck(rt,rufus)==word(rt,rufus+0x14),"undying revives a fallen member under both checksums");
+     check(flagsOf(alicia)==0x0400 && (word(rt,alicia+0x10)^kHpKey)==100 && flagsCheck(rt,alicia)==word(rt,alicia+0x14),"undying clears 0x0002 and keeps other statuses");
+     std::memcpy(rt.memory.flat(),saved.data(),saved.size());}
     // A battle started from a dungeon map: the scene's battle pointer and party slots 0x60 lower (+cb28 / +cb6c).
     {const std::vector<uint8_t> saved(rt.memory.flat(),rt.memory.flat()+0x2000000);
      for(uint32_t at=0xcb88;at<=0xcbd8;at+=4)put(rt,battle+at,0);
